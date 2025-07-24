@@ -15,9 +15,9 @@
   "license": "MIT",
   "repository": {
     "type": "git",
-    "url": "https://github.com/yourusername/pawscript.git"
+    "url": "https://github.com/phroun/pawscript.git"
   },
-  "homepage": "https://github.com/yourusername/pawscript#readme",
+  "homepage": "https://github.com/phroun/pawscript#readme",
   "devDependencies": {
     "@types/node": "^20.0.0",
     "typescript": "^5.0.0",
