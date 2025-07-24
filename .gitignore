@@ -3,3 +3,4 @@ old
 tests
 node_modules
 bin
+dist
