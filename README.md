@@ -1,4 +1,4 @@
-# pawscript
+# PawScript
 
 PawScript: A command language with token-based suspension for text editors and command-driven applications.
 
@@ -96,7 +96,7 @@ pawscript.execute('quick_save; close_buffer');
 
 ## Token-Based Suspension (The "Paws" Feature)
 
-For long-running operations, commands can return tokens that pause execution:
+For long-running operations, commands can return tokens that pause execution. This is the correct pattern:
 
 ```typescript
 pawscript.registerCommand('async_operation', (ctx) => {
@@ -105,18 +105,28 @@ pawscript.registerCommand('async_operation', (ctx) => {
     console.log('Operation was interrupted:', tokenId);
   });
   
-  // Start async operation
-  setTimeout(() => {
-    console.log('Async operation completed');
-    ctx.resumeToken(token, true); // Resume with success
-  }, 5000);
+  // Start async operation using setImmediate
+  setImmediate(() => {
+    // Simulate async work
+    setTimeout(() => {
+      console.log('Async operation completed');
+      ctx.resumeToken(token, true); // Resume with success
+    }, 5000);
+  });
   
-  return token; // Return token to pause sequence
+  return token; // Return token immediately to pause sequence
 });
 
 // This will pause at async_operation and resume when it completes
 pawscript.execute('async_operation; echo "This runs after async completes"');
 ```
+
+### Key Points About Tokens:
+
+1. **Immediate Return**: Commands must return the token immediately, not wait for async completion
+2. **Use setImmediate**: Start async work with `setImmediate()` to avoid blocking
+3. **Resume Later**: Call `ctx.resumeToken()` when the async operation completes
+4. **Cleanup Support**: Provide cleanup callbacks for interruption handling
 
 ## Host Interface
 
@@ -143,7 +153,7 @@ interface IPawScriptHost {
 ```typescript
 const pawscript = new PawScript({
   debug: false,                    // Enable debug logging
-  defaultTokenTimeout: 300000,     // Token timeout in ms
+  defaultTokenTimeout: 300000,     // Token timeout in ms (5 minutes)
   enableSyntacticSugar: true,      // Enable syntax transformations
   allowMacros: true,               // Enable macro system
   commandSeparators: {
@@ -199,6 +209,11 @@ class MyEditor {
 
 ### PawScript
 
+#### Constructor
+```typescript
+new PawScript(config?: PawScriptConfig)
+```
+
 #### Methods
 - `setHost(host: IPawScriptHost)`: Set the host application interface
 - `registerCommand(name: string, handler: PawScriptHandler)`: Register a single command
@@ -231,7 +246,28 @@ interface PawScriptContext {
 #### Return Values
 - `boolean`: Synchronous success/failure
 - `string` (starting with "token_"): Async token for suspension
-- `Promise<boolean>`: Async operation
+
+### Command Parsing
+
+PawScript automatically parses command arguments:
+
+```typescript
+// String arguments (quoted)
+pawscript.execute("echo 'hello world'");
+// → ctx.args = ['hello world']
+
+// Multiple arguments
+pawscript.execute("move_cursor 10, 20");
+// → ctx.args = [10, 20]
+
+// Mixed types
+pawscript.execute("create_window 'MyWindow', 100, 50, true");
+// → ctx.args = ['MyWindow', 100, 50, true]
+
+// Parenthetical content (passed as-is)
+pawscript.execute("macro hello(save_file; exit)");
+// → After syntactic sugar: ctx.args = ['hello', 'save_file; exit']
+```
 
 ## Error Handling
 
@@ -251,7 +287,7 @@ pawscript.registerCommand('risky_operation', (ctx) => {
 
 ## Testing
 
-The library includes comprehensive test utilities:
+The library works well with Jest and other testing frameworks:
 
 ```typescript
 import { PawScript } from 'pawscript';
@@ -280,12 +316,116 @@ describe('My Application Commands', () => {
     expect(result).toBe(true);
     expect(myCommand).toHaveBeenCalled();
   });
+
+  test('should handle async commands with tokens', () => {
+    const asyncCommand = jest.fn().mockImplementation((ctx) => {
+      const token = ctx.requestToken();
+      setImmediate(() => {
+        ctx.resumeToken(token, true);
+      });
+      return token;
+    });
+    
+    pawscript.registerCommand('async_cmd', asyncCommand);
+    
+    const result = pawscript.execute('async_cmd');
+    expect(typeof result).toBe('string');
+    expect(result).toMatch(/^token_/);
+  });
+});
+```
+
+## Advanced Features
+
+### Token Chaining
+
+PawScript automatically chains tokens in command sequences:
+
+```typescript
+// If 'async_save' returns a token, 'async_backup' will wait for it
+pawscript.execute('async_save; async_backup; notify_complete');
+```
+
+### Fallback Handlers
+
+You can register fallback handlers for unknown commands:
+
+```typescript
+pawscript.setFallbackHandler((cmdName, args) => {
+  if (cmdName.startsWith('custom_')) {
+    return handleCustomCommand(cmdName, args);
+  }
+  return null; // Let PawScript handle as unknown command
+});
+```
+
+### Token Status Monitoring
+
+Monitor active tokens for debugging:
+
+```typescript
+const status = pawscript.getTokenStatus();
+console.log(`Active tokens: ${status.activeCount}`);
+status.tokens.forEach(token => {
+  console.log(`${token.id}: age ${token.age}ms, children: ${token.childCount}`);
+});
+```
+
+## Best Practices
+
+### 1. Proper Async Pattern
+```typescript
+// ✅ CORRECT
+pawscript.registerCommand('async_save', (ctx) => {
+  const token = ctx.requestToken();
+  setImmediate(() => {
+    fs.writeFile('file.txt', data, (err) => {
+      ctx.resumeToken(token, !err);
+    });
+  });
+  return token;
+});
+
+// ❌ WRONG - Don't use Promises directly
+pawscript.registerCommand('wrong_async', async (ctx) => {
+  await fs.promises.writeFile('file.txt', data);
+  return true;
+});
+```
+
+### 2. Error Handling
+```typescript
+pawscript.registerCommand('safe_command', (ctx) => {
+  try {
+    const result = riskyOperation(ctx.args[0]);
+    ctx.host.updateStatus('Operation completed');
+    return true;
+  } catch (error) {
+    ctx.host.updateStatus(`Error: ${error.message}`);
+    return false;
+  }
+});
+```
+
+### 3. State Management
+```typescript
+pawscript.registerCommand('context_aware', (ctx) => {
+  const { cursor, selection } = ctx.state;
+  if (!selection) {
+    ctx.host.updateStatus('No selection available');
+    return false;
+  }
+  // Process selection...
+  return true;
 });
 ```
 
 ## The Name
 
-**PawScript** gets its name from the token-based suspension system - when a command needs to wait for an async operation to complete, execution "paws" (pauses) until the operation finishes. The name also nods to the language's origins in the mew text editor (which has a cat mascot), while being professional enough for standalone use.
+*PawScript** gets its name from the token-based suspension system - when a command needs to
+wait for an async operation to complete, execution "paws" (pauses) until the operation finishes.
+The name also nods to the language's origins in the mew text editor (which has a cat mascot),
+while being generic enough for standalone use.
 
 ## License
 
@@ -301,9 +441,12 @@ MIT
 
 ## Changelog
 
-### 1.0.0
+### 0.1.0
 - Initial release
-- Basic command execution
-- Token-based suspension system ("paws")
-- Macro system
-- TypeScript support
+- Basic command execution with sequences, conditionals, and alternatives
+- Token-based suspension system ("paws" feature)
+- Macro system with define/execute/list capabilities
+- Syntactic sugar for convenient command syntax
+- Full TypeScript support with comprehensive type definitions
+- Host-agnostic design for easy integration
+- Comprehensive test suite and documentation
