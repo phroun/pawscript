@@ -1,0 +1,5 @@
+.DS_Store
+old
+tests
+node_modules
+bin
