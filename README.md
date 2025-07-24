@@ -441,7 +441,7 @@ MIT
 
 ## Changelog
 
-### 0.1.0
+### 0.1.1
 - Initial release
 - Basic command execution with sequences, conditionals, and alternatives
 - Token-based suspension system ("paws" feature)

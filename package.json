@@ -1,6 +1,6 @@
 {
   "name": "pawscript",
-  "version": "0.1.0",
+  "version": "0.1.1",
   "description": "PawScript: A command language with token-based suspension for text editors and command-driven applications",
   "main": "dist/index.js",
   "types": "dist/index.d.ts",
