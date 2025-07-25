@@ -1,7 +1,8 @@
 import { Logger } from './logger';
 import { CommandExecutor } from './command-executor';
 import { MacroSystem } from './macro-system';
-import { IPawScriptHost, PawScriptHandler, PawScriptConfig } from './types';
+import { ExecutionState } from './execution-state';
+import { IPawScriptHost, PawScriptHandler, PawScriptConfig, SubstitutionContext } from './types';
 
 export class PawScript {
   private logger: Logger;
@@ -28,15 +29,30 @@ export class PawScript {
     this.macroSystem = new MacroSystem(this.logger);
     
     // Set up macro fallback handler
-    this.executor.setFallbackHandler((cmdName: string, args: any[]) => {
+    this.executor.setFallbackHandler((cmdName: string, args: any[], executionState?: any) => {
       if (this.config.allowMacros && this.macroSystem.hasMacro(cmdName)) {
-        return this.macroSystem.executeMacro(cmdName, (commands) => {
-          return this.executor.execute(commands, ...args);
-        }, args);
+        console.log('FALLBACK: cmdName =', cmdName);
+        console.log('FALLBACK: executionState provided =', !!executionState);
+        console.log('FALLBACK: executionState hasResult =', executionState?.hasResultValue?.());
+        
+        // Use the provided execution state from the caller, or create new one as fallback
+        const macroExecutionState = executionState || new ExecutionState();
+        
+        console.log('FALLBACK: using same state =', macroExecutionState === executionState);
+        
+        // Execute macro with the provided arguments
+        const result = this.macroSystem.executeMacro(cmdName, (commands, macroState, substitutionContext) => {
+          return this.executor.executeWithState(commands, macroState, substitutionContext);
+        }, args, macroExecutionState);
+        
+        console.log('FALLBACK: after macro execution, state hasResult =', macroExecutionState.hasResultValue());
+        console.log('FALLBACK: after macro execution, state result =', macroExecutionState.getResult());
+        
+        return result;
       }
       return null;
     });
-    
+
     // Register built-in macro commands if macros are enabled
     if (this.config.allowMacros) {
       this.registerBuiltInMacroCommands();
@@ -82,9 +98,12 @@ export class PawScript {
       const name = context.args[0];
       const macroArgs = context.args.slice(1);
       
-      return this.macroSystem.executeMacro(name, (commands) => {
-        return this.executor.execute(commands);
-      }, macroArgs);
+      // Create execution state for macro call
+      const executionState = new ExecutionState();
+      
+      return this.macroSystem.executeMacro(name, (commands, macroState, substitutionContext) => {
+        return this.executor.executeWithState(commands, macroState, substitutionContext);
+      }, macroArgs, executionState);
     });
     
     // List macros command
@@ -256,9 +275,13 @@ export class PawScript {
       this.logger.warn('Macros are disabled in configuration');
       return false;
     }
-    return this.macroSystem.executeMacro(name, (commands) => {
-      return this.executor.execute(commands);
-    }, []);
+    
+    // Create execution state for macro
+    const executionState = new ExecutionState();
+    
+    return this.macroSystem.executeMacro(name, (commands, macroState, substitutionContext) => {
+      return this.executor.executeWithState(commands, macroState, substitutionContext);
+    }, [], executionState);
   }
   
   listMacros(): string[] {

@@ -34,6 +34,11 @@ describe('CommandExecutor', () => {
         state: { test: true },
         requestToken: expect.any(Function),
         resumeToken: expect.any(Function),
+        // NEW: Result management methods
+        setResult: expect.any(Function),
+        getResult: expect.any(Function),
+        hasResult: expect.any(Function),
+        clearResult: expect.any(Function),
       });
     });
 
@@ -48,6 +53,11 @@ describe('CommandExecutor', () => {
         state: { test: true },
         requestToken: expect.any(Function),
         resumeToken: expect.any(Function),
+        // NEW: Result management methods
+        setResult: expect.any(Function),
+        getResult: expect.any(Function),
+        hasResult: expect.any(Function),
+        clearResult: expect.any(Function),
       });
     });
 
@@ -62,6 +72,11 @@ describe('CommandExecutor', () => {
         state: { test: true },
         requestToken: expect.any(Function),
         resumeToken: expect.any(Function),
+        // NEW: Result management methods
+        setResult: expect.any(Function),
+        getResult: expect.any(Function),
+        hasResult: expect.any(Function),
+        clearResult: expect.any(Function),
       });
     });
 
@@ -84,6 +99,11 @@ describe('CommandExecutor', () => {
         state: { test: true },
         requestToken: expect.any(Function),
         resumeToken: expect.any(Function),
+        // NEW: Result management methods
+        setResult: expect.any(Function),
+        getResult: expect.any(Function),
+        hasResult: expect.any(Function),
+        clearResult: expect.any(Function),
       });
     });
   });
@@ -101,6 +121,11 @@ describe('CommandExecutor', () => {
         state: { test: true },
         requestToken: expect.any(Function),
         resumeToken: expect.any(Function),
+        // NEW: Result management methods
+        setResult: expect.any(Function),
+        getResult: expect.any(Function),
+        hasResult: expect.any(Function),
+        clearResult: expect.any(Function),
       });
     });
 
@@ -123,6 +148,11 @@ describe('CommandExecutor', () => {
         state: { test: true },
         requestToken: expect.any(Function),
         resumeToken: expect.any(Function),
+        // NEW: Result management methods
+        setResult: expect.any(Function),
+        getResult: expect.any(Function),
+        hasResult: expect.any(Function),
+        clearResult: expect.any(Function),
       });
     });
   });

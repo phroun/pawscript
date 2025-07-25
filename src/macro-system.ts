@@ -1,4 +1,6 @@
 import { Logger } from './logger';
+import { ExecutionState } from './execution-state';
+import { SubstitutionContext } from './types';
 
 export class MacroSystem {
   private macros = new Map<string, string>();
@@ -22,7 +24,12 @@ export class MacroSystem {
     return true;
   }
   
-  executeMacro(name: string, executeCallback: (commands: string) => any, args: any[] = []): any {
+  executeMacro(
+    name: string, 
+    executeCallback: (commands: string, executionState: ExecutionState, substitutionContext?: SubstitutionContext) => any, 
+    args: any[] = [],
+    executionState?: ExecutionState
+  ): any {
     this.logger.debug(`Executing macro: ${name} with args: ${JSON.stringify(args)}`);
     
     if (!name) {
@@ -36,56 +43,31 @@ export class MacroSystem {
     }
     
     let commands = this.macros.get(name)!;
+    this.logger.debug(`Original macro commands: ${commands}`);
     
-    // Substitute arguments if provided
-    if (args.length > 0) {
-      commands = this.substituteArguments(commands, args);
-      this.logger.debug(`Macro "${name}" after argument substitution: ${commands}`);
-    }
+    // Create execution state if not provided
+    const macroExecutionState = executionState || new ExecutionState();
     
-    this.logger.debug(`Executing macro "${name}" with commands: ${commands}`);
+    // Create substitution context for macro arguments
+    const substitutionContext: SubstitutionContext = {
+      args: args,
+      executionState: macroExecutionState
+    };
+    
+    this.logger.debug(`Executing macro "${name}" with substitution context`);
     
     try {
-      const result = executeCallback(commands);
+      // The substitution now happens during parsing, not here
+      // Just execute the commands with the substitution context
+      const result = executeCallback(commands, macroExecutionState, substitutionContext);
       this.logger.debug(`Macro "${name}" executed with result: ${result}`);
+      
+      // The macro's formal result is whatever the execution state contains
+      // This gets propagated back to the caller
       return result;
     } catch (error) {
       this.logger.error(`Error executing macro "${name}": ${error}`, error);
       return false;
-    }
-  }
-  
-  private substituteArguments(commands: string, args: any[]): string {
-    let result = commands;
-    
-    // Replace $1, $2, $3, etc. with the corresponding arguments
-    for (let i = 0; i < args.length; i++) {
-      const placeholder = `${i + 1}`;
-      const argValue = this.formatArgumentForSubstitution(args[i]);
-      result = result.replace(new RegExp('\\' + placeholder, 'g'), argValue);
-    }
-    
-    // Replace $* with all arguments
-    if (args.length > 0) {
-      const allArgs = args.map(arg => this.formatArgumentForSubstitution(arg)).join(', ');
-      result = result.replace(/\$\*/g, allArgs);
-    }
-    
-    return result;
-  }
-  
-  private formatArgumentForSubstitution(arg: any): string {
-    if (typeof arg === 'string') {
-      // If the string contains spaces or special characters, quote it
-      if (arg.includes(' ') || arg.includes(';') || arg.includes('&') || arg.includes('|')) {
-        return `'${arg.replace(/'/g, "\\'")}'`;
-      }
-      return arg;
-    } else if (typeof arg === 'number' || typeof arg === 'boolean') {
-      return String(arg);
-    } else {
-      // For other types, convert to JSON string
-      return `'${JSON.stringify(arg).replace(/'/g, "\\'")}'`;
     }
   }
   

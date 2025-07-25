@@ -31,6 +31,12 @@ export interface PawScriptContext {
   // Utility methods
   requestToken(cleanup?: (tokenId: string) => void): string;
   resumeToken(tokenId: string, result: boolean): void;
+  
+  // NEW: Result management
+  setResult(value: any): void;
+  getResult(): any;
+  hasResult(): boolean;
+  clearResult(): void;
 }
 
 export type PawScriptHandler = (context: PawScriptContext) => boolean | string;
@@ -62,6 +68,10 @@ export interface TokenData {
   timeoutId: NodeJS.Timeout | null;
   chainedToken: string | null;
   timestamp: number;
+  // UPDATED: Store the actual execution state reference, not just a snapshot
+  executionState?: any; // The actual ExecutionState instance
+  suspendedResult?: any;
+  hasSuspendedResult?: boolean;
 }
 
 export interface CommandSequence {
@@ -71,4 +81,16 @@ export interface CommandSequence {
   totalCommands: number;
   originalCommand: string;
   timestamp: number;
+  // NEW: Result state for command sequences
+  inheritedResult?: any;
+  hasInheritedResult?: boolean;
+}
+
+// NEW: Execution state for result management (interface removed - using class directly)
+
+// NEW: Substitution context for macro argument access during brace evaluation
+export interface SubstitutionContext {
+  args: any[];
+  executionState: any; // Will be ExecutionState class instance
+  parentContext?: SubstitutionContext;
 }

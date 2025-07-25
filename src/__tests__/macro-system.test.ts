@@ -22,7 +22,11 @@ describe('MacroSystem', () => {
     
     const result = macroSystem.executeMacro('test_macro', executeCallback);
     expect(result).toBe(true);
-    expect(executeCallback).toHaveBeenCalledWith('test_command');
+    expect(executeCallback).toHaveBeenCalledWith(
+      'test_command',
+      expect.any(Object), // execution state
+      expect.any(Object)  // substitution context
+    );
   });
 
   test('should get macro definition', () => {

@@ -1,12 +1,13 @@
 import { Logger } from './logger';
-import { PawScriptHandler, TokenData, CommandSequence, IPawScriptHost } from './types';
+import { ExecutionState } from './execution-state';
+import { PawScriptHandler, TokenData, CommandSequence, IPawScriptHost, SubstitutionContext } from './types';
 
 export class CommandExecutor {
   private commands = new Map<string, PawScriptHandler>();
   private activeTokens = new Map<string, TokenData>();
   private nextTokenId = 1;
   private logger: Logger;
-  private fallbackHandler: ((cmdName: string, args: any[]) => any) | null = null;
+  private fallbackHandler: ((cmdName: string, args: any[], executionState?: any) => any) | null = null;
   private host: IPawScriptHost | null = null;
   
   constructor(logger: Logger) {
@@ -27,7 +28,7 @@ export class CommandExecutor {
       this.registerCommand(name, handler);
     }
   }
-
+  
   unregisterCommand(name: string): boolean {
     if (this.commands.has(name)) {
       this.commands.delete(name);
@@ -37,15 +38,16 @@ export class CommandExecutor {
     this.logger.warn(`Attempted to unregister unknown command: ${name}`);
     return false;
   }
-    
-  setFallbackHandler(handler: (cmdName: string, args: any[]) => any): void {
+
+  setFallbackHandler(handler: (cmdName: string, args: any[], executionState?: any) => any): void {
     this.fallbackHandler = handler;
   }
-  
+
   requestCompletionToken(
     cleanupCallback: ((tokenId: string) => void) | null = null, 
     parentTokenId: string | null = null, 
-    timeoutMs: number = 300000
+    timeoutMs: number = 300000,
+    executionState?: ExecutionState
   ): string {
     const tokenId = `token_${this.nextTokenId++}`;
     
@@ -61,14 +63,19 @@ export class CommandExecutor {
       cleanupCallback: cleanupCallback,
       timeoutId: timeoutId,
       chainedToken: null,
-      timestamp: Date.now()
+      timestamp: Date.now(),
+      // NEW: Store the actual execution state reference
+      executionState: executionState,
+      // Keep the old snapshot fields for backwards compatibility
+      suspendedResult: executionState?.getResult(),
+      hasSuspendedResult: executionState?.hasResultValue()
     });
     
     if (parentTokenId && this.activeTokens.has(parentTokenId)) {
       this.activeTokens.get(parentTokenId)!.children.add(tokenId);
     }
-    
-    this.logger.debug(`Created completion token: ${tokenId}, parent: ${parentTokenId || 'none'}`);
+
+    this.logger.debug(`Created completion token: ${tokenId}, parent: ${parentTokenId || 'none'}, hasResult: ${executionState?.hasResultValue()}`);
     return tokenId;
   }
   
@@ -80,7 +87,8 @@ export class CommandExecutor {
         parentToken: data.parentToken,
         childCount: data.children.size,
         hasCommandSequence: !!data.commandSequence,
-        age: Date.now() - data.timestamp
+        age: Date.now() - data.timestamp,
+        hasSuspendedResult: data.hasSuspendedResult
       }))
     };
   }
@@ -90,26 +98,31 @@ export class CommandExecutor {
     type: 'sequence' | 'conditional' | 'or', 
     remainingCommands: string[], 
     currentIndex: number, 
-    originalCommand: string
+    originalCommand: string,
+    executionState?: ExecutionState
   ): void {
     if (!this.activeTokens.has(tokenId)) {
       throw new Error(`Invalid completion token: ${tokenId}`);
     }
     
     const tokenData = this.activeTokens.get(tokenId)!;
+    const stateSnapshot = executionState ? executionState.getSnapshot() : { result: undefined, hasResult: false };
+    
     tokenData.commandSequence = {
       type,
       remainingCommands: [...remainingCommands],
       currentIndex,
       totalCommands: remainingCommands.length + currentIndex,
       originalCommand,
-      timestamp: Date.now()
+      timestamp: Date.now(),
+      inheritedResult: stateSnapshot.result,
+      hasInheritedResult: stateSnapshot.hasResult
     };
     
-    this.logger.debug(`Pushed command sequence onto token ${tokenId}. Type: ${type}, Remaining: ${remainingCommands.length}`);
+    this.logger.debug(`Pushed command sequence onto token ${tokenId}. Type: ${type}, Remaining: ${remainingCommands.length}, hasResult: ${stateSnapshot.hasResult}`);
   }
-  
-  popAndResumeCommandSequence(tokenId: string, result: boolean): boolean {
+
+  popAndResumeCommandSequence(tokenId: string, result: boolean, finalResult?: any, hasFinalResult?: boolean): boolean {
     if (!this.activeTokens.has(tokenId)) {
       this.logger.warn(`Attempted to resume with invalid token: ${tokenId}`);
       return false;
@@ -117,7 +130,12 @@ export class CommandExecutor {
     
     const tokenData = this.activeTokens.get(tokenId)!;
     
-    this.logger.debug(`Popping command sequence from token ${tokenId}. Type: ${tokenData.commandSequence?.type}, Result: ${result}`);
+    this.logger.debug(`Popping command sequence from token ${tokenId}. Type: ${tokenData.commandSequence?.type}, Result: ${result}, hasFinalResult: ${hasFinalResult}`);
+    
+    // Debug logging
+    console.log('RESUME: Token data executionState:', !!tokenData.executionState);
+    console.log('RESUME: Token data executionState hasResult:', tokenData.executionState?.hasResultValue());
+    console.log('RESUME: Token data executionState result:', tokenData.executionState?.getResult());
     
     this.cleanupTokenChildren(tokenId);
     
@@ -125,9 +143,18 @@ export class CommandExecutor {
       clearTimeout(tokenData.timeoutId);
     }
     
+    // FIXED: Use the stored execution state instead of creating a new one
+    const executionState = tokenData.executionState || new ExecutionState();
+    
+    console.log('RESUME: Using execution state hasResult:', executionState.hasResultValue());
+    console.log('RESUME: Using execution state result:', executionState.getResult());
+    
+    // Remove the old logic that was overriding the execution state
+    // We don't need to restore snapshots anymore since we're using the actual state
+    
     let success = result;
     if (tokenData.commandSequence) {
-      success = this.resumeCommandSequence(tokenData.commandSequence, result);
+      success = this.resumeCommandSequence(tokenData.commandSequence, result, executionState);
     }
     
     const chainedToken = tokenData.chainedToken;
@@ -140,7 +167,7 @@ export class CommandExecutor {
     
     if (chainedToken && this.activeTokens.has(chainedToken)) {
       this.logger.debug(`Triggering chained token ${chainedToken} with result ${success}`);
-      return this.popAndResumeCommandSequence(chainedToken, success);
+      return this.popAndResumeCommandSequence(chainedToken, success, executionState.getResult(), executionState.hasResultValue());
     }
     
     return success;
@@ -177,27 +204,27 @@ export class CommandExecutor {
     this.activeTokens.delete(tokenId);
   }
   
-  private resumeCommandSequence(commandSequence: CommandSequence, result: boolean): boolean {
+  private resumeCommandSequence(commandSequence: CommandSequence, result: boolean, executionState: ExecutionState): boolean {
     switch (commandSequence.type) {
       case 'sequence':
-        return this.resumeSequence(commandSequence, result);
+        return this.resumeSequence(commandSequence, result, executionState);
       case 'conditional':
-        return this.resumeConditional(commandSequence, result);
+        return this.resumeConditional(commandSequence, result, executionState);
       case 'or':
-        return this.resumeOr(commandSequence, result);
+        return this.resumeOr(commandSequence, result, executionState);
       default:
         this.logger.error(`Unknown command sequence type: ${commandSequence.type}`);
         return false;
     }
   }
   
-  private resumeSequence(sequence: CommandSequence, result: boolean): boolean {
+  private resumeSequence(sequence: CommandSequence, result: boolean, executionState: ExecutionState): boolean {
     let success = result;
     
     for (const cmd of sequence.remainingCommands) {
       if (!cmd.trim()) continue;
       
-      const cmdResult = this.executeSingleCommandInternal(cmd);
+      const cmdResult = this.executeSingleCommandInternal(cmd, executionState);
       
       if (typeof cmdResult === 'string' && cmdResult.startsWith('token_')) {
         this.logger.warn('Command returned token during resume - this may indicate a problem');
@@ -210,7 +237,7 @@ export class CommandExecutor {
     return success;
   }
 
-  private resumeConditional(sequence: CommandSequence, result: boolean): boolean {
+  private resumeConditional(sequence: CommandSequence, result: boolean, executionState: ExecutionState): boolean {
     if (!result) {
       return false;
     }
@@ -220,7 +247,7 @@ export class CommandExecutor {
     for (const cmd of sequence.remainingCommands) {
       if (!cmd.trim()) continue;
       
-      const cmdResult = this.executeSingleCommandInternal(cmd);
+      const cmdResult = this.executeSingleCommandInternal(cmd, executionState);
       
       if (typeof cmdResult === 'string' && cmdResult.startsWith('token_')) {
         this.logger.warn('Command returned token during resume - this may indicate a problem');
@@ -234,7 +261,7 @@ export class CommandExecutor {
     return success;
   }
   
-  private resumeOr(sequence: CommandSequence, result: boolean): boolean {
+  private resumeOr(sequence: CommandSequence, result: boolean, executionState: ExecutionState): boolean {
     if (result) {
       return true;
     }
@@ -244,7 +271,7 @@ export class CommandExecutor {
     for (const cmd of sequence.remainingCommands) {
       if (!cmd.trim()) continue;
       
-      const cmdResult = this.executeSingleCommandInternal(cmd);
+      const cmdResult = this.executeSingleCommandInternal(cmd, executionState);
       
       if (typeof cmdResult === 'string' && cmdResult.startsWith('token_')) {
         this.logger.warn('Command returned token during resume - this may indicate a problem');
@@ -261,11 +288,14 @@ export class CommandExecutor {
   execute(commandStr: string, ...args: any[]): boolean | string {
     this.logger.debug(`execute called with command: ${commandStr}, args: ${JSON.stringify(args)}`);
     
+    // Create new execution state for this command
+    const executionState = new ExecutionState();
+    
     if (args.length > 0) {
       const handler = this.commands.get(commandStr);
       if (handler) {
         try {
-          const result = handler(this.createContext(args));
+          const result = handler(this.createContext(args, executionState));
           if (typeof result === 'string' && result.startsWith('token_')) {
             this.logger.warn('Command with explicit args returned token - this is not supported');
             return false;
@@ -286,36 +316,48 @@ export class CommandExecutor {
       return false;
     }
     
+    // Create default substitution context with empty args
+    const substitutionContext = {
+      args: [],
+      executionState: executionState
+    };
+    
+    return this.executeWithState(commandStr, executionState, substitutionContext);
+  }
+  
+  executeWithState(commandStr: string, executionState: ExecutionState, substitutionContext?: SubstitutionContext): boolean | string {
+    // Apply syntactic sugar BEFORE parsing the command
     commandStr = this.applySyntacticSugar(commandStr);
     
+    this.logger.debug(`After syntactic sugar: ${commandStr}`);
     this.logger.debug(`Checking command: ${commandStr}`);
     
     const hasSequence = this.hasUnquotedChar(commandStr, ';');
     this.logger.debug(`hasSequence: ${hasSequence}`);
     if (hasSequence) {
       this.logger.debug('Executing as sequence');
-      return this.executeSequence(commandStr);
+      return this.executeSequence(commandStr, executionState, substitutionContext);
     }
     
     const hasOr = this.hasUnquotedChar(commandStr, '|');
     this.logger.debug(`hasOr: ${hasOr}`);
     if (hasOr) {
       this.logger.debug('Executing as OR');
-      return this.executeOr(commandStr);
+      return this.executeOr(commandStr, executionState, substitutionContext);
     }
     
     const hasConditional = this.hasUnquotedChar(commandStr, '&');
     this.logger.debug(`hasConditional: ${hasConditional}`);
     if (hasConditional) {
       this.logger.debug('Executing as conditional');
-      return this.executeConditional(commandStr);
+      return this.executeConditional(commandStr, executionState, substitutionContext);
     }
     
     this.logger.debug('Executing as single command');
-    return this.executeSingleCommand(commandStr);
+    return this.executeSingleCommand(commandStr, executionState, substitutionContext);
   }
   
-  private createContext(args: any[]): any {
+  private createContext(args: any[], executionState: ExecutionState): any {
     if (!this.host) {
       throw new Error('No host set for command system');
     }
@@ -325,11 +367,16 @@ export class CommandExecutor {
       args: args,
       state: this.host.getCurrentContext(),
       requestToken: (cleanup?: (tokenId: string) => void) => {
-        return this.requestCompletionToken(cleanup);
+        return this.requestCompletionToken(cleanup, undefined, 300000, executionState);
       },
       resumeToken: (tokenId: string, result: boolean) => {
-        return this.popAndResumeCommandSequence(tokenId, result);
-      }
+        return this.popAndResumeCommandSequence(tokenId, result, executionState.getResult(), executionState.hasResultValue());
+      },
+      // NEW: Result management methods
+      setResult: (value: any) => executionState.setResult(value),
+      getResult: () => executionState.getResult(),
+      hasResult: () => executionState.hasResultValue(),
+      clearResult: () => executionState.clearResult()
     };
   }
 
@@ -354,7 +401,7 @@ export class CommandExecutor {
     return commandStr;
   }
   
-  private executeSequence(sequenceStr: string): boolean | string {
+  private executeSequence(sequenceStr: string, executionState: ExecutionState, substitutionContext?: SubstitutionContext): boolean | string {
     this.logger.debug(`Executing command sequence: ${sequenceStr}`);
     const commands = this.splitBySemicolon(sequenceStr);
     
@@ -364,8 +411,15 @@ export class CommandExecutor {
       
       if (!cmd.trim()) continue;
       
-      const result = this.executeSingleCommandInternal(cmd);
-      
+      const result = this.executeSingleCommandInternal(cmd, executionState, substitutionContext);
+
+      console.log('SEQUENCE: Command result:', result, 'Type:', typeof result);
+      if (typeof result === 'string' && result.startsWith('token_')) {
+        console.log('SEQUENCE: Token detected, should suspend');
+      } else {
+        console.log('SEQUENCE: No token, continuing sequence');
+      }
+
       if (result && typeof result === 'string' && result.startsWith('token_')) {
         this.logger.debug(`Command ${cmd} returned token ${result}, setting up sequence continuation`);
         
@@ -374,10 +428,13 @@ export class CommandExecutor {
           const sequenceToken = this.requestCompletionToken(
             (tokenId) => {
               this.logger.debug(`Cleaning up suspended sequence for token ${tokenId}`);
-            }
+            },
+            undefined,
+            300000,
+            executionState
           );
           
-          this.pushCommandSequence(sequenceToken, 'sequence', remainingCommands, i + 1, sequenceStr);
+          this.pushCommandSequence(sequenceToken, 'sequence', remainingCommands, i + 1, sequenceStr, executionState);
           this.chainTokens(result, sequenceToken);
           
           return sequenceToken;
@@ -392,7 +449,7 @@ export class CommandExecutor {
     return success;
   }
   
-  private executeConditional(conditionalStr: string): boolean | string {
+  private executeConditional(conditionalStr: string, executionState: ExecutionState, substitutionContext?: SubstitutionContext): boolean | string {
     this.logger.debug(`Executing conditional AND: ${conditionalStr}`);
     const commands = this.splitByAmpersand(conditionalStr);
     
@@ -402,7 +459,7 @@ export class CommandExecutor {
       
       if (!cmd.trim()) continue;
       
-      const result = this.executeSingleCommandInternal(cmd);
+      const result = this.executeSingleCommandInternal(cmd, executionState, substitutionContext);
       
       if (result && typeof result === 'string' && result.startsWith('token_')) {
         this.logger.debug(`Command ${cmd} returned token ${result}, setting up conditional continuation`);
@@ -412,10 +469,13 @@ export class CommandExecutor {
           const sequenceToken = this.requestCompletionToken(
             (tokenId) => {
               this.logger.debug(`Cleaning up suspended conditional sequence for token ${tokenId}`);
-            }
+            },
+            undefined,
+            300000,
+            executionState
           );
           
-          this.pushCommandSequence(sequenceToken, 'conditional', remainingCommands, i + 1, conditionalStr);
+          this.pushCommandSequence(sequenceToken, 'conditional', remainingCommands, i + 1, conditionalStr, executionState);
           this.chainTokens(result, sequenceToken);
           
           return sequenceToken;
@@ -431,7 +491,7 @@ export class CommandExecutor {
     return success;
   }
   
-  private executeOr(orStr: string): boolean | string {
+  private executeOr(orStr: string, executionState: ExecutionState, substitutionContext?: SubstitutionContext): boolean | string {
     this.logger.debug(`Executing conditional OR: ${orStr}`);
     const commands = this.splitByPipe(orStr);
     
@@ -441,7 +501,7 @@ export class CommandExecutor {
       
       if (!cmd.trim()) continue;
       
-      const result = this.executeSingleCommandInternal(cmd);
+      const result = this.executeSingleCommandInternal(cmd, executionState, substitutionContext);
       
       if (result && typeof result === 'string' && result.startsWith('token_')) {
         this.logger.debug(`Command ${cmd} returned token ${result}, setting up OR continuation`);
@@ -451,10 +511,13 @@ export class CommandExecutor {
           const sequenceToken = this.requestCompletionToken(
             (tokenId) => {
               this.logger.debug(`Cleaning up suspended OR sequence for token ${tokenId}`);
-            }
+            },
+            undefined,
+            300000,
+            executionState
           );
           
-          this.pushCommandSequence(sequenceToken, 'or', remainingCommands, i + 1, orStr);
+          this.pushCommandSequence(sequenceToken, 'or', remainingCommands, i + 1, orStr, executionState);
           this.chainTokens(result, sequenceToken);
           
           return sequenceToken;
@@ -485,61 +548,116 @@ export class CommandExecutor {
     this.logger.debug(`Chained token ${secondToken} to complete after ${firstToken}`);
   }
   
-  private executeSingleCommandInternal(cmd: string): boolean | string {
+  private executeSingleCommandInternal(cmd: string, executionState: ExecutionState, substitutionContext?: SubstitutionContext): boolean | string {
     if (this.hasUnquotedChar(cmd, ';')) {
-      return this.executeSequence(cmd);
+      return this.executeSequence(cmd, executionState, substitutionContext);
     } else if (this.hasUnquotedChar(cmd, '|')) {
-      return this.executeOr(cmd);
+      return this.executeOr(cmd, executionState, substitutionContext);
     } else if (this.hasUnquotedChar(cmd, '&')) {
-      return this.executeConditional(cmd);
+      return this.executeConditional(cmd, executionState, substitutionContext);
     } else {
-      return this.executeSingleCommand(cmd);
+      return this.executeSingleCommand(cmd, executionState, substitutionContext);
     }
   }
   
-  private executeSingleCommand(commandStr: string): boolean | string {
+  private executeSingleCommand(commandStr: string, executionState: ExecutionState, substitutionContext?: SubstitutionContext): boolean | string {
     commandStr = commandStr.trim();
     
-    const parsed = this.parseCommand(commandStr);
-    const cmdName = parsed.command;
-    const args = parsed.arguments;
+    this.logger.debug(`executeSingleCommand called with: "${commandStr}"`);
     
-    this.logger.debug(`Looking for command: "${cmdName}", available commands: ${Array.from(this.commands.keys()).join(', ')}`);
-    
-    let handler = this.commands.get(cmdName);
-    
-    if (!handler && this.fallbackHandler) {
-      const fallbackResult = this.fallbackHandler(cmdName, args);
-      if (fallbackResult !== null) {
-        return fallbackResult;
-      }
+    // Apply substitution (including brace evaluation) first
+    if (substitutionContext) {
+      commandStr = this.applySubstitution(commandStr, substitutionContext);
+      this.logger.debug(`After substitution: "${commandStr}"`);
     }
     
-    if (!handler) {
-      this.logger.warn(`Unknown command: ${cmdName}`);
-      if (this.host) {
-        this.host.updateStatus(`Unknown command: ${cmdName}`);
+    // After substitution, check if the entire command string is now a macro or different command
+    // This handles cases where brace evaluation changes the command name
+    if (commandStr.trim() !== commandStr || this.hasUnquotedChar(commandStr, ' ')) {
+      // Re-parse if the command changed or has arguments
+      const parsed = this.parseCommand(commandStr, substitutionContext);
+      const cmdName = parsed.command;
+      const args = parsed.arguments;
+      
+      this.logger.debug(`Re-parsed as - Command: "${cmdName}", Args: ${JSON.stringify(args)}`);
+      
+      // Check if this is now a different command or macro
+      let handler = this.commands.get(cmdName);
+      
+      if (!handler && this.fallbackHandler) {
+        this.logger.debug(`Command "${cmdName}" not found, trying fallback handler`);
+        const fallbackResult = this.fallbackHandler(cmdName, args, executionState);
+        if (fallbackResult !== null) {
+          this.logger.debug(`Fallback handler returned: ${fallbackResult}`);
+          return fallbackResult;
+        }
       }
-      return false;
-    }
-    
-    try {
-      this.logger.debug(`Executing ${cmdName} with args: ${JSON.stringify(args)}`);
-      return handler(this.createContext(args));
-    } catch (error) {
-      this.logger.error(`Error executing ${cmdName}: ${error}`, error);
-      if (this.host) {
-        this.host.updateStatus(`Error executing command: ${cmdName} - ${error}`);
+      
+      if (!handler) {
+        this.logger.warn(`Unknown command: ${cmdName}`);
+        if (this.host) {
+          this.host.updateStatus(`Unknown command: ${cmdName}`);
+        }
+        return false;
       }
-      return false;
+      
+      try {
+        this.logger.debug(`Executing ${cmdName} with args: ${JSON.stringify(args)}`);
+        return handler(this.createContext(args, executionState));
+      } catch (error) {
+        this.logger.error(`Error executing ${cmdName}: ${error}`, error);
+        if (this.host) {
+          this.host.updateStatus(`Error executing command: ${cmdName} - ${error}`);
+        }
+        return false;
+      }
+    } else {
+      // No substitution needed or command didn't change, use original parsing
+      const parsed = this.parseCommand(commandStr, substitutionContext);
+      const cmdName = parsed.command;
+      const args = parsed.arguments;
+      
+      this.logger.debug(`Parsed as - Command: "${cmdName}", Args: ${JSON.stringify(args)}`);
+      this.logger.debug(`Looking for command: "${cmdName}", available commands: ${Array.from(this.commands.keys()).join(', ')}`);
+      
+      let handler = this.commands.get(cmdName);
+      
+      if (!handler && this.fallbackHandler) {
+        this.logger.debug(`Command "${cmdName}" not found, trying fallback handler`);
+        const fallbackResult = this.fallbackHandler(cmdName, args, executionState);
+        if (fallbackResult !== null) {
+          this.logger.debug(`Fallback handler returned: ${fallbackResult}`);
+          return fallbackResult;
+        }
+      }
+      
+      if (!handler) {
+        this.logger.warn(`Unknown command: ${cmdName}`);
+        if (this.host) {
+          this.host.updateStatus(`Unknown command: ${cmdName}`);
+        }
+        return false;
+      }
+      
+      try {
+        this.logger.debug(`Executing ${cmdName} with args: ${JSON.stringify(args)}`);
+        return handler(this.createContext(args, executionState));
+      } catch (error) {
+        this.logger.error(`Error executing ${cmdName}: ${error}`, error);
+        if (this.host) {
+          this.host.updateStatus(`Error executing command: ${cmdName} - ${error}`);
+        }
+        return false;
+      }
     }
   }
   
-  private parseCommand(commandStr: string): { command: string; arguments: any[] } {
+  private parseCommand(commandStr: string, substitutionContext?: SubstitutionContext): { command: string; arguments: any[] } {
     if (!commandStr.trim()) {
       return { command: '', arguments: [] };
     }
     
+    // First, find the command name (everything up to the first unquoted space)
     let commandEnd = -1;
     let inQuote = false;
     let quoteChar: string | null = null;
@@ -571,27 +689,32 @@ export class CommandExecutor {
     }
     
     if (commandEnd === -1) {
-      return { command: commandStr.trim(), arguments: [] };
+      // No arguments, but we still need to check for substitution in command name
+      const substitutedCommand = this.applySubstitution(commandStr.trim(), substitutionContext);
+      return { command: substitutedCommand, arguments: [] };
     }
     
-    const command = commandStr.substring(0, commandEnd).trim();
+    const command = this.applySubstitution(commandStr.substring(0, commandEnd).trim(), substitutionContext);
     const argsStr = commandStr.substring(commandEnd).trim();
     
     if (!argsStr) {
       return { command, arguments: [] };
     }
     
-    const args = this.parseArguments(argsStr);
+    const args = this.parseArguments(argsStr, substitutionContext);
+    
+    this.logger.debug(`Parsed command: "${command}" with args: ${JSON.stringify(args)}`);
     
     return { command, arguments: args };
   }
   
-  private parseArguments(argsStr: string): any[] {
+  private parseArguments(argsStr: string, substitutionContext?: SubstitutionContext): any[] {
     const args: any[] = [];
     let currentArg = '';
     let inQuote = false;
     let quoteChar: string | null = null;
     let parenCount = 0;
+    let braceCount = 0;
     let i = 0;
     
     while (i < argsStr.length) {
@@ -633,10 +756,27 @@ export class CommandExecutor {
         continue;
       }
       
-      if (!inQuote && parenCount === 0 && char === ',') {
-        args.push(this.parseArgumentValue(currentArg.trim()));
+      // NEW: Handle braces
+      if (!inQuote && char === '{') {
+        braceCount++;
+        currentArg += char;
+        i++;
+        continue;
+      }
+      
+      if (!inQuote && char === '}') {
+        braceCount--;
+        currentArg += char;
+        i++;
+        continue;
+      }
+      
+      // Only use comma as separator (correct PawScript syntax)
+      if (!inQuote && parenCount === 0 && braceCount === 0 && char === ',') {
+        args.push(this.parseArgumentValue(currentArg.trim(), substitutionContext));
         currentArg = '';
         
+        // Skip whitespace after comma
         while (i + 1 < argsStr.length && (argsStr[i + 1] === ' ' || argsStr[i + 1] === '\t')) {
           i++;
         }
@@ -650,16 +790,19 @@ export class CommandExecutor {
     }
     
     if (currentArg.trim() || args.length > 0) {
-      args.push(this.parseArgumentValue(currentArg.trim()));
+      args.push(this.parseArgumentValue(currentArg.trim(), substitutionContext));
     }
     
     return args;
   }
   
-  private parseArgumentValue(argStr: string): any {
+  private parseArgumentValue(argStr: string, substitutionContext?: SubstitutionContext): any {
     if (!argStr) {
       return null;
     }
+    
+    // Apply substitution first, before checking for other patterns
+    argStr = this.applySubstitution(argStr, substitutionContext);
     
     if (argStr.startsWith('(') && argStr.endsWith(')')) {
       return argStr.substring(1, argStr.length - 1);
@@ -680,6 +823,160 @@ export class CommandExecutor {
     return argStr;
   }
   
+  // NEW: Apply substitution patterns with two-stage process
+  private applySubstitution(str: string, substitutionContext?: SubstitutionContext): string {
+    if (!substitutionContext) {
+      return str;
+    }
+    
+    let result = str;
+    
+    // Stage 1: Token Assembly - resolve all brace expressions
+    result = this.substituteBraceExpressions(result, substitutionContext);
+    
+    // Stage 2: Token Re-evaluation - apply substitution patterns to the complete token
+    // Handle $* (all arguments)
+    if (substitutionContext.args.length > 0) {
+      const allArgs = substitutionContext.args.map(arg => this.formatArgumentForSubstitution(arg)).join(', ');
+      result = result.replace(/\$\*/g, allArgs);
+    } else {
+      result = result.replace(/\$\*/g, '');
+    }
+    
+    // Handle $# (argument count)
+    result = result.replace(/\$#/g, substitutionContext.args.length.toString());
+    
+    // Handle $1, $2, etc. (indexed arguments)
+    result = result.replace(/\$(\d+)/g, (match, indexStr) => {
+      const index = parseInt(indexStr, 10) - 1; // Convert to 0-based
+      if (index >= 0 && index < substitutionContext.args.length) {
+        return this.formatArgumentForSubstitution(substitutionContext.args[index]);
+      }
+      return match; // Leave unchanged if out of bounds
+    });
+    
+    return result;
+  }
+  
+  // NEW: Handle brace expressions {...} with any surrounding text
+  private substituteBraceExpressions(str: string, substitutionContext: SubstitutionContext): string {
+    let result = str;
+    let modified = true;
+    
+    // Keep processing until no more braces are found (handles nested cases)
+    while (modified) {
+      modified = false;
+      
+      // Find the first complete brace pair (not counting nested pairs)
+      let braceStart = -1;
+      let braceEnd = -1;
+      let braceDepth = 0;
+      
+      for (let i = 0; i < result.length; i++) {
+        const char = result[i];
+        
+        if (char === '{') {
+          if (braceDepth === 0) {
+            braceStart = i;
+          }
+          braceDepth++;
+        } else if (char === '}') {
+          braceDepth--;
+          if (braceDepth === 0 && braceStart !== -1) {
+            braceEnd = i;
+            break;
+          }
+        }
+      }
+      
+      // If we found a complete brace pair, process it
+      if (braceStart !== -1 && braceEnd !== -1) {
+        const beforeBrace = result.substring(0, braceStart);
+        const braceContent = result.substring(braceStart + 1, braceEnd);
+        const afterBrace = result.substring(braceEnd + 1);
+        
+        try {
+          // Create child execution state that inherits current result
+          const childState = substitutionContext.executionState.createChildState();
+          
+          // Execute the brace content as a command
+          const executeResult = this.executeWithState(braceContent, childState, substitutionContext);
+          
+          // Get the execution result
+          let executionValue = '';
+          if (childState.hasResultValue()) {
+            executionValue = String(childState.getResult());
+          } else if (typeof executeResult === 'boolean') {
+            executionValue = executeResult.toString();
+          } else if (typeof executeResult === 'string' && !executeResult.startsWith('token_')) {
+            executionValue = executeResult;
+          }
+          
+          // Assemble the new token: beforeBrace + executionValue + afterBrace
+          const assembledToken = beforeBrace + executionValue + afterBrace;
+          
+          // Now re-evaluate the assembled token for further substitution patterns
+          result = this.reEvaluateToken(assembledToken, substitutionContext);
+          modified = true;
+          
+        } catch (error) {
+          this.logger.error(`Error evaluating brace expression {${braceContent}}: ${error}`);
+          // Leave the expression unchanged on error and continue
+          break;
+        }
+      }
+    }
+    
+    return result;
+  }
+  
+  // NEW: Re-evaluate an assembled token for macro calls and substitution patterns
+  private reEvaluateToken(token: string, substitutionContext: SubstitutionContext): string {
+    let result = token;
+    
+    // First check if the token (or part of it) is a macro name
+    // We need to be careful here - we only want to re-evaluate if it's a complete token
+    // that would make sense as a command, not arbitrary text
+    
+    // For now, let's implement basic re-evaluation for argument substitution patterns
+    // Handle $* (all arguments)
+    if (substitutionContext.args.length > 0) {
+      const allArgs = substitutionContext.args.map(arg => this.formatArgumentForSubstitution(arg)).join(', ');
+      result = result.replace(/\$\*/g, allArgs);
+    } else {
+      result = result.replace(/\$\*/g, '');
+    }
+    
+    // Handle $# (argument count)
+    result = result.replace(/\$#/g, substitutionContext.args.length.toString());
+    
+    // Handle $1, $2, etc. (indexed arguments)
+    result = result.replace(/\$(\d+)/g, (match, indexStr) => {
+      const index = parseInt(indexStr, 10) - 1; // Convert to 0-based
+      if (index >= 0 && index < substitutionContext.args.length) {
+        return this.formatArgumentForSubstitution(substitutionContext.args[index]);
+      }
+      return match; // Leave unchanged if out of bounds
+    });
+    
+    return result;
+  }
+  
+  private formatArgumentForSubstitution(arg: any): string {
+    if (typeof arg === 'string') {
+      // If the string contains spaces or special characters, quote it
+      if (arg.includes(' ') || arg.includes(';') || arg.includes('&') || arg.includes('|') || arg.includes(',')) {
+        return `'${arg.replace(/'/g, "\\'")}'`;
+      }
+      return arg;
+    } else if (typeof arg === 'number' || typeof arg === 'boolean') {
+      return String(arg);
+    } else {
+      // For other types, convert to JSON string
+      return `'${JSON.stringify(arg).replace(/'/g, "\\'")}'`;
+    }
+  }
+  
   private parseStringLiteral(str: string): string {
     return str
       .replace(/\\'/g, "'")
@@ -694,6 +991,7 @@ export class CommandExecutor {
     let inQuote = false;
     let quoteChar: string | null = null;
     let parenCount = 0;
+    let braceCount = 0;
     
     for (let i = 0; i < str.length; i++) {
       const c = str[i];
@@ -728,7 +1026,17 @@ export class CommandExecutor {
         continue;
       }
       
-      if (c === char && !inQuote && parenCount === 0) {
+      if (!inQuote && c === '{') {
+        braceCount++;
+        continue;
+      }
+      
+      if (!inQuote && c === '}') {
+        braceCount--;
+        continue;
+      }
+      
+      if (c === char && !inQuote && parenCount === 0 && braceCount === 0) {
         return true;
       }
     }
@@ -753,6 +1061,7 @@ export class CommandExecutor {
     let inQuote = false;
     let quoteChar: string | null = null;
     let parenCount = 0;
+    let braceCount = 0;
     let currentCmd = '';
     
     for (let i = 0; i < str.length; i++) {
@@ -790,7 +1099,19 @@ export class CommandExecutor {
         continue;
       }
       
-      if (char === delimiter && !inQuote && parenCount === 0) {
+      if (!inQuote && char === '{') {
+        braceCount++;
+        currentCmd += char;
+        continue;
+      }
+      
+      if (!inQuote && char === '}') {
+        braceCount--;
+        currentCmd += char;
+        continue;
+      }
+      
+      if (char === delimiter && !inQuote && parenCount === 0 && braceCount === 0) {
         commands.push(currentCmd.trim());
         currentCmd = '';
         continue;
