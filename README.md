@@ -1,4 +1,4 @@
-# PawScript
+```# PawScript
 
 PawScript: A command language with token-based suspension for text editors and command-driven applications.
 
@@ -82,16 +82,68 @@ pawscript.execute('macro hello(save_file; exit)');
 // Becomes: pawscript.execute("macro 'hello', (save_file; exit)");
 ```
 
+## Built-in Commands
+
+When `allowMacros` is enabled (default), PawScript automatically registers these built-in commands:
+
+### Macro Commands
+- `macro <name>, <commands>` - Define a new macro
+- `call <name>` - Execute a macro by name
+- `macro_list` - List all defined macros
+- `macro_delete <name>` - Delete a specific macro
+- `macro_clear` - Clear all macros
+
 ### Macros
 ```typescript
-// Define macro
-pawscript.defineMacro('quick_save', 'save_file; update_status "Saved"');
+// Define macro using built-in command with syntactic sugar
+pawscript.execute("macro quick_save(save_file; update_status 'Saved')");
 
-// Execute macro
+// Define macro with arguments
+pawscript.execute("macro greet(echo 'Hello $1!')");
+
+// Execute macro using built-in command
+pawscript.execute('call quick_save');
+
+// Execute macro with arguments
+pawscript.execute("call greet 'World'");
+
+// Or execute macro directly (if it's defined)
 pawscript.execute('quick_save');
+pawscript.execute("greet 'Alice'");
 
 // Macros in sequences
 pawscript.execute('quick_save; close_buffer');
+
+// Programmatic macro management (bypasses syntactic sugar)
+pawscript.defineMacro('quick_save', 'save_file; update_status "Saved"');
+pawscript.executeMacro('quick_save');
+
+### Usage Examples
+```typescript
+// Define a macro (using syntactic sugar)
+pawscript.execute("macro quick_save(save_file; update_status 'Saved')");
+
+// Execute a macro
+pawscript.execute('call quick_save');
+
+// List all macros
+pawscript.execute('macro_list');
+
+// Delete a macro
+pawscript.execute('macro_delete quick_save');
+
+// Clear all macros
+pawscript.execute('macro_clear');
+```
+
+### Disabling Built-in Commands
+```typescript
+const pawscript = new PawScript({
+  allowMacros: false  // Disables macro commands
+});
+
+// Or dynamically
+pawscript.configure({ allowMacros: false });
 ```
 
 ## Token-Based Suspension (The "Paws" Feature)
@@ -422,10 +474,16 @@ pawscript.registerCommand('context_aware', (ctx) => {
 
 ## The Name
 
-*PawScript** gets its name from the token-based suspension system - when a command needs to
-wait for an async operation to complete, execution "paws" (pauses) until the operation finishes.
-The name also nods to the language's origins in the mew text editor (which has a cat mascot),
-while being generic enough for standalone use.
+**PawScript** gets its name from the token-based suspension system - when a command needs to wait for an async operation to complete, execution "paws" (pauses) until the operation finishes. The name also nods to the language's origins in the mew text editor (which has a cat mascot), while being professional enough for standalone use.
+
+## Migration from Other Command Systems
+
+If you're migrating from a different command system:
+
+1. **Wrap existing handlers**: Your existing command handlers can be wrapped to match the PawScriptHandler interface
+2. **Update async commands**: Convert Promise-based async commands to use the token pattern
+3. **Configure syntax**: Disable syntactic sugar if you need exact command parsing compatibility
+4. **Update macros**: Migrate existing macros to PawScript's macro system
 
 ## License
 
@@ -441,7 +499,7 @@ MIT
 
 ## Changelog
 
-### 0.1.1
+### 0.1.2
 - Initial release
 - Basic command execution with sequences, conditionals, and alternatives
 - Token-based suspension system ("paws" feature)

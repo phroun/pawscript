@@ -22,8 +22,8 @@ export class MacroSystem {
     return true;
   }
   
-  executeMacro(name: string, executeCallback: (commands: string) => any): any {
-    this.logger.debug(`Executing macro: ${name}`);
+  executeMacro(name: string, executeCallback: (commands: string) => any, args: any[] = []): any {
+    this.logger.debug(`Executing macro: ${name} with args: ${JSON.stringify(args)}`);
     
     if (!name) {
       this.logger.error('Macro name is required');
@@ -35,7 +35,14 @@ export class MacroSystem {
       return false;
     }
     
-    const commands = this.macros.get(name)!;
+    let commands = this.macros.get(name)!;
+    
+    // Substitute arguments if provided
+    if (args.length > 0) {
+      commands = this.substituteArguments(commands, args);
+      this.logger.debug(`Macro "${name}" after argument substitution: ${commands}`);
+    }
+    
     this.logger.debug(`Executing macro "${name}" with commands: ${commands}`);
     
     try {
@@ -45,6 +52,40 @@ export class MacroSystem {
     } catch (error) {
       this.logger.error(`Error executing macro "${name}": ${error}`, error);
       return false;
+    }
+  }
+  
+  private substituteArguments(commands: string, args: any[]): string {
+    let result = commands;
+    
+    // Replace $1, $2, $3, etc. with the corresponding arguments
+    for (let i = 0; i < args.length; i++) {
+      const placeholder = `${i + 1}`;
+      const argValue = this.formatArgumentForSubstitution(args[i]);
+      result = result.replace(new RegExp('\\' + placeholder, 'g'), argValue);
+    }
+    
+    // Replace $* with all arguments
+    if (args.length > 0) {
+      const allArgs = args.map(arg => this.formatArgumentForSubstitution(arg)).join(', ');
+      result = result.replace(/\$\*/g, allArgs);
+    }
+    
+    return result;
+  }
+  
+  private formatArgumentForSubstitution(arg: any): string {
+    if (typeof arg === 'string') {
+      // If the string contains spaces or special characters, quote it
+      if (arg.includes(' ') || arg.includes(';') || arg.includes('&') || arg.includes('|')) {
+        return `'${arg.replace(/'/g, "\\'")}'`;
+      }
+      return arg;
+    } else if (typeof arg === 'number' || typeof arg === 'boolean') {
+      return String(arg);
+    } else {
+      // For other types, convert to JSON string
+      return `'${JSON.stringify(arg).replace(/'/g, "\\'")}'`;
     }
   }
   

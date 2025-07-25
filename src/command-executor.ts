@@ -27,7 +27,17 @@ export class CommandExecutor {
       this.registerCommand(name, handler);
     }
   }
-  
+
+  unregisterCommand(name: string): boolean {
+    if (this.commands.has(name)) {
+      this.commands.delete(name);
+      this.logger.debug(`Unregistered command: ${name}`);
+      return true;
+    }
+    this.logger.warn(`Attempted to unregister unknown command: ${name}`);
+    return false;
+  }
+    
   setFallbackHandler(handler: (cmdName: string, args: any[]) => any): void {
     this.fallbackHandler = handler;
   }
@@ -194,7 +204,6 @@ export class CommandExecutor {
         return false;
       }
       
-      // We know it's a boolean at this point since we checked for token above
       success = cmdResult as boolean;
     }
     
@@ -218,7 +227,6 @@ export class CommandExecutor {
         return false;
       }
       
-      // We know it's a boolean at this point since we checked for token above
       success = cmdResult as boolean;
       if (!success) break; // Stop on failure for conditional
     }
@@ -326,33 +334,23 @@ export class CommandExecutor {
   }
 
   private applySyntacticSugar(commandStr: string): string {
-    // Don't apply syntactic sugar to commands that already have proper argument syntax
-    // i.e., if it's just "command (args)" without any identifier() pattern, leave it alone
-    
-    // Only transform patterns like: macro hello(world) -> macro 'hello', (world)
-    // But NOT patterns like: test (grouped content) -> leave as is
-    
-    // Look for identifier(content) pattern where identifier is NOT the command name
     const spaceIndex = commandStr.indexOf(' ');
     if (spaceIndex === -1) {
-      return commandStr; // No arguments, no transformation needed
+      return commandStr;
     }
     
     const commandPart = commandStr.substring(0, spaceIndex);
     const argsPart = commandStr.substring(spaceIndex + 1);
     
-    // Check if args part matches identifier(content) pattern
     const identifierParenMatch = argsPart.match(/^([a-zA-Z_][a-zA-Z0-9_]*)\s*\((.+)\)$/);
     
     if (identifierParenMatch) {
       const identifier = identifierParenMatch[1];
       const content = identifierParenMatch[2];
       
-      // Transform: command identifier(content) -> command 'identifier', (content)
       return `${commandPart} '${identifier}', (${content})`;
     }
     
-    // No transformation needed
     return commandStr;
   }
   
@@ -388,7 +386,6 @@ export class CommandExecutor {
         }
       }
       
-      // We know it's a boolean at this point since we checked for token above
       success = result as boolean;
     }
     
@@ -427,7 +424,6 @@ export class CommandExecutor {
         }
       }
       
-      // We know it's a boolean at this point since we checked for token above
       success = result as boolean;
       if (!success) break;
     }
@@ -467,7 +463,6 @@ export class CommandExecutor {
         }
       }
       
-      // We know it's a boolean at this point since we checked for token above
       success = result as boolean;
       if (success) break;
     }
