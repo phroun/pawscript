@@ -11,16 +11,14 @@ export class MacroSystem {
   }
   
   defineMacro(name: string, commands: string): boolean {
-    this.logger.debug(`Defining macro: ${name} = ${commands}`);
-    
+
     if (!name || !commands) {
       this.logger.error('Macro name and commands are required');
       return false;
     }
-    
+
     this.macros.set(name, commands);
-    this.logger.debug(`Macro "${name}" defined successfully`);
-    
+
     return true;
   }
   
@@ -30,8 +28,7 @@ export class MacroSystem {
     args: any[] = [],
     executionState?: ExecutionState
   ): any {
-    this.logger.debug(`Executing macro: ${name} with args: ${JSON.stringify(args)}`);
-    
+
     if (!name) {
       this.logger.error('Macro name is required');
       return false;
@@ -43,8 +40,7 @@ export class MacroSystem {
     }
     
     let commands = this.macros.get(name)!;
-    this.logger.debug(`Original macro commands: ${commands}`);
-    
+
     // Create execution state if not provided
     const macroExecutionState = executionState || new ExecutionState();
     
@@ -54,14 +50,11 @@ export class MacroSystem {
       executionState: macroExecutionState
     };
     
-    this.logger.debug(`Executing macro "${name}" with substitution context`);
-    
     try {
       // The substitution now happens during parsing, not here
       // Just execute the commands with the substitution context
       const result = executeCallback(commands, macroExecutionState, substitutionContext);
-      this.logger.debug(`Macro "${name}" executed with result: ${result}`);
-      
+
       // The macro's formal result is whatever the execution state contains
       // This gets propagated back to the caller
       return result;
@@ -86,14 +79,12 @@ export class MacroSystem {
     }
     
     this.macros.delete(name);
-    this.logger.debug(`Macro "${name}" deleted successfully`);
     return true;
   }
   
   clearMacros(): number {
     const count = this.macros.size;
     this.macros.clear();
-    this.logger.debug(`Cleared ${count} macros`);
     return count;
   }
   

@@ -31,22 +31,13 @@ export class PawScript {
     // Set up macro fallback handler
     this.executor.setFallbackHandler((cmdName: string, args: any[], executionState?: any) => {
       if (this.config.allowMacros && this.macroSystem.hasMacro(cmdName)) {
-        console.log('FALLBACK: cmdName =', cmdName);
-        console.log('FALLBACK: executionState provided =', !!executionState);
-        console.log('FALLBACK: executionState hasResult =', executionState?.hasResultValue?.());
-        
         // Use the provided execution state from the caller, or create new one as fallback
         const macroExecutionState = executionState || new ExecutionState();
-        
-        console.log('FALLBACK: using same state =', macroExecutionState === executionState);
         
         // Execute macro with the provided arguments
         const result = this.macroSystem.executeMacro(cmdName, (commands, macroState, substitutionContext) => {
           return this.executor.executeWithState(commands, macroState, substitutionContext);
         }, args, macroExecutionState);
-        
-        console.log('FALLBACK: after macro execution, state hasResult =', macroExecutionState.hasResultValue());
-        console.log('FALLBACK: after macro execution, state result =', macroExecutionState.getResult());
         
         return result;
       }
@@ -57,13 +48,9 @@ export class PawScript {
     if (this.config.allowMacros) {
       this.registerBuiltInMacroCommands();
     }
-    
-    this.logger.debug('PawScript initialized');
   }
   
   private registerBuiltInMacroCommands(): void {
-    this.logger.debug('Registering built-in macro commands');
-    
     // Define macro command
     this.executor.registerCommand('macro', (context) => {
       if (context.args.length < 2) {
@@ -77,9 +64,7 @@ export class PawScript {
       const commands = context.args[1];
       
       const result = this.macroSystem.defineMacro(name, commands);
-      if (result && context.host.updateStatus) {
-        context.host.updateStatus(`PawScript macro "${name}" defined`);
-      } else if (!result && context.host.updateStatus) {
+      if (!result && context.host.updateStatus) {
         context.host.updateStatus(`Failed to define macro "${name}"`);
       }
       
@@ -193,8 +178,6 @@ export class PawScript {
       }
       return true;
     });
-    
-    this.logger.debug('Built-in macro commands registered');
   }
   
   setHost(host: IPawScriptHost): void {
@@ -219,15 +202,11 @@ export class PawScript {
   }
   
   private unregisterBuiltInMacroCommands(): void {
-    this.logger.debug('Unregistering built-in macro commands');
-    
     this.executor.unregisterCommand('macro');
     this.executor.unregisterCommand('call');
     this.executor.unregisterCommand('macro_list');
     this.executor.unregisterCommand('macro_delete');
     this.executor.unregisterCommand('macro_clear');
-    
-    this.logger.debug('Built-in macro commands unregistered');
   }
   
   registerCommand(name: string, handler: PawScriptHandler): void {

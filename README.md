@@ -10,12 +10,62 @@ PawScript: A command language with token-based suspension for text editors and c
 - **Syntactic Sugar**: Automatic transformation of convenient syntax patterns
 - **Type Safety**: Full TypeScript support with comprehensive type definitions
 - **Host Agnostic**: Clean interface for integration with any application
+- **Command Line Tool**: Execute PawScript files directly from the command line
 
 ## Installation
 
 ```bash
 npm install pawscript
 ```
+
+## Command Line Usage
+
+PawScript includes a `paw` command-line tool for executing scripts:
+
+```bash
+# Execute a script file
+paw hello.paw
+
+# Execute with arguments
+paw script.paw -- arg1 arg2 arg3
+
+# Execute from stdin
+echo "echo 'Hello World'" | paw
+
+# Execute redirected input with arguments
+paw -- arg1 arg2 < script.paw
+
+# Auto-adds .paw extension
+paw hello  # Executes hello.paw
+```
+
+### Standard Library Commands
+
+The CLI provides these built-in commands:
+
+- **`argc`** - Returns the number of script arguments
+- **`argv [index]`** - Returns all arguments or a specific argument by index
+- **`echo/write/print <text>`** - Output text to stdout
+- **`read`** - Read a line from stdin (interactive or redirected)
+- **`true`** - Sets success state (exit code 0)
+- **`false`** - Sets error state (exit code 1)
+
+### Example Scripts
+
+**hello.paw:**
+```bash
+echo "Hello from PawScript!";
+echo "You provided {argc} arguments";
+```
+
+**interactive.paw:**
+```bash
+echo "What's your name?";
+read;
+echo "Hello, {get_result}!";
+```
+
+## Library Usage
 
 ## Quick Start
 
@@ -180,6 +230,33 @@ pawscript.execute('async_operation; echo "This runs after async completes"');
 3. **Resume Later**: Call `ctx.resumeToken()` when the async operation completes
 4. **Cleanup Support**: Provide cleanup callbacks for interruption handling
 
+## Result Management
+
+PawScript commands can set **formal results** that flow through command sequences:
+
+```typescript
+pawscript.registerCommand('calculate', (ctx) => {
+  const result = Number(ctx.args[0]) + Number(ctx.args[1]);
+  ctx.setResult(result);  // Set formal result
+  return true;            // Indicate success
+});
+
+// Result flows through sequences
+pawscript.execute('calculate 5, 3; print_result');  // Prints 8
+```
+
+### Brace Expressions
+
+Use `{...}` for command evaluation and `${...}` for prefixed evaluation:
+
+```typescript
+// Execute command and substitute result
+pawscript.execute('echo {calculate 10, 5}');  // Outputs: 15
+
+// Execute command and prefix result with $
+pawscript.execute('echo ${get_arg_number}');  // If returns "2", outputs: $2
+```
+
 ## Host Interface
 
 PawScript integrates with your application through a host interface:
@@ -292,6 +369,11 @@ interface PawScriptContext {
   state: any;                     // Current application state
   requestToken(cleanup?: Function): string;  // Request async token
   resumeToken(tokenId: string, result: boolean): void;  // Resume token
+  // Result management
+  setResult(value: any): void;    // Set formal result
+  getResult(): any;               // Get current result
+  hasResult(): boolean;           // Check if result exists
+  clearResult(): void;            // Clear current result
 }
 ```
 
@@ -499,7 +581,21 @@ MIT
 
 ## Changelog
 
+### 0.1.3
+- Implemented braces for command evaluation (function-like behavior)
+- Implemented substitution for macro arguments $* $# $1 $2
+- Added result management system with formal results, in addition to the success/fail states
+- Added command-line tool (`paw`) for executing PawScript files
+- Added standard library commands (argc, argv, echo, read, true, false)
+- Fixed syntactic sugar parsing for multi-line content
+- Fixed token suspension and resumption for async operations
+- Improved macro execution with proper state management
+- Enhanced test coverage and documentation
+
 ### 0.1.2
+- Minor fixes
+
+### 0.1.1
 - Initial release
 - Basic command execution with sequences, conditionals, and alternatives
 - Token-based suspension system ("paws" feature)

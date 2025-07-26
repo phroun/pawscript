@@ -132,11 +132,6 @@ export class CommandExecutor {
     
     this.logger.debug(`Popping command sequence from token ${tokenId}. Type: ${tokenData.commandSequence?.type}, Result: ${result}, hasFinalResult: ${hasFinalResult}`);
     
-    // Debug logging
-    console.log('RESUME: Token data executionState:', !!tokenData.executionState);
-    console.log('RESUME: Token data executionState hasResult:', tokenData.executionState?.hasResultValue());
-    console.log('RESUME: Token data executionState result:', tokenData.executionState?.getResult());
-    
     this.cleanupTokenChildren(tokenId);
     
     if (tokenData.timeoutId) {
@@ -145,9 +140,6 @@ export class CommandExecutor {
     
     // FIXED: Use the stored execution state instead of creating a new one
     const executionState = tokenData.executionState || new ExecutionState();
-    
-    console.log('RESUME: Using execution state hasResult:', executionState.hasResultValue());
-    console.log('RESUME: Using execution state result:', executionState.getResult());
     
     // Remove the old logic that was overriding the execution state
     // We don't need to restore snapshots anymore since we're using the actual state
@@ -326,12 +318,6 @@ export class CommandExecutor {
   }
   
   executeWithState(commandStr: string, executionState: ExecutionState, substitutionContext?: SubstitutionContext): boolean | string {
-    // Apply syntactic sugar BEFORE parsing the command
-    commandStr = this.applySyntacticSugar(commandStr);
-    
-    this.logger.debug(`After syntactic sugar: ${commandStr}`);
-    this.logger.debug(`Checking command: ${commandStr}`);
-    
     const hasSequence = this.hasUnquotedChar(commandStr, ';');
     this.logger.debug(`hasSequence: ${hasSequence}`);
     if (hasSequence) {
@@ -389,7 +375,7 @@ export class CommandExecutor {
     const commandPart = commandStr.substring(0, spaceIndex);
     const argsPart = commandStr.substring(spaceIndex + 1);
     
-    const identifierParenMatch = argsPart.match(/^([a-zA-Z_][a-zA-Z0-9_]*)\s*\((.+)\)$/);
+    const identifierParenMatch = argsPart.match(/^([a-zA-Z_][a-zA-Z0-9_]*)\s*\((.+?)\)(.*)$/s);
     
     if (identifierParenMatch) {
       const identifier = identifierParenMatch[1];
@@ -412,13 +398,6 @@ export class CommandExecutor {
       if (!cmd.trim()) continue;
       
       const result = this.executeSingleCommandInternal(cmd, executionState, substitutionContext);
-
-      console.log('SEQUENCE: Command result:', result, 'Type:', typeof result);
-      if (typeof result === 'string' && result.startsWith('token_')) {
-        console.log('SEQUENCE: Token detected, should suspend');
-      } else {
-        console.log('SEQUENCE: No token, continuing sequence');
-      }
 
       if (result && typeof result === 'string' && result.startsWith('token_')) {
         this.logger.debug(`Command ${cmd} returned token ${result}, setting up sequence continuation`);
@@ -562,6 +541,9 @@ export class CommandExecutor {
   
   private executeSingleCommand(commandStr: string, executionState: ExecutionState, substitutionContext?: SubstitutionContext): boolean | string {
     commandStr = commandStr.trim();
+
+    // Apply syntactic sugar to the individual command
+    commandStr = this.applySyntacticSugar(commandStr);
     
     this.logger.debug(`executeSingleCommand called with: "${commandStr}"`);
     

@@ -1,9 +1,12 @@
 {
   "name": "pawscript",
-  "version": "0.1.2",
+  "version": "0.1.3",
   "description": "PawScript: A command language with token-based suspension for text editors and command-driven applications",
   "main": "dist/index.js",
   "types": "dist/index.d.ts",
+  "bin": {
+    "paw": "dist/paw.js"
+  },
   "scripts": {
     "build": "tsc",
     "watch": "tsc --watch",
