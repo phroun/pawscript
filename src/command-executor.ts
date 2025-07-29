@@ -318,6 +318,9 @@ export class CommandExecutor {
   }
   
   executeWithState(commandStr: string, executionState: ExecutionState, substitutionContext?: SubstitutionContext): boolean | string {
+    // Remove comments before processing the command
+    commandStr = this.removeComments(commandStr);
+    
     const hasSequence = this.hasUnquotedChar(commandStr, ';');
     this.logger.debug(`hasSequence: ${hasSequence}`);
     if (hasSequence) {
@@ -341,6 +344,143 @@ export class CommandExecutor {
     
     this.logger.debug('Executing as single command');
     return this.executeSingleCommand(commandStr, executionState, substitutionContext);
+  }
+  
+  private removeComments(commandStr: string): string {
+    let result = '';
+    let i = 0;
+    const length = commandStr.length;
+    
+    while (i < length) {
+      const char = commandStr[i];
+      
+      // Handle escape sequences
+      if (char === '\\' && i + 1 < length) {
+        result += char + commandStr[i + 1];
+        i += 2;
+        continue;
+      }
+      
+      // Handle quoted strings - skip comment processing inside quotes
+      if (char === '"') {
+        result += char;
+        i++;
+        
+        // Find the end of the quoted string
+        while (i < length) {
+          const quoteChar = commandStr[i];
+          result += quoteChar;
+          
+          if (quoteChar === '\\' && i + 1 < length) {
+            // Handle escaped characters in quotes
+            result += commandStr[i + 1];
+            i += 2;
+          } else if (quoteChar === '"') {
+            i++;
+            break;
+          } else {
+            i++;
+          }
+        }
+        continue;
+      }
+      
+      // Check for comments starting with #
+      if (char === '#') {
+        // Check for block comments #( ... )# or #{ ... }#
+        if (i + 1 < length) {
+          const nextChar = commandStr[i + 1];
+          if (nextChar === '(' || nextChar === '{') {
+            const closeChar = nextChar === '(' ? ')' : '}';
+            
+            // Skip the block comment
+            const skipResult = this.skipBlockComment(commandStr, i, closeChar);
+            i = skipResult.newIndex;
+            continue;
+          }
+        }
+        
+        // Check for line comments (#)
+        // Must be at start of line or preceded by whitespace
+        const isValidStart = i === 0 || /\s/.test(commandStr[i - 1]);
+        
+        if (isValidStart) {
+          // Must be followed by whitespace or end of string
+          const isFollowedByWhitespace = i + 1 >= length || /\s/.test(commandStr[i + 1]);
+          
+          if (isFollowedByWhitespace) {
+            // This is a line comment - skip to end of line or end of string
+            while (i < length && commandStr[i] !== '\n') {
+              i++;
+            }
+            // Include the newline if we found one
+            if (i < length && commandStr[i] === '\n') {
+              result += '\n';
+              i++;
+            }
+            continue;
+          }
+        }
+      }
+      
+      // Regular character - add to result
+      result += char;
+      i++;
+    }
+    
+    return result;
+  }
+  
+  private skipBlockComment(str: string, startIndex: number, closeChar: string): { newIndex: number } {
+    let i = startIndex + 2; // Skip the #( or #{
+    let depth = 1;
+    const openChar = closeChar === ')' ? '(' : '{';
+    
+    while (i < str.length && depth > 0) {
+      const char = str[i];
+      
+      // Handle escape sequences within comments (for \" handling)
+      if (char === '\\' && i + 1 < str.length) {
+        i += 2;
+        continue;
+      }
+      
+      // Handle quoted strings within comments (only double quotes)
+      if (char === '"') {
+        i++;
+        // Skip until end of quoted string
+        while (i < str.length) {
+          const quoteChar = str[i];
+          if (quoteChar === '\\' && i + 1 < str.length) {
+            i += 2;
+          } else if (quoteChar === '"') {
+            i++;
+            break;
+          } else {
+            i++;
+          }
+        }
+        continue;
+      }
+      
+      // Check for nested comment start
+      if (char === '#' && i + 1 < str.length && str[i + 1] === openChar) {
+        depth++;
+        i += 2;
+        continue;
+      }
+      
+      // Check for comment end
+      if (char === closeChar && i + 1 < str.length && str[i + 1] === '#') {
+        depth--;
+        i += 2;
+        continue;
+      }
+      
+      i++;
+    }
+    
+    return { newIndex: i };
   }
   
   private createContext(args: any[], executionState: ExecutionState): any {
