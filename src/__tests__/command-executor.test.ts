@@ -28,18 +28,20 @@ describe('CommandExecutor', () => {
       
       const result = executor.execute('test');
       expect(result).toBe(true);
-      expect(testCommand).toHaveBeenCalledWith({
-        host: expect.any(Object),
-        args: [],
-        state: { test: true },
-        requestToken: expect.any(Function),
-        resumeToken: expect.any(Function),
-        // NEW: Result management methods
-        setResult: expect.any(Function),
-        getResult: expect.any(Function),
-        hasResult: expect.any(Function),
-        clearResult: expect.any(Function),
-      });
+      expect(testCommand).toHaveBeenCalledWith(
+        expect.objectContaining({
+          host: expect.any(Object),
+          args: [],
+          state: { test: true },
+          requestToken: expect.any(Function),
+          resumeToken: expect.any(Function),
+          setResult: expect.any(Function),
+          getResult: expect.any(Function),
+          hasResult: expect.any(Function),
+          clearResult: expect.any(Function),
+          position: expect.any(Object),
+        })
+      );
     });
 
     test('should parse quoted strings', () => {
@@ -47,18 +49,20 @@ describe('CommandExecutor', () => {
       executor.registerCommand('test', testCommand);
       
       executor.execute("test 'hello world', \"quoted string\"");
-      expect(testCommand).toHaveBeenCalledWith({
-        host: expect.any(Object),
-        args: ['hello world', 'quoted string'],
-        state: { test: true },
-        requestToken: expect.any(Function),
-        resumeToken: expect.any(Function),
-        // NEW: Result management methods
-        setResult: expect.any(Function),
-        getResult: expect.any(Function),
-        hasResult: expect.any(Function),
-        clearResult: expect.any(Function),
-      });
+      expect(testCommand).toHaveBeenCalledWith(
+        expect.objectContaining({
+          host: expect.any(Object),
+          args: ['hello world', 'quoted string'],
+          state: { test: true },
+          requestToken: expect.any(Function),
+          resumeToken: expect.any(Function),
+          setResult: expect.any(Function),
+          getResult: expect.any(Function),
+          hasResult: expect.any(Function),
+          clearResult: expect.any(Function),
+          position: expect.any(Object),
+        })
+      );
     });
 
     test('should parse numbers and booleans', () => {
@@ -66,18 +70,20 @@ describe('CommandExecutor', () => {
       executor.registerCommand('test', testCommand);
       
       executor.execute('test 42, 3.14, true, false');
-      expect(testCommand).toHaveBeenCalledWith({
-        host: expect.any(Object),
-        args: [42, 3.14, true, false],
-        state: { test: true },
-        requestToken: expect.any(Function),
-        resumeToken: expect.any(Function),
-        // NEW: Result management methods
-        setResult: expect.any(Function),
-        getResult: expect.any(Function),
-        hasResult: expect.any(Function),
-        clearResult: expect.any(Function),
-      });
+      expect(testCommand).toHaveBeenCalledWith(
+        expect.objectContaining({
+          host: expect.any(Object),
+          args: [42, 3.14, true, false],
+          state: { test: true },
+          requestToken: expect.any(Function),
+          resumeToken: expect.any(Function),
+          setResult: expect.any(Function),
+          getResult: expect.any(Function),
+          hasResult: expect.any(Function),
+          clearResult: expect.any(Function),
+          position: expect.any(Object),
+        })
+      );
     });
 
     test('should handle parentheses grouping', () => {
@@ -93,18 +99,20 @@ describe('CommandExecutor', () => {
       console.log('Test command called:', testCommand.mock.calls.length, 'times');
       
       expect(result).toBe(true);
-      expect(testCommand).toHaveBeenCalledWith({
-        host: expect.any(Object),
-        args: ['grouped content'],
-        state: { test: true },
-        requestToken: expect.any(Function),
-        resumeToken: expect.any(Function),
-        // NEW: Result management methods
-        setResult: expect.any(Function),
-        getResult: expect.any(Function),
-        hasResult: expect.any(Function),
-        clearResult: expect.any(Function),
-      });
+      expect(testCommand).toHaveBeenCalledWith(
+        expect.objectContaining({
+          host: expect.any(Object),
+          args: ['grouped content'],
+          state: { test: true },
+          requestToken: expect.any(Function),
+          resumeToken: expect.any(Function),
+          setResult: expect.any(Function),
+          getResult: expect.any(Function),
+          hasResult: expect.any(Function),
+          clearResult: expect.any(Function),
+          position: expect.any(Object),
+        })
+      );
     });
   });
 
@@ -115,18 +123,20 @@ describe('CommandExecutor', () => {
       
       const result = executor.execute("test 'hello; world'");
       expect(result).toBe(true);
-      expect(testCommand).toHaveBeenCalledWith({
-        host: expect.any(Object),
-        args: ['hello; world'],
-        state: { test: true },
-        requestToken: expect.any(Function),
-        resumeToken: expect.any(Function),
-        // NEW: Result management methods
-        setResult: expect.any(Function),
-        getResult: expect.any(Function),
-        hasResult: expect.any(Function),
-        clearResult: expect.any(Function),
-      });
+      expect(testCommand).toHaveBeenCalledWith(
+        expect.objectContaining({
+          host: expect.any(Object),
+          args: ['hello; world'],
+          state: { test: true },
+          requestToken: expect.any(Function),
+          resumeToken: expect.any(Function),
+          setResult: expect.any(Function),
+          getResult: expect.any(Function),
+          hasResult: expect.any(Function),
+          clearResult: expect.any(Function),
+          position: expect.any(Object),
+        })
+      );
     });
 
     test('should respect parentheses when splitting', () => {
@@ -142,18 +152,92 @@ describe('CommandExecutor', () => {
       console.log('Command called times:', testCommand.mock.calls.length);
       
       expect(result).toBe(true);
-      expect(testCommand).toHaveBeenCalledWith({
-        host: expect.any(Object),
-        args: ['command1; command2'],
-        state: { test: true },
-        requestToken: expect.any(Function),
-        resumeToken: expect.any(Function),
-        // NEW: Result management methods
-        setResult: expect.any(Function),
-        getResult: expect.any(Function),
-        hasResult: expect.any(Function),
-        clearResult: expect.any(Function),
+      expect(testCommand).toHaveBeenCalledWith(
+        expect.objectContaining({
+          host: expect.any(Object),
+          args: ['command1; command2'],
+          state: { test: true },
+          requestToken: expect.any(Function),
+          resumeToken: expect.any(Function),
+          setResult: expect.any(Function),
+          getResult: expect.any(Function),
+          hasResult: expect.any(Function),
+          clearResult: expect.any(Function),
+          position: expect.any(Object),
+        })
+      );
+    });
+  });
+
+  describe('Newline-Aware Parsing', () => {
+    test('should handle commands separated by newlines', () => {
+      const testCommand = jest.fn().mockReturnValue(true);
+      executor.registerCommand('test', testCommand);
+      
+      const result = executor.execute('test\ntest\ntest');
+      expect(result).toBe(true);
+      expect(testCommand).toHaveBeenCalledTimes(3);
+    });
+
+    test('should handle operator continuation across lines', () => {
+      const testCommand = jest.fn().mockReturnValue(true);
+      executor.registerCommand('test', testCommand);
+      
+      const result = executor.execute('test &\ntest &\ntest');
+      expect(result).toBe(true);
+      expect(testCommand).toHaveBeenCalledTimes(3);
+    });
+
+    test('should ignore newlines inside parentheses', () => {
+      const testCommand = jest.fn().mockReturnValue(true);
+      executor.registerCommand('test', testCommand);
+      
+      const result = executor.execute('test (\nmulti\nline\ncontent\n)');
+      expect(result).toBe(true);
+      expect(testCommand).toHaveBeenCalledWith(
+        expect.objectContaining({
+          args: ['\nmulti\nline\ncontent\n']
+        })
+      );
+    });
+
+    test('should ignore newlines inside braces', () => {
+      const testCommand = jest.fn().mockReturnValue(true);
+      const calcCommand = jest.fn().mockImplementation((ctx) => {
+        ctx.setResult('calculated');
+        return true;
       });
+      executor.registerCommand('test', testCommand);
+      executor.registerCommand('calc', calcCommand);
+      
+      const result = executor.execute('test {\ncalc\n}');
+      expect(result).toBe(true);
+      expect(testCommand).toHaveBeenCalledWith(
+        expect.objectContaining({
+          args: ['calculated']
+        })
+      );
+    });
+  });
+
+  describe('Error Handling with Position Tracking', () => {
+    test('should report position information for unknown commands', () => {
+      const result = executor.execute('unknown_command');
+      expect(result).toBe(false);
+      expect(mockHost.updateStatus).toHaveBeenCalledWith('Unknown command: unknown_command');
+    });
+
+    test('should handle command execution errors with position tracking', () => {
+      const errorCommand = jest.fn().mockImplementation(() => {
+        throw new Error('Test error');
+      });
+      executor.registerCommand('error_cmd', errorCommand);
+      
+      const result = executor.execute('error_cmd');
+      expect(result).toBe(false);
+      expect(mockHost.updateStatus).toHaveBeenCalledWith(
+        expect.stringContaining('Error executing command: error_cmd')
+      );
     });
   });
 });

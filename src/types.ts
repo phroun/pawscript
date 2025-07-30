@@ -18,6 +18,27 @@ export interface IPawScriptHost {
   on?(event: string, handler: Function): void;
 }
 
+export interface SourcePosition {
+  line: number;
+  column: number;
+  length: number;
+  originalText: string;
+}
+
+export interface ParsedCommand {
+  command: string;
+  arguments: any[];
+  position: SourcePosition;
+  originalLine: string;
+  type: 'single' | 'sequence' | 'conditional' | 'or';
+}
+
+export interface PawScriptError extends Error {
+  position?: SourcePosition;
+  originalLine?: string;
+  context?: string[];
+}
+
 export interface PawScriptContext {
   // Host application reference
   host: IPawScriptHost;
@@ -28,11 +49,14 @@ export interface PawScriptContext {
   // Current state info (provided by host)
   state: any;
   
+  // Position information for error reporting
+  position?: SourcePosition;
+  
   // Utility methods
   requestToken(cleanup?: (tokenId: string) => void): string;
   resumeToken(tokenId: string, result: boolean): void;
   
-  // NEW: Result management
+  // Result management
   setResult(value: any): void;
   getResult(): any;
   hasResult(): boolean;
@@ -58,6 +82,10 @@ export interface PawScriptConfig {
     conditional: string; // default: '&'
     alternative: string; // default: '|'
   };
+  
+  // Error reporting
+  showErrorContext?: boolean;
+  contextLines?: number;
 }
 
 export interface TokenData {
@@ -68,29 +96,56 @@ export interface TokenData {
   timeoutId: NodeJS.Timeout | null;
   chainedToken: string | null;
   timestamp: number;
-  // UPDATED: Store the actual execution state reference, not just a snapshot
+  // Store the actual execution state reference
   executionState?: any; // The actual ExecutionState instance
   suspendedResult?: any;
   hasSuspendedResult?: boolean;
+  // Position tracking for error reporting
+  position?: SourcePosition;
 }
 
 export interface CommandSequence {
   type: 'sequence' | 'conditional' | 'or';
-  remainingCommands: string[];
+  remainingCommands: ParsedCommand[];
   currentIndex: number;
   totalCommands: number;
   originalCommand: string;
   timestamp: number;
-  // NEW: Result state for command sequences
+  // Result state for command sequences
   inheritedResult?: any;
   hasInheritedResult?: boolean;
+  // Position tracking
+  position?: SourcePosition;
 }
 
-// NEW: Execution state for result management (interface removed - using class directly)
-
-// NEW: Substitution context for macro argument access during brace evaluation
+// Substitution context for macro argument access during brace evaluation
 export interface SubstitutionContext {
   args: any[];
   executionState: any; // Will be ExecutionState class instance
   parentContext?: SubstitutionContext;
+}
+
+// Source mapping for tracking original positions through transformations
+export interface SourceMap {
+  originalLines: string[];
+  transformedToOriginal: Map<number, SourcePosition>;
+  addMapping(transformedPos: number, originalPos: SourcePosition): void;
+  getOriginalPosition(transformedPos: number): SourcePosition | null;
+}
+
+// Token with position information for parsing
+export interface PositionedToken {
+  text: string;
+  position: SourcePosition;
+  type: 'command' | 'argument' | 'operator' | 'separator';
+}
+
+// Parsing context that maintains position information
+export interface ParsingContext {
+  sourceMap: SourceMap;
+  currentLine: number;
+  currentColumn: number;
+  nestingDepth: number;
+  inQuote: boolean;
+  quoteChar: string | null;
 }

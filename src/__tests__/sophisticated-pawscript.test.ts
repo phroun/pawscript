@@ -280,9 +280,9 @@ describe('Sophisticated PawScript Examples', () => {
       pawscript.execute('make_border');
       
       expect(output).toEqual([
-        'border = -------------------', // 15 + 4 = 18 dashes
+        'border = -------------------', // 15 + 4 = 19 dashes (FIXED: was 18)
         'result = | Hello PawScript |',
-        'border = -------------------'
+        'border = -------------------'  // 15 + 4 = 19 dashes (FIXED: was 18)
       ]);
     });
   });
@@ -354,7 +354,7 @@ describe('Sophisticated PawScript Examples', () => {
     });
 
     test('should demonstrate error handling with conditionals', () => {
-      // Safe division with error handling
+      // Safe division with error handling - FIXED: removed incorrect parentheses
       pawscript.defineMacro('safe_divide',
         'if_eq b, 0 & print "Error: Division by zero" | div a, b & print_var result'
       );

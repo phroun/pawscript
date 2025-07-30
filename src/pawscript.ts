@@ -16,6 +16,8 @@ export class PawScript {
       defaultTokenTimeout: config.defaultTokenTimeout ?? 300000,
       enableSyntacticSugar: config.enableSyntacticSugar ?? true,
       allowMacros: config.allowMacros ?? true,
+      showErrorContext: config.showErrorContext ?? true,
+      contextLines: config.contextLines ?? 2,
       commandSeparators: {
         sequence: ';',
         conditional: '&',
@@ -186,7 +188,17 @@ export class PawScript {
   
   configure(config: Partial<PawScriptConfig>): void {
     const oldAllowMacros = this.config.allowMacros;
-    this.config = { ...this.config, ...config };
+    
+    // Update config with new values, preserving existing defaults
+    this.config = { 
+      ...this.config, 
+      ...config,
+      commandSeparators: {
+        ...this.config.commandSeparators,
+        ...config.commandSeparators
+      }
+    };
+    
     this.logger.setEnabled(this.config.debug);
     
     // Handle macro command registration/unregistration
@@ -285,5 +297,20 @@ export class PawScript {
   
   setFallbackHandler(handler: (cmdName: string, args: any[]) => any): void {
     this.executor.setFallbackHandler(handler);
+  }
+  
+  // Get current configuration
+  getConfig(): Required<PawScriptConfig> {
+    return { ...this.config };
+  }
+  
+  // Enable/disable error context reporting
+  setErrorContextEnabled(enabled: boolean): void {
+    this.config.showErrorContext = enabled;
+  }
+  
+  // Set number of context lines for error reporting
+  setContextLines(lines: number): void {
+    this.config.contextLines = Math.max(0, Math.min(10, lines)); // Clamp between 0-10
   }
 }

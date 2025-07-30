@@ -35,18 +35,21 @@ describe('PawScript', () => {
     test('should execute simple command', () => {
       const result = pawscript.execute('test_sync');
       expect(result).toBe(true);
-      expect(mockCommands.test_sync).toHaveBeenCalledWith({
-        host: mockHost,
-        args: [],
-        state: { cursor: { x: 0, y: 0 } },
-        requestToken: expect.any(Function),
-        resumeToken: expect.any(Function),
-        // NEW: Result management methods
-        setResult: expect.any(Function),
-        getResult: expect.any(Function),
-        hasResult: expect.any(Function),
-        clearResult: expect.any(Function),
-      });
+      expect(mockCommands.test_sync).toHaveBeenCalledWith(
+        expect.objectContaining({
+          host: mockHost,
+          args: [],
+          state: { cursor: { x: 0, y: 0 } },
+          requestToken: expect.any(Function),
+          resumeToken: expect.any(Function),
+          setResult: expect.any(Function),
+          getResult: expect.any(Function),
+          hasResult: expect.any(Function),
+          clearResult: expect.any(Function),
+          // Position field is now included but we don't need to test its exact value
+          position: expect.any(Object),
+        })
+      );
     });
 
     test('should execute command with arguments', () => {
@@ -55,18 +58,20 @@ describe('PawScript', () => {
       
       const result = pawscript.execute("test_args 'hello', 42, true");
       expect(result).toBe(true);
-      expect(testCommand).toHaveBeenCalledWith({
-        host: mockHost,
-        args: ['hello', 42, true],
-        state: { cursor: { x: 0, y: 0 } },
-        requestToken: expect.any(Function),
-        resumeToken: expect.any(Function),
-        // NEW: Result management methods
-        setResult: expect.any(Function),
-        getResult: expect.any(Function),
-        hasResult: expect.any(Function),
-        clearResult: expect.any(Function),
-      });
+      expect(testCommand).toHaveBeenCalledWith(
+        expect.objectContaining({
+          host: mockHost,
+          args: ['hello', 42, true],
+          state: { cursor: { x: 0, y: 0 } },
+          requestToken: expect.any(Function),
+          resumeToken: expect.any(Function),
+          setResult: expect.any(Function),
+          getResult: expect.any(Function),
+          hasResult: expect.any(Function),
+          clearResult: expect.any(Function),
+          position: expect.any(Object),
+        })
+      );
     });
 
     test('should handle unknown command', () => {
@@ -83,8 +88,20 @@ describe('PawScript', () => {
       expect(mockCommands.test_sync).toHaveBeenCalledTimes(2);
     });
 
+    test('should execute sequence with newlines', () => {
+      const result = pawscript.execute('test_sync\ntest_sync');
+      expect(result).toBe(true);
+      expect(mockCommands.test_sync).toHaveBeenCalledTimes(2);
+    });
+
     test('should execute conditional with ampersand', () => {
       const result = pawscript.execute('test_sync & test_sync');
+      expect(result).toBe(true);
+      expect(mockCommands.test_sync).toHaveBeenCalledTimes(2);
+    });
+
+    test('should execute conditional with ampersand and newlines', () => {
+      const result = pawscript.execute('test_sync &\ntest_sync');
       expect(result).toBe(true);
       expect(mockCommands.test_sync).toHaveBeenCalledTimes(2);
     });
@@ -98,6 +115,13 @@ describe('PawScript', () => {
 
     test('should execute OR with pipe', () => {
       const result = pawscript.execute('test_fail | test_sync');
+      expect(result).toBe(true);
+      expect(mockCommands.test_fail).toHaveBeenCalledTimes(1);
+      expect(mockCommands.test_sync).toHaveBeenCalledTimes(1);
+    });
+
+    test('should execute OR with pipe and newlines', () => {
+      const result = pawscript.execute('test_fail |\ntest_sync');
       expect(result).toBe(true);
       expect(mockCommands.test_fail).toHaveBeenCalledTimes(1);
       expect(mockCommands.test_sync).toHaveBeenCalledTimes(1);
@@ -188,18 +212,20 @@ describe('PawScript', () => {
       
       const result = pawscript.execute("test_sugar hello(world)");
       expect(result).toBe(true);
-      expect(testCommand).toHaveBeenCalledWith({
-        host: mockHost,
-        args: ['hello', 'world'],
-        state: { cursor: { x: 0, y: 0 } },
-        requestToken: expect.any(Function),
-        resumeToken: expect.any(Function),
-        // NEW: Result management methods
-        setResult: expect.any(Function),
-        getResult: expect.any(Function),
-        hasResult: expect.any(Function),
-        clearResult: expect.any(Function),
-      });
+      expect(testCommand).toHaveBeenCalledWith(
+        expect.objectContaining({
+          host: mockHost,
+          args: ['hello', 'world'],
+          state: { cursor: { x: 0, y: 0 } },
+          requestToken: expect.any(Function),
+          resumeToken: expect.any(Function),
+          setResult: expect.any(Function),
+          getResult: expect.any(Function),
+          hasResult: expect.any(Function),
+          clearResult: expect.any(Function),
+          position: expect.any(Object),
+        })
+      );
     });
   });
 
@@ -225,6 +251,48 @@ describe('PawScript', () => {
       
       const result2 = noMacroPawScript.executeMacro('test');
       expect(result2).toBe(false);
+    });
+
+    test('should support error context configuration', () => {
+      const contextPawScript = new PawScript({ 
+        showErrorContext: true, 
+        contextLines: 3 
+      });
+      
+      const config = contextPawScript.getConfig();
+      expect(config.showErrorContext).toBe(true);
+      expect(config.contextLines).toBe(3);
+    });
+  });
+
+  describe('Newline Handling', () => {
+    test('should handle multi-line commands without semicolons', () => {
+      const result = pawscript.execute(`
+        test_sync
+        test_sync
+        test_sync
+      `);
+      expect(result).toBe(true);
+      expect(mockCommands.test_sync).toHaveBeenCalledTimes(3);
+    });
+
+    test('should handle operator continuation across lines', () => {
+      const result = pawscript.execute(`
+        test_sync &
+        test_sync &
+        test_sync
+      `);
+      expect(result).toBe(true);
+      expect(mockCommands.test_sync).toHaveBeenCalledTimes(3);
+    });
+
+    test('should handle mixed semicolons and newlines', () => {
+      const result = pawscript.execute(`
+        test_sync; test_sync
+        test_sync
+      `);
+      expect(result).toBe(true);
+      expect(mockCommands.test_sync).toHaveBeenCalledTimes(3);
     });
   });
 });
