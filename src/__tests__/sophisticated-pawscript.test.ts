@@ -1,10 +1,8 @@
 // src/__tests__/sophisticated-pawscript.test.ts
 import { PawScript } from '../pawscript';
-import { IPawScriptHost } from '../types';
 
 describe('Sophisticated PawScript Examples', () => {
   let pawscript: PawScript;
-  let mockHost: IPawScriptHost;
   let memory: Map<string, any>;
   let output: string[];
 
@@ -12,15 +10,7 @@ describe('Sophisticated PawScript Examples', () => {
     memory = new Map();
     output = [];
     
-    mockHost = {
-      getCurrentContext: () => ({ memory, output }),
-      updateStatus: (msg: string) => console.log(`Status: ${msg}`),
-      requestInput: jest.fn().mockResolvedValue('42'),
-      render: jest.fn(),
-    };
-
     pawscript = new PawScript({ debug: false });
-    pawscript.setHost(mockHost);
     
     // Register arithmetic commands
     pawscript.registerCommands({
@@ -28,38 +18,38 @@ describe('Sophisticated PawScript Examples', () => {
       'add': (ctx) => {
         const [a, b] = ctx.args;
         // If argument looks like a variable name, get its value from memory
-        const valueA = ctx.state.memory.has(a) ? ctx.state.memory.get(a) : Number(a);
-        const valueB = ctx.state.memory.has(b) ? ctx.state.memory.get(b) : Number(b);
+        const valueA = memory.has(a) ? memory.get(a) : Number(a);
+        const valueB = memory.has(b) ? memory.get(b) : Number(b);
         const result = Number(valueA) + Number(valueB);
-        ctx.state.memory.set('result', result);
+        memory.set('result', result);
         return true;
       },
 
       'sub': (ctx) => {
         const [a, b] = ctx.args;
-        const valueA = ctx.state.memory.has(a) ? ctx.state.memory.get(a) : Number(a);
-        const valueB = ctx.state.memory.has(b) ? ctx.state.memory.get(b) : Number(b);
+        const valueA = memory.has(a) ? memory.get(a) : Number(a);
+        const valueB = memory.has(b) ? memory.get(b) : Number(b);
         const result = Number(valueA) - Number(valueB);
-        ctx.state.memory.set('result', result);
+        memory.set('result', result);
         return true;
       },   
 
       'mul': (ctx) => {
         const [a, b] = ctx.args;
-        const valueA = ctx.state.memory.has(a) ? ctx.state.memory.get(a) : Number(a);
-        const valueB = ctx.state.memory.has(b) ? ctx.state.memory.get(b) : Number(b);
+        const valueA = memory.has(a) ? memory.get(a) : Number(a);
+        const valueB = memory.has(b) ? memory.get(b) : Number(b);
         const result = Number(valueA) * Number(valueB);
-        ctx.state.memory.set('result', result);
+        memory.set('result', result);
         return true;
       },
 
       'div': (ctx) => {
         const [a, b] = ctx.args;
-        const valueA = ctx.state.memory.has(a) ? ctx.state.memory.get(a) : Number(a);
-        const valueB = ctx.state.memory.has(b) ? ctx.state.memory.get(b) : Number(b);
+        const valueA = memory.has(a) ? memory.get(a) : Number(a);
+        const valueB = memory.has(b) ? memory.get(b) : Number(b);
         if (Number(valueB) === 0) return false;
         const result = Number(valueA) / Number(valueB);
-        ctx.state.memory.set('result', result);
+        memory.set('result', result);
         return true;
       },
 
@@ -67,93 +57,93 @@ describe('Sophisticated PawScript Examples', () => {
       'set': (ctx) => {
         const [varName, value] = ctx.args;
         // If value is "result", get the actual result value
-        const actualValue = value === 'result' ? ctx.state.memory.get('result') : value;
-        ctx.state.memory.set(varName, actualValue);
+        const actualValue = value === 'result' ? memory.get('result') : value;
+        memory.set(varName, actualValue);
         return true;
       },
       
       'get': (ctx) => {
         const [varName] = ctx.args;
-        const value = ctx.state.memory.get(varName) || 0;
-        ctx.state.memory.set('result', value);
+        const value = memory.get(varName) || 0;
+        memory.set('result', value);
         return true;
       },
       
       'copy': (ctx) => {
         const [fromVar, toVar] = ctx.args;
-        const value = ctx.state.memory.get(fromVar);
-        ctx.state.memory.set(toVar, value);
+        const value = memory.get(fromVar);
+        memory.set(toVar, value);
         return true;
       },
       
       // Control flow
       'if_gt': (ctx) => {
        const [a, b] = ctx.args;
-       const valueA = ctx.state.memory.has(a) ? ctx.state.memory.get(a) : Number(a);
-       const valueB = ctx.state.memory.has(b) ? ctx.state.memory.get(b) : Number(b);
+       const valueA = memory.has(a) ? memory.get(a) : Number(a);
+       const valueB = memory.has(b) ? memory.get(b) : Number(b);
        return Number(valueA) > Number(valueB);
       },
 
       'if_eq': (ctx) => {
        const [a, b] = ctx.args;
-       const valueA = ctx.state.memory.has(a) ? ctx.state.memory.get(a) : Number(a);
-       const valueB = ctx.state.memory.has(b) ? ctx.state.memory.get(b) : Number(b);
+       const valueA = memory.has(a) ? memory.get(a) : Number(a);
+       const valueB = memory.has(b) ? memory.get(b) : Number(b);
        return Number(valueA) === Number(valueB);
       },
 
       'if_lt': (ctx) => {
        const [a, b] = ctx.args;
-       const valueA = ctx.state.memory.has(a) ? ctx.state.memory.get(a) : Number(a);
-       const valueB = ctx.state.memory.has(b) ? ctx.state.memory.get(b) : Number(b);
+       const valueA = memory.has(a) ? memory.get(a) : Number(a);
+       const valueB = memory.has(b) ? memory.get(b) : Number(b);
        return Number(valueA) < Number(valueB);
       },
       
       // String operations
       'str_concat': (ctx) => {
        const [a, b] = ctx.args;
-       const valueA = ctx.state.memory.has(a) ? ctx.state.memory.get(a) : a;
-       const valueB = ctx.state.memory.has(b) ? ctx.state.memory.get(b) : b;
+       const valueA = memory.has(a) ? memory.get(a) : a;
+       const valueB = memory.has(b) ? memory.get(b) : b;
        const result = String(valueA) + String(valueB);
-       ctx.state.memory.set('result', result);
+       memory.set('result', result);
        return true;
       },
 
       'str_len': (ctx) => {
        const [str] = ctx.args;
-       const actualValue = ctx.state.memory.has(str) ? ctx.state.memory.get(str) : str;
+       const actualValue = memory.has(str) ? memory.get(str) : str;
        const result = String(actualValue).length;
-       ctx.state.memory.set('result', result);
+       memory.set('result', result);
        return true;
       },
 
       'str_upper': (ctx) => {
        const [str] = ctx.args;
-       const actualValue = ctx.state.memory.has(str) ? ctx.state.memory.get(str) : str;
+       const actualValue = memory.has(str) ? memory.get(str) : str;
        const result = String(actualValue).toUpperCase();
-       ctx.state.memory.set('result', result);
+       memory.set('result', result);
        return true;
       },
 
       'str_repeat': (ctx) => {
        const [str, times] = ctx.args;
-       const actualStr = ctx.state.memory.has(str) ? ctx.state.memory.get(str) : str;
-       const actualTimes = ctx.state.memory.has(times) ? ctx.state.memory.get(times) : times;
+       const actualStr = memory.has(str) ? memory.get(str) : str;
+       const actualTimes = memory.has(times) ? memory.get(times) : times;
        const result = String(actualStr).repeat(Number(actualTimes));
-       ctx.state.memory.set('result', result);
+       memory.set('result', result);
        return true;
       },
       
       // Output operations
       'print': (ctx) => {
         const [value] = ctx.args;
-        ctx.state.output.push(String(value));
+        output.push(String(value));
         return true;
       },
       
       'print_var': (ctx) => {
         const [varName] = ctx.args;
-        const value = ctx.state.memory.get(varName);
-        ctx.state.output.push(`${varName} = ${value}`);
+        const value = memory.get(varName);
+        output.push(`${varName} = ${value}`);
         return true;
       },
       
@@ -167,8 +157,8 @@ describe('Sophisticated PawScript Examples', () => {
         
         setTimeout(() => {
           let result;
-          const valueA = ctx.state.memory.has(a) ? ctx.state.memory.get(a) : Number(a);
-          const valueB = b ? (ctx.state.memory.has(b) ? ctx.state.memory.get(b) : Number(b)) : 0;
+          const valueA = memory.has(a) ? memory.get(a) : Number(a);
+          const valueB = b ? (memory.has(b) ? memory.get(b) : Number(b)) : 0;
           
           switch (operation) {
             case 'power':
@@ -185,7 +175,7 @@ describe('Sophisticated PawScript Examples', () => {
               result = 0;
           }
           
-          ctx.state.memory.set('async_result', result);
+          memory.set('async_result', result);
           ctx.resumeToken(token, true);
         }, 10);
         

@@ -1,23 +1,13 @@
 import { PawScript } from '../pawscript';
-import { IPawScriptHost } from '../types';
 
 describe('Debug Simple Cases', () => {
   let pawscript: PawScript;
-  let mockHost: IPawScriptHost;
   let capturedResults: any[] = [];
 
   beforeEach(() => {
     capturedResults = [];
     
-    mockHost = {
-      getCurrentContext: () => ({}),
-      updateStatus: jest.fn(),
-      requestInput: jest.fn(),
-      render: jest.fn(),
-    };
-
     pawscript = new PawScript({ debug: true }); // Enable debug to see what's happening
-    pawscript.setHost(mockHost);
     
     pawscript.registerCommands({
       'set_value': (ctx) => {
@@ -29,7 +19,6 @@ describe('Debug Simple Cases', () => {
 
       'get_value': (ctx) => {
         console.log('GET_VALUE: hasResult:', ctx.hasResult());
-        console.log('GET_VALUE: execution state object:', typeof ctx.state);
         if (ctx.hasResult()) {
           console.log('GET_VALUE: found result:', ctx.getResult());
           capturedResults.push(ctx.getResult());

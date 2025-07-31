@@ -5,7 +5,6 @@ import {
   PawScriptHandler, 
   TokenData, 
   CommandSequence, 
-  IPawScriptHost, 
   SubstitutionContext,
   SourcePosition,
   ParsedCommand,
@@ -23,14 +22,9 @@ export class CommandExecutor {
   private nextTokenId = 1;
   private logger: Logger;
   private fallbackHandler: ((cmdName: string, args: any[], executionState?: any) => any) | null = null;
-  private host: IPawScriptHost | null = null;
   
   constructor(logger: Logger) {
     this.logger = logger;
-  }
-  
-  setHost(host: IPawScriptHost): void {
-    this.host = host;
   }
   
   registerCommand(name: string, handler: PawScriptHandler): void {
@@ -308,16 +302,12 @@ export class CommandExecutor {
           return result;
         } catch (error) {
           this.logger.commandError(commandStr, error instanceof Error ? error.message : String(error));
-          if (this.host) {
-            this.host.updateStatus(`Error executing command: ${commandStr} - ${error}`);
-          }
+          this.executeScriptError(`Error executing command: ${commandStr} - ${error}`);
           return false;
         }
       }
       this.logger.unknownCommandError(commandStr);
-      if (this.host) {
-        this.host.updateStatus(`Unknown command: ${commandStr}`);
-      }
+      this.executeScriptError(`Unknown command: ${commandStr}`);
       return false;
     }
     
@@ -354,8 +344,10 @@ export class CommandExecutor {
         const pawError = error as PawScriptError;
         if (pawError.position) {
           this.logger.logError(pawError);
+          this.executeScriptError(this.formatPositionError(pawError));
         } else {
           this.logger.error(`Execution error: ${error.message}`);
+          this.executeScriptError(`Execution error: ${error.message}`);
         }
       }
       return false;
@@ -610,6 +602,11 @@ export class CommandExecutor {
     } catch (error) {
       if (error instanceof Error) {
         this.logger.commandError(parsedCmd.command, error.message, parsedCmd.position, [parsedCmd.originalLine]);
+        this.executeScriptError(this.formatPositionError({
+          message: `Error executing command '${parsedCmd.command}': ${error.message}`,
+          position: parsedCmd.position,
+          context: [parsedCmd.originalLine]
+        } as PawScriptError));
       }
       return false;
     }
@@ -631,14 +628,8 @@ export class CommandExecutor {
   }
   
   private createContext(args: any[], executionState: ExecutionState, position?: SourcePosition): any {
-    if (!this.host) {
-      throw new Error('No host set for command system');
-    }
-    
     return {
-      host: this.host,
       args: args,
-      state: this.host.getCurrentContext(),
       position: position,
       requestToken: (cleanup?: (tokenId: string) => void) => {
         return this.requestCompletionToken(cleanup, undefined, 300000, executionState, position);
@@ -705,9 +696,7 @@ export class CommandExecutor {
     
     if (!handler) {
       this.logger.unknownCommandError(cmdName, position);
-      if (this.host) {
-        this.host.updateStatus(`Unknown command: ${cmdName}`);
-      }
+      this.executeScriptError(`Unknown command: ${cmdName}${position ? this.formatPosition(position) : ''}`);
       return false;
     }
     
@@ -716,9 +705,7 @@ export class CommandExecutor {
       return handler(this.createContext(args, executionState, position));
     } catch (error) {
       this.logger.commandError(cmdName, error instanceof Error ? error.message : String(error), position);
-      if (this.host) {
-        this.host.updateStatus(`Error executing command: ${cmdName} - ${error}`);
-      }
+      this.executeScriptError(`Error executing command: ${cmdName} - ${error}${position ? this.formatPosition(position) : ''}`);
       return false;
     }
   }
@@ -1023,5 +1010,58 @@ export class CommandExecutor {
       .replace(/\\r/g, '\r')
       .replace(/\\t/g, '\t')
       .replace(/\\\\/g, '\\');
+  }
+
+  private executeScriptError(message: string): void {
+    const handler = this.commands.get('script_error');
+    if (handler) {
+      try {
+        handler(this.createContext([message], new ExecutionState()));
+      } catch (error) {
+        // Fallback if script_error itself fails
+        console.error(`[SCRIPT ERROR] ${message}`);
+      }
+    } else {
+      // Fallback if script_error command not registered
+      console.error(`[SCRIPT ERROR] ${message}`);
+    }
+  }
+
+  private formatPosition(position: SourcePosition): string {
+    return ` at line ${position.line}, column ${position.column}`;
+  }
+
+  private formatPositionError(error: PawScriptError): string {
+    let message = error.message;
+    
+    if (error.position) {
+      message += ` at line ${error.position.line}, column ${error.position.column}`;
+      
+      if (error.context && error.context.length > 0) {
+        message += '\n';
+        
+        // Show context lines with highlighting
+        const contextStart = Math.max(0, error.position.line - 2);
+        const contextEnd = Math.min(error.context.length, error.position.line + 1);
+        
+        for (let i = contextStart; i < contextEnd; i++) {
+          const lineNum = i + 1;
+          const isErrorLine = lineNum === error.position.line;
+          const prefix = isErrorLine ? '>' : ' ';
+          const lineNumStr = lineNum.toString().padStart(3);
+          
+          message += `\n  ${prefix} ${lineNumStr} | ${error.context[i]}`;
+          
+          if (isErrorLine && error.position.column > 0) {
+            // Add caret indicator
+            const indent = '      | ' + ' '.repeat(error.position.column - 1);
+            const caret = '^'.repeat(Math.max(1, error.position.length));
+            message += `\n  ${indent}${caret}`;
+          }
+        }
+      }
+    }
+    
+    return message;
   }
 }

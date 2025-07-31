@@ -1,24 +1,20 @@
 // src/__tests__/syntactic-sugar.test.ts
 import { PawScript } from '../pawscript';
-import { IPawScriptHost } from '../types';
 
 describe('Syntactic Sugar', () => {
   let pawscript: PawScript;
-  let mockHost: IPawScriptHost;
 
   beforeEach(() => {
-    mockHost = {
-      getCurrentContext: jest.fn().mockReturnValue({}),
-      updateStatus: jest.fn(),
-      requestInput: jest.fn(),
-      render: jest.fn()
-    };
-
     pawscript = new PawScript({ 
       debug: true, // Enable debug to see what's happening
       allowMacros: true 
     });
-    pawscript.setHost(mockHost);
+
+    // Register script_error command for error handling
+    pawscript.registerCommand('script_error', (ctx) => {
+      console.error(`[SCRIPT ERROR] ${ctx.args[0]}`);
+      return true;
+    });
   });
 
   test('should transform identifier() syntax for macro command', () => {

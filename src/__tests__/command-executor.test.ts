@@ -5,20 +5,16 @@ import { Logger } from '../logger';
 describe('CommandExecutor', () => {
   let executor: CommandExecutor;
   let logger: Logger;
-  let mockHost: any;
 
   beforeEach(() => {
     logger = new Logger(true);
     executor = new CommandExecutor(logger);
     
-    mockHost = {
-      getCurrentContext: () => ({ test: true }),
-      updateStatus: jest.fn(),
-      requestInput: jest.fn(),
-      render: jest.fn(),
-    };
-    
-    executor.setHost(mockHost);
+    // Register script_error command for error handling
+    executor.registerCommand('script_error', (ctx) => {
+      console.error(`[SCRIPT ERROR] ${ctx.args[0]}`);
+      return true;
+    });
   });
 
   describe('Command Parsing', () => {
@@ -30,9 +26,7 @@ describe('CommandExecutor', () => {
       expect(result).toBe(true);
       expect(testCommand).toHaveBeenCalledWith(
         expect.objectContaining({
-          host: expect.any(Object),
           args: [],
-          state: { test: true },
           requestToken: expect.any(Function),
           resumeToken: expect.any(Function),
           setResult: expect.any(Function),
@@ -51,9 +45,7 @@ describe('CommandExecutor', () => {
       executor.execute("test 'hello world', \"quoted string\"");
       expect(testCommand).toHaveBeenCalledWith(
         expect.objectContaining({
-          host: expect.any(Object),
           args: ['hello world', 'quoted string'],
-          state: { test: true },
           requestToken: expect.any(Function),
           resumeToken: expect.any(Function),
           setResult: expect.any(Function),
@@ -72,9 +64,7 @@ describe('CommandExecutor', () => {
       executor.execute('test 42, 3.14, true, false');
       expect(testCommand).toHaveBeenCalledWith(
         expect.objectContaining({
-          host: expect.any(Object),
           args: [42, 3.14, true, false],
-          state: { test: true },
           requestToken: expect.any(Function),
           resumeToken: expect.any(Function),
           setResult: expect.any(Function),
@@ -101,9 +91,7 @@ describe('CommandExecutor', () => {
       expect(result).toBe(true);
       expect(testCommand).toHaveBeenCalledWith(
         expect.objectContaining({
-          host: expect.any(Object),
           args: ['grouped content'],
-          state: { test: true },
           requestToken: expect.any(Function),
           resumeToken: expect.any(Function),
           setResult: expect.any(Function),
@@ -125,9 +113,7 @@ describe('CommandExecutor', () => {
       expect(result).toBe(true);
       expect(testCommand).toHaveBeenCalledWith(
         expect.objectContaining({
-          host: expect.any(Object),
           args: ['hello; world'],
-          state: { test: true },
           requestToken: expect.any(Function),
           resumeToken: expect.any(Function),
           setResult: expect.any(Function),
@@ -154,9 +140,7 @@ describe('CommandExecutor', () => {
       expect(result).toBe(true);
       expect(testCommand).toHaveBeenCalledWith(
         expect.objectContaining({
-          host: expect.any(Object),
           args: ['command1; command2'],
-          state: { test: true },
           requestToken: expect.any(Function),
           resumeToken: expect.any(Function),
           setResult: expect.any(Function),
@@ -222,12 +206,18 @@ describe('CommandExecutor', () => {
 
   describe('Error Handling with Position Tracking', () => {
     test('should report position information for unknown commands', () => {
+      const consoleSpy = jest.spyOn(console, 'error').mockImplementation();
+      
       const result = executor.execute('unknown_command');
       expect(result).toBe(false);
-      expect(mockHost.updateStatus).toHaveBeenCalledWith('Unknown command: unknown_command');
+      expect(consoleSpy).toHaveBeenCalledWith(expect.stringContaining('[SCRIPT ERROR] Unknown command: unknown_command'));
+      
+      consoleSpy.mockRestore();
     });
 
     test('should handle command execution errors with position tracking', () => {
+      const consoleSpy = jest.spyOn(console, 'error').mockImplementation();
+      
       const errorCommand = jest.fn().mockImplementation(() => {
         throw new Error('Test error');
       });
@@ -235,9 +225,14 @@ describe('CommandExecutor', () => {
       
       const result = executor.execute('error_cmd');
       expect(result).toBe(false);
-      expect(mockHost.updateStatus).toHaveBeenCalledWith(
+      expect(consoleSpy).toHaveBeenCalledWith(
+        expect.stringContaining('[SCRIPT ERROR]')
+      );
+      expect(consoleSpy).toHaveBeenCalledWith(
         expect.stringContaining('Error executing command: error_cmd')
       );
+      
+      consoleSpy.mockRestore();
     });
   });
 });

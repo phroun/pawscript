@@ -13,37 +13,7 @@ class PawCLI {
   constructor() {
     this.pawscript = new PawScript({ debug: false });
     this.originalStdin = process.stdin;
-    this.setupHost();
     this.registerStandardLibrary();
-  }
-  
-  private setupHost() {
-    this.pawscript.setHost({
-      getCurrentContext: () => ({ 
-        args: this.scriptArgs,
-        argc: this.scriptArgs.length 
-      }),
-      updateStatus: (msg: string) => {
-        // Status messages go to stderr so they don't interfere with stdout
-        console.error(`[PAW] ${msg}`);
-      },
-      requestInput: async (prompt: string) => {
-        return new Promise((resolve) => {
-          const rl = readline.createInterface({
-            input: process.stdin,
-            output: process.stderr, // Prompts go to stderr
-          });
-          
-          rl.question(prompt, (answer) => {
-            rl.close();
-            resolve(answer);
-          });
-        });
-      },
-      render: () => {
-        // No-op for CLI
-      }
-    });
   }
   
   private registerStandardLibrary() {
@@ -65,6 +35,27 @@ class PawCLI {
           ctx.setResult(undefined);
         }
       }
+      return true;
+    });
+
+    // script_error - output error messages with position information
+    this.pawscript.registerCommand('script_error', (ctx) => {
+      const message = ctx.args[0] || 'Unknown error';
+      
+      // Extract position information if available
+      let errorOutput = `[SCRIPT ERROR] ${message}`;
+      
+      if (ctx.position) {
+        errorOutput += ` at line ${ctx.position.line}, column ${ctx.position.column}`;
+        
+        // Add source context if available
+        if (ctx.position.originalText) {
+          errorOutput += `\n  Source: ${ctx.position.originalText}`;
+        }
+      }
+      
+      // Output to stderr
+      process.stderr.write(errorOutput + '\n');
       return true;
     });
     

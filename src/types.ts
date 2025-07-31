@@ -1,23 +1,3 @@
-export interface IPawScriptHost {
-  // Core application state
-  getCurrentContext(): any;
-  updateStatus(message: string): void;
-  requestInput(prompt: string, defaultValue?: string): Promise<string>;
-  
-  // UI operations
-  render(): void;
-  createWindow?(options: any): string;
-  removeWindow?(id: string): void;
-  
-  // State management
-  saveState?(): any;
-  restoreState?(snapshot: any): void;
-  
-  // Event handling
-  emit?(event: string, ...args: any[]): void;
-  on?(event: string, handler: Function): void;
-}
-
 export interface SourcePosition {
   line: number;
   column: number;
@@ -40,14 +20,8 @@ export interface PawScriptError extends Error {
 }
 
 export interface PawScriptContext {
-  // Host application reference
-  host: IPawScriptHost;
-  
   // Command arguments
   args: any[];
-  
-  // Current state info (provided by host)
-  state: any;
   
   // Position information for error reporting
   position?: SourcePosition;

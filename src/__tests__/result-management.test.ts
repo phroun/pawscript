@@ -1,23 +1,19 @@
 import { PawScript } from '../pawscript';
-import { IPawScriptHost } from '../types';
 
 describe('Result Management System', () => {
   let pawscript: PawScript;
-  let mockHost: IPawScriptHost;
   let results: any[];
 
   beforeEach(() => {
     results = [];
     
-    mockHost = {
-      getCurrentContext: () => ({ test: true }),
-      updateStatus: jest.fn(),
-      requestInput: jest.fn().mockResolvedValue('test input'),
-      render: jest.fn(),
-    };
-
     pawscript = new PawScript({ debug: false });
-    pawscript.setHost(mockHost);
+    
+    // Register script_error command
+    pawscript.registerCommand('script_error', (ctx) => {
+      console.error(`[SCRIPT ERROR] ${ctx.args[0]}`);
+      return true;
+    });
     
     // Register test commands that work with results
     pawscript.registerCommands({

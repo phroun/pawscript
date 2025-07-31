@@ -1,9 +1,7 @@
 import { PawScript } from '../pawscript';
-import { IPawScriptHost } from '../types';
 
 describe('PawScript', () => {
   let pawscript: PawScript;
-  let mockHost: IPawScriptHost;
   let mockCommands: Record<string, jest.Mock>;
 
   beforeEach(() => {
@@ -13,22 +11,14 @@ describe('PawScript', () => {
       test_async: jest.fn().mockReturnValue('token_1'),
     };
 
-    mockHost = {
-      getCurrentContext: jest.fn().mockReturnValue({ cursor: { x: 0, y: 0 } }),
-      updateStatus: jest.fn(),
-      requestInput: jest.fn().mockResolvedValue('test input'),
-      render: jest.fn(),
-      createWindow: jest.fn().mockReturnValue('window-1'),
-      removeWindow: jest.fn(),
-      saveState: jest.fn().mockReturnValue({}),
-      restoreState: jest.fn(),
-      emit: jest.fn(),
-      on: jest.fn(),
-    };
-
     pawscript = new PawScript({ debug: false });
-    pawscript.setHost(mockHost);
     pawscript.registerCommands(mockCommands);
+
+    // Register script_error command for error handling
+    pawscript.registerCommand('script_error', (ctx) => {
+      console.error(`[SCRIPT ERROR] ${ctx.args[0]}`);
+      return true;
+    });
   });
 
   describe('Basic Command Execution', () => {
@@ -37,16 +27,13 @@ describe('PawScript', () => {
       expect(result).toBe(true);
       expect(mockCommands.test_sync).toHaveBeenCalledWith(
         expect.objectContaining({
-          host: mockHost,
           args: [],
-          state: { cursor: { x: 0, y: 0 } },
           requestToken: expect.any(Function),
           resumeToken: expect.any(Function),
           setResult: expect.any(Function),
           getResult: expect.any(Function),
           hasResult: expect.any(Function),
           clearResult: expect.any(Function),
-          // Position field is now included but we don't need to test its exact value
           position: expect.any(Object),
         })
       );
@@ -60,9 +47,7 @@ describe('PawScript', () => {
       expect(result).toBe(true);
       expect(testCommand).toHaveBeenCalledWith(
         expect.objectContaining({
-          host: mockHost,
           args: ['hello', 42, true],
-          state: { cursor: { x: 0, y: 0 } },
           requestToken: expect.any(Function),
           resumeToken: expect.any(Function),
           setResult: expect.any(Function),
@@ -75,9 +60,13 @@ describe('PawScript', () => {
     });
 
     test('should handle unknown command', () => {
+      const consoleSpy = jest.spyOn(console, 'error').mockImplementation();
+      
       const result = pawscript.execute('unknown_command');
       expect(result).toBe(false);
-      expect(mockHost.updateStatus).toHaveBeenCalledWith('Unknown command: unknown_command');
+      expect(consoleSpy).toHaveBeenCalledWith('[SCRIPT ERROR] Unknown command: unknown_command at line 1, column 1');
+      
+      consoleSpy.mockRestore();
     });
   });
 
@@ -214,9 +203,7 @@ describe('PawScript', () => {
       expect(result).toBe(true);
       expect(testCommand).toHaveBeenCalledWith(
         expect.objectContaining({
-          host: mockHost,
           args: ['hello', 'world'],
-          state: { cursor: { x: 0, y: 0 } },
           requestToken: expect.any(Function),
           resumeToken: expect.any(Function),
           setResult: expect.any(Function),
@@ -234,8 +221,11 @@ describe('PawScript', () => {
       const debugPawScript = new PawScript({ debug: true });
       const spy = jest.spyOn(console, 'log').mockImplementation();
       
-      debugPawScript.setHost(mockHost);
       debugPawScript.registerCommand('test', mockCommands.test_sync);
+      debugPawScript.registerCommand('script_error', (ctx) => {
+        console.error(`[SCRIPT ERROR] ${ctx.args[0]}`);
+        return true;
+      });
       debugPawScript.execute('test');
       
       expect(spy).toHaveBeenCalled();
@@ -244,7 +234,6 @@ describe('PawScript', () => {
 
     test('should disable macros when configured', () => {
       const noMacroPawScript = new PawScript({ allowMacros: false });
-      noMacroPawScript.setHost(mockHost);
       
       const result1 = noMacroPawScript.defineMacro('test', 'test_sync');
       expect(result1).toBe(false);

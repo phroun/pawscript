@@ -2,7 +2,7 @@ import { Logger } from './logger';
 import { CommandExecutor } from './command-executor';
 import { MacroSystem } from './macro-system';
 import { ExecutionState } from './execution-state';
-import { IPawScriptHost, PawScriptHandler, PawScriptConfig, SubstitutionContext } from './types';
+import { PawScriptHandler, PawScriptConfig, SubstitutionContext } from './types';
 
 export class PawScript {
   private logger: Logger;
@@ -56,9 +56,7 @@ export class PawScript {
     // Define macro command
     this.executor.registerCommand('macro', (context) => {
       if (context.args.length < 2) {
-        if (context.host.updateStatus) {
-          context.host.updateStatus('Usage: macro <name>, <commands>');
-        }
+        this.executeScriptError('Usage: macro <name>, <commands>');
         return false;
       }
       
@@ -66,8 +64,8 @@ export class PawScript {
       const commands = context.args[1];
       
       const result = this.macroSystem.defineMacro(name, commands);
-      if (!result && context.host.updateStatus) {
-        context.host.updateStatus(`Failed to define macro "${name}"`);
+      if (!result) {
+        this.executeScriptError(`Failed to define macro "${name}"`);
       }
       
       return result;
@@ -76,9 +74,7 @@ export class PawScript {
     // Execute macro command
     this.executor.registerCommand('call', (context) => {
       if (context.args.length < 1) {
-        if (context.host.updateStatus) {
-          context.host.updateStatus('Usage: call <macro_name> [args...]');
-        }
+        this.executeScriptError('Usage: call <macro_name> [args...]');
         return false;
       }
       
@@ -93,80 +89,25 @@ export class PawScript {
       }, macroArgs, executionState);
     });
     
-    // List macros command
+    // List macros command - returns comma-separated list
     this.executor.registerCommand('macro_list', (context) => {
       const macros = this.macroSystem.listMacros();
-      
-      if (macros.length === 0) {
-        if (context.host.updateStatus) {
-          context.host.updateStatus('No PawScript macros defined');
-        }
-        return true;
-      }
-      
-      let macroList = 'Defined PawScript macros:\n\n';
-      
-      for (const name of macros) {
-        const commands = this.macroSystem.getMacro(name);
-        const displayCommands = commands && commands.length > 60 ? 
-          commands.substring(0, 60) + '...' : 
-          commands;
-        
-        macroList += `${name}:\n  ${displayCommands}\n\n`;
-      }
-      
-      // Try to create a window if the host supports it
-      if (context.host.createWindow) {
-        try {
-          const windowId = context.host.createWindow({
-            id: 'macro_list',
-            type: 'info',
-            content: macroList,
-            title: 'PawScript Macros',
-            dock: 'top',
-            priority: 100,
-            minHeight: Math.min(15, macros.length * 3 + 5),
-            maxHeight: Math.min(15, macros.length * 3 + 5)
-          });
-          
-          if (context.host.render) {
-            context.host.render();
-          }
-        } catch (error) {
-          this.logger.warn('Host does not support window creation for macro list', error);
-          // Fall back to status message
-          if (context.host.updateStatus) {
-            context.host.updateStatus(`${macros.length} macros defined. Use debug log to see details.`);
-          }
-          this.logger.debug('Macro list:\n' + macroList);
-        }
-      } else {
-        // Fall back to status message
-        if (context.host.updateStatus) {
-          context.host.updateStatus(`${macros.length} macros defined. Use debug log to see details.`);
-        }
-        this.logger.debug('Macro list:\n' + macroList);
-      }
-      
+      context.setResult(macros.join(', '));
       return true;
     });
     
     // Delete macro command
     this.executor.registerCommand('macro_delete', (context) => {
       if (context.args.length < 1) {
-        if (context.host.updateStatus) {
-          context.host.updateStatus('Usage: macro_delete <macro_name>');
-        }
+        this.executeScriptError('Usage: macro_delete <macro_name>');
         return false;
       }
       
       const name = context.args[0];
       const result = this.macroSystem.deleteMacro(name);
       
-      if (result && context.host.updateStatus) {
-        context.host.updateStatus(`PawScript macro "${name}" deleted`);
-      } else if (!result && context.host.updateStatus) {
-        context.host.updateStatus(`PawScript macro "${name}" not found or could not be deleted`);
+      if (!result) {
+        this.executeScriptError(`PawScript macro "${name}" not found or could not be deleted`);
       }
       
       return result;
@@ -175,15 +116,9 @@ export class PawScript {
     // Clear all macros command
     this.executor.registerCommand('macro_clear', (context) => {
       const count = this.macroSystem.clearMacros();
-      if (context.host.updateStatus) {
-        context.host.updateStatus(`Cleared ${count} PawScript macros`);
-      }
+      context.setResult(`Cleared ${count} PawScript macros`);
       return true;
     });
-  }
-  
-  setHost(host: IPawScriptHost): void {
-    this.executor.setHost(host);
   }
   
   configure(config: Partial<PawScriptConfig>): void {
@@ -312,5 +247,29 @@ export class PawScript {
   // Set number of context lines for error reporting
   setContextLines(lines: number): void {
     this.config.contextLines = Math.max(0, Math.min(10, lines)); // Clamp between 0-10
+  }
+
+  private executeScriptError(message: string): void {
+    // Try to execute script_error command if it exists
+    const handler = this.executor['commands']?.get('script_error');
+    if (handler) {
+      try {
+        handler({
+          args: [message],
+          requestToken: () => '',
+          resumeToken: () => false,
+          setResult: () => {},
+          getResult: () => undefined,
+          hasResult: () => false,
+          clearResult: () => {}
+        });
+      } catch (error) {
+        // Fallback if script_error itself fails
+        console.error(`[SCRIPT ERROR] ${message}`);
+      }
+    } else {
+      // Fallback if script_error command not registered
+      console.error(`[SCRIPT ERROR] ${message}`);
+    }
   }
 }

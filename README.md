@@ -78,14 +78,6 @@ const pawscript = new PawScript({
   allowMacros: true
 });
 
-// Set up host interface
-pawscript.setHost({
-  getCurrentContext: () => ({ cursor: { x: 0, y: 0 } }),
-  updateStatus: (msg) => console.log(msg),
-  requestInput: (prompt) => Promise.resolve('user input'),
-  render: () => console.log('render called')
-});
-
 // Register commands
 pawscript.registerCommands({
   'hello': (ctx) => {
@@ -257,26 +249,6 @@ pawscript.execute('echo {calculate 10, 5}');  // Outputs: 15
 pawscript.execute('echo ${get_arg_number}');  // If returns "2", outputs: $2
 ```
 
-## Host Interface
-
-PawScript integrates with your application through a host interface:
-
-```typescript
-interface IPawScriptHost {
-  getCurrentContext(): any;
-  updateStatus(message: string): void;
-  requestInput(prompt: string, defaultValue?: string): Promise<string>;
-  render(): void;
-  // Optional methods for advanced features
-  createWindow?(options: any): string;
-  removeWindow?(id: string): void;
-  saveState?(): any;
-  restoreState?(snapshot: any): void;
-  emit?(event: string, ...args: any[]): void;
-  on?(event: string, handler: Function): void;
-}
-```
-
 ## Configuration
 
 ```typescript
@@ -306,18 +278,6 @@ class MyEditor {
   }
   
   setupPawScript() {
-    // Set up host interface
-    this.pawscript.setHost({
-      getCurrentContext: () => ({
-        cursor: this.getCursorPosition(),
-        selection: this.getSelection(),
-        filename: this.getCurrentFilename()
-      }),
-      updateStatus: (msg) => this.statusBar.show(msg),
-      requestInput: (prompt, def) => this.showPrompt(prompt, def),
-      render: () => this.redraw()
-    });
-    
     // Register application-specific commands
     this.pawscript.registerCommands({
       'save_file': (ctx) => this.saveCurrentFile(),
@@ -344,7 +304,6 @@ new PawScript(config?: PawScriptConfig)
 ```
 
 #### Methods
-- `setHost(host: IPawScriptHost)`: Set the host application interface
 - `registerCommand(name: string, handler: PawScriptHandler)`: Register a single command
 - `registerCommands(commands: Record<string, PawScriptHandler>)`: Register multiple commands
 - `execute(commandString: string, ...args: any[])`: Execute a command string
@@ -364,7 +323,6 @@ Command handlers receive a `PawScriptContext` object:
 
 ```typescript
 interface PawScriptContext {
-  host: IPawScriptHost;           // Reference to host application
   args: any[];                    // Parsed command arguments
   state: any;                     // Current application state
   requestToken(cleanup?: Function): string;  // Request async token
@@ -428,18 +386,9 @@ import { PawScript } from 'pawscript';
 
 describe('My Application Commands', () => {
   let pawscript: PawScript;
-  let mockHost: any;
 
   beforeEach(() => {
-    mockHost = {
-      getCurrentContext: jest.fn().mockReturnValue({}),
-      updateStatus: jest.fn(),
-      requestInput: jest.fn(),
-      render: jest.fn()
-    };
-
     pawscript = new PawScript({ debug: false });
-    pawscript.setHost(mockHost);
   });
 
   test('should execute my command', () => {
