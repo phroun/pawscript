@@ -93,10 +93,17 @@ export class PositionAwareParser {
         while (i < length) {
           const quoteChar = source[i];
           const quotePos = SourceMapImpl.createPosition(originalLine, originalColumn, 1, quoteChar);
+          
+          if (quoteChar === '\n') {
+            originalLine++;
+            originalColumn = 1;
+          } else {
+            originalColumn++;
+          }
+          
           result += quoteChar;
           this.sourceMap.addMapping(resultPosition, quotePos);
           resultPosition++;
-          originalColumn++;
           
           if (quoteChar === '\\' && i + 1 < length) {
             // Handle escaped characters in quotes
@@ -105,7 +112,12 @@ export class PositionAwareParser {
             this.sourceMap.addMapping(resultPosition, 
               SourceMapImpl.createPosition(originalLine, originalColumn, 1, nextChar));
             resultPosition++;
-            originalColumn++;
+            if (nextChar === '\n') {
+              originalLine++;
+              originalColumn = 1;
+            } else {
+              originalColumn++;
+            }
             i += 2;
           } else if (quoteChar === '"') {
             i++;
@@ -117,32 +129,168 @@ export class PositionAwareParser {
         continue;
       }
       
+      // Handle single quoted strings
+      if (char === "'") {
+        result += char;
+        this.sourceMap.addMapping(resultPosition, startPos);
+        resultPosition++;
+        originalColumn++;
+        i++;
+        
+        // Find the end of the quoted string
+        while (i < length) {
+          const quoteChar = source[i];
+          const quotePos = SourceMapImpl.createPosition(originalLine, originalColumn, 1, quoteChar);
+          
+          if (quoteChar === '\n') {
+            originalLine++;
+            originalColumn = 1;
+          } else {
+            originalColumn++;
+          }
+          
+          result += quoteChar;
+          this.sourceMap.addMapping(resultPosition, quotePos);
+          resultPosition++;
+          
+          if (quoteChar === '\\' && i + 1 < length) {
+            // Handle escaped characters in quotes
+            const nextChar = source[i + 1];
+            result += nextChar;
+            this.sourceMap.addMapping(resultPosition, 
+              SourceMapImpl.createPosition(originalLine, originalColumn, 1, nextChar));
+            resultPosition++;
+            if (nextChar === '\n') {
+              originalLine++;
+              originalColumn = 1;
+            } else {
+              originalColumn++;
+            }
+            i += 2;
+          } else if (quoteChar === "'") {
+            i++;
+            break;
+          } else {
+            i++;
+          }
+        }
+        continue;
+      }
+      
       // Handle comments starting with #
       if (char === '#') {
-        const commentStart = SourceMapImpl.createPosition(originalLine, originalColumn, 1, char);
-        
         // Check for block comments #( ... )# or #{ ... }#
         if (i + 1 < length) {
           const nextChar = source[i + 1];
+          
           if (nextChar === '(' || nextChar === '{') {
-            const closeChar = nextChar === '(' ? ')' : '}';
+            // Found block comment start
+            const commentStart = i;
+            const openBrace = nextChar;
+            const closeBrace = openBrace === '(' ? ')' : '}';
+            let depth = 1;
+            let commentEnd = -1;
             
-            // Skip the block comment but track positions
-            const skipResult = this.skipBlockComment(source, i, closeChar, originalLine, originalColumn);
-            i = skipResult.newIndex;
-            originalLine = skipResult.newLine;
-            originalColumn = skipResult.newColumn;
-            continue;
+            // Skip past the opening #( or #{
+            let j = i + 2;
+            let tempLine = originalLine;
+            let tempColumn = originalColumn + 2;
+            
+            // Find the matching closing }# or )#
+            while (j < length && depth > 0) {
+              const c = source[j];
+              
+              if (c === '\n') {
+                tempLine++;
+                tempColumn = 1;
+                j++;
+                continue;
+              }
+              
+              // Handle escape sequences
+              if (c === '\\' && j + 1 < length) {
+                j += 2;
+                tempColumn += 2;
+                continue;
+              }
+              
+              // Handle double quoted strings (but not single quotes - they're just text in comments)
+              if (c === '"') {
+                j++;
+                tempColumn++;
+                // Skip to end of quoted string
+                while (j < length && source[j] !== '"') {
+                  if (source[j] === '\\' && j + 1 < length) {
+                    j += 2;
+                    tempColumn += 2;
+                  } else {
+                    if (source[j] === '\n') {
+                      tempLine++;
+                      tempColumn = 1;
+                    } else {
+                      tempColumn++;
+                    }
+                    j++;
+                  }
+                }
+                if (j < length && source[j] === '"') {
+                  j++;
+                  tempColumn++;
+                }
+                continue;
+              }
+              
+              // Check for nested comment start
+              if (c === '#' && j + 1 < length && source[j + 1] === openBrace) {
+                depth++;
+                j += 2;
+                tempColumn += 2;
+                continue;
+              }
+              
+              // Check for comment end
+              if (c === closeBrace && j + 1 < length && source[j + 1] === '#') {
+                depth--;
+                if (depth === 0) {
+                  commentEnd = j + 2; // Position after the closing #
+                  break;
+                }
+                j += 2;
+                tempColumn += 2;
+                continue;
+              }
+              
+              j++;
+              tempColumn++;
+            }
+            
+            if (commentEnd !== -1) {
+              // Successfully found and skipped the block comment
+              i = commentEnd;
+              originalLine = tempLine;
+              originalColumn = tempColumn;
+              continue;
+            } else {
+              // Unclosed block comment - treat # as regular character
+              result += char;
+              this.sourceMap.addMapping(resultPosition, startPos);
+              resultPosition++;
+              originalColumn++;
+              i++;
+              continue;
+            }
           }
         }
         
-        // Check for line comments (#)
-        const isValidStart = originalColumn === 1 || /\s/.test(source[i - 1]);
+        // Check for line comments - # followed by whitespace or end of line
+        const isAtStart = originalColumn === 1;
+        const isPrecededByWhitespace = i > 0 && /\s/.test(source[i - 1]);
+        const isValidCommentStart = isAtStart || isPrecededByWhitespace;
         
-        if (isValidStart) {
-          const isFollowedByWhitespace = i + 1 >= length || /\s/.test(source[i + 1]);
+        if (isValidCommentStart) {
+          const isFollowedByWhitespaceOrEnd = i + 1 >= length || /\s/.test(source[i + 1]);
           
-          if (isFollowedByWhitespace) {
+          if (isFollowedByWhitespaceOrEnd) {
             // This is a line comment - skip to end of line
             while (i < length && source[i] !== '\n') {
               i++;
@@ -188,14 +336,15 @@ export class PositionAwareParser {
         continue;
       }
       
-      // Handle escape sequences within comments (for \" handling)
+      // Handle escape sequences within comments
       if (char === '\\' && i + 1 < str.length) {
         i += 2;
         column += 2;
         continue;
       }
       
-      // Handle quoted strings within comments (only double quotes)
+      // Handle ONLY double quoted strings within comments
+      // Single quotes are treated as regular text to allow contractions like "don't", "can't"
       if (char === '"') {
         i++;
         column++;
@@ -211,7 +360,12 @@ export class PositionAwareParser {
           
           if (quoteChar === '\\' && i + 1 < str.length) {
             i += 2;
-            column++;
+            if (str[i - 1] === '\n') {
+              line++;
+              column = 1;
+            } else {
+              column++;
+            }
           } else if (quoteChar === '"') {
             i++;
             break;
@@ -235,6 +389,11 @@ export class PositionAwareParser {
         depth--;
         i += 2;
         column += 2;
+        
+        // If we've closed all nested comments, we're done
+        if (depth === 0) {
+          break;
+        }
         continue;
       }
       
