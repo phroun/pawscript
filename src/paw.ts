@@ -75,12 +75,6 @@ class PawCLI {
       return true;
     };
     
-    const comment = (ctx: any) => {
-      return true;
-    };
-    
-    this.pawscript.registerCommand('#', comment);
-    
     this.pawscript.registerCommand('echo', outputCommand);
     this.pawscript.registerCommand('write', outputCommand);
     this.pawscript.registerCommand('print', outputCommand);

@@ -521,12 +521,6 @@ export class CommandExecutor {
       addCommand(currentCommand, currentSeparator, { line, column });
     }
     
-    // Debug logging
-    this.logger.debug(`parseCommandSequence parsed ${commands.length} commands:`);
-    for (let i = 0; i < commands.length; i++) {
-      this.logger.debug(`  Command ${i}: "${commands[i].command}" (separator: ${commands[i].separator})`);
-    }
-    
     // Validate no leading operators
     for (const cmd of commands) {
       const trimmed = cmd.command.trim();
@@ -545,8 +539,6 @@ export class CommandExecutor {
   private executeCommandSequence(commands: ParsedCommandWithSeparator[], executionState: ExecutionState, substitutionContext?: SubstitutionContext): boolean | string {
     let lastResult: boolean = true;
     
-    this.logger.debug(`executeCommandSequence: executing ${commands.length} commands`);
-    
     for (let i = 0; i < commands.length; i++) {
       const cmd = commands[i];
       
@@ -564,11 +556,8 @@ export class CommandExecutor {
       }
       // For 'none' and ';': always execute
       
-      this.logger.debug(`  Command ${i}: "${cmd.command}" (separator: ${cmd.separator}, shouldExecute: ${shouldExecute}, lastResult: ${lastResult})`);
-      
       if (!shouldExecute) {
         // Skip this command but continue with the same lastResult
-        this.logger.debug(`    Skipped due to flow control`);
         continue;
       }
       
@@ -608,10 +597,8 @@ export class CommandExecutor {
       }
       
       lastResult = result as boolean;
-      this.logger.debug(`    Result: ${lastResult}`);
     }
     
-    this.logger.debug(`executeCommandSequence final result: ${lastResult}`);
     return lastResult;
   }
   
@@ -666,7 +653,6 @@ export class CommandExecutor {
     };
   }
 
-  // Keep all the existing utility methods unchanged
   private applySyntacticSugar(commandStr: string): string {
     const spaceIndex = commandStr.indexOf(' ');
     if (spaceIndex === -1) {
@@ -686,168 +672,6 @@ export class CommandExecutor {
     }
     
     return commandStr;
-  }
-  
-  private executeSequence(sequenceStr: string, executionState: ExecutionState, substitutionContext?: SubstitutionContext): boolean | string {
-    this.logger.debug(`Executing command sequence: ${sequenceStr}`);
-    const commands = this.splitBySemicolon(sequenceStr);
-    
-    let success: boolean = true;
-    for (let i = 0; i < commands.length; i++) {
-      const cmd = commands[i];
-      
-      if (!cmd.trim()) continue;
-      
-      const result = this.executeSingleCommandInternal(cmd, executionState, substitutionContext);
-
-      if (result && typeof result === 'string' && result.startsWith('token_')) {
-        this.logger.debug(`Command ${cmd} returned token ${result}, setting up sequence continuation`);
-        
-        const remainingCommands = commands.slice(i + 1);
-        if (remainingCommands.length > 0) {
-          // Convert remaining string commands to ParsedCommand objects
-          const parsedRemaining = remainingCommands.map(cmdStr => ({
-            command: cmdStr,
-            arguments: [],
-            position: SourceMapImpl.createPosition(1, 1, cmdStr.length, cmdStr),
-            originalLine: cmdStr,
-            type: 'single' as const
-          }));
-          
-          const sequenceToken = this.requestCompletionToken(
-            (tokenId) => {
-              this.logger.debug(`Cleaning up suspended sequence for token ${tokenId}`);
-            },
-            undefined,
-            300000,
-            executionState
-          );
-          
-          this.pushCommandSequence(sequenceToken, 'sequence', parsedRemaining, i + 1, sequenceStr, executionState);
-          this.chainTokens(result, sequenceToken);
-          
-          return sequenceToken;
-        } else {
-          return result;
-        }
-      }
-      
-      success = result as boolean;
-    }
-    
-    return success;
-  }
-  
-  private executeConditional(conditionalStr: string, executionState: ExecutionState, substitutionContext?: SubstitutionContext): boolean | string {
-    this.logger.debug(`Executing conditional AND: ${conditionalStr}`);
-    const commands = this.splitByAmpersand(conditionalStr);
-    
-    let success: boolean = true;
-    for (let i = 0; i < commands.length; i++) {
-      const cmd = commands[i];
-      
-      if (!cmd.trim()) continue;
-      
-      const result = this.executeSingleCommandInternal(cmd, executionState, substitutionContext);
-      
-      if (result && typeof result === 'string' && result.startsWith('token_')) {
-        this.logger.debug(`Command ${cmd} returned token ${result}, setting up conditional continuation`);
-        
-        const remainingCommands = commands.slice(i + 1);
-        if (remainingCommands.length > 0) {
-          const parsedRemaining = remainingCommands.map(cmdStr => ({
-            command: cmdStr,
-            arguments: [],
-            position: SourceMapImpl.createPosition(1, 1, cmdStr.length, cmdStr),
-            originalLine: cmdStr,
-            type: 'single' as const
-          }));
-          
-          const sequenceToken = this.requestCompletionToken(
-            (tokenId) => {
-              this.logger.debug(`Cleaning up suspended conditional sequence for token ${tokenId}`);
-            },
-            undefined,
-            300000,
-            executionState
-          );
-          
-          this.pushCommandSequence(sequenceToken, 'conditional', parsedRemaining, i + 1, conditionalStr, executionState);
-          this.chainTokens(result, sequenceToken);
-          
-          return sequenceToken;
-        } else {
-          return result;
-        }
-      }
-      
-      success = result as boolean;
-      if (!success) break;
-    }
-    
-    return success;
-  }
-  
-  private executeOr(orStr: string, executionState: ExecutionState, substitutionContext?: SubstitutionContext): boolean | string {
-    this.logger.debug(`Executing conditional OR: ${orStr}`);
-    const commands = this.splitByPipe(orStr);
-    
-    let success: boolean = false;
-    for (let i = 0; i < commands.length; i++) {
-      const cmd = commands[i];
-      
-      if (!cmd.trim()) continue;
-      
-      const result = this.executeSingleCommandInternal(cmd, executionState, substitutionContext);
-      
-      if (result && typeof result === 'string' && result.startsWith('token_')) {
-        this.logger.debug(`Command ${cmd} returned token ${result}, setting up OR continuation`);
-        
-        const remainingCommands = commands.slice(i + 1);
-        if (remainingCommands.length > 0) {
-          const parsedRemaining = remainingCommands.map(cmdStr => ({
-            command: cmdStr,
-            arguments: [],
-            position: SourceMapImpl.createPosition(1, 1, cmdStr.length, cmdStr),
-            originalLine: cmdStr,
-            type: 'single' as const
-          }));
-          
-          const sequenceToken = this.requestCompletionToken(
-            (tokenId) => {
-              this.logger.debug(`Cleaning up suspended OR sequence for token ${tokenId}`);
-            },
-            undefined,
-            300000,
-            executionState
-          );
-          
-          this.pushCommandSequence(sequenceToken, 'or', parsedRemaining, i + 1, orStr, executionState);
-          this.chainTokens(result, sequenceToken);
-          
-          return sequenceToken;
-        } else {
-          return result;
-        }
-      }
-      
-      success = result as boolean;
-      if (success) break;
-    }
-    
-    return success;
-  }
-  
-  private executeSingleCommandInternal(cmd: string, executionState: ExecutionState, substitutionContext?: SubstitutionContext): boolean | string {
-    if (this.hasUnquotedChar(cmd, ';')) {
-      return this.executeSequence(cmd, executionState, substitutionContext);
-    } else if (this.hasUnquotedChar(cmd, '|')) {
-      return this.executeOr(cmd, executionState, substitutionContext);
-    } else if (this.hasUnquotedChar(cmd, '&')) {
-      return this.executeConditional(cmd, executionState, substitutionContext);
-    } else {
-      return this.executeSingleCommand(cmd, executionState, substitutionContext);
-    }
   }
   
   private executeSingleCommand(commandStr: string, executionState: ExecutionState, substitutionContext?: SubstitutionContext, position?: SourcePosition): boolean | string {
@@ -1199,145 +1023,5 @@ export class CommandExecutor {
       .replace(/\\r/g, '\r')
       .replace(/\\t/g, '\t')
       .replace(/\\\\/g, '\\');
-  }
-  
-  private hasUnquotedChar(str: string, char: string): boolean {
-    let inQuote = false;
-    let quoteChar: string | null = null;
-    let parenCount = 0;
-    let braceCount = 0;
-    
-    for (let i = 0; i < str.length; i++) {
-      const c = str[i];
-      
-      if (c === '\\' && i + 1 < str.length) {
-        const nextChar = str[i + 1];
-        if (nextChar === '"' || nextChar === "'" || nextChar === '\\') {
-          i++;
-          continue;
-        }
-      }
-      
-      if ((c === "'" || c === '"') && !inQuote) {
-        inQuote = true;
-        quoteChar = c;
-        continue;
-      }
-      
-      if (c === quoteChar && inQuote) {
-        inQuote = false;
-        quoteChar = null;
-        continue;
-      }
-      
-      if (!inQuote && c === '(') {
-        parenCount++;
-        continue;
-      }
-      
-      if (!inQuote && c === ')') {
-        parenCount--;
-        continue;
-      }
-      
-      if (!inQuote && c === '{') {
-        braceCount++;
-        continue;
-      }
-      
-      if (!inQuote && c === '}') {
-        braceCount--;
-        continue;
-      }
-      
-      if (c === char && !inQuote && parenCount === 0 && braceCount === 0) {
-        return true;
-      }
-    }
-    
-    return false;
-  }
-  
-  private splitBySemicolon(str: string): string[] {
-    return this.splitByChar(str, ';');
-  }
-  
-  private splitByAmpersand(str: string): string[] {
-    return this.splitByChar(str, '&');
-  }
-  
-  private splitByPipe(str: string): string[] {
-    return this.splitByChar(str, '|');
-  }
-  
-  private splitByChar(str: string, delimiter: string): string[] {
-    const commands: string[] = [];
-    let inQuote = false;
-    let quoteChar: string | null = null;
-    let parenCount = 0;
-    let braceCount = 0;
-    let currentCmd = '';
-    
-    for (let i = 0; i < str.length; i++) {
-      const char = str[i];
-      
-      if (char === '\\' && i + 1 < str.length) {
-        currentCmd += char + str[i + 1];
-        i++;
-        continue;
-      }
-      
-      if ((char === "'" || char === '"') && !inQuote) {
-        inQuote = true;
-        quoteChar = char;
-        currentCmd += char;
-        continue;
-      }
-      
-      if (char === quoteChar && inQuote) {
-        inQuote = false;
-        quoteChar = null;
-        currentCmd += char;
-        continue;
-      }
-      
-      if (!inQuote && char === '(') {
-        parenCount++;
-        currentCmd += char;
-        continue;
-      }
-      
-      if (!inQuote && char === ')') {
-        parenCount--;
-        currentCmd += char;
-        continue;
-      }
-      
-      if (!inQuote && char === '{') {
-        braceCount++;
-        currentCmd += char;
-        continue;
-      }
-      
-      if (!inQuote && char === '}') {
-        braceCount--;
-        currentCmd += char;
-        continue;
-      }
-      
-      if (char === delimiter && !inQuote && parenCount === 0 && braceCount === 0) {
-        commands.push(currentCmd.trim());
-        currentCmd = '';
-        continue;
-      }  
-      
-      currentCmd += char;
-    }
-    
-    if (currentCmd.trim() || commands.length > 0) {
-      commands.push(currentCmd.trim());
-    }
-    
-    return commands;
   }
 }
