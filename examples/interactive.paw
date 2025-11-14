@@ -2,9 +2,14 @@
 
 echo "Welcome to PawScript Interactive Demo!";
 
+macro get_input_direct (
+  echo "Enter $1: ";
+  echo "You entered: {read}"
+);
+
 macro get_input (
   echo "Enter $1: ";
-  read;
+  read
   echo "You entered: {get_result}"
 );
 

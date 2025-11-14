@@ -110,11 +110,21 @@ func (ps *PawScript) RegisterStandardLibrary(scriptArgs []string) {
 	ps.RegisterCommand("false", func(ctx *Context) Result {
 		return BoolResult(false)
 	})
-	
+
+	// set_result - explicitly sets the result value
+	ps.RegisterCommand("set_result", func(ctx *Context) Result {
+		if len(ctx.Args) > 0 {
+			ctx.SetResult(ctx.Args[0])
+		} else {
+			ctx.SetResult(nil)
+		}
+		return BoolResult(true)
+	})
+
 	// get_result - gets the current result value
 	ps.RegisterCommand("get_result", func(ctx *Context) Result {
-	    fmt.Fprintf(os.Stderr, "[DEBUG get_result] HasResult: %v, Result: %v\n", 
-		ctx.HasResult(), ctx.GetResult())
+	    /*fmt.Fprintf(os.Stderr, "[DEBUG get_result] HasResult: %v, Result: %v\n", 
+		ctx.HasResult(), ctx.GetResult())*/
 	    return BoolResult(true)
 	})
 }
