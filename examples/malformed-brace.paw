@@ -1,0 +1,4 @@
+# This should trigger parse error in brace expression
+echo "Testing brace expressions"
+echo "Result: {undefined_command_that_fails}"
+echo "This might not execute depending on error handling"

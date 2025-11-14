@@ -1,0 +1,5 @@
+# Define a macro
+macro greet(echo 'Hello $1!')
+
+# Use it
+greet 'World'

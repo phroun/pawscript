@@ -1,0 +1,16 @@
+# Edge cases for operator parsing
+echo "Testing edge cases"
+
+# This should work (operator not at start)
+echo "hello" & echo "world"
+
+# This should fail (leading operator)
+& echo "fail1"
+
+# This should fail (leading pipe)
+| echo "fail2"
+
+# Multiple operators (second one should fail)
+echo "first"
+& echo "second"  # This works
+& echo "third"   # This should fail (leading &)

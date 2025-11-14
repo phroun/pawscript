@@ -1,0 +1,18 @@
+# Trailing operators (traditional style)  
+
+macro command1 (
+  echo "command1" 
+)
+
+macro command2 (
+  echo "command2"
+  false  # cause a failure
+)
+
+macro command3 (
+  echo "command3" 
+)
+
+command1 &
+command2 |
+command3
