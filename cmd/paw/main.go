@@ -197,7 +197,7 @@ Examples:
   paw --verbose hello.paw     # Execute with verbose output
   paw script.paw -- a b       # Execute script.paw with args "a" and "b"
   echo "echo Hello" | paw     # Execute commands from pipe
-  paw -d -- arg1 arg2 < script.paw  # Execute from stdin with arguments and debug
+  paw -d -- a ab < my.paw     # Execute from stdin with arguments and debug
 `
 	fmt.Fprint(os.Stderr, usage)
 }
