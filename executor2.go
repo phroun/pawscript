@@ -109,22 +109,115 @@ func (e *Executor) executeSingleCommand(
 	// CRITICAL: Always evaluate brace expressions, even when not in a macro context
 	// Create a minimal substitution context if one doesn't exist
 	if substitutionCtx == nil {
-	    substitutionCtx = &SubstitutionContext{
-		Args:                []interface{}{},
-		ExecutionState:      state,
-		ParentContext:       nil,
-		MacroContext:        nil,
-		CurrentLineOffset:   0,
-		CurrentColumnOffset: 0,
-	    }
+		filename := ""
+		if position != nil {
+			filename = position.Filename
+		}
+		substitutionCtx = &SubstitutionContext{
+			Args:                []interface{}{},
+			ExecutionState:      state,
+			ParentContext:       nil,
+			MacroContext:        nil,
+			CurrentLineOffset:   0,
+			CurrentColumnOffset: 0,
+			Filename:            filename,
+		}
 	} else {
-	    // CRITICAL FIX: Update the execution state to the current one!
-	    // This ensures brace expressions see the latest results
-	    substitutionCtx.ExecutionState = state
+		// CRITICAL FIX: Update the execution state to the current one!
+		// This ensures brace expressions see the latest results
+		substitutionCtx.ExecutionState = state
+		// Also update filename if we have position info
+		if position != nil && position.Filename != "" {
+			substitutionCtx.Filename = position.Filename
+		}
 	}
 
 	// Apply substitution (which includes brace expressions)
 	commandStr = e.applySubstitution(commandStr, substitutionCtx)
+	
+	// Check if brace evaluation failed
+	if commandStr == "\x00BRACE_FAILED\x00" {
+		// Error already logged by ExecuteWithState with correct position
+		e.logger.Debug("Brace evaluation failed, returning false")
+		return BoolResult(false)
+	}
+	
+	// Check if substitution returned an async brace marker
+	if strings.HasPrefix(commandStr, "\x00ASYNC_BRACES:") && strings.HasSuffix(commandStr, "\x00") {
+		// Extract the coordinator token ID
+		markerLen := len("\x00ASYNC_BRACES:")
+		coordinatorToken := commandStr[markerLen : len(commandStr)-1]
+		
+		e.logger.Debug("Async brace evaluation detected, coordinator token: %s", coordinatorToken)
+		
+		// We need to update the coordinator's resume callback to continue this command
+		e.mu.Lock()
+		if coordData, exists := e.activeTokens[coordinatorToken]; exists && coordData.BraceCoordinator != nil {
+			// Store state and context for later
+			capturedState := state
+			capturedPosition := position
+			
+			// Get the evaluations so we can access their positions
+			evaluations := coordData.BraceCoordinator.Evaluations
+			
+			// Update the resume callback to continue command execution
+			coordData.BraceCoordinator.ResumeCallback = func(finalString string, success bool) Result {
+				if !success {
+					// Error already logged by ExecuteWithState with correct position
+					// Just debug log which brace failed
+					e.logger.Debug("Brace evaluation failed, command cannot execute")
+					for i, eval := range evaluations {
+						if eval.Failed && eval.Position != nil {
+							e.logger.Debug("Failed brace %d was at line %d, column %d", 
+								i, eval.Position.Line, eval.Position.Column)
+						}
+					}
+					return BoolResult(false)
+				}
+				
+				e.logger.Debug("Brace coordinator resumed with substituted string: %s", finalString)
+				
+				// Now parse and execute the command with the substituted string
+				cmdName, args := ParseCommand(finalString)
+				
+				e.logger.Debug("Parsed as - Command: \"%s\", Args: %v", cmdName, args)
+				
+				// Try registered command
+				e.mu.RLock()
+				handler, exists := e.commands[cmdName]
+				e.mu.RUnlock()
+				
+				// Try fallback handler if command not found
+				if !exists && e.fallbackHandler != nil {
+					e.logger.Debug("Command \"%s\" not found, trying fallback handler", cmdName)
+					fallbackResult := e.fallbackHandler(cmdName, args, capturedState, capturedPosition)
+					if fallbackResult != nil {
+						e.logger.Debug("Fallback handler returned: %v", fallbackResult)
+						return fallbackResult
+					}
+				}
+				
+				if !exists {
+					e.logger.UnknownCommandError(cmdName, capturedPosition, nil)
+					return BoolResult(false)
+				}
+				
+				// Execute command
+				e.logger.Debug("Executing %s with args: %v", cmdName, args)
+				ctx := e.createContext(args, capturedState, capturedPosition)
+				return handler(ctx)
+			}
+			e.mu.Unlock()
+		} else {
+			e.mu.Unlock()
+			e.logger.Error("Coordinator token %s not found or invalid", coordinatorToken)
+			return BoolResult(false)
+		}
+		
+		// Return the coordinator token to suspend this command
+		return TokenResult(coordinatorToken)
+	}
+	
 	e.logger.Debug("After substitution: \"%s\"", commandStr)
 	
 	// Parse command
@@ -257,6 +350,19 @@ func (e *Executor) applySubstitution(str string, ctx *SubstitutionContext) strin
 	// Apply brace expression substitution first
 	result = e.substituteBraceExpressions(result, ctx)
 	
+	// Check if brace substitution failed
+	if result == "\x00BRACE_FAILED\x00" {
+		// Error already logged by ExecuteWithState, just propagate the failure
+		return result
+	}
+	
+	// Check if brace substitution returned an async marker
+	if strings.HasPrefix(result, "\x00ASYNC_BRACES:") && strings.HasSuffix(result, "\x00") {
+		// Extract the token and return it as-is
+		// The caller (executeSingleCommand) will handle this
+		return result
+	}
+	
 	// Apply $* (all args)
 	if len(ctx.Args) > 0 {
 		allArgs := make([]string, len(ctx.Args))
@@ -294,131 +400,154 @@ func (e *Executor) applySubstitution(str string, ctx *SubstitutionContext) strin
 }
 
 // substituteBraceExpressions substitutes brace expressions {command}
+// This version supports parallel async evaluation of all braces at the same nesting level
 func (e *Executor) substituteBraceExpressions(str string, ctx *SubstitutionContext) string {
-	result := str
-	modified := true
+	// Find all top-level braces in this string
+	braces := e.findAllTopLevelBraces(str, ctx)
 	
-	for modified {
-		modified = false
+	if len(braces) == 0 {
+		return str // No braces to process
+	}
+	
+	e.logger.Debug("Found %d top-level braces to evaluate", len(braces))
+	
+	// Execute all braces and collect their results
+	evaluations := make([]*BraceEvaluation, len(braces))
+	hasAsync := false
+	
+	for i, brace := range braces {
+		e.logger.Debug("Evaluating brace %d: line=%d, column=%d", i, brace.StartLine, brace.StartColumn)
+		e.logger.Debug("Brace content: \"{%s}\"", brace.Content)
 		
-		braceStart := -1
-		braceEnd := -1
-		braceDepth := 0
-		parenDepth := 0
+		// Create child state for this brace
+		childState := ctx.ExecutionState.CreateChild()
 		
-		line := 1
-		column := 1
-		braceStartLine := 1
-		braceStartColumn := 1
-		
-		runes := []rune(result)
-		for i, char := range runes {
-			if char == '\n' {
-				line++
-				column = 1
-			} else {
-				column++
-			}
-			
-			if char == '(' {
-				parenDepth++
-				continue
-			} else if char == ')' {
-				parenDepth--
-				continue
-			}
-			
-			if parenDepth == 0 && char == '{' {
-				if braceDepth == 0 {
-					braceStart = i
-					braceStartLine = line
-					braceStartColumn = column
-				}
-				braceDepth++
-			} else if parenDepth == 0 && char == '}' {
-				braceDepth--
-				if braceDepth == 0 && braceStart != -1 {
-					braceEnd = i
-					break
-				}
-			}
+		// Calculate accumulated offsets for this brace
+		currentLineOffset := 0
+		currentColumnOffset := 0
+		if ctx != nil {
+			currentLineOffset = ctx.CurrentLineOffset
+			currentColumnOffset = ctx.CurrentColumnOffset
 		}
 		
-		if braceStart != -1 && braceEnd != -1 {
-			beforeBrace := string(runes[:braceStart])
-			braceContent := string(runes[braceStart+1 : braceEnd])
-			afterBrace := string(runes[braceEnd+1:])
+		newLineOffset := currentLineOffset + (brace.StartLine - 1)
+		var newColumnOffset int
+		if brace.StartLine == 1 {
+			// braceStartColumn is off-by-one (column++ happens before char check)
+			// So if '{' is at position 18, braceStartColumn is 19
+			// Content starts at position 19, so offset should be 18 (19-1)
+			newColumnOffset = currentColumnOffset + brace.StartColumn - 1
+		} else {
+			// Same off-by-one issue
+			newColumnOffset = brace.StartColumn - 1
+		}
+		
+		e.logger.Debug("Brace offsets: line=%d, column=%d", newLineOffset, newColumnOffset)
+		
+		// Create child substitution context
+		childSubstitutionCtx := &SubstitutionContext{
+			Args:                ctx.Args,
+			ExecutionState:      childState,
+			ParentContext:       ctx,
+			MacroContext:        ctx.MacroContext,
+			CurrentLineOffset:   newLineOffset,
+			CurrentColumnOffset: newColumnOffset,
+			Filename:            ctx.Filename,
+		}
+		
+		// Execute the brace content
+		executeResult := e.ExecuteWithState(
+			brace.Content,
+			childState,
+			childSubstitutionCtx,
+			ctx.Filename, // Pass filename for error reporting
+			newLineOffset,
+			newColumnOffset,
+		)
+		
+		// Create position for error reporting (points to first character inside brace)
+		braceContentPosition := &SourcePosition{
+			Line:     newLineOffset + 1,
+			Column:   newColumnOffset + 1, // First character of content inside brace
+			Length:   len(brace.Content),
+			Filename: ctx.Filename,
+		}
+		
+		// Create evaluation record
+		evaluations[i] = &BraceEvaluation{
+			Location:  brace,
+			State:     childState,
+			Completed: false,
+			Failed:    false,
+			Position:  braceContentPosition,
+		}
+		
+		// Check if this evaluation is async
+		if tokenResult, ok := executeResult.(TokenResult); ok {
+			evaluations[i].IsAsync = true
+			evaluations[i].TokenID = string(tokenResult)
+			hasAsync = true
+			e.logger.Debug("Brace %d returned async token: %s", i, evaluations[i].TokenID)
+		} else {
+			// Synchronous completion
+			evaluations[i].Completed = true
 			
-			// Debug output
-			e.logger.Debug("Brace found: line=%d, column=%d", braceStartLine, braceStartColumn)
-			e.logger.Debug("Brace content: \"{%s}\"", braceContent)
-			
-			// Create child state
-			childState := ctx.ExecutionState.CreateChild()
-			
-			// Calculate accumulated offsets
-			currentLineOffset := 0
-			currentColumnOffset := 0
-			if ctx != nil {
-				currentLineOffset = ctx.CurrentLineOffset
-				currentColumnOffset = ctx.CurrentColumnOffset
-			}
-			
-			e.logger.Debug("Current offsets: line=%d, column=%d", currentLineOffset, currentColumnOffset)
-			e.logger.Debug("Brace position: line=%d, column=%d", braceStartLine, braceStartColumn)
-			
-			newLineOffset := currentLineOffset + (braceStartLine - 1)
-			var newColumnOffset int
-			if braceStartLine == 1 {
-				newColumnOffset = currentColumnOffset + braceStartColumn - 1
+			// Check if it was successful
+			if boolResult, ok := executeResult.(BoolResult); ok && !bool(boolResult) {
+				evaluations[i].Failed = true
+				evaluations[i].Error = "Command returned false"
+				e.logger.Debug("Brace %d completed synchronously with failure", i)
 			} else {
-				newColumnOffset = braceStartColumn - 1
-			}
-			
-			e.logger.Debug("New accumulated offsets: line=%d, column=%d", newLineOffset, newColumnOffset)
-			
-			// Create child substitution context
-			childSubstitutionCtx := &SubstitutionContext{
-				Args:                ctx.Args,
-				ExecutionState:      childState,
-				ParentContext:       ctx,
-				MacroContext:        ctx.MacroContext,
-				CurrentLineOffset:   newLineOffset,
-				CurrentColumnOffset: newColumnOffset,
-			}
-			
-			e.logger.Debug("executeWithState: offsets line=%d, column=%d", newLineOffset, newColumnOffset)
-			e.logger.Debug("Command: \"%s\"", braceContent)
-			e.logger.Debug("Filename: <none>")
-			
-			// Execute brace content
-			executeResult := e.ExecuteWithState(
-				braceContent,
-				childState,
-				childSubstitutionCtx,
-				"",
-				newLineOffset,
-				newColumnOffset,
-			)
-			
-			// Get execution value
-			executionValue := ""
-			if childState.HasResult() {
-				executionValue = fmt.Sprintf("%v", childState.GetResult())
-			} else if boolResult, ok := executeResult.(BoolResult); ok {
-				executionValue = fmt.Sprintf("%v", bool(boolResult))
-			} else if tokenResult, ok := executeResult.(TokenResult); ok {
-				if !strings.HasPrefix(string(tokenResult), "token_") {
-					executionValue = string(tokenResult)
+				// Get the result value
+				if childState.HasResult() {
+					evaluations[i].Result = childState.GetResult()
+				} else if boolResult, ok := executeResult.(BoolResult); ok {
+					evaluations[i].Result = fmt.Sprintf("%v", bool(boolResult))
 				}
+				e.logger.Debug("Brace %d completed synchronously with result: %v", i, evaluations[i].Result)
 			}
-			
-			// Assemble result
-			assembled := beforeBrace + executionValue + afterBrace
-			result = e.reEvaluateToken(assembled, ctx)
-			modified = true
 		}
 	}
+	
+	// If any evaluation is async, we need to coordinate
+	if hasAsync {
+		e.logger.Debug("At least one brace is async, creating coordinator token")
+		
+		// We need to return a special marker that tells the caller we're suspending
+		// The caller (executeSingleCommand) will need to handle this
+		coordinatorToken := e.RequestBraceCoordinatorToken(
+			evaluations,
+			str,
+			ctx,
+			func(finalString string, success bool) Result {
+				// This callback will be invoked when all braces complete
+				// For now, we need to signal back through the token system
+				e.logger.Debug("Brace coordinator completed: success=%v, string=%s", success, finalString)
+				// Store the result in a way that can be retrieved
+				return BoolResult(success)
+			},
+			ctx.ExecutionState,
+			nil,
+		)
+		
+		// Return a special marker that includes the coordinator token
+		// The executeSingleCommand will need to detect this and return the token
+		return fmt.Sprintf("\x00ASYNC_BRACES:%s\x00", coordinatorToken)
+	}
+	
+	// All synchronous - check for any failures
+	for i, eval := range evaluations {
+		if eval.Failed {
+			// Don't log here - the error was already logged by ExecuteWithState with correct position
+			e.logger.Debug("Synchronous brace evaluation %d failed, aborting command", i)
+			// Return special marker to indicate brace failure
+			return "\x00BRACE_FAILED\x00"
+		}
+	}
+	
+	// Substitute all results immediately
+	result := e.substituteAllBraces(str, evaluations)
+	e.logger.Debug("All braces synchronous, substituted result: %s", result)
 	
 	return result
 }
@@ -513,4 +642,97 @@ func (e *Executor) GetTokenStatus() map[string]interface{} {
 		"activeCount": len(e.activeTokens),
 		"tokens":      tokens,
 	}
+}
+
+// substituteAllBraces substitutes all brace evaluation results into the original string
+func (e *Executor) substituteAllBraces(originalString string, evaluations []*BraceEvaluation) string {
+	// Sort evaluations by position (descending) so we substitute from end to start
+	// This prevents position shifts from affecting later substitutions
+	sortedEvals := make([]*BraceEvaluation, len(evaluations))
+	copy(sortedEvals, evaluations)
+	
+	// Bubble sort by StartPos descending
+	for i := 0; i < len(sortedEvals)-1; i++ {
+		for j := 0; j < len(sortedEvals)-i-1; j++ {
+			if sortedEvals[j].Location.StartPos < sortedEvals[j+1].Location.StartPos {
+				sortedEvals[j], sortedEvals[j+1] = sortedEvals[j+1], sortedEvals[j]
+			}
+		}
+	}
+	
+	result := originalString
+	runes := []rune(result)
+	
+	for _, eval := range sortedEvals {
+		// Get the result value
+		resultValue := ""
+		if eval.State != nil && eval.State.HasResult() {
+			resultValue = fmt.Sprintf("%v", eval.State.GetResult())
+		} else if eval.Result != nil {
+			resultValue = fmt.Sprintf("%v", eval.Result)
+		}
+		
+		// Substitute: replace from StartPos to EndPos+1 with resultValue
+		before := string(runes[:eval.Location.StartPos])
+		after := string(runes[eval.Location.EndPos+1:])
+		result = before + resultValue + after
+		runes = []rune(result)
+	}
+	
+	return result
+}
+
+// findAllTopLevelBraces finds all brace expressions at the current nesting level
+func (e *Executor) findAllTopLevelBraces(str string, ctx *SubstitutionContext) []*BraceLocation {
+	var braces []*BraceLocation
+	
+	braceDepth := 0
+	parenDepth := 0
+	braceStart := -1
+	
+	line := 1
+	column := 1
+	braceStartLine := 1
+	braceStartColumn := 1
+	
+	runes := []rune(str)
+	for i, char := range runes {
+		if char == '\n' {
+			line++
+			column = 1
+		} else {
+			column++
+		}
+		
+		if char == '(' {
+			parenDepth++
+			continue
+		} else if char == ')' {
+			parenDepth--
+			continue
+		}
+		
+		if parenDepth == 0 && char == '{' {
+			if braceDepth == 0 {
+				braceStart = i
+				braceStartLine = line
+				braceStartColumn = column
+			}
+			braceDepth++
+		} else if parenDepth == 0 && char == '}' {
+			braceDepth--
+			if braceDepth == 0 && braceStart != -1 {
+				braces = append(braces, &BraceLocation{
+					StartPos:    braceStart,
+					EndPos:      i,
+					Content:     string(runes[braceStart+1 : i]),
+					StartLine:   braceStartLine,
+					StartColumn: braceStartColumn,
+				})
+				braceStart = -1
+			}
+		}
+	}
+	
+	return braces
 }

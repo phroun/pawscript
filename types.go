@@ -107,6 +107,41 @@ type CommandSequence struct {
 	Position          *SourcePosition
 }
 
+// BraceLocation tracks the position of a brace expression in the source string
+type BraceLocation struct {
+	StartPos         int
+	EndPos           int
+	Content          string
+	StartLine        int
+	StartColumn      int
+	PositionInParent *SourcePosition
+}
+
+// BraceEvaluation tracks the evaluation state of a single brace expression
+type BraceEvaluation struct {
+	Location  *BraceLocation
+	TokenID   string      // Token ID if async, empty if sync
+	Result    interface{} // Result value when completed
+	State     *ExecutionState
+	IsAsync   bool
+	Completed bool
+	Failed    bool
+	Error     string
+	Position  *SourcePosition // Position of the content inside the brace (for error reporting)
+}
+
+// BraceCoordinator manages parallel brace evaluation
+type BraceCoordinator struct {
+	Evaluations        []*BraceEvaluation
+	CompletedCount     int
+	TotalCount         int
+	HasFailure         bool
+	FirstFailureError  string
+	OriginalString     string
+	SubstitutionCtx    *SubstitutionContext
+	ResumeCallback     func(finalString string, success bool) Result
+}
+
 // TokenData stores information about an active token
 type TokenData struct {
 	CommandSequence    *CommandSequence
@@ -120,6 +155,7 @@ type TokenData struct {
 	SuspendedResult    interface{}
 	HasSuspendedResult bool
 	Position           *SourcePosition
+	BraceCoordinator   *BraceCoordinator // For coordinating parallel brace evaluation
 }
 
 // MacroDefinition stores a macro definition
@@ -140,6 +176,7 @@ type SubstitutionContext struct {
 	MacroContext         *MacroContext
 	CurrentLineOffset    int
 	CurrentColumnOffset  int
+	Filename             string // Filename for error reporting
 }
 
 // Config holds configuration for PawScript
