@@ -60,8 +60,18 @@ func (ps *PawScript) RegisterStandardLibrary(scriptArgs []string) {
 		return BoolResult(true)
 	})
 	
-	// echo/write/print - output to stdout
+	// echo/write/print - output to stdout (no automatic newline)
 	outputCommand := func(ctx *Context) Result {
+		text := ""
+		for _, arg := range ctx.Args {
+			// No automatic spaces
+			text += fmt.Sprintf("%v", arg)
+		}
+		fmt.Print(text) // No automatic newline - use \n explicitly if needed
+		return BoolResult(true)
+	}
+
+	outputLineCommand := func(ctx *Context) Result {
 		text := ""
 		for i, arg := range ctx.Args {
 			if i > 0 {
@@ -69,13 +79,13 @@ func (ps *PawScript) RegisterStandardLibrary(scriptArgs []string) {
 			}
 			text += fmt.Sprintf("%v", arg)
 		}
-		fmt.Println(text)
+		fmt.Println(text) // Automatic newline in this version!
 		return BoolResult(true)
 	}
 	
-	ps.RegisterCommand("echo", outputCommand)
 	ps.RegisterCommand("write", outputCommand)
-	ps.RegisterCommand("print", outputCommand)
+	ps.RegisterCommand("echo", outputLineCommand)
+	ps.RegisterCommand("print", outputLineCommand)
 	
 	// read - read a line from stdin
 	ps.RegisterCommand("read", func(ctx *Context) Result {

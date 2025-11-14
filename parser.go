@@ -292,15 +292,17 @@ func (p *Parser) ParseCommandSequence(commandStr string) ([]*ParsedCommand, erro
 	column := 1
 	commandStartLine := 1
 	commandStartColumn := 1
+	commandStartPos := 0  // Track position in the string for source map lookup
 	currentSeparator := "none"
 	
 	runes := []rune(commandStr)
 	i := 0
 	
-	addCommand := func(cmd string, separator string, endLine, endCol int) {
+	addCommand := func(cmd string, separator string, endLine, endCol int, startPos int) {
 		trimmed := strings.TrimSpace(cmd)
 		if trimmed != "" {
-			pos := p.sourceMap.GetOriginalPosition(0)
+			// Get position from source map using the start position
+			pos := p.sourceMap.GetOriginalPosition(startPos)
 			if pos == nil {
 				pos = &SourcePosition{
 					Line:     commandStartLine,
@@ -308,6 +310,9 @@ func (p *Parser) ParseCommandSequence(commandStr string) ([]*ParsedCommand, erro
 					Length:   len(trimmed),
 					Filename: p.sourceMap.Filename,
 				}
+			} else {
+				// Use the source map position but update length
+				pos.Length = len(trimmed)
 			}
 			
 			commands = append(commands, &ParsedCommand{
@@ -321,10 +326,16 @@ func (p *Parser) ParseCommandSequence(commandStr string) ([]*ParsedCommand, erro
 		currentCommand.Reset()
 		commandStartLine = endLine
 		commandStartColumn = endCol
+		// Don't update commandStartPos here - it will be set when first char is added
 	}
 	
 	for i < len(runes) {
 		char := runes[i]
+		
+		// Track start position when we add first character to empty command
+		if currentCommand.Len() == 0 && !unicode.IsSpace(char) && char != '\n' {
+			commandStartPos = i
+		}
 		
 		// Handle escape sequences
 		if char == '\\' && i+1 < len(runes) {
@@ -397,7 +408,7 @@ func (p *Parser) ParseCommandSequence(commandStr string) ([]*ParsedCommand, erro
 		
 		// Handle separators at top level
 		if char == ';' {
-			addCommand(currentCommand.String(), currentSeparator, line, column+1)
+			addCommand(currentCommand.String(), currentSeparator, line, column+1, commandStartPos)
 			currentSeparator = ";"
 			i++
 			column++
@@ -405,7 +416,7 @@ func (p *Parser) ParseCommandSequence(commandStr string) ([]*ParsedCommand, erro
 		}
 		
 		if char == '&' {
-			addCommand(currentCommand.String(), currentSeparator, line, column+1)
+			addCommand(currentCommand.String(), currentSeparator, line, column+1, commandStartPos)
 			currentSeparator = "&"
 			i++
 			column++
@@ -413,7 +424,7 @@ func (p *Parser) ParseCommandSequence(commandStr string) ([]*ParsedCommand, erro
 		}
 		
 		if char == '|' {
-			addCommand(currentCommand.String(), currentSeparator, line, column+1)
+			addCommand(currentCommand.String(), currentSeparator, line, column+1, commandStartPos)
 			currentSeparator = "|"
 			i++
 			column++
@@ -423,7 +434,7 @@ func (p *Parser) ParseCommandSequence(commandStr string) ([]*ParsedCommand, erro
 		// Handle newlines
 		if char == '\n' {
 			if strings.TrimSpace(currentCommand.String()) != "" {
-				addCommand(currentCommand.String(), currentSeparator, line+1, 1)
+				addCommand(currentCommand.String(), currentSeparator, line+1, 1, commandStartPos)
 				currentSeparator = ";"
 			}
 			line++
@@ -455,7 +466,7 @@ func (p *Parser) ParseCommandSequence(commandStr string) ([]*ParsedCommand, erro
 	
 	// Handle final command
 	if strings.TrimSpace(currentCommand.String()) != "" {
-		addCommand(currentCommand.String(), currentSeparator, line, column)
+		addCommand(currentCommand.String(), currentSeparator, line, column, commandStartPos)
 	}
 	
 	return commands, nil

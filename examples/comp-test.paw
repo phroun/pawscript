@@ -21,4 +21,4 @@ echo "=== INVALID SYNTAX (parse errors) ==="
 echo "Test 5: Unclosed quote"
 echo "This will cause a parse error
 
-echo "Test 6: If we reach here, error recovery worked"
+echo "Test 6: If we reach here, error recovery worked, but the next quote will be left open"

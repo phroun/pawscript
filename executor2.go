@@ -168,19 +168,75 @@ func (e *Executor) applySyntacticSugar(commandStr string) string {
 	commandPart := commandStr[:spaceIndex]
 	argsPart := commandStr[spaceIndex+1:]
 	
-	// Match identifier(content) pattern
-	// (?s) makes . match newlines for multiline content
-	// .+? is non-greedy to stop at first closing paren
-	re := regexp.MustCompile(`(?s)^([a-zA-Z_][a-zA-Z0-9_]*)\s*\((.+?)\)(.*)$`)
-	matches := re.FindStringSubmatch(argsPart)
+	// Try to match identifier(content) pattern with proper nesting
+	argsPart = strings.TrimSpace(argsPart)
 	
-	if len(matches) > 0 {
-		identifier := matches[1]
-		content := matches[2]
-		return fmt.Sprintf("%s '%s', (%s)", commandPart, identifier, content)
+	// Check if it starts with identifier followed by optional whitespace and (
+	identifierMatch := regexp.MustCompile(`^([a-zA-Z_][a-zA-Z0-9_]*)\s*\(`).FindStringSubmatch(argsPart)
+	if len(identifierMatch) == 0 {
+		return commandStr
 	}
 	
-	return commandStr
+	identifier := identifierMatch[1]
+	startPos := len(identifierMatch[0]) - 1 // Position of opening (
+	
+	// Manually find matching closing paren, handling nesting
+	runes := []rune(argsPart)
+	depth := 0
+	inQuote := false
+	var quoteChar rune
+	endPos := -1
+	
+	for i := startPos; i < len(runes); i++ {
+		char := runes[i]
+		
+		// Handle escape sequences
+		if char == '\\' && i+1 < len(runes) {
+			i++ // Skip next character
+			continue
+		}
+		
+		// Handle quotes
+		if !inQuote && (char == '"' || char == '\'') {
+			inQuote = true
+			quoteChar = char
+			continue
+		}
+		if inQuote && char == quoteChar {
+			inQuote = false
+			continue
+		}
+		if inQuote {
+			continue
+		}
+		
+		// Track parenthesis depth
+		if char == '(' {
+			depth++
+		} else if char == ')' {
+			depth--
+			if depth == 0 {
+				endPos = i
+				break
+			}
+		}
+	}
+	
+	if endPos == -1 {
+		// No matching closing paren found
+		return commandStr
+	}
+	
+	// Extract content between parens
+	content := string(runes[startPos+1 : endPos])
+	
+	// Get any remaining text after the closing paren
+	remainder := ""
+	if endPos+1 < len(runes) {
+		remainder = string(runes[endPos+1:])
+	}
+	
+	return fmt.Sprintf("%s '%s', (%s)%s", commandPart, identifier, content, remainder)
 }
 
 // applySubstitution applies macro argument substitution
@@ -192,6 +248,11 @@ func (e *Executor) applySubstitution(str string, ctx *SubstitutionContext) strin
 	}
 	
 	result := str
+	
+	// First, protect escaped dollar signs by replacing \$ with a placeholder
+	// We use a placeholder that's unlikely to appear in normal text
+	const escapedDollarPlaceholder = "\x00ESCAPED_DOLLAR\x00"
+	result = strings.ReplaceAll(result, `\$`, escapedDollarPlaceholder)
 	
 	// Apply brace expression substitution first
 	result = e.substituteBraceExpressions(result, ctx)
@@ -225,6 +286,9 @@ func (e *Executor) applySubstitution(str string, ctx *SubstitutionContext) strin
 		}
 		return match
 	})
+	
+	// Finally, restore escaped dollar signs
+	result = strings.ReplaceAll(result, escapedDollarPlaceholder, "$")
 	
 	return result
 }
@@ -363,6 +427,10 @@ func (e *Executor) substituteBraceExpressions(str string, ctx *SubstitutionConte
 func (e *Executor) reEvaluateToken(token string, ctx *SubstitutionContext) string {
 	result := token
 	
+	// First, protect escaped dollar signs
+	const escapedDollarPlaceholder = "\x00ESCAPED_DOLLAR\x00"
+	result = strings.ReplaceAll(result, `\$`, escapedDollarPlaceholder)
+	
 	// Re-apply $* substitution
 	if len(ctx.Args) > 0 {
 		allArgs := make([]string, len(ctx.Args))
@@ -393,20 +461,18 @@ func (e *Executor) reEvaluateToken(token string, ctx *SubstitutionContext) strin
 		return match
 	})
 	
+	// Restore escaped dollar signs
+	result = strings.ReplaceAll(result, escapedDollarPlaceholder, "$")
+	
 	return result
 }
 
 // formatArgumentForSubstitution formats an argument for substitution
 func (e *Executor) formatArgumentForSubstitution(arg interface{}) string {
-	str := fmt.Sprintf("%v", arg)
-	
-	// Quote if contains special characters
-	if strings.ContainsAny(str, " ;&#|,") {
-		str = strings.ReplaceAll(str, "'", "\\'")
-		return fmt.Sprintf("'%s'", str)
-	}
-	
-	return str
+	// Simply convert to string - no auto-quoting
+	// Macro authors should handle quoting in their macro definitions if needed
+	// For example: echo "$1" or echo '$1' to preserve arguments with spaces
+	return fmt.Sprintf("%v", arg)
 }
 
 // createContext creates a command context

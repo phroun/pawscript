@@ -26,6 +26,8 @@ echo "Line comments work"  # This is also a comment
 
 #( But you can still mention "nested )# symbols" in double quotes )#
 
+echo "Comments testing complete."
+
 # ==========================================
 # BASIC COMMANDS
 # ==========================================
@@ -43,18 +45,25 @@ echo 42                    # Numbers
 echo true                  # Booleans  
 echo "quoted string"       # Strings
 echo 'single quotes work'  # Single quotes
+echo "Should see 42, true, "quoted string" and 'single quotes work', with no quotes."
+
+echo "Basic commands testing complete."
 
 # ==========================================
 # COMMAND SEPARATORS & FLOW CONTROL
 # ==========================================
 
 # Semicolon separator - always execute next command
-echo "First"; echo "Second"; echo "Third"
+write "First"; write "Second"; write "Third"
+print
+echo "FirstSecondThird = Good"
 
 # Newlines act as semicolons
-echo "First"
-echo "Second" 
-echo "Third"
+write "First"
+write "Second" 
+write "Third"
+print
+echo "FirstSecondThird = Good"
 
 # AND operator (&) - execute next only if current succeeds
 true & echo "This runs because true succeeded"
@@ -66,15 +75,20 @@ false | echo "This runs because false failed"
 
 # Complex flow control chains
 true & echo "Step 1" & echo "Step 2" | echo "Fallback"
+echo "Should see above: 'This runs', 'This runs', and 'Step 1', 'Step 2'"
 
 # Multi-line flow control
 true &
 echo "This continues from previous line" &
 echo "And this continues too"
+echo "Should see 'This continues...' and '...too'"
 
 false |
 echo "This runs because false failed" |
 echo "This won't run because previous succeeded"
+echo "Should only see 'This runs because false failed'"
+
+echo "Chaining test complete."
 
 # ==========================================
 # PARENTHESES (Argument Grouping)
@@ -82,72 +96,107 @@ echo "This won't run because previous succeeded"
 
 # Parentheses group content into single arguments
 echo (This entire phrase becomes one argument)
+echo "This entire phrase becomes one argument = Good"
 echo (Complex argument with; semicolons & operators | inside)
+echo "Complex argument with; semicolons & operators | inside = Good"
 
 # Mixed parentheses and quotes
-echo "String argument", (grouped argument), 42
+write "String argument", (grouped argument), 42, "\n"
+echo "String argumentgrouped argument42 = Good"
 
 # Nested parentheses
 echo (Outer (inner content) more outer)
+echo "Outer (inner content) more outer = Good"
+
+echo "Parenthesis test compmlete."
 
 # ==========================================
 # BRACES (Execution Blocks)
 # ==========================================
 
 # Braces execute commands and substitute the result
-echo "The result is: {echo calculated}"
+echo "The result is: {write calculated}"
+echo "calculatedThe result is: true = Good for side-effect printing."
+echo "The result is: calculated = Good for captured printing."
 
 # Braces can contain complex command sequences
-echo "Answer: {true & echo 42 | echo unknown}"
+echo "Answer: {true & write 42 | write unknown}"
+echo "42Answer: = Good for side-effect printing."
+echo "Answer: 42 = Good for captured printing."
 
 # Nested braces
-echo "Nested: {echo {echo inner}}"
+echo "Nested: {write {write inner}}"
+echo "innertrueNested: = Good for side-effect printing."
+echo "Nested: inner = Good for captured printing."
 
 # Braces in string concatenation
-echo "prefix{echo middle}suffix"
+echo "prefix{set_result middle}suffix"
+echo "prefixmiddlesuffix = Good"
 
 # Multiple braces in one argument
-echo "{echo Hello} {echo World}"
+echo "{set_result Hello} {set_result World}"
+echo "Hello World = Good"
+
+echo "Braces testing complete."
 
 # ==========================================
 # MACROS
 # ==========================================
 
+echo "Defining macros."
+
 # Define a simple macro
-macro greet(echo "Hello $1!")
+macro "greet", (echo "Hello $1!")
 
-# Define a macro with multiple commands
-macro greet_formal(
-    echo "Good day, $1.";
-    echo "How are you today?"
+macro "define_macros", (
+    # Define a macro with multiple commands
+    macro "greet_formal", (
+        write "Good day, $1.";
+        echo "How are you today?"
+    )
+
+    # Define a macro with argument substitution patterns
+    macro "describe_args", (
+        write "You provided $# arguments: $*; ";
+        write "First argument: $1; ";
+        echo "Second argument: $2"
+    )
+
+    # Define a macro with conditional logic
+    macro "safe_greet", (
+        macro "stow_away", (
+            echo "This will not be called, but is checking nesting."
+        )
+        echo "Checking name..." &
+        echo "Hello $1!" |
+        echo "Hello there!"
+    )
 )
 
-# Define a macro with argument substitution patterns
-macro describe_args(
-    echo "You provided $# arguments: $*";
-    echo "First argument: $1";
-    echo "Second argument: $2"
-)
+define_macros
 
-# Define a macro with conditional logic
-macro safe_greet(
-    echo "Checking name..." &
-    echo "Hello $1!" |
-    echo "Hello there!"
-)
+echo "Nothing should have printed yet after definition of macros."
 
 # Execute macros
 greet "Alice"
+echo "Hello Alice! = Good"
 greet_formal "Bob" 
+echo "Good day, Bob.How are you today? = Good"
 describe_args "one", "two", "three"
+echo "You provided 3 arguments: one, two, three; First argument: one; Second argument: two = Good"
 
 # Execute macros using call command
 call greet, "Charlie"
+echo "Hello, Charlie! = Good"
 call describe_args, "alpha", "beta"
+echo "You provided 2 arguments: alpha, beta; First argument: alpha; Second argument: beta = Good"
 
 # Macros with brace expressions
-macro smart_echo(echo "Smart: {echo $1}")
+macro smart_echo(echo "Smart: {set_result $1}")
 smart_echo "test"
+echo "Smart: test = Good"
+
+echo "Macro test complete."
 
 # ==========================================
 # SYNTACTIC SUGAR
@@ -159,6 +208,9 @@ macro quickGreet(echo "Quick hello to $1!")
 # This is equivalent to:
 # macro "quickGreet", (echo "Quick hello to $1!")
 
+quickGreet "Eva"
+echo "Quick hello to Eva! = Good"
+
 # ==========================================
 # COMPLEX COMBINATIONS
 # ==========================================
@@ -166,15 +218,23 @@ macro quickGreet(echo "Quick hello to $1!")
 # Macros calling other macros
 macro chain_greet(greet $1; echo "That was a greeting for $1")
 chain_greet "David"
+echo 'Above should have shown "Hello David!" and "That was a greeting for David"'
 
 # Braces with macro calls
 echo "Macro result: {greet_formal Edgar}"
+echo "Good day, Edgar.How are you today?\nMacro result: true = Good for side effect."
+echo "Macro result: Good day, Edgar.How are you today? = Good for capture."
 
 # Flow control with braces
-true & echo "Success: {echo computed}" | echo "Failed"
+true & echo "Success: {set_result computed}" | echo "Failed"
+echo "Success: computed = Good"
 
 # Complex argument mixing
-echo "Mixed args:", (grouped text), "string", 42, {echo dynamic}
+echo "Mixed args:", (grouped text), "string", 42, {set_result dynamic}
+echo "Mixed args: grouped text string 42 dynamic = Good"
+
+print
+write "Defining complex_demo..."
 
 # Multi-line macro with complex flow
 macro complex_demo(
@@ -182,12 +242,17 @@ macro complex_demo(
     true & (
         echo "Phase 1 complete" &
         echo "Phase 2 starting" &
-        echo "Result: {echo $1 processed}"
+        echo "Result: {set_result $1 processed}"
     ) | echo "Something went wrong";
     echo "Demo complete"
 )
 
+echo "done."
+echo "Calling complex_demo:"
+
 complex_demo "test-data"
+
+echo "Done with complex_demo."
 
 # ==========================================
 # NESTED STRUCTURES
@@ -195,9 +260,11 @@ complex_demo "test-data"
 
 # Deeply nested parentheses
 echo (Level 1 (Level 2 (Level 3) back to 2) back to 1)
+echo "Level 1 (Level 2 (Level 3) back to 2) back to 1 = Good"
 
 # Mixed nesting
-echo "Text", (grouped (nested) text), {echo "dynamic {echo nested}"}, "more"
+echo "Text", (grouped (nested) text), {set_result "dynamic {set_result nested}"}, "more"
+echo "Text grouped (nested) text dynamic nested more = Good"
 
 # Complex macro with everything
 macro kitchen_sink(
@@ -225,6 +292,8 @@ macro kitchen_sink(
 
 # Execute the complex macro
 kitchen_sink "final-test"
+
+echo "End nested structures test."
 
 # ==========================================
 # PRACTICAL EXAMPLES
@@ -259,38 +328,55 @@ macro validate_and_process(
 
 validate_and_process "user-input"
 
+echo "End practical examples."
+
 # ==========================================
 # EDGE CASES & SPECIAL CHARACTERS
 # ==========================================
 
 # Strings with special characters
 echo "String with & and | and ; inside"
+echo "String with X and Y and Z inside = Good"
 echo 'Single quotes with & | ; too'
+echo "Single quotes with X Y Z too = Good"
 
 # Arguments with operators (inside parentheses)
 echo (This argument has & and | operators)
+echo "This argument has X and Y operators = Good"
 
 # Unicode and special characters
 echo "Unicode test: 🎉 Hello 世界 café"
+echo "Unicode test: Party  Hello chinese cafe = Good"
 
 # Escaped characters in strings
 echo "Escaped quotes: \"Hello\" and 'World'"
+echo "Escaped quotes: ^Hello^ and ^World^ = Good"
 echo "Newlines: line1\nline2\ttabbed"
+echo "Newlines: line1, line2 ---> tabbed = Good"
 
 # Empty arguments and edge cases
-echo "", "non-empty", ""
+echo "", "non-empty", "", (), "token"
+echo " non-empty   token = Good"
 echo (empty parentheses become empty string)
 
 # Comments don't interfere with parsing
 echo "test" # comment & with | operators; and semicolons
+echo "test = Good"
 echo (grouped #{ comment in group }# text)
+echo "grouped  text = Good"
+
+echo "End edge cases."
 
 # ==========================================
 # MACRO MANAGEMENT
 # ==========================================
 
+echo "Print macro list:"
+
 # List all defined macros
 macro_list
+
+echo "End macro list."
 
 # Delete a specific macro
 macro_delete "old_macro"
@@ -299,3 +385,5 @@ macro_delete "old_macro"
 # macro_clear
 
 echo "=== PawScript Syntax Demo Complete ==="
+
+   check_line_and_col_of_error_389_4
