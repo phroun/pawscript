@@ -1,0 +1,26 @@
+# PawScript Syntax Demonstration
+# This file showcases all the major syntax features of PawScript
+
+# ==========================================
+# COMMENTS
+# ==========================================
+
+# Line comments start with # (when followed by whitespace or end of line)
+echo "Line comments work"  # This is also a comment
+
+#( This is a comment ')#' that does end because apostrophe rule.'
+#( This is a comment ")#" that doesn't end because of quote rule. )#
+
+#( Block comments can span
+   multiple lines and use
+   parentheses )#
+
+#{ Alternative block comment style
+   using braces instead }#
+
+# Comments can contain special characters: !@#$%^&*()
+# Comments can contain unicode: 🎉 émojis and accénts
+
+#{ This comment can contain don't, can't, won't, and other contractions }#
+
+#{ Comments can say "you can mention ')#' inside double quotes" without closing }#

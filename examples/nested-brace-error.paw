@@ -1,0 +1,2 @@
+# Nested brace with error
+echo "Outermagoo: {echo Inner: {another_undefined_command}}"

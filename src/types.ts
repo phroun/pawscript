@@ -3,6 +3,28 @@ export interface SourcePosition {
   column: number;
   length: number;
   originalText: string;
+  filename?: string;              
+  macroContext?: MacroContext;    
+}
+
+export interface MacroContext {
+  macroName: string;
+  definitionFile: string;
+  definitionLine: number;
+  definitionColumn: number;
+  invocationFile?: string;        
+  invocationLine?: number;
+  invocationColumn?: number;
+  parentMacro?: MacroContext;     
+}
+
+// NEW: Brace expression context for proper position tracking
+export interface BraceContext {
+  startLine: number;              // Line in parent where brace starts
+  startColumn: number;            // Column in parent where brace starts  
+  parentFilename?: string;        // Parent source filename
+  braceContent: string;           // The content inside the braces
+  parentMacroContext?: MacroContext; // Parent's macro context if any
 }
 
 export interface ParsedCommand {
@@ -92,19 +114,31 @@ export interface CommandSequence {
   position?: SourcePosition;
 }
 
-// Substitution context for macro argument access during brace evaluation
+// Enhanced substitution context with brace context
 export interface SubstitutionContext {
   args: any[];
   executionState: any; // Will be ExecutionState class instance
   parentContext?: SubstitutionContext;
+  macroContext?: MacroContext; 
+  // NEW: Track accumulated position offsets for nested brace expressions
+  currentLineOffset?: number;
+  currentColumnOffset?: number;
 }
 
 // Source mapping for tracking original positions through transformations
 export interface SourceMap {
+  filename?: string;                    
   originalLines: string[];
   transformedToOriginal: Map<number, SourcePosition>;
   addMapping(transformedPos: number, originalPos: SourcePosition): void;
   getOriginalPosition(transformedPos: number): SourcePosition | null;
+  
+  // Methods for macro tracking
+  addMacroContext(position: SourcePosition, context: MacroContext): SourcePosition;
+  getMacroChain(position: SourcePosition): MacroContext[];
+  
+  // NEW: Methods for brace context tracking
+  adjustForBraceContext(position: SourcePosition, braceContext: BraceContext): SourcePosition;
 }
 
 // Token with position information for parsing
@@ -122,4 +156,15 @@ export interface ParsingContext {
   nestingDepth: number;
   inQuote: boolean;
   quoteChar: string | null;
+  braceContext?: BraceContext; // NEW: Track if we're parsing inside a brace expression
+}
+
+// Enhanced macro definition with source tracking
+export interface MacroDefinition {
+  name: string;
+  commands: string;
+  definitionFile: string;
+  definitionLine: number;
+  definitionColumn: number;
+  timestamp: number;
 }

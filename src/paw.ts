@@ -91,7 +91,7 @@ class PawCLI {
           ctx.resumeToken(token, false);
         }
       });
-      
+      process.stdout.write('{closed}');  
       return token;
     });
     

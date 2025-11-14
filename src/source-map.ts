@@ -1,15 +1,70 @@
-import { SourcePosition, SourceMap } from './types';
+export interface SourcePosition {
+  line: number;
+  column: number;
+  length: number;
+  originalText: string;
+  filename?: string;              
+  macroContext?: MacroContext;    
+}
+
+export interface MacroContext {
+  macroName: string;
+  definitionFile: string;
+  definitionLine: number;
+  definitionColumn: number;
+  invocationFile?: string;        
+  invocationLine?: number;
+  invocationColumn?: number;
+  parentMacro?: MacroContext;     
+}
+
+export interface BraceContext {
+  startLine: number;              
+  startColumn: number;            
+  parentFilename?: string;        
+  braceContent: string;           
+  parentMacroContext?: MacroContext; 
+}
+
+export interface SourceMap {
+  filename?: string;                    
+  originalLines: string[];
+  transformedToOriginal: Map<number, SourcePosition>;
+  addMapping(transformedPos: number, originalPos: SourcePosition): void;
+  getOriginalPosition(transformedPos: number): SourcePosition | null;
+  
+  // Methods for macro tracking
+  addMacroContext(position: SourcePosition, context: MacroContext): SourcePosition;
+  getMacroChain(position: SourcePosition): MacroContext[];
+  
+  // NEW: Methods for brace context tracking
+  adjustForBraceContext(position: SourcePosition, braceContext: BraceContext): SourcePosition;
+}
 
 export class SourceMapImpl implements SourceMap {
+  public filename?: string;
   public originalLines: string[];
   public transformedToOriginal: Map<number, SourcePosition>;
+  public braceContext?: BraceContext; // NEW: Track if this source map is for a brace expression
   
-  constructor(originalSource: string) {
+  constructor(originalSource: string, filename?: string, braceContext?: BraceContext) {
+    this.filename = filename;
     this.originalLines = originalSource.split('\n');
     this.transformedToOriginal = new Map();
+    this.braceContext = braceContext;
   }
   
   addMapping(transformedPos: number, originalPos: SourcePosition): void {
+    // Ensure filename is set if not already present
+    if (!originalPos.filename && this.filename) {
+      originalPos = { ...originalPos, filename: this.filename };
+    }
+    
+    // Apply brace context adjustment if this is a brace expression source map
+    if (this.braceContext) {
+      originalPos = this.adjustForBraceContext(originalPos, this.braceContext);
+    }
+    
     this.transformedToOriginal.set(transformedPos, originalPos);
   }
   
@@ -19,30 +74,134 @@ export class SourceMapImpl implements SourceMap {
   
   // Get context lines around a position
   getContext(position: SourcePosition, contextLines: number = 2): string[] {
+    // If we have brace context, we need to get context from the parent source
+    if (this.braceContext) {
+      // This is tricky - we'd need access to parent source lines
+      // For now, return the brace content lines
+      const start = Math.max(0, position.line - contextLines - 1);
+      const end = Math.min(this.originalLines.length, position.line + contextLines);
+      return this.originalLines.slice(start, end);
+    }
+    
     const start = Math.max(0, position.line - contextLines - 1);
     const end = Math.min(this.originalLines.length, position.line + contextLines);
     return this.originalLines.slice(start, end);
   }
   
-  // Create a position object
-  static createPosition(line: number, column: number, length: number, originalText: string): SourcePosition {
+  // Add macro context to a position
+  addMacroContext(position: SourcePosition, context: MacroContext): SourcePosition {
+    return {
+      ...position,
+      macroContext: context
+    };
+  }
+  
+  // Get the full macro call chain from a position
+  getMacroChain(position: SourcePosition): MacroContext[] {
+    const chain: MacroContext[] = [];
+    let current = position.macroContext;
+    
+    while (current) {
+      chain.push(current);
+      current = current.parentMacro;
+    }
+    
+    return chain;
+  }
+  
+  // NEW: Adjust position for brace context
+  adjustForBraceContext(position: SourcePosition, braceContext: BraceContext): SourcePosition {
+    let adjustedLine = braceContext.startLine;
+    let adjustedColumn = braceContext.startColumn;
+    
+    if (position.line === 1) {
+      // Error is on the first line of brace content
+      // Add the column offset (plus 1 for the opening brace)
+      adjustedColumn = braceContext.startColumn + position.column;
+    } else {
+      // Error is on a subsequent line
+      // Line number is relative to brace start
+      adjustedLine = braceContext.startLine + position.line - 1;
+      adjustedColumn = position.column; // Column is absolute on non-first lines
+    }
+    
+    return {
+      ...position,
+      line: adjustedLine,
+      column: adjustedColumn,
+      filename: braceContext.parentFilename || position.filename,
+      macroContext: braceContext.parentMacroContext || position.macroContext
+    };
+  }
+  
+  // Create a position object with enhanced context
+  static createPosition(
+    line: number, 
+    column: number, 
+    length: number, 
+    originalText: string,
+    filename?: string,
+    macroContext?: MacroContext
+  ): SourcePosition {
     return {
       line,
       column,
       length,
-      originalText
+      originalText,
+      filename,
+      macroContext
+    };
+  }
+  
+  // Create a macro context
+  static createMacroContext(
+    macroName: string,
+    definitionFile: string,
+    definitionLine: number,
+    definitionColumn: number,
+    invocationFile?: string,
+    invocationLine?: number,
+    invocationColumn?: number,
+    parentMacro?: MacroContext
+  ): MacroContext {
+    return {
+      macroName,
+      definitionFile,
+      definitionLine,
+      definitionColumn,
+      invocationFile,
+      invocationLine,
+      invocationColumn,
+      parentMacro
+    };
+  }
+  
+  // NEW: Create a brace context
+  static createBraceContext(
+    startLine: number,
+    startColumn: number,
+    braceContent: string,
+    parentFilename?: string,
+    parentMacroContext?: MacroContext
+  ): BraceContext {
+    return {
+      startLine,
+      startColumn,
+      parentFilename,
+      braceContent,
+      parentMacroContext
     };
   }
 }
 
-// Parser that maintains position information through transformations
+// Enhanced parser that maintains position information through transformations with filename and brace context support
 export class PositionAwareParser {
   private sourceMap: SourceMapImpl;
   private originalSource: string;
   
-  constructor(source: string) {
+  constructor(source: string, filename?: string, braceContext?: BraceContext) {
     this.originalSource = source;
-    this.sourceMap = new SourceMapImpl(source);
+    this.sourceMap = new SourceMapImpl(source, filename, braceContext);
   }
   
   // Remove comments while preserving position mapping
@@ -56,7 +215,13 @@ export class PositionAwareParser {
     
     while (i < length) {
       const char = source[i];
-      const startPos = SourceMapImpl.createPosition(originalLine, originalColumn, 1, char);
+      const startPos = SourceMapImpl.createPosition(
+        originalLine, 
+        originalColumn, 
+        1, 
+        char,
+        this.sourceMap.filename  // Include filename in positions
+      );
       
       // Handle newlines for position tracking
       if (char === '\n') {
@@ -74,7 +239,13 @@ export class PositionAwareParser {
         const escapeSeq = source.substring(i, i + 2);
         result += escapeSeq;
         this.sourceMap.addMapping(resultPosition, 
-          SourceMapImpl.createPosition(originalLine, originalColumn, 2, escapeSeq));
+          SourceMapImpl.createPosition(
+            originalLine, 
+            originalColumn, 
+            2, 
+            escapeSeq,
+            this.sourceMap.filename
+          ));
         resultPosition += 2;
         originalColumn += 2;
         i += 2;
@@ -92,7 +263,13 @@ export class PositionAwareParser {
         // Find the end of the quoted string
         while (i < length) {
           const quoteChar = source[i];
-          const quotePos = SourceMapImpl.createPosition(originalLine, originalColumn, 1, quoteChar);
+          const quotePos = SourceMapImpl.createPosition(
+            originalLine, 
+            originalColumn, 
+            1, 
+            quoteChar,
+            this.sourceMap.filename
+          );
           
           if (quoteChar === '\n') {
             originalLine++;
@@ -110,7 +287,13 @@ export class PositionAwareParser {
             const nextChar = source[i + 1];
             result += nextChar;
             this.sourceMap.addMapping(resultPosition, 
-              SourceMapImpl.createPosition(originalLine, originalColumn, 1, nextChar));
+              SourceMapImpl.createPosition(
+                originalLine, 
+                originalColumn, 
+                1, 
+                nextChar,
+                this.sourceMap.filename
+              ));
             resultPosition++;
             if (nextChar === '\n') {
               originalLine++;
@@ -140,7 +323,13 @@ export class PositionAwareParser {
         // Find the end of the quoted string
         while (i < length) {
           const quoteChar = source[i];
-          const quotePos = SourceMapImpl.createPosition(originalLine, originalColumn, 1, quoteChar);
+          const quotePos = SourceMapImpl.createPosition(
+            originalLine, 
+            originalColumn, 
+            1, 
+            quoteChar,
+            this.sourceMap.filename
+          );
           
           if (quoteChar === '\n') {
             originalLine++;
@@ -158,7 +347,13 @@ export class PositionAwareParser {
             const nextChar = source[i + 1];
             result += nextChar;
             this.sourceMap.addMapping(resultPosition, 
-              SourceMapImpl.createPosition(originalLine, originalColumn, 1, nextChar));
+              SourceMapImpl.createPosition(
+                originalLine, 
+                originalColumn, 
+                1, 
+                nextChar,
+                this.sourceMap.filename
+              ));
             resultPosition++;
             if (nextChar === '\n') {
               originalLine++;
@@ -311,97 +506,6 @@ export class PositionAwareParser {
     }
     
     return { result, sourceMap: this.sourceMap };
-  }
-  
-  private skipBlockComment(
-    str: string, 
-    startIndex: number, 
-    closeChar: string,
-    startLine: number,
-    startColumn: number
-  ): { newIndex: number; newLine: number; newColumn: number } {
-    let i = startIndex + 2; // Skip the #( or #{
-    let depth = 1;
-    let line = startLine;
-    let column = startColumn + 2;
-    const openChar = closeChar === ')' ? '(' : '{';
-    
-    while (i < str.length && depth > 0) {
-      const char = str[i];
-      
-      if (char === '\n') {
-        line++;
-        column = 1;
-        i++;
-        continue;
-      }
-      
-      // Handle escape sequences within comments
-      if (char === '\\' && i + 1 < str.length) {
-        i += 2;
-        column += 2;
-        continue;
-      }
-      
-      // Handle ONLY double quoted strings within comments
-      // Single quotes are treated as regular text to allow contractions like "don't", "can't"
-      if (char === '"') {
-        i++;
-        column++;
-        // Skip until end of quoted string
-        while (i < str.length) {
-          const quoteChar = str[i];
-          if (quoteChar === '\n') {
-            line++;
-            column = 1;
-          } else {
-            column++;
-          }
-          
-          if (quoteChar === '\\' && i + 1 < str.length) {
-            i += 2;
-            if (str[i - 1] === '\n') {
-              line++;
-              column = 1;
-            } else {
-              column++;
-            }
-          } else if (quoteChar === '"') {
-            i++;
-            break;
-          } else {
-            i++;
-          }
-        }
-        continue;
-      }
-      
-      // Check for nested comment start
-      if (char === '#' && i + 1 < str.length && str[i + 1] === openChar) {
-        depth++;
-        i += 2;
-        column += 2;
-        continue;
-      }
-      
-      // Check for comment end
-      if (char === closeChar && i + 1 < str.length && str[i + 1] === '#') {
-        depth--;
-        i += 2;
-        column += 2;
-        
-        // If we've closed all nested comments, we're done
-        if (depth === 0) {
-          break;
-        }
-        continue;
-      }
-      
-      i++;
-      column++;
-    }
-    
-    return { newIndex: i, newLine: line, newColumn: column };
   }
   
   getSourceMap(): SourceMapImpl {

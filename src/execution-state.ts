@@ -44,39 +44,7 @@ export class ExecutionState {
       hasResult: this.hasResult
     };
   }
-  
-  // Restore from a snapshot during resumption
-  restoreSnapshot(snapshot: { result: any; hasResult: boolean }): void {
-    this.currentResult = snapshot.result;
-    this.hasResult = snapshot.hasResult;
-  }
-  
-  // Copy state from another ExecutionState
-  copyFrom(other: ExecutionState): void {
-    this.currentResult = other.currentResult;
-    this.hasResult = other.hasResult;
-  }
-  
-  // Merge result from child state (child result takes precedence if it has one)
-  mergeFromChild(childState: ExecutionState): void {
-    if (childState.hasResultValue()) {
-      this.currentResult = childState.currentResult;
-      this.hasResult = true;
-    }
-    // If child has no result, keep parent's result unchanged
-  }
-  
-  // Create a completely independent state (no inheritance)
-  static createIsolated(): ExecutionState {
-    return new ExecutionState();
-  }
-  
-  // Check if this state is equivalent to another
-  isEquivalentTo(other: ExecutionState): boolean {
-    return this.hasResult === other.hasResult && 
-           this.currentResult === other.currentResult;
-  }
-  
+
   // Get a string representation for debugging
   toString(): string {
     if (this.hasResult) {

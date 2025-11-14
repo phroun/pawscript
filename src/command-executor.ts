@@ -21,7 +21,7 @@ export class CommandExecutor {
   private activeTokens = new Map<string, TokenData>();
   private nextTokenId = 1;
   private logger: Logger;
-  private fallbackHandler: ((cmdName: string, args: any[], executionState?: any) => any) | null = null;
+  private fallbackHandler: ((cmdName: string, args: any[], executionState?: any, position?: SourcePosition) => any) | null = null;
   
   constructor(logger: Logger) {
     this.logger = logger;
@@ -48,7 +48,7 @@ export class CommandExecutor {
     return false;
   }
 
-  setFallbackHandler(handler: (cmdName: string, args: any[], executionState?: any) => any): void {
+  setFallbackHandler(handler: (cmdName: string, args: any[], executionState?: any, position?: SourcePosition) => any): void {
     this.fallbackHandler = handler;
   }
 
@@ -319,14 +319,39 @@ export class CommandExecutor {
     return this.executeWithState(commandStr, executionState, substitutionContext);
   }
   
-  executeWithState(commandStr: string, executionState: ExecutionState, substitutionContext?: SubstitutionContext): boolean | string {
+  executeWithState(
+    commandStr: string, 
+    executionState: ExecutionState, 
+    substitutionContext?: SubstitutionContext,
+    filename?: string,
+    lineOffset: number = 0,     // NEW: Add this many lines to all positions
+    columnOffset: number = 0    // NEW: Add this many columns to first-line positions
+  ): boolean | string {
+    // DEBUG LOGGING
+    if (lineOffset > 0 || columnOffset > 0) {
+      console.error(`[DEBUG] executeWithState: offsets line=${lineOffset}, column=${columnOffset}`);
+      console.error(`[DEBUG] Command: "${commandStr}"`);
+      console.error(`[DEBUG] Filename: ${filename || '<none>'}`);
+    }
+    
     try {
-      // Parse with position tracking
-      const parser = new PositionAwareParser(commandStr);
+      // Parse with position tracking and filename
+      const parser = new PositionAwareParser(commandStr, filename);
       const { result: cleanedCommand, sourceMap } = parser.removeComments(commandStr);
+      
+      // APPLY OFFSETS: Adjust all positions in the source map
+      if (lineOffset > 0 || columnOffset > 0) {
+        console.error(`[DEBUG] About to apply position offsets to source map`);
+        this.applyPositionOffsets(sourceMap, lineOffset, columnOffset);
+      }
       
       // Parse into commands
       const parsedCommands = this.parseCommandSequence(cleanedCommand, sourceMap);
+      
+      // Check for parse errors - empty result indicates parse failure
+      if (parsedCommands === null) {
+        return false; // Parse error already logged
+      }
       
       if (parsedCommands.length === 0) {
         return true; // Empty command is success
@@ -354,7 +379,44 @@ export class CommandExecutor {
     }
   }
   
-  private parseCommandSequence(commandStr: string, sourceMap: SourceMapImpl): ParsedCommandWithSeparator[] {
+  // NEW METHOD: Apply line/column offsets to all positions in source map
+  private applyPositionOffsets(sourceMap: SourceMapImpl, lineOffset: number, columnOffset: number): void {
+    // Get all mappings
+    const mappings = Array.from(sourceMap.transformedToOriginal.entries());
+    
+    // DEBUG LOGGING
+    console.error(`[DEBUG] applyPositionOffsets: ${mappings.length} mappings, line=${lineOffset}, column=${columnOffset}`);
+    
+    if (mappings.length === 0) {
+      console.error(`[DEBUG] WARNING: No position mappings found in source map!`);
+      return;
+    }
+    
+    // Clear the map
+    sourceMap.transformedToOriginal.clear();
+    
+    // Re-add with adjusted positions
+    for (const [transformedPos, originalPos] of mappings) {
+      const beforeLine = originalPos.line;
+      const beforeColumn = originalPos.column;
+      
+      // FIXED CALCULATION: Handle first line vs subsequent lines correctly
+      const adjustedPos: SourcePosition = {
+        ...originalPos,
+        line: originalPos.line + lineOffset,
+        // Column offset only applies to line 1 of the brace content
+        column: originalPos.line === 1 
+          ? originalPos.column + columnOffset 
+          : originalPos.column
+      };
+      
+      console.error(`[DEBUG] Adjusted (${transformedPos}): ${beforeLine}:${beforeColumn} -> ${adjustedPos.line}:${adjustedPos.column}`);
+      
+      sourceMap.transformedToOriginal.set(transformedPos, adjustedPos);
+    }
+  }
+  
+  private parseCommandSequence(commandStr: string, sourceMap: SourceMapImpl): ParsedCommandWithSeparator[] | null {
     const commands: ParsedCommandWithSeparator[] = [];
     let currentCommand = '';
     let nestingDepth = 0;
@@ -371,7 +433,13 @@ export class CommandExecutor {
       const trimmed = cmd.trim();
       if (trimmed) {
         const position = sourceMap.getOriginalPosition(0) || 
-          SourceMapImpl.createPosition(commandStartLine, commandStartColumn, trimmed.length, trimmed);
+          SourceMapImpl.createPosition(
+            commandStartLine, 
+            commandStartColumn, 
+            trimmed.length, 
+            trimmed,
+            sourceMap.filename
+          );
         commands.push({
           command: trimmed,
           arguments: [],
@@ -508,35 +576,34 @@ export class CommandExecutor {
       column++;
     }
     
+    // Check for unclosed quotes - this IS a real parse error
+    if (inQuote) {
+      this.logger.parseError(
+        `Unclosed quote: missing closing ${quoteChar}`,
+        SourceMapImpl.createPosition(line, column, 1, currentCommand, sourceMap.filename),
+        sourceMap.originalLines
+      );
+      return null; // Parse error
+    }
+    
     // Handle final command
     if (currentCommand.trim()) {
       addCommand(currentCommand, currentSeparator, { line, column });
     }
     
-    // Validate no leading operators
-    for (const cmd of commands) {
-      const trimmed = cmd.command.trim();
-      if (trimmed.startsWith('&') || trimmed.startsWith('|')) {
-        throw this.logger.createError(
-          `Command cannot start with operator: '${trimmed[0]}'`,
-          cmd.position,
-          sourceMap.originalLines
-        );
-      }
-    }
-    
+    // Leading operators are valid - no validation needed
     return commands;
   }
   
   private executeCommandSequence(commands: ParsedCommandWithSeparator[], executionState: ExecutionState, substitutionContext?: SubstitutionContext): boolean | string {
-    let lastResult: boolean = true;
+    let lastResult: boolean = true; // Default to true for leading operators at start of file
     
     for (let i = 0; i < commands.length; i++) {
       const cmd = commands[i];
       
       if (!cmd.command.trim()) continue;
       
-      // Apply flow control based on separator
+      // Apply flow control based on separator (works for both leading and trailing operators)
       let shouldExecute = true;
       
       if (cmd.separator === '&') {
@@ -550,6 +617,7 @@ export class CommandExecutor {
       
       if (!shouldExecute) {
         // Skip this command but continue with the same lastResult
+        this.logger.debug(`Skipping command "${cmd.command}" due to flow control (separator: ${cmd.separator}, lastResult: ${lastResult})`);
         continue;
       }
       
@@ -596,8 +664,6 @@ export class CommandExecutor {
   
   private executeParsedCommand(parsedCmd: ParsedCommand, executionState: ExecutionState, substitutionContext?: SubstitutionContext): boolean | string {
     try {
-      // After proper parsing, individual commands should not contain top-level operators
-      // Operators inside parentheses/braces/quotes are handled during argument parsing or brace evaluation
       return this.executeSingleCommand(parsedCmd.command, executionState, substitutionContext, parsedCmd.position);
     } catch (error) {
       if (error instanceof Error) {
@@ -687,7 +753,7 @@ export class CommandExecutor {
     
     if (!handler && this.fallbackHandler) {
       this.logger.debug(`Command "${cmdName}" not found, trying fallback handler`);
-      const fallbackResult = this.fallbackHandler(cmdName, args, executionState);
+      const fallbackResult = this.fallbackHandler(cmdName, args, executionState, position);
       if (fallbackResult !== null) {
         this.logger.debug(`Fallback handler returned: ${fallbackResult}`);
         return fallbackResult;
@@ -695,6 +761,9 @@ export class CommandExecutor {
     }
     
     if (!handler) {
+      // DEBUG LOGGING for unknown command
+      console.error(`[DEBUG] Unknown command "${cmdName}" at position:`, position);
+      
       this.logger.unknownCommandError(cmdName, position);
       this.executeScriptError(`Unknown command: ${cmdName}${position ? this.formatPosition(position) : ''}`);
       return false;
@@ -746,12 +815,12 @@ export class CommandExecutor {
     }
     
     if (commandEnd === -1) {
-      const substitutedCommand = this.applySubstitution(commandStr.trim(), substitutionContext);
+      const substitutedCommand = this.applySubstitution(commandStr, substitutionContext);
       return { command: substitutedCommand, arguments: [] };
     }
     
-    const command = this.applySubstitution(commandStr.substring(0, commandEnd).trim(), substitutionContext);
-    const argsStr = commandStr.substring(commandEnd).trim();
+    const command = this.applySubstitution(commandStr.substring(0, commandEnd), substitutionContext);
+    const argsStr = commandStr.substring(commandEnd);
     
     if (!argsStr) {
       return { command, arguments: [] };
@@ -904,6 +973,7 @@ export class CommandExecutor {
     return result;
   }
   
+  // REWRITTEN: substituteBraceExpressions with proper offset handling
   private substituteBraceExpressions(str: string, substitutionContext: SubstitutionContext): string {
     let result = str;
     let modified = true;
@@ -915,12 +985,28 @@ export class CommandExecutor {
       let braceEnd = -1;
       let braceDepth = 0;
       
+      // Track position in the current string (which may already be offset)
+      let line = 1;
+      let column = 1;
+      let braceStartLine = 1;
+      let braceStartColumn = 1;
+      
       for (let i = 0; i < result.length; i++) {
         const char = result[i];
+        
+        // Update position tracking
+        if (char === '\n') {
+          line++;
+          column = 1;
+        } else {
+          column++;
+        }
         
         if (char === '{') {
           if (braceDepth === 0) {
             braceStart = i;
+            braceStartLine = line;
+            braceStartColumn = column;
           }
           braceDepth++;
         } else if (char === '}') {
@@ -937,10 +1023,45 @@ export class CommandExecutor {
         const braceContent = result.substring(braceStart + 1, braceEnd);
         const afterBrace = result.substring(braceEnd + 1);
         
+        // DEBUG LOGGING for brace detection
+        console.error(`[DEBUG] Brace found: line=${braceStartLine}, column=${braceStartColumn}`);
+        console.error(`[DEBUG] Brace content: "{${braceContent}}"`);
+        
         try {
           const childState = substitutionContext.executionState.createChildState();
           
-          const executeResult = this.executeWithState(braceContent, childState, substitutionContext);
+          // CALCULATE ACCUMULATED OFFSETS: Add current position to any existing offsets
+          // Get current offsets from substitution context if we're in a nested brace
+          const currentLineOffset = substitutionContext.currentLineOffset || 0;
+          const currentColumnOffset = substitutionContext.currentColumnOffset || 0;
+          
+          // Calculate new accumulated offsets
+          const newLineOffset = currentLineOffset + (braceStartLine - 1);
+          const newColumnOffset = (braceStartLine === 1 
+            ? currentColumnOffset + braceStartColumn  // Same line: add columns
+            : braceStartColumn) - 1;                       // New line: reset to brace column
+          
+          console.error(`[DEBUG] Current offsets: line=${currentLineOffset}, column=${currentColumnOffset}`);
+          console.error(`[DEBUG] Brace position: line=${braceStartLine}, column=${braceStartColumn}`);
+          console.error(`[DEBUG] New accumulated offsets: line=${newLineOffset}, column=${newColumnOffset}`);
+          
+          const childSubstitutionContext: SubstitutionContext = {
+            ...substitutionContext,
+            executionState: childState,
+            parentContext: substitutionContext,
+            // PASS ACCUMULATED OFFSETS: Store in context for nested braces
+            currentLineOffset: newLineOffset,
+            currentColumnOffset: newColumnOffset
+          };
+          
+          const executeResult = this.executeWithState(
+            braceContent, 
+            childState, 
+            childSubstitutionContext,
+            substitutionContext.macroContext?.definitionFile,
+            newLineOffset,    // Pass accumulated line offset
+            newColumnOffset   // Pass accumulated column offset
+          );
           
           let executionValue = '';
           if (childState.hasResultValue()) {
@@ -952,12 +1073,29 @@ export class CommandExecutor {
           }
           
           const assembledToken = beforeBrace + executionValue + afterBrace;
-          
           result = this.reEvaluateToken(assembledToken, substitutionContext);
           modified = true;
           
         } catch (error) {
-          this.logger.error(`Error evaluating brace expression {${braceContent}}: ${error}`);
+          // Error with proper accumulated position
+          const actualLine = (substitutionContext.currentLineOffset || 0) + braceStartLine;
+          const actualColumn = braceStartLine === 1 
+            ? (substitutionContext.currentColumnOffset || 0) + braceStartColumn
+            : braceStartColumn;
+          
+          const bracePosition: SourcePosition = {
+            line: actualLine,
+            column: actualColumn,
+            length: braceContent.length + 2,
+            originalText: `{${braceContent}}`,
+            filename: substitutionContext.macroContext?.definitionFile,
+            macroContext: substitutionContext.macroContext
+          };
+          
+          this.logger.parseError(
+            `Error evaluating brace expression {${braceContent}}: ${error}`,
+            bracePosition
+          );
           break;
         }
       }
@@ -1018,11 +1156,9 @@ export class CommandExecutor {
       try {
         handler(this.createContext([message], new ExecutionState()));
       } catch (error) {
-        // Fallback if script_error itself fails
         console.error(`[SCRIPT ERROR] ${message}`);
       }
     } else {
-      // Fallback if script_error command not registered
       console.error(`[SCRIPT ERROR] ${message}`);
     }
   }
