@@ -113,14 +113,8 @@ func (ps *PawScript) RegisterStandardLibrary(scriptArgs []string) {
 	
 	// get_result - gets the current result value
 	ps.RegisterCommand("get_result", func(ctx *Context) Result {
-		if ctx.HasResult() {
-			// Set the result as this command's output so brace expressions can capture it
-			result := ctx.GetResult()
-			ctx.SetResult(result)
-			return BoolResult(true)
-		} else {
-			ctx.SetResult("")
-			return BoolResult(true)
-		}
+	    fmt.Fprintf(os.Stderr, "[DEBUG get_result] HasResult: %v, Result: %v\n", 
+		ctx.HasResult(), ctx.GetResult())
+	    return BoolResult(true)
 	})
 }

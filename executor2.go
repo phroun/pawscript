@@ -109,16 +109,20 @@ func (e *Executor) executeSingleCommand(
 	// CRITICAL: Always evaluate brace expressions, even when not in a macro context
 	// Create a minimal substitution context if one doesn't exist
 	if substitutionCtx == nil {
-		substitutionCtx = &SubstitutionContext{
-			Args:                []interface{}{},
-			ExecutionState:      state, // Use the actual execution state, not a new one
-			ParentContext:       nil,
-			MacroContext:        nil,
-			CurrentLineOffset:   0,
-			CurrentColumnOffset: 0,
-		}
+	    substitutionCtx = &SubstitutionContext{
+		Args:                []interface{}{},
+		ExecutionState:      state,
+		ParentContext:       nil,
+		MacroContext:        nil,
+		CurrentLineOffset:   0,
+		CurrentColumnOffset: 0,
+	    }
+	} else {
+	    // CRITICAL FIX: Update the execution state to the current one!
+	    // This ensures brace expressions see the latest results
+	    substitutionCtx.ExecutionState = state
 	}
-	
+
 	// Apply substitution (which includes brace expressions)
 	commandStr = e.applySubstitution(commandStr, substitutionCtx)
 	e.logger.Debug("After substitution: \"%s\"", commandStr)
@@ -181,6 +185,7 @@ func (e *Executor) applySyntacticSugar(commandStr string) string {
 
 // applySubstitution applies macro argument substitution
 func (e *Executor) applySubstitution(str string, ctx *SubstitutionContext) string {
+	// fmt.Fprintf(os.Stderr, "[DEBUG applySubstitution] Input: %q\n", str)
 	// Note: ctx should never be nil - caller should create a minimal context if needed
 	if ctx == nil {
 		return str
@@ -235,6 +240,7 @@ func (e *Executor) substituteBraceExpressions(str string, ctx *SubstitutionConte
 		braceStart := -1
 		braceEnd := -1
 		braceDepth := 0
+		parenDepth := 0
 		
 		line := 1
 		column := 1
@@ -250,14 +256,22 @@ func (e *Executor) substituteBraceExpressions(str string, ctx *SubstitutionConte
 				column++
 			}
 			
-			if char == '{' {
+			if char == '(' {
+				parenDepth++
+				continue
+			} else if char == ')' {
+				parenDepth--
+				continue
+			}
+			
+			if parenDepth == 0 && char == '{' {
 				if braceDepth == 0 {
 					braceStart = i
 					braceStartLine = line
 					braceStartColumn = column
 				}
 				braceDepth++
-			} else if char == '}' {
+			} else if parenDepth == 0 && char == '}' {
 				braceDepth--
 				if braceDepth == 0 && braceStart != -1 {
 					braceEnd = i
