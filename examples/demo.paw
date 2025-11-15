@@ -191,14 +191,14 @@ greet "Alice"
 echo "Hello Alice! = Good"
 greet_formal "Bob" 
 echo "Good day, Bob.How are you today? = Good"
-describe_args "one", "two", "three"
-echo "You provided 3 arguments: one, two, three; First argument: one; Second argument: two = Good"
+describe_args "one, comma", "two", "three"
+echo "You provided 3 arguments: \"one, comma\", \"two\", \"three\"; First argument: one, comma; Second argument: two = Good"
 
 # Execute macros using call command
 call greet, "Charlie"
 echo "Hello, Charlie! = Good"
 call describe_args, "alpha", "beta"
-echo "You provided 2 arguments: alpha, beta; First argument: alpha; Second argument: beta = Good"
+echo "You provided 2 arguments: \"alpha\", \"beta\"; First argument: alpha; Second argument: beta = Good"
 
 # Macros with brace expressions
 macro smart_echo(echo "Smart: {set_result $1}")
@@ -277,7 +277,7 @@ echo "Level 1 (Level 2 (Level 3) back to 2) back to 1 = Good"
 
 # Mixed nesting
 echo "Text", (grouped (nested) text), {set_result "dynamic {set_result nested}"}, "more"
-echo "Text grouped (nested) text dynamic nested more = Good"
+echo "Text grouped (nested) text dynamic\\ nested more = Good"
 
 # Complex macro with everything
 macro kitchen_sink(
@@ -352,6 +352,13 @@ echo "String with & and | and ; inside"
 echo "String with X and Y and Z inside = Good"
 echo 'Single quotes with & | ; too'
 echo "Single quotes with X Y Z too = Good"
+write a then echo b
+echo "ab = Good"
+echo "a then write b"
+echo "a t\hen write b = Good"
+set b, (a then echo b)
+echo {get b}
+echo "a\\ t\hen\\ echo\\ b = Good"
 
 # Arguments with operators (inside parentheses)
 echo (This argument has & and | operators)

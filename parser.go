@@ -620,15 +620,17 @@ func parseArgumentValue(argStr string) interface{} {
 		return nil
 	}
 	
-	// Handle parentheses - return content without parens
+	// Handle parentheses - return as ParenGroup to preserve form
 	if strings.HasPrefix(argStr, "(") && strings.HasSuffix(argStr, ")") {
-		return argStr[1 : len(argStr)-1]
+		content := argStr[1 : len(argStr)-1]
+		return ParenGroup(content)
 	}
 	
-	// Handle quoted strings
+	// Handle quoted strings - return as QuotedString to preserve form
 	if (strings.HasPrefix(argStr, "\"") && strings.HasSuffix(argStr, "\"")) ||
 		(strings.HasPrefix(argStr, "'") && strings.HasSuffix(argStr, "'")) {
-		return parseStringLiteral(argStr[1 : len(argStr)-1])
+		content := parseStringLiteral(argStr[1 : len(argStr)-1])
+		return QuotedString(content)
 	}
 	
 	// Handle booleans
@@ -647,6 +649,7 @@ func parseArgumentValue(argStr string) interface{} {
 		return num
 	}
 	
+	// Bare identifier/string - stays as regular string
 	return argStr
 }
 

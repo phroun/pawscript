@@ -115,6 +115,7 @@ type BraceLocation struct {
 	StartLine        int
 	StartColumn      int
 	PositionInParent *SourcePosition
+	IsUnescape       bool // true if ${...}, false if {...}
 }
 
 // BraceEvaluation tracks the evaluation state of a single brace expression
@@ -212,3 +213,15 @@ type PawScriptError struct {
 func (e *PawScriptError) Error() string {
 	return e.Message
 }
+
+// ParenGroup represents a value that was originally in parentheses
+// This preserves the original form for $* substitution
+type ParenGroup string
+
+func (p ParenGroup) String() string { return string(p) }
+
+// QuotedString represents a value that was originally quoted
+// This preserves the original form for $* substitution
+type QuotedString string
+
+func (q QuotedString) String() string { return string(q) }
