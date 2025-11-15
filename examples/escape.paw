@@ -1,0 +1,10 @@
+set message, "Hello!"
+echo "Hello\!"
+echo "{get message}"
+
+macro show_args(
+   echo "$1"
+   echo "$*"
+)
+
+show_args "Hello, Alice!", 2, "third"

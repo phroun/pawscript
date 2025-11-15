@@ -1,0 +1,119 @@
+#!/usr/bin/env paw
+
+echo "=== Testing Comprehensive Escape Sequences ==="
+echo ""
+
+# Test 1: Short-form control characters
+echo "Test 1: Short-form control characters"
+
+echo "Null byte follows: [\0]"
+echo "Bell: \a (should beep on some terminals)"
+echo "Backspace: abc\b\b12"
+echo "Backspace: a12 = Good"
+
+echo "Escape: \e[31mRed text (on ANSI terminals)\e[0m"
+echo "Form feed: \f"
+echo "Newline: Line1 = Good\nLine2"
+echo "Line2 = Good"
+
+echo "Carriage return: Overwrite\rXX"
+echo "XXrriage return: Overwrite = Good"
+
+echo "Tab: Col1\tCol2\tCol3"
+echo ""
+
+# Test 2: Quote and backslash escapes
+echo "Test 2: Quotes and backslash"
+echo "Double quote: \"Hello\""
+echo "Single quote: \'World\'"
+echo "Backslash: C:\\Path\\File"
+echo ""
+
+# Test 3: Line continuation
+echo "Test 3: Line continuation"
+echo "This is a \
+long line \
+split across \
+multiple lines"
+echo "This is a long line split across multiple lines = Good"
+echo ""
+
+# Test 4: Hex escapes
+echo "Test 4: Hex escapes"
+echo "Hex null: \x00 (null)"
+echo "Hex newline: \x0a (same as \n)"
+echo "Hex tab: \x09 (same as \t)"
+echo "Hex space: \x20 (space)"
+echo "Hex exclaim: \x21 (!)"
+echo "Hex tilde: \x7e (~)"
+echo ""
+
+# Test 5: Unicode escapes (4 digits)
+echo "Test 5: Unicode escapes (short form)"
+echo "Euro: \u20ac (€)"
+echo "Smile: \u263a (☺)"
+echo "Heart: \u2665 (♥)"
+echo "Copyright: \u00a9 (©)"
+echo ""
+
+# Test 6: Unicode escapes (8 digits)
+echo "Test 6: Unicode escapes (long form)"
+echo "Emoji smile: \U0001f600 (😀)"
+echo "Emoji heart: \U0001f497 (💗)"
+echo "Emoji rocket: \U0001f680 (🚀)"
+echo ""
+
+# Test 7: Mixed escapes
+echo "Test 7: Mixed escapes"
+echo "Mix: \t\n\r\0\x41\u0042\U00000043"
+echo "Expected: (tab)(newline)(cr)(null)ABC"
+echo ""
+
+# Test 8: Escaping in substitution
+echo "Test 8: Escaping in substitution"
+macro show(echo "Value: $1")
+show "Line1
+Line2"
+echo "Expected to see: Value: Line1\\nLine2 (escaped newline)"
+echo ""
+
+# Test 9: Control characters in substitution
+echo "Test 9: Control chars in substitution"
+set value, "Tab:	Here"
+echo "Stored: {get value}"
+echo "Expected to see: Stored: Tab:\\tHere (escaped tab)"
+echo ""
+
+# Test 10: Special PawScript characters with escaping
+echo "Test 10: PawScript special chars in substitution"
+macro display(echo "Got: $1")
+display "a, b; c & d | e"
+echo "Expected: Got: a\\,\\ b\\;\\ c\\ \\&\\ d\\ \\|\\ e"
+echo ""
+
+# Test 11: Non-printable characters
+echo "Test 11: Non-printable as hex"
+echo "Delete char: \x7f"
+echo "Control chars: \x01\x02\x03"
+echo ""
+
+# Test 12: Null byte preservation
+echo "Test 12: Null byte"
+set nulltest, "Before\0After"
+echo "Value: {get nulltest}"
+echo "Expected: Value: Before\\0After"
+echo ""
+
+# Test 13: Invalid escapes (not enough hex digits)
+echo "Test 13: Invalid escapes treated as literal"
+echo "Short hex: \x1 (treats as literal x1)"
+echo "Short unicode: \u123 (treats as literal u123)"
+echo "Short Unicode: \U1234567 (treats as literal U1234567)"
+echo ""
+
+# Test 14: Combining all features
+echo "Test 14: Kitchen sink"
+echo "Path: C:\\Users\\Name\nTab:\tHere\nUnicode: \u2665\nHex: \x21\nNull:\0End"
+echo ""
+
+echo "=== All Tests Complete ==="

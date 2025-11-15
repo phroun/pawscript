@@ -227,7 +227,7 @@ func (ps *PawScript) RegisterStandardLibrary(scriptArgs []string) {
 	// while - loop while condition is true
 	ps.RegisterCommand("while", func(ctx *Context) Result {
 		if len(ctx.Args) < 2 {
-			fmt.Fprintln(os.Stderr, "[WHILE ERROR] Usage: while (condition) (body)")
+			fmt.Fprintln(os.Stderr, "[WHILE ERROR] Usage: while (condition), (body)")
 			return BoolStatus(false)
 		}
 		

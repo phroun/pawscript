@@ -652,13 +652,114 @@ func parseArgumentValue(argStr string) interface{} {
 
 // parseStringLiteral handles escape sequences in strings
 func parseStringLiteral(str string) string {
-	str = strings.ReplaceAll(str, `\'`, "'")
-	str = strings.ReplaceAll(str, `\"`, "\"")
-	str = strings.ReplaceAll(str, `\n`, "\n")
-	str = strings.ReplaceAll(str, `\r`, "\r")
-	str = strings.ReplaceAll(str, `\t`, "\t")
-	str = strings.ReplaceAll(str, `\\`, "\\")
-	return str
+	var result strings.Builder
+	runes := []rune(str)
+	i := 0
+	
+	for i < len(runes) {
+		if runes[i] == '\\' && i+1 < len(runes) {
+			// Handle escape sequence
+			nextChar := runes[i+1]
+			switch nextChar {
+			case '0':
+				result.WriteRune('\x00') // null byte
+				i += 2
+			case 'a':
+				result.WriteRune('\x07') // bell
+				i += 2
+			case 'b':
+				result.WriteRune('\x08') // backspace
+				i += 2
+			case 'e':
+				result.WriteRune('\x1B') // escape
+				i += 2
+			case 'f':
+				result.WriteRune('\x0C') // form feed
+				i += 2
+			case 'n':
+				result.WriteRune('\n') // newline
+				i += 2
+			case 'r':
+				result.WriteRune('\r') // carriage return
+				i += 2
+			case 't':
+				result.WriteRune('\t') // tab
+				i += 2
+			case '\\':
+				result.WriteRune('\\') // backslash
+				i += 2
+			case '\'':
+				result.WriteRune('\'') // single quote
+				i += 2
+			case '"':
+				result.WriteRune('"') // double quote
+				i += 2
+			case '\n':
+				// Line continuation: backslash followed by newline produces empty string
+				i += 2
+			case 'x':
+				// Hex escape: \xHH
+				if i+3 < len(runes) {
+					hexStr := string(runes[i+2 : i+4])
+					if val, err := strconv.ParseUint(hexStr, 16, 8); err == nil {
+						result.WriteRune(rune(val))
+						i += 4
+					} else {
+						// Invalid hex sequence, treat as literal \x
+						result.WriteRune(nextChar)
+						i += 2
+					}
+				} else {
+					// Not enough characters, treat as literal \x
+					result.WriteRune(nextChar)
+					i += 2
+				}
+			case 'u':
+				// Unicode escape: \uXXXX (4 hex digits)
+				if i+5 < len(runes) {
+					hexStr := string(runes[i+2 : i+6])
+					if val, err := strconv.ParseUint(hexStr, 16, 32); err == nil {
+						result.WriteRune(rune(val))
+						i += 6
+					} else {
+						// Invalid unicode sequence, treat as literal \u
+						result.WriteRune(nextChar)
+						i += 2
+					}
+				} else {
+					// Not enough characters, treat as literal \u
+					result.WriteRune(nextChar)
+					i += 2
+				}
+			case 'U':
+				// Unicode escape: \UXXXXXXXX (8 hex digits)
+				if i+9 < len(runes) {
+					hexStr := string(runes[i+2 : i+10])
+					if val, err := strconv.ParseUint(hexStr, 16, 32); err == nil && val <= 0x10FFFF {
+						result.WriteRune(rune(val))
+						i += 10
+					} else {
+						// Invalid unicode sequence, treat as literal \U
+						result.WriteRune(nextChar)
+						i += 2
+					}
+				} else {
+					// Not enough characters, treat as literal \U
+					result.WriteRune(nextChar)
+					i += 2
+				}
+			default:
+				// For any other character, just remove the backslash
+				result.WriteRune(nextChar)
+				i += 2
+			}
+		} else {
+			result.WriteRune(runes[i])
+			i++
+		}
+	}
+	
+	return result.String()
 }
 
 // GetSourceMap returns the source map
@@ -667,10 +768,12 @@ func (p *Parser) GetSourceMap() *SourceMap {
 }
 
 // NormalizeKeywords replaces 'then' with '&', 'else' with '|', and 'not' with '!' when they are standalone words
+// but skips content inside parentheses (which may be stored as data rather than executed)
 func (p *Parser) NormalizeKeywords(source string) string {
 	var result strings.Builder
 	inQuote := false
 	var quoteChar rune
+	parenDepth := 0
 	
 	runes := []rune(source)
 	i := 0
@@ -700,6 +803,28 @@ func (p *Parser) NormalizeKeywords(source string) string {
 			if char == quoteChar {
 				inQuote = false
 			}
+			i++
+			continue
+		}
+		
+		// Track parentheses depth
+		if char == '(' {
+			parenDepth++
+			result.WriteRune(char)
+			i++
+			continue
+		}
+		
+		if char == ')' {
+			parenDepth--
+			result.WriteRune(char)
+			i++
+			continue
+		}
+		
+		// Only normalize keywords at top level (outside parentheses)
+		if parenDepth > 0 {
+			result.WriteRune(char)
 			i++
 			continue
 		}

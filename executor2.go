@@ -686,12 +686,29 @@ func (e *Executor) reEvaluateToken(token string, ctx *SubstitutionContext) strin
 	return result
 }
 
+// escapeSpecialCharacters escapes special syntax characters for safe substitution
+func (e *Executor) escapeSpecialCharacters(str string) string {
+	// Characters that have special meaning in PawScript syntax
+	// Must be escaped when substituting into command text
+	const specialChars = ";&#(){}\"'\\$,! \t\n\r"
+	
+	var result strings.Builder
+	for _, char := range str {
+		if strings.ContainsRune(specialChars, char) {
+			result.WriteRune('\\')
+		}
+		result.WriteRune(char)
+	}
+	return result.String()
+}
+
 // formatArgumentForSubstitution formats an argument for substitution
 func (e *Executor) formatArgumentForSubstitution(arg interface{}) string {
-	// Simply convert to string - no auto-quoting
-	// Macro authors should handle quoting in their macro definitions if needed
-	// For example: echo "$1" or echo '$1' to preserve arguments with spaces
-	return fmt.Sprintf("%v", arg)
+	// Convert to string and escape special characters
+	// This ensures that special characters in the value are treated as literal text
+	// rather than being re-interpreted as syntax
+	str := fmt.Sprintf("%v", arg)
+	return e.escapeSpecialCharacters(str)
 }
 
 // createContext creates a command context
@@ -754,12 +771,12 @@ func (e *Executor) substituteAllBraces(originalString string, evaluations []*Bra
 	runes := []rune(result)
 	
 	for _, eval := range sortedEvals {
-		// Get the result value
+		// Get the result value and escape it
 		resultValue := ""
 		if eval.State != nil && eval.State.HasResult() {
-			resultValue = fmt.Sprintf("%v", eval.State.GetResult())
+			resultValue = e.escapeSpecialCharacters(fmt.Sprintf("%v", eval.State.GetResult()))
 		} else if eval.Result != nil {
-			resultValue = fmt.Sprintf("%v", eval.Result)
+			resultValue = e.escapeSpecialCharacters(fmt.Sprintf("%v", eval.Result))
 		}
 		
 		// Substitute: replace from StartPos to EndPos+1 with resultValue

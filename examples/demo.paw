@@ -160,15 +160,15 @@ macro "greet", (echo "Hello $1!")
 macro "define_macros", (
     # Define a macro with multiple commands
     macro "greet_formal", (
-        write "Good day, $1.";
+        write "Good day, \\$1.";
         echo "How are you today?"
     )
 
     # Define a macro with argument substitution patterns
     macro "describe_args", (
-        write "You provided $# arguments: $*; ";
-        write "First argument: $1; ";
-        echo "Second argument: $2"
+        write "You provided \\$# arguments: \\$*; ";
+        write "First argument: \\$1; ";
+        echo "Second argument: \\$2"
     )
 
     # Define a macro with conditional logic
@@ -177,7 +177,7 @@ macro "define_macros", (
             echo "This will not be called, but is checking nesting."
         )
         echo "Checking name..." &
-        echo "Hello $1!" |
+        echo "Hello \\$1!" |
         echo "Hello there!"
     )
 )
