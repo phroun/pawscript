@@ -101,6 +101,22 @@ func (e *Executor) executeSingleCommand(
 ) Result {
 	commandStr = strings.TrimSpace(commandStr)
 	
+	// Check for parenthesis block - execute in same scope
+	if strings.HasPrefix(commandStr, "(") && strings.HasSuffix(commandStr, ")") {
+		blockContent := commandStr[1 : len(commandStr)-1]
+		
+		e.logger.Debug("Executing parenthesis block in same scope: (%s)", blockContent)
+		
+		// Execute block content in the SAME state (no child scope)
+		return e.ExecuteWithState(
+			blockContent,
+			state,              // Same state, not a child
+			substitutionCtx,
+			position.Filename,
+			0, 0,
+		)
+	}
+	
 	// Apply syntactic sugar
 	commandStr = e.applySyntacticSugar(commandStr)
 	
@@ -538,7 +554,22 @@ func (e *Executor) substituteBraceExpressions(str string, ctx *SubstitutionConte
 	// All synchronous - check for any failures
 	for i, eval := range evaluations {
 		if eval.Failed {
-			// Don't log here - the error was already logged by ExecuteWithState with correct position
+			// Log the error with position information
+			// Note: Parse errors are already logged by ExecuteWithState, but command execution
+			// failures (commands returning false) need to be logged here
+			errorMsg := "Command in brace expression failed"
+			if eval.Error != "" {
+				errorMsg = eval.Error
+			}
+			
+			// Get source context if we have the original lines
+			var sourceContext []string
+			if ctx != nil && ctx.Filename != "" {
+				// Try to get source lines from parser's source map if available
+				sourceContext = nil // We'll add this later if needed
+			}
+			
+			e.logger.ErrorWithPosition(errorMsg, eval.Position, sourceContext)
 			e.logger.Debug("Synchronous brace evaluation %d failed, aborting command", i)
 			// Return special marker to indicate brace failure
 			return "\x00BRACE_FAILED\x00"

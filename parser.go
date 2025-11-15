@@ -665,3 +665,74 @@ func parseStringLiteral(str string) string {
 func (p *Parser) GetSourceMap() *SourceMap {
 	return p.sourceMap
 }
+
+// NormalizeKeywords replaces 'then' with '&' and 'else' with '|' when they are standalone words
+func (p *Parser) NormalizeKeywords(source string) string {
+	var result strings.Builder
+	inQuote := false
+	var quoteChar rune
+	
+	runes := []rune(source)
+	i := 0
+	
+	for i < len(runes) {
+		char := runes[i]
+		
+		// Handle escape sequences
+		if char == '\\' && i+1 < len(runes) {
+			result.WriteRune(char)
+			result.WriteRune(runes[i+1])
+			i += 2
+			continue
+		}
+		
+		// Track quotes
+		if !inQuote && (char == '"' || char == '\'') {
+			inQuote = true
+			quoteChar = char
+			result.WriteRune(char)
+			i++
+			continue
+		}
+		
+		if inQuote {
+			result.WriteRune(char)
+			if char == quoteChar {
+				inQuote = false
+			}
+			i++
+			continue
+		}
+		
+		// Check for 'then' keyword (4 characters)
+		if i+4 <= len(runes) && string(runes[i:i+4]) == "then" {
+			// Check word boundaries
+			beforeOk := i == 0 || !unicode.IsLetter(runes[i-1]) && !unicode.IsDigit(runes[i-1]) && runes[i-1] != '_'
+			afterOk := i+4 >= len(runes) || !unicode.IsLetter(runes[i+4]) && !unicode.IsDigit(runes[i+4]) && runes[i+4] != '_'
+			
+			if beforeOk && afterOk {
+				result.WriteRune('&')
+				i += 4
+				continue
+			}
+		}
+		
+		// Check for 'else' keyword (4 characters)
+		if i+4 <= len(runes) && string(runes[i:i+4]) == "else" {
+			// Check word boundaries
+			beforeOk := i == 0 || !unicode.IsLetter(runes[i-1]) && !unicode.IsDigit(runes[i-1]) && runes[i-1] != '_'
+			afterOk := i+4 >= len(runes) || !unicode.IsLetter(runes[i+4]) && !unicode.IsDigit(runes[i+4]) && runes[i+4] != '_'
+			
+			if beforeOk && afterOk {
+				result.WriteRune('|')
+				i += 4
+				continue
+			}
+		}
+		
+		result.WriteRune(char)
+		i++
+	}
+	
+	return result.String()
+}

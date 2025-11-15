@@ -598,7 +598,10 @@ func (e *Executor) ExecuteWithState(
 	parser := NewParser(commandStr, filename)
 	cleanedCommand := parser.RemoveComments(commandStr)
 	
-	commands, err := parser.ParseCommandSequence(cleanedCommand)
+	// Normalize keywords: 'then' -> '&', 'else' -> '|'
+	normalizedCommand := parser.NormalizeKeywords(cleanedCommand)
+	
+	commands, err := parser.ParseCommandSequence(normalizedCommand)
 	if err != nil {
 		// Extract position and context from PawScriptError if available
 		if pawErr, ok := err.(*PawScriptError); ok {

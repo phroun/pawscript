@@ -7,6 +7,7 @@ type ExecutionState struct {
 	mu            sync.RWMutex
 	currentResult interface{}
 	hasResult     bool
+	variables     map[string]interface{}
 }
 
 // NewExecutionState creates a new execution state
@@ -28,6 +29,7 @@ func NewExecutionStateFrom(parent *ExecutionState) *ExecutionState {
 	return &ExecutionState{
 		currentResult: parent.currentResult,
 		hasResult:     parent.hasResult,
+		variables:     parent.variables, // Share the same variables map
 	}
 }
 
@@ -90,4 +92,38 @@ func (s *ExecutionState) String() string {
 		return "ExecutionState(has result)"
 	}
 	return "ExecutionState(no result)"
+}
+
+// SetVariable sets a variable in the current scope
+func (s *ExecutionState) SetVariable(name string, value interface{}) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	
+	if s.variables == nil {
+		s.variables = make(map[string]interface{})
+	}
+	s.variables[name] = value
+}
+
+// GetVariable gets a variable from the current scope
+func (s *ExecutionState) GetVariable(name string) (interface{}, bool) {
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+	
+	if s.variables == nil {
+		return nil, false
+	}
+	
+	val, exists := s.variables[name]
+	return val, exists
+}
+
+// DeleteVariable removes a variable from the current scope
+func (s *ExecutionState) DeleteVariable(name string) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	
+	if s.variables != nil {
+		delete(s.variables, name)
+	}
 }

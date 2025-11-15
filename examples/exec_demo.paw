@@ -60,7 +60,7 @@ echo ""
 
 # Example 10: Parallel execution with async braces
 echo "Example 10: Parallel command execution"
-echo "Results: {exec '/bin/bash' '-c', '/bin/sleep 1; echo a'} {exec echo, b} {exec echo, c}"
+echo "Results: {exec '/bin/bash', '-c', '/bin/sleep 1; echo a'} {exec echo, b} {exec echo, c}"
 echo ""
 
 echo "=== Demo Complete ==="
