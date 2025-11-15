@@ -666,7 +666,7 @@ func (p *Parser) GetSourceMap() *SourceMap {
 	return p.sourceMap
 }
 
-// NormalizeKeywords replaces 'then' with '&' and 'else' with '|' when they are standalone words
+// NormalizeKeywords replaces 'then' with '&', 'else' with '|', and 'not' with '!' when they are standalone words
 func (p *Parser) NormalizeKeywords(source string) string {
 	var result strings.Builder
 	inQuote := false
@@ -702,6 +702,19 @@ func (p *Parser) NormalizeKeywords(source string) string {
 			}
 			i++
 			continue
+		}
+		
+		// Check for 'not' keyword (3 characters)
+		if i+3 <= len(runes) && string(runes[i:i+3]) == "not" {
+			// Check word boundaries
+			beforeOk := i == 0 || !unicode.IsLetter(runes[i-1]) && !unicode.IsDigit(runes[i-1]) && runes[i-1] != '_'
+			afterOk := i+3 >= len(runes) || !unicode.IsLetter(runes[i+3]) && !unicode.IsDigit(runes[i+3]) && runes[i+3] != '_'
+			
+			if beforeOk && afterOk {
+				result.WriteRune('!')
+				i += 3
+				continue
+			}
 		}
 		
 		// Check for 'then' keyword (4 characters)

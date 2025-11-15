@@ -404,6 +404,44 @@ func (ps *PawScript) RegisterStandardLibrary(scriptArgs []string) {
 		return BoolResult(result)
 	})
 	
+	ps.RegisterCommand("gte", func(ctx *Context) Result {
+		if len(ctx.Args) < 2 {
+			fmt.Fprintln(os.Stderr, "[GTE ERROR] Usage: gte <a>, <b>")
+			ctx.SetResult(false)
+			return BoolResult(false)
+		}
+		a, aOk := toNumber(ctx.Args[0])
+		b, bOk := toNumber(ctx.Args[1])
+		if aOk && bOk {
+			result := a >= b
+			ctx.SetResult(result)
+			return BoolResult(result)
+		}
+		// String comparison as fallback
+		result := fmt.Sprintf("%v", ctx.Args[0]) >= fmt.Sprintf("%v", ctx.Args[1])
+		ctx.SetResult(result)
+		return BoolResult(result)
+	})
+	
+	ps.RegisterCommand("lte", func(ctx *Context) Result {
+		if len(ctx.Args) < 2 {
+			fmt.Fprintln(os.Stderr, "[LTE ERROR] Usage: lte <a>, <b>")
+			ctx.SetResult(false)
+			return BoolResult(false)
+		}
+		a, aOk := toNumber(ctx.Args[0])
+		b, bOk := toNumber(ctx.Args[1])
+		if aOk && bOk {
+			result := a <= b
+			ctx.SetResult(result)
+			return BoolResult(result)
+		}
+		// String comparison as fallback
+		result := fmt.Sprintf("%v", ctx.Args[0]) <= fmt.Sprintf("%v", ctx.Args[1])
+		ctx.SetResult(result)
+		return BoolResult(result)
+	})
+	
 	// if - normalize truthy/falsy values to boolean
 	ps.RegisterCommand("if", func(ctx *Context) Result {
 		if len(ctx.Args) < 1 {

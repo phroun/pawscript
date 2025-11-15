@@ -101,6 +101,15 @@ func (e *Executor) executeSingleCommand(
 ) Result {
 	commandStr = strings.TrimSpace(commandStr)
 	
+	// Check for ! prefix (inversion operator)
+	// This inverts the success status (BoolResult), not the result value
+	shouldInvert := false
+	if strings.HasPrefix(commandStr, "!") {
+		shouldInvert = true
+		commandStr = strings.TrimSpace(commandStr[1:]) // Strip ! and trim again
+		e.logger.Debug("Detected ! operator, will invert success status")
+	}
+	
 	// Check for parenthesis block - execute in same scope
 	if strings.HasPrefix(commandStr, "(") && strings.HasSuffix(commandStr, ")") {
 		blockContent := commandStr[1 : len(commandStr)-1]
@@ -108,13 +117,19 @@ func (e *Executor) executeSingleCommand(
 		e.logger.Debug("Executing parenthesis block in same scope: (%s)", blockContent)
 		
 		// Execute block content in the SAME state (no child scope)
-		return e.ExecuteWithState(
+		result := e.ExecuteWithState(
 			blockContent,
 			state,              // Same state, not a child
 			substitutionCtx,
 			position.Filename,
 			0, 0,
 		)
+		
+		// Apply inversion if needed
+		if shouldInvert {
+			return e.invertResult(result, state, position)
+		}
+		return result
 	}
 	
 	// Apply syntactic sugar
@@ -155,7 +170,11 @@ func (e *Executor) executeSingleCommand(
 	if commandStr == "\x00BRACE_FAILED\x00" {
 		// Error already logged by ExecuteWithState with correct position
 		e.logger.Debug("Brace evaluation failed, returning false")
-		return BoolResult(false)
+		result := BoolResult(false)
+		if shouldInvert {
+			return BoolResult(!bool(result))
+		}
+		return result
 	}
 	
 	// Check if substitution returned an async brace marker
@@ -172,6 +191,7 @@ func (e *Executor) executeSingleCommand(
 			// Store state and context for later
 			capturedState := state
 			capturedPosition := position
+			capturedShouldInvert := shouldInvert
 			
 			// Get the evaluations so we can access their positions
 			evaluations := coordData.BraceCoordinator.Evaluations
@@ -188,7 +208,11 @@ func (e *Executor) executeSingleCommand(
 								i, eval.Position.Line, eval.Position.Column)
 						}
 					}
-					return BoolResult(false)
+					result := BoolResult(false)
+					if capturedShouldInvert {
+						return BoolResult(!bool(result))
+					}
+					return result
 				}
 				
 				e.logger.Debug("Brace coordinator resumed with substituted string: %s", finalString)
@@ -209,25 +233,42 @@ func (e *Executor) executeSingleCommand(
 					fallbackResult := e.fallbackHandler(cmdName, args, capturedState, capturedPosition)
 					if fallbackResult != nil {
 						e.logger.Debug("Fallback handler returned: %v", fallbackResult)
+						if capturedShouldInvert {
+							return e.invertResult(fallbackResult, capturedState, capturedPosition)
+						}
 						return fallbackResult
 					}
 				}
 				
 				if !exists {
 					e.logger.UnknownCommandError(cmdName, capturedPosition, nil)
-					return BoolResult(false)
+					result := BoolResult(false)
+					if capturedShouldInvert {
+						return BoolResult(!bool(result))
+					}
+					return result
 				}
 				
 				// Execute command
 				e.logger.Debug("Executing %s with args: %v", cmdName, args)
 				ctx := e.createContext(args, capturedState, capturedPosition)
-				return handler(ctx)
+				result := handler(ctx)
+				
+				// Apply inversion if needed
+				if capturedShouldInvert {
+					return e.invertResult(result, capturedState, capturedPosition)
+				}
+				return result
 			}
 			e.mu.Unlock()
 		} else {
 			e.mu.Unlock()
 			e.logger.Error("Coordinator token %s not found or invalid", coordinatorToken)
-			return BoolResult(false)
+			result := BoolResult(false)
+			if shouldInvert {
+				return BoolResult(!bool(result))
+			}
+			return result
 		}
 		
 		// Return the coordinator token to suspend this command
@@ -252,19 +293,33 @@ func (e *Executor) executeSingleCommand(
 		fallbackResult := e.fallbackHandler(cmdName, args, state, position)
 		if fallbackResult != nil {
 			e.logger.Debug("Fallback handler returned: %v", fallbackResult)
+			if shouldInvert {
+				return e.invertResult(fallbackResult, state, position)
+			}
 			return fallbackResult
 		}
 	}
 	
 	if !exists {
 		e.logger.UnknownCommandError(cmdName, position, nil)
-		return BoolResult(false)
+		result := BoolResult(false)
+		if shouldInvert {
+			return BoolResult(!bool(result))
+		}
+		return result
 	}
 	
 	// Execute command
 	e.logger.Debug("Executing %s with args: %v", cmdName, args)
 	ctx := e.createContext(args, state, position)
-	return handler(ctx)
+	result := handler(ctx)
+	
+	// Apply inversion if needed
+	if shouldInvert {
+		return e.invertResult(result, state, position)
+	}
+	
+	return result
 }
 
 // applySyntacticSugar applies syntactic sugar transformations
@@ -766,4 +821,37 @@ func (e *Executor) findAllTopLevelBraces(str string, ctx *SubstitutionContext) [
 	}
 	
 	return braces
+}
+
+// invertResult inverts the success status of a Result
+// For BoolResult, it inverts immediately
+// For TokenResult, it creates a wrapper token that will invert when the async operation completes
+func (e *Executor) invertResult(result Result, state *ExecutionState, position *SourcePosition) Result {
+	if boolResult, ok := result.(BoolResult); ok {
+		// Invert synchronous result immediately
+		inverted := !bool(boolResult)
+		e.logger.Debug("Inverted synchronous result: %v -> %v", bool(boolResult), inverted)
+		return BoolResult(inverted)
+	} else if tokenResult, ok := result.(TokenResult); ok {
+		// For async result, create wrapper token with inversion flag
+		e.logger.Debug("Creating inverter wrapper for async token: %s", string(tokenResult))
+		
+		inverterToken := e.RequestCompletionToken(nil, "", 5*time.Minute, state, position)
+		
+		// Mark this token for result inversion
+		e.mu.Lock()
+		if tokenData, exists := e.activeTokens[inverterToken]; exists {
+			tokenData.InvertResult = true
+		}
+		e.mu.Unlock()
+		
+		// Chain the inverter to the original token
+		e.chainTokens(string(tokenResult), inverterToken)
+		
+		e.logger.Debug("Created inverter token: %s -> %s", string(tokenResult), inverterToken)
+		return TokenResult(inverterToken)
+	}
+	
+	// Unknown result type, return as-is
+	return result
 }

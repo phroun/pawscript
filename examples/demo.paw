@@ -7,10 +7,12 @@
 
 # Line comments start with # (when followed by whitespace or end of line)
 echo "Line comments work"  # This is also a comment
+echo "Line comments work = Good"
 
-#( Block comments can span
-   multiple lines and use
-   parentheses )#
+echo #( Block comments can span
+   multiple #( lines )# and (use)
+   parentheses. This should not print out. )# "This should #( actually )# print."
+echo "This should :( actually ): print = Good"
 
 #{ Alternative block comment style
    using braces instead }#
@@ -26,7 +28,7 @@ echo "Line comments work"  # This is also a comment
 
 #( But you can still mention "nested )# symbols" in double quotes )#
 
-echo "Comments testing complete."
+echo "Comments testing complete."; print
 
 # ==========================================
 # BASIC COMMANDS
@@ -38,16 +40,21 @@ false
 
 # Commands with arguments (comma-separated)
 echo "Hello, World!"
+echo "Hello, World! = Good"
 echo "Multiple", "arguments", "here"
+echo "Multiple arguments here = Good"
 
 # Commands with different argument types
 echo 42                    # Numbers
+echo "42 = Good"
 echo true                  # Booleans  
+echo "true = Good"
 echo "quoted string"       # Strings
+echo "quoted string = Good"
 echo 'single quotes work'  # Single quotes
-echo "Should see 42, true, "quoted string" and 'single quotes work', with no quotes."
+echo "single quotes work = Good"
 
-echo "Basic commands testing complete."
+echo "Basic commands testing complete."; print
 
 # ==========================================
 # COMMAND SEPARATORS & FLOW CONTROL
@@ -68,27 +75,29 @@ echo "FirstSecondThird = Good"
 # AND operator (&) - execute next only if current succeeds
 true & echo "This runs because true succeeded"
 false & echo "This won't run because false failed"
+echo "This runs because true succeeded = Good"
 
 # OR operator (|) - execute next only if current fails  
 true | echo "This won't run because true succeeded"
 false | echo "This runs because false failed"
+echo "This runs because false failed = Good"
 
 # Complex flow control chains
-true & echo "Step 1" & echo "Step 2" | echo "Fallback"
-echo "Should see above: 'This runs', 'This runs', and 'Step 1', 'Step 2'"
+true & write "Step 1" & echo "Step 2" | echo "Fallback"
+echo "Step 1Step 2 = Good"
 
 # Multi-line flow control
 true &
-echo "This continues from previous line" &
+write "This continues from previous line" &
 echo "And this continues too"
-echo "Should see 'This continues...' and '...too'"
+echo "This continues from previous lineAnd this continues too = Good"
 
 false |
 echo "This runs because false failed" |
 echo "This won't run because previous succeeded"
-echo "Should only see 'This runs because false failed'"
+echo "This runs because false failed = Good"
 
-echo "Chaining test complete."
+echo "Chaining test complete."; print
 
 # ==========================================
 # PARENTHESES (Argument Grouping)
@@ -108,7 +117,7 @@ echo "String argumentgrouped argument42 = Good"
 echo (Outer (inner content) more outer)
 echo "Outer (inner content) more outer = Good"
 
-echo "Parenthesis test compmlete."
+echo "Parenthesis test compmlete."; print
 
 # ==========================================
 # BRACES (Execution Blocks)
@@ -137,7 +146,7 @@ echo "prefixmiddlesuffix = Good"
 echo "{set_result Hello} {set_result World}"
 echo "Hello World = Good"
 
-echo "Braces testing complete."
+echo "Braces testing complete."; print
 
 # ==========================================
 # MACROS
@@ -196,7 +205,7 @@ macro smart_echo(echo "Smart: {set_result $1}")
 smart_echo "test"
 echo "Smart: test = Good"
 
-echo "Macro test complete."
+echo "Macro test complete."; print
 
 # ==========================================
 # SYNTACTIC SUGAR
@@ -210,6 +219,8 @@ macro quickGreet(echo "Quick hello to $1!")
 
 quickGreet "Eva"
 echo "Quick hello to Eva! = Good"
+
+echo "Sugar test complete."; print
 
 # ==========================================
 # COMPLEX COMBINATIONS
@@ -254,6 +265,8 @@ complex_demo "test-data"
 
 echo "Done with complex_demo."
 
+echo "Complex tests complete."; print
+
 # ==========================================
 # NESTED STRUCTURES
 # ==========================================
@@ -293,7 +306,7 @@ macro kitchen_sink(
 # Execute the complex macro
 kitchen_sink "final-test"
 
-echo "End nested structures test."
+echo "End nested structures test."; print
 
 # ==========================================
 # PRACTICAL EXAMPLES
@@ -328,7 +341,7 @@ macro validate_and_process(
 
 validate_and_process "user-input"
 
-echo "End practical examples."
+echo "End practical examples."; print
 
 # ==========================================
 # EDGE CASES & SPECIAL CHARACTERS
@@ -365,7 +378,7 @@ echo "test = Good"
 echo (grouped #{ comment in group }# text)
 echo "grouped  text = Good"
 
-echo "End edge cases."
+echo "End edge cases."; print
 
 # ==========================================
 # MACRO MANAGEMENT
@@ -386,4 +399,4 @@ macro_delete "old_macro"
 
 echo "=== PawScript Syntax Demo Complete ==="
 
-   check_line_and_col_of_error_389_4
+   check_line_and_col_of_error_401_4

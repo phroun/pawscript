@@ -156,6 +156,7 @@ type TokenData struct {
 	HasSuspendedResult bool
 	Position           *SourcePosition
 	BraceCoordinator   *BraceCoordinator // For coordinating parallel brace evaluation
+	InvertResult       bool              // If true, invert the success status when this token completes
 }
 
 // MacroDefinition stores a macro definition

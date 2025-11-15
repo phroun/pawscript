@@ -365,6 +365,13 @@ func (e *Executor) PopAndResumeCommandSequence(tokenID string, result bool) bool
 		return false
 	}
 	
+	// Apply inversion if this token has the InvertResult flag
+	effectiveResult := result
+	if tokenData.InvertResult {
+		effectiveResult = !result
+		e.logger.Debug("Inverting async result for token %s: %v -> %v", tokenID, result, effectiveResult)
+	}
+	
 	// Check if this token's parent is a brace coordinator
 	if tokenData.ParentToken != "" {
 		if parentData, parentExists := e.activeTokens[tokenData.ParentToken]; parentExists {
@@ -378,13 +385,13 @@ func (e *Executor) PopAndResumeCommandSequence(tokenID string, result bool) bool
 				e.mu.Unlock()
 				
 				e.logger.Debug("Token %s is child of brace coordinator %s, forwarding result", tokenID, coordinatorToken)
-				e.ResumeBraceEvaluation(coordinatorToken, tokenID, resultValue, result)
-				return result
+				e.ResumeBraceEvaluation(coordinatorToken, tokenID, resultValue, effectiveResult)
+				return effectiveResult
 			}
 		}
 	}
 	
-	e.logger.Debug("Popping command sequence from token %s. Result: %v", tokenID, result)
+	e.logger.Debug("Popping command sequence from token %s. Result: %v", tokenID, effectiveResult)
 	
 	// Cleanup children
 	e.cleanupTokenChildrenLocked(tokenID)
@@ -399,11 +406,11 @@ func (e *Executor) PopAndResumeCommandSequence(tokenID string, result bool) bool
 		state = NewExecutionState()
 	}
 	
-	success := result
+	success := effectiveResult
 	if tokenData.CommandSequence != nil {
 		seq := tokenData.CommandSequence
 		e.mu.Unlock() // Unlock before resuming to avoid deadlock
-		success = e.resumeCommandSequence(seq, result, state)
+		success = e.resumeCommandSequence(seq, effectiveResult, state)
 		e.mu.Lock()
 	}
 	

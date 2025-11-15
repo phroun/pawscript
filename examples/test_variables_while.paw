@@ -8,9 +8,15 @@ echo "Test 1: Basic variables"
 set name, "Alice"
 set age, 30
 set age, {add {get age}, 1}
-gt age, 31
+gt {get age}, 30
 then {
    echo "Alice is old!"
+}
+lt {get age}, 20
+then {
+   echo "Alice is too young."
+} else {
+   echo "But, she's fine"
 }
 echo "Name: {get name}"
 echo "Age: {get age}"
