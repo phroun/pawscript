@@ -67,7 +67,7 @@ func (ms *MacroSystem) ExecuteMacro(
 ) Result {
 	if name == "" {
 		ms.logger.Error("Macro name is required")
-		return BoolResult(false)
+		return BoolStatus(false)
 	}
 	
 	ms.mu.RLock()
@@ -76,7 +76,7 @@ func (ms *MacroSystem) ExecuteMacro(
 	
 	if !exists {
 		ms.logger.Error("Macro \"%s\" not found", name)
-		return BoolResult(false)
+		return BoolStatus(false)
 	}
 	
 	// Create macro context for error tracking

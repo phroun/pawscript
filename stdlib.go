@@ -15,7 +15,7 @@ func (ps *PawScript) RegisterStandardLibrary(scriptArgs []string) {
 	// argc - returns number of arguments
 	ps.RegisterCommand("argc", func(ctx *Context) Result {
 		ctx.SetResult(len(scriptArgs))
-		return BoolResult(true)
+		return BoolStatus(true)
 	})
 	
 	// argv - returns array of arguments or specific argument by index
@@ -30,7 +30,7 @@ func (ps *PawScript) RegisterStandardLibrary(scriptArgs []string) {
 					index = int64(f)
 				} else {
 					ctx.SetResult(nil)
-					return BoolResult(true)
+					return BoolStatus(true)
 				}
 			}
 			
@@ -40,7 +40,7 @@ func (ps *PawScript) RegisterStandardLibrary(scriptArgs []string) {
 				ctx.SetResult(nil)
 			}
 		}
-		return BoolResult(true)
+		return BoolStatus(true)
 	})
 	
 	// script_error - output error messages
@@ -61,7 +61,7 @@ func (ps *PawScript) RegisterStandardLibrary(scriptArgs []string) {
 		}
 		
 		fmt.Fprintln(os.Stderr, errorOutput)
-		return BoolResult(true)
+		return BoolStatus(true)
 	})
 	
 	// echo/write/print - output to stdout (no automatic newline)
@@ -72,7 +72,7 @@ func (ps *PawScript) RegisterStandardLibrary(scriptArgs []string) {
 			text += fmt.Sprintf("%v", arg)
 		}
 		fmt.Print(text) // No automatic newline - use \n explicitly if needed
-		return BoolResult(true)
+		return BoolStatus(true)
 	}
 
 	outputLineCommand := func(ctx *Context) Result {
@@ -84,7 +84,7 @@ func (ps *PawScript) RegisterStandardLibrary(scriptArgs []string) {
 			text += fmt.Sprintf("%v", arg)
 		}
 		fmt.Println(text) // Automatic newline in this version!
-		return BoolResult(true)
+		return BoolStatus(true)
 	}
 	
 	ps.RegisterCommand("write", outputCommand)
@@ -119,7 +119,7 @@ func (ps *PawScript) RegisterStandardLibrary(scriptArgs []string) {
 	ps.RegisterCommand("exec", func(ctx *Context) Result {
 		if len(ctx.Args) == 0 {
 			fmt.Fprintln(os.Stderr, "[EXEC ERROR] No command specified")
-			return BoolResult(false)
+			return BoolStatus(false)
 		}
 		
 		// First argument is the command
@@ -161,17 +161,17 @@ func (ps *PawScript) RegisterStandardLibrary(scriptArgs []string) {
 		ctx.SetResult(stdout)
 		
 		// Return success status
-		return BoolResult(success)
+		return BoolStatus(success)
 	})
 	
 	// true - sets success state
 	ps.RegisterCommand("true", func(ctx *Context) Result {
-		return BoolResult(true)
+		return BoolStatus(true)
 	})
 	
 	// false - sets error state
 	ps.RegisterCommand("false", func(ctx *Context) Result {
-		return BoolResult(false)
+		return BoolStatus(false)
 	})
 
 	// set_result - explicitly sets the result value
@@ -181,35 +181,35 @@ func (ps *PawScript) RegisterStandardLibrary(scriptArgs []string) {
 		} else {
 			ctx.SetResult(nil)
 		}
-		return BoolResult(true)
+		return BoolStatus(true)
 	})
 
 	// get_result - gets the current result value
 	ps.RegisterCommand("get_result", func(ctx *Context) Result {
 	    /*fmt.Fprintf(os.Stderr, "[DEBUG get_result] HasResult: %v, Result: %v\n", 
 		ctx.HasResult(), ctx.GetResult())*/
-	    return BoolResult(true)
+	    return BoolStatus(true)
 	})
 	
 	// set - sets a variable in current scope
 	ps.RegisterCommand("set", func(ctx *Context) Result {
 		if len(ctx.Args) < 2 {
 			fmt.Fprintln(os.Stderr, "[SET ERROR] Usage: set <name> <value>")
-			return BoolResult(false)
+			return BoolStatus(false)
 		}
 		
 		varName := fmt.Sprintf("%v", ctx.Args[0])
 		value := ctx.Args[1]
 		
 		ctx.state.SetVariable(varName, value)
-		return BoolResult(true)
+		return BoolStatus(true)
 	})
 	
 	// get - gets a variable from current scope and sets it as result
 	ps.RegisterCommand("get", func(ctx *Context) Result {
 		if len(ctx.Args) < 1 {
 			fmt.Fprintln(os.Stderr, "[GET ERROR] Usage: get <name>")
-			return BoolResult(false)
+			return BoolStatus(false)
 		}
 		
 		varName := fmt.Sprintf("%v", ctx.Args[0])
@@ -217,18 +217,18 @@ func (ps *PawScript) RegisterStandardLibrary(scriptArgs []string) {
 		
 		if exists {
 			ctx.SetResult(value)
-			return BoolResult(true)
+			return BoolStatus(true)
 		}
 		
 		fmt.Fprintf(os.Stderr, "[GET ERROR] Variable not found: %s\n", varName)
-		return BoolResult(false)
+		return BoolStatus(false)
 	})
 	
 	// while - loop while condition is true
 	ps.RegisterCommand("while", func(ctx *Context) Result {
 		if len(ctx.Args) < 2 {
 			fmt.Fprintln(os.Stderr, "[WHILE ERROR] Usage: while (condition) (body)")
-			return BoolResult(false)
+			return BoolStatus(false)
 		}
 		
 		conditionBlock := fmt.Sprintf("%v", ctx.Args[0])
@@ -250,12 +250,12 @@ func (ps *PawScript) RegisterStandardLibrary(scriptArgs []string) {
 			// Check if we got a token (async not supported in while condition)
 			if _, isToken := condResult.(TokenResult); isToken {
 				fmt.Fprintln(os.Stderr, "[WHILE ERROR] Async operations not supported in while condition")
-				return BoolResult(false)
+				return BoolStatus(false)
 			}
 			
 			// Check if condition is true
 			shouldContinue := false
-			if boolRes, ok := condResult.(BoolResult); ok {
+			if boolRes, ok := condResult.(BoolStatus); ok {
 				shouldContinue = bool(boolRes)
 			}
 			
@@ -283,75 +283,75 @@ func (ps *PawScript) RegisterStandardLibrary(scriptArgs []string) {
 		
 		if iterations >= maxIterations {
 			fmt.Fprintln(os.Stderr, "[WHILE ERROR] Maximum iterations (10000) exceeded")
-			return BoolResult(false)
+			return BoolStatus(false)
 		}
 		
-		return BoolResult(true)
+		return BoolStatus(true)
 	})
 	
 	// Arithmetic operations
 	ps.RegisterCommand("add", func(ctx *Context) Result {
 		if len(ctx.Args) < 2 {
 			fmt.Fprintln(os.Stderr, "[ADD ERROR] Usage: add <a>, <b>")
-			return BoolResult(false)
+			return BoolStatus(false)
 		}
 		a, aOk := toNumber(ctx.Args[0])
 		b, bOk := toNumber(ctx.Args[1])
 		if !aOk || !bOk {
 			fmt.Fprintf(os.Stderr, "[ADD ERROR] Invalid numeric arguments: %v, %v\n", ctx.Args[0], ctx.Args[1])
-			return BoolResult(false)
+			return BoolStatus(false)
 		}
 		ctx.SetResult(a + b)
-		return BoolResult(true)
+		return BoolStatus(true)
 	})
 	
 	ps.RegisterCommand("sub", func(ctx *Context) Result {
 		if len(ctx.Args) < 2 {
 			fmt.Fprintln(os.Stderr, "[SUB ERROR] Usage: sub <a>, <b>")
-			return BoolResult(false)
+			return BoolStatus(false)
 		}
 		a, aOk := toNumber(ctx.Args[0])
 		b, bOk := toNumber(ctx.Args[1])
 		if !aOk || !bOk {
 			fmt.Fprintf(os.Stderr, "[SUB ERROR] Invalid numeric arguments: %v, %v\n", ctx.Args[0], ctx.Args[1])
-			return BoolResult(false)
+			return BoolStatus(false)
 		}
 		ctx.SetResult(a - b)
-		return BoolResult(true)
+		return BoolStatus(true)
 	})
 	
 	ps.RegisterCommand("mul", func(ctx *Context) Result {
 		if len(ctx.Args) < 2 {
 			fmt.Fprintln(os.Stderr, "[MUL ERROR] Usage: mul <a>, <b>")
-			return BoolResult(false)
+			return BoolStatus(false)
 		}
 		a, aOk := toNumber(ctx.Args[0])
 		b, bOk := toNumber(ctx.Args[1])
 		if !aOk || !bOk {
 			fmt.Fprintf(os.Stderr, "[MUL ERROR] Invalid numeric arguments: %v, %v\n", ctx.Args[0], ctx.Args[1])
-			return BoolResult(false)
+			return BoolStatus(false)
 		}
 		ctx.SetResult(a * b)
-		return BoolResult(true)
+		return BoolStatus(true)
 	})
 	
 	ps.RegisterCommand("div", func(ctx *Context) Result {
 		if len(ctx.Args) < 2 {
 			fmt.Fprintln(os.Stderr, "[DIV ERROR] Usage: div <a>, <b>")
-			return BoolResult(false)
+			return BoolStatus(false)
 		}
 		a, aOk := toNumber(ctx.Args[0])
 		b, bOk := toNumber(ctx.Args[1])
 		if !aOk || !bOk {
 			fmt.Fprintf(os.Stderr, "[DIV ERROR] Invalid numeric arguments: %v, %v\n", ctx.Args[0], ctx.Args[1])
-			return BoolResult(false)
+			return BoolStatus(false)
 		}
 		if b == 0 {
 			fmt.Fprintln(os.Stderr, "[DIV ERROR] Division by zero")
-			return BoolResult(false)
+			return BoolStatus(false)
 		}
 		ctx.SetResult(a / b)
-		return BoolResult(true)
+		return BoolStatus(true)
 	})
 	
 	// Comparison operations
@@ -359,87 +359,87 @@ func (ps *PawScript) RegisterStandardLibrary(scriptArgs []string) {
 		if len(ctx.Args) < 2 {
 			fmt.Fprintln(os.Stderr, "[EQ ERROR] Usage: eq <a>, <b>")
 			ctx.SetResult(false)
-			return BoolResult(false)
+			return BoolStatus(false)
 		}
 		result := fmt.Sprintf("%v", ctx.Args[0]) == fmt.Sprintf("%v", ctx.Args[1])
 		ctx.SetResult(result)
-		return BoolResult(result)
+		return BoolStatus(result)
 	})
 	
 	ps.RegisterCommand("lt", func(ctx *Context) Result {
 		if len(ctx.Args) < 2 {
 			fmt.Fprintln(os.Stderr, "[LT ERROR] Usage: lt <a>, <b>")
 			ctx.SetResult(false)
-			return BoolResult(false)
+			return BoolStatus(false)
 		}
 		a, aOk := toNumber(ctx.Args[0])
 		b, bOk := toNumber(ctx.Args[1])
 		if aOk && bOk {
 			result := a < b
 			ctx.SetResult(result)
-			return BoolResult(result)
+			return BoolStatus(result)
 		}
 		// String comparison as fallback
 		result := fmt.Sprintf("%v", ctx.Args[0]) < fmt.Sprintf("%v", ctx.Args[1])
 		ctx.SetResult(result)
-		return BoolResult(result)
+		return BoolStatus(result)
 	})
 	
 	ps.RegisterCommand("gt", func(ctx *Context) Result {
 		if len(ctx.Args) < 2 {
 			fmt.Fprintln(os.Stderr, "[GT ERROR] Usage: gt <a>, <b>")
 			ctx.SetResult(false)
-			return BoolResult(false)
+			return BoolStatus(false)
 		}
 		a, aOk := toNumber(ctx.Args[0])
 		b, bOk := toNumber(ctx.Args[1])
 		if aOk && bOk {
 			result := a > b
 			ctx.SetResult(result)
-			return BoolResult(result)
+			return BoolStatus(result)
 		}
 		// String comparison as fallback
 		result := fmt.Sprintf("%v", ctx.Args[0]) > fmt.Sprintf("%v", ctx.Args[1])
 		ctx.SetResult(result)
-		return BoolResult(result)
+		return BoolStatus(result)
 	})
 	
 	ps.RegisterCommand("gte", func(ctx *Context) Result {
 		if len(ctx.Args) < 2 {
 			fmt.Fprintln(os.Stderr, "[GTE ERROR] Usage: gte <a>, <b>")
 			ctx.SetResult(false)
-			return BoolResult(false)
+			return BoolStatus(false)
 		}
 		a, aOk := toNumber(ctx.Args[0])
 		b, bOk := toNumber(ctx.Args[1])
 		if aOk && bOk {
 			result := a >= b
 			ctx.SetResult(result)
-			return BoolResult(result)
+			return BoolStatus(result)
 		}
 		// String comparison as fallback
 		result := fmt.Sprintf("%v", ctx.Args[0]) >= fmt.Sprintf("%v", ctx.Args[1])
 		ctx.SetResult(result)
-		return BoolResult(result)
+		return BoolStatus(result)
 	})
 	
 	ps.RegisterCommand("lte", func(ctx *Context) Result {
 		if len(ctx.Args) < 2 {
 			fmt.Fprintln(os.Stderr, "[LTE ERROR] Usage: lte <a>, <b>")
 			ctx.SetResult(false)
-			return BoolResult(false)
+			return BoolStatus(false)
 		}
 		a, aOk := toNumber(ctx.Args[0])
 		b, bOk := toNumber(ctx.Args[1])
 		if aOk && bOk {
 			result := a <= b
 			ctx.SetResult(result)
-			return BoolResult(result)
+			return BoolStatus(result)
 		}
 		// String comparison as fallback
 		result := fmt.Sprintf("%v", ctx.Args[0]) <= fmt.Sprintf("%v", ctx.Args[1])
 		ctx.SetResult(result)
-		return BoolResult(result)
+		return BoolStatus(result)
 	})
 	
 	// if - normalize truthy/falsy values to boolean
@@ -447,13 +447,13 @@ func (ps *PawScript) RegisterStandardLibrary(scriptArgs []string) {
 		if len(ctx.Args) < 1 {
 			fmt.Fprintln(os.Stderr, "[IF ERROR] Usage: if <value>")
 			ctx.SetResult(false)
-			return BoolResult(false)
+			return BoolStatus(false)
 		}
 		
 		// Normalize the first argument to boolean
 		result := toBool(ctx.Args[0])
 		ctx.SetResult(result)
-		return BoolResult(result)
+		return BoolStatus(result)
 	})
 }
 

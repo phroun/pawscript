@@ -34,7 +34,7 @@ type Context struct {
 	state        *ExecutionState
 	executor     *Executor
 	requestToken func(cleanup func(string)) string
-	resumeToken  func(tokenID string, result bool) bool
+	resumeToken  func(tokenID string, status bool) bool
 }
 
 // SetResult sets the formal result value
@@ -63,22 +63,22 @@ func (c *Context) RequestToken(cleanup func(string)) string {
 }
 
 // ResumeToken resumes execution with a token
-func (c *Context) ResumeToken(tokenID string, result bool) bool {
-	return c.resumeToken(tokenID, result)
+func (c *Context) ResumeToken(tokenID string, status bool) bool {
+	return c.resumeToken(tokenID, status)
 }
 
 // Handler is a function that handles a command
 type Handler func(*Context) Result
 
-// Result represents the result of command execution
+// Result represents the result of command execution (either a status or async token)
 type Result interface {
 	isResult()
 }
 
-// BoolResult represents a boolean success/failure
-type BoolResult bool
+// BoolStatus represents a boolean success/failure status
+type BoolStatus bool
 
-func (BoolResult) isResult() {}
+func (BoolStatus) isResult() {}
 
 // TokenResult represents an async token
 type TokenResult string
@@ -156,7 +156,7 @@ type TokenData struct {
 	HasSuspendedResult bool
 	Position           *SourcePosition
 	BraceCoordinator   *BraceCoordinator // For coordinating parallel brace evaluation
-	InvertResult       bool              // If true, invert the success status when this token completes
+	InvertStatus       bool              // If true, invert the success status when this token completes
 }
 
 // MacroDefinition stores a macro definition

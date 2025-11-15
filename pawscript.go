@@ -64,7 +64,7 @@ func (ps *PawScript) registerBuiltInMacroCommands() {
 		ps.logger.Debug("macro command called with %d args", len(ctx.Args))
 		if len(ctx.Args) < 2 {
 			ps.logger.Error("Usage: macro <name>, <commands>")
-			return BoolResult(false)
+			return BoolStatus(false)
 		}
 		
 		name := fmt.Sprintf("%v", ctx.Args[0])
@@ -77,14 +77,14 @@ func (ps *PawScript) registerBuiltInMacroCommands() {
 			ps.logger.Error("Failed to define macro \"%s\"", name)
 		}
 		
-		return BoolResult(result)
+		return BoolStatus(result)
 	})
 	
 	// Call macro command
 	ps.executor.RegisterCommand("call", func(ctx *Context) Result {
 		if len(ctx.Args) < 1 {
 			ps.logger.Error("Usage: call <macro_name> [args...]")
-			return BoolResult(false)
+			return BoolStatus(false)
 		}
 		
 		name := fmt.Sprintf("%v", ctx.Args[0])
@@ -101,14 +101,14 @@ func (ps *PawScript) registerBuiltInMacroCommands() {
 	ps.executor.RegisterCommand("macro_list", func(ctx *Context) Result {
 		macros := ps.macroSystem.ListMacros()
 		ctx.SetResult(fmt.Sprintf("%v", macros))
-		return BoolResult(true)
+		return BoolStatus(true)
 	})
 	
 	// Delete macro command
 	ps.executor.RegisterCommand("macro_delete", func(ctx *Context) Result {
 		if len(ctx.Args) < 1 {
 			ps.logger.Error("Usage: macro_delete <macro_name>")
-			return BoolResult(false)
+			return BoolStatus(false)
 		}
 		
 		name := fmt.Sprintf("%v", ctx.Args[0])
@@ -118,14 +118,14 @@ func (ps *PawScript) registerBuiltInMacroCommands() {
 			ps.logger.Error("PawScript macro \"%s\" not found or could not be deleted", name)
 		}
 		
-		return BoolResult(result)
+		return BoolStatus(result)
 	})
 	
 	// Clear all macros command
 	ps.executor.RegisterCommand("macro_clear", func(ctx *Context) Result {
 		count := ps.macroSystem.ClearMacros()
 		ctx.SetResult(fmt.Sprintf("Cleared %d PawScript macros", count))
-		return BoolResult(true)
+		return BoolStatus(true)
 	})
 }
 
@@ -188,8 +188,8 @@ func (ps *PawScript) RequestToken(cleanupCallback func(string), parentToken stri
 }
 
 // ResumeToken resumes execution with a token
-func (ps *PawScript) ResumeToken(tokenID string, result bool) bool {
-	return ps.executor.PopAndResumeCommandSequence(tokenID, result)
+func (ps *PawScript) ResumeToken(tokenID string, status bool) bool {
+	return ps.executor.PopAndResumeCommandSequence(tokenID, status)
 }
 
 // GetTokenStatus returns information about active tokens
@@ -215,7 +215,7 @@ func (ps *PawScript) DefineMacro(name, commandSequence string) bool {
 func (ps *PawScript) ExecuteMacro(name string) Result {
 	if !ps.config.AllowMacros {
 		ps.logger.Warn("Macros are disabled in configuration")
-		return BoolResult(false)
+		return BoolStatus(false)
 	}
 	
 	state := NewExecutionState()

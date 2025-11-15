@@ -1,0 +1,151 @@
+Line comments work
+Line comments work = Good
+This should #( actually )# print.
+This should :( actually ): print = Good
+Comments testing complete.
+
+Hello, World!
+Hello, World! = Good
+Multiple arguments here
+Multiple arguments here = Good
+42
+42 = Good
+true
+true = Good
+quoted string
+quoted string = Good
+single quotes work
+single quotes work = Good
+Basic commands testing complete.
+
+FirstSecondThird
+FirstSecondThird = Good
+FirstSecondThird
+FirstSecondThird = Good
+This runs because true succeeded
+This runs because true succeeded = Good
+This runs because false failed
+This runs because false failed = Good
+Step 1Step 2
+Step 1Step 2 = Good
+This continues from previous lineAnd this continues too
+This continues from previous lineAnd this continues too = Good
+This runs because false failed
+This runs because false failed = Good
+Chaining test complete.
+
+This entire phrase becomes one argument
+This entire phrase becomes one argument = Good
+Complex argument with; semicolons & operators | inside
+Complex argument with; semicolons & operators | inside = Good
+String argumentgrouped argument42
+String argumentgrouped argument42 = Good
+Outer (inner content) more outer
+Outer (inner content) more outer = Good
+Parenthesis test compmlete.
+
+calculatedThe result is: true
+calculatedThe result is: true = Good for side-effect printing.
+The result is: calculated = Good for captured printing.
+42Answer: true
+42Answer: = Good for side-effect printing.
+Answer: 42 = Good for captured printing.
+innertrueNested: true
+innertrueNested: = Good for side-effect printing.
+Nested: inner = Good for captured printing.
+prefixmiddlesuffix
+prefixmiddlesuffix = Good
+Hello World
+Hello World = Good
+Braces testing complete.
+
+Defining macros.
+Nothing should have printed yet after definition of macros.
+Hello Alice!
+Hello Alice! = Good
+Good day, Bob.How are you today?
+Good day, Bob.How are you today? = Good
+You provided 0 arguments: ; First argument: one; Second argument: two
+You provided 3 arguments: one, two, three; First argument: one; Second argument: two = Good
+Hello Charlie!
+Hello, Charlie! = Good
+You provided 0 arguments: ; First argument: alpha; Second argument: beta
+You provided 2 arguments: alpha, beta; First argument: alpha; Second argument: beta = Good
+Smart: test
+Smart: test = Good
+Macro test complete.
+
+Quick hello to Eva!
+Quick hello to Eva! = Good
+Sugar test complete.
+
+Hello David!
+That was a greeting for David
+Above should have shown "Hello David!" and "That was a greeting for David"
+Good day, Edgar.How are you today?
+Macro result: true
+Good day, Edgar.How are you today?
+Macro result: true = Good for side effect.
+Macro result: Good day, Edgar.How are you today? = Good for capture.
+Success: computed
+Success: computed = Good
+Mixed args: grouped text string 42 dynamic
+Mixed args: grouped text string 42 dynamic = Good
+
+Defining complex_demo...done.
+Calling complex_demo:
+Starting complex demo for test-data
+Phase 1 complete
+Phase 2 starting
+Result: test-data processed
+Demo complete
+Done with complex_demo.
+Complex tests complete.
+
+Level 1 (Level 2 (Level 3) back to 2) back to 1
+Level 1 (Level 2 (Level 3) back to 2) back to 1 = Good
+Text grouped (nested) text dynamic nested more
+Text grouped (nested) text dynamic nested more = Good
+=== Kitchen Sink Demo for final-test ===
+Condition passed
+final-test
+Processed: true
+Inner: final-test
+Success!
+Nested result: true
+Args: 1 total, all: final-test, first: final-test
+=== End Kitchen Sink ===
+End nested structures test.
+
+Validating user-input...
+Validation passed
+Processing user-input...
+user-input processed
+Result: true
+End practical examples.
+
+String with & and | and ; inside
+String with X and Y and Z inside = Good
+Single quotes with & | ; too
+Single quotes with X Y Z too = Good
+This argument has & and | operators
+This argument has X and Y operators = Good
+Unicode test: 🎉 Hello 世界 café
+Unicode test: Party  Hello chinese cafe = Good
+Escaped quotes: "Hello" and 'World'
+Escaped quotes: ^Hello^ and ^World^ = Good
+Newlines: line1
+line2	tabbed
+Newlines: line1, line2 ---> tabbed = Good
+ non-empty   token
+ non-empty   token = Good
+empty parentheses become empty string
+test
+test = Good
+grouped  text
+grouped  text = Good
+End edge cases.
+
+Print macro list:
+End macro list.
+=== PawScript Syntax Demo Complete ===

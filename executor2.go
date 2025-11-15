@@ -10,7 +10,7 @@ import (
 
 // executeCommandSequence executes a sequence of commands
 func (e *Executor) executeCommandSequence(commands []*ParsedCommand, state *ExecutionState, substitutionCtx *SubstitutionContext) Result {
-	lastResult := true // Default to true for leading operators
+	lastStatus := true // Default to true for leading operators
 	
 	for i, cmd := range commands {
 		if strings.TrimSpace(cmd.Command) == "" {
@@ -22,14 +22,14 @@ func (e *Executor) executeCommandSequence(commands []*ParsedCommand, state *Exec
 		
 		switch cmd.Separator {
 		case "&": // AND: execute only if last command succeeded
-			shouldExecute = lastResult
+			shouldExecute = lastStatus
 		case "|": // OR: execute only if last command failed
-			shouldExecute = !lastResult
+			shouldExecute = !lastStatus
 		}
 		
 		if !shouldExecute {
-			e.logger.Debug("Skipping command \"%s\" due to flow control (separator: %s, lastResult: %v)",
-				cmd.Command, cmd.Separator, lastResult)
+			e.logger.Debug("Skipping command \"%s\" due to flow control (separator: %s, lastStatus: %v)",
+				cmd.Command, cmd.Separator, lastStatus)
 			continue
 		}
 		
@@ -53,7 +53,7 @@ func (e *Executor) executeCommandSequence(commands []*ParsedCommand, state *Exec
 				err := e.PushCommandSequence(sequenceToken, "sequence", remainingCommands, i+1, "sequence", state, cmd.Position)
 				if err != nil {
 					e.logger.Error("Failed to push command sequence: %v", err)
-					return BoolResult(false)
+					return BoolStatus(false)
 				}
 				
 				e.chainTokens(string(tokenResult), sequenceToken)
@@ -62,10 +62,10 @@ func (e *Executor) executeCommandSequence(commands []*ParsedCommand, state *Exec
 			return result
 		}
 		
-		lastResult = bool(result.(BoolResult))
+		lastStatus = bool(result.(BoolStatus))
 	}
 	
-	return BoolResult(lastResult)
+	return BoolStatus(lastStatus)
 }
 
 // executeParsedCommand executes a single parsed command
@@ -102,7 +102,7 @@ func (e *Executor) executeSingleCommand(
 	commandStr = strings.TrimSpace(commandStr)
 	
 	// Check for ! prefix (inversion operator)
-	// This inverts the success status (BoolResult), not the result value
+	// This inverts the success status (BoolStatus), not the result value
 	shouldInvert := false
 	if strings.HasPrefix(commandStr, "!") {
 		shouldInvert = true
@@ -127,7 +127,7 @@ func (e *Executor) executeSingleCommand(
 		
 		// Apply inversion if needed
 		if shouldInvert {
-			return e.invertResult(result, state, position)
+			return e.invertStatus(result, state, position)
 		}
 		return result
 	}
@@ -170,9 +170,9 @@ func (e *Executor) executeSingleCommand(
 	if commandStr == "\x00BRACE_FAILED\x00" {
 		// Error already logged by ExecuteWithState with correct position
 		e.logger.Debug("Brace evaluation failed, returning false")
-		result := BoolResult(false)
+		result := BoolStatus(false)
 		if shouldInvert {
-			return BoolResult(!bool(result))
+			return BoolStatus(!bool(result))
 		}
 		return result
 	}
@@ -208,9 +208,9 @@ func (e *Executor) executeSingleCommand(
 								i, eval.Position.Line, eval.Position.Column)
 						}
 					}
-					result := BoolResult(false)
+					result := BoolStatus(false)
 					if capturedShouldInvert {
-						return BoolResult(!bool(result))
+						return BoolStatus(!bool(result))
 					}
 					return result
 				}
@@ -234,7 +234,7 @@ func (e *Executor) executeSingleCommand(
 					if fallbackResult != nil {
 						e.logger.Debug("Fallback handler returned: %v", fallbackResult)
 						if capturedShouldInvert {
-							return e.invertResult(fallbackResult, capturedState, capturedPosition)
+							return e.invertStatus(fallbackResult, capturedState, capturedPosition)
 						}
 						return fallbackResult
 					}
@@ -242,9 +242,9 @@ func (e *Executor) executeSingleCommand(
 				
 				if !exists {
 					e.logger.UnknownCommandError(cmdName, capturedPosition, nil)
-					result := BoolResult(false)
+					result := BoolStatus(false)
 					if capturedShouldInvert {
-						return BoolResult(!bool(result))
+						return BoolStatus(!bool(result))
 					}
 					return result
 				}
@@ -256,7 +256,7 @@ func (e *Executor) executeSingleCommand(
 				
 				// Apply inversion if needed
 				if capturedShouldInvert {
-					return e.invertResult(result, capturedState, capturedPosition)
+					return e.invertStatus(result, capturedState, capturedPosition)
 				}
 				return result
 			}
@@ -264,9 +264,9 @@ func (e *Executor) executeSingleCommand(
 		} else {
 			e.mu.Unlock()
 			e.logger.Error("Coordinator token %s not found or invalid", coordinatorToken)
-			result := BoolResult(false)
+			result := BoolStatus(false)
 			if shouldInvert {
-				return BoolResult(!bool(result))
+				return BoolStatus(!bool(result))
 			}
 			return result
 		}
@@ -294,7 +294,7 @@ func (e *Executor) executeSingleCommand(
 		if fallbackResult != nil {
 			e.logger.Debug("Fallback handler returned: %v", fallbackResult)
 			if shouldInvert {
-				return e.invertResult(fallbackResult, state, position)
+				return e.invertStatus(fallbackResult, state, position)
 			}
 			return fallbackResult
 		}
@@ -302,9 +302,9 @@ func (e *Executor) executeSingleCommand(
 	
 	if !exists {
 		e.logger.UnknownCommandError(cmdName, position, nil)
-		result := BoolResult(false)
+		result := BoolStatus(false)
 		if shouldInvert {
-			return BoolResult(!bool(result))
+			return BoolStatus(!bool(result))
 		}
 		return result
 	}
@@ -316,7 +316,7 @@ func (e *Executor) executeSingleCommand(
 	
 	// Apply inversion if needed
 	if shouldInvert {
-		return e.invertResult(result, state, position)
+		return e.invertStatus(result, state, position)
 	}
 	
 	return result
@@ -434,35 +434,39 @@ func (e *Executor) applySubstitution(str string, ctx *SubstitutionContext) strin
 		return result
 	}
 	
-	// Apply $* (all args)
-	if len(ctx.Args) > 0 {
-		allArgs := make([]string, len(ctx.Args))
-		for i, arg := range ctx.Args {
-			allArgs[i] = e.formatArgumentForSubstitution(arg)
-		}
-		result = strings.ReplaceAll(result, "$*", strings.Join(allArgs, ", "))
-	} else {
-		result = strings.ReplaceAll(result, "$*", "")
-	}
-	
-	// Apply $# (arg count)
-	result = strings.ReplaceAll(result, "$#", fmt.Sprintf("%d", len(ctx.Args)))
-	
-	// Apply $1, $2, etc (indexed args)
-	re := regexp.MustCompile(`\$(\d+)`)
-	result = re.ReplaceAllStringFunc(result, func(match string) string {
-		indexStr := match[1:] // Remove $
-		index, err := strconv.Atoi(indexStr)
-		if err != nil {
-			return match
+	// CRITICAL: Only apply $*, $#, and $N substitutions when we're in a macro execution context
+	// This prevents premature substitution when defining nested macros
+	if ctx.MacroContext != nil {
+		// Apply $* (all args)
+		if len(ctx.Args) > 0 {
+			allArgs := make([]string, len(ctx.Args))
+			for i, arg := range ctx.Args {
+				allArgs[i] = e.formatArgumentForSubstitution(arg)
+			}
+			result = strings.ReplaceAll(result, "$*", strings.Join(allArgs, ", "))
+		} else {
+			result = strings.ReplaceAll(result, "$*", "")
 		}
 		
-		index-- // Convert to 0-based
-		if index >= 0 && index < len(ctx.Args) {
-			return e.formatArgumentForSubstitution(ctx.Args[index])
-		}
-		return match
-	})
+		// Apply $# (arg count)
+		result = strings.ReplaceAll(result, "$#", fmt.Sprintf("%d", len(ctx.Args)))
+		
+		// Apply $1, $2, etc (indexed args)
+		re := regexp.MustCompile(`\$(\d+)`)
+		result = re.ReplaceAllStringFunc(result, func(match string) string {
+			indexStr := match[1:] // Remove $
+			index, err := strconv.Atoi(indexStr)
+			if err != nil {
+				return match
+			}
+			
+			index-- // Convert to 0-based
+			if index >= 0 && index < len(ctx.Args) {
+				return e.formatArgumentForSubstitution(ctx.Args[index])
+			}
+			return match
+		})
+	}
 	
 	// Finally, restore escaped dollar signs
 	result = strings.ReplaceAll(result, escapedDollarPlaceholder, "$")
@@ -564,7 +568,7 @@ func (e *Executor) substituteBraceExpressions(str string, ctx *SubstitutionConte
 			evaluations[i].Completed = true
 			
 			// Check if it was successful
-			if boolResult, ok := executeResult.(BoolResult); ok && !bool(boolResult) {
+			if boolStatus, ok := executeResult.(BoolStatus); ok && !bool(boolStatus) {
 				evaluations[i].Failed = true
 				evaluations[i].Error = "Command returned false"
 				e.logger.Debug("Brace %d completed synchronously with failure", i)
@@ -572,8 +576,8 @@ func (e *Executor) substituteBraceExpressions(str string, ctx *SubstitutionConte
 				// Get the result value
 				if childState.HasResult() {
 					evaluations[i].Result = childState.GetResult()
-				} else if boolResult, ok := executeResult.(BoolResult); ok {
-					evaluations[i].Result = fmt.Sprintf("%v", bool(boolResult))
+				} else if boolStatus, ok := executeResult.(BoolStatus); ok {
+					evaluations[i].Result = fmt.Sprintf("%v", bool(boolStatus))
 				}
 				e.logger.Debug("Brace %d completed synchronously with result: %v", i, evaluations[i].Result)
 			}
@@ -595,7 +599,7 @@ func (e *Executor) substituteBraceExpressions(str string, ctx *SubstitutionConte
 				// For now, we need to signal back through the token system
 				e.logger.Debug("Brace coordinator completed: success=%v, string=%s", success, finalString)
 				// Store the result in a way that can be retrieved
-				return BoolResult(success)
+				return BoolStatus(success)
 			},
 			ctx.ExecutionState,
 			nil,
@@ -700,8 +704,8 @@ func (e *Executor) createContext(args []interface{}, state *ExecutionState, posi
 		requestToken: func(cleanup func(string)) string {
 			return e.RequestCompletionToken(cleanup, "", 5*time.Minute, state, position)
 		},
-		resumeToken: func(tokenID string, result bool) bool {
-			return e.PopAndResumeCommandSequence(tokenID, result)
+		resumeToken: func(tokenID string, status bool) bool {
+			return e.PopAndResumeCommandSequence(tokenID, status)
 		},
 	}
 }
@@ -823,15 +827,15 @@ func (e *Executor) findAllTopLevelBraces(str string, ctx *SubstitutionContext) [
 	return braces
 }
 
-// invertResult inverts the success status of a Result
-// For BoolResult, it inverts immediately
+// invertStatus inverts the success status of a Result
+// For BoolStatus, it inverts immediately
 // For TokenResult, it creates a wrapper token that will invert when the async operation completes
-func (e *Executor) invertResult(result Result, state *ExecutionState, position *SourcePosition) Result {
-	if boolResult, ok := result.(BoolResult); ok {
+func (e *Executor) invertStatus(result Result, state *ExecutionState, position *SourcePosition) Result {
+	if boolStatus, ok := result.(BoolStatus); ok {
 		// Invert synchronous result immediately
-		inverted := !bool(boolResult)
-		e.logger.Debug("Inverted synchronous result: %v -> %v", bool(boolResult), inverted)
-		return BoolResult(inverted)
+		inverted := !bool(boolStatus)
+		e.logger.Debug("Inverted synchronous result: %v -> %v", bool(boolStatus), inverted)
+		return BoolStatus(inverted)
 	} else if tokenResult, ok := result.(TokenResult); ok {
 		// For async result, create wrapper token with inversion flag
 		e.logger.Debug("Creating inverter wrapper for async token: %s", string(tokenResult))
@@ -841,7 +845,7 @@ func (e *Executor) invertResult(result Result, state *ExecutionState, position *
 		// Mark this token for result inversion
 		e.mu.Lock()
 		if tokenData, exists := e.activeTokens[inverterToken]; exists {
-			tokenData.InvertResult = true
+			tokenData.InvertStatus = true
 		}
 		e.mu.Unlock()
 		

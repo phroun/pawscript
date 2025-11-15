@@ -120,8 +120,8 @@ func main() {
 	}
 	
 	// Exit with appropriate code
-	if boolResult, ok := result.(pawscript.BoolResult); ok {
-		if bool(boolResult) {
+	if boolStatus, ok := result.(pawscript.BoolStatus); ok {
+		if bool(boolStatus) {
 			os.Exit(0)
 		} else {
 			os.Exit(1)

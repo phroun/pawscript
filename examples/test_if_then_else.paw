@@ -11,8 +11,8 @@ echo ""
 
 # Test 2: If with else
 echo "Test 2: If-then-else"
-if true then echo "True branch" else echo "False branch"
-if false then echo "True branch" else echo "False branch"
+if true then echo "True branch Good" else echo "False branch Bad"
+if false then echo "True branch Bad" else echo "False branch Good"
 echo ""
 
 # Test 3: If with blocks

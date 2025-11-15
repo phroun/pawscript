@@ -289,9 +289,9 @@ func (e *Executor) finalizeBraceCoordinator(coordinatorToken string) {
 	}
 	
 	// Handle the callback result
-	if boolResult, ok := callbackResult.(BoolResult); ok {
+	if boolStatus, ok := callbackResult.(BoolStatus); ok {
 		// Command completed synchronously
-		success := bool(boolResult)
+		success := bool(boolStatus)
 		e.logger.Debug("Brace coordinator callback returned bool: %v", success)
 		
 		// If there's a chained token, resume it with this result
@@ -355,7 +355,7 @@ func (e *Executor) PushCommandSequence(
 }
 
 // PopAndResumeCommandSequence pops and resumes a command sequence
-func (e *Executor) PopAndResumeCommandSequence(tokenID string, result bool) bool {
+func (e *Executor) PopAndResumeCommandSequence(tokenID string, status bool) bool {
 	e.mu.Lock()
 	
 	tokenData, exists := e.activeTokens[tokenID]
@@ -365,11 +365,11 @@ func (e *Executor) PopAndResumeCommandSequence(tokenID string, result bool) bool
 		return false
 	}
 	
-	// Apply inversion if this token has the InvertResult flag
-	effectiveResult := result
-	if tokenData.InvertResult {
-		effectiveResult = !result
-		e.logger.Debug("Inverting async result for token %s: %v -> %v", tokenID, result, effectiveResult)
+	// Apply inversion if this token has the InvertStatus flag
+	effectiveStatus := status
+	if tokenData.InvertStatus {
+		effectiveStatus = !status
+		e.logger.Debug("Inverting async result for token %s: %v -> %v", tokenID, status, effectiveStatus)
 	}
 	
 	// Check if this token's parent is a brace coordinator
@@ -385,13 +385,13 @@ func (e *Executor) PopAndResumeCommandSequence(tokenID string, result bool) bool
 				e.mu.Unlock()
 				
 				e.logger.Debug("Token %s is child of brace coordinator %s, forwarding result", tokenID, coordinatorToken)
-				e.ResumeBraceEvaluation(coordinatorToken, tokenID, resultValue, effectiveResult)
-				return effectiveResult
+				e.ResumeBraceEvaluation(coordinatorToken, tokenID, resultValue, effectiveStatus)
+				return effectiveStatus
 			}
 		}
 	}
 	
-	e.logger.Debug("Popping command sequence from token %s. Result: %v", tokenID, effectiveResult)
+	e.logger.Debug("Popping command sequence from token %s. Result: %v", tokenID, effectiveStatus)
 	
 	// Cleanup children
 	e.cleanupTokenChildrenLocked(tokenID)
@@ -406,11 +406,11 @@ func (e *Executor) PopAndResumeCommandSequence(tokenID string, result bool) bool
 		state = NewExecutionState()
 	}
 	
-	success := effectiveResult
+	success := effectiveStatus
 	if tokenData.CommandSequence != nil {
 		seq := tokenData.CommandSequence
 		e.mu.Unlock() // Unlock before resuming to avoid deadlock
-		success = e.resumeCommandSequence(seq, effectiveResult, state)
+		success = e.resumeCommandSequence(seq, effectiveStatus, state)
 		e.mu.Lock()
 	}
 	
@@ -476,14 +476,14 @@ func (e *Executor) forceCleanupTokenLocked(tokenID string) {
 }
 
 // resumeCommandSequence resumes execution of a command sequence
-func (e *Executor) resumeCommandSequence(seq *CommandSequence, result bool, state *ExecutionState) bool {
+func (e *Executor) resumeCommandSequence(seq *CommandSequence, status bool, state *ExecutionState) bool {
 	switch seq.Type {
 	case "sequence":
-		return e.resumeSequence(seq, result, state)
+		return e.resumeSequence(seq, status, state)
 	case "conditional":
-		return e.resumeConditional(seq, result, state)
+		return e.resumeConditional(seq, status, state)
 	case "or":
-		return e.resumeOr(seq, result, state)
+		return e.resumeOr(seq, status, state)
 	default:
 		e.logger.Error("Unknown command sequence type: %s", seq.Type)
 		return false
@@ -491,8 +491,8 @@ func (e *Executor) resumeCommandSequence(seq *CommandSequence, result bool, stat
 }
 
 // resumeSequence resumes a sequential command sequence
-func (e *Executor) resumeSequence(seq *CommandSequence, result bool, state *ExecutionState) bool {
-	success := result
+func (e *Executor) resumeSequence(seq *CommandSequence, status bool, state *ExecutionState) bool {
+	success := status
 	
 	for _, parsedCmd := range seq.RemainingCommands {
 		if strings.TrimSpace(parsedCmd.Command) == "" {
@@ -506,19 +506,19 @@ func (e *Executor) resumeSequence(seq *CommandSequence, result bool, state *Exec
 			return false
 		}
 		
-		success = bool(cmdResult.(BoolResult))
+		success = bool(cmdResult.(BoolStatus))
 	}
 	
 	return success
 }
 
 // resumeConditional resumes a conditional sequence
-func (e *Executor) resumeConditional(seq *CommandSequence, result bool, state *ExecutionState) bool {
-	if !result {
+func (e *Executor) resumeConditional(seq *CommandSequence, status bool, state *ExecutionState) bool {
+	if !status {
 		return false
 	}
 	
-	success := result
+	success := status
 	
 	for _, parsedCmd := range seq.RemainingCommands {
 		if strings.TrimSpace(parsedCmd.Command) == "" {
@@ -532,7 +532,7 @@ func (e *Executor) resumeConditional(seq *CommandSequence, result bool, state *E
 			return false
 		}
 		
-		success = bool(cmdResult.(BoolResult))
+		success = bool(cmdResult.(BoolStatus))
 		if !success {
 			break
 		}
@@ -542,8 +542,8 @@ func (e *Executor) resumeConditional(seq *CommandSequence, result bool, state *E
 }
 
 // resumeOr resumes an OR sequence
-func (e *Executor) resumeOr(seq *CommandSequence, result bool, state *ExecutionState) bool {
-	if result {
+func (e *Executor) resumeOr(seq *CommandSequence, status bool, state *ExecutionState) bool {
+	if status {
 		return true
 	}
 	
@@ -561,7 +561,7 @@ func (e *Executor) resumeOr(seq *CommandSequence, result bool, state *ExecutionS
 			return false
 		}
 		
-		success = bool(cmdResult.(BoolResult))
+		success = bool(cmdResult.(BoolStatus))
 		if success {
 			break
 		}
@@ -588,7 +588,7 @@ func (e *Executor) Execute(commandStr string, args ...interface{}) Result {
 		}
 		
 		e.logger.UnknownCommandError(commandStr, nil, nil)
-		return BoolResult(false)
+		return BoolStatus(false)
 	}
 	
 	return e.ExecuteWithState(commandStr, state, nil, "", 0, 0)
@@ -626,11 +626,11 @@ func (e *Executor) ExecuteWithState(
 		} else {
 			e.logger.ParseError(err.Error(), nil, nil)
 		}
-		return BoolResult(false)
+		return BoolStatus(false)
 	}
 	
 	if len(commands) == 0 {
-		return BoolResult(true)
+		return BoolStatus(true)
 	}
 	
 	// Apply position offsets to all commands
