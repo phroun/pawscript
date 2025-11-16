@@ -225,3 +225,9 @@ func (p ParenGroup) String() string { return string(p) }
 type QuotedString string
 
 func (q QuotedString) String() string { return string(q) }
+
+// Symbol represents a bare identifier (unquoted, non-keyword)
+// This preserves the original form and allows type detection
+type Symbol string
+
+func (s Symbol) String() string { return string(s) }

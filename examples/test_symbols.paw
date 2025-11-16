@@ -1,0 +1,121 @@
+#!/usr/bin/env paw
+# Comprehensive test of Symbol type and type detection
+
+echo "=== Symbol vs String Tests ==="
+echo ""
+
+# Test 1: Type detection
+echo "Test 1: Basic type detection"
+echo "42 is type: {get_inferred_type 42}"
+echo "\"text\" is type: {get_inferred_type \"text\"}"
+echo "bareword is type: {get_inferred_type bareword}"
+echo "(block) is type: {get_inferred_type (some code)}"
+echo ""
+
+# Test 2: Storing different types
+echo "Test 2: Storing different types in variables"
+set int_var, 42
+set str_var, "hello"
+set sym_var, myidentifier
+set block_var, (echo test)
+
+echo "int_var type: {get_type int_var}"
+echo "str_var type: {get_type str_var}"
+echo "sym_var type: {get_type sym_var}"
+echo "block_var type: {get_type block_var}"
+echo ""
+
+# Test 3: Undefined variable check
+echo "Test 3: Undefined variable"
+echo "Checking type of 'does_not_exist': {get_type does_not_exist}"
+echo "(Above should show 'undefined')"
+echo ""
+
+# Test 4: Symbol equality
+echo "Test 4: Symbol comparison"
+set role, admin
+if {eq {get role}, admin} then (
+    echo "Role is admin (symbol comparison works)"
+) else (
+    echo "FAILED: Symbol comparison"
+)
+
+set role_str, "admin"
+if {eq {get role_str}, admin} then (
+    echo "String 'admin' equals symbol admin (types coerce)"
+) else (
+    echo "FAILED: Type coercion"
+)
+echo ""
+
+# Test 5: Truthiness
+echo "Test 5: Truthiness of symbols"
+if myidentifier then (
+    echo "Non-empty symbol is truthy"
+)
+
+set test_sym, testval
+if {get test_sym} then (
+    echo "Symbol from variable is truthy"
+)
+echo ""
+
+# Test 6: Arithmetic with symbols
+echo "Test 6: Numeric operations"
+set num_sym, 123
+set num_str, "456"
+
+echo "add symbol + symbol: {add {get num_sym}, 789}"
+echo "add string + int: {add {get num_str}, 100}"
+echo ""
+
+# Test 7: Conditional with type checking
+echo "Test 7: Type-based conditional logic"
+set value, identifier_name
+
+if {eq {get_type value}, symbol} then (
+    echo "Value is a symbol: {get value}"
+) else if {eq {get_type value}, string} then (
+    echo "Value is a string: {get value}"
+) else if {eq {get_type value}, int} then (
+    echo "Value is a number: {get value}"
+) else (
+    echo "Value is: {get_type value}"
+)
+echo ""
+
+# Test 8: Check before use pattern
+echo "Test 8: Safe variable access"
+macro safe_get(
+    if {eq {get_type $1}, undefined} then (
+        echo "Variable $1 is undefined, using default";
+        set_result "default"
+    ) else (
+        echo "Variable $1 exists with type {get_type $1}";
+        get $1
+    )
+)
+
+echo "Result: {safe_get existing_var}"
+set existing_var, actual_value
+echo "Result: {safe_get existing_var}"
+echo ""
+
+# Test 9: ParenGroup (block) type
+echo "Test 9: Block type"
+set code_block, (echo "This is code"; echo "More code")
+echo "Type of code_block: {get_type code_block}"
+echo ""
+
+# Test 10: Mixed types in operations
+echo "Test 10: Type preservation in commands"
+set x, foo
+set y, "bar"
+set z, 123
+
+echo "x (symbol): {get x} - type: {get_type x}"
+echo "y (string): {get y} - type: {get_type y}"
+echo "z (int): {get z} - type: {get_type z}"
+echo ""
+
+echo "=== All Symbol Tests Complete ==="

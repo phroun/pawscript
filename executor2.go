@@ -449,6 +449,17 @@ func (e *Executor) applySubstitution(str string, ctx *SubstitutionContext) strin
 			result = strings.ReplaceAll(result, "$*", "")
 		}
 		
+		// Apply $@ (all args as ParenGroup) - creates a ParenGroup literal
+		if len(ctx.Args) > 0 {
+			allArgs := make([]string, len(ctx.Args))
+			for i, arg := range ctx.Args {
+				allArgs[i] = e.formatArgumentForParenGroup(arg)
+			}
+			result = strings.ReplaceAll(result, "$@", "("+strings.Join(allArgs, ", ")+")")
+		} else {
+			result = strings.ReplaceAll(result, "$@", "()")
+		}
+		
 		// Apply $# (arg count)
 		result = strings.ReplaceAll(result, "$#", fmt.Sprintf("%d", len(ctx.Args)))
 		
@@ -703,6 +714,40 @@ func (e *Executor) escapeSpecialCharacters(str string) string {
 	return result.String()
 }
 
+// formatArgumentForParenGroup formats an argument for $@ substitution
+// Preserves original forms for creating ParenGroup literals
+// Similar to formatArgumentForList but without escaping quotes (not in string context)
+func (e *Executor) formatArgumentForParenGroup(arg interface{}) string {
+	switch v := arg.(type) {
+	case ParenGroup:
+		// Parenthetic group: wrap in parens, escape internal quotes/backslashes
+		escaped := e.escapeQuotesAndBackslashes(string(v))
+		return "(" + escaped + ")"
+	case QuotedString:
+		// Quoted string: wrap with regular quotes (not escaped - not in string context)
+		escaped := e.escapeQuotesAndBackslashes(string(v))
+		return "\"" + escaped + "\""
+	case Symbol:
+		// Symbol: use as bare identifier
+		return string(v)
+	case string:
+		// Bare string: use bare if safe identifier, otherwise wrap with quotes
+		if e.isSafeIdentifier(v) {
+			return v
+		}
+		escaped := e.escapeQuotesAndBackslashes(v)
+		return "\"" + escaped + "\""
+	case int64, float64, bool:
+		// Numbers and booleans as-is
+		return fmt.Sprintf("%v", v)
+	default:
+		// Unknown type: convert to string and wrap with quotes
+		str := fmt.Sprintf("%v", v)
+		escaped := e.escapeQuotesAndBackslashes(str)
+		return "\"" + escaped + "\""
+	}
+}
+
 // formatArgumentForList formats an argument for $* substitution
 // Preserves original forms but escapes quotes for string contexts
 // This is used when creating comma-separated lists where structure matters
@@ -717,6 +762,9 @@ func (e *Executor) formatArgumentForList(arg interface{}) string {
 		// This allows it to appear inside outer quotes without breaking them
 		escaped := e.escapeQuotesAndBackslashes(string(v))
 		return "\\\"" + escaped + "\\\""
+	case Symbol:
+		// Symbol: use as bare identifier
+		return string(v)
 	case string:
 		// Bare string: use bare if safe identifier, otherwise wrap with escaped quotes
 		if e.isSafeIdentifier(v) {
@@ -753,6 +801,9 @@ func (e *Executor) formatArgumentForSubstitution(arg interface{}) string {
 		return string(v)
 	case QuotedString:
 		// Unwrap quotes - just the content (already unescaped)
+		return string(v)
+	case Symbol:
+		// Symbol as-is (bare identifier)
 		return string(v)
 	case string:
 		// Bare string as-is
@@ -850,22 +901,21 @@ func (e *Executor) substituteAllBraces(originalString string, evaluations []*Bra
 	
 	for _, eval := range sortedEvals {
 		// Get the result value
-		resultValue := ""
+		var rawValue interface{}
 		if eval.State != nil && eval.State.HasResult() {
-			rawValue := fmt.Sprintf("%v", eval.State.GetResult())
-			// If IsUnescape (${...}), don't escape - allow re-parsing
-			if eval.Location.IsUnescape {
-				resultValue = rawValue
-			} else {
-				resultValue = e.escapeSpecialCharacters(rawValue)
-			}
+			rawValue = eval.State.GetResult()
 		} else if eval.Result != nil {
-			rawValue := fmt.Sprintf("%v", eval.Result)
-			if eval.Location.IsUnescape {
-				resultValue = rawValue
-			} else {
-				resultValue = e.escapeSpecialCharacters(rawValue)
-			}
+			rawValue = eval.Result
+		}
+		
+		// Format the result based on type
+		var resultValue string
+		if eval.Location.IsUnescape {
+			// ${...} - no escaping, direct insertion
+			resultValue = fmt.Sprintf("%v", rawValue)
+		} else {
+			// {...} - preserve types properly
+			resultValue = e.formatBraceResult(rawValue)
 		}
 		
 		// Substitute: replace from StartPos to EndPos+1 with resultValue
@@ -876,6 +926,33 @@ func (e *Executor) substituteAllBraces(originalString string, evaluations []*Bra
 	}
 	
 	return result
+}
+
+// formatBraceResult formats a brace evaluation result for substitution
+// Preserves ParenGroups and QuotedStrings in their original form
+func (e *Executor) formatBraceResult(value interface{}) string {
+	switch v := value.(type) {
+	case ParenGroup:
+		// Preserve as parentheses without escaping
+		return "(" + string(v) + ")"
+	case QuotedString:
+		// Preserve as quoted string, escaping internal quotes
+		escaped := e.escapeQuotesAndBackslashes(string(v))
+		return "\"" + escaped + "\""
+	case Symbol:
+		// Symbol as bare identifier
+		return string(v)
+	case string:
+		// Regular string - escape for safety
+		return e.escapeSpecialCharacters(v)
+	case int64, float64, bool:
+		// Numbers and booleans as-is
+		return fmt.Sprintf("%v", v)
+	default:
+		// Unknown type - convert and escape
+		str := fmt.Sprintf("%v", v)
+		return e.escapeSpecialCharacters(str)
+	}
 }
 
 // findAllTopLevelBraces finds all brace expressions at the current nesting level

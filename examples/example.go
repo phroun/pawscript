@@ -26,12 +26,12 @@ func main() {
 				name = fmt.Sprintf("%v", ctx.Args[0])
 			}
 			fmt.Printf("Hello, %s!\n", name)
-			return pawscript.BoolResult(true)
+			return pawscript.BoolStatus(true)
 		},
 		
 		"calculate": func(ctx *pawscript.Context) pawscript.Result {
 			if len(ctx.Args) < 2 {
-				return pawscript.BoolResult(false)
+				return pawscript.BoolStatus(false)
 			}
 			
 			a := ctx.Args[0].(int64)
@@ -40,7 +40,7 @@ func main() {
 			
 			ctx.SetResult(result)
 			fmt.Printf("%d + %d = %d\n", a, b, result)
-			return pawscript.BoolResult(true)
+			return pawscript.BoolStatus(true)
 		},
 		
 		"async_operation": func(ctx *pawscript.Context) pawscript.Result {
@@ -68,7 +68,7 @@ func main() {
 			} else {
 				fmt.Println("No result available")
 			}
-			return pawscript.BoolResult(true)
+			return pawscript.BoolStatus(true)
 		},
 	})
 	
@@ -133,7 +133,7 @@ func main() {
 		} else {
 			fmt.Println("Operation failed")
 		}
-		return pawscript.BoolResult(success)
+		return pawscript.BoolStatus(success)
 	})
 	
 	ps.Execute("random_fail & greet 'Success!' | greet 'Fallback!'")

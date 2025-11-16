@@ -65,12 +65,12 @@ Hello Alice!
 Hello Alice! = Good
 Good day, Bob.How are you today?
 Good day, Bob.How are you today? = Good
-You provided 0 arguments: ; First argument: one; Second argument: two
-You provided 3 arguments: one, two, three; First argument: one; Second argument: two = Good
+You provided 3 arguments: "one, comma", "two", "three"; First argument: one, comma; Second argument: two
+You provided 3 arguments: "one, comma", "two", "three"; First argument: one, comma; Second argument: two = Good
 Hello Charlie!
 Hello, Charlie! = Good
-You provided 0 arguments: ; First argument: alpha; Second argument: beta
-You provided 2 arguments: alpha, beta; First argument: alpha; Second argument: beta = Good
+You provided 2 arguments: "alpha", "beta"; First argument: alpha; Second argument: beta
+You provided 2 arguments: "alpha", "beta"; First argument: alpha; Second argument: beta = Good
 Smart: test
 Smart: test = Good
 Macro test complete.
@@ -113,7 +113,7 @@ Processed: true
 Inner: final-test
 Success!
 Nested result: true
-Args: 1 total, all: final-test, first: final-test
+Args: 1 total, all: "final-test", first: final-test
 === End Kitchen Sink ===
 End nested structures test.
 
@@ -128,6 +128,12 @@ String with & and | and ; inside
 String with X and Y and Z inside = Good
 Single quotes with & | ; too
 Single quotes with X Y Z too = Good
+ab
+ab = Good
+a then write b
+a then write b = Good
+a then echo b
+a then echo b = Good
 This argument has & and | operators
 This argument has X and Y operators = Good
 Unicode test: 🎉 Hello 世界 café

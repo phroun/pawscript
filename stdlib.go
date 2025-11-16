@@ -13,32 +13,117 @@ import (
 // RegisterStandardLibrary registers standard library commands
 func (ps *PawScript) RegisterStandardLibrary(scriptArgs []string) {
 	// argc - returns number of arguments
+	// Usage: argc           - returns count of script arguments
+	//        argc (a, b, c) - returns count of items in list (3)
 	ps.RegisterCommand("argc", func(ctx *Context) Result {
-		ctx.SetResult(len(scriptArgs))
+		if len(ctx.Args) == 0 {
+			// No arguments - return script arg count
+			ctx.SetResult(len(scriptArgs))
+			return BoolStatus(true)
+		}
+		
+		// Argument provided - parse it as a list
+		listArg := ctx.Args[0]
+		
+		// If it's a ParenGroup, parse the contents
+		if parenGroup, ok := listArg.(ParenGroup); ok {
+			args := parseArguments(string(parenGroup))
+			ctx.SetResult(len(args))
+			return BoolStatus(true)
+		}
+		
+		// If it's a string that looks like a list, parse it
+		if str, ok := listArg.(string); ok {
+			args := parseArguments(str)
+			ctx.SetResult(len(args))
+			return BoolStatus(true)
+		}
+		
+		// Single item
+		ctx.SetResult(1)
 		return BoolStatus(true)
 	})
 	
 	// argv - returns array of arguments or specific argument by index
+	// Usage: argv              - returns all script arguments
+	//        argv 1            - returns first script argument (1-indexed)
+	//        argv (a, b, c)    - returns all items in list
+	//        argv (a, b, c), 2 - returns second item from list (1-indexed)
 	ps.RegisterCommand("argv", func(ctx *Context) Result {
 		if len(ctx.Args) == 0 {
+			// No arguments - return all script args
 			ctx.SetResult(scriptArgs)
-		} else {
-			index, ok := ctx.Args[0].(int64)
+			return BoolStatus(true)
+		}
+		
+		// Check if first argument is a list (ParenGroup or string)
+		firstArg := ctx.Args[0]
+		var sourceList []interface{}
+		var isListProvided bool
+		
+		if parenGroup, ok := firstArg.(ParenGroup); ok {
+			// Parse the parenthetic group as a list
+			sourceList = parseArguments(string(parenGroup))
+			isListProvided = true
+		} else if str, ok := firstArg.(string); ok {
+			// Check if it looks like a comma-separated list
+			// Only treat as list if it contains a comma or if we have 2 args
+			if len(ctx.Args) > 1 || strings.Contains(str, ",") {
+				sourceList = parseArguments(str)
+				isListProvided = true
+			}
+		}
+		
+		if isListProvided {
+			// First arg is a list
+			if len(ctx.Args) == 1 {
+				// No index - return the whole list
+				ctx.SetResult(sourceList)
+				return BoolStatus(true)
+			}
+			
+			// Index provided as second argument
+			index, ok := ctx.Args[1].(int64)
 			if !ok {
 				// Try to convert from float
-				if f, ok := ctx.Args[0].(float64); ok {
+				if f, ok := ctx.Args[1].(float64); ok {
 					index = int64(f)
 				} else {
+					fmt.Fprintln(os.Stderr, "[ARGV ERROR] Index must be a number")
 					ctx.SetResult(nil)
-					return BoolStatus(true)
+					return BoolStatus(false)
 				}
 			}
 			
-			if index >= 0 && int(index) < len(scriptArgs) {
-				ctx.SetResult(scriptArgs[index])
+			// 1-indexed (like $1, $2, etc.)
+			index-- // Convert to 0-based
+			if index >= 0 && int(index) < len(sourceList) {
+				ctx.SetResult(sourceList[index])
 			} else {
 				ctx.SetResult(nil)
 			}
+			return BoolStatus(true)
+		}
+		
+		// First arg is not a list - treat as index into script args
+		index, ok := firstArg.(int64)
+		if !ok {
+			// Try to convert from float
+			if f, ok := firstArg.(float64); ok {
+				index = int64(f)
+			} else {
+				// Not a number, not a list - just return it
+				ctx.SetResult(firstArg)
+				return BoolStatus(true)
+			}
+		}
+		
+		// Index into script args (1-indexed)
+		index-- // Convert to 0-based
+		if index >= 0 && int(index) < len(scriptArgs) {
+			ctx.SetResult(scriptArgs[index])
+		} else {
+			ctx.SetResult(nil)
 		}
 		return BoolStatus(true)
 	})
@@ -455,6 +540,42 @@ func (ps *PawScript) RegisterStandardLibrary(scriptArgs []string) {
 		ctx.SetResult(result)
 		return BoolStatus(result)
 	})
+	
+	// get_inferred_type - returns the type of a value
+	ps.RegisterCommand("get_inferred_type", func(ctx *Context) Result {
+		if len(ctx.Args) < 1 {
+			// No argument provided - return "undefined"
+			ctx.SetResult("undefined")
+			return BoolStatus(true)
+		}
+		
+		value := ctx.Args[0]
+		typeName := getTypeName(value)
+		ctx.SetResult(typeName)
+		return BoolStatus(true)
+	})
+	
+	// get_type - returns the type of a variable without fetching its value
+	// More efficient than get_inferred_type {get x} for large values or frequent checks
+	ps.RegisterCommand("get_type", func(ctx *Context) Result {
+		if len(ctx.Args) < 1 {
+			fmt.Fprintln(os.Stderr, "[GET_TYPE ERROR] Usage: get_type <variable_name>")
+			ctx.SetResult("undefined")
+			return BoolStatus(false)
+		}
+		
+		varName := fmt.Sprintf("%v", ctx.Args[0])
+		value, exists := ctx.state.GetVariable(varName)
+		
+		if !exists {
+			ctx.SetResult("undefined")
+			return BoolStatus(true)
+		}
+		
+		typeName := getTypeName(value)
+		ctx.SetResult(typeName)
+		return BoolStatus(true)
+	})
 }
 
 // Helper function to convert values to numbers
@@ -466,6 +587,31 @@ func toNumber(val interface{}) (float64, bool) {
 		return v, true
 	case int:
 		return float64(v), true
+	case Symbol:
+		// Try to parse symbol as number
+		str := string(v)
+		// Try to parse as float
+		if f, err := strconv.ParseFloat(str, 64); err == nil {
+			return f, true
+		}
+		// Try to parse as int
+		if i, err := strconv.ParseInt(str, 10, 64); err == nil {
+			return float64(i), true
+		}
+		return 0, false
+	case QuotedString:
+		// QuotedString behaves like string for parsing
+		str := string(v)
+		if f, err := strconv.ParseFloat(str, 64); err == nil {
+			return f, true
+		}
+		if i, err := strconv.ParseInt(str, 10, 64); err == nil {
+			return float64(i), true
+		}
+		return 0, false
+	case ParenGroup:
+		// ParenGroup (code block) is not a number
+		return 0, false
 	case string:
 		// Try to parse as float
 		if f, err := strconv.ParseFloat(v, 64); err == nil {
@@ -490,6 +636,21 @@ func toBool(val interface{}) bool {
 		return v != 0
 	case float64:
 		return v != 0.0
+	case Symbol:
+		// Symbols are like non-empty strings - truthy
+		// Symbol("false") shouldn't exist (parser converts to bool)
+		// So any symbol is truthy if non-empty
+		return string(v) != ""
+	case QuotedString:
+		// QuotedString behaves like string for truthiness
+		// Empty string, "false", "0" are false
+		lowerVal := strings.ToLower(strings.TrimSpace(string(v)))
+		return lowerVal != "" && 
+			   lowerVal != "false" && 
+			   lowerVal != "0"
+	case ParenGroup:
+		// ParenGroup (code block) is truthy if non-empty
+		return string(v) != ""
 	case string:
 		// Empty string, "false", "0" are false
 		lowerVal := strings.ToLower(strings.TrimSpace(v))
@@ -501,5 +662,43 @@ func toBool(val interface{}) bool {
 	default:
 		// Non-nil unknown types are truthy
 		return true
+	}
+}
+
+// Helper function to get the type name of a value
+func getTypeName(val interface{}) string {
+	if val == nil {
+		return "nil"
+	}
+	
+	switch v := val.(type) {
+	case ParenGroup:
+		return "block"
+	case QuotedString:
+		// QuotedString is still a string type, just with different formatting
+		return "string"
+	case Symbol:
+		// Bare identifier (unquoted, non-keyword)
+		return "symbol"
+	case bool:
+		return "bool"
+	case int64:
+		return "int"
+	case int:
+		return "int"
+	case float64:
+		return "float"
+	case float32:
+		return "float"
+	case string:
+		return "string"
+	case TokenResult:
+		return "token"
+	case BoolStatus:
+		// This would be unusual as an argument, but handle it
+		return "bool"
+	default:
+		// Unknown type - return the Go type name as a fallback
+		return fmt.Sprintf("unknown(%T)", v)
 	}
 }

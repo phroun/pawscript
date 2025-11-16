@@ -11,7 +11,7 @@ func TestBasicExecution(t *testing.T) {
 	called := false
 	ps.RegisterCommand("test", func(ctx *Context) Result {
 		called = true
-		return BoolResult(true)
+		return BoolStatus(true)
 	})
 	
 	result := ps.Execute("test")
@@ -20,7 +20,7 @@ func TestBasicExecution(t *testing.T) {
 		t.Error("Command was not called")
 	}
 	
-	if boolResult, ok := result.(BoolResult); !ok || !bool(boolResult) {
+	if boolState, ok := result.(BoolStatus); !ok || !bool(boolState) {
 		t.Error("Expected true result")
 	}
 }
@@ -31,7 +31,7 @@ func TestCommandWithArguments(t *testing.T) {
 	var receivedArgs []interface{}
 	ps.RegisterCommand("test_args", func(ctx *Context) Result {
 		receivedArgs = ctx.Args
-		return BoolResult(true)
+		return BoolStatus(true)
 	})
 	
 	ps.Execute("test_args 'hello', 42, true")
@@ -59,7 +59,7 @@ func TestCommandSequence(t *testing.T) {
 	callCount := 0
 	ps.RegisterCommand("test", func(ctx *Context) Result {
 		callCount++
-		return BoolResult(true)
+		return BoolStatus(true)
 	})
 	
 	result := ps.Execute("test; test; test")
@@ -68,7 +68,7 @@ func TestCommandSequence(t *testing.T) {
 		t.Errorf("Expected 3 calls, got %d", callCount)
 	}
 	
-	if boolResult, ok := result.(BoolResult); !ok || !bool(boolResult) {
+	if boolState, ok := result.(BoolStatus); !ok || !bool(boolState) {
 		t.Error("Expected true result")
 	}
 }
@@ -81,12 +81,12 @@ func TestConditionalExecution(t *testing.T) {
 	
 	ps.RegisterCommand("success", func(ctx *Context) Result {
 		successCount++
-		return BoolResult(true)
+		return BoolStatus(true)
 	})
 	
 	ps.RegisterCommand("fail", func(ctx *Context) Result {
 		failCount++
-		return BoolResult(false)
+		return BoolStatus(false)
 	})
 	
 	// Test AND operator - second should execute
@@ -133,7 +133,7 @@ func TestResultManagement(t *testing.T) {
 	
 	ps.RegisterCommand("set_value", func(ctx *Context) Result {
 		ctx.SetResult(ctx.Args[0])
-		return BoolResult(true)
+		return BoolStatus(true)
 	})
 	
 	var capturedResult interface{}
@@ -141,7 +141,7 @@ func TestResultManagement(t *testing.T) {
 		if ctx.HasResult() {
 			capturedResult = ctx.GetResult()
 		}
-		return BoolResult(true)
+		return BoolStatus(true)
 	})
 	
 	ps.Execute("set_value 'test'; get_value")
@@ -157,7 +157,7 @@ func TestMacros(t *testing.T) {
 	callCount := 0
 	ps.RegisterCommand("test", func(ctx *Context) Result {
 		callCount++
-		return BoolResult(true)
+		return BoolStatus(true)
 	})
 	
 	// Define macro
@@ -173,7 +173,7 @@ func TestMacros(t *testing.T) {
 		t.Errorf("Expected 2 calls, got %d", callCount)
 	}
 	
-	if boolResult, ok := result.(BoolResult); !ok || !bool(boolResult) {
+	if boolState, ok := result.(BoolStatus); !ok || !bool(boolState) {
 		t.Error("Expected true result")
 	}
 }
@@ -186,7 +186,7 @@ func TestMacroWithArguments(t *testing.T) {
 		if len(ctx.Args) > 0 {
 			receivedArg = ctx.Args[0].(string)
 		}
-		return BoolResult(true)
+		return BoolStatus(true)
 	})
 	
 	// Define macro with argument substitution
@@ -236,7 +236,7 @@ func TestBraceExpressions(t *testing.T) {
 	
 	ps.RegisterCommand("get_value", func(ctx *Context) Result {
 		ctx.SetResult("computed")
-		return BoolResult(true)
+		return BoolStatus(true)
 	})
 	
 	var receivedArg string
@@ -244,7 +244,7 @@ func TestBraceExpressions(t *testing.T) {
 		if len(ctx.Args) > 0 {
 			receivedArg = ctx.Args[0].(string)
 		}
-		return BoolResult(true)
+		return BoolStatus(true)
 	})
 	
 	ps.Execute("echo 'result: {get_value}'")
@@ -327,7 +327,7 @@ func TestUnknownCommand(t *testing.T) {
 	
 	result := ps.Execute("unknown_command")
 	
-	if boolResult, ok := result.(BoolResult); !ok || bool(boolResult) {
+	if boolState, ok := result.(BoolStatus); !ok || bool(boolState) {
 		t.Error("Expected false result for unknown command")
 	}
 }
@@ -338,7 +338,7 @@ func TestComments(t *testing.T) {
 	callCount := 0
 	ps.RegisterCommand("test", func(ctx *Context) Result {
 		callCount++
-		return BoolResult(true)
+		return BoolStatus(true)
 	})
 	
 	// Line comment should be ignored

@@ -277,7 +277,7 @@ echo "Level 1 (Level 2 (Level 3) back to 2) back to 1 = Good"
 
 # Mixed nesting
 echo "Text", (grouped (nested) text), {set_result "dynamic {set_result nested}"}, "more"
-echo "Text grouped (nested) text dynamic\\ nested more = Good"
+echo "Text grouped (nested) text dynamic nested more = Good"
 
 # Complex macro with everything
 macro kitchen_sink(
@@ -358,7 +358,7 @@ echo "a then write b"
 echo "a t\hen write b = Good"
 set b, (a then echo b)
 echo {get b}
-echo "a\\ t\hen\\ echo\\ b = Good"
+echo "a t\hen echo b = Good"
 
 # Arguments with operators (inside parentheses)
 echo (This argument has & and | operators)

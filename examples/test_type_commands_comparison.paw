@@ -1,0 +1,218 @@
+#!/usr/bin/env paw
+# Comparison test: get_type vs get_inferred_type
+# Shows the difference between the two commands
+
+echo "=== get_type vs get_inferred_type Comparison ==="
+echo ""
+echo "get_inferred_type: Takes a VALUE, returns its type"
+echo "get_type:          Takes a VARIABLE NAME, returns the variable's type"
+echo ""
+
+# Part 1: Direct value testing with get_inferred_type
+echo "Part 1: get_inferred_type (direct values)"
+echo ""
+
+echo "Integers:"
+get_inferred_type 42
+echo "  get_inferred_type 42 → {get_result}"
+
+echo ""
+echo "Floats:"
+get_inferred_type 3.14
+echo "  get_inferred_type 3.14 → {get_result}"
+
+echo ""
+echo "Booleans:"
+get_inferred_type true
+echo "  get_inferred_type true → {get_result}"
+
+echo ""
+echo "Strings (quoted):"
+get_inferred_type "hello"
+echo "  get_inferred_type \"hello\" → {get_result}"
+
+echo ""
+echo "Symbols (bare identifiers):"
+get_inferred_type myvar
+echo "  get_inferred_type myvar → {get_result}"
+
+echo ""
+echo "Blocks (code in parens):"
+get_inferred_type (echo test)
+echo "  get_inferred_type (echo test) → {get_result}"
+
+echo ""
+echo "Nil:"
+get_inferred_type nil
+echo "  get_inferred_type nil → {get_result}"
+
+echo ""
+echo "=========================================="
+echo ""
+
+# Part 2: Variable testing with get_type
+echo "Part 2: get_type (variables)"
+echo ""
+
+echo "Create variables:"
+set my_int, 42
+echo "  set my_int, 42"
+
+set my_float, 3.14
+echo "  set my_float, 3.14"
+
+set my_bool, true
+echo "  set my_bool, true"
+
+set my_string, "hello"
+echo "  set my_string, \"hello\""
+
+set my_symbol, myvar
+echo "  set my_symbol, myvar"
+
+set my_block, (echo test)
+echo "  set my_block, (echo test)"
+
+set my_nil, nil
+echo "  set my_nil, nil"
+
+echo ""
+echo "Check variable types:"
+get_type my_int
+echo "  get_type my_int → {get_result}"
+
+get_type my_float
+echo "  get_type my_float → {get_result}"
+
+get_type my_bool
+echo "  get_type my_bool → {get_result}"
+
+get_type my_string
+echo "  get_type my_string → {get_result}"
+
+get_type my_symbol
+echo "  get_type my_symbol → {get_result}"
+
+get_type my_block
+echo "  get_type my_block → {get_result}"
+
+get_type my_nil
+echo "  get_type my_nil → {get_result}"
+
+echo ""
+echo "Check undefined variable:"
+get_type does_not_exist
+echo "  get_type does_not_exist → {get_result}"
+
+echo ""
+echo "=========================================="
+echo ""
+
+# Part 3: Side-by-side comparison
+echo "Part 3: Side-by-side comparison"
+echo ""
+
+set x, identifier
+echo "After: set x, identifier"
+echo ""
+
+get_inferred_type identifier
+echo "  get_inferred_type identifier → {get_result}"
+
+get_type x
+echo "  get_type x → {get_result}"
+
+echo ""
+echo "Both should return 'symbol'"
+echo ""
+
+echo "=========================================="
+echo ""
+
+# Part 4: Key differences
+echo "Part 4: Key Differences"
+echo ""
+
+echo "Difference 1: Variable name vs value"
+set name, john
+echo "  set name, john"
+echo ""
+
+get_type name
+echo "  get_type name → {get_result} (checks the variable 'name')"
+
+get_inferred_type name
+echo "  get_inferred_type name → {get_result} (checks the bare word 'name' as a symbol)"
+
+echo ""
+echo "Note: get_type checks the variable, get_inferred_type treats 'name' as a value"
+echo ""
+
+echo "Difference 2: Undefined handling"
+get_type undefined_var
+echo "  get_type undefined_var → {get_result} (returns 'undefined')"
+
+echo ""
+echo "  get_inferred_type undefined_var → would treat it as a symbol (not a variable check)"
+get_inferred_type undefined_var
+echo "  Result: {get_result}"
+
+echo ""
+echo "=========================================="
+echo ""
+
+# Part 5: Use cases
+echo "Part 5: When to use which?"
+echo ""
+
+echo "Use get_inferred_type when:"
+echo "  - Checking the type of a literal value"
+echo "  - Determining type of an argument"
+echo "  - You have the value itself, not a variable"
+echo ""
+
+echo "Use get_type when:"
+echo "  - Checking if a variable exists"
+echo "  - Checking the type of a stored value"
+echo "  - You have a variable name"
+echo "  - Building safe variable access patterns"
+echo ""
+
+echo "Example: Safe variable access"
+macro safe_get(
+    if {eq {get_type $1}, undefined} then (
+        echo "    Variable '$1' doesn't exist, using default"
+        set_result "default_value"
+    ) else (
+        echo "    Variable '$1' exists as {get_type $1}"
+        get $1
+    )
+)
+
+echo ""
+echo "  Calling safe_get with undefined variable:"
+echo "  Result: {safe_get nonexistent}"
+
+echo ""
+set my_var, actual_value
+echo "  After: set my_var, actual_value"
+echo "  Calling safe_get with defined variable:"
+echo "  Result: {safe_get my_var}"
+
+echo ""
+echo "=========================================="
+echo ""
+
+echo "=== Summary ==="
+echo ""
+echo "┌─────────────────────┬────────────────────────────────────┐"
+echo "│ Command             │ Purpose                            │"
+echo "├─────────────────────┼────────────────────────────────────┤"
+echo "│ get_inferred_type   │ Type of a VALUE (literal/argument) │"
+echo "│ get_type            │ Type of a VARIABLE (by name)       │"
+echo "└─────────────────────┴────────────────────────────────────┘"
+echo ""
+echo "Both commands work with all 9 types:"
+echo "  nil, bool, int, float, string, symbol, block, token, undefined"
+echo ""
+echo "=== Test Complete ==="

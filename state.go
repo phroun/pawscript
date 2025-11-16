@@ -38,8 +38,10 @@ func (s *ExecutionState) SetResult(value interface{}) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	
-	// Handle the special "undefined" bare identifier token
-	if str, ok := value.(string); ok && str == "undefined" {
+	// Handle the special "undefined" bare identifier token (Symbol type only)
+	// This allows clearing the result with the bare identifier: undefined
+	// But still allows storing the string "undefined" as a type name
+	if sym, ok := value.(Symbol); ok && string(sym) == "undefined" {
 		s.currentResult = nil
 		s.hasResult = false
 		return

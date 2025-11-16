@@ -3,8 +3,47 @@ echo "Hello\!"
 echo "{get message}"
 
 macro show_args(
+   set Hello, Alice!
+   echo {get Hello}
+   echo "Alice\\! = Good"
+   echo "{get Hello}"
+   echo "Alice! = Good"
+   echo "Next two lines should be the same:"
    echo "$1"
+   echo "$${set_result 1}"
    echo "Argument List: $*"
 )
 
+macro arg_count(
+   set_result $#
+)
+
+macro loop_args(
+   set list, $@
+   set x, 1
+   echo {get list}
+   while (lt {get x}, {argc {get list}}), (
+      set y, {argv {get list}, {get x}}
+      echo "Arg {get x} = {get y}"
+      set x, {add {get x}, 1}
+   )
+)
+
 show_args "Hello, Alice!", 2, "third"
+
+set a, "b, c"
+set ${get a}
+echo {get b}
+echo $(get b)
+
+loop_args "Hello, Alice", 2, "third", 4th
+
+
+
+set items, (apple, banana, cherry)
+
+echo "Count: {argc {get items}}"
+echo "First: {argv {get items}, 1}"
+
+set s, 'Hello, "Magoo"'
+echo "The message is {get s}"

@@ -1,0 +1,114 @@
+#!/usr/bin/env paw
+# Test QuotedString and ParenGroup handling in toBool and toNumber
+
+echo "=== QuotedString and ParenGroup Type Handling ==="
+echo ""
+
+# Test 1: QuotedString truthiness
+echo "Test 1: QuotedString truthiness"
+set str_false, "false"
+if {get str_false} then (
+    echo "FAIL: \"false\" should be falsy"
+) else (
+    echo "PASS: \"false\" is falsy"
+)
+
+set str_zero, "0"
+if {get str_zero} then (
+    echo "FAIL: \"0\" should be falsy"
+) else (
+    echo "PASS: \"0\" is falsy"
+)
+
+set str_true, "hello"
+if {get str_true} then (
+    echo "PASS: \"hello\" is truthy"
+) else (
+    echo "FAIL: \"hello\" should be truthy"
+)
+echo ""
+
+# Test 2: QuotedString in arithmetic
+echo "Test 2: QuotedString in arithmetic"
+set num_str, "123"
+set result, {add {get num_str}, 10}
+if {eq {get result}, 133} then (
+    echo "PASS: add \"123\", 10 = 133"
+) else (
+    echo "FAIL: add \"123\", 10 = {get result} (expected 133)"
+)
+echo ""
+
+# Test 3: Symbol truthiness
+echo "Test 3: Symbol truthiness"
+set sym_val, myidentifier
+if {get sym_val} then (
+    echo "PASS: symbol is truthy"
+) else (
+    echo "FAIL: symbol should be truthy"
+)
+echo ""
+
+# Test 4: Symbol in arithmetic
+echo "Test 4: Symbol in arithmetic (numeric symbol)"
+set num_sym, 456
+set result2, {add {get num_sym}, 100}
+if {eq {get result2}, 556} then (
+    echo "PASS: add 456, 100 = 556"
+) else (
+    echo "FAIL: add 456, 100 = {get result2} (expected 556)"
+)
+echo ""
+
+# Test 5: ParenGroup truthiness
+echo "Test 5: ParenGroup truthiness"
+set code_block, (echo test)
+if {get code_block} then (
+    echo "PASS: non-empty ParenGroup is truthy"
+) else (
+    echo "FAIL: non-empty ParenGroup should be truthy"
+)
+echo ""
+
+# Test 6: Type comparisons
+echo "Test 6: Type checking"
+set x, "text"
+set y, symbol
+set z, (block)
+
+echo "\"text\" type: {get_type x}"
+echo "symbol type: {get_type y}"
+echo "(block) type: {get_type z}"
+echo ""
+
+# Test 7: Edge case - string "false" vs bool false
+echo "Test 7: String \"false\" vs bool false"
+set bool_false, false
+set str_false2, "false"
+
+if {get bool_false} then (
+    echo "FAIL: bool false should be falsy"
+) else (
+    echo "PASS: bool false is falsy"
+)
+
+if {get str_false2} then (
+    echo "FAIL: string \"false\" should be falsy"
+) else (
+    echo "PASS: string \"false\" is falsy"
+)
+echo ""
+
+# Test 8: Comparison operations with different types
+echo "Test 8: Comparisons across types"
+set num_as_str, "42"
+set num_as_int, 42
+
+if {eq {get num_as_str}, {get num_as_int}} then (
+    echo "PASS: \"42\" equals 42 (string coercion)"
+) else (
+    echo "FAIL: \"42\" should equal 42"
+)
+echo ""
+
+echo "=== All Edge Case Tests Complete ==="

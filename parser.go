@@ -641,6 +641,11 @@ func parseArgumentValue(argStr string) interface{} {
 		return false
 	}
 	
+	// Handle nil
+	if argStr == "nil" {
+		return nil
+	}
+	
 	// Handle numbers
 	if num, err := strconv.ParseInt(argStr, 10, 64); err == nil {
 		return num
@@ -649,8 +654,8 @@ func parseArgumentValue(argStr string) interface{} {
 		return num
 	}
 	
-	// Bare identifier/string - stays as regular string
-	return argStr
+	// Bare identifier - return as Symbol to preserve its nature
+	return Symbol(argStr)
 }
 
 // parseStringLiteral handles escape sequences in strings
