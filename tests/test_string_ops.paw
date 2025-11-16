@@ -18,10 +18,10 @@ echo "Expected: abcde"
 print
 
 # ==========================================
-# str_split and str_join - inverse operations
+# split and join - inverse operations
 # ==========================================
-echo "Testing str_split..."
-set parts, {str_split "a,b,c,d", ","}
+echo "Testing split..."
+set parts, {split "a,b,c,d", ","}
 echo "Split result length: {len {get parts}}"
 echo "Expected: 4"
 echo "First item: {argv {get parts}, 1}"
@@ -30,15 +30,15 @@ echo "Last item: {argv {get parts}, 4}"
 echo "Expected: d"
 print
 
-echo "Testing str_join..."
-set joined, {str_join {get parts}, "-"}
+echo "Testing join..."
+set joined, {join {get parts}, "-"}
 echo "Join result: {get joined}"
 echo "Expected: a-b-c-d"
 print
 
 # Test split/join round-trip
 set original, "one|two|three"
-set rejoined, {str_join {str_split {get original}, "|"}, "|"}
+set rejoined, {join {split {get original}, "|"}, "|"}
 echo "Round-trip test: {get rejoined}"
 echo "Expected: one|two|three"
 print
@@ -59,19 +59,19 @@ echo "Expected: hello world"
 print
 
 # ==========================================
-# str_trim functions - whitespace removal
+# trim functions - whitespace removal
 # ==========================================
-echo "Testing str_trim..."
-set trimmed, {str_trim "  hello world  "}
+echo "Testing trim..."
+set trimmed, {trim "  hello world  "}
 echo "Trimmed: [{get trimmed}]"
 echo "Expected: [hello world]"
 print
 
-echo "Testing str_trim_left..."
+echo "Testing trim_left..."
 set input, "  hello world  "
-set left, {str_trim_left {get input}}
+set left, {trim_left {get input}}
 # Verify it starts with "hello" (no leading spaces)
-if {str_starts_with {get left}, "hello"} then (
+if {starts_with {get left}, "hello"} then (
     echo "Left trimmed correctly - starts with hello"
 ) else (
     echo "Left trim FAILED"
@@ -79,24 +79,24 @@ if {str_starts_with {get left}, "hello"} then (
 echo "Expected: Left trimmed correctly - starts with hello"
 print
 
-echo "Testing str_trim_right..."
-set right, {str_trim_right "  hello world  "}
+echo "Testing trim_right..."
+set right, {trim_right "  hello world  "}
 echo "Right trimmed: [{get right}]"
 echo "Expected: [  hello world]"
 print
 
 # ==========================================
-# str_contains - substring checking
+# contains - substring checking
 # ==========================================
-echo "Testing str_contains..."
-if {str_contains "hello world", "world"} then (
+echo "Testing contains..."
+if {contains "hello world", "world"} then (
     echo "Contains 'world': true"
 ) else (
     echo "Contains 'world': false"
 )
 echo "Expected: true"
 
-if {str_contains "hello world", "xyz"} then (
+if {contains "hello world", "xyz"} then (
     echo "Contains 'xyz': true"
 ) else (
     echo "Contains 'xyz': false"
@@ -105,43 +105,43 @@ echo "Expected: false"
 print
 
 # ==========================================
-# str_index - finding substrings
+# index - finding substrings
 # ==========================================
-echo "Testing str_index..."
-set idx1, {str_index "hello world", "world"}
+echo "Testing index..."
+set idx1, {index "hello world", "world"}
 echo "Index of 'world': {get idx1}"
 echo "Expected: 6"
 
-set idx2, {str_index "hello world", "xyz"}
+set idx2, {index "hello world", "xyz"}
 echo "Index of 'xyz': {get idx2}"
 echo "Expected: -1"
 print
 
 # ==========================================
-# str_replace - replacing substrings
+# replace - replacing substrings
 # ==========================================
-echo "Testing str_replace..."
-set replaced, {str_replace "hello world world", "world", "gopher"}
+echo "Testing replace..."
+set replaced, {replace "hello world world", "world", "gopher"}
 echo "Replaced: {get replaced}"
 echo "Expected: hello gopher gopher"
 
-set no_replace, {str_replace "hello", "xyz", "abc"}
+set no_replace, {replace "hello", "xyz", "abc"}
 echo "No match replace: {get no_replace}"
 echo "Expected: hello"
 print
 
 # ==========================================
-# str_starts_with and str_ends_with
+# starts_with and ends_with
 # ==========================================
-echo "Testing str_starts_with..."
-if {str_starts_with "hello world", "hello"} then (
+echo "Testing starts_with..."
+if {starts_with "hello world", "hello"} then (
     echo "Starts with 'hello': true"
 ) else (
     echo "Starts with 'hello': false"
 )
 echo "Expected: true"
 
-if {str_starts_with "hello world", "world"} then (
+if {starts_with "hello world", "world"} then (
     echo "Starts with 'world': true"
 ) else (
     echo "Starts with 'world': false"
@@ -149,15 +149,15 @@ if {str_starts_with "hello world", "world"} then (
 echo "Expected: false"
 print
 
-echo "Testing str_ends_with..."
-if {str_ends_with "hello world", "world"} then (
+echo "Testing ends_with..."
+if {ends_with "hello world", "world"} then (
     echo "Ends with 'world': true"
 ) else (
     echo "Ends with 'world': false"
 )
 echo "Expected: true"
 
-if {str_ends_with "hello world", "hello"} then (
+if {ends_with "hello world", "hello"} then (
     echo "Ends with 'hello': true"
 ) else (
     echo "Ends with 'hello': false"
@@ -166,7 +166,7 @@ echo "Expected: false"
 print
 
 # ==========================================
-# str_repeat - repeating strings
+# str_rrepeat - repeating strings
 # ==========================================
 echo "Testing str_repeat..."
 set repeated, {str_repeat "ab", 3}
@@ -215,7 +215,7 @@ print
 # ==========================================
 echo "Practical example: CSV parsing..."
 set csv_line, "John Doe,30,Engineer"
-set fields, {str_split {get csv_line}, ","}
+set fields, {split {get csv_line}, ","}
 set name, {argv {get fields}, 1}
 set age, {argv {get fields}, 2}
 set job, {argv {get fields}, 3}
@@ -231,7 +231,7 @@ print
 # ==========================================
 echo "Practical example: Text formatting..."
 set raw, "  HELLO WORLD  "
-set trimmed, {str_trim {get raw}}
+set trimmed, {trim {get raw}}
 echo "Trimmed: [{get trimmed}]"
 echo "Expected: [HELLO WORLD]"
 
@@ -249,12 +249,12 @@ print
 # ==========================================
 echo "Practical example: Path manipulation..."
 set path, "/home/user/documents/file.txt"
-set parts, {str_split {get path}, "/"}
+set parts, {split {get path}, "/"}
 set filename, {argv {get parts}, {len {get parts}}}
 echo "Filename: {get filename}"
 echo "Expected: file.txt"
 
-if {str_ends_with {get filename}, ".txt"} then (
+if {ends_with {get filename}, ".txt"} then (
     echo "Is a text file: true"
 ) else (
     echo "Is a text file: false"

@@ -906,12 +906,12 @@ func (ps *PawScript) RegisterStandardLibrary(scriptArgs []string) {
 		return BoolStatus(true)
 	})
 	
-	// str_split - split string into list by delimiter
-	// Usage: str_split "a,b,c", ","  -> list of ["a", "b", "c"]
-	// Inverse of str_join
-	ps.RegisterCommand("str_split", func(ctx *Context) Result {
+	// split - split string into list by delimiter
+	// Usage: split "a,b,c", ","  -> list of ["a", "b", "c"]
+	// Inverse of join
+	ps.RegisterCommand("split", func(ctx *Context) Result {
 		if len(ctx.Args) < 2 {
-			fmt.Fprintln(os.Stderr, "[STR_SPLIT ERROR] Usage: str_split <string>, <delimiter>")
+			fmt.Fprintln(os.Stderr, "[SPLIT ERROR] Usage: split <string>, <delimiter>")
 			ctx.SetResult(nil)
 			return BoolStatus(false)
 		}
@@ -929,12 +929,12 @@ func (ps *PawScript) RegisterStandardLibrary(scriptArgs []string) {
 		return BoolStatus(true)
 	})
 	
-	// str_join - join list into string with delimiter
-	// Usage: str_join {get mylist}, ","  -> "a,b,c"
-	// Inverse of str_split
-	ps.RegisterCommand("str_join", func(ctx *Context) Result {
+	// join - join list into string with delimiter
+	// Usage: join {get mylist}, ","  -> "a,b,c"
+	// Inverse of split
+	ps.RegisterCommand("join", func(ctx *Context) Result {
 		if len(ctx.Args) < 2 {
-			fmt.Fprintln(os.Stderr, "[STR_JOIN ERROR] Usage: str_join <list>, <delimiter>")
+			fmt.Fprintln(os.Stderr, "[JOIN ERROR] Usage: join <list>, <delimiter>")
 			ctx.SetResult("")
 			return BoolStatus(false)
 		}
@@ -985,11 +985,11 @@ func (ps *PawScript) RegisterStandardLibrary(scriptArgs []string) {
 		return BoolStatus(true)
 	})
 	
-	// str_trim - trim whitespace from both ends
-	// Usage: str_trim "  hello  "  -> "hello"
-	ps.RegisterCommand("str_trim", func(ctx *Context) Result {
+	// trim - trim whitespace from both ends
+	// Usage: trim "  hello  "  -> "hello"
+	ps.RegisterCommand("trim", func(ctx *Context) Result {
 		if len(ctx.Args) < 1 {
-			fmt.Fprintln(os.Stderr, "[STR_TRIM ERROR] Usage: str_trim <string>")
+			fmt.Fprintln(os.Stderr, "[TRIM ERROR] Usage: trim <string>")
 			ctx.SetResult("")
 			return BoolStatus(false)
 		}
@@ -999,11 +999,11 @@ func (ps *PawScript) RegisterStandardLibrary(scriptArgs []string) {
 		return BoolStatus(true)
 	})
 	
-	// str_trim_left - trim whitespace from left end
-	// Usage: str_trim_left "  hello  "  -> "hello  "
-	ps.RegisterCommand("str_trim_left", func(ctx *Context) Result {
+	// trim_left - trim whitespace from left end
+	// Usage: trim_left "  hello  "  -> "hello  "
+	ps.RegisterCommand("trim_left", func(ctx *Context) Result {
 		if len(ctx.Args) < 1 {
-			fmt.Fprintln(os.Stderr, "[STR_TRIM_LEFT ERROR] Usage: str_trim_left <string>")
+			fmt.Fprintln(os.Stderr, "[TRIM_LEFT ERROR] Usage: trim_left <string>")
 			ctx.SetResult("")
 			return BoolStatus(false)
 		}
@@ -1013,11 +1013,11 @@ func (ps *PawScript) RegisterStandardLibrary(scriptArgs []string) {
 		return BoolStatus(true)
 	})
 	
-	// str_trim_right - trim whitespace from right end
-	// Usage: str_trim_right "  hello  "  -> "  hello"
-	ps.RegisterCommand("str_trim_right", func(ctx *Context) Result {
+	// trim_right - trim whitespace from right end
+	// Usage: trim_right "  hello  "  -> "  hello"
+	ps.RegisterCommand("trim_right", func(ctx *Context) Result {
 		if len(ctx.Args) < 1 {
-			fmt.Fprintln(os.Stderr, "[STR_TRIM_RIGHT ERROR] Usage: str_trim_right <string>")
+			fmt.Fprintln(os.Stderr, "[TRIM_RIGHT ERROR] Usage: trim_right <string>")
 			ctx.SetResult("")
 			return BoolStatus(false)
 		}
@@ -1027,11 +1027,11 @@ func (ps *PawScript) RegisterStandardLibrary(scriptArgs []string) {
 		return BoolStatus(true)
 	})
 	
-	// str_contains - check if string contains substring
-	// Usage: str_contains "hello world", "world"  -> true
-	ps.RegisterCommand("str_contains", func(ctx *Context) Result {
+	// contains - check if string contains substring
+	// Usage: contains "hello world", "world"  -> true
+	ps.RegisterCommand("contains", func(ctx *Context) Result {
 		if len(ctx.Args) < 2 {
-			fmt.Fprintln(os.Stderr, "[STR_CONTAINS ERROR] Usage: str_contains <string>, <substring>")
+			fmt.Fprintln(os.Stderr, "[CONTAINS ERROR] Usage: contains <string>, <substring>")
 			ctx.SetResult(false)
 			return BoolStatus(false)
 		}
@@ -1044,13 +1044,13 @@ func (ps *PawScript) RegisterStandardLibrary(scriptArgs []string) {
 		return BoolStatus(result)
 	})
 	
-	// str_index - find first index of substring (-1 if not found)
-	// Usage: str_index "hello world", "world"  -> 6
+	// index - find first index of substring (-1 if not found)
+	// Usage: index "hello world", "world"  -> 6
 	// Returns -1 if not found (like many languages)
 	// Always succeeds and sets result (use result to check if found)
-	ps.RegisterCommand("str_index", func(ctx *Context) Result {
+	ps.RegisterCommand("index", func(ctx *Context) Result {
 		if len(ctx.Args) < 2 {
-			fmt.Fprintln(os.Stderr, "[STR_INDEX ERROR] Usage: str_index <string>, <substring>")
+			fmt.Fprintln(os.Stderr, "[INDEX ERROR] Usage: index <string>, <substring>")
 			ctx.SetResult(int64(-1))
 			return BoolStatus(false)
 		}
@@ -1064,12 +1064,12 @@ func (ps *PawScript) RegisterStandardLibrary(scriptArgs []string) {
 		return BoolStatus(true)
 	})
 	
-	// str_replace - replace all occurrences of substring
-	// Usage: str_replace "hello world", "world", "gopher"  -> "hello gopher"
+	// replace - replace all occurrences of substring
+	// Usage: replace "hello world", "world", "gopher"  -> "hello gopher"
 	// Replaces ALL occurrences (like strings.ReplaceAll)
-	ps.RegisterCommand("str_replace", func(ctx *Context) Result {
+	ps.RegisterCommand("replace", func(ctx *Context) Result {
 		if len(ctx.Args) < 3 {
-			fmt.Fprintln(os.Stderr, "[STR_REPLACE ERROR] Usage: str_replace <string>, <old>, <new>")
+			fmt.Fprintln(os.Stderr, "[REPLACE ERROR] Usage: replace <string>, <old>, <new>")
 			ctx.SetResult("")
 			return BoolStatus(false)
 		}
@@ -1083,11 +1083,11 @@ func (ps *PawScript) RegisterStandardLibrary(scriptArgs []string) {
 		return BoolStatus(true)
 	})
 	
-	// str_starts_with - check if string starts with prefix
-	// Usage: str_starts_with "hello world", "hello"  -> true
-	ps.RegisterCommand("str_starts_with", func(ctx *Context) Result {
+	// starts_with - check if string starts with prefix
+	// Usage: starts_with "hello world", "hello"  -> true
+	ps.RegisterCommand("starts_with", func(ctx *Context) Result {
 		if len(ctx.Args) < 2 {
-			fmt.Fprintln(os.Stderr, "[STR_STARTS_WITH ERROR] Usage: str_starts_with <string>, <prefix>")
+			fmt.Fprintln(os.Stderr, "[STARTS_WITH ERROR] Usage: starts_with <string>, <prefix>")
 			ctx.SetResult(false)
 			return BoolStatus(false)
 		}
@@ -1100,11 +1100,11 @@ func (ps *PawScript) RegisterStandardLibrary(scriptArgs []string) {
 		return BoolStatus(result)
 	})
 	
-	// str_ends_with - check if string ends with suffix
-	// Usage: str_ends_with "hello world", "world"  -> true
-	ps.RegisterCommand("str_ends_with", func(ctx *Context) Result {
+	// ends_with - check if string ends with suffix
+	// Usage: ends_with "hello world", "world"  -> true
+	ps.RegisterCommand("ends_with", func(ctx *Context) Result {
 		if len(ctx.Args) < 2 {
-			fmt.Fprintln(os.Stderr, "[STR_ENDS_WITH ERROR] Usage: str_ends_with <string>, <suffix>")
+			fmt.Fprintln(os.Stderr, "[ENDS_WITH ERROR] Usage: ends_with <string>, <suffix>")
 			ctx.SetResult(false)
 			return BoolStatus(false)
 		}

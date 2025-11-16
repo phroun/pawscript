@@ -6,7 +6,7 @@ Expected: hello world
 Multi-concat: abcde
 Expected: abcde
 
-Testing str_split...
+Testing split...
 Split result length: 4
 Expected: 4
 First item: a
@@ -14,7 +14,7 @@ Expected: a
 Last item: d
 Expected: d
 
-Testing str_join...
+Testing join...
 Join result: a-b-c-d
 Expected: a-b-c-d
 
@@ -29,43 +29,43 @@ Testing str_lower...
 Lowercase: hello world
 Expected: hello world
 
-Testing str_trim...
+Testing trim...
 Trimmed: [hello world]
 Expected: [hello world]
 
-Testing str_trim_left...
+Testing trim_left...
 Left trimmed correctly - starts with hello
 Expected: Left trimmed correctly - starts with hello
 
-Testing str_trim_right...
+Testing trim_right...
 Right trimmed: [  hello world]
 Expected: [  hello world]
 
-Testing str_contains...
+Testing contains...
 Contains 'world': true
 Expected: true
 Contains 'xyz': false
 Expected: false
 
-Testing str_index...
+Testing index...
 Index of 'world': 6
 Expected: 6
 Index of 'xyz': -1
 Expected: -1
 
-Testing str_replace...
+Testing replace...
 Replaced: hello gopher gopher
 Expected: hello gopher gopher
 No match replace: hello
 Expected: hello
 
-Testing str_starts_with...
+Testing starts_with...
 Starts with 'hello': true
 Expected: true
 Starts with 'world': false
 Expected: false
 
-Testing str_ends_with...
+Testing ends_with...
 Ends with 'world': true
 Expected: true
 Ends with 'hello': false
