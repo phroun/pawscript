@@ -1,0 +1,110 @@
+#!/usr/bin/env paw
+# Test unified polymorphic concat function
+
+echo "=== UNIFIED CONCAT TESTS ==="
+print
+
+# ==========================================
+# String concatenation
+# ==========================================
+echo "Test 1: String concatenation"
+set result, {concat "hello", " ", "world"}
+echo "Result: {get result}"
+echo "Expected: hello world"
+print
+
+echo "Test 2: Multi-string concatenation"
+set result, {concat "a", "b", "c", "d", "e"}
+echo "Result: {get result}"
+echo "Expected: abcde"
+print
+
+# ==========================================
+# List concatenation
+# ==========================================
+echo "Test 3: Two lists"
+set list1, {list "a", "b", "c"}
+set list2, {list "d", "e", "f"}
+set result, {concat {get list1}, {get list2}}
+echo "Result length: {len {get result}}"
+echo "Expected: 6"
+echo "First item: {argv {get result}, 1}"
+echo "Expected: a"
+echo "Last item: {argv {get result}, 6}"
+echo "Expected: f"
+print
+
+# ==========================================
+# Mixed: list + items
+# ==========================================
+echo "Test 4: List + individual items"
+set list1, {list "a", "b", "c"}
+set result, {concat {get list1}, "d", "e", "f"}
+echo "Result length: {len {get result}}"
+echo "Expected: 6"
+echo "Items 4-6: {argv {get result}, 4}, {argv {get result}, 5}, {argv {get result}, 6}"
+echo "Expected: d, e, f"
+print
+
+# ==========================================
+# Mixed: list + list + items
+# ==========================================
+echo "Test 5: List + list + items"
+set list1, {list "a", "b"}
+set list2, {list "c", "d"}
+set result, {concat {get list1}, {get list2}, "e", "f"}
+echo "Result length: {len {get result}}"
+echo "Expected: 6"
+echo "All items: {join {get result}, ","}"
+echo "Expected: a,b,c,d,e,f"
+print
+
+# ==========================================
+# Edge case: Numbers and mixed types
+# ==========================================
+echo "Test 6: String concatenation with numbers"
+set result, {concat "Count: ", 42, " items"}
+echo "Result: {get result}"
+echo "Expected: Count: 42 items"
+print
+
+echo "Test 7: List with mixed type items"
+set list1, {list "text", 123}
+set result, {concat {get list1}, true, "more"}
+echo "Result length: {len {get result}}"
+echo "Expected: 4"
+echo "Item 3: {argv {get result}, 3}"
+echo "Expected: true"
+print
+
+# ==========================================
+# Edge case: Empty list concatenation
+# ==========================================
+echo "Test 8: Empty list + items"
+set empty, {list}
+set result, {concat {get empty}, "a", "b", "c"}
+echo "Result length: {len {get result}}"
+echo "Expected: 3"
+print
+
+# ==========================================
+# Practical use cases
+# ==========================================
+echo "Test 9: Building a path"
+set parts, {list "home", "user", "documents"}
+set path, {concat "/", {join {get parts}, "/"}}
+echo "Path: {get path}"
+echo "Expected: /home/user/documents"
+print
+
+echo "Test 10: Accumulating items"
+set base, {list "item1"}
+set base, {concat {get base}, "item2"}
+set base, {concat {get base}, "item3"}
+echo "Final length: {len {get base}}"
+echo "Expected: 3"
+echo "All: {join {get base}, ", "}"
+echo "Expected: item1, item2, item3"
+print
+
+echo "=== ALL CONCAT TESTS COMPLETE ==="

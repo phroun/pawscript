@@ -5,14 +5,14 @@ echo "=== STRING MANIPULATION TESTS ==="
 print
 
 # ==========================================
-# str_concat - concatenate strings
+# concat - concatenate strings
 # ==========================================
-echo "Testing str_concat..."
-set result, {str_concat "hello", " ", "world"}
-echo "str_concat result: {get result}"
+echo "Testing concat..."
+set result, {concat "hello", " ", "world"}
+echo "concat result: {get result}"
 echo "Expected: hello world"
 
-set multi, {str_concat "a", "b", "c", "d", "e"}
+set multi, {concat "a", "b", "c", "d", "e"}
 echo "Multi-concat: {get multi}"
 echo "Expected: abcde"
 print
@@ -67,21 +67,21 @@ echo "Trimmed: [{get trimmed}]"
 echo "Expected: [hello world]"
 print
 
-echo "Testing trim_left..."
+echo "Testing trim_start..."
 set input, "  hello world  "
-set left, {trim_left {get input}}
+set start, {trim_start {get input}}
 # Verify it starts with "hello" (no leading spaces)
-if {starts_with {get left}, "hello"} then (
-    echo "Left trimmed correctly - starts with hello"
+if {starts_with {get start}, "hello"} then (
+    echo "Start trimmed correctly - starts with hello"
 ) else (
-    echo "Left trim FAILED"
+    echo "Start trim FAILED"
 )
-echo "Expected: Left trimmed correctly - starts with hello"
+echo "Expected: Start trimmed correctly - starts with hello"
 print
 
-echo "Testing trim_right..."
-set right, {trim_right "  hello world  "}
-echo "Right trimmed: [{get right}]"
+echo "Testing trim_end..."
+set end, {trim_end "  hello world  "}
+echo "End trimmed: [{get end}]"
 echo "Expected: [  hello world]"
 print
 
@@ -166,7 +166,7 @@ echo "Expected: false"
 print
 
 # ==========================================
-# str_rrepeat - repeating strings
+# str_repeat - repeating strings
 # ==========================================
 echo "Testing str_repeat..."
 set repeated, {str_repeat "ab", 3}
@@ -186,11 +186,11 @@ print
 # ==========================================
 # Combining with slice (already works on strings)
 # ==========================================
-echo "Testing str_concat with slice..."
+echo "Testing concat with slice..."
 set text, "hello world"
 set first_five, {slice {get text}, 0, 5}
 set last_five, {slice {get text}, 6, -1}
-set combined, {str_concat {get first_five}, " + ", {get last_five}}
+set combined, {concat {get first_five}, " + ", {get last_five}}
 echo "Combined: {get combined}"
 echo "Expected: hello + world"
 print

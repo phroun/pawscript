@@ -828,37 +828,6 @@ func (ps *PawScript) RegisterStandardLibrary(scriptArgs []string) {
 		}
 	})
 	
-	// concat - returns a new list with two lists concatenated
-	// Usage: concat {get list1}, {get list2}
-	ps.RegisterCommand("concat", func(ctx *Context) Result {
-		if len(ctx.Args) < 2 {
-			fmt.Fprintln(os.Stderr, "[CONCAT ERROR] Usage: concat <list>, <list>")
-			ctx.SetResult(nil)
-			return BoolStatus(false)
-		}
-		
-		value1 := ctx.Args[0]
-		value2 := ctx.Args[1]
-		
-		list1, ok1 := value1.(PawList)
-		list2, ok2 := value2.(PawList)
-		
-		if !ok1 {
-			fmt.Fprintf(os.Stderr, "[CONCAT ERROR] First argument must be a list, got %s\n", getTypeName(value1))
-			ctx.SetResult(nil)
-			return BoolStatus(false)
-		}
-		
-		if !ok2 {
-			fmt.Fprintf(os.Stderr, "[CONCAT ERROR] Second argument must be a list, got %s\n", getTypeName(value2))
-			ctx.SetResult(nil)
-			return BoolStatus(false)
-		}
-		
-		ctx.SetResult(list1.Concat(list2))
-		return BoolStatus(true)
-	})
-	
 	// compact - returns a new list with a fresh backing array
 	// Usage: compact {get mylist}
 	// Use this to free memory after slicing a large list
@@ -881,22 +850,41 @@ func (ps *PawScript) RegisterStandardLibrary(scriptArgs []string) {
 			return BoolStatus(false)
 		}
 	})
-	
-	// ==========================================
-	// STRING MANIPULATION FUNCTIONS
-	// Following same semantics as list operations where possible
-	// ==========================================
-	
-	// str_concat - concatenate multiple strings
-	// Usage: str_concat "hello", " ", "world"  -> "hello world"
-	// Like list concat but for strings
-	ps.RegisterCommand("str_concat", func(ctx *Context) Result {
+
+	// concat - polymorphic concatenation
+	// Usage: concat "hello", " ", "world"            -> "hello world" (strings)
+	//        concat {get list1}, {get list2}         -> combined list (lists)
+	//        concat {get list}, "item1", "item2"     -> list with items appended
+	//        concat {get list1}, {get list2}, "extra" -> lists concatenated + item appended
+	ps.RegisterCommand("concat", func(ctx *Context) Result {
 		if len(ctx.Args) < 2 {
-			fmt.Fprintln(os.Stderr, "[STR_CONCAT ERROR] Usage: str_concat <string>, <string>, ...")
-			ctx.SetResult("")
+			fmt.Fprintln(os.Stderr, "[CONCAT ERROR] Usage: concat <value1>, <value2>, ...")
+			ctx.SetResult(nil)
 			return BoolStatus(false)
 		}
 		
+		// Check if first argument is a PawList
+		if list, ok := ctx.Args[0].(PawList); ok {
+			// List mode: concatenate lists and append other items
+			result := list
+			
+			for i := 1; i < len(ctx.Args); i++ {
+				arg := ctx.Args[i]
+				
+				if otherList, ok := arg.(PawList); ok {
+					// Concatenate lists
+					result = result.Concat(otherList)
+				} else {
+					// Append as single item
+					result = result.Append(arg)
+				}
+			}
+			
+			ctx.SetResult(result)
+			return BoolStatus(true)
+		}
+		
+		// String mode: concatenate all arguments as strings
 		var result strings.Builder
 		for _, arg := range ctx.Args {
 			result.WriteString(fmt.Sprintf("%v", arg))
@@ -906,6 +894,11 @@ func (ps *PawScript) RegisterStandardLibrary(scriptArgs []string) {
 		return BoolStatus(true)
 	})
 	
+	// ==========================================
+	// STRING MANIPULATION FUNCTIONS
+	// Following same semantics as list operations where possible
+	// ==========================================
+
 	// split - split string into list by delimiter
 	// Usage: split "a,b,c", ","  -> list of ["a", "b", "c"]
 	// Inverse of join
@@ -999,11 +992,11 @@ func (ps *PawScript) RegisterStandardLibrary(scriptArgs []string) {
 		return BoolStatus(true)
 	})
 	
-	// trim_left - trim whitespace from left end
-	// Usage: trim_left "  hello  "  -> "hello  "
-	ps.RegisterCommand("trim_left", func(ctx *Context) Result {
+	// trim_start - trim whitespace from start
+	// Usage: trim_start "  hello  "  -> "hello  "
+	ps.RegisterCommand("trim_start", func(ctx *Context) Result {
 		if len(ctx.Args) < 1 {
-			fmt.Fprintln(os.Stderr, "[TRIM_LEFT ERROR] Usage: trim_left <string>")
+			fmt.Fprintln(os.Stderr, "[TRIM_START ERROR] Usage: trim_start <string>")
 			ctx.SetResult("")
 			return BoolStatus(false)
 		}
@@ -1013,11 +1006,11 @@ func (ps *PawScript) RegisterStandardLibrary(scriptArgs []string) {
 		return BoolStatus(true)
 	})
 	
-	// trim_right - trim whitespace from right end
-	// Usage: trim_right "  hello  "  -> "  hello"
-	ps.RegisterCommand("trim_right", func(ctx *Context) Result {
+	// trim_end - trim whitespace from end
+	// Usage: trim_end "  hello  "  -> "  hello"
+	ps.RegisterCommand("trim_end", func(ctx *Context) Result {
 		if len(ctx.Args) < 1 {
-			fmt.Fprintln(os.Stderr, "[TRIM_RIGHT ERROR] Usage: trim_right <string>")
+			fmt.Fprintln(os.Stderr, "[TRIM_END ERROR] Usage: trim_end <string>")
 			ctx.SetResult("")
 			return BoolStatus(false)
 		}

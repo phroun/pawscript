@@ -1,7 +1,7 @@
 === STRING MANIPULATION TESTS ===
 
-Testing str_concat...
-str_concat result: hello world
+Testing concat...
+concat result: hello world
 Expected: hello world
 Multi-concat: abcde
 Expected: abcde
@@ -33,12 +33,12 @@ Testing trim...
 Trimmed: [hello world]
 Expected: [hello world]
 
-Testing trim_left...
-Left trimmed correctly - starts with hello
-Expected: Left trimmed correctly - starts with hello
+Testing trim_start...
+Start trimmed correctly - starts with hello
+Expected: Start trimmed correctly - starts with hello
 
-Testing trim_right...
-Right trimmed: [  hello world]
+Testing trim_end...
+End trimmed: [  hello world]
 Expected: [  hello world]
 
 Testing contains...
@@ -79,7 +79,7 @@ Expected: x
 Zero repeat length: 0
 Expected: 0
 
-Testing str_concat with slice...
+Testing concat with slice...
 Combined: hello + world
 Expected: hello + world
 
