@@ -2,3 +2,10 @@
 /paw
 dist
 node_modules
+/paw-arm64.exe
+/paw-linux-arm64
+/paw-linux-x64
+/paw-macos-arm64
+/paw-macos-x64
+/paw-x64.exe
+/pawscript.wasm
