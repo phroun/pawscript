@@ -1,0 +1,108 @@
+=== PawList Tests ===
+
+Test 1: Creating lists
+Empty list created
+Fruits list created
+Numbers list created
+Mixed list created
+
+Test 2: Type detection
+Type of fruits: list
+Type of nums: list
+Type of empty: list
+(Expected: list for all)
+
+Test 3: List length (len command)
+Length of empty: 0
+Length of fruits: 3
+Length of nums: 5
+(Expected: 0, 3, 5)
+
+Test 4: argc with PawList
+argc of fruits: 3
+argc of nums: 5
+argc of empty: 0
+(Expected: 3, 5, 0)
+
+Test 5: argv with PawList (1-indexed)
+First fruit: apple
+Second fruit: banana
+Third fruit: cherry
+(Expected: apple, banana, cherry)
+
+Test 6: Slicing lists
+Slice [0:2] of fruits: apple, banana
+Slice [1:4] of nums: 2, 3, 4
+Slice [2:end] of nums: 3 items
+(Expected: apple,banana | 2,3,4 | 3 items)
+
+Test 7: Appending to lists (immutable)
+Original length: 3
+After append, new list length: 4
+Original list length still: 3
+Appended list items: a, b, c, d
+(Expected: 3, 4, 3, a,b,c,d)
+
+Test 8: Prepending to lists
+Prepended list items: z, a, b, c
+(Expected: z,a,b,c)
+
+Test 9: Concatenating lists
+Combined length: 6
+Combined items: 1, 2, 3, 4, 5, 6
+(Expected: 6, 1,2,3,4,5,6)
+
+Test 10: Functional style (rebinding)
+Starting with empty list: 0 items
+After append first: 1 items
+After append second: 2 items
+After append third: 3 items
+Final list: first, second, third
+(Expected: 0, 1, 2, 3, first,second,third)
+
+Test 11: Creating list from ParenGroup
+List from paren length: 3
+Items: red, green, blue
+(Expected: 3, red,green,blue)
+
+Test 12: Memory efficiency - slicing
+Large list: 10 items
+Small slices: 3, 3, 4 items
+(All slices share backing array!)
+(Expected: 10, 3,3,4)
+
+Test 13: Compact operation
+Tiny slice length: 2
+Compacted length: 2
+Items same: 1, 2
+(Expected: 2, 2, 1,2)
+
+Test 14: String slicing (works too!)
+Original: hello world
+Slice [0:5]: hello
+Slice [6:end]: world
+(Expected: hello world, hello, world)
+
+Test 15: String length
+Length of 'hello': 5
+Length of empty string: 0
+(Expected: 5, 0)
+
+Test 16: Nested operations
+Result length: 3
+Result items: 1, 2, 99
+(Expected: 3, 1,2,99)
+
+Test 17: Lists containing variables
+Coordinates: 10, 20, 30
+(Expected: 10,20,30)
+
+Test 18: Type preservation
+Item 1 type: int
+Item 2 type: string
+Item 3 type: bool
+Item 4 type: symbol
+Item 5 type: nil
+(Expected: int, string, bool, symbol, nil)
+
+=== All List Tests Complete ===

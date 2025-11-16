@@ -232,6 +232,9 @@ func (e *Executor) executeSingleCommand(
 				// Now parse and execute the command with the substituted string
 				cmdName, args := ParseCommand(finalString)
 				
+				// Process arguments to resolve any PAWLIST markers
+				args = e.processArguments(args)
+				
 				e.logger.Debug("Parsed as - Command: \"%s\", Args: %v", cmdName, args)
 				
 				// Try registered command
@@ -291,6 +294,9 @@ func (e *Executor) executeSingleCommand(
 	
 	// Parse command
 	cmdName, args := ParseCommand(commandStr)
+	
+	// Process arguments to resolve any PAWLIST markers
+	args = e.processArguments(args)
 	
 	e.logger.Debug("Parsed as - Command: \"%s\", Args: %v", cmdName, args)
 	
@@ -975,10 +981,21 @@ func (e *Executor) isInsideQuotes(str string, pos int) bool {
 // formatBraceResult formats a brace evaluation result for substitution
 // Takes the original string and brace position to detect quote context
 func (e *Executor) formatBraceResult(value interface{}, originalString string, bracePos int) string {
+	// Handle nil specially - output as bare word "nil"
+	if value == nil {
+		return "nil"
+	}
+	
 	// Check if we're inside a quoted string context
 	insideQuotes := e.isInsideQuotes(originalString, bracePos)
 	
 	switch v := value.(type) {
+	case bool:
+		// Booleans as bare words - parser will recognize them
+		if v {
+			return "true"
+		}
+		return "false"
 	case ParenGroup:
 		if insideQuotes {
 			// Inside quotes: unwrap and escape only quotes/backslashes
@@ -1004,8 +1021,14 @@ func (e *Executor) formatBraceResult(value interface{}, originalString string, b
 		}
 		// Outside quotes: escape all special characters for safety
 		return e.escapeSpecialCharacters(v)
-	case int64, float64, bool:
-		// Numbers and booleans as-is
+	case PawList:
+		// PawList: use a special marker that preserves the object
+		// We'll use a unique placeholder that will be detected during argument parsing
+		// Format: \x00PAWLIST:index\x00 where index is stored in the execution state
+		index := e.storeTempValue(value)
+		return fmt.Sprintf("\x00PAWLIST:%d\x00", index)
+	case int64, float64:
+		// Numbers as-is
 		return fmt.Sprintf("%v", v)
 	default:
 		// Unknown type - convert and escape
@@ -1088,6 +1111,65 @@ func (e *Executor) findAllTopLevelBraces(str string, ctx *SubstitutionContext) [
 	}
 	
 	return braces
+}
+
+// storeTempValue stores a complex value temporarily and returns an index
+// Used to preserve PawList and other complex types through brace substitution
+func (e *Executor) storeTempValue(value interface{}) int {
+	e.mu.Lock()
+	defer e.mu.Unlock()
+	
+	id := e.nextTempID
+	e.nextTempID++
+	e.tempValues[id] = value
+	
+	return id
+}
+
+// retrieveTempValue retrieves a stored temporary value and removes it
+func (e *Executor) retrieveTempValue(id int) (interface{}, bool) {
+	e.mu.Lock()
+	defer e.mu.Unlock()
+	
+	value, exists := e.tempValues[id]
+	if exists {
+		delete(e.tempValues, id) // Clean up after retrieval
+	}
+	
+	return value, exists
+}
+
+// processArguments processes arguments array to resolve PAWLIST markers
+// PAWLIST markers: \x00PAWLIST:index\x00 for PawList objects
+func (e *Executor) processArguments(args []interface{}) []interface{} {
+	if len(args) == 0 {
+		return args
+	}
+	
+	result := make([]interface{}, len(args))
+	for i, arg := range args {
+		// Check if it's a Symbol that might be a PAWLIST marker
+		if sym, ok := arg.(Symbol); ok {
+			str := string(sym)
+			
+			// Check for PAWLIST marker
+			if strings.HasPrefix(str, "\x00PAWLIST:") && strings.HasSuffix(str, "\x00") {
+				// Extract the index
+				indexStr := str[len("\x00PAWLIST:") : len(str)-1]
+				if index, err := strconv.Atoi(indexStr); err == nil {
+					// Retrieve the actual PawList value
+					if value, exists := e.retrieveTempValue(index); exists {
+						result[i] = value
+						continue
+					}
+				}
+			}
+		}
+		// Not a marker, keep the original argument
+		result[i] = arg
+	}
+	
+	return result
 }
 
 // invertStatus inverts the success status of a Result

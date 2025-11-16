@@ -13,7 +13,9 @@ type Executor struct {
 	mu              sync.RWMutex
 	commands        map[string]Handler
 	activeTokens    map[string]*TokenData
+	tempValues      map[int]interface{} // Storage for complex values during brace substitution
 	nextTokenID     int
+	nextTempID      int
 	logger          *Logger
 	fallbackHandler func(cmdName string, args []interface{}, state *ExecutionState, position *SourcePosition) Result
 }
@@ -23,7 +25,9 @@ func NewExecutor(logger *Logger) *Executor {
 	return &Executor{
 		commands:     make(map[string]Handler),
 		activeTokens: make(map[string]*TokenData),
+		tempValues:   make(map[int]interface{}),
 		nextTokenID:  1,
+		nextTempID:   1,
 		logger:       logger,
 	}
 }

@@ -155,3 +155,5 @@ End edge cases.
 Print macro list:
 End macro list.
 === PawScript Syntax Demo Complete ===
+[PawScript ERROR] Unknown command: check_line_and_col_of_error_409_4
+  at line 409, column 4 in demo.paw

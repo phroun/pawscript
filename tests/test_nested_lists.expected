@@ -1,0 +1,69 @@
+=== Nested Lists and Blocks Test ===
+
+Test 1: Nested lists
+Nested list length: 3
+First item type: list
+Second item type: list
+Third item type: symbol
+(Expected: 3, list, list, symbol)
+
+Test 2: Access nested list elements
+First inner list length: 3
+First element of first inner: a
+(Expected: 3, a)
+
+Test 3: Direct nested list creation
+Matrix length: 3
+First row length: 2
+Matrix[1][1]: 1
+Matrix[1][2]: 2
+(Expected: 3, 2, 1, 2)
+
+Test 4: Lists containing blocks
+Commands list length: 3
+First command type: block
+Second command type: block
+(Expected: 3, block, block)
+
+Test 5: Mixed types
+Mixed list length: 6
+Item 1 type: int
+Item 2 type: string
+Item 3 type: list
+Item 4 type: block
+Item 5 type: bool
+Item 6 type: nil
+(Expected: 6, int, string, list, block, bool, nil)
+
+Test 6: Deeply nested (3 levels)
+Outer length: 1
+Level 2 type: list
+Level 2 length: 1
+Level 3 type: list
+Level 3 length: 1
+Innermost value: innermost
+(Expected: 1, list, 1, list, 1, innermost)
+
+Test 7: Building nested structure
+Built nested list length: 2
+First sublist: first, sublist
+(Expected: 2, first, sublist)
+
+Test 8: Executable blocks in list
+Actions list length: 3
+All items are blocks (type check passed)
+
+Test 9: Empty nested lists
+List with empties length: 3
+First (empty) length: 0
+Second length: 1
+Third (empty) length: 0
+(Expected: 3, 0, 1, 0)
+
+Test 10: Slicing preserves structure
+Sliced length: 2
+First item type: list
+First item content: b
+(Expected: 2, list, b)
+
+=== Nested Tests Complete ===

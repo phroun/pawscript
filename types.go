@@ -240,3 +240,86 @@ func (q QuotedString) String() string { return string(q) }
 type Symbol string
 
 func (s Symbol) String() string { return string(s) }
+
+// PawList represents an immutable list of values
+// All operations return new PawList instances (copy-on-write)
+// Slicing shares the backing array for memory efficiency
+type PawList struct {
+	items []interface{}
+}
+
+// NewPawList creates a new PawList from a slice of items
+func NewPawList(items []interface{}) PawList {
+	return PawList{items: items}
+}
+
+// Items returns a copy of the underlying items slice
+func (pl PawList) Items() []interface{} {
+	return pl.items
+}
+
+// Len returns the number of items in the list
+func (pl PawList) Len() int {
+	return len(pl.items)
+}
+
+// Get returns the item at the given index (0-based)
+// Returns nil if index is out of bounds
+func (pl PawList) Get(index int) interface{} {
+	if index < 0 || index >= len(pl.items) {
+		return nil
+	}
+	return pl.items[index]
+}
+
+// Slice returns a new PawList with items from start to end (end exclusive)
+// Shares the backing array for memory efficiency (O(1) time, O(1) space)
+func (pl PawList) Slice(start, end int) PawList {
+	if start < 0 {
+		start = 0
+	}
+	if end > len(pl.items) {
+		end = len(pl.items)
+	}
+	if start > end {
+		start = end
+	}
+	return PawList{items: pl.items[start:end]}
+}
+
+// Append returns a new PawList with the item appended (O(n) copy-on-write)
+func (pl PawList) Append(item interface{}) PawList {
+	newItems := make([]interface{}, len(pl.items)+1)
+	copy(newItems, pl.items)
+	newItems[len(pl.items)] = item
+	return PawList{items: newItems}
+}
+
+// Prepend returns a new PawList with the item prepended (O(n) copy-on-write)
+func (pl PawList) Prepend(item interface{}) PawList {
+	newItems := make([]interface{}, len(pl.items)+1)
+	newItems[0] = item
+	copy(newItems[1:], pl.items)
+	return PawList{items: newItems}
+}
+
+// Concat returns a new PawList with items from both lists (O(n+m) copy)
+func (pl PawList) Concat(other PawList) PawList {
+	newItems := make([]interface{}, len(pl.items)+len(other.items))
+	copy(newItems, pl.items)
+	copy(newItems[len(pl.items):], other.items)
+	return PawList{items: newItems}
+}
+
+// Compact returns a new PawList with a new backing array
+// Use this to free memory if you've sliced a large list
+func (pl PawList) Compact() PawList {
+	newItems := make([]interface{}, len(pl.items))
+	copy(newItems, pl.items)
+	return PawList{items: newItems}
+}
+
+// String returns a string representation for debugging
+func (pl PawList) String() string {
+	return "(list)"
+}

@@ -15,6 +15,7 @@ func (ps *PawScript) RegisterStandardLibrary(scriptArgs []string) {
 	// argc - returns number of arguments
 	// Usage: argc           - returns count of script arguments
 	//        argc (a, b, c) - returns count of items in list (3)
+	//        argc {get list} - returns count of items in PawList
 	ps.RegisterCommand("argc", func(ctx *Context) Result {
 		if len(ctx.Args) == 0 {
 			// No arguments - return script arg count
@@ -24,6 +25,12 @@ func (ps *PawScript) RegisterStandardLibrary(scriptArgs []string) {
 		
 		// Argument provided - parse it as a list
 		listArg := ctx.Args[0]
+		
+		// If it's a PawList, return its length
+		if pawList, ok := listArg.(PawList); ok {
+			ctx.SetResult(pawList.Len())
+			return BoolStatus(true)
+		}
 		
 		// If it's a ParenGroup, parse the contents
 		if parenGroup, ok := listArg.(ParenGroup); ok {
@@ -49,6 +56,7 @@ func (ps *PawScript) RegisterStandardLibrary(scriptArgs []string) {
 	//        argv 1            - returns first script argument (1-indexed)
 	//        argv (a, b, c)    - returns all items in list
 	//        argv (a, b, c), 2 - returns second item from list (1-indexed)
+	//        argv {get list}, 2 - returns second item from PawList (1-indexed)
 	ps.RegisterCommand("argv", func(ctx *Context) Result {
 		if len(ctx.Args) == 0 {
 			// No arguments - return all script args
@@ -56,12 +64,16 @@ func (ps *PawScript) RegisterStandardLibrary(scriptArgs []string) {
 			return BoolStatus(true)
 		}
 		
-		// Check if first argument is a list (ParenGroup or string)
+		// Check if first argument is a list (PawList, ParenGroup, or string)
 		firstArg := ctx.Args[0]
 		var sourceList []interface{}
 		var isListProvided bool
 		
-		if parenGroup, ok := firstArg.(ParenGroup); ok {
+		if pawList, ok := firstArg.(PawList); ok {
+			// PawList - get items
+			sourceList = pawList.Items()
+			isListProvided = true
+		} else if parenGroup, ok := firstArg.(ParenGroup); ok {
 			// Parse the parenthetic group as a list
 			sourceList = parseArguments(string(parenGroup))
 			isListProvided = true
@@ -656,6 +668,214 @@ func (ps *PawScript) RegisterStandardLibrary(scriptArgs []string) {
 		ctx.SetResult(typeName)
 		return BoolStatus(true)
 	})
+	
+	// list - creates an immutable list from arguments
+	// Usage: list item1, item2, item3  - creates list from individual arguments
+	//        list {get x}, {get y}     - computed values work (braces evaluate first)
+	//        list (a), (b), (c)        - blocks as items
+	//        list {list a, b}, {list c, d} - nested lists
+	//        list                      - creates empty list
+	ps.RegisterCommand("list", func(ctx *Context) Result {
+		// All arguments become list items (or empty if no args)
+		ctx.SetResult(NewPawList(ctx.Args))
+		return BoolStatus(true)
+	})
+	
+	// len - returns the length of a list or string
+	// Usage: len {get mylist}
+	//        len "hello"
+	ps.RegisterCommand("len", func(ctx *Context) Result {
+		if len(ctx.Args) < 1 {
+			fmt.Fprintln(os.Stderr, "[LEN ERROR] Usage: len <list|string>")
+			ctx.SetResult(0)
+			return BoolStatus(false)
+		}
+		
+		value := ctx.Args[0]
+		
+		switch v := value.(type) {
+		case PawList:
+			ctx.SetResult(v.Len())
+			return BoolStatus(true)
+		case string, QuotedString, Symbol:
+			str := fmt.Sprintf("%v", v)
+			ctx.SetResult(len(str))
+			return BoolStatus(true)
+		case ParenGroup:
+			// Treat as a list by parsing
+			items := parseArguments(string(v))
+			ctx.SetResult(len(items))
+			return BoolStatus(true)
+		default:
+			fmt.Fprintf(os.Stderr, "[LEN ERROR] Cannot get length of type %s\n", getTypeName(v))
+			ctx.SetResult(0)
+			return BoolStatus(false)
+		}
+	})
+	
+	// slice - returns a slice of a list or string (end exclusive)
+	// Usage: slice {get mylist}, 0, 3    - items 0, 1, 2
+	//        slice {get mylist}, 1, -1   - from index 1 to end
+	//        slice "hello", 0, 3          - "hel"
+	ps.RegisterCommand("slice", func(ctx *Context) Result {
+		if len(ctx.Args) < 3 {
+			fmt.Fprintln(os.Stderr, "[SLICE ERROR] Usage: slice <list|string>, <start>, <end>")
+			ctx.SetResult(nil)
+			return BoolStatus(false)
+		}
+		
+		value := ctx.Args[0]
+		
+		// Parse start index
+		startNum, ok := toNumber(ctx.Args[1])
+		if !ok {
+			fmt.Fprintln(os.Stderr, "[SLICE ERROR] Start index must be a number")
+			ctx.SetResult(nil)
+			return BoolStatus(false)
+		}
+		start := int(startNum)
+		
+		// Parse end index
+		endNum, ok := toNumber(ctx.Args[2])
+		if !ok {
+			fmt.Fprintln(os.Stderr, "[SLICE ERROR] End index must be a number")
+			ctx.SetResult(nil)
+			return BoolStatus(false)
+		}
+		end := int(endNum)
+		
+		switch v := value.(type) {
+		case PawList:
+			// Handle negative indices
+			if end < 0 {
+				end = v.Len()
+			}
+			ctx.SetResult(v.Slice(start, end))
+			return BoolStatus(true)
+		case string, QuotedString, Symbol:
+			str := fmt.Sprintf("%v", v)
+			// Handle negative indices
+			if end < 0 {
+				end = len(str)
+			}
+			// Bounds checking
+			if start < 0 {
+				start = 0
+			}
+			if end > len(str) {
+				end = len(str)
+			}
+			if start > end {
+				start = end
+			}
+			ctx.SetResult(str[start:end])
+			return BoolStatus(true)
+		default:
+			fmt.Fprintf(os.Stderr, "[SLICE ERROR] Cannot slice type %s\n", getTypeName(v))
+			ctx.SetResult(nil)
+			return BoolStatus(false)
+		}
+	})
+	
+	// append - returns a new list with item appended
+	// Usage: append {get mylist}, newitem
+	ps.RegisterCommand("append", func(ctx *Context) Result {
+		if len(ctx.Args) < 2 {
+			fmt.Fprintln(os.Stderr, "[APPEND ERROR] Usage: append <list>, <item>")
+			ctx.SetResult(nil)
+			return BoolStatus(false)
+		}
+		
+		value := ctx.Args[0]
+		item := ctx.Args[1]
+		
+		switch v := value.(type) {
+		case PawList:
+			ctx.SetResult(v.Append(item))
+			return BoolStatus(true)
+		default:
+			fmt.Fprintf(os.Stderr, "[APPEND ERROR] Cannot append to type %s\n", getTypeName(v))
+			ctx.SetResult(nil)
+			return BoolStatus(false)
+		}
+	})
+	
+	// prepend - returns a new list with item prepended
+	// Usage: prepend {get mylist}, newitem
+	ps.RegisterCommand("prepend", func(ctx *Context) Result {
+		if len(ctx.Args) < 2 {
+			fmt.Fprintln(os.Stderr, "[PREPEND ERROR] Usage: prepend <list>, <item>")
+			ctx.SetResult(nil)
+			return BoolStatus(false)
+		}
+		
+		value := ctx.Args[0]
+		item := ctx.Args[1]
+		
+		switch v := value.(type) {
+		case PawList:
+			ctx.SetResult(v.Prepend(item))
+			return BoolStatus(true)
+		default:
+			fmt.Fprintf(os.Stderr, "[PREPEND ERROR] Cannot prepend to type %s\n", getTypeName(v))
+			ctx.SetResult(nil)
+			return BoolStatus(false)
+		}
+	})
+	
+	// concat - returns a new list with two lists concatenated
+	// Usage: concat {get list1}, {get list2}
+	ps.RegisterCommand("concat", func(ctx *Context) Result {
+		if len(ctx.Args) < 2 {
+			fmt.Fprintln(os.Stderr, "[CONCAT ERROR] Usage: concat <list>, <list>")
+			ctx.SetResult(nil)
+			return BoolStatus(false)
+		}
+		
+		value1 := ctx.Args[0]
+		value2 := ctx.Args[1]
+		
+		list1, ok1 := value1.(PawList)
+		list2, ok2 := value2.(PawList)
+		
+		if !ok1 {
+			fmt.Fprintf(os.Stderr, "[CONCAT ERROR] First argument must be a list, got %s\n", getTypeName(value1))
+			ctx.SetResult(nil)
+			return BoolStatus(false)
+		}
+		
+		if !ok2 {
+			fmt.Fprintf(os.Stderr, "[CONCAT ERROR] Second argument must be a list, got %s\n", getTypeName(value2))
+			ctx.SetResult(nil)
+			return BoolStatus(false)
+		}
+		
+		ctx.SetResult(list1.Concat(list2))
+		return BoolStatus(true)
+	})
+	
+	// compact - returns a new list with a fresh backing array
+	// Usage: compact {get mylist}
+	// Use this to free memory after slicing a large list
+	ps.RegisterCommand("compact", func(ctx *Context) Result {
+		if len(ctx.Args) < 1 {
+			fmt.Fprintln(os.Stderr, "[COMPACT ERROR] Usage: compact <list>")
+			ctx.SetResult(nil)
+			return BoolStatus(false)
+		}
+		
+		value := ctx.Args[0]
+		
+		switch v := value.(type) {
+		case PawList:
+			ctx.SetResult(v.Compact())
+			return BoolStatus(true)
+		default:
+			fmt.Fprintf(os.Stderr, "[COMPACT ERROR] Cannot compact type %s\n", getTypeName(v))
+			ctx.SetResult(nil)
+			return BoolStatus(false)
+		}
+	})
 }
 
 // Helper function to convert values to numbers
@@ -752,6 +972,8 @@ func getTypeName(val interface{}) string {
 	}
 	
 	switch v := val.(type) {
+	case PawList:
+		return "list"
 	case ParenGroup:
 		return "block"
 	case QuotedString:
