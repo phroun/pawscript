@@ -4,11 +4,14 @@ print "Welcome to PawScript Interactive Demo!"
 
 macro get_input (
   write "Enter $1: "
-  read
-  print "You entered: {get_result}"
+  print "You entered: {read} {read}"
 );
 
-get_input "your name"
+macro super_get (
+  get_input $1
+)
+
+super_get "your name"
 get_input "your favorite color"
 
 print "Thanks for trying PawScript!"

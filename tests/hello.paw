@@ -1,8 +1,8 @@
-# hello.paw - Simple greeting script;
+# hello.paw - Simple greeting script
 
-echo "Hello from PawScript!";
-echo "Arguments provided:";
-echo "Count: {argc}";
+echo "Hello from PawScript!"
+echo "Arguments provided:"
+echo "Count: {argc}"
 
 macro show_arg (
   echo "Arg $1: {argv $1}"
