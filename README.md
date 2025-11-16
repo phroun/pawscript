@@ -1,6 +1,7 @@
 # PawScript - Go Implementation
 
-A clean, idiomatic Go implementation of PawScript: a command language with token-based suspension for text editors and command-driven applications.
+A clean, idiomatic Go implementation of PawScript: a command language with
+token-based suspension for text editors and command-driven applications.
 
 ## Features
 
@@ -16,7 +17,7 @@ A clean, idiomatic Go implementation of PawScript: a command language with token
 ## Installation
 
 ```bash
-go get github.com/yourusername/pawscript
+go get github.com/phroun/pawscript-go
 ```
 
 ## Building the CLI

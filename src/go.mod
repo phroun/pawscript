@@ -1,4 +1,4 @@
-module github.com/yourusername/pawscript
+module github.com/phroun/pawscript
 
 go 1.21
 

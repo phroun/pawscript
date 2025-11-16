@@ -8,9 +8,7 @@ import (
 	"path/filepath"
 	"strings"
 	"time"
-
-	// TODO: Update this to match your go.mod module path
-	"github.com/yourusername/pawscript"
+	"github.com/phroun/pawscript"
 )
 
 func main() {

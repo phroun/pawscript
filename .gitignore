@@ -1,2 +1,4 @@
 .DS_Store
 /paw
+dist
+node_modules
