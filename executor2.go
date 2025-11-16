@@ -914,8 +914,8 @@ func (e *Executor) substituteAllBraces(originalString string, evaluations []*Bra
 			// ${...} - no escaping, direct insertion
 			resultValue = fmt.Sprintf("%v", rawValue)
 		} else {
-			// {...} - preserve types properly
-			resultValue = e.formatBraceResult(rawValue)
+			// {...} - preserve types properly, considering quote context
+			resultValue = e.formatBraceResult(rawValue, originalString, eval.Location.StartPos)
 		}
 		
 		// Substitute: replace from StartPos to EndPos+1 with resultValue
@@ -928,22 +928,70 @@ func (e *Executor) substituteAllBraces(originalString string, evaluations []*Bra
 	return result
 }
 
+// isInsideQuotes checks if a position in a string is inside quoted text
+// This is used to determine how to format brace substitution results
+func (e *Executor) isInsideQuotes(str string, pos int) bool {
+	inQuote := false
+	var quoteChar rune
+	
+	runes := []rune(str)
+	i := 0
+	
+	for i < len(runes) && i < pos {
+		char := runes[i]
+		
+		// Handle escape sequences - skip the backslash and next char
+		if char == '\\' && i+1 < len(runes) {
+			i += 2
+			continue
+		}
+		
+		// Track quote state
+		if !inQuote && (char == '"' || char == '\'') {
+			inQuote = true
+			quoteChar = char
+		} else if inQuote && char == quoteChar {
+			inQuote = false
+			quoteChar = 0
+		}
+		
+		i++
+	}
+	
+	return inQuote
+}
+
 // formatBraceResult formats a brace evaluation result for substitution
-// Preserves ParenGroups and QuotedStrings in their original form
-func (e *Executor) formatBraceResult(value interface{}) string {
+// Takes the original string and brace position to detect quote context
+func (e *Executor) formatBraceResult(value interface{}, originalString string, bracePos int) string {
+	// Check if we're inside a quoted string context
+	insideQuotes := e.isInsideQuotes(originalString, bracePos)
+	
 	switch v := value.(type) {
 	case ParenGroup:
-		// Preserve as parentheses without escaping
+		if insideQuotes {
+			// Inside quotes: unwrap and escape only quotes/backslashes
+			return e.escapeQuotesAndBackslashes(string(v))
+		}
+		// Outside quotes: preserve as parentheses
 		return "(" + string(v) + ")"
 	case QuotedString:
-		// Preserve as quoted string, escaping internal quotes
+		if insideQuotes {
+			// Inside quotes: unwrap and escape only quotes/backslashes
+			return e.escapeQuotesAndBackslashes(string(v))
+		}
+		// Outside quotes: preserve as quoted string, escaping internal quotes
 		escaped := e.escapeQuotesAndBackslashes(string(v))
 		return "\"" + escaped + "\""
 	case Symbol:
 		// Symbol as bare identifier
 		return string(v)
 	case string:
-		// Regular string - escape for safety
+		if insideQuotes {
+			// Inside quotes: escape only quotes/backslashes
+			return e.escapeQuotesAndBackslashes(v)
+		}
+		// Outside quotes: escape all special characters for safety
 		return e.escapeSpecialCharacters(v)
 	case int64, float64, bool:
 		// Numbers and booleans as-is
@@ -951,6 +999,9 @@ func (e *Executor) formatBraceResult(value interface{}) string {
 	default:
 		// Unknown type - convert and escape
 		str := fmt.Sprintf("%v", v)
+		if insideQuotes {
+			return e.escapeQuotesAndBackslashes(str)
+		}
 		return e.escapeSpecialCharacters(str)
 	}
 }

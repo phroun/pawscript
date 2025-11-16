@@ -5,7 +5,7 @@ echo "{get message}"
 macro show_args(
    set Hello, Alice!
    echo {get Hello}
-   echo "Alice\\! = Good"
+   echo "Alice! = Good"
    echo "{get Hello}"
    echo "Alice! = Good"
    echo "Next two lines should be the same:"

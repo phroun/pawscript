@@ -256,9 +256,10 @@ func (p *Parser) RemoveComments(source string) string {
 			isValidCommentStart := isAtStart || isPrecededByWhitespace
 			
 			if isValidCommentStart {
-				isFollowedByWhitespaceOrEnd := i+1 >= length || unicode.IsSpace(runes[i+1])
+				// Line comment if followed by whitespace, end of line, or ! (for shebangs)
+				isFollowedByWhitespaceEndOrBang := i+1 >= length || unicode.IsSpace(runes[i+1]) || runes[i+1] == '!'
 				
-				if isFollowedByWhitespaceOrEnd {
+				if isFollowedByWhitespaceEndOrBang {
 					// Line comment - skip to end of line
 					for i < length && runes[i] != '\n' {
 						i++
