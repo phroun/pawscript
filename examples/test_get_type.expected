@@ -1,0 +1,110 @@
+=== get_type Comprehensive Test ===
+
+Test 1: Integer variables
+  int1 = 42 → int (expected: int)
+  int2 = -10 → int (expected: int)
+  int3 = 0 → int (expected: int)
+
+Test 2: Float variables
+  float1 = 3.14 → float (expected: float)
+  float2 = -0.5 → float (expected: float)
+  float3 = 0.0 → float (expected: float)
+
+Test 3: Boolean variables
+  bool1 = true → bool (expected: bool)
+  bool2 = false → bool (expected: bool)
+
+Test 4: nil variables
+  null_var = nil → nil (expected: nil)
+
+Test 5: String variables (quoted)
+  str1 = "hello" → string (expected: string)
+  str2 = "world" → string (expected: string)
+  str3 = "" (empty) → string (expected: string)
+  str4 = "42" → string (expected: string)
+
+Test 6: Symbol variables (bare identifiers)
+  sym1 = myvar → symbol (expected: symbol)
+  sym2 = identifier → symbol (expected: symbol)
+  sym3 = foo123 → symbol (expected: symbol)
+  sym4 = _underscore → symbol (expected: symbol)
+
+Test 7: Block variables (ParenGroup)
+  block1 = (echo test) → block (expected: block)
+  block2 = (code here) → block (expected: block)
+  block3 = () → block (expected: block)
+
+Test 8: Undefined variables
+  nonexistent_var1 → undefined (expected: undefined)
+  never_defined → undefined (expected: undefined)
+  xyz123 → undefined (expected: undefined)
+
+Test 9: Symbol vs String variables
+  role_sym = admin → symbol (expected: symbol)
+  role_str = "admin" → string (expected: string)
+  status_sym = active → symbol (expected: symbol)
+  status_str = "active" → string (expected: string)
+
+Test 10: Variable type changes
+  x = 42 → int (expected: int)
+  x = "hello" → string (expected: string)
+  x = myidentifier → symbol (expected: symbol)
+  x = true → bool (expected: bool)
+  x = (code) → block (expected: block)
+
+Test 11: Numbers in different forms
+  num_int = 123 → int (expected: int)
+  num_str = "123" → string (expected: string)
+  num_float = 123.0 → float (expected: float)
+
+Test 12: Special string values
+  special1 = "false" → string (expected: string)
+  special2 = "0" → string (expected: string)
+  special3 = "nil" → string (expected: string)
+  special4 = "true" → string (expected: string)
+
+Test 13: Variable existence checking
+  ✓ PASS: exists_var exists (type: {get_type exists_var})
+  ✓ PASS: does_not_exist is undefined
+
+Test 14: Case sensitivity
+  MyVar → symbol (expected: symbol)
+  myvar → symbol (expected: symbol)
+  MYVAR → symbol (expected: symbol)
+  myVAR (not defined) → undefined (expected: undefined)
+
+Test 15: Practical use cases
+  Testing safe_access macro:
+Variable undefined_var is not defined, using default
+    Result for undefined_var: default
+Variable my_value exists with type: symbol
+    Result for my_value: actual
+
+  Testing type_dispatch macro:
+    
+Got symbol: identifier
+Got string: identifier
+Got int: identifier
+Variable test_sym is undefined
+    
+Got string: text
+Got int: text
+Variable test_str is undefined
+    
+Got int: 42
+Variable test_int is undefined
+    
+Variable not_defined is undefined
+
+=== Summary ===
+
+Expected behaviors:
+  - Variables store their original type
+  - Bare identifiers → symbol
+  - Quoted text → string
+  - Undefined variables → undefined
+  - get_type always returns a type name (never fails)
+
+If all results match expected, get_type is working correctly!
+
+=== Test Complete ===

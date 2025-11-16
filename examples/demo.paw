@@ -406,4 +406,4 @@ macro_delete "old_macro"
 
 echo "=== PawScript Syntax Demo Complete ==="
 
-   check_line_and_col_of_error_401_4
+   check_line_and_col_of_error_409_4

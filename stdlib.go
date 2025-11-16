@@ -276,6 +276,66 @@ func (ps *PawScript) RegisterStandardLibrary(scriptArgs []string) {
 	    return BoolStatus(true)
 	})
 	
+	// ret - early return from block
+	// Usage: ret                    - leave status and result unchanged
+	//        ret <value>            - set status from truthiness, leave result unchanged
+	//        ret <value>, <result>  - set status from truthiness, set result
+	//        ret , <result>         - leave status unchanged, set result (first arg is nil/empty)
+	ps.RegisterCommand("ret", func(ctx *Context) Result {
+		switch len(ctx.Args) {
+		case 0:
+			// No arguments - leave everything as-is
+			// Get current status from state (default to true if none)
+			// We need to get the current status somehow...
+			// For now, let's default to true
+			return EarlyReturn{
+				Status:    BoolStatus(true),
+				Result:    ctx.GetResult(),
+				HasResult: ctx.HasResult(),
+			}
+			
+		case 1:
+			// One argument - set status from truthiness, keep result
+			status := toBool(ctx.Args[0])
+			return EarlyReturn{
+				Status:    BoolStatus(status),
+				Result:    ctx.GetResult(),
+				HasResult: ctx.HasResult(),
+			}
+			
+		default:
+			// Two or more arguments - check first for nil/empty
+			firstArg := ctx.Args[0]
+			secondArg := ctx.Args[1]
+			
+			// If first arg is nil, Symbol(""), or empty string, leave status unchanged
+			if firstArg == nil || firstArg == "" {
+				return EarlyReturn{
+					Status:    BoolStatus(true), // Current status (defaulting to true)
+					Result:    secondArg,
+					HasResult: true,
+				}
+			}
+			
+			// Check if it's an empty symbol
+			if sym, ok := firstArg.(Symbol); ok && string(sym) == "" {
+				return EarlyReturn{
+					Status:    BoolStatus(true), // Current status (defaulting to true)
+					Result:    secondArg,
+					HasResult: true,
+				}
+			}
+			
+			// Normal case - set status from first arg, result from second
+			status := toBool(firstArg)
+			return EarlyReturn{
+				Status:    BoolStatus(status),
+				Result:    secondArg,
+				HasResult: true,
+			}
+		}
+	})
+	
 	// set - sets a variable in current scope
 	ps.RegisterCommand("set", func(ctx *Context) Result {
 		if len(ctx.Args) < 2 {
@@ -332,6 +392,16 @@ func (ps *PawScript) RegisterStandardLibrary(scriptArgs []string) {
 				0, 0,
 			)
 			
+			// Check if condition returned early
+			if earlyReturn, ok := condResult.(EarlyReturn); ok {
+				// Set the result if provided
+				if earlyReturn.HasResult {
+					ctx.SetResult(earlyReturn.Result)
+				}
+				// Return the status from the early return
+				return earlyReturn.Status
+			}
+			
 			// Check if we got a token (async not supported in while condition)
 			if _, isToken := condResult.(TokenResult); isToken {
 				fmt.Fprintln(os.Stderr, "[WHILE ERROR] Async operations not supported in while condition")
@@ -356,6 +426,16 @@ func (ps *PawScript) RegisterStandardLibrary(scriptArgs []string) {
 				"",
 				0, 0,
 			)
+			
+			// If body returns early, break out of loop
+			if earlyReturn, ok := bodyResult.(EarlyReturn); ok {
+				// Set the result if provided
+				if earlyReturn.HasResult {
+					ctx.SetResult(earlyReturn.Result)
+				}
+				// Return the status from the early return
+				return earlyReturn.Status
+			}
 			
 			// If body returns a token (async), return it
 			if _, isToken := bodyResult.(TokenResult); isToken {

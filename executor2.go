@@ -36,6 +36,17 @@ func (e *Executor) executeCommandSequence(commands []*ParsedCommand, state *Exec
 		
 		result := e.executeParsedCommand(cmd, state, substitutionCtx)
 		
+		// Check for early return
+		if earlyReturn, ok := result.(EarlyReturn); ok {
+			e.logger.Debug("Command returned early return, terminating sequence")
+			// Set the result if provided
+			if earlyReturn.HasResult {
+				state.SetResult(earlyReturn.Result)
+			}
+			// Return the status from the early return
+			return earlyReturn.Status
+		}
+		
 		if tokenResult, ok := result.(TokenResult); ok {
 			e.logger.Debug("Command returned token %s, setting up sequence continuation", string(tokenResult))
 			
@@ -1088,6 +1099,15 @@ func (e *Executor) invertStatus(result Result, state *ExecutionState, position *
 		inverted := !bool(boolStatus)
 		e.logger.Debug("Inverted synchronous result: %v -> %v", bool(boolStatus), inverted)
 		return BoolStatus(inverted)
+	} else if earlyReturn, ok := result.(EarlyReturn); ok {
+		// Invert the status of an early return
+		inverted := !bool(earlyReturn.Status)
+		e.logger.Debug("Inverted early return status: %v -> %v", bool(earlyReturn.Status), inverted)
+		return EarlyReturn{
+			Status:    BoolStatus(inverted),
+			Result:    earlyReturn.Result,
+			HasResult: earlyReturn.HasResult,
+		}
 	} else if tokenResult, ok := result.(TokenResult); ok {
 		// For async result, create wrapper token with inversion flag
 		e.logger.Debug("Creating inverter wrapper for async token: %s", string(tokenResult))

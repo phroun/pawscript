@@ -85,6 +85,15 @@ type TokenResult string
 
 func (TokenResult) isResult() {}
 
+// EarlyReturn represents early termination from a block
+type EarlyReturn struct {
+	Status BoolStatus
+	Result interface{}
+	HasResult bool
+}
+
+func (EarlyReturn) isResult() {}
+
 // ParsedCommand represents a parsed command with metadata
 type ParsedCommand struct {
 	Command      string

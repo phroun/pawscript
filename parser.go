@@ -84,15 +84,29 @@ func (p *Parser) RemoveComments(source string) string {
 		if char == '\\' && i+1 < length {
 			escapeSeq := string(runes[i : i+2])
 			result.WriteString(escapeSeq)
-			pos := &SourcePosition{
+			
+			// Create mapping for the backslash
+			pos1 := &SourcePosition{
 				Line:         originalLine,
 				Column:       originalColumn,
-				Length:       2,
-				OriginalText: escapeSeq,
+				Length:       1,
+				OriginalText: string(char),
 				Filename:     p.sourceMap.Filename,
 			}
-			p.sourceMap.AddMapping(resultPosition, pos)
-			resultPosition += 2
+			p.sourceMap.AddMapping(resultPosition, pos1)
+			resultPosition++
+			
+			// Create mapping for the escaped character
+			pos2 := &SourcePosition{
+				Line:         originalLine,
+				Column:       originalColumn + 1,
+				Length:       1,
+				OriginalText: string(runes[i+1]),
+				Filename:     p.sourceMap.Filename,
+			}
+			p.sourceMap.AddMapping(resultPosition, pos2)
+			resultPosition++
+			
 			originalColumn += 2
 			i += 2
 			continue
@@ -304,6 +318,7 @@ func (p *Parser) ParseCommandSequence(commandStr string) ([]*ParsedCommand, erro
 		if trimmed != "" {
 			// Get position from source map using the start position
 			pos := p.sourceMap.GetOriginalPosition(startPos)
+			
 			if pos == nil {
 				pos = &SourcePosition{
 					Line:     commandStartLine,
@@ -333,8 +348,8 @@ func (p *Parser) ParseCommandSequence(commandStr string) ([]*ParsedCommand, erro
 	for i < len(runes) {
 		char := runes[i]
 		
-		// Track start position when we add first character to empty command
-		if currentCommand.Len() == 0 && !unicode.IsSpace(char) && char != '\n' {
+		// Track start position when we add first non-whitespace character
+		if strings.TrimSpace(currentCommand.String()) == "" && !unicode.IsSpace(char) && char != '\n' {
 			commandStartPos = i
 		}
 		
@@ -786,6 +801,10 @@ func (p *Parser) NormalizeKeywords(source string) string {
 	
 	runes := []rune(source)
 	i := 0
+	resultPosition := 0
+	
+	// Create new source map mappings for the normalized string
+	newMappings := make(map[int]*SourcePosition)
 	
 	for i < len(runes) {
 		char := runes[i]
@@ -794,6 +813,12 @@ func (p *Parser) NormalizeKeywords(source string) string {
 		if char == '\\' && i+1 < len(runes) {
 			result.WriteRune(char)
 			result.WriteRune(runes[i+1])
+			// Map both characters to their original positions
+			if origPos := p.sourceMap.GetOriginalPosition(i); origPos != nil {
+				newMappings[resultPosition] = origPos
+				newMappings[resultPosition+1] = p.sourceMap.GetOriginalPosition(i + 1)
+			}
+			resultPosition += 2
 			i += 2
 			continue
 		}
@@ -803,12 +828,20 @@ func (p *Parser) NormalizeKeywords(source string) string {
 			inQuote = true
 			quoteChar = char
 			result.WriteRune(char)
+			if origPos := p.sourceMap.GetOriginalPosition(i); origPos != nil {
+				newMappings[resultPosition] = origPos
+			}
+			resultPosition++
 			i++
 			continue
 		}
 		
 		if inQuote {
 			result.WriteRune(char)
+			if origPos := p.sourceMap.GetOriginalPosition(i); origPos != nil {
+				newMappings[resultPosition] = origPos
+			}
+			resultPosition++
 			if char == quoteChar {
 				inQuote = false
 			}
@@ -820,6 +853,10 @@ func (p *Parser) NormalizeKeywords(source string) string {
 		if char == '(' {
 			parenDepth++
 			result.WriteRune(char)
+			if origPos := p.sourceMap.GetOriginalPosition(i); origPos != nil {
+				newMappings[resultPosition] = origPos
+			}
+			resultPosition++
 			i++
 			continue
 		}
@@ -827,6 +864,10 @@ func (p *Parser) NormalizeKeywords(source string) string {
 		if char == ')' {
 			parenDepth--
 			result.WriteRune(char)
+			if origPos := p.sourceMap.GetOriginalPosition(i); origPos != nil {
+				newMappings[resultPosition] = origPos
+			}
+			resultPosition++
 			i++
 			continue
 		}
@@ -834,6 +875,10 @@ func (p *Parser) NormalizeKeywords(source string) string {
 		// Only normalize keywords at top level (outside parentheses)
 		if parenDepth > 0 {
 			result.WriteRune(char)
+			if origPos := p.sourceMap.GetOriginalPosition(i); origPos != nil {
+				newMappings[resultPosition] = origPos
+			}
+			resultPosition++
 			i++
 			continue
 		}
@@ -846,6 +891,11 @@ func (p *Parser) NormalizeKeywords(source string) string {
 			
 			if beforeOk && afterOk {
 				result.WriteRune('!')
+				// Map the '!' to the original position of 'n' in 'not'
+				if origPos := p.sourceMap.GetOriginalPosition(i); origPos != nil {
+					newMappings[resultPosition] = origPos
+				}
+				resultPosition++
 				i += 3
 				continue
 			}
@@ -859,6 +909,11 @@ func (p *Parser) NormalizeKeywords(source string) string {
 			
 			if beforeOk && afterOk {
 				result.WriteRune('&')
+				// Map the '&' to the original position of 't' in 'then'
+				if origPos := p.sourceMap.GetOriginalPosition(i); origPos != nil {
+					newMappings[resultPosition] = origPos
+				}
+				resultPosition++
 				i += 4
 				continue
 			}
@@ -872,14 +927,27 @@ func (p *Parser) NormalizeKeywords(source string) string {
 			
 			if beforeOk && afterOk {
 				result.WriteRune('|')
+				// Map the '|' to the original position of 'e' in 'else'
+				if origPos := p.sourceMap.GetOriginalPosition(i); origPos != nil {
+					newMappings[resultPosition] = origPos
+				}
+				resultPosition++
 				i += 4
 				continue
 			}
 		}
 		
+		// Default: copy character as-is
 		result.WriteRune(char)
+		if origPos := p.sourceMap.GetOriginalPosition(i); origPos != nil {
+			newMappings[resultPosition] = origPos
+		}
+		resultPosition++
 		i++
 	}
+	
+	// Replace the source map with the new mappings
+	p.sourceMap.TransformedToOriginal = newMappings
 	
 	return result.String()
 }

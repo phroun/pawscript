@@ -1,0 +1,77 @@
+=== get_inferred_type Comprehensive Test ===
+
+Test 1: Integer types
+  42 → int (expected: int)
+  -10 → int (expected: int)
+  0 → int (expected: int)
+
+Test 2: Float types
+  3.14 → float (expected: float)
+  -0.5 → float (expected: float)
+  0.0 → float (expected: float)
+
+Test 3: Boolean types
+  true → bool (expected: bool)
+  false → bool (expected: bool)
+
+Test 4: nil type
+  nil → nil (expected: nil)
+
+Test 5: String types (quoted)
+  "hello" → string (expected: string)
+  "world" → string (expected: string)
+  "" (empty) → string (expected: string)
+  "42" (quoted number) → string (expected: string)
+  "true" (quoted bool) → string (expected: string)
+
+Test 6: Symbol types (bare identifiers)
+  myvar → symbol (expected: symbol)
+  identifier → symbol (expected: symbol)
+  foo123 → symbol (expected: symbol)
+  _underscore → symbol (expected: symbol)
+
+Test 7: Block types (ParenGroup)
+  (echo test) → block (expected: block)
+  (code here) → block (expected: block)
+  () (empty) → block (expected: block)
+
+Test 8: Symbol vs String distinction
+  admin (bare) → symbol (expected: symbol)
+  "admin" (quoted) → string (expected: string)
+  test (bare) → symbol (expected: symbol)
+  "test" (quoted) → string (expected: string)
+
+Test 9: Numbers as different types
+  123 (bare) → int (expected: int)
+  "123" (quoted) → string (expected: string)
+
+Test 10: Special string values
+  "false" (string) → string (expected: string)
+  "0" (string) → string (expected: string)
+  "nil" (string) → string (expected: string)
+
+Test 11: Edge cases
+  a (single char) → symbol (expected: symbol)
+  "a" (quoted single char) → string (expected: string)
+  x_y_z (underscores) → symbol (expected: symbol)
+  CamelCase → symbol (expected: symbol)
+
+Test 12: Type stability
+  First call: symbol
+  Second call: symbol
+  Third call: symbol
+  All should be: symbol
+
+=== Summary ===
+
+Expected type mappings:
+  Bare identifiers (foo, bar) → symbol
+  Quoted text ("foo", "bar") → string
+  Numbers (42, 3.14) → int or float
+  Booleans (true, false) → bool
+  Null (nil) → nil
+  Blocks ((code)) → block
+
+If all results match expected, get_inferred_type is working correctly!
+
+=== Test Complete ===
