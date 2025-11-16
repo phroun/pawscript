@@ -101,9 +101,14 @@ func (ps *PawScript) RegisterStandardLibrary(scriptArgs []string) {
 				if f, ok := ctx.Args[1].(float64); ok {
 					index = int64(f)
 				} else {
-					fmt.Fprintln(os.Stderr, "[ARGV ERROR] Index must be a number")
-					ctx.SetResult(nil)
-					return BoolStatus(false)
+					// Try to convert from string/symbol using toNumber
+					num, ok := toNumber(ctx.Args[1])
+					if !ok {
+						fmt.Fprintln(os.Stderr, "[ARGV ERROR] Index must be a number")
+						ctx.SetResult(nil)
+						return BoolStatus(false)
+					}
+					index = int64(num)
 				}
 			}
 			
@@ -875,6 +880,263 @@ func (ps *PawScript) RegisterStandardLibrary(scriptArgs []string) {
 			ctx.SetResult(nil)
 			return BoolStatus(false)
 		}
+	})
+	
+	// ==========================================
+	// STRING MANIPULATION FUNCTIONS
+	// Following same semantics as list operations where possible
+	// ==========================================
+	
+	// str_concat - concatenate multiple strings
+	// Usage: str_concat "hello", " ", "world"  -> "hello world"
+	// Like list concat but for strings
+	ps.RegisterCommand("str_concat", func(ctx *Context) Result {
+		if len(ctx.Args) < 2 {
+			fmt.Fprintln(os.Stderr, "[STR_CONCAT ERROR] Usage: str_concat <string>, <string>, ...")
+			ctx.SetResult("")
+			return BoolStatus(false)
+		}
+		
+		var result strings.Builder
+		for _, arg := range ctx.Args {
+			result.WriteString(fmt.Sprintf("%v", arg))
+		}
+		
+		ctx.SetResult(result.String())
+		return BoolStatus(true)
+	})
+	
+	// str_split - split string into list by delimiter
+	// Usage: str_split "a,b,c", ","  -> list of ["a", "b", "c"]
+	// Inverse of str_join
+	ps.RegisterCommand("str_split", func(ctx *Context) Result {
+		if len(ctx.Args) < 2 {
+			fmt.Fprintln(os.Stderr, "[STR_SPLIT ERROR] Usage: str_split <string>, <delimiter>")
+			ctx.SetResult(nil)
+			return BoolStatus(false)
+		}
+		
+		str := fmt.Sprintf("%v", ctx.Args[0])
+		delimiter := fmt.Sprintf("%v", ctx.Args[1])
+		
+		parts := strings.Split(str, delimiter)
+		items := make([]interface{}, len(parts))
+		for i, part := range parts {
+			items[i] = part
+		}
+		
+		ctx.SetResult(NewPawList(items))
+		return BoolStatus(true)
+	})
+	
+	// str_join - join list into string with delimiter
+	// Usage: str_join {get mylist}, ","  -> "a,b,c"
+	// Inverse of str_split
+	ps.RegisterCommand("str_join", func(ctx *Context) Result {
+		if len(ctx.Args) < 2 {
+			fmt.Fprintln(os.Stderr, "[STR_JOIN ERROR] Usage: str_join <list>, <delimiter>")
+			ctx.SetResult("")
+			return BoolStatus(false)
+		}
+		
+		delimiter := fmt.Sprintf("%v", ctx.Args[1])
+		
+		// Handle PawList
+		if pawList, ok := ctx.Args[0].(PawList); ok {
+			items := pawList.Items()
+			strItems := make([]string, len(items))
+			for i, item := range items {
+				strItems[i] = fmt.Sprintf("%v", item)
+			}
+			ctx.SetResult(strings.Join(strItems, delimiter))
+			return BoolStatus(true)
+		}
+		
+		fmt.Fprintf(os.Stderr, "[STR_JOIN ERROR] First argument must be a list, got %s\n", getTypeName(ctx.Args[0]))
+		ctx.SetResult("")
+		return BoolStatus(false)
+	})
+	
+	// str_upper - convert string to uppercase
+	// Usage: str_upper "hello"  -> "HELLO"
+	ps.RegisterCommand("str_upper", func(ctx *Context) Result {
+		if len(ctx.Args) < 1 {
+			fmt.Fprintln(os.Stderr, "[STR_UPPER ERROR] Usage: str_upper <string>")
+			ctx.SetResult("")
+			return BoolStatus(false)
+		}
+		
+		str := fmt.Sprintf("%v", ctx.Args[0])
+		ctx.SetResult(strings.ToUpper(str))
+		return BoolStatus(true)
+	})
+	
+	// str_lower - convert string to lowercase
+	// Usage: str_lower "HELLO"  -> "hello"
+	ps.RegisterCommand("str_lower", func(ctx *Context) Result {
+		if len(ctx.Args) < 1 {
+			fmt.Fprintln(os.Stderr, "[STR_LOWER ERROR] Usage: str_lower <string>")
+			ctx.SetResult("")
+			return BoolStatus(false)
+		}
+		
+		str := fmt.Sprintf("%v", ctx.Args[0])
+		ctx.SetResult(strings.ToLower(str))
+		return BoolStatus(true)
+	})
+	
+	// str_trim - trim whitespace from both ends
+	// Usage: str_trim "  hello  "  -> "hello"
+	ps.RegisterCommand("str_trim", func(ctx *Context) Result {
+		if len(ctx.Args) < 1 {
+			fmt.Fprintln(os.Stderr, "[STR_TRIM ERROR] Usage: str_trim <string>")
+			ctx.SetResult("")
+			return BoolStatus(false)
+		}
+		
+		str := fmt.Sprintf("%v", ctx.Args[0])
+		ctx.SetResult(strings.TrimSpace(str))
+		return BoolStatus(true)
+	})
+	
+	// str_trim_left - trim whitespace from left end
+	// Usage: str_trim_left "  hello  "  -> "hello  "
+	ps.RegisterCommand("str_trim_left", func(ctx *Context) Result {
+		if len(ctx.Args) < 1 {
+			fmt.Fprintln(os.Stderr, "[STR_TRIM_LEFT ERROR] Usage: str_trim_left <string>")
+			ctx.SetResult("")
+			return BoolStatus(false)
+		}
+		
+		str := fmt.Sprintf("%v", ctx.Args[0])
+		ctx.SetResult(strings.TrimLeft(str, " \t\n\r"))
+		return BoolStatus(true)
+	})
+	
+	// str_trim_right - trim whitespace from right end
+	// Usage: str_trim_right "  hello  "  -> "  hello"
+	ps.RegisterCommand("str_trim_right", func(ctx *Context) Result {
+		if len(ctx.Args) < 1 {
+			fmt.Fprintln(os.Stderr, "[STR_TRIM_RIGHT ERROR] Usage: str_trim_right <string>")
+			ctx.SetResult("")
+			return BoolStatus(false)
+		}
+		
+		str := fmt.Sprintf("%v", ctx.Args[0])
+		ctx.SetResult(strings.TrimRight(str, " \t\n\r"))
+		return BoolStatus(true)
+	})
+	
+	// str_contains - check if string contains substring
+	// Usage: str_contains "hello world", "world"  -> true
+	ps.RegisterCommand("str_contains", func(ctx *Context) Result {
+		if len(ctx.Args) < 2 {
+			fmt.Fprintln(os.Stderr, "[STR_CONTAINS ERROR] Usage: str_contains <string>, <substring>")
+			ctx.SetResult(false)
+			return BoolStatus(false)
+		}
+		
+		str := fmt.Sprintf("%v", ctx.Args[0])
+		substr := fmt.Sprintf("%v", ctx.Args[1])
+		
+		result := strings.Contains(str, substr)
+		ctx.SetResult(result)
+		return BoolStatus(result)
+	})
+	
+	// str_index - find first index of substring (-1 if not found)
+	// Usage: str_index "hello world", "world"  -> 6
+	// Returns -1 if not found (like many languages)
+	// Always succeeds and sets result (use result to check if found)
+	ps.RegisterCommand("str_index", func(ctx *Context) Result {
+		if len(ctx.Args) < 2 {
+			fmt.Fprintln(os.Stderr, "[STR_INDEX ERROR] Usage: str_index <string>, <substring>")
+			ctx.SetResult(int64(-1))
+			return BoolStatus(false)
+		}
+		
+		str := fmt.Sprintf("%v", ctx.Args[0])
+		substr := fmt.Sprintf("%v", ctx.Args[1])
+		
+		index := strings.Index(str, substr)
+		ctx.SetResult(int64(index))
+		// Always return success - caller checks result value
+		return BoolStatus(true)
+	})
+	
+	// str_replace - replace all occurrences of substring
+	// Usage: str_replace "hello world", "world", "gopher"  -> "hello gopher"
+	// Replaces ALL occurrences (like strings.ReplaceAll)
+	ps.RegisterCommand("str_replace", func(ctx *Context) Result {
+		if len(ctx.Args) < 3 {
+			fmt.Fprintln(os.Stderr, "[STR_REPLACE ERROR] Usage: str_replace <string>, <old>, <new>")
+			ctx.SetResult("")
+			return BoolStatus(false)
+		}
+		
+		str := fmt.Sprintf("%v", ctx.Args[0])
+		old := fmt.Sprintf("%v", ctx.Args[1])
+		new := fmt.Sprintf("%v", ctx.Args[2])
+		
+		result := strings.ReplaceAll(str, old, new)
+		ctx.SetResult(result)
+		return BoolStatus(true)
+	})
+	
+	// str_starts_with - check if string starts with prefix
+	// Usage: str_starts_with "hello world", "hello"  -> true
+	ps.RegisterCommand("str_starts_with", func(ctx *Context) Result {
+		if len(ctx.Args) < 2 {
+			fmt.Fprintln(os.Stderr, "[STR_STARTS_WITH ERROR] Usage: str_starts_with <string>, <prefix>")
+			ctx.SetResult(false)
+			return BoolStatus(false)
+		}
+		
+		str := fmt.Sprintf("%v", ctx.Args[0])
+		prefix := fmt.Sprintf("%v", ctx.Args[1])
+		
+		result := strings.HasPrefix(str, prefix)
+		ctx.SetResult(result)
+		return BoolStatus(result)
+	})
+	
+	// str_ends_with - check if string ends with suffix
+	// Usage: str_ends_with "hello world", "world"  -> true
+	ps.RegisterCommand("str_ends_with", func(ctx *Context) Result {
+		if len(ctx.Args) < 2 {
+			fmt.Fprintln(os.Stderr, "[STR_ENDS_WITH ERROR] Usage: str_ends_with <string>, <suffix>")
+			ctx.SetResult(false)
+			return BoolStatus(false)
+		}
+		
+		str := fmt.Sprintf("%v", ctx.Args[0])
+		suffix := fmt.Sprintf("%v", ctx.Args[1])
+		
+		result := strings.HasSuffix(str, suffix)
+		ctx.SetResult(result)
+		return BoolStatus(result)
+	})
+	
+	// str_repeat - repeat string n times
+	// Usage: str_repeat "ab", 3  -> "ababab"
+	ps.RegisterCommand("str_repeat", func(ctx *Context) Result {
+		if len(ctx.Args) < 2 {
+			fmt.Fprintln(os.Stderr, "[STR_REPEAT ERROR] Usage: str_repeat <string>, <count>")
+			ctx.SetResult("")
+			return BoolStatus(false)
+		}
+		
+		str := fmt.Sprintf("%v", ctx.Args[0])
+		count, ok := toNumber(ctx.Args[1])
+		if !ok {
+			fmt.Fprintln(os.Stderr, "[STR_REPEAT ERROR] Count must be a number")
+			ctx.SetResult("")
+			return BoolStatus(false)
+		}
+		
+		result := strings.Repeat(str, int(count))
+		ctx.SetResult(result)
+		return BoolStatus(true)
 	})
 }
 

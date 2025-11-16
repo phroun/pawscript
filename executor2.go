@@ -1019,8 +1019,10 @@ func (e *Executor) formatBraceResult(value interface{}, originalString string, b
 			// Inside quotes: escape only quotes/backslashes
 			return e.escapeQuotesAndBackslashes(v)
 		}
-		// Outside quotes: escape all special characters for safety
-		return e.escapeSpecialCharacters(v)
+		// Outside quotes: wrap in quotes to preserve the string value
+		// (don't escape spaces/special chars - that's for bare words only)
+		escaped := e.escapeQuotesAndBackslashes(v)
+		return "\"" + escaped + "\""
 	case PawList:
 		// PawList: use a special marker that preserves the object
 		// We'll use a unique placeholder that will be detected during argument parsing
@@ -1031,12 +1033,14 @@ func (e *Executor) formatBraceResult(value interface{}, originalString string, b
 		// Numbers as-is
 		return fmt.Sprintf("%v", v)
 	default:
-		// Unknown type - convert and escape
+		// Unknown type - convert to string and wrap in quotes outside quote context
 		str := fmt.Sprintf("%v", v)
 		if insideQuotes {
 			return e.escapeQuotesAndBackslashes(str)
 		}
-		return e.escapeSpecialCharacters(str)
+		// Wrap in quotes to preserve value
+		escaped := e.escapeQuotesAndBackslashes(str)
+		return "\"" + escaped + "\""
 	}
 }
 

@@ -9,3 +9,4 @@
 ../paw test_get_inferred_type.paw | diff - test_get_inferred_type.expected
 ../paw test_lists.paw | diff - test_lists.expected
 ../paw test_nested_lists.paw | diff - test_nested_lists.expected
+../paw test_string_ops.paw | diff - test_string_ops.expected
