@@ -13,7 +13,8 @@
   "scripts": {
     "clean": "rm -rf dist",
     "build:ts": "tsc -p tsconfig.json && npm run copy:wasm",
-    "copy:wasm": "mkdir -p dist && cp src/wasm_exec_loader.js dist/ || true && cp ../pawscript.wasm dist/ || true",
+    "copy:wasm": "mkdir -p dist && cp src/wasm_exec_loader.js dist/ || true && cp ./index.html dist/ || true && cp ../pawscript.wasm dist/ || true",
+    "build:browser": "tsc src/main.ts --module nodenext --outDir dist",
     "build": "npm run clean && npm run build:ts"
   },
   "devDependencies": {

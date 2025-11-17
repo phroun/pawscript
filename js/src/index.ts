@@ -52,7 +52,7 @@ export class PawScript {
       const buffer = await fs.readFile(wasmPath); // returns Node Buffer
       wasmBytes = buffer.buffer.slice(buffer.byteOffset, buffer.byteOffset + buffer.byteLength); // convert to ArrayBuffer
     } else {
-      const resp = await fetch("pawscript.wasm");
+      const resp = await fetch("./pawscript.wasm");
       wasmBytes = await resp.arrayBuffer();
     }
 
