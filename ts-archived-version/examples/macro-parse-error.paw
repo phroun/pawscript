@@ -1,0 +1,16 @@
+# Test parse errors within macro definitions and calls
+
+# Define a macro with parse errors
+macro bad_macro, {
+  echo "In macro"
+  & echo "This has leading operator"
+  echo "End of macro"
+}
+
+# Call the macro (should show macro context in error)
+call bad_macro
+
+# Macro with unclosed quote
+macro quote_error, echo "Unclosed quote in macro
+
+call quote_error

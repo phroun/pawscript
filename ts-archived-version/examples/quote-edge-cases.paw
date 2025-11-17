@@ -1,0 +1,8 @@
+# Edge cases for quote handling
+echo "Testing quote edge cases"
+
+# This should work
+echo "Properly closed quote"
+
+# This should fail
+echo "Unclosed quote at end of file

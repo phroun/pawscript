@@ -1,0 +1,14 @@
+# interactive.paw - Interactive input demo
+
+echo "Welcome to PawScript Interactive Demo!";
+
+macro get_input (
+  echo "Enter $1: ";
+  read;
+  echo "You entered: {get_result}"
+);
+
+get_input "your name";
+get_input "your favorite color";
+
+echo "Thanks for trying PawScript!";

@@ -1,0 +1,24 @@
+#  To Do:
+#  - Only require semicolon when stacking commands on one line
+#  - Make sure read works
+#  - Consider variables
+
+macro sub(
+  print "Hello World $1";
+);
+
+macro supersub(
+  macro foo(
+    print "$1";
+  );
+  foo "Hello"
+);
+
+supersub 4;
+read;
+print {get_result};
+
+print {argv 2};
+sub {argv 0};
+
+foo "testing";

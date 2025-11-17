@@ -1,0 +1,301 @@
+# PawScript Syntax Demonstration
+# This file showcases all the major syntax features of PawScript
+
+# ==========================================
+# COMMENTS
+# ==========================================
+
+# Line comments start with # (when followed by whitespace or end of line)
+echo "Line comments work"  # This is also a comment
+
+#( Block comments can span
+   multiple lines and use
+   parentheses )#
+
+#{ Alternative block comment style
+   using braces instead }#
+
+# Comments can contain special characters: !@#$%^&*()
+# Comments can contain unicode: 🎉 émojis and accénts
+
+#{ This comment can contain don't, can't, won't, and other contractions }#
+
+#{ Comments can say "you can mention ')#' inside double quotes" without closing }#
+
+#( Same rules apply: don't worry about single quotes here )#
+
+#( But you can still mention "nested )# symbols" in double quotes )#
+
+# ==========================================
+# BASIC COMMANDS
+# ==========================================
+
+# Simple commands with no arguments
+true
+false
+
+# Commands with arguments (comma-separated)
+echo "Hello, World!"
+echo "Multiple", "arguments", "here"
+
+# Commands with different argument types
+echo 42                    # Numbers
+echo true                  # Booleans  
+echo "quoted string"       # Strings
+echo 'single quotes work'  # Single quotes
+
+# ==========================================
+# COMMAND SEPARATORS & FLOW CONTROL
+# ==========================================
+
+# Semicolon separator - always execute next command
+echo "First"; echo "Second"; echo "Third"
+
+# Newlines act as semicolons
+echo "First"
+echo "Second" 
+echo "Third"
+
+# AND operator (&) - execute next only if current succeeds
+true & echo "This runs because true succeeded"
+false & echo "This won't run because false failed"
+
+# OR operator (|) - execute next only if current fails  
+true | echo "This won't run because true succeeded"
+false | echo "This runs because false failed"
+
+# Complex flow control chains
+true & echo "Step 1" & echo "Step 2" | echo "Fallback"
+
+# Multi-line flow control
+true &
+echo "This continues from previous line" &
+echo "And this continues too"
+
+false |
+echo "This runs because false failed" |
+echo "This won't run because previous succeeded"
+
+# ==========================================
+# PARENTHESES (Argument Grouping)
+# ==========================================
+
+# Parentheses group content into single arguments
+echo (This entire phrase becomes one argument)
+echo (Complex argument with; semicolons & operators | inside)
+
+# Mixed parentheses and quotes
+echo "String argument", (grouped argument), 42
+
+# Nested parentheses
+echo (Outer (inner content) more outer)
+
+# ==========================================
+# BRACES (Execution Blocks)
+# ==========================================
+
+# Braces execute commands and substitute the result
+echo "The result is: {echo calculated}"
+
+# Braces can contain complex command sequences
+echo "Answer: {true & echo 42 | echo unknown}"
+
+# Nested braces
+echo "Nested: {echo {echo inner}}"
+
+# Braces in string concatenation
+echo "prefix{echo middle}suffix"
+
+# Multiple braces in one argument
+echo "{echo Hello} {echo World}"
+
+# ==========================================
+# MACROS
+# ==========================================
+
+# Define a simple macro
+macro greet(echo "Hello $1!")
+
+# Define a macro with multiple commands
+macro greet_formal(
+    echo "Good day, $1.";
+    echo "How are you today?"
+)
+
+# Define a macro with argument substitution patterns
+macro describe_args(
+    echo "You provided $# arguments: $*";
+    echo "First argument: $1";
+    echo "Second argument: $2"
+)
+
+# Define a macro with conditional logic
+macro safe_greet(
+    echo "Checking name..." &
+    echo "Hello $1!" |
+    echo "Hello there!"
+)
+
+# Execute macros
+greet "Alice"
+greet_formal "Bob" 
+describe_args "one", "two", "three"
+
+# Execute macros using call command
+call greet, "Charlie"
+call describe_args, "alpha", "beta"
+
+# Macros with brace expressions
+macro smart_echo(echo "Smart: {echo $1}")
+smart_echo "test"
+
+# ==========================================
+# SYNTACTIC SUGAR
+# ==========================================
+
+# Identifier-parentheses syntax for macro definition
+macro quickGreet(echo "Quick hello to $1!")
+
+# This is equivalent to:
+# macro "quickGreet", (echo "Quick hello to $1!")
+
+# ==========================================
+# COMPLEX COMBINATIONS
+# ==========================================
+
+# Macros calling other macros
+macro chain_greet(greet $1; echo "That was a greeting for $1")
+chain_greet "David"
+
+# Braces with macro calls
+echo "Macro result: {greet_formal Edgar}"
+
+# Flow control with braces
+true & echo "Success: {echo computed}" | echo "Failed"
+
+# Complex argument mixing
+echo "Mixed args:", (grouped text), "string", 42, {echo dynamic}
+
+# Multi-line macro with complex flow
+macro complex_demo(
+    echo "Starting complex demo for $1";
+    true & (
+        echo "Phase 1 complete" &
+        echo "Phase 2 starting" &
+        echo "Result: {echo $1 processed}"
+    ) | echo "Something went wrong";
+    echo "Demo complete"
+)
+
+complex_demo "test-data"
+
+# ==========================================
+# NESTED STRUCTURES
+# ==========================================
+
+# Deeply nested parentheses
+echo (Level 1 (Level 2 (Level 3) back to 2) back to 1)
+
+# Mixed nesting
+echo "Text", (grouped (nested) text), {echo "dynamic {echo nested}"}, "more"
+
+# Complex macro with everything
+macro kitchen_sink(
+    # This macro demonstrates multiple features
+    echo "=== Kitchen Sink Demo for $1 ===";
+    
+    # Conditional execution
+    true & echo "Condition passed" | echo "Condition failed";
+    
+    # Brace expressions with the argument
+    echo "Processed: {echo $1 | echo unknown}";
+    
+    # Nested execution
+    echo "Nested result: {
+        echo "Inner: $1" &
+        echo "Success!" |
+        echo "Failed!"
+    }";
+    
+    # Multiple argument patterns
+    echo "Args: $# total, all: $*, first: $1";
+    
+    echo "=== End Kitchen Sink ==="
+)
+
+# Execute the complex macro
+kitchen_sink "final-test"
+
+# ==========================================
+# PRACTICAL EXAMPLES
+# ==========================================
+
+# Error handling pattern
+macro safe_operation(
+    echo "Attempting operation..." &
+    true & echo "Operation succeeded" |  
+    echo "Operation failed, trying fallback" &
+    echo "Fallback complete"
+)
+
+# Conditional greeting based on time (hypothetical)
+macro time_greet(
+    echo "Good morning $1" |
+    echo "Good evening $1"
+)
+
+# Validation pattern
+macro validate_and_process(
+    echo "Validating $1..." &
+    true & (
+        echo "Validation passed" &
+        echo "Processing $1..." &
+        echo "Result: {echo $1 processed}"
+    ) | (
+        echo "Validation failed for $1" &
+        echo "Using default processing"
+    )
+)
+
+validate_and_process "user-input"
+
+# ==========================================
+# EDGE CASES & SPECIAL CHARACTERS
+# ==========================================
+
+# Strings with special characters
+echo "String with & and | and ; inside"
+echo 'Single quotes with & | ; too'
+
+# Arguments with operators (inside parentheses)
+echo (This argument has & and | operators)
+
+# Unicode and special characters
+echo "Unicode test: 🎉 Hello 世界 café"
+
+# Escaped characters in strings
+echo "Escaped quotes: \"Hello\" and 'World'"
+echo "Newlines: line1\nline2\ttabbed"
+
+# Empty arguments and edge cases
+echo "", "non-empty", ""
+echo (empty parentheses become empty string)
+
+# Comments don't interfere with parsing
+echo "test" # comment & with | operators; and semicolons
+echo (grouped #{ comment in group }# text)
+
+# ==========================================
+# MACRO MANAGEMENT
+# ==========================================
+
+# List all defined macros
+macro_list
+
+# Delete a specific macro
+macro_delete "old_macro"
+
+# Clear all macros (commented out to preserve our demos)
+# macro_clear
+
+echo "=== PawScript Syntax Demo Complete ==="

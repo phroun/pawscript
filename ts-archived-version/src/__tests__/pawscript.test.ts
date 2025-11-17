@@ -1,0 +1,287 @@
+import { PawScript } from '../pawscript';
+
+describe('PawScript', () => {
+  let pawscript: PawScript;
+  let mockCommands: Record<string, jest.Mock>;
+
+  beforeEach(() => {
+    mockCommands = {
+      test_sync: jest.fn().mockReturnValue(true),
+      test_fail: jest.fn().mockReturnValue(false),
+      test_async: jest.fn().mockReturnValue('token_1'),
+    };
+
+    pawscript = new PawScript({ debug: false });
+    pawscript.registerCommands(mockCommands);
+
+    // Register script_error command for error handling
+    pawscript.registerCommand('script_error', (ctx) => {
+      console.error(`[SCRIPT ERROR] ${ctx.args[0]}`);
+      return true;
+    });
+  });
+
+  describe('Basic Command Execution', () => {
+    test('should execute simple command', () => {
+      const result = pawscript.execute('test_sync');
+      expect(result).toBe(true);
+      expect(mockCommands.test_sync).toHaveBeenCalledWith(
+        expect.objectContaining({
+          args: [],
+          requestToken: expect.any(Function),
+          resumeToken: expect.any(Function),
+          setResult: expect.any(Function),
+          getResult: expect.any(Function),
+          hasResult: expect.any(Function),
+          clearResult: expect.any(Function),
+          position: expect.any(Object),
+        })
+      );
+    });
+
+    test('should execute command with arguments', () => {
+      const testCommand = jest.fn().mockReturnValue(true);
+      pawscript.registerCommand('test_args', testCommand);
+      
+      const result = pawscript.execute("test_args 'hello', 42, true");
+      expect(result).toBe(true);
+      expect(testCommand).toHaveBeenCalledWith(
+        expect.objectContaining({
+          args: ['hello', 42, true],
+          requestToken: expect.any(Function),
+          resumeToken: expect.any(Function),
+          setResult: expect.any(Function),
+          getResult: expect.any(Function),
+          hasResult: expect.any(Function),
+          clearResult: expect.any(Function),
+          position: expect.any(Object),
+        })
+      );
+    });
+
+    test('should handle unknown command', () => {
+      const consoleSpy = jest.spyOn(console, 'error').mockImplementation();
+      
+      const result = pawscript.execute('unknown_command');
+      expect(result).toBe(false);
+      expect(consoleSpy).toHaveBeenCalledWith('[SCRIPT ERROR] Unknown command: unknown_command at line 1, column 1');
+      
+      consoleSpy.mockRestore();
+    });
+  });
+
+  describe('Command Sequences', () => {
+    test('should execute sequence with semicolon', () => {
+      const result = pawscript.execute('test_sync; test_sync');
+      expect(result).toBe(true);
+      expect(mockCommands.test_sync).toHaveBeenCalledTimes(2);
+    });
+
+    test('should execute sequence with newlines', () => {
+      const result = pawscript.execute('test_sync\ntest_sync');
+      expect(result).toBe(true);
+      expect(mockCommands.test_sync).toHaveBeenCalledTimes(2);
+    });
+
+    test('should execute conditional with ampersand', () => {
+      const result = pawscript.execute('test_sync & test_sync');
+      expect(result).toBe(true);
+      expect(mockCommands.test_sync).toHaveBeenCalledTimes(2);
+    });
+
+    test('should execute conditional with ampersand and newlines', () => {
+      const result = pawscript.execute('test_sync &\ntest_sync');
+      expect(result).toBe(true);
+      expect(mockCommands.test_sync).toHaveBeenCalledTimes(2);
+    });
+
+    test('should stop conditional on failure', () => {
+      const result = pawscript.execute('test_fail & test_sync');
+      expect(result).toBe(false);
+      expect(mockCommands.test_fail).toHaveBeenCalledTimes(1);
+      expect(mockCommands.test_sync).not.toHaveBeenCalled();
+    });
+
+    test('should execute OR with pipe', () => {
+      const result = pawscript.execute('test_fail | test_sync');
+      expect(result).toBe(true);
+      expect(mockCommands.test_fail).toHaveBeenCalledTimes(1);
+      expect(mockCommands.test_sync).toHaveBeenCalledTimes(1);
+    });
+
+    test('should execute OR with pipe and newlines', () => {
+      const result = pawscript.execute('test_fail |\ntest_sync');
+      expect(result).toBe(true);
+      expect(mockCommands.test_fail).toHaveBeenCalledTimes(1);
+      expect(mockCommands.test_sync).toHaveBeenCalledTimes(1);
+    });
+
+    test('should stop OR on success', () => {
+      const result = pawscript.execute('test_sync | test_sync');
+      expect(result).toBe(true);
+      expect(mockCommands.test_sync).toHaveBeenCalledTimes(1);
+    });
+  });
+
+  describe('Token Management (Paws Feature)', () => {
+    test('should handle async command tokens', () => {
+      const result = pawscript.execute('test_async');
+      expect(typeof result).toBe('string');
+      expect(result).toMatch(/^token_/);
+    });
+
+    test('should resume token with result', () => {
+      const tokenId = pawscript.requestToken();
+      const status = pawscript.getTokenStatus();
+      
+      expect(status.activeCount).toBe(1);
+      expect(status.tokens[0].id).toBe(tokenId);
+
+      const result = pawscript.resumeToken(tokenId, true);
+      expect(result).toBe(true);
+
+      const newStatus = pawscript.getTokenStatus();
+      expect(newStatus.activeCount).toBe(0);
+    });
+
+    test('should cleanup token on timeout', (done) => {
+      const cleanupCallback = jest.fn();
+      const tokenId = pawscript.requestToken(cleanupCallback, undefined, 100);
+      
+      setTimeout(() => {
+        expect(cleanupCallback).toHaveBeenCalledWith(tokenId);
+        done();
+      }, 150);
+    });
+  });
+
+  describe('Macro System', () => {
+    test('should define and execute macro', () => {
+      const result1 = pawscript.defineMacro('test_macro', 'test_sync; test_sync');
+      expect(result1).toBe(true);
+
+      const result2 = pawscript.execute('test_macro');
+      expect(result2).toBe(true);
+      expect(mockCommands.test_sync).toHaveBeenCalledTimes(2);
+    });
+
+    test('should list macros', () => {
+      pawscript.defineMacro('macro1', 'test_sync');
+      pawscript.defineMacro('macro2', 'test_fail');
+      
+      const macros = pawscript.listMacros();
+      expect(macros).toContain('macro1');
+      expect(macros).toContain('macro2');
+      expect(macros.length).toBe(2);
+    });
+
+    test('should delete macro', () => {
+      pawscript.defineMacro('temp_macro', 'test_sync');
+      expect(pawscript.hasMacro('temp_macro')).toBe(true);
+      
+      const result = pawscript.deleteMacro('temp_macro');
+      expect(result).toBe(true);
+      expect(pawscript.hasMacro('temp_macro')).toBe(false);
+    });
+
+    test('should clear all macros', () => {
+      pawscript.defineMacro('macro1', 'test_sync');
+      pawscript.defineMacro('macro2', 'test_fail');
+      
+      const count = pawscript.clearMacros();
+      expect(count).toBe(2);
+      expect(pawscript.listMacros().length).toBe(0);
+    });
+  });
+
+  describe('Syntactic Sugar', () => {
+    test('should transform identifier parentheses syntax', () => {
+      const testCommand = jest.fn().mockReturnValue(true);
+      pawscript.registerCommand('test_sugar', testCommand);
+      
+      const result = pawscript.execute("test_sugar hello(world)");
+      expect(result).toBe(true);
+      expect(testCommand).toHaveBeenCalledWith(
+        expect.objectContaining({
+          args: ['hello', 'world'],
+          requestToken: expect.any(Function),
+          resumeToken: expect.any(Function),
+          setResult: expect.any(Function),
+          getResult: expect.any(Function),
+          hasResult: expect.any(Function),
+          clearResult: expect.any(Function),
+          position: expect.any(Object),
+        })
+      );
+    });
+  });
+
+  describe('Configuration', () => {
+    test('should respect debug configuration', () => {
+      const debugPawScript = new PawScript({ debug: true });
+      const spy = jest.spyOn(console, 'log').mockImplementation();
+      
+      debugPawScript.registerCommand('test', mockCommands.test_sync);
+      debugPawScript.registerCommand('script_error', (ctx) => {
+        console.error(`[SCRIPT ERROR] ${ctx.args[0]}`);
+        return true;
+      });
+      debugPawScript.execute('test');
+      
+      expect(spy).toHaveBeenCalled();
+      spy.mockRestore();
+    });
+
+    test('should disable macros when configured', () => {
+      const noMacroPawScript = new PawScript({ allowMacros: false });
+      
+      const result1 = noMacroPawScript.defineMacro('test', 'test_sync');
+      expect(result1).toBe(false);
+      
+      const result2 = noMacroPawScript.executeMacro('test');
+      expect(result2).toBe(false);
+    });
+
+    test('should support error context configuration', () => {
+      const contextPawScript = new PawScript({ 
+        showErrorContext: true, 
+        contextLines: 3 
+      });
+      
+      const config = contextPawScript.getConfig();
+      expect(config.showErrorContext).toBe(true);
+      expect(config.contextLines).toBe(3);
+    });
+  });
+
+  describe('Newline Handling', () => {
+    test('should handle multi-line commands without semicolons', () => {
+      const result = pawscript.execute(`
+        test_sync
+        test_sync
+        test_sync
+      `);
+      expect(result).toBe(true);
+      expect(mockCommands.test_sync).toHaveBeenCalledTimes(3);
+    });
+
+    test('should handle operator continuation across lines', () => {
+      const result = pawscript.execute(`
+        test_sync &
+        test_sync &
+        test_sync
+      `);
+      expect(result).toBe(true);
+      expect(mockCommands.test_sync).toHaveBeenCalledTimes(3);
+    });
+
+    test('should handle mixed semicolons and newlines', () => {
+      const result = pawscript.execute(`
+        test_sync; test_sync
+        test_sync
+      `);
+      expect(result).toBe(true);
+      expect(mockCommands.test_sync).toHaveBeenCalledTimes(3);
+    });
+  });
+});

@@ -1,0 +1,3 @@
+# Test with single quotes
+echo 'This single quote is unclosed
+echo "This should not execute due to parse error"

@@ -1,0 +1,35 @@
+{
+  "name": "pawscript",
+  "version": "0.1.3",
+  "description": "PawScript: A command language with token-based suspension for text editors and command-driven applications",
+  "main": "dist/index.js",
+  "types": "dist/index.d.ts",
+  "bin": {
+    "paw": "dist/paw.js"
+  },
+  "scripts": {
+    "build": "tsc",
+    "watch": "tsc --watch",
+    "test": "jest",
+    "prepublishOnly": "npm run build"
+  },
+  "keywords": ["pawscript", "command", "interpreter", "macro", "editor", "language", "async", "tokens", "suspension"],
+  "author": "Jeffrey R. Day",
+  "license": "MIT",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/phroun/pawscript.git"
+  },
+  "homepage": "https://github.com/phroun/pawscript#readme",
+  "devDependencies": {
+    "@types/node": "^20.0.0",
+    "typescript": "^5.0.0",
+    "jest": "^29.0.0",
+    "@types/jest": "^29.0.0",
+    "ts-jest": "^29.0.0"
+  },
+  "files": [
+    "dist/**/*",
+    "README.md"
+  ]
+}
