@@ -83,7 +83,7 @@ func (ps *PawScript) registerBuiltInMacroCommands() {
 	// Call macro command
 	ps.executor.RegisterCommand("call", func(ctx *Context) Result {
 		if len(ctx.Args) < 1 {
-			ps.logger.Error("Usage: call <macro_name> [args...]")
+			ps.logger.Error("Usage: call <macro_name>, [args...]")
 			return BoolStatus(false)
 		}
 		
