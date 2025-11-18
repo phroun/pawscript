@@ -9,3 +9,5 @@ node_modules
 /paw-macos-x64
 /paw-x64.exe
 /pawscript.wasm
+/releases
+js/pawscript.wasm

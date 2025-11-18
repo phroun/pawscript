@@ -1,0 +1,2 @@
+print "Hello World."
+print "Argument 1: {argv 1}"

@@ -1,35 +1,48 @@
-.PHONY: all build test clean run-example
+# Version
+VERSION := $(shell git describe --tags --always --dirty)
 
-all: build-wasm build-macos-arm64 build-macos-x64 build-ms-arm64 build-ms-x64 build-linux-arm64 build-linux-x64
+# Release directory
+RELEASE_DIR := ../releases
+TEMPLATE_DIR := ../release-template
 
-build:
-	@echo "Building paw CLI..."
-	@go build -o ../paw ./cmd/paw
-	@echo "Build complete: ./paw"
+.PHONY: build-all clean-releases
+
+# Build and package all platforms
+build-all: build-wasm build-macos-arm64 build-macos-x64 build-ms-arm64 build-ms-x64 build-linux-arm64 build-linux-x64
+
+# Clean release artifacts
+clean-releases:
+	rm -rf $(RELEASE_DIR)
+
+define build-release
+	@echo "Building and packaging paw $(3) $(4)..."
+	@mkdir -p $(RELEASE_DIR)/paw-$(VERSION)-$(3)-$(4)
+	@cp -r $(TEMPLATE_DIR)/* $(RELEASE_DIR)/paw-$(VERSION)-$(3)-$(4)/
+	@cp ../README.md $(RELEASE_DIR)/README.md
+	@cp ../LICENSE $(RELEASE_DIR)/LICENSE
+	GOOS=$(1) GOARCH=$(2) go build -o $(RELEASE_DIR)/paw-$(VERSION)-$(3)-$(4)/$(5) ./cmd/paw
+	@cd $(RELEASE_DIR) && $(6) paw-$(VERSION)-$(3)-$(4)$(7) paw-$(VERSION)-$(3)-$(4)
+	@rm -rf $(RELEASE_DIR)/paw-$(VERSION)-$(3)-$(4)
+	@echo "Created: $(RELEASE_DIR)/paw-$(VERSION)-$(3)-$(4)$(7)"
+endef
 
 build-macos-arm64:
-	@echo "Building paw macos arm64..."
-	GOOS=darwin GOARCH=arm64 go build -o ../paw-macos-arm64 ./cmd/paw
+	$(call build-release,darwin,arm64,macos,arm64,paw,tar -czf,.tar.gz)
 
 build-macos-x64:
-	@echo "Building paw macos x86_64..."
-	GOOS=darwin GOARCH=amd64 go build -o ../paw-macos-x64 ./cmd/paw
+	$(call build-release,darwin,amd64,macos,x64,paw,tar -czf,.tar.gz)
 
 build-ms-arm64:
-	@echo "Building paw windows arm64..."
-	GOOS=windows GOARCH=arm64 go build -o ../paw-arm64.exe ./cmd/paw
+	$(call build-release,windows,arm64,windows,arm64,paw.exe,zip -r,.zip)
 
 build-ms-x64:
-	@echo "Building paw windows x86_64..."
-	GOOS=windows GOARCH=amd64 go build -o ../paw-x64.exe ./cmd/paw
+	$(call build-release,windows,amd64,windows,x64,paw.exe,zip -r,.zip)
 
 build-linux-arm64:
-	@echo "Building paw linux arm64..."
-	GOOS=linux GOARCH=arm64 go build -o ../paw-linux-arm64 ./cmd/paw
+	$(call build-release,linux,arm64,linux,arm64,paw,tar -czf,.tar.gz)
 
 build-linux-x64:
-	@echo "Building paw linux arm64..."
-	GOOS=linux GOARCH=amd64 go build -o ../paw-linux-x64 ./cmd/paw
+	$(call build-release,linux,amd64,linux,x64,paw,tar -czf,.tar.gz)
 
 build-wasm:
 	@echo "Building paw WASM..."
@@ -47,7 +60,7 @@ test-coverage:
 
 run-example:
 	@echo "Running hello.paw example..."
-	@../paw hello.paw -- arg1 arg2 arg3
+	@../paw ../examples/hello.paw -- arg1 arg2 arg3
 
 clean:
 	@echo "Cleaning..."
@@ -73,13 +86,11 @@ help:
 	@echo "PawScript Makefile"
 	@echo ""
 	@echo "Targets:"
-	@echo "  all          - Build and test (default)"
-	@echo "  build        - Build the paw CLI"
-	@echo "  test         - Run tests"
-	@echo "  test-coverage - Run tests with coverage report"
-	@echo "  run-example  - Run hello.paw example"
-	@echo "  clean        - Remove build artifacts"
-	@echo "  install      - Install paw to GOPATH"
-	@echo "  fmt          - Format code"
-	@echo "  lint         - Run linter"
-	@echo "  help         - Show this help"
+	@echo "  build-all      - Build and package for all platforms (default)"
+	@echo "  run-example    - Run hello.paw example"
+	@echo "  clean          - Remove build artifacts"
+	@echo "  clean-releases - Clean release artifacts"
+	@echo "  install        - Install paw to GOPATH"
+	@echo "  fmt            - Format code"
+	@echo "  lint           - Run linter"
+	@echo "  help           - Show this help"
