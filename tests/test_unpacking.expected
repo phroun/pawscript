@@ -1,0 +1,19 @@
+Test 1: Unpack list into variables
+x = 10, y = 20, z = 30
+Expected: x = 10, y = 20, z = 30
+
+Test 2: Unpack ParenGroup into variables
+a = 100, b = 200, c = 300
+Expected: a = 100, b = 200, c = 300
+
+Test 3: Dynamic targets from list
+p = 5, q = 10, r = 15
+Expected: p = 5, q = 10, r = 15
+
+Test 4: More variables than values
+m = 42, n = 99, o = nil
+Expected: m = 42, n = 99, o = (nil or empty)
+
+Test 5: Still works with simple assignment
+simple = hello
+Expected: simple = hello

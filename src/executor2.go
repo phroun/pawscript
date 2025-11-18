@@ -523,8 +523,9 @@ func (e *Executor) substituteBraceExpressions(str string, ctx *SubstitutionConte
 		e.logger.Debug("Evaluating brace %d: line=%d, column=%d", i, brace.StartLine, brace.StartColumn)
 		e.logger.Debug("Brace content: \"{%s}\"", brace.Content)
 		
-		// Create child state for this brace
-		childState := ctx.ExecutionState.CreateChild()
+		// Create a child state with shared variables but isolated result storage
+		// This prevents async braces from racing on result storage while still sharing variables
+		braceState := NewExecutionStateFromSharedVars(ctx.ExecutionState)
 		
 		// Calculate accumulated offsets for this brace
 		currentLineOffset := 0
@@ -548,10 +549,10 @@ func (e *Executor) substituteBraceExpressions(str string, ctx *SubstitutionConte
 		
 		e.logger.Debug("Brace offsets: line=%d, column=%d", newLineOffset, newColumnOffset)
 		
-		// Create child substitution context
-		childSubstitutionCtx := &SubstitutionContext{
+		// Create substitution context using the child state
+		braceSubstitutionCtx := &SubstitutionContext{
 			Args:                ctx.Args,
-			ExecutionState:      childState,
+			ExecutionState:      braceState,
 			ParentContext:       ctx,
 			MacroContext:        ctx.MacroContext,
 			CurrentLineOffset:   newLineOffset,
@@ -559,15 +560,23 @@ func (e *Executor) substituteBraceExpressions(str string, ctx *SubstitutionConte
 			Filename:            ctx.Filename,
 		}
 		
-		// Execute the brace content
+		// Execute the brace content with the child state (isolated result storage, shared variables)
 		executeResult := e.ExecuteWithState(
 			brace.Content,
-			childState,
-			childSubstitutionCtx,
+			braceState,
+			braceSubstitutionCtx,
 			ctx.Filename, // Pass filename for error reporting
 			newLineOffset,
 			newColumnOffset,
 		)
+		
+		// Capture the result IMMEDIATELY after execution, before the next brace can overwrite it
+		var capturedResult interface{}
+		var hasCapturedResult bool
+		if braceState.HasResult() {
+			capturedResult = braceState.GetResult()
+			hasCapturedResult = true
+		}
 		
 		// Create position for error reporting (points to first character inside brace)
 		braceContentPosition := &SourcePosition{
@@ -580,7 +589,7 @@ func (e *Executor) substituteBraceExpressions(str string, ctx *SubstitutionConte
 		// Create evaluation record
 		evaluations[i] = &BraceEvaluation{
 			Location:  brace,
-			State:     childState,
+			State:     braceState,
 			Completed: false,
 			Failed:    false,
 			Position:  braceContentPosition,
@@ -602,9 +611,9 @@ func (e *Executor) substituteBraceExpressions(str string, ctx *SubstitutionConte
 				evaluations[i].Error = "Command returned false"
 				e.logger.Debug("Brace %d completed synchronously with failure", i)
 			} else {
-				// Get the result value
-				if childState.HasResult() {
-					evaluations[i].Result = childState.GetResult()
+				// Use the captured result
+				if hasCapturedResult {
+					evaluations[i].Result = capturedResult
 				} else if boolStatus, ok := executeResult.(BoolStatus); ok {
 					evaluations[i].Result = fmt.Sprintf("%v", bool(boolStatus))
 				}

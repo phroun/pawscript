@@ -1,6 +1,8 @@
 package pawscript
 
-import "sync"
+import (
+	"sync"
+)
 
 // ExecutionState manages the result state during command execution
 type ExecutionState struct {
@@ -14,6 +16,7 @@ type ExecutionState struct {
 func NewExecutionState() *ExecutionState {
 	return &ExecutionState{
 		hasResult: false,
+		variables: make(map[string]interface{}), // Always initialize the map
 	}
 }
 
@@ -23,13 +26,27 @@ func NewExecutionStateFrom(parent *ExecutionState) *ExecutionState {
 		return NewExecutionState()
 	}
 	
+	return &ExecutionState{
+		currentResult: nil, // Fresh result storage for this child
+		hasResult:     false, // Child starts with no result
+		variables:     make(map[string]interface{}), // Create fresh map
+	}
+}
+
+// NewExecutionStateFromSharedVars creates a child that shares variables but has its own result storage
+// This is used for braces that need isolated result storage but shared variable scope
+func NewExecutionStateFromSharedVars(parent *ExecutionState) *ExecutionState {
+	if parent == nil {
+		return NewExecutionState()
+	}
+	
 	parent.mu.RLock()
 	defer parent.mu.RUnlock()
 	
 	return &ExecutionState{
-		currentResult: parent.currentResult,
-		hasResult:     parent.hasResult,
-		variables:     parent.variables, // Share the same variables map
+		currentResult: parent.currentResult, // Inherit parent's result for get_result
+		hasResult:     parent.hasResult, // Inherit parent's result state
+		variables:     parent.variables, // Share the variables map with parent
 	}
 }
 

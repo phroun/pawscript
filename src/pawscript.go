@@ -40,9 +40,12 @@ func New(config *Config) *PawScript {
 					state = NewExecutionState()
 				}
 				
-				result := macroSystem.ExecuteMacro(cmdName, func(commands string, macroState *ExecutionState, ctx *SubstitutionContext) Result {
-					return executor.ExecuteWithState(commands, macroState, ctx, "", 0, 0)
-				}, args, state, position)
+				// Create a child state so the macro has its own fresh variable scope
+				macroState := state.CreateChild()
+				
+				result := macroSystem.ExecuteMacro(cmdName, func(commands string, macroExecState *ExecutionState, ctx *SubstitutionContext) Result {
+					return executor.ExecuteWithState(commands, macroExecState, ctx, "", 0, 0)
+				}, args, macroState, position)
 				
 				return result
 			}
@@ -90,11 +93,13 @@ func (ps *PawScript) registerBuiltInMacroCommands() {
 		name := fmt.Sprintf("%v", ctx.Args[0])
 		macroArgs := ctx.Args[1:]
 		
-		state := NewExecutionState()
+		// Create a child state so the called macro has its own scope
+		// but can access parent variables via get_parent/set_parent
+		macroState := ctx.state.CreateChild()
 		
-		return ps.macroSystem.ExecuteMacro(name, func(commands string, macroState *ExecutionState, substCtx *SubstitutionContext) Result {
-			return ps.executor.ExecuteWithState(commands, macroState, substCtx, "", 0, 0)
-		}, macroArgs, state, ctx.Position)
+		return ps.macroSystem.ExecuteMacro(name, func(commands string, macroExecState *ExecutionState, substCtx *SubstitutionContext) Result {
+			return ps.executor.ExecuteWithState(commands, macroExecState, substCtx, "", 0, 0)
+		}, macroArgs, macroState, ctx.Position)
 	})
 	
 	// List macros command

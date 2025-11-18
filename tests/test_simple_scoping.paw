@@ -1,0 +1,66 @@
+# Test local variable scoping
+
+# Set a variable in the top-level scope
+set x, "outer"
+echo "Top level x = {get x}"
+
+# Define a macro that has its own local scope
+macro test_local(
+    # This should fail - no x in local scope
+    echo "Trying to get x locally..."
+    if {get x}
+    then echo "ERROR: should not see x locally"
+    else echo "Good: x not found in local scope"
+    
+    # Set a local variable
+    set y, "inner"
+    echo "Local y = {get y}"
+)
+
+# Call the macro
+test_local
+
+# Check that y is NOT available at top level (should fail)
+echo "Trying to get y at top level..."
+if {get y}
+then echo "ERROR: y should not be visible"
+else echo "Good: y not found at top level"
+
+# Test nested macros
+macro outer_macro, (
+    set a, "from outer"
+    echo "Outer macro: a = {get a}"
+    
+    # Define and call inner macro
+    macro inner_macro, (
+        # Inner has fresh scope
+        echo "Inner macro: trying to get a..."
+        if {get a}
+        then echo "ERROR: should not see a"
+        else echo "Good: a not in local scope"
+        
+        # Inner can set its own variable
+        set b, "from inner"
+        echo "Inner macro: b = {get b}"
+    )
+    
+    inner_macro
+    
+    # b should not be visible in outer
+    echo "Outer macro: trying to get b..."
+    if {get b}
+    then echo "ERROR: should not see b"
+    else echo "Good: b not found in outer scope"
+)
+
+outer_macro
+
+# Neither a nor b should be visible at top level
+echo "Trying to get a at top level..."
+if {get a}
+then echo "ERROR: a should not be visible"
+else echo "Good: a not found at top level"
+echo "Trying to get b at top level..."
+if {get b}
+then echo "ERROR: b should not be visible"
+else echo "Good: b not found at top level"

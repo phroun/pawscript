@@ -286,11 +286,13 @@ func (ps *PawScript) RegisterStandardLibrary(scriptArgs []string) {
 		return BoolStatus(true)
 	})
 
-	// get_result - gets the current result value
+	// get_result - gets the current result value and keeps it as the result
 	ps.RegisterCommand("get_result", func(ctx *Context) Result {
-	    /*fmt.Fprintf(os.Stderr, "[DEBUG get_result] HasResult: %v, Result: %v\n", 
-		ctx.HasResult(), ctx.GetResult())*/
-	    return BoolStatus(true)
+		if ctx.HasResult() {
+			return BoolStatus(true)
+		}
+		// No result available
+		return BoolStatus(false)
 	})
 	
 	// ret - early return from block
@@ -354,16 +356,67 @@ func (ps *PawScript) RegisterStandardLibrary(scriptArgs []string) {
 	})
 	
 	// set - sets a variable in current scope
+	// Usage: set varname, value                    - simple assignment
+	//        set (x, y, z), {list 1, 2, 3}         - unpack list into variables
+	//        set (a, b), (10, 20)                  - unpack ParenGroup into variables
+	//        set {get targets}, {get values}       - dynamic unpacking
 	ps.RegisterCommand("set", func(ctx *Context) Result {
 		if len(ctx.Args) < 2 {
-			fmt.Fprintln(os.Stderr, "[SET ERROR] Usage: set <name> <value>")
+			fmt.Fprintln(os.Stderr, "[SET ERROR] Usage: set <n> <value>")
 			return BoolStatus(false)
 		}
 		
-		varName := fmt.Sprintf("%v", ctx.Args[0])
-		value := ctx.Args[1]
+		firstArg := ctx.Args[0]
+		secondArg := ctx.Args[1]
 		
-		ctx.state.SetVariable(varName, value)
+		// Check if first arg is a list or ParenGroup (for unpacking)
+		var varNames []interface{}
+		isUnpacking := false
+		
+		if pawList, ok := firstArg.(PawList); ok {
+			// First arg is a list - unpack mode
+			varNames = pawList.Items()
+			isUnpacking = true
+		} else if parenGroup, ok := firstArg.(ParenGroup); ok {
+			// First arg is a ParenGroup - parse it as comma-separated list
+			varNames = parseArguments(string(parenGroup))
+			isUnpacking = true
+		}
+		
+		if isUnpacking {
+			// Unpacking mode - extract values from second arg
+			var values []interface{}
+			
+			if pawList, ok := secondArg.(PawList); ok {
+				values = pawList.Items()
+			} else if parenGroup, ok := secondArg.(ParenGroup); ok {
+				values = parseArguments(string(parenGroup))
+			} else if str, ok := secondArg.(string); ok {
+				// Try parsing as comma-separated values
+				values = parseArguments(str)
+			} else {
+				// Single value - wrap in slice
+				values = []interface{}{secondArg}
+			}
+			
+			// Set each variable to its corresponding value
+			for i, varNameInterface := range varNames {
+				varName := fmt.Sprintf("%v", varNameInterface)
+				
+				if i < len(values) {
+					ctx.state.SetVariable(varName, values[i])
+				} else {
+					// Not enough values - set to nil
+					ctx.state.SetVariable(varName, nil)
+				}
+			}
+			
+			return BoolStatus(true)
+		}
+		
+		// Normal mode - simple assignment
+		varName := fmt.Sprintf("%v", firstArg)
+		ctx.state.SetVariable(varName, secondArg)
 		return BoolStatus(true)
 	})
 	

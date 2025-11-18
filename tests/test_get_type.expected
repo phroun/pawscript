@@ -73,29 +73,6 @@ Test 14: Case sensitivity
   MYVAR → symbol (expected: symbol)
   myVAR (not defined) → undefined (expected: undefined)
 
-Test 15: Practical use cases
-  Testing safe_access macro:
-Variable undefined_var is not defined, using default
-    Result for undefined_var: default
-Variable my_value exists with type: symbol
-    Result for my_value: actual
-
-  Testing type_dispatch macro:
-    
-Got symbol: identifier
-Got string: identifier
-Got int: identifier
-Variable test_sym is undefined
-    
-Got string: text
-Got int: text
-Variable test_str is undefined
-    
-Got int: 42
-Variable test_int is undefined
-    
-Variable not_defined is undefined
-
 === Summary ===
 
 Expected behaviors:

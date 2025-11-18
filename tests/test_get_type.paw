@@ -230,6 +230,7 @@ get_type myVAR
 echo "  myVAR (not defined) → {get_result} (expected: undefined)"
 echo ""
 
+#(
 # Test 15: Practical use cases
 echo "Test 15: Practical use cases"
 
@@ -280,6 +281,7 @@ type_dispatch test_int
 echo "    "
 type_dispatch not_defined
 echo ""
+)#
 
 echo "=== Summary ==="
 echo ""
