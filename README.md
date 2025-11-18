@@ -51,6 +51,10 @@ See the `examples/` directory for sample scripts and usage patterns.
 
 ## Changelog
 
+### 0.2.1 -- Novembe 18, 2025
+- Macro local scope was broken, now fixed
+- Using list/group args for set now unpacks into variable names in first arg.
+
 ### 0.2.0 -- November 13-16, 2025
 - PawScript is entirely re-written in Go for improved performance.
 - Added set_result to set the formal result of a brace evaluation or macro
