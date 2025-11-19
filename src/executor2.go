@@ -179,7 +179,7 @@ func (e *Executor) executeSingleCommand(
 	commandStr = e.applySubstitution(commandStr, substitutionCtx)
 
 	// Check if brace evaluation failed
-	if commandStr == "\x00BRACE_FAILED\x00" {
+	if commandStr == "\x00PAWS_FAILED\x00" {
 		// Error already logged by ExecuteWithState with correct position
 		e.logger.Debug("Brace evaluation failed, returning false")
 		result := BoolStatus(false)
@@ -190,9 +190,9 @@ func (e *Executor) executeSingleCommand(
 	}
 
 	// Check if substitution returned an async brace marker
-	if strings.HasPrefix(commandStr, "\x00ASYNC_BRACES:") && strings.HasSuffix(commandStr, "\x00") {
+	if strings.HasPrefix(commandStr, "\x00PAWS:") && strings.HasSuffix(commandStr, "\x00") {
 		// Extract the coordinator token ID
-		markerLen := len("\x00ASYNC_BRACES:")
+		markerLen := len("\x00PAWS:")
 		coordinatorToken := commandStr[markerLen : len(commandStr)-1]
 
 		e.logger.Debug("Async brace evaluation detected, coordinator token: %s", coordinatorToken)
@@ -232,7 +232,7 @@ func (e *Executor) executeSingleCommand(
 				// Now parse and execute the command with the substituted string
 				cmdName, args := ParseCommand(finalString)
 
-				// Process arguments to resolve any PAWLIST markers
+				// Process arguments to resolve any LIST markers
 				args = e.processArguments(args)
 
 				e.logger.Debug("Parsed as - Command: \"%s\", Args: %v", cmdName, args)
@@ -295,7 +295,7 @@ func (e *Executor) executeSingleCommand(
 	// Parse command
 	cmdName, args := ParseCommand(commandStr)
 
-	// Process arguments to resolve any PAWLIST markers
+	// Process arguments to resolve any LIST markers
 	args = e.processArguments(args)
 
 	e.logger.Debug("Parsed as - Command: \"%s\", Args: %v", cmdName, args)
@@ -433,20 +433,20 @@ func (e *Executor) applySubstitution(str string, ctx *SubstitutionContext) strin
 
 	// First, protect escaped dollar signs by replacing \$ with a placeholder
 	// We use a placeholder that's unlikely to appear in normal text
-	const escapedDollarPlaceholder = "\x00ESCAPED_DOLLAR\x00"
+	const escapedDollarPlaceholder = "\x00SUB\x00"
 	result = strings.ReplaceAll(result, `\$`, escapedDollarPlaceholder)
 
 	// Apply brace expression substitution first
 	result = e.substituteBraceExpressions(result, ctx)
 
 	// Check if brace substitution failed
-	if result == "\x00BRACE_FAILED\x00" {
+	if result == "\x00PAWS_FAILED\x00" {
 		// Error already logged by ExecuteWithState, just propagate the failure
 		return result
 	}
 
 	// Check if brace substitution returned an async marker
-	if strings.HasPrefix(result, "\x00ASYNC_BRACES:") && strings.HasSuffix(result, "\x00") {
+	if strings.HasPrefix(result, "\x00PAWS:") && strings.HasSuffix(result, "\x00") {
 		// Extract the token and return it as-is
 		// The caller (executeSingleCommand) will handle this
 		return result
@@ -651,7 +651,7 @@ func (e *Executor) substituteBraceExpressions(str string, ctx *SubstitutionConte
 
 		// Return a special marker that includes the coordinator token
 		// The executeSingleCommand will need to detect this and return the token
-		return fmt.Sprintf("\x00ASYNC_BRACES:%s\x00", coordinatorToken)
+		return fmt.Sprintf("\x00PAWS:%s\x00", coordinatorToken)
 	}
 
 	// All synchronous - check for any failures
@@ -675,7 +675,7 @@ func (e *Executor) substituteBraceExpressions(str string, ctx *SubstitutionConte
 			e.logger.ErrorWithPosition(errorMsg, eval.Position, sourceContext)
 			e.logger.Debug("Synchronous brace evaluation %d failed, aborting command", i)
 			// Return special marker to indicate brace failure
-			return "\x00BRACE_FAILED\x00"
+			return "\x00PAWS_FAILED\x00"
 		}
 	}
 
@@ -692,7 +692,7 @@ func (e *Executor) reEvaluateToken(token string, ctx *SubstitutionContext) strin
 	result := token
 
 	// First, protect escaped dollar signs
-	const escapedDollarPlaceholder = "\x00ESCAPED_DOLLAR\x00"
+	const escapedDollarPlaceholder = "\x00SUB\x00"
 	result = strings.ReplaceAll(result, `\$`, escapedDollarPlaceholder)
 
 	// Re-apply $* substitution
@@ -1045,9 +1045,9 @@ func (e *Executor) formatBraceResult(value interface{}, originalString string, b
 	case PawList:
 		// PawList: use a special marker that preserves the object
 		// We'll use a unique placeholder that will be detected during argument parsing
-		// Format: \x00PAWLIST:index\x00 where index is stored in the execution state
+		// Format: \x00LIST:index\x00 where index is stored in the execution state
 		index := e.storeTempValue(value)
-		return fmt.Sprintf("\x00PAWLIST:%d\x00", index)
+		return fmt.Sprintf("\x00LIST:%d\x00", index)
 	case int64, float64:
 		// Numbers as-is
 		return fmt.Sprintf("%v", v)
@@ -1162,8 +1162,8 @@ func (e *Executor) retrieveTempValue(id int) (interface{}, bool) {
 	return value, exists
 }
 
-// processArguments processes arguments array to resolve PAWLIST markers
-// PAWLIST markers: \x00PAWLIST:index\x00 for PawList objects
+// processArguments processes arguments array to resolve LIST markers
+// LIST markers: \x00LIST:index\x00 for PawList objects
 func (e *Executor) processArguments(args []interface{}) []interface{} {
 	if len(args) == 0 {
 		return args
@@ -1171,14 +1171,14 @@ func (e *Executor) processArguments(args []interface{}) []interface{} {
 
 	result := make([]interface{}, len(args))
 	for i, arg := range args {
-		// Check if it's a Symbol that might be a PAWLIST marker
+		// Check if it's a Symbol that might be a LIST marker
 		if sym, ok := arg.(Symbol); ok {
 			str := string(sym)
 
-			// Check for PAWLIST marker
-			if strings.HasPrefix(str, "\x00PAWLIST:") && strings.HasSuffix(str, "\x00") {
+			// Check for LIST marker
+			if strings.HasPrefix(str, "\x00LIST:") && strings.HasSuffix(str, "\x00") {
 				// Extract the index
-				indexStr := str[len("\x00PAWLIST:") : len(str)-1]
+				indexStr := str[len("\x00LIST:") : len(str)-1]
 				if index, err := strconv.Atoi(indexStr); err == nil {
 					// Retrieve the actual PawList value
 					if value, exists := e.retrieveTempValue(index); exists {
