@@ -525,15 +525,21 @@ func (e *Executor) substituteBraceExpressions(str string, ctx *SubstitutionConte
 		
 		// Create a child state with shared variables but isolated result storage
 		// This prevents async braces from racing on result storage while still sharing variables
+
+		if ctx == nil {
+		    // Handle the nil case - either return an error or use a default
+		    return str // nil, fmt.Errorf("context cannot be nil")
+		}
 		braceState := NewExecutionStateFromSharedVars(ctx.ExecutionState)
 		
 		// Calculate accumulated offsets for this brace
-		currentLineOffset := 0
+		/*currentLineOffset := 0
 		currentColumnOffset := 0
 		if ctx != nil {
-			currentLineOffset = ctx.CurrentLineOffset
-			currentColumnOffset = ctx.CurrentColumnOffset
-		}
+		*/
+		currentLineOffset := ctx.CurrentLineOffset
+		currentColumnOffset := ctx.CurrentColumnOffset
+		// }
 		
 		newLineOffset := currentLineOffset + (brace.StartLine - 1)
 		var newColumnOffset int
@@ -680,6 +686,7 @@ func (e *Executor) substituteBraceExpressions(str string, ctx *SubstitutionConte
 	return result
 }
 
+/*
 // reEvaluateToken re-evaluates a token after brace substitution
 func (e *Executor) reEvaluateToken(token string, ctx *SubstitutionContext) string {
 	result := token
@@ -723,7 +730,9 @@ func (e *Executor) reEvaluateToken(token string, ctx *SubstitutionContext) strin
 	
 	return result
 }
+*/
 
+/*
 // escapeSpecialCharacters escapes special syntax characters for safe substitution
 func (e *Executor) escapeSpecialCharacters(str string) string {
 	// Characters that have special meaning in PawScript syntax
@@ -739,6 +748,7 @@ func (e *Executor) escapeSpecialCharacters(str string) string {
 	}
 	return result.String()
 }
+*/
 
 // formatArgumentForParenGroup formats an argument for $@ substitution
 // Preserves original forms for creating ParenGroup literals

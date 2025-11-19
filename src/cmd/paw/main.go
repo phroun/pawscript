@@ -93,6 +93,7 @@ func main() {
 		
 	} else {
 		// No filename and stdin is not redirected - show usage
+		showCopyright()
 		showUsage()
 		os.Exit(1)
 	}
@@ -171,6 +172,13 @@ func findScriptFile(filename string) string {
 	}
 	
 	return ""
+}
+
+func showCopyright() {
+	copyright := `paw, the pawscript interpreter version 0.2 - Copyright (c) 2025 Jeffrey R. Day
+
+`
+	fmt.Fprint(os.Stderr, copyright)
 }
 
 func showUsage() {

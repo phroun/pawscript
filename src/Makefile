@@ -4,8 +4,29 @@ VERSION := $(shell git describe --tags --always --dirty)
 # Release directory
 RELEASE_DIR := ../releases
 TEMPLATE_DIR := ../release-template
+INSTALL_DIR := ..
 
-.PHONY: build-all clean-releases
+# Detect native platform
+NATIVE_OS := $(shell go env GOOS)
+NATIVE_ARCH := $(shell go env GOARCH)
+
+# Set binary name based on OS
+ifeq ($(NATIVE_OS),windows)
+    BINARY_NAME := paw.exe
+else
+    BINARY_NAME := paw
+endif
+
+.PHONY: build-all clean-releases build install
+
+# Build native version for local use
+build:
+	@echo "Building paw for native platform ($(NATIVE_OS)/$(NATIVE_ARCH))..."
+	go build -o $(INSTALL_DIR)/$(BINARY_NAME) ./cmd/paw
+	@echo "Created: $(INSTALL_DIR)/$(BINARY_NAME)"
+
+# Alias for build
+install: build
 
 # Build and package all platforms
 build-all: build-wasm build-macos-arm64 build-macos-x64 build-ms-arm64 build-ms-x64 build-linux-arm64 build-linux-x64
@@ -50,7 +71,8 @@ build-wasm:
 
 test:
 	@echo "Running tests..."
-	@go test -v .
+	@cd ../tests && ./test_regressions.sh
+#	@go test -v .
 
 test-coverage:
 	@echo "Running tests with coverage..."
@@ -60,7 +82,7 @@ test-coverage:
 
 run-example:
 	@echo "Running hello.paw example..."
-	@../paw ../examples/hello.paw -- arg1 arg2 arg3
+	@../paw ../release-template/examples/hello.paw -- arg1 arg2 arg3
 
 clean:
 	@echo "Cleaning..."
