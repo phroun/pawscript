@@ -18,8 +18,8 @@ define build-release
 	@echo "Building and packaging paw $(3) $(4)..."
 	@mkdir -p $(RELEASE_DIR)/paw-$(VERSION)-$(3)-$(4)
 	@cp -r $(TEMPLATE_DIR)/* $(RELEASE_DIR)/paw-$(VERSION)-$(3)-$(4)/
-	@cp ../README.md $(RELEASE_DIR)/README.md
-	@cp ../LICENSE $(RELEASE_DIR)/LICENSE
+	@cp ../README.md $(RELEASE_DIR)/paw-$(VERSION)-$(3)-$(4)/README.md
+	@cp ../LICENSE $(RELEASE_DIR)/paw-$(VERSION)-$(3)-$(4)/LICENSE
 	GOOS=$(1) GOARCH=$(2) go build -o $(RELEASE_DIR)/paw-$(VERSION)-$(3)-$(4)/$(5) ./cmd/paw
 	@cd $(RELEASE_DIR) && $(6) paw-$(VERSION)-$(3)-$(4)$(7) paw-$(VERSION)-$(3)-$(4)
 	@rm -rf $(RELEASE_DIR)/paw-$(VERSION)-$(3)-$(4)
