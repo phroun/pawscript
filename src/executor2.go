@@ -12,30 +12,30 @@ import (
 // executeCommandSequence executes a sequence of commands
 func (e *Executor) executeCommandSequence(commands []*ParsedCommand, state *ExecutionState, substitutionCtx *SubstitutionContext) Result {
 	lastStatus := true // Default to true for leading operators
-	
+
 	for i, cmd := range commands {
 		if strings.TrimSpace(cmd.Command) == "" {
 			continue
 		}
-		
+
 		// Apply flow control based on separator
 		shouldExecute := true
-		
+
 		switch cmd.Separator {
 		case "&": // AND: execute only if last command succeeded
 			shouldExecute = lastStatus
 		case "|": // OR: execute only if last command failed
 			shouldExecute = !lastStatus
 		}
-		
+
 		if !shouldExecute {
 			e.logger.Debug("Skipping command \"%s\" due to flow control (separator: %s, lastStatus: %v)",
 				cmd.Command, cmd.Separator, lastStatus)
 			continue
 		}
-		
+
 		result := e.executeParsedCommand(cmd, state, substitutionCtx)
-		
+
 		// Check for early return
 		if earlyReturn, ok := result.(EarlyReturn); ok {
 			e.logger.Debug("Command returned early return, terminating sequence")
@@ -46,10 +46,10 @@ func (e *Executor) executeCommandSequence(commands []*ParsedCommand, state *Exec
 			// Return the status from the early return
 			return earlyReturn.Status
 		}
-		
+
 		if tokenResult, ok := result.(TokenResult); ok {
 			e.logger.Debug("Command returned token %s, setting up sequence continuation", string(tokenResult))
-			
+
 			remainingCommands := commands[i+1:]
 			if len(remainingCommands) > 0 {
 				sequenceToken := e.RequestCompletionToken(
@@ -61,22 +61,22 @@ func (e *Executor) executeCommandSequence(commands []*ParsedCommand, state *Exec
 					state,
 					cmd.Position,
 				)
-				
+
 				err := e.PushCommandSequence(sequenceToken, "sequence", remainingCommands, i+1, "sequence", state, cmd.Position)
 				if err != nil {
 					e.logger.Error("Failed to push command sequence: %v", err)
 					return BoolStatus(false)
 				}
-				
+
 				e.chainTokens(string(tokenResult), sequenceToken)
 				return TokenResult(sequenceToken)
 			}
 			return result
 		}
-		
+
 		lastStatus = bool(result.(BoolStatus))
 	}
-	
+
 	return BoolStatus(lastStatus)
 }
 
@@ -89,18 +89,18 @@ func (e *Executor) executeParsedCommand(parsedCmd *ParsedCommand, state *Executi
 func (e *Executor) chainTokens(firstToken, secondToken string) {
 	e.mu.Lock()
 	defer e.mu.Unlock()
-	
+
 	firstTokenData, exists1 := e.activeTokens[firstToken]
 	secondTokenData, exists2 := e.activeTokens[secondToken]
-	
+
 	if !exists1 || !exists2 {
 		e.logger.Error("Cannot chain tokens: %s or %s not found", firstToken, secondToken)
 		return
 	}
-	
+
 	firstTokenData.ChainedToken = secondToken
 	secondTokenData.ParentToken = firstToken
-	
+
 	e.logger.Debug("Chained token %s to complete after %s", secondToken, firstToken)
 }
 
@@ -112,7 +112,7 @@ func (e *Executor) executeSingleCommand(
 	position *SourcePosition,
 ) Result {
 	commandStr = strings.TrimSpace(commandStr)
-	
+
 	// Check for ! prefix (inversion operator)
 	// This inverts the success status (BoolStatus), not the result value
 	shouldInvert := false
@@ -121,34 +121,34 @@ func (e *Executor) executeSingleCommand(
 		commandStr = strings.TrimSpace(commandStr[1:]) // Strip ! and trim again
 		e.logger.Debug("Detected ! operator, will invert success status")
 	}
-	
+
 	// Check for parenthesis block - execute in same scope
 	if strings.HasPrefix(commandStr, "(") && strings.HasSuffix(commandStr, ")") {
 		blockContent := commandStr[1 : len(commandStr)-1]
-		
+
 		e.logger.Debug("Executing parenthesis block in same scope: (%s)", blockContent)
-		
+
 		// Execute block content in the SAME state (no child scope)
 		result := e.ExecuteWithState(
 			blockContent,
-			state,              // Same state, not a child
+			state, // Same state, not a child
 			substitutionCtx,
 			position.Filename,
 			0, 0,
 		)
-		
+
 		// Apply inversion if needed
 		if shouldInvert {
 			return e.invertStatus(result, state, position)
 		}
 		return result
 	}
-	
+
 	// Apply syntactic sugar
 	commandStr = e.applySyntacticSugar(commandStr)
-	
+
 	e.logger.Debug("executeSingleCommand called with: \"%s\"", commandStr)
-	
+
 	// CRITICAL: Always evaluate brace expressions, even when not in a macro context
 	// Create a minimal substitution context if one doesn't exist
 	if substitutionCtx == nil {
@@ -177,7 +177,7 @@ func (e *Executor) executeSingleCommand(
 
 	// Apply substitution (which includes brace expressions)
 	commandStr = e.applySubstitution(commandStr, substitutionCtx)
-	
+
 	// Check if brace evaluation failed
 	if commandStr == "\x00BRACE_FAILED\x00" {
 		// Error already logged by ExecuteWithState with correct position
@@ -188,15 +188,15 @@ func (e *Executor) executeSingleCommand(
 		}
 		return result
 	}
-	
+
 	// Check if substitution returned an async brace marker
 	if strings.HasPrefix(commandStr, "\x00ASYNC_BRACES:") && strings.HasSuffix(commandStr, "\x00") {
 		// Extract the coordinator token ID
 		markerLen := len("\x00ASYNC_BRACES:")
 		coordinatorToken := commandStr[markerLen : len(commandStr)-1]
-		
+
 		e.logger.Debug("Async brace evaluation detected, coordinator token: %s", coordinatorToken)
-		
+
 		// We need to update the coordinator's resume callback to continue this command
 		e.mu.Lock()
 		if coordData, exists := e.activeTokens[coordinatorToken]; exists && coordData.BraceCoordinator != nil {
@@ -204,10 +204,10 @@ func (e *Executor) executeSingleCommand(
 			capturedState := state
 			capturedPosition := position
 			capturedShouldInvert := shouldInvert
-			
+
 			// Get the evaluations so we can access their positions
 			evaluations := coordData.BraceCoordinator.Evaluations
-			
+
 			// Update the resume callback to continue command execution
 			coordData.BraceCoordinator.ResumeCallback = func(finalString string, success bool) Result {
 				if !success {
@@ -216,7 +216,7 @@ func (e *Executor) executeSingleCommand(
 					e.logger.Debug("Brace evaluation failed, command cannot execute")
 					for i, eval := range evaluations {
 						if eval.Failed && eval.Position != nil {
-							e.logger.Debug("Failed brace %d was at line %d, column %d", 
+							e.logger.Debug("Failed brace %d was at line %d, column %d",
 								i, eval.Position.Line, eval.Position.Column)
 						}
 					}
@@ -226,22 +226,22 @@ func (e *Executor) executeSingleCommand(
 					}
 					return result
 				}
-				
+
 				e.logger.Debug("Brace coordinator resumed with substituted string: %s", finalString)
-				
+
 				// Now parse and execute the command with the substituted string
 				cmdName, args := ParseCommand(finalString)
-				
+
 				// Process arguments to resolve any PAWLIST markers
 				args = e.processArguments(args)
-				
+
 				e.logger.Debug("Parsed as - Command: \"%s\", Args: %v", cmdName, args)
-				
+
 				// Try registered command
 				e.mu.RLock()
 				handler, exists := e.commands[cmdName]
 				e.mu.RUnlock()
-				
+
 				// Try fallback handler if command not found
 				if !exists && e.fallbackHandler != nil {
 					e.logger.Debug("Command \"%s\" not found, trying fallback handler", cmdName)
@@ -254,7 +254,7 @@ func (e *Executor) executeSingleCommand(
 						return fallbackResult
 					}
 				}
-				
+
 				if !exists {
 					e.logger.UnknownCommandError(cmdName, capturedPosition, nil)
 					result := BoolStatus(false)
@@ -263,12 +263,12 @@ func (e *Executor) executeSingleCommand(
 					}
 					return result
 				}
-				
+
 				// Execute command
 				e.logger.Debug("Executing %s with args: %v", cmdName, args)
 				ctx := e.createContext(args, capturedState, capturedPosition)
 				result := handler(ctx)
-				
+
 				// Apply inversion if needed
 				if capturedShouldInvert {
 					return e.invertStatus(result, capturedState, capturedPosition)
@@ -285,26 +285,26 @@ func (e *Executor) executeSingleCommand(
 			}
 			return result
 		}
-		
+
 		// Return the coordinator token to suspend this command
 		return TokenResult(coordinatorToken)
 	}
-	
+
 	e.logger.Debug("After substitution: \"%s\"", commandStr)
-	
+
 	// Parse command
 	cmdName, args := ParseCommand(commandStr)
-	
+
 	// Process arguments to resolve any PAWLIST markers
 	args = e.processArguments(args)
-	
+
 	e.logger.Debug("Parsed as - Command: \"%s\", Args: %v", cmdName, args)
-	
+
 	// Try registered command
 	e.mu.RLock()
 	handler, exists := e.commands[cmdName]
 	e.mu.RUnlock()
-	
+
 	// Try fallback handler if command not found
 	if !exists && e.fallbackHandler != nil {
 		e.logger.Debug("Command \"%s\" not found, trying fallback handler", cmdName)
@@ -317,7 +317,7 @@ func (e *Executor) executeSingleCommand(
 			return fallbackResult
 		}
 	}
-	
+
 	if !exists {
 		e.logger.UnknownCommandError(cmdName, position, nil)
 		result := BoolStatus(false)
@@ -326,17 +326,17 @@ func (e *Executor) executeSingleCommand(
 		}
 		return result
 	}
-	
+
 	// Execute command
 	e.logger.Debug("Executing %s with args: %v", cmdName, args)
 	ctx := e.createContext(args, state, position)
 	result := handler(ctx)
-	
+
 	// Apply inversion if needed
 	if shouldInvert {
 		return e.invertStatus(result, state, position)
 	}
-	
+
 	return result
 }
 
@@ -346,38 +346,38 @@ func (e *Executor) applySyntacticSugar(commandStr string) string {
 	if spaceIndex == -1 {
 		return commandStr
 	}
-	
+
 	commandPart := commandStr[:spaceIndex]
 	argsPart := commandStr[spaceIndex+1:]
-	
+
 	// Try to match identifier(content) pattern with proper nesting
 	argsPart = strings.TrimSpace(argsPart)
-	
+
 	// Check if it starts with identifier followed by optional whitespace and (
 	identifierMatch := regexp.MustCompile(`^([a-zA-Z_][a-zA-Z0-9_]*)\s*\(`).FindStringSubmatch(argsPart)
 	if len(identifierMatch) == 0 {
 		return commandStr
 	}
-	
+
 	identifier := identifierMatch[1]
 	startPos := len(identifierMatch[0]) - 1 // Position of opening (
-	
+
 	// Manually find matching closing paren, handling nesting
 	runes := []rune(argsPart)
 	depth := 0
 	inQuote := false
 	var quoteChar rune
 	endPos := -1
-	
+
 	for i := startPos; i < len(runes); i++ {
 		char := runes[i]
-		
+
 		// Handle escape sequences
 		if char == '\\' && i+1 < len(runes) {
 			i++ // Skip next character
 			continue
 		}
-		
+
 		// Handle quotes
 		if !inQuote && (char == '"' || char == '\'') {
 			inQuote = true
@@ -391,7 +391,7 @@ func (e *Executor) applySyntacticSugar(commandStr string) string {
 		if inQuote {
 			continue
 		}
-		
+
 		// Track parenthesis depth
 		if char == '(' {
 			depth++
@@ -403,21 +403,21 @@ func (e *Executor) applySyntacticSugar(commandStr string) string {
 			}
 		}
 	}
-	
+
 	if endPos == -1 {
 		// No matching closing paren found
 		return commandStr
 	}
-	
+
 	// Extract content between parens
 	content := string(runes[startPos+1 : endPos])
-	
+
 	// Get any remaining text after the closing paren
 	remainder := ""
 	if endPos+1 < len(runes) {
 		remainder = string(runes[endPos+1:])
 	}
-	
+
 	return fmt.Sprintf("%s '%s', (%s)%s", commandPart, identifier, content, remainder)
 }
 
@@ -428,30 +428,30 @@ func (e *Executor) applySubstitution(str string, ctx *SubstitutionContext) strin
 	if ctx == nil {
 		return str
 	}
-	
+
 	result := str
-	
+
 	// First, protect escaped dollar signs by replacing \$ with a placeholder
 	// We use a placeholder that's unlikely to appear in normal text
 	const escapedDollarPlaceholder = "\x00ESCAPED_DOLLAR\x00"
 	result = strings.ReplaceAll(result, `\$`, escapedDollarPlaceholder)
-	
+
 	// Apply brace expression substitution first
 	result = e.substituteBraceExpressions(result, ctx)
-	
+
 	// Check if brace substitution failed
 	if result == "\x00BRACE_FAILED\x00" {
 		// Error already logged by ExecuteWithState, just propagate the failure
 		return result
 	}
-	
+
 	// Check if brace substitution returned an async marker
 	if strings.HasPrefix(result, "\x00ASYNC_BRACES:") && strings.HasSuffix(result, "\x00") {
 		// Extract the token and return it as-is
 		// The caller (executeSingleCommand) will handle this
 		return result
 	}
-	
+
 	// CRITICAL: Only apply $*, $#, and $N substitutions when we're in a macro execution context
 	// This prevents premature substitution when defining nested macros
 	if ctx.MacroContext != nil {
@@ -465,7 +465,7 @@ func (e *Executor) applySubstitution(str string, ctx *SubstitutionContext) strin
 		} else {
 			result = strings.ReplaceAll(result, "$*", "")
 		}
-		
+
 		// Apply $@ (all args as ParenGroup) - creates a ParenGroup literal
 		if len(ctx.Args) > 0 {
 			allArgs := make([]string, len(ctx.Args))
@@ -476,10 +476,10 @@ func (e *Executor) applySubstitution(str string, ctx *SubstitutionContext) strin
 		} else {
 			result = strings.ReplaceAll(result, "$@", "()")
 		}
-		
+
 		// Apply $# (arg count)
 		result = strings.ReplaceAll(result, "$#", fmt.Sprintf("%d", len(ctx.Args)))
-		
+
 		// Apply $1, $2, etc (indexed args) - unwrap for direct substitution
 		re := regexp.MustCompile(`\$(\d+)`)
 		result = re.ReplaceAllStringFunc(result, func(match string) string {
@@ -488,7 +488,7 @@ func (e *Executor) applySubstitution(str string, ctx *SubstitutionContext) strin
 			if err != nil {
 				return match
 			}
-			
+
 			index-- // Convert to 0-based
 			if index >= 0 && index < len(ctx.Args) {
 				return e.formatArgumentForSubstitution(ctx.Args[index])
@@ -496,10 +496,10 @@ func (e *Executor) applySubstitution(str string, ctx *SubstitutionContext) strin
 			return match
 		})
 	}
-	
+
 	// Finally, restore escaped dollar signs
 	result = strings.ReplaceAll(result, escapedDollarPlaceholder, "$")
-	
+
 	return result
 }
 
@@ -508,30 +508,30 @@ func (e *Executor) applySubstitution(str string, ctx *SubstitutionContext) strin
 func (e *Executor) substituteBraceExpressions(str string, ctx *SubstitutionContext) string {
 	// Find all top-level braces in this string
 	braces := e.findAllTopLevelBraces(str, ctx)
-	
+
 	if len(braces) == 0 {
 		return str // No braces to process
 	}
-	
+
 	e.logger.Debug("Found %d top-level braces to evaluate", len(braces))
-	
+
 	// Execute all braces and collect their results
 	evaluations := make([]*BraceEvaluation, len(braces))
 	hasAsync := false
-	
+
 	for i, brace := range braces {
 		e.logger.Debug("Evaluating brace %d: line=%d, column=%d", i, brace.StartLine, brace.StartColumn)
 		e.logger.Debug("Brace content: \"{%s}\"", brace.Content)
-		
+
 		// Create a child state with shared variables but isolated result storage
 		// This prevents async braces from racing on result storage while still sharing variables
 
 		if ctx == nil {
-		    // Handle the nil case - either return an error or use a default
-		    return str // nil, fmt.Errorf("context cannot be nil")
+			// Handle the nil case - either return an error or use a default
+			return str // nil, fmt.Errorf("context cannot be nil")
 		}
 		braceState := NewExecutionStateFromSharedVars(ctx.ExecutionState)
-		
+
 		// Calculate accumulated offsets for this brace
 		/*currentLineOffset := 0
 		currentColumnOffset := 0
@@ -540,7 +540,7 @@ func (e *Executor) substituteBraceExpressions(str string, ctx *SubstitutionConte
 		currentLineOffset := ctx.CurrentLineOffset
 		currentColumnOffset := ctx.CurrentColumnOffset
 		// }
-		
+
 		newLineOffset := currentLineOffset + (brace.StartLine - 1)
 		var newColumnOffset int
 		if brace.StartLine == 1 {
@@ -552,9 +552,9 @@ func (e *Executor) substituteBraceExpressions(str string, ctx *SubstitutionConte
 			// Same off-by-one issue
 			newColumnOffset = brace.StartColumn - 1
 		}
-		
+
 		e.logger.Debug("Brace offsets: line=%d, column=%d", newLineOffset, newColumnOffset)
-		
+
 		// Create substitution context using the child state
 		braceSubstitutionCtx := &SubstitutionContext{
 			Args:                ctx.Args,
@@ -565,7 +565,7 @@ func (e *Executor) substituteBraceExpressions(str string, ctx *SubstitutionConte
 			CurrentColumnOffset: newColumnOffset,
 			Filename:            ctx.Filename,
 		}
-		
+
 		// Execute the brace content with the child state (isolated result storage, shared variables)
 		executeResult := e.ExecuteWithState(
 			brace.Content,
@@ -575,7 +575,7 @@ func (e *Executor) substituteBraceExpressions(str string, ctx *SubstitutionConte
 			newLineOffset,
 			newColumnOffset,
 		)
-		
+
 		// Capture the result IMMEDIATELY after execution, before the next brace can overwrite it
 		var capturedResult interface{}
 		var hasCapturedResult bool
@@ -583,7 +583,7 @@ func (e *Executor) substituteBraceExpressions(str string, ctx *SubstitutionConte
 			capturedResult = braceState.GetResult()
 			hasCapturedResult = true
 		}
-		
+
 		// Create position for error reporting (points to first character inside brace)
 		braceContentPosition := &SourcePosition{
 			Line:     newLineOffset + 1,
@@ -591,7 +591,7 @@ func (e *Executor) substituteBraceExpressions(str string, ctx *SubstitutionConte
 			Length:   len(brace.Content),
 			Filename: ctx.Filename,
 		}
-		
+
 		// Create evaluation record
 		evaluations[i] = &BraceEvaluation{
 			Location:  brace,
@@ -600,7 +600,7 @@ func (e *Executor) substituteBraceExpressions(str string, ctx *SubstitutionConte
 			Failed:    false,
 			Position:  braceContentPosition,
 		}
-		
+
 		// Check if this evaluation is async
 		if tokenResult, ok := executeResult.(TokenResult); ok {
 			evaluations[i].IsAsync = true
@@ -610,7 +610,7 @@ func (e *Executor) substituteBraceExpressions(str string, ctx *SubstitutionConte
 		} else {
 			// Synchronous completion
 			evaluations[i].Completed = true
-			
+
 			// Check if it was successful
 			if boolStatus, ok := executeResult.(BoolStatus); ok && !bool(boolStatus) {
 				evaluations[i].Failed = true
@@ -627,11 +627,11 @@ func (e *Executor) substituteBraceExpressions(str string, ctx *SubstitutionConte
 			}
 		}
 	}
-	
+
 	// If any evaluation is async, we need to coordinate
 	if hasAsync {
 		e.logger.Debug("At least one brace is async, creating coordinator token")
-		
+
 		// We need to return a special marker that tells the caller we're suspending
 		// The caller (executeSingleCommand) will need to handle this
 		coordinatorToken := e.RequestBraceCoordinatorToken(
@@ -648,12 +648,12 @@ func (e *Executor) substituteBraceExpressions(str string, ctx *SubstitutionConte
 			ctx.ExecutionState,
 			nil,
 		)
-		
+
 		// Return a special marker that includes the coordinator token
 		// The executeSingleCommand will need to detect this and return the token
 		return fmt.Sprintf("\x00ASYNC_BRACES:%s\x00", coordinatorToken)
 	}
-	
+
 	// All synchronous - check for any failures
 	for i, eval := range evaluations {
 		if eval.Failed {
@@ -664,25 +664,25 @@ func (e *Executor) substituteBraceExpressions(str string, ctx *SubstitutionConte
 			if eval.Error != "" {
 				errorMsg = eval.Error
 			}
-			
+
 			// Get source context if we have the original lines
 			var sourceContext []string
 			if ctx != nil && ctx.Filename != "" {
 				// Try to get source lines from parser's source map if available
 				sourceContext = nil // We'll add this later if needed
 			}
-			
+
 			e.logger.ErrorWithPosition(errorMsg, eval.Position, sourceContext)
 			e.logger.Debug("Synchronous brace evaluation %d failed, aborting command", i)
 			// Return special marker to indicate brace failure
 			return "\x00BRACE_FAILED\x00"
 		}
 	}
-	
+
 	// Substitute all results immediately
 	result := e.substituteAllBraces(str, evaluations)
 	e.logger.Debug("All braces synchronous, substituted result: %s", result)
-	
+
 	return result
 }
 
@@ -690,11 +690,11 @@ func (e *Executor) substituteBraceExpressions(str string, ctx *SubstitutionConte
 // reEvaluateToken re-evaluates a token after brace substitution
 func (e *Executor) reEvaluateToken(token string, ctx *SubstitutionContext) string {
 	result := token
-	
+
 	// First, protect escaped dollar signs
 	const escapedDollarPlaceholder = "\x00ESCAPED_DOLLAR\x00"
 	result = strings.ReplaceAll(result, `\$`, escapedDollarPlaceholder)
-	
+
 	// Re-apply $* substitution
 	if len(ctx.Args) > 0 {
 		allArgs := make([]string, len(ctx.Args))
@@ -705,10 +705,10 @@ func (e *Executor) reEvaluateToken(token string, ctx *SubstitutionContext) strin
 	} else {
 		result = strings.ReplaceAll(result, "$*", "")
 	}
-	
+
 	// Re-apply $# substitution
 	result = strings.ReplaceAll(result, "$#", fmt.Sprintf("%d", len(ctx.Args)))
-	
+
 	// Re-apply $1, $2, etc substitution
 	re := regexp.MustCompile(`\$(\d+)`)
 	result = re.ReplaceAllStringFunc(result, func(match string) string {
@@ -717,17 +717,17 @@ func (e *Executor) reEvaluateToken(token string, ctx *SubstitutionContext) strin
 		if err != nil {
 			return match
 		}
-		
+
 		index--
 		if index >= 0 && index < len(ctx.Args) {
 			return e.formatArgumentForSubstitution(ctx.Args[index])
 		}
 		return match
 	})
-	
+
 	// Restore escaped dollar signs
 	result = strings.ReplaceAll(result, escapedDollarPlaceholder, "$")
-	
+
 	return result
 }
 */
@@ -738,7 +738,7 @@ func (e *Executor) escapeSpecialCharacters(str string) string {
 	// Characters that have special meaning in PawScript syntax
 	// Must be escaped when substituting into command text
 	const specialChars = ";&#(){}\"'\\$,! \t\n\r"
-	
+
 	var result strings.Builder
 	for _, char := range str {
 		if strings.ContainsRune(specialChars, char) {
@@ -859,7 +859,7 @@ func (e *Executor) isSafeIdentifier(s string) bool {
 	if s == "" || s == "true" || s == "false" || s == "then" || s == "else" || s == "not" {
 		return false
 	}
-	
+
 	// Must be alphanumeric/underscore, can't start with digit
 	runes := []rune(s)
 	for i, r := range runes {
@@ -896,9 +896,9 @@ func (e *Executor) createContext(args []interface{}, state *ExecutionState, posi
 func (e *Executor) GetTokenStatus() map[string]interface{} {
 	e.mu.RLock()
 	defer e.mu.RUnlock()
-	
+
 	tokens := make([]map[string]interface{}, 0, len(e.activeTokens))
-	
+
 	for id, data := range e.activeTokens {
 		tokens = append(tokens, map[string]interface{}{
 			"id":                 id,
@@ -909,7 +909,7 @@ func (e *Executor) GetTokenStatus() map[string]interface{} {
 			"hasSuspendedResult": data.HasSuspendedResult,
 		})
 	}
-	
+
 	return map[string]interface{}{
 		"activeCount": len(e.activeTokens),
 		"tokens":      tokens,
@@ -922,7 +922,7 @@ func (e *Executor) substituteAllBraces(originalString string, evaluations []*Bra
 	// This prevents position shifts from affecting later substitutions
 	sortedEvals := make([]*BraceEvaluation, len(evaluations))
 	copy(sortedEvals, evaluations)
-	
+
 	// Bubble sort by StartPos descending
 	for i := 0; i < len(sortedEvals)-1; i++ {
 		for j := 0; j < len(sortedEvals)-i-1; j++ {
@@ -931,10 +931,10 @@ func (e *Executor) substituteAllBraces(originalString string, evaluations []*Bra
 			}
 		}
 	}
-	
+
 	result := originalString
 	runes := []rune(result)
-	
+
 	for _, eval := range sortedEvals {
 		// Get the result value
 		var rawValue interface{}
@@ -943,7 +943,7 @@ func (e *Executor) substituteAllBraces(originalString string, evaluations []*Bra
 		} else if eval.Result != nil {
 			rawValue = eval.Result
 		}
-		
+
 		// Format the result based on type
 		var resultValue string
 		if eval.Location.IsUnescape {
@@ -953,14 +953,14 @@ func (e *Executor) substituteAllBraces(originalString string, evaluations []*Bra
 			// {...} - preserve types properly, considering quote context
 			resultValue = e.formatBraceResult(rawValue, originalString, eval.Location.StartPos)
 		}
-		
+
 		// Substitute: replace from StartPos to EndPos+1 with resultValue
 		before := string(runes[:eval.Location.StartPos])
 		after := string(runes[eval.Location.EndPos+1:])
 		result = before + resultValue + after
 		runes = []rune(result)
 	}
-	
+
 	return result
 }
 
@@ -969,19 +969,19 @@ func (e *Executor) substituteAllBraces(originalString string, evaluations []*Bra
 func (e *Executor) isInsideQuotes(str string, pos int) bool {
 	inQuote := false
 	var quoteChar rune
-	
+
 	runes := []rune(str)
 	i := 0
-	
+
 	for i < len(runes) && i < pos {
 		char := runes[i]
-		
+
 		// Handle escape sequences - skip the backslash and next char
 		if char == '\\' && i+1 < len(runes) {
 			i += 2
 			continue
 		}
-		
+
 		// Track quote state
 		if !inQuote && (char == '"' || char == '\'') {
 			inQuote = true
@@ -990,10 +990,10 @@ func (e *Executor) isInsideQuotes(str string, pos int) bool {
 			inQuote = false
 			quoteChar = 0
 		}
-		
+
 		i++
 	}
-	
+
 	return inQuote
 }
 
@@ -1004,10 +1004,10 @@ func (e *Executor) formatBraceResult(value interface{}, originalString string, b
 	if value == nil {
 		return "nil"
 	}
-	
+
 	// Check if we're inside a quoted string context
 	insideQuotes := e.isInsideQuotes(originalString, bracePos)
-	
+
 	switch v := value.(type) {
 	case bool:
 		// Booleans as bare words - parser will recognize them
@@ -1067,17 +1067,17 @@ func (e *Executor) formatBraceResult(value interface{}, originalString string, b
 // Also detects ${...} for unescape mode
 func (e *Executor) findAllTopLevelBraces(str string, ctx *SubstitutionContext) []*BraceLocation {
 	var braces []*BraceLocation
-	
+
 	braceDepth := 0
 	parenDepth := 0
 	braceStart := -1
 	braceIsUnescape := false
-	
+
 	line := 1
 	column := 1
 	braceStartLine := 1
 	braceStartColumn := 1
-	
+
 	runes := []rune(str)
 	for i, char := range runes {
 		if char == '\n' {
@@ -1086,7 +1086,7 @@ func (e *Executor) findAllTopLevelBraces(str string, ctx *SubstitutionContext) [
 		} else {
 			column++
 		}
-		
+
 		if char == '(' {
 			parenDepth++
 			continue
@@ -1094,7 +1094,7 @@ func (e *Executor) findAllTopLevelBraces(str string, ctx *SubstitutionContext) [
 			parenDepth--
 			continue
 		}
-		
+
 		if parenDepth == 0 && char == '{' {
 			if braceDepth == 0 {
 				// Check if preceded by $ for unescape mode
@@ -1104,7 +1104,7 @@ func (e *Executor) findAllTopLevelBraces(str string, ctx *SubstitutionContext) [
 					isUnescape = true
 					actualStart = i - 1 // Include the $
 				}
-				
+
 				braceStart = actualStart
 				braceIsUnescape = isUnescape
 				braceStartLine = line
@@ -1119,7 +1119,7 @@ func (e *Executor) findAllTopLevelBraces(str string, ctx *SubstitutionContext) [
 				if braceIsUnescape {
 					contentStart = braceStart + 2 // Skip ${
 				}
-				
+
 				braces = append(braces, &BraceLocation{
 					StartPos:    braceStart,
 					EndPos:      i,
@@ -1132,7 +1132,7 @@ func (e *Executor) findAllTopLevelBraces(str string, ctx *SubstitutionContext) [
 			}
 		}
 	}
-	
+
 	return braces
 }
 
@@ -1141,11 +1141,11 @@ func (e *Executor) findAllTopLevelBraces(str string, ctx *SubstitutionContext) [
 func (e *Executor) storeTempValue(value interface{}) int {
 	e.mu.Lock()
 	defer e.mu.Unlock()
-	
+
 	id := e.nextTempID
 	e.nextTempID++
 	e.tempValues[id] = value
-	
+
 	return id
 }
 
@@ -1153,12 +1153,12 @@ func (e *Executor) storeTempValue(value interface{}) int {
 func (e *Executor) retrieveTempValue(id int) (interface{}, bool) {
 	e.mu.Lock()
 	defer e.mu.Unlock()
-	
+
 	value, exists := e.tempValues[id]
 	if exists {
 		delete(e.tempValues, id) // Clean up after retrieval
 	}
-	
+
 	return value, exists
 }
 
@@ -1168,13 +1168,13 @@ func (e *Executor) processArguments(args []interface{}) []interface{} {
 	if len(args) == 0 {
 		return args
 	}
-	
+
 	result := make([]interface{}, len(args))
 	for i, arg := range args {
 		// Check if it's a Symbol that might be a PAWLIST marker
 		if sym, ok := arg.(Symbol); ok {
 			str := string(sym)
-			
+
 			// Check for PAWLIST marker
 			if strings.HasPrefix(str, "\x00PAWLIST:") && strings.HasSuffix(str, "\x00") {
 				// Extract the index
@@ -1191,7 +1191,7 @@ func (e *Executor) processArguments(args []interface{}) []interface{} {
 		// Not a marker, keep the original argument
 		result[i] = arg
 	}
-	
+
 	return result
 }
 
@@ -1216,23 +1216,23 @@ func (e *Executor) invertStatus(result Result, state *ExecutionState, position *
 	} else if tokenResult, ok := result.(TokenResult); ok {
 		// For async result, create wrapper token with inversion flag
 		e.logger.Debug("Creating inverter wrapper for async token: %s", string(tokenResult))
-		
+
 		inverterToken := e.RequestCompletionToken(nil, "", 5*time.Minute, state, position)
-		
+
 		// Mark this token for result inversion
 		e.mu.Lock()
 		if tokenData, exists := e.activeTokens[inverterToken]; exists {
 			tokenData.InvertStatus = true
 		}
 		e.mu.Unlock()
-		
+
 		// Chain the inverter to the original token
 		e.chainTokens(string(tokenResult), inverterToken)
-		
+
 		e.logger.Debug("Created inverter token: %s -> %s", string(tokenResult), inverterToken)
 		return TokenResult(inverterToken)
 	}
-	
+
 	// Unknown result type, return as-is
 	return result
 }

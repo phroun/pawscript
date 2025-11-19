@@ -44,13 +44,13 @@ func (e *Executor) RegisterCommand(name string, handler Handler) {
 func (e *Executor) UnregisterCommand(name string) bool {
 	e.mu.Lock()
 	defer e.mu.Unlock()
-	
+
 	if _, exists := e.commands[name]; exists {
 		delete(e.commands, name)
 		e.logger.Debug("Unregistered command: %s", name)
 		return true
 	}
-	
+
 	e.logger.Warn("Attempted to unregister unknown command: %s", name)
 	return false
 }
@@ -72,12 +72,12 @@ func (e *Executor) RequestCompletionToken(
 ) string {
 	e.mu.Lock()
 	defer e.mu.Unlock()
-	
+
 	tokenID := fmt.Sprintf("token_%d", e.nextTokenID)
 	e.nextTokenID++
-	
+
 	ctx, cancel := context.WithTimeout(context.Background(), timeout)
-	
+
 	// Set up timeout handler
 	go func() {
 		<-ctx.Done()
@@ -86,9 +86,9 @@ func (e *Executor) RequestCompletionToken(
 			e.ForceCleanupToken(tokenID)
 		}
 	}()
-	
+
 	suspendedResult, hasSuspendedResult := state.Snapshot()
-	
+
 	tokenData := &TokenData{
 		CommandSequence:    nil,
 		ParentToken:        parentTokenID,
@@ -102,18 +102,18 @@ func (e *Executor) RequestCompletionToken(
 		HasSuspendedResult: hasSuspendedResult,
 		Position:           position,
 	}
-	
+
 	e.activeTokens[tokenID] = tokenData
-	
+
 	if parentTokenID != "" {
 		if parent, exists := e.activeTokens[parentTokenID]; exists {
 			parent.Children[tokenID] = true
 		}
 	}
-	
+
 	e.logger.Debug("Created completion token: %s, parent: %s, hasResult: %v",
 		tokenID, parentTokenID, hasSuspendedResult)
-	
+
 	return tokenID
 }
 
@@ -128,12 +128,12 @@ func (e *Executor) RequestBraceCoordinatorToken(
 ) string {
 	e.mu.Lock()
 	defer e.mu.Unlock()
-	
+
 	tokenID := fmt.Sprintf("token_%d", e.nextTokenID)
 	e.nextTokenID++
-	
+
 	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Minute)
-	
+
 	// Set up timeout handler
 	go func() {
 		<-ctx.Done()
@@ -142,7 +142,7 @@ func (e *Executor) RequestBraceCoordinatorToken(
 			e.ForceCleanupToken(tokenID)
 		}
 	}()
-	
+
 	coordinator := &BraceCoordinator{
 		Evaluations:     evaluations,
 		CompletedCount:  0,
@@ -152,7 +152,7 @@ func (e *Executor) RequestBraceCoordinatorToken(
 		SubstitutionCtx: substitutionCtx,
 		ResumeCallback:  resumeCallback,
 	}
-	
+
 	tokenData := &TokenData{
 		CommandSequence:  nil,
 		ParentToken:      "",
@@ -165,9 +165,9 @@ func (e *Executor) RequestBraceCoordinatorToken(
 		Position:         position,
 		BraceCoordinator: coordinator,
 	}
-	
+
 	e.activeTokens[tokenID] = tokenData
-	
+
 	// Register all async brace tokens as children
 	for _, eval := range evaluations {
 		if eval.IsAsync && eval.TokenID != "" {
@@ -177,32 +177,32 @@ func (e *Executor) RequestBraceCoordinatorToken(
 			}
 		}
 	}
-	
+
 	e.logger.Debug("Created brace coordinator token: %s with %d evaluations (%d async)",
 		tokenID, len(evaluations), len(tokenData.Children))
-	
+
 	return tokenID
 }
 
 // ResumeBraceEvaluation is called when a child brace evaluation completes
 func (e *Executor) ResumeBraceEvaluation(coordinatorToken, childToken string, result interface{}, success bool) {
 	e.mu.Lock()
-	
+
 	coordData, exists := e.activeTokens[coordinatorToken]
 	if !exists {
 		e.mu.Unlock()
 		e.logger.Warn("Coordinator token %s not found for child %s", coordinatorToken, childToken)
 		return
 	}
-	
+
 	if coordData.BraceCoordinator == nil {
 		e.mu.Unlock()
 		e.logger.Error("Token %s is not a brace coordinator", coordinatorToken)
 		return
 	}
-	
+
 	coord := coordData.BraceCoordinator
-	
+
 	// Find the evaluation for this child token
 	var targetEval *BraceEvaluation
 	for _, eval := range coord.Evaluations {
@@ -211,18 +211,18 @@ func (e *Executor) ResumeBraceEvaluation(coordinatorToken, childToken string, re
 			break
 		}
 	}
-	
+
 	if targetEval == nil {
 		e.mu.Unlock()
 		e.logger.Warn("Child token %s not found in coordinator %s", childToken, coordinatorToken)
 		return
 	}
-	
+
 	// Mark this evaluation as completed
 	targetEval.Completed = true
 	targetEval.Result = result
 	coord.CompletedCount++
-	
+
 	if !success {
 		targetEval.Failed = true
 		if !coord.HasFailure {
@@ -234,13 +234,13 @@ func (e *Executor) ResumeBraceEvaluation(coordinatorToken, childToken string, re
 		e.logger.Debug("Brace evaluation completed in coordinator %s: child %s (%d/%d)",
 			coordinatorToken, childToken, coord.CompletedCount, coord.TotalCount)
 	}
-	
+
 	// Check if all evaluations are complete
 	allDone := coord.CompletedCount >= coord.TotalCount
 	hasFailure := coord.HasFailure
-	
+
 	e.mu.Unlock()
-	
+
 	if allDone {
 		e.logger.Debug("All brace evaluations complete for coordinator %s (failure: %v)",
 			coordinatorToken, hasFailure)
@@ -251,35 +251,35 @@ func (e *Executor) ResumeBraceEvaluation(coordinatorToken, childToken string, re
 // finalizeBraceCoordinator finalizes a brace coordinator and resumes execution
 func (e *Executor) finalizeBraceCoordinator(coordinatorToken string) {
 	e.mu.Lock()
-	
+
 	coordData, exists := e.activeTokens[coordinatorToken]
 	if !exists {
 		e.mu.Unlock()
 		return
 	}
-	
+
 	if coordData.BraceCoordinator == nil {
 		e.mu.Unlock()
 		return
 	}
-	
+
 	coord := coordData.BraceCoordinator
 	hasFailure := coord.HasFailure
 	chainedToken := coordData.ChainedToken
-	
+
 	// Clean up all children (this will call their cleanup callbacks)
 	e.cleanupTokenChildrenLocked(coordinatorToken)
-	
+
 	// Cancel timeout
 	if coordData.CancelFunc != nil {
 		coordData.CancelFunc()
 	}
-	
+
 	// Remove coordinator token from active tokens
 	delete(e.activeTokens, coordinatorToken)
-	
+
 	e.mu.Unlock()
-	
+
 	// Now perform the final substitution and resume callback
 	var callbackResult Result
 	if hasFailure {
@@ -291,13 +291,13 @@ func (e *Executor) finalizeBraceCoordinator(coordinatorToken string) {
 		e.logger.Debug("Brace coordinator %s succeeded, substituted string: %s", coordinatorToken, finalString)
 		callbackResult = coord.ResumeCallback(finalString, true)
 	}
-	
+
 	// Handle the callback result
 	if boolStatus, ok := callbackResult.(BoolStatus); ok {
 		// Command completed synchronously
 		success := bool(boolStatus)
 		e.logger.Debug("Brace coordinator callback returned bool: %v", success)
-		
+
 		// If there's a chained token, resume it with this result
 		if chainedToken != "" {
 			e.logger.Debug("Resuming chained token %s with result %v", chainedToken, success)
@@ -307,7 +307,7 @@ func (e *Executor) finalizeBraceCoordinator(coordinatorToken string) {
 		// Command returned another token (nested async)
 		newToken := string(tokenResult)
 		e.logger.Debug("Brace coordinator callback returned new token: %s", newToken)
-		
+
 		// If there's a chained token, chain the new token to it
 		if chainedToken != "" {
 			e.logger.Debug("Chaining new token %s to %s", newToken, chainedToken)
@@ -328,18 +328,18 @@ func (e *Executor) PushCommandSequence(
 ) error {
 	e.mu.Lock()
 	defer e.mu.Unlock()
-	
+
 	tokenData, exists := e.activeTokens[tokenID]
 	if !exists {
 		return fmt.Errorf("invalid completion token: %s", tokenID)
 	}
-	
+
 	result, hasResult := state.Snapshot()
-	
+
 	// Make a copy of remaining commands
 	commandsCopy := make([]*ParsedCommand, len(remainingCommands))
 	copy(commandsCopy, remainingCommands)
-	
+
 	tokenData.CommandSequence = &CommandSequence{
 		Type:               seqType,
 		RemainingCommands:  commandsCopy,
@@ -351,31 +351,31 @@ func (e *Executor) PushCommandSequence(
 		HasInheritedResult: hasResult,
 		Position:           position,
 	}
-	
+
 	e.logger.Debug("Pushed command sequence onto token %s. Type: %s, Remaining: %d, hasResult: %v",
 		tokenID, seqType, len(remainingCommands), hasResult)
-	
+
 	return nil
 }
 
 // PopAndResumeCommandSequence pops and resumes a command sequence
 func (e *Executor) PopAndResumeCommandSequence(tokenID string, status bool) bool {
 	e.mu.Lock()
-	
+
 	tokenData, exists := e.activeTokens[tokenID]
 	if !exists {
 		e.mu.Unlock()
 		e.logger.Warn("Attempted to resume with invalid token: %s", tokenID)
 		return false
 	}
-	
+
 	// Apply inversion if this token has the InvertStatus flag
 	effectiveStatus := status
 	if tokenData.InvertStatus {
 		effectiveStatus = !status
 		e.logger.Debug("Inverting async result for token %s: %v -> %v", tokenID, status, effectiveStatus)
 	}
-	
+
 	// Check if this token's parent is a brace coordinator
 	if tokenData.ParentToken != "" {
 		if parentData, parentExists := e.activeTokens[tokenData.ParentToken]; parentExists {
@@ -387,29 +387,29 @@ func (e *Executor) PopAndResumeCommandSequence(tokenID string, status bool) bool
 					resultValue = tokenData.ExecutionState.GetResult()
 				}
 				e.mu.Unlock()
-				
+
 				e.logger.Debug("Token %s is child of brace coordinator %s, forwarding result", tokenID, coordinatorToken)
 				e.ResumeBraceEvaluation(coordinatorToken, tokenID, resultValue, effectiveStatus)
 				return effectiveStatus
 			}
 		}
 	}
-	
+
 	e.logger.Debug("Popping command sequence from token %s. Result: %v", tokenID, effectiveStatus)
-	
+
 	// Cleanup children
 	e.cleanupTokenChildrenLocked(tokenID)
-	
+
 	// Cancel timeout
 	if tokenData.CancelFunc != nil {
 		tokenData.CancelFunc()
 	}
-	
+
 	state := tokenData.ExecutionState
 	if state == nil {
 		state = NewExecutionState()
 	}
-	
+
 	success := effectiveStatus
 	if tokenData.CommandSequence != nil {
 		seq := tokenData.CommandSequence
@@ -417,25 +417,25 @@ func (e *Executor) PopAndResumeCommandSequence(tokenID string, status bool) bool
 		success = e.resumeCommandSequence(seq, effectiveStatus, state)
 		e.mu.Lock()
 	}
-	
+
 	chainedToken := tokenData.ChainedToken
 	parentToken := tokenData.ParentToken
-	
+
 	delete(e.activeTokens, tokenID)
-	
+
 	if parentToken != "" {
 		if parent, exists := e.activeTokens[parentToken]; exists {
 			delete(parent.Children, tokenID)
 		}
 	}
-	
+
 	e.mu.Unlock()
-	
+
 	if chainedToken != "" {
 		e.logger.Debug("Triggering chained token %s with result %v", chainedToken, success)
 		return e.PopAndResumeCommandSequence(chainedToken, success)
 	}
-	
+
 	return success
 }
 
@@ -445,7 +445,7 @@ func (e *Executor) cleanupTokenChildrenLocked(tokenID string) {
 	if !exists {
 		return
 	}
-	
+
 	for childTokenID := range tokenData.Children {
 		e.forceCleanupTokenLocked(childTokenID)
 	}
@@ -464,17 +464,17 @@ func (e *Executor) forceCleanupTokenLocked(tokenID string) {
 	if !exists {
 		return
 	}
-	
+
 	e.logger.Debug("Force cleaning up token: %s", tokenID)
-	
+
 	if tokenData.CleanupCallback != nil {
 		tokenData.CleanupCallback(tokenID)
 	}
-	
+
 	if tokenData.CancelFunc != nil {
 		tokenData.CancelFunc()
 	}
-	
+
 	e.cleanupTokenChildrenLocked(tokenID)
 	delete(e.activeTokens, tokenID)
 }
@@ -497,22 +497,22 @@ func (e *Executor) resumeCommandSequence(seq *CommandSequence, status bool, stat
 // resumeSequence resumes a sequential command sequence
 func (e *Executor) resumeSequence(seq *CommandSequence, status bool, state *ExecutionState) bool {
 	success := status
-	
+
 	for _, parsedCmd := range seq.RemainingCommands {
 		if strings.TrimSpace(parsedCmd.Command) == "" {
 			continue
 		}
-		
+
 		cmdResult := e.executeParsedCommand(parsedCmd, state, nil)
-		
+
 		if tokenResult, ok := cmdResult.(TokenResult); ok {
 			e.logger.Warn("Command returned token during resume: %s", string(tokenResult))
 			return false
 		}
-		
+
 		success = bool(cmdResult.(BoolStatus))
 	}
-	
+
 	return success
 }
 
@@ -521,27 +521,27 @@ func (e *Executor) resumeConditional(seq *CommandSequence, status bool, state *E
 	if !status {
 		return false
 	}
-	
+
 	success := status
-	
+
 	for _, parsedCmd := range seq.RemainingCommands {
 		if strings.TrimSpace(parsedCmd.Command) == "" {
 			continue
 		}
-		
+
 		cmdResult := e.executeParsedCommand(parsedCmd, state, nil)
-		
+
 		if tokenResult, ok := cmdResult.(TokenResult); ok {
 			e.logger.Warn("Command returned token during resume: %s", string(tokenResult))
 			return false
 		}
-		
+
 		success = bool(cmdResult.(BoolStatus))
 		if !success {
 			break
 		}
 	}
-	
+
 	return success
 }
 
@@ -550,51 +550,51 @@ func (e *Executor) resumeOr(seq *CommandSequence, status bool, state *ExecutionS
 	if status {
 		return true
 	}
-	
+
 	success := false
-	
+
 	for _, parsedCmd := range seq.RemainingCommands {
 		if strings.TrimSpace(parsedCmd.Command) == "" {
 			continue
 		}
-		
+
 		cmdResult := e.executeParsedCommand(parsedCmd, state, nil)
-		
+
 		if tokenResult, ok := cmdResult.(TokenResult); ok {
 			e.logger.Warn("Command returned token during resume: %s", string(tokenResult))
 			return false
 		}
-		
+
 		success = bool(cmdResult.(BoolStatus))
 		if success {
 			break
 		}
 	}
-	
+
 	return success
 }
 
 // Execute executes a command string
 func (e *Executor) Execute(commandStr string, args ...interface{}) Result {
 	e.logger.Debug("Execute called with command: %s", commandStr)
-	
+
 	state := NewExecutionState()
-	
+
 	// If args provided, execute as direct command call
 	if len(args) > 0 {
 		e.mu.RLock()
 		handler, exists := e.commands[commandStr]
 		e.mu.RUnlock()
-		
+
 		if exists {
 			ctx := e.createContext(args, state, nil)
 			return handler(ctx)
 		}
-		
+
 		e.logger.UnknownCommandError(commandStr, nil, nil)
 		return BoolStatus(false)
 	}
-	
+
 	return e.ExecuteWithState(commandStr, state, nil, "", 0, 0)
 }
 
@@ -608,10 +608,10 @@ func (e *Executor) ExecuteWithState(
 ) Result {
 	parser := NewParser(commandStr, filename)
 	cleanedCommand := parser.RemoveComments(commandStr)
-	
+
 	// Normalize keywords: 'then' -> '&', 'else' -> '|'
 	normalizedCommand := parser.NormalizeKeywords(cleanedCommand)
-	
+
 	commands, err := parser.ParseCommandSequence(normalizedCommand)
 	if err != nil {
 		// Extract position and context from PawScriptError if available
@@ -632,11 +632,11 @@ func (e *Executor) ExecuteWithState(
 		}
 		return BoolStatus(false)
 	}
-	
+
 	if len(commands) == 0 {
 		return BoolStatus(true)
 	}
-	
+
 	// Apply position offsets to all commands
 	if lineOffset > 0 || columnOffset > 0 {
 		for _, cmd := range commands {
@@ -649,11 +649,11 @@ func (e *Executor) ExecuteWithState(
 			}
 		}
 	}
-	
+
 	if len(commands) == 1 {
 		return e.executeParsedCommand(commands[0], state, substitutionCtx)
 	}
-	
+
 	return e.executeCommandSequence(commands, state, substitutionCtx)
 }
 

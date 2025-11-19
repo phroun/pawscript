@@ -87,8 +87,8 @@ func (TokenResult) isResult() {}
 
 // EarlyReturn represents early termination from a block
 type EarlyReturn struct {
-	Status BoolStatus
-	Result interface{}
+	Status    BoolStatus
+	Result    interface{}
 	HasResult bool
 }
 
@@ -105,15 +105,15 @@ type ParsedCommand struct {
 
 // CommandSequence represents suspended command execution
 type CommandSequence struct {
-	Type              string // "sequence", "conditional", "or"
-	RemainingCommands []*ParsedCommand
-	CurrentIndex      int
-	TotalCommands     int
-	OriginalCommand   string
-	Timestamp         time.Time
-	InheritedResult   interface{}
+	Type               string // "sequence", "conditional", "or"
+	RemainingCommands  []*ParsedCommand
+	CurrentIndex       int
+	TotalCommands      int
+	OriginalCommand    string
+	Timestamp          time.Time
+	InheritedResult    interface{}
 	HasInheritedResult bool
-	Position          *SourcePosition
+	Position           *SourcePosition
 }
 
 // BraceLocation tracks the position of a brace expression in the source string
@@ -142,14 +142,14 @@ type BraceEvaluation struct {
 
 // BraceCoordinator manages parallel brace evaluation
 type BraceCoordinator struct {
-	Evaluations        []*BraceEvaluation
-	CompletedCount     int
-	TotalCount         int
-	HasFailure         bool
-	FirstFailureError  string
-	OriginalString     string
-	SubstitutionCtx    *SubstitutionContext
-	ResumeCallback     func(finalString string, success bool) Result
+	Evaluations       []*BraceEvaluation
+	CompletedCount    int
+	TotalCount        int
+	HasFailure        bool
+	FirstFailureError string
+	OriginalString    string
+	SubstitutionCtx   *SubstitutionContext
+	ResumeCallback    func(finalString string, success bool) Result
 }
 
 // TokenData stores information about an active token
@@ -181,13 +181,13 @@ type MacroDefinition struct {
 
 // SubstitutionContext provides context for macro argument substitution
 type SubstitutionContext struct {
-	Args                 []interface{}
-	ExecutionState       *ExecutionState
-	ParentContext        *SubstitutionContext
-	MacroContext         *MacroContext
-	CurrentLineOffset    int
-	CurrentColumnOffset  int
-	Filename             string // Filename for error reporting
+	Args                []interface{}
+	ExecutionState      *ExecutionState
+	ParentContext       *SubstitutionContext
+	MacroContext        *MacroContext
+	CurrentLineOffset   int
+	CurrentColumnOffset int
+	Filename            string // Filename for error reporting
 }
 
 // Config holds configuration for PawScript

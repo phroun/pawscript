@@ -22,35 +22,35 @@ func (ps *PawScript) RegisterStandardLibrary(scriptArgs []string) {
 			ctx.SetResult(len(scriptArgs))
 			return BoolStatus(true)
 		}
-		
+
 		// Argument provided - parse it as a list
 		listArg := ctx.Args[0]
-		
+
 		// If it's a PawList, return its length
 		if pawList, ok := listArg.(PawList); ok {
 			ctx.SetResult(pawList.Len())
 			return BoolStatus(true)
 		}
-		
+
 		// If it's a ParenGroup, parse the contents
 		if parenGroup, ok := listArg.(ParenGroup); ok {
 			args := parseArguments(string(parenGroup))
 			ctx.SetResult(len(args))
 			return BoolStatus(true)
 		}
-		
+
 		// If it's a string that looks like a list, parse it
 		if str, ok := listArg.(string); ok {
 			args := parseArguments(str)
 			ctx.SetResult(len(args))
 			return BoolStatus(true)
 		}
-		
+
 		// Single item
 		ctx.SetResult(1)
 		return BoolStatus(true)
 	})
-	
+
 	// argv - returns array of arguments or specific argument by index
 	// Usage: argv              - returns all script arguments
 	//        argv 1            - returns first script argument (1-indexed)
@@ -63,12 +63,12 @@ func (ps *PawScript) RegisterStandardLibrary(scriptArgs []string) {
 			ctx.SetResult(scriptArgs)
 			return BoolStatus(true)
 		}
-		
+
 		// Check if first argument is a list (PawList, ParenGroup, or string)
 		firstArg := ctx.Args[0]
 		var sourceList []interface{}
 		var isListProvided bool
-		
+
 		if pawList, ok := firstArg.(PawList); ok {
 			// PawList - get items
 			sourceList = pawList.Items()
@@ -85,7 +85,7 @@ func (ps *PawScript) RegisterStandardLibrary(scriptArgs []string) {
 				isListProvided = true
 			}
 		}
-		
+
 		if isListProvided {
 			// First arg is a list
 			if len(ctx.Args) == 1 {
@@ -93,7 +93,7 @@ func (ps *PawScript) RegisterStandardLibrary(scriptArgs []string) {
 				ctx.SetResult(sourceList)
 				return BoolStatus(true)
 			}
-			
+
 			// Index provided as second argument
 			index, ok := ctx.Args[1].(int64)
 			if !ok {
@@ -111,7 +111,7 @@ func (ps *PawScript) RegisterStandardLibrary(scriptArgs []string) {
 					index = int64(num)
 				}
 			}
-			
+
 			// 1-indexed (like $1, $2, etc.)
 			index-- // Convert to 0-based
 			if index >= 0 && int(index) < len(sourceList) {
@@ -121,7 +121,7 @@ func (ps *PawScript) RegisterStandardLibrary(scriptArgs []string) {
 			}
 			return BoolStatus(true)
 		}
-		
+
 		// First arg is not a list - treat as index into script args
 		index, ok := firstArg.(int64)
 		if !ok {
@@ -134,7 +134,7 @@ func (ps *PawScript) RegisterStandardLibrary(scriptArgs []string) {
 				return BoolStatus(true)
 			}
 		}
-		
+
 		// Index into script args (1-indexed)
 		index-- // Convert to 0-based
 		if index >= 0 && int(index) < len(scriptArgs) {
@@ -144,28 +144,28 @@ func (ps *PawScript) RegisterStandardLibrary(scriptArgs []string) {
 		}
 		return BoolStatus(true)
 	})
-	
+
 	// script_error - output error messages
 	ps.RegisterCommand("script_error", func(ctx *Context) Result {
 		message := "Unknown error"
 		if len(ctx.Args) > 0 {
 			message = fmt.Sprintf("%v", ctx.Args[0])
 		}
-		
+
 		errorOutput := fmt.Sprintf("[SCRIPT ERROR] %s", message)
-		
+
 		if ctx.Position != nil {
 			errorOutput += fmt.Sprintf(" at line %d, column %d", ctx.Position.Line, ctx.Position.Column)
-			
+
 			if ctx.Position.OriginalText != "" {
 				errorOutput += fmt.Sprintf("\n  Source: %s", ctx.Position.OriginalText)
 			}
 		}
-		
+
 		fmt.Fprintln(os.Stderr, errorOutput)
 		return BoolStatus(true)
 	})
-	
+
 	// echo/write/print - output to stdout (no automatic newline)
 	outputCommand := func(ctx *Context) Result {
 		text := ""
@@ -188,19 +188,19 @@ func (ps *PawScript) RegisterStandardLibrary(scriptArgs []string) {
 		fmt.Println(text) // Automatic newline in this version!
 		return BoolStatus(true)
 	}
-	
+
 	ps.RegisterCommand("write", outputCommand)
 	ps.RegisterCommand("echo", outputLineCommand)
 	ps.RegisterCommand("print", outputLineCommand)
-	
+
 	// read - read a line from stdin
 	ps.RegisterCommand("read", func(ctx *Context) Result {
 		token := ctx.RequestToken(nil)
-		
+
 		go func() {
 			reader := bufio.NewReader(os.Stdin)
 			line, err := reader.ReadString('\n')
-			
+
 			if err == nil {
 				// Remove trailing newline
 				if len(line) > 0 && line[len(line)-1] == '\n' {
@@ -213,64 +213,64 @@ func (ps *PawScript) RegisterStandardLibrary(scriptArgs []string) {
 				ctx.ResumeToken(token, false)
 			}
 		}()
-		
+
 		return TokenResult(token)
 	})
-	
+
 	// exec - execute external command and capture output
 	ps.RegisterCommand("exec", func(ctx *Context) Result {
 		if len(ctx.Args) == 0 {
 			fmt.Fprintln(os.Stderr, "[EXEC ERROR] No command specified")
 			return BoolStatus(false)
 		}
-		
+
 		// First argument is the command
 		cmdName := fmt.Sprintf("%v", ctx.Args[0])
-		
+
 		// Remaining arguments are command arguments
 		var cmdArgs []string
 		for i := 1; i < len(ctx.Args); i++ {
 			cmdArgs = append(cmdArgs, fmt.Sprintf("%v", ctx.Args[i]))
 		}
-		
+
 		// Create the command
 		cmd := exec.Command(cmdName, cmdArgs...)
-		
+
 		// Set up buffers to capture output
 		var stdoutBuf, stderrBuf bytes.Buffer
 		cmd.Stdout = &stdoutBuf
 		cmd.Stderr = &stderrBuf
-		
+
 		// Execute the command
 		err := cmd.Run()
-		
+
 		// Get the output
 		stdout := stdoutBuf.String()
 		stderr := stderrBuf.String()
-		
+
 		// Print stderr if present (regardless of execution success)
 		if stderr != "" {
 			fmt.Fprint(os.Stderr, stderr)
 		}
-		
+
 		// Check if stderr has non-whitespace content
 		hasStderrContent := strings.TrimSpace(stderr) != ""
-		
+
 		// Determine success
 		success := err == nil && !hasStderrContent
-		
+
 		// Set stdout as the result (even on failure, might be useful)
 		ctx.SetResult(stdout)
-		
+
 		// Return success status
 		return BoolStatus(success)
 	})
-	
+
 	// true - sets success state
 	ps.RegisterCommand("true", func(ctx *Context) Result {
 		return BoolStatus(true)
 	})
-	
+
 	// false - sets error state
 	ps.RegisterCommand("false", func(ctx *Context) Result {
 		return BoolStatus(false)
@@ -294,7 +294,7 @@ func (ps *PawScript) RegisterStandardLibrary(scriptArgs []string) {
 		// No result available
 		return BoolStatus(false)
 	})
-	
+
 	// ret - early return from block
 	// Usage: ret                    - leave status and result unchanged
 	//        ret <value>            - set status from truthiness, leave result unchanged
@@ -312,7 +312,7 @@ func (ps *PawScript) RegisterStandardLibrary(scriptArgs []string) {
 				Result:    ctx.GetResult(),
 				HasResult: ctx.HasResult(),
 			}
-			
+
 		case 1:
 			// One argument - set status from truthiness, keep result
 			status := toBool(ctx.Args[0])
@@ -321,12 +321,12 @@ func (ps *PawScript) RegisterStandardLibrary(scriptArgs []string) {
 				Result:    ctx.GetResult(),
 				HasResult: ctx.HasResult(),
 			}
-			
+
 		default:
 			// Two or more arguments - check first for nil/empty
 			firstArg := ctx.Args[0]
 			secondArg := ctx.Args[1]
-			
+
 			// If first arg is nil, Symbol(""), or empty string, leave status unchanged
 			if firstArg == nil || firstArg == "" {
 				return EarlyReturn{
@@ -335,7 +335,7 @@ func (ps *PawScript) RegisterStandardLibrary(scriptArgs []string) {
 					HasResult: true,
 				}
 			}
-			
+
 			// Check if it's an empty symbol
 			if sym, ok := firstArg.(Symbol); ok && string(sym) == "" {
 				return EarlyReturn{
@@ -344,7 +344,7 @@ func (ps *PawScript) RegisterStandardLibrary(scriptArgs []string) {
 					HasResult: true,
 				}
 			}
-			
+
 			// Normal case - set status from first arg, result from second
 			status := toBool(firstArg)
 			return EarlyReturn{
@@ -354,7 +354,7 @@ func (ps *PawScript) RegisterStandardLibrary(scriptArgs []string) {
 			}
 		}
 	})
-	
+
 	// set - sets a variable in current scope
 	// Usage: set varname, value                    - simple assignment
 	//        set (x, y, z), {list 1, 2, 3}         - unpack list into variables
@@ -365,14 +365,14 @@ func (ps *PawScript) RegisterStandardLibrary(scriptArgs []string) {
 			fmt.Fprintln(os.Stderr, "[SET ERROR] Usage: set <n> <value>")
 			return BoolStatus(false)
 		}
-		
+
 		firstArg := ctx.Args[0]
 		secondArg := ctx.Args[1]
-		
+
 		// Check if first arg is a list or ParenGroup (for unpacking)
 		var varNames []interface{}
 		isUnpacking := false
-		
+
 		if pawList, ok := firstArg.(PawList); ok {
 			// First arg is a list - unpack mode
 			varNames = pawList.Items()
@@ -382,11 +382,11 @@ func (ps *PawScript) RegisterStandardLibrary(scriptArgs []string) {
 			varNames = parseArguments(string(parenGroup))
 			isUnpacking = true
 		}
-		
+
 		if isUnpacking {
 			// Unpacking mode - extract values from second arg
 			var values []interface{}
-			
+
 			if pawList, ok := secondArg.(PawList); ok {
 				values = pawList.Items()
 			} else if parenGroup, ok := secondArg.(ParenGroup); ok {
@@ -398,11 +398,11 @@ func (ps *PawScript) RegisterStandardLibrary(scriptArgs []string) {
 				// Single value - wrap in slice
 				values = []interface{}{secondArg}
 			}
-			
+
 			// Set each variable to its corresponding value
 			for i, varNameInterface := range varNames {
 				varName := fmt.Sprintf("%v", varNameInterface)
-				
+
 				if i < len(values) {
 					ctx.state.SetVariable(varName, values[i])
 				} else {
@@ -410,48 +410,48 @@ func (ps *PawScript) RegisterStandardLibrary(scriptArgs []string) {
 					ctx.state.SetVariable(varName, nil)
 				}
 			}
-			
+
 			return BoolStatus(true)
 		}
-		
+
 		// Normal mode - simple assignment
 		varName := fmt.Sprintf("%v", firstArg)
 		ctx.state.SetVariable(varName, secondArg)
 		return BoolStatus(true)
 	})
-	
+
 	// get - gets a variable from current scope and sets it as result
 	ps.RegisterCommand("get", func(ctx *Context) Result {
 		if len(ctx.Args) < 1 {
 			fmt.Fprintln(os.Stderr, "[GET ERROR] Usage: get <name>")
 			return BoolStatus(false)
 		}
-		
+
 		varName := fmt.Sprintf("%v", ctx.Args[0])
 		value, exists := ctx.state.GetVariable(varName)
-		
+
 		if exists {
 			ctx.SetResult(value)
 			return BoolStatus(true)
 		}
-		
+
 		fmt.Fprintf(os.Stderr, "[GET ERROR] Variable not found: %s\n", varName)
 		return BoolStatus(false)
 	})
-	
+
 	// while - loop while condition is true
 	ps.RegisterCommand("while", func(ctx *Context) Result {
 		if len(ctx.Args) < 2 {
 			fmt.Fprintln(os.Stderr, "[WHILE ERROR] Usage: while (condition), (body)")
 			return BoolStatus(false)
 		}
-		
+
 		conditionBlock := fmt.Sprintf("%v", ctx.Args[0])
 		bodyBlock := fmt.Sprintf("%v", ctx.Args[1])
-		
+
 		maxIterations := 10000 // Safety limit
 		iterations := 0
-		
+
 		for iterations < maxIterations {
 			// Execute condition block
 			condResult := ctx.executor.ExecuteWithState(
@@ -461,7 +461,7 @@ func (ps *PawScript) RegisterStandardLibrary(scriptArgs []string) {
 				"",
 				0, 0,
 			)
-			
+
 			// Check if condition returned early
 			if earlyReturn, ok := condResult.(EarlyReturn); ok {
 				// Set the result if provided
@@ -471,23 +471,23 @@ func (ps *PawScript) RegisterStandardLibrary(scriptArgs []string) {
 				// Return the status from the early return
 				return earlyReturn.Status
 			}
-			
+
 			// Check if we got a token (async not supported in while condition)
 			if _, isToken := condResult.(TokenResult); isToken {
 				fmt.Fprintln(os.Stderr, "[WHILE ERROR] Async operations not supported in while condition")
 				return BoolStatus(false)
 			}
-			
+
 			// Check if condition is true
 			shouldContinue := false
 			if boolRes, ok := condResult.(BoolStatus); ok {
 				shouldContinue = bool(boolRes)
 			}
-			
+
 			if !shouldContinue {
 				break
 			}
-			
+
 			// Execute body block
 			bodyResult := ctx.executor.ExecuteWithState(
 				bodyBlock,
@@ -496,7 +496,7 @@ func (ps *PawScript) RegisterStandardLibrary(scriptArgs []string) {
 				"",
 				0, 0,
 			)
-			
+
 			// If body returns early, break out of loop
 			if earlyReturn, ok := bodyResult.(EarlyReturn); ok {
 				// Set the result if provided
@@ -506,24 +506,24 @@ func (ps *PawScript) RegisterStandardLibrary(scriptArgs []string) {
 				// Return the status from the early return
 				return earlyReturn.Status
 			}
-			
+
 			// If body returns a token (async), return it
 			if _, isToken := bodyResult.(TokenResult); isToken {
 				return bodyResult
 			}
-			
+
 			// Result is whatever the body set (don't overwrite it)
 			iterations++
 		}
-		
+
 		if iterations >= maxIterations {
 			fmt.Fprintln(os.Stderr, "[WHILE ERROR] Maximum iterations (10000) exceeded")
 			return BoolStatus(false)
 		}
-		
+
 		return BoolStatus(true)
 	})
-	
+
 	// Arithmetic operations
 	ps.RegisterCommand("add", func(ctx *Context) Result {
 		if len(ctx.Args) < 2 {
@@ -539,7 +539,7 @@ func (ps *PawScript) RegisterStandardLibrary(scriptArgs []string) {
 		ctx.SetResult(a + b)
 		return BoolStatus(true)
 	})
-	
+
 	ps.RegisterCommand("sub", func(ctx *Context) Result {
 		if len(ctx.Args) < 2 {
 			fmt.Fprintln(os.Stderr, "[SUB ERROR] Usage: sub <a>, <b>")
@@ -554,7 +554,7 @@ func (ps *PawScript) RegisterStandardLibrary(scriptArgs []string) {
 		ctx.SetResult(a - b)
 		return BoolStatus(true)
 	})
-	
+
 	ps.RegisterCommand("mul", func(ctx *Context) Result {
 		if len(ctx.Args) < 2 {
 			fmt.Fprintln(os.Stderr, "[MUL ERROR] Usage: mul <a>, <b>")
@@ -569,7 +569,7 @@ func (ps *PawScript) RegisterStandardLibrary(scriptArgs []string) {
 		ctx.SetResult(a * b)
 		return BoolStatus(true)
 	})
-	
+
 	ps.RegisterCommand("div", func(ctx *Context) Result {
 		if len(ctx.Args) < 2 {
 			fmt.Fprintln(os.Stderr, "[DIV ERROR] Usage: div <a>, <b>")
@@ -588,7 +588,7 @@ func (ps *PawScript) RegisterStandardLibrary(scriptArgs []string) {
 		ctx.SetResult(a / b)
 		return BoolStatus(true)
 	})
-	
+
 	// Comparison operations
 	ps.RegisterCommand("eq", func(ctx *Context) Result {
 		if len(ctx.Args) < 2 {
@@ -600,7 +600,7 @@ func (ps *PawScript) RegisterStandardLibrary(scriptArgs []string) {
 		ctx.SetResult(result)
 		return BoolStatus(result)
 	})
-	
+
 	ps.RegisterCommand("lt", func(ctx *Context) Result {
 		if len(ctx.Args) < 2 {
 			fmt.Fprintln(os.Stderr, "[LT ERROR] Usage: lt <a>, <b>")
@@ -619,7 +619,7 @@ func (ps *PawScript) RegisterStandardLibrary(scriptArgs []string) {
 		ctx.SetResult(result)
 		return BoolStatus(result)
 	})
-	
+
 	ps.RegisterCommand("gt", func(ctx *Context) Result {
 		if len(ctx.Args) < 2 {
 			fmt.Fprintln(os.Stderr, "[GT ERROR] Usage: gt <a>, <b>")
@@ -638,7 +638,7 @@ func (ps *PawScript) RegisterStandardLibrary(scriptArgs []string) {
 		ctx.SetResult(result)
 		return BoolStatus(result)
 	})
-	
+
 	ps.RegisterCommand("gte", func(ctx *Context) Result {
 		if len(ctx.Args) < 2 {
 			fmt.Fprintln(os.Stderr, "[GTE ERROR] Usage: gte <a>, <b>")
@@ -657,7 +657,7 @@ func (ps *PawScript) RegisterStandardLibrary(scriptArgs []string) {
 		ctx.SetResult(result)
 		return BoolStatus(result)
 	})
-	
+
 	ps.RegisterCommand("lte", func(ctx *Context) Result {
 		if len(ctx.Args) < 2 {
 			fmt.Fprintln(os.Stderr, "[LTE ERROR] Usage: lte <a>, <b>")
@@ -676,7 +676,7 @@ func (ps *PawScript) RegisterStandardLibrary(scriptArgs []string) {
 		ctx.SetResult(result)
 		return BoolStatus(result)
 	})
-	
+
 	// if - normalize truthy/falsy values to boolean
 	ps.RegisterCommand("if", func(ctx *Context) Result {
 		if len(ctx.Args) < 1 {
@@ -684,13 +684,13 @@ func (ps *PawScript) RegisterStandardLibrary(scriptArgs []string) {
 			ctx.SetResult(false)
 			return BoolStatus(false)
 		}
-		
+
 		// Normalize the first argument to boolean
 		result := toBool(ctx.Args[0])
 		ctx.SetResult(result)
 		return BoolStatus(result)
 	})
-	
+
 	// get_inferred_type - returns the type of a value
 	ps.RegisterCommand("get_inferred_type", func(ctx *Context) Result {
 		if len(ctx.Args) < 1 {
@@ -698,13 +698,13 @@ func (ps *PawScript) RegisterStandardLibrary(scriptArgs []string) {
 			ctx.SetResult("undefined")
 			return BoolStatus(true)
 		}
-		
+
 		value := ctx.Args[0]
 		typeName := getTypeName(value)
 		ctx.SetResult(typeName)
 		return BoolStatus(true)
 	})
-	
+
 	// get_type - returns the type of a variable without fetching its value
 	// More efficient than get_inferred_type {get x} for large values or frequent checks
 	ps.RegisterCommand("get_type", func(ctx *Context) Result {
@@ -713,20 +713,20 @@ func (ps *PawScript) RegisterStandardLibrary(scriptArgs []string) {
 			ctx.SetResult("undefined")
 			return BoolStatus(false)
 		}
-		
+
 		varName := fmt.Sprintf("%v", ctx.Args[0])
 		value, exists := ctx.state.GetVariable(varName)
-		
+
 		if !exists {
 			ctx.SetResult("undefined")
 			return BoolStatus(true)
 		}
-		
+
 		typeName := getTypeName(value)
 		ctx.SetResult(typeName)
 		return BoolStatus(true)
 	})
-	
+
 	// list - creates an immutable list from arguments
 	// Usage: list item1, item2, item3  - creates list from individual arguments
 	//        list {get x}, {get y}     - computed values work (braces evaluate first)
@@ -738,7 +738,7 @@ func (ps *PawScript) RegisterStandardLibrary(scriptArgs []string) {
 		ctx.SetResult(NewPawList(ctx.Args))
 		return BoolStatus(true)
 	})
-	
+
 	// len - returns the length of a list or string
 	// Usage: len {get mylist}
 	//        len "hello"
@@ -748,9 +748,9 @@ func (ps *PawScript) RegisterStandardLibrary(scriptArgs []string) {
 			ctx.SetResult(0)
 			return BoolStatus(false)
 		}
-		
+
 		value := ctx.Args[0]
-		
+
 		switch v := value.(type) {
 		case PawList:
 			ctx.SetResult(v.Len())
@@ -770,7 +770,7 @@ func (ps *PawScript) RegisterStandardLibrary(scriptArgs []string) {
 			return BoolStatus(false)
 		}
 	})
-	
+
 	// slice - returns a slice of a list or string (end exclusive)
 	// Usage: slice {get mylist}, 0, 3    - items 0, 1, 2
 	//        slice {get mylist}, 1, -1   - from index 1 to end
@@ -781,9 +781,9 @@ func (ps *PawScript) RegisterStandardLibrary(scriptArgs []string) {
 			ctx.SetResult(nil)
 			return BoolStatus(false)
 		}
-		
+
 		value := ctx.Args[0]
-		
+
 		// Parse start index
 		startNum, ok := toNumber(ctx.Args[1])
 		if !ok {
@@ -792,7 +792,7 @@ func (ps *PawScript) RegisterStandardLibrary(scriptArgs []string) {
 			return BoolStatus(false)
 		}
 		start := int(startNum)
-		
+
 		// Parse end index
 		endNum, ok := toNumber(ctx.Args[2])
 		if !ok {
@@ -801,7 +801,7 @@ func (ps *PawScript) RegisterStandardLibrary(scriptArgs []string) {
 			return BoolStatus(false)
 		}
 		end := int(endNum)
-		
+
 		switch v := value.(type) {
 		case PawList:
 			// Handle negative indices
@@ -834,7 +834,7 @@ func (ps *PawScript) RegisterStandardLibrary(scriptArgs []string) {
 			return BoolStatus(false)
 		}
 	})
-	
+
 	// append - returns a new list with item appended
 	// Usage: append {get mylist}, newitem
 	ps.RegisterCommand("append", func(ctx *Context) Result {
@@ -843,10 +843,10 @@ func (ps *PawScript) RegisterStandardLibrary(scriptArgs []string) {
 			ctx.SetResult(nil)
 			return BoolStatus(false)
 		}
-		
+
 		value := ctx.Args[0]
 		item := ctx.Args[1]
-		
+
 		switch v := value.(type) {
 		case PawList:
 			ctx.SetResult(v.Append(item))
@@ -857,7 +857,7 @@ func (ps *PawScript) RegisterStandardLibrary(scriptArgs []string) {
 			return BoolStatus(false)
 		}
 	})
-	
+
 	// prepend - returns a new list with item prepended
 	// Usage: prepend {get mylist}, newitem
 	ps.RegisterCommand("prepend", func(ctx *Context) Result {
@@ -866,10 +866,10 @@ func (ps *PawScript) RegisterStandardLibrary(scriptArgs []string) {
 			ctx.SetResult(nil)
 			return BoolStatus(false)
 		}
-		
+
 		value := ctx.Args[0]
 		item := ctx.Args[1]
-		
+
 		switch v := value.(type) {
 		case PawList:
 			ctx.SetResult(v.Prepend(item))
@@ -880,7 +880,7 @@ func (ps *PawScript) RegisterStandardLibrary(scriptArgs []string) {
 			return BoolStatus(false)
 		}
 	})
-	
+
 	// compact - returns a new list with a fresh backing array
 	// Usage: compact {get mylist}
 	// Use this to free memory after slicing a large list
@@ -890,9 +890,9 @@ func (ps *PawScript) RegisterStandardLibrary(scriptArgs []string) {
 			ctx.SetResult(nil)
 			return BoolStatus(false)
 		}
-		
+
 		value := ctx.Args[0]
-		
+
 		switch v := value.(type) {
 		case PawList:
 			ctx.SetResult(v.Compact())
@@ -915,15 +915,15 @@ func (ps *PawScript) RegisterStandardLibrary(scriptArgs []string) {
 			ctx.SetResult(nil)
 			return BoolStatus(false)
 		}
-		
+
 		// Check if first argument is a PawList
 		if list, ok := ctx.Args[0].(PawList); ok {
 			// List mode: concatenate lists and append other items
 			result := list
-			
+
 			for i := 1; i < len(ctx.Args); i++ {
 				arg := ctx.Args[i]
-				
+
 				if otherList, ok := arg.(PawList); ok {
 					// Concatenate lists
 					result = result.Concat(otherList)
@@ -932,21 +932,21 @@ func (ps *PawScript) RegisterStandardLibrary(scriptArgs []string) {
 					result = result.Append(arg)
 				}
 			}
-			
+
 			ctx.SetResult(result)
 			return BoolStatus(true)
 		}
-		
+
 		// String mode: concatenate all arguments as strings
 		var result strings.Builder
 		for _, arg := range ctx.Args {
 			result.WriteString(fmt.Sprintf("%v", arg))
 		}
-		
+
 		ctx.SetResult(result.String())
 		return BoolStatus(true)
 	})
-	
+
 	// ==========================================
 	// STRING MANIPULATION FUNCTIONS
 	// Following same semantics as list operations where possible
@@ -961,20 +961,20 @@ func (ps *PawScript) RegisterStandardLibrary(scriptArgs []string) {
 			ctx.SetResult(nil)
 			return BoolStatus(false)
 		}
-		
+
 		str := fmt.Sprintf("%v", ctx.Args[0])
 		delimiter := fmt.Sprintf("%v", ctx.Args[1])
-		
+
 		parts := strings.Split(str, delimiter)
 		items := make([]interface{}, len(parts))
 		for i, part := range parts {
 			items[i] = part
 		}
-		
+
 		ctx.SetResult(NewPawList(items))
 		return BoolStatus(true)
 	})
-	
+
 	// join - join list into string with delimiter
 	// Usage: join {get mylist}, ","  -> "a,b,c"
 	// Inverse of split
@@ -984,9 +984,9 @@ func (ps *PawScript) RegisterStandardLibrary(scriptArgs []string) {
 			ctx.SetResult("")
 			return BoolStatus(false)
 		}
-		
+
 		delimiter := fmt.Sprintf("%v", ctx.Args[1])
-		
+
 		// Handle PawList
 		if pawList, ok := ctx.Args[0].(PawList); ok {
 			items := pawList.Items()
@@ -997,12 +997,12 @@ func (ps *PawScript) RegisterStandardLibrary(scriptArgs []string) {
 			ctx.SetResult(strings.Join(strItems, delimiter))
 			return BoolStatus(true)
 		}
-		
+
 		fmt.Fprintf(os.Stderr, "[STR_JOIN ERROR] First argument must be a list, got %s\n", getTypeName(ctx.Args[0]))
 		ctx.SetResult("")
 		return BoolStatus(false)
 	})
-	
+
 	// str_upper - convert string to uppercase
 	// Usage: str_upper "hello"  -> "HELLO"
 	ps.RegisterCommand("str_upper", func(ctx *Context) Result {
@@ -1011,12 +1011,12 @@ func (ps *PawScript) RegisterStandardLibrary(scriptArgs []string) {
 			ctx.SetResult("")
 			return BoolStatus(false)
 		}
-		
+
 		str := fmt.Sprintf("%v", ctx.Args[0])
 		ctx.SetResult(strings.ToUpper(str))
 		return BoolStatus(true)
 	})
-	
+
 	// str_lower - convert string to lowercase
 	// Usage: str_lower "HELLO"  -> "hello"
 	ps.RegisterCommand("str_lower", func(ctx *Context) Result {
@@ -1025,12 +1025,12 @@ func (ps *PawScript) RegisterStandardLibrary(scriptArgs []string) {
 			ctx.SetResult("")
 			return BoolStatus(false)
 		}
-		
+
 		str := fmt.Sprintf("%v", ctx.Args[0])
 		ctx.SetResult(strings.ToLower(str))
 		return BoolStatus(true)
 	})
-	
+
 	// trim - trim whitespace from both ends
 	// Usage: trim "  hello  "  -> "hello"
 	ps.RegisterCommand("trim", func(ctx *Context) Result {
@@ -1039,12 +1039,12 @@ func (ps *PawScript) RegisterStandardLibrary(scriptArgs []string) {
 			ctx.SetResult("")
 			return BoolStatus(false)
 		}
-		
+
 		str := fmt.Sprintf("%v", ctx.Args[0])
 		ctx.SetResult(strings.TrimSpace(str))
 		return BoolStatus(true)
 	})
-	
+
 	// trim_start - trim whitespace from start
 	// Usage: trim_start "  hello  "  -> "hello  "
 	ps.RegisterCommand("trim_start", func(ctx *Context) Result {
@@ -1053,12 +1053,12 @@ func (ps *PawScript) RegisterStandardLibrary(scriptArgs []string) {
 			ctx.SetResult("")
 			return BoolStatus(false)
 		}
-		
+
 		str := fmt.Sprintf("%v", ctx.Args[0])
 		ctx.SetResult(strings.TrimLeft(str, " \t\n\r"))
 		return BoolStatus(true)
 	})
-	
+
 	// trim_end - trim whitespace from end
 	// Usage: trim_end "  hello  "  -> "  hello"
 	ps.RegisterCommand("trim_end", func(ctx *Context) Result {
@@ -1067,12 +1067,12 @@ func (ps *PawScript) RegisterStandardLibrary(scriptArgs []string) {
 			ctx.SetResult("")
 			return BoolStatus(false)
 		}
-		
+
 		str := fmt.Sprintf("%v", ctx.Args[0])
 		ctx.SetResult(strings.TrimRight(str, " \t\n\r"))
 		return BoolStatus(true)
 	})
-	
+
 	// contains - check if string contains substring
 	// Usage: contains "hello world", "world"  -> true
 	ps.RegisterCommand("contains", func(ctx *Context) Result {
@@ -1081,15 +1081,15 @@ func (ps *PawScript) RegisterStandardLibrary(scriptArgs []string) {
 			ctx.SetResult(false)
 			return BoolStatus(false)
 		}
-		
+
 		str := fmt.Sprintf("%v", ctx.Args[0])
 		substr := fmt.Sprintf("%v", ctx.Args[1])
-		
+
 		result := strings.Contains(str, substr)
 		ctx.SetResult(result)
 		return BoolStatus(result)
 	})
-	
+
 	// index - find first index of substring (-1 if not found)
 	// Usage: index "hello world", "world"  -> 6
 	// Returns -1 if not found (like many languages)
@@ -1100,16 +1100,16 @@ func (ps *PawScript) RegisterStandardLibrary(scriptArgs []string) {
 			ctx.SetResult(int64(-1))
 			return BoolStatus(false)
 		}
-		
+
 		str := fmt.Sprintf("%v", ctx.Args[0])
 		substr := fmt.Sprintf("%v", ctx.Args[1])
-		
+
 		index := strings.Index(str, substr)
 		ctx.SetResult(int64(index))
 		// Always return success - caller checks result value
 		return BoolStatus(true)
 	})
-	
+
 	// replace - replace all occurrences of substring
 	// Usage: replace "hello world", "world", "gopher"  -> "hello gopher"
 	// Replaces ALL occurrences (like strings.ReplaceAll)
@@ -1119,16 +1119,16 @@ func (ps *PawScript) RegisterStandardLibrary(scriptArgs []string) {
 			ctx.SetResult("")
 			return BoolStatus(false)
 		}
-		
+
 		str := fmt.Sprintf("%v", ctx.Args[0])
 		old := fmt.Sprintf("%v", ctx.Args[1])
 		new := fmt.Sprintf("%v", ctx.Args[2])
-		
+
 		result := strings.ReplaceAll(str, old, new)
 		ctx.SetResult(result)
 		return BoolStatus(true)
 	})
-	
+
 	// starts_with - check if string starts with prefix
 	// Usage: starts_with "hello world", "hello"  -> true
 	ps.RegisterCommand("starts_with", func(ctx *Context) Result {
@@ -1137,15 +1137,15 @@ func (ps *PawScript) RegisterStandardLibrary(scriptArgs []string) {
 			ctx.SetResult(false)
 			return BoolStatus(false)
 		}
-		
+
 		str := fmt.Sprintf("%v", ctx.Args[0])
 		prefix := fmt.Sprintf("%v", ctx.Args[1])
-		
+
 		result := strings.HasPrefix(str, prefix)
 		ctx.SetResult(result)
 		return BoolStatus(result)
 	})
-	
+
 	// ends_with - check if string ends with suffix
 	// Usage: ends_with "hello world", "world"  -> true
 	ps.RegisterCommand("ends_with", func(ctx *Context) Result {
@@ -1154,15 +1154,15 @@ func (ps *PawScript) RegisterStandardLibrary(scriptArgs []string) {
 			ctx.SetResult(false)
 			return BoolStatus(false)
 		}
-		
+
 		str := fmt.Sprintf("%v", ctx.Args[0])
 		suffix := fmt.Sprintf("%v", ctx.Args[1])
-		
+
 		result := strings.HasSuffix(str, suffix)
 		ctx.SetResult(result)
 		return BoolStatus(result)
 	})
-	
+
 	// str_repeat - repeat string n times
 	// Usage: str_repeat "ab", 3  -> "ababab"
 	ps.RegisterCommand("str_repeat", func(ctx *Context) Result {
@@ -1171,7 +1171,7 @@ func (ps *PawScript) RegisterStandardLibrary(scriptArgs []string) {
 			ctx.SetResult("")
 			return BoolStatus(false)
 		}
-		
+
 		str := fmt.Sprintf("%v", ctx.Args[0])
 		count, ok := toNumber(ctx.Args[1])
 		if !ok {
@@ -1179,7 +1179,7 @@ func (ps *PawScript) RegisterStandardLibrary(scriptArgs []string) {
 			ctx.SetResult("")
 			return BoolStatus(false)
 		}
-		
+
 		result := strings.Repeat(str, int(count))
 		ctx.SetResult(result)
 		return BoolStatus(true)
@@ -1253,18 +1253,18 @@ func toBool(val interface{}) bool {
 		// QuotedString behaves like string for truthiness
 		// Empty string, "false", "0" are false
 		lowerVal := strings.ToLower(strings.TrimSpace(string(v)))
-		return lowerVal != "" && 
-			   lowerVal != "false" && 
-			   lowerVal != "0"
+		return lowerVal != "" &&
+			lowerVal != "false" &&
+			lowerVal != "0"
 	case ParenGroup:
 		// ParenGroup (code block) is truthy if non-empty
 		return string(v) != ""
 	case string:
 		// Empty string, "false", "0" are false
 		lowerVal := strings.ToLower(strings.TrimSpace(v))
-		return lowerVal != "" && 
-			   lowerVal != "false" && 
-			   lowerVal != "0"
+		return lowerVal != "" &&
+			lowerVal != "false" &&
+			lowerVal != "0"
 	case nil:
 		return false
 	default:
@@ -1278,7 +1278,7 @@ func getTypeName(val interface{}) string {
 	if val == nil {
 		return "nil"
 	}
-	
+
 	switch v := val.(type) {
 	case PawList:
 		return "list"

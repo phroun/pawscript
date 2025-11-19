@@ -25,10 +25,10 @@ func NewExecutionStateFrom(parent *ExecutionState) *ExecutionState {
 	if parent == nil {
 		return NewExecutionState()
 	}
-	
+
 	return &ExecutionState{
-		currentResult: nil, // Fresh result storage for this child
-		hasResult:     false, // Child starts with no result
+		currentResult: nil,                          // Fresh result storage for this child
+		hasResult:     false,                        // Child starts with no result
 		variables:     make(map[string]interface{}), // Create fresh map
 	}
 }
@@ -39,14 +39,14 @@ func NewExecutionStateFromSharedVars(parent *ExecutionState) *ExecutionState {
 	if parent == nil {
 		return NewExecutionState()
 	}
-	
+
 	parent.mu.RLock()
 	defer parent.mu.RUnlock()
-	
+
 	return &ExecutionState{
 		currentResult: parent.currentResult, // Inherit parent's result for get_result
-		hasResult:     parent.hasResult, // Inherit parent's result state
-		variables:     parent.variables, // Share the variables map with parent
+		hasResult:     parent.hasResult,     // Inherit parent's result state
+		variables:     parent.variables,     // Share the variables map with parent
 	}
 }
 
@@ -54,7 +54,7 @@ func NewExecutionStateFromSharedVars(parent *ExecutionState) *ExecutionState {
 func (s *ExecutionState) SetResult(value interface{}) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
-	
+
 	// Handle the special "undefined" bare identifier token (Symbol type only)
 	// This allows clearing the result with the bare identifier: undefined
 	// But still allows storing the string "undefined" as a type name
@@ -63,7 +63,7 @@ func (s *ExecutionState) SetResult(value interface{}) {
 		s.hasResult = false
 		return
 	}
-	
+
 	s.currentResult = value
 	s.hasResult = true
 }
@@ -106,7 +106,7 @@ func (s *ExecutionState) Snapshot() (interface{}, bool) {
 func (s *ExecutionState) String() string {
 	s.mu.RLock()
 	defer s.mu.RUnlock()
-	
+
 	if s.hasResult {
 		return "ExecutionState(has result)"
 	}
@@ -117,7 +117,7 @@ func (s *ExecutionState) String() string {
 func (s *ExecutionState) SetVariable(name string, value interface{}) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
-	
+
 	if s.variables == nil {
 		s.variables = make(map[string]interface{})
 	}
@@ -128,11 +128,11 @@ func (s *ExecutionState) SetVariable(name string, value interface{}) {
 func (s *ExecutionState) GetVariable(name string) (interface{}, bool) {
 	s.mu.RLock()
 	defer s.mu.RUnlock()
-	
+
 	if s.variables == nil {
 		return nil, false
 	}
-	
+
 	val, exists := s.variables[name]
 	return val, exists
 }
@@ -141,7 +141,7 @@ func (s *ExecutionState) GetVariable(name string) (interface{}, bool) {
 func (s *ExecutionState) DeleteVariable(name string) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
-	
+
 	if s.variables != nil {
 		delete(s.variables, name)
 	}

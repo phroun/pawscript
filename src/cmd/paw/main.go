@@ -3,12 +3,12 @@ package main
 import (
 	"flag"
 	"fmt"
+	"github.com/phroun/pawscript"
 	"io"
 	"os"
 	"path/filepath"
 	"strings"
 	"time"
-	"github.com/phroun/pawscript"
 )
 
 func main() {
@@ -17,23 +17,23 @@ func main() {
 	verboseFlag := flag.Bool("verbose", false, "Enable verbose output (alias for -debug)")
 	flag.BoolVar(debugFlag, "d", false, "Enable debug output (short)")
 	flag.BoolVar(verboseFlag, "v", false, "Enable verbose output (short, alias for -debug)")
-	
+
 	// Custom usage function
 	flag.Usage = showUsage
-	
+
 	// Parse flags
 	flag.Parse()
-	
+
 	// Verbose is an alias for debug
 	debug := *debugFlag || *verboseFlag
-	
+
 	// Get remaining arguments after flags
 	args := flag.Args()
-	
+
 	var scriptFile string
 	var scriptContent string
 	var scriptArgs []string
-	
+
 	// Check for -- separator
 	separatorIndex := -1
 	for i, arg := range args {
@@ -42,7 +42,7 @@ func main() {
 			break
 		}
 	}
-	
+
 	var fileArgs []string
 	if separatorIndex != -1 {
 		fileArgs = args[:separatorIndex]
@@ -50,16 +50,16 @@ func main() {
 	} else {
 		fileArgs = args
 	}
-	
+
 	// Check if stdin is redirected/piped
 	stdinInfo, _ := os.Stdin.Stat()
 	isStdinRedirected := (stdinInfo.Mode() & os.ModeCharDevice) == 0
-	
+
 	if len(fileArgs) > 0 {
 		// Filename provided
 		requestedFile := fileArgs[0]
 		foundFile := findScriptFile(requestedFile)
-		
+
 		if foundFile == "" {
 			fmt.Fprintf(os.Stderr, "Error: Script file not found: %s\n", requestedFile)
 			if !strings.Contains(requestedFile, ".") {
@@ -67,21 +67,21 @@ func main() {
 			}
 			os.Exit(1)
 		}
-		
+
 		scriptFile = foundFile
-		
+
 		content, err := os.ReadFile(scriptFile)
 		if err != nil {
 			fmt.Fprintf(os.Stderr, "Error reading script file: %v\n", err)
 			os.Exit(1)
 		}
 		scriptContent = string(content)
-		
+
 		// Remaining fileArgs become script arguments (if no separator was used)
 		if separatorIndex == -1 && len(fileArgs) > 1 {
 			scriptArgs = fileArgs[1:]
 		}
-		
+
 	} else if isStdinRedirected {
 		// No filename, but stdin is redirected - read from stdin
 		content, err := io.ReadAll(os.Stdin)
@@ -90,26 +90,26 @@ func main() {
 			os.Exit(1)
 		}
 		scriptContent = string(content)
-		
+
 	} else {
 		// No filename and stdin is not redirected - show usage
 		showCopyright()
 		showUsage()
 		os.Exit(1)
 	}
-	
+
 	// Create PawScript interpreter
 	ps := pawscript.New(&pawscript.Config{
-		Debug:                debug,  // Use the flag value
+		Debug:                debug, // Use the flag value
 		AllowMacros:          true,
 		EnableSyntacticSugar: true,
 		ShowErrorContext:     true,
 		ContextLines:         2,
 	})
-	
+
 	// Register standard library commands
 	ps.RegisterStandardLibrary(scriptArgs)
-	
+
 	// Execute the script
 	var result pawscript.Result
 	if scriptFile != "" {
@@ -117,7 +117,7 @@ func main() {
 	} else {
 		result = ps.Execute(scriptContent)
 	}
-	
+
 	// Exit with appropriate code
 	if boolStatus, ok := result.(pawscript.BoolStatus); ok {
 		if bool(boolStatus) {
@@ -126,7 +126,7 @@ func main() {
 			os.Exit(1)
 		}
 	}
-	
+
 	// If result is a token, async operations are pending
 	// Wait for them to complete
 	if _, ok := result.(pawscript.TokenResult); ok {
@@ -135,7 +135,7 @@ func main() {
 		timeout := time.After(5 * time.Minute)
 		ticker := time.NewTicker(50 * time.Millisecond)
 		defer ticker.Stop()
-		
+
 		for {
 			select {
 			case <-timeout:
@@ -152,7 +152,7 @@ func main() {
 			}
 		}
 	}
-	
+
 	// Unknown result type, exit successfully
 	os.Exit(0)
 }
@@ -162,7 +162,7 @@ func findScriptFile(filename string) string {
 	if _, err := os.Stat(filename); err == nil {
 		return filename
 	}
-	
+
 	// If no extension, try adding .paw
 	if filepath.Ext(filename) == "" {
 		pawFile := filename + ".paw"
@@ -170,7 +170,7 @@ func findScriptFile(filename string) string {
 			return pawFile
 		}
 	}
-	
+
 	return ""
 }
 

@@ -18,18 +18,18 @@ func New(config *Config) *PawScript {
 	if config == nil {
 		config = DefaultConfig()
 	}
-	
+
 	logger := NewLogger(config.Debug)
 	executor := NewExecutor(logger)
 	macroSystem := NewMacroSystem(logger)
-	
+
 	ps := &PawScript{
 		config:      config,
 		logger:      logger,
 		executor:    executor,
 		macroSystem: macroSystem,
 	}
-	
+
 	// Set up macro fallback handler
 	if config.AllowMacros {
 		executor.SetFallbackHandler(func(cmdName string, args []interface{}, state *ExecutionState, position *SourcePosition) Result {
@@ -39,24 +39,24 @@ func New(config *Config) *PawScript {
 				if state == nil {
 					state = NewExecutionState()
 				}
-				
+
 				// Create a child state so the macro has its own fresh variable scope
 				macroState := state.CreateChild()
-				
+
 				result := macroSystem.ExecuteMacro(cmdName, func(commands string, macroExecState *ExecutionState, ctx *SubstitutionContext) Result {
 					return executor.ExecuteWithState(commands, macroExecState, ctx, "", 0, 0)
 				}, args, macroState, position)
-				
+
 				return result
 			}
 			ps.logger.Debug("Macro not found: %s", cmdName)
 			return nil
 		})
-		
+
 		// Register built-in macro commands
 		ps.registerBuiltInMacroCommands()
 	}
-	
+
 	return ps
 }
 
@@ -69,63 +69,63 @@ func (ps *PawScript) registerBuiltInMacroCommands() {
 			ps.logger.Error("Usage: macro <name>, <commands>")
 			return BoolStatus(false)
 		}
-		
+
 		name := fmt.Sprintf("%v", ctx.Args[0])
 		commands := fmt.Sprintf("%v", ctx.Args[1])
-		
+
 		ps.logger.Debug("Defining macro '%s' with commands: %s", name, commands)
-		
+
 		result := ps.macroSystem.DefineMacro(name, commands, ctx.Position)
 		if !result {
 			ps.logger.Error("Failed to define macro \"%s\"", name)
 		}
-		
+
 		return BoolStatus(result)
 	})
-	
+
 	// Call macro command
 	ps.executor.RegisterCommand("call", func(ctx *Context) Result {
 		if len(ctx.Args) < 1 {
 			ps.logger.Error("Usage: call <macro_name>, [args...]")
 			return BoolStatus(false)
 		}
-		
+
 		name := fmt.Sprintf("%v", ctx.Args[0])
 		macroArgs := ctx.Args[1:]
-		
+
 		// Create a child state so the called macro has its own scope
 		// but can access parent variables via get_parent/set_parent
 		macroState := ctx.state.CreateChild()
-		
+
 		return ps.macroSystem.ExecuteMacro(name, func(commands string, macroExecState *ExecutionState, substCtx *SubstitutionContext) Result {
 			return ps.executor.ExecuteWithState(commands, macroExecState, substCtx, "", 0, 0)
 		}, macroArgs, macroState, ctx.Position)
 	})
-	
+
 	// List macros command
 	ps.executor.RegisterCommand("macro_list", func(ctx *Context) Result {
 		macros := ps.macroSystem.ListMacros()
 		ctx.SetResult(fmt.Sprintf("%v", macros))
 		return BoolStatus(true)
 	})
-	
+
 	// Delete macro command
 	ps.executor.RegisterCommand("macro_delete", func(ctx *Context) Result {
 		if len(ctx.Args) < 1 {
 			ps.logger.Error("Usage: macro_delete <macro_name>")
 			return BoolStatus(false)
 		}
-		
+
 		name := fmt.Sprintf("%v", ctx.Args[0])
 		result := ps.macroSystem.DeleteMacro(name)
-		
+
 		if !result {
 			ps.logger.Error("PawScript macro \"%s\" not found or could not be deleted", name)
 		}
-		
+
 		return BoolStatus(result)
 	})
-	
+
 	// Clear all macros command
 	ps.executor.RegisterCommand("macro_clear", func(ctx *Context) Result {
 		count := ps.macroSystem.ClearMacros()
@@ -146,11 +146,11 @@ func (ps *PawScript) unregisterBuiltInMacroCommands() {
 // Configure updates the configuration
 func (ps *PawScript) Configure(config *Config) {
 	oldAllowMacros := ps.config.AllowMacros
-	
+
 	// Update config
 	ps.config = config
 	ps.logger.SetEnabled(config.Debug)
-	
+
 	// Handle macro command registration/unregistration
 	if oldAllowMacros != config.AllowMacros {
 		if config.AllowMacros && !oldAllowMacros {
@@ -222,9 +222,9 @@ func (ps *PawScript) ExecuteMacro(name string) Result {
 		ps.logger.Warn("Macros are disabled in configuration")
 		return BoolStatus(false)
 	}
-	
+
 	state := NewExecutionState()
-	
+
 	return ps.macroSystem.ExecuteMacro(name, func(commands string, macroState *ExecutionState, ctx *SubstitutionContext) Result {
 		return ps.executor.ExecuteWithState(commands, macroState, ctx, "", 0, 0)
 	}, []interface{}{}, state, nil)
