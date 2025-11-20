@@ -127,33 +127,19 @@ func (ms *MacroSystem) ExecuteMacro(
 	// Execute the macro commands
 	result := executeCallback(macroDef.Commands, state, substitutionContext)
 	
-	// Extract object references from result before transfer
-	var resultRefs []int
-	if state.HasResult() {
-		resultRefs = state.ExtractObjectReferences(state.GetResult())
-	}
-	
-	// Transfer result to parent state with explicit ownership transfer
+	// Transfer result to parent state
 	if parentState != nil && state.HasResult() {
 		// Ensure parent has executor reference
 		if parentState.executor == nil && state.executor != nil {
 			parentState.executor = state.executor
 		}
 		
-		// Parent claims ownership of result objects
-		for _, resultID := range resultRefs {
-			parentState.ClaimObjectReference(resultID)  // Parent claims (+1)
-		}
-		
-		// Set result in parent (won't double-claim due to idempotency)
+		// Set result in parent (this will claim ownership)
 		parentState.SetResult(state.GetResult())
 		
-		// Child releases ownership (transfer complete)
-		for _, resultID := range resultRefs {
-			state.ReleaseObjectReference(resultID)  // Child releases (-1)
-		}
+		// Don't clear macro result here - ReleaseAllReferences will handle it
 		
-		ms.logger.Debug("Transferred macro result to parent state (claimed then released %d refs)", len(resultRefs))
+		ms.logger.Debug("Transferred macro result to parent state")
 	}
 	
 	// Clear all variables (including $@) to release their references
@@ -172,17 +158,8 @@ func (ms *MacroSystem) ExecuteMacro(
 	}
 	state.mu.Unlock()
 	
-	// Release all remaining owned references (result refs already transferred)
-	state.mu.Lock()
-	for id := range state.ownedObjects {
-		state.mu.Unlock()
-		state.ReleaseObjectReference(id)
-		state.mu.Lock()
-	}
-	
-	// Clear ownedObjects (all refs released)
-	state.ownedObjects = make(map[int]bool)
-	state.mu.Unlock()
+	// Release all remaining owned references
+	state.ReleaseAllReferences()
 
 	ms.logger.Debug("Macro \"%s\" execution completed with result: %v", name, result)
 	return result

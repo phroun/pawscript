@@ -12,8 +12,8 @@ type ExecutionState struct {
 	currentResult interface{}
 	hasResult     bool
 	variables     map[string]interface{}
-	ownedObjects  map[int]bool // Set of object IDs this context owns references to
-	executor      *Executor    // Reference to executor for object management
+	ownedObjects  map[int]int // Count of references this state owns for each object ID
+	executor      *Executor   // Reference to executor for object management
 }
 
 // NewExecutionState creates a new execution state
@@ -21,7 +21,7 @@ func NewExecutionState() *ExecutionState {
 	return &ExecutionState{
 		hasResult:    false,
 		variables:    make(map[string]interface{}),
-		ownedObjects: make(map[int]bool),
+		ownedObjects: make(map[int]int),
 		executor:     nil, // Will be set when attached to executor
 	}
 }
@@ -36,7 +36,7 @@ func NewExecutionStateFrom(parent *ExecutionState) *ExecutionState {
 		currentResult: nil,                  // Fresh result storage for this child
 		hasResult:     false,                // Child starts with no result
 		variables:     make(map[string]interface{}), // Create fresh map
-		ownedObjects:  make(map[int]bool),   // Fresh owned objects set
+		ownedObjects:  make(map[int]int),    // Fresh owned objects counter
 		executor:      parent.executor,      // Share executor reference
 	}
 }
@@ -55,7 +55,7 @@ func NewExecutionStateFromSharedVars(parent *ExecutionState) *ExecutionState {
 		currentResult: parent.currentResult, // Inherit parent's result for get_result
 		hasResult:     parent.hasResult,     // Inherit parent's result state
 		variables:     parent.variables,     // Share the variables map with parent
-		ownedObjects:  make(map[int]bool),   // Fresh owned objects set (will clean up separately)
+		ownedObjects:  make(map[int]int),    // Fresh owned objects counter (will clean up separately)
 		executor:      parent.executor,      // Share executor reference
 	}
 }
@@ -63,7 +63,6 @@ func NewExecutionStateFromSharedVars(parent *ExecutionState) *ExecutionState {
 // SetResult sets the result value
 func (s *ExecutionState) SetResult(value interface{}) {
 	s.mu.Lock()
-	defer s.mu.Unlock()
 
 	// Handle the special "undefined" bare identifier token (Symbol type only)
 	if sym, ok := value.(Symbol); ok && string(sym) == "undefined" {
@@ -79,6 +78,7 @@ func (s *ExecutionState) SetResult(value interface{}) {
 		
 		s.currentResult = nil
 		s.hasResult = false
+		s.mu.Unlock()
 		return
 	}
 
@@ -103,18 +103,40 @@ func (s *ExecutionState) SetResult(value interface{}) {
 	// Release lock before doing reference management
 	s.mu.Unlock()
 	
-	// Claim new references
+	// Claim new references (once per occurrence)
 	for _, id := range newRefs {
 		s.ClaimObjectReference(id)
 	}
 	
-	// Release old references
+	// Release old references (once per occurrence)
 	for _, id := range oldRefs {
 		s.ReleaseObjectReference(id)
 	}
 	
-	// Re-acquire lock for defer
+	// Re-acquire lock for return
 	s.mu.Lock()
+	defer s.mu.Unlock()
+}
+
+// SetResultWithoutClaim sets result without claiming ownership
+// Used when transferring ownership from child contexts
+func (s *ExecutionState) SetResultWithoutClaim(value interface{}) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+
+	// Release old result's references
+	if s.hasResult {
+		oldRefs := s.extractObjectReferencesLocked(s.currentResult)
+		s.mu.Unlock()
+		for _, id := range oldRefs {
+			s.ReleaseObjectReference(id)
+		}
+		s.mu.Lock()
+	}
+
+	// Set new value WITHOUT claiming
+	s.currentResult = value
+	s.hasResult = true
 }
 
 // extractObjectReferencesLocked is like ExtractObjectReferences but assumes lock is held
@@ -213,12 +235,12 @@ func (s *ExecutionState) SetVariable(name string, value interface{}) {
 	// Release lock before doing reference management
 	s.mu.Unlock()
 	
-	// Claim new references
+	// Claim new references (once per occurrence)
 	for _, id := range newRefs {
 		s.ClaimObjectReference(id)
 	}
 	
-	// Release old references
+	// Release old references (once per occurrence, not all state claims)
 	for _, id := range oldRefs {
 		s.ReleaseObjectReference(id)
 	}
@@ -258,17 +280,16 @@ func (s *ExecutionState) ClaimObjectReference(objectID int) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 
-	// Check if we already own this object
-	if s.ownedObjects[objectID] {
-		// Already owned - don't increment refcount again
-		return
+	// Check if this is the first claim by this state
+	wasZero := s.ownedObjects[objectID] == 0
+	
+	// Increment local count for tracking
+	s.ownedObjects[objectID]++
+	
+	// Only increment global refcount on first claim by this state
+	if wasZero {
+		s.executor.incrementObjectRefCount(objectID)
 	}
-
-	// Track locally
-	s.ownedObjects[objectID] = true
-
-	// Increment global refcount
-	s.executor.incrementObjectRefCount(objectID)
 }
 
 // ReleaseObjectReference releases ownership of an object reference
@@ -281,16 +302,20 @@ func (s *ExecutionState) ReleaseObjectReference(objectID int) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 
-	// Only release if we actually own this object
-	if !s.ownedObjects[objectID] {
+	// Check if we own this object
+	count := s.ownedObjects[objectID]
+	if count == 0 {
 		return // Not owned, nothing to release
 	}
 
-	// Remove from local tracking
-	delete(s.ownedObjects, objectID)
-
-	// Decrement global refcount (may free the object)
-	s.executor.decrementObjectRefCount(objectID)
+	// Decrement local count
+	s.ownedObjects[objectID]--
+	
+	// If count reaches zero, remove from map and decrement global refcount
+	if s.ownedObjects[objectID] == 0 {
+		delete(s.ownedObjects, objectID)
+		s.executor.decrementObjectRefCount(objectID)
+	}
 }
 
 // ReleaseAllReferences releases all owned object references
@@ -301,16 +326,18 @@ func (s *ExecutionState) ReleaseAllReferences() {
 	}
 
 	s.mu.Lock()
-	ownedIDs := make([]int, 0, len(s.ownedObjects))
-	for id := range s.ownedObjects {
-		ownedIDs = append(ownedIDs, id)
+	ownedIDs := make(map[int]int, len(s.ownedObjects))
+	for id, count := range s.ownedObjects {
+		ownedIDs[id] = count
 	}
-	s.ownedObjects = make(map[int]bool) // Clear the map
+	s.ownedObjects = make(map[int]int) // Clear the map
 	s.mu.Unlock()
 
-	// Release all references
-	for _, id := range ownedIDs {
-		s.executor.decrementObjectRefCount(id)
+	// Release all references (each ID may have multiple counts)
+	for id, count := range ownedIDs {
+		for i := 0; i < count; i++ {
+			s.executor.decrementObjectRefCount(id)
+		}
 	}
 }
 

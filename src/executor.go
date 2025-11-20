@@ -719,6 +719,19 @@ func (e *Executor) maybeStoreValue(value interface{}, state *ExecutionState) int
 			return Symbol(fmt.Sprintf("\x00BLOCK:%d\x00", id))
 		}
 		return v
+	case StoredList:
+		// StoredList objects come from processArguments resolving markers
+		// Convert back to marker to maintain pass-by-reference semantics
+		if id := e.findStoredListID(v); id >= 0 {
+			// The list already exists in storage
+			// Don't claim here - we're just converting from StoredList to Symbol
+			// The state will claim it through normal SetVariable/SetResult flow
+			return Symbol(fmt.Sprintf("\x00LIST:%d\x00", id))
+		}
+		// List not found in store - this shouldn't happen normally
+		// Store it as a new object
+		id := e.storeObject(v, "list")
+		return Symbol(fmt.Sprintf("\x00LIST:%d\x00", id))
 	default:
 		return value
 	}

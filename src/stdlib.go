@@ -82,12 +82,9 @@ func (ps *PawScript) RegisterStandardLibrary(scriptArgs []string) {
 		// Store it in the executor's object store
 		id := ctx.executor.storeObject(list, "list")
 		
-		// Claim ownership in this context
-		ctx.state.ClaimObjectReference(id)
-		
-		// Set the marker as the result
+		// Set marker WITHOUT claiming (consumer will claim it)
 		marker := fmt.Sprintf("\x00LIST:%d\x00", id)
-		ctx.SetResult(Symbol(marker))
+		ctx.state.SetResultWithoutClaim(Symbol(marker))
 	}
 	
 	// argc - returns number of arguments
@@ -509,7 +506,8 @@ func (ps *PawScript) RegisterStandardLibrary(scriptArgs []string) {
 		value, exists := ctx.state.GetVariable(varName)
 
 		if exists {
-			ctx.SetResult(value)
+			// Use SetResultWithoutClaim since we're just returning an existing reference
+			ctx.state.SetResultWithoutClaim(value)
 			return BoolStatus(true)
 		}
 

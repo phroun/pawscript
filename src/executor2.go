@@ -670,17 +670,26 @@ func (e *Executor) substituteBraceExpressions(str string, ctx *SubstitutionConte
 				e.logger.Debug("Brace %d completed synchronously with result: %v", i, evaluations[i].Result)
 			}
 			
-			// Transfer ownership of ALL result objects (LIST/STR/BLOCK) from brace to parent before cleanup
+			// Transfer ownership from child to parent by moving local counts
+			// This prevents double-claiming when consumer uses the result
 			if hasCapturedResult {
 				resultRefs := braceState.ExtractObjectReferences(capturedResult)
+				braceState.mu.Lock()
+				ctx.ExecutionState.mu.Lock()
 				for _, refID := range resultRefs {
-					// Parent claims ownership BEFORE child releases
-					ctx.ExecutionState.ClaimObjectReference(refID)
+					// Move ownership from child to parent
+					if count := braceState.ownedObjects[refID]; count > 0 {
+						// Add to parent's owned count (global refcount unchanged)
+						ctx.ExecutionState.ownedObjects[refID] += count
+						// Remove from child's owned count
+						delete(braceState.ownedObjects, refID)
+					}
 				}
+				ctx.ExecutionState.mu.Unlock()
+				braceState.mu.Unlock()
 			}
 			
-			// Clean up brace state references (synchronous case)
-			// This will decrement refs for objects we just transferred, but parent already claimed them
+			// Clean up brace state references (result refs already transferred)
 			braceState.ReleaseAllReferences()
 		}
 	}
@@ -1147,9 +1156,9 @@ func (e *Executor) isInsideQuotes(str string, pos int) bool {
 //
 // CRITICAL: Object markers (like \x00LIST:7\x00) are handled based on context:
 // - Inside quoted strings: Resolve and format for display (string interpolation)
-//   Example: echo "Result: {get_result}" ÃƒÂ¢Ã¢â‚¬Â Ã¢â‚¬â„¢ "Result: (a, b, c)"
+//   Example: echo "Result: {get_result}" ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â€šÂ¬Ã‚Â ÃƒÂ¢Ã¢â€šÂ¬Ã¢â€žÂ¢ "Result: (a, b, c)"
 // - Outside quotes: Preserve marker unchanged (pass by reference)
-//   Example: set x, {get_result} ÃƒÂ¢Ã¢â‚¬Â Ã¢â‚¬â„¢ x = \x00LIST:7\x00
+//   Example: set x, {get_result} ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â€šÂ¬Ã‚Â ÃƒÂ¢Ã¢â€šÂ¬Ã¢â€žÂ¢ x = \x00LIST:7\x00
 //
 // This ensures nested structures maintain shared storage via reference passing
 // while still supporting human-readable display in string contexts.
@@ -1388,11 +1397,8 @@ func (e *Executor) processArguments(args []interface{}, state *ExecutionState) [
 					switch objType {
 					case "list":
 						// Return as StoredList - this passes the object by reference
+						// Don't claim here - the receiving context (SetVariable, etc.) will claim
 						result[i] = value
-						// Receiving context claims a reference since we're passing the object
-						if state != nil {
-							state.ClaimObjectReference(objID)
-						}
 						e.logger.Debug("processArguments[%d]: Resolved list marker to StoredList", i)
 					case "str":
 						// Keep as marker (pass-by-reference) - don't copy the string
