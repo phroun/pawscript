@@ -1363,34 +1363,28 @@ func (e *Executor) processArguments(args []interface{}, state *ExecutionState) [
 				if value, exists := e.getObject(objID); exists {
 					switch objType {
 					case "list":
-						// Return as StoredList
+						// Return as StoredList - this passes the object by reference
 						result[i] = value
-						// Receiving context claims a reference
+						// Receiving context claims a reference since we're passing the object
 						if state != nil {
 							state.ClaimObjectReference(objID)
 						}
 					case "string":
-						// Convert StoredString back to regular string
+						// Convert StoredString to regular string - this makes a copy
 						if storedStr, ok := value.(StoredString); ok {
 							result[i] = string(storedStr)
 						} else {
 							result[i] = value
 						}
-						// Receiving context claims a reference
-						if state != nil {
-							state.ClaimObjectReference(objID)
-						}
+						// No reference claim needed - we copied the data, not passing the object
 					case "block":
-						// Convert StoredBlock back to ParenGroup
+						// Convert StoredBlock to ParenGroup - this makes a copy
 						if storedBlock, ok := value.(StoredBlock); ok {
 							result[i] = ParenGroup(storedBlock)
 						} else {
 							result[i] = value
 						}
-						// Receiving context claims a reference
-						if state != nil {
-							state.ClaimObjectReference(objID)
-						}
+						// No reference claim needed - we copied the data, not passing the object
 					default:
 						result[i] = value
 					}
