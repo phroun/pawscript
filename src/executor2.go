@@ -1172,7 +1172,27 @@ func (e *Executor) formatBraceResult(value interface{}, originalString string, b
 		escaped := e.escapeQuotesAndBackslashes(string(v))
 		return "\"" + escaped + "\""
 	case Symbol:
-		// Symbol as bare identifier
+		// If it's a Symbol that might be a marker, resolve it first for proper formatting
+		if sym, ok := value.(Symbol); ok {
+		    if _, objID := parseObjectMarker(string(sym)); objID >= 0 {
+			if insideQuotes {
+			    // Inside quotes: resolve and format for display
+			    if actualValue, exists := e.getObject(objID); exists {
+				value = actualValue
+				// Fall through to format the resolved value
+			    } else {
+				return string(sym)
+			    }
+			} else {
+			    // Outside quotes: keep as marker (already properly formatted)
+			    // Don't resolve and re-store - that would create a duplicate!
+			    return string(sym)
+			}
+		    } else {
+			// Not a marker, just a regular symbol
+			return string(sym)
+		    }
+		}
 		return string(v)
 	case string:
 		if insideQuotes {
