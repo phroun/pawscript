@@ -670,18 +670,16 @@ func (e *Executor) substituteBraceExpressions(str string, ctx *SubstitutionConte
 				e.logger.Debug("Brace %d completed synchronously with result: %v", i, evaluations[i].Result)
 			}
 			
-			// Transfer ownership from child to parent by moving local counts
-			// This prevents double-claiming when consumer uses the result
+			// Transfer ownership from brace to parent without changing global refcount
+			// This moves local tracking so consumer doesn't double-claim
 			if hasCapturedResult {
 				resultRefs := braceState.ExtractObjectReferences(capturedResult)
 				braceState.mu.Lock()
 				ctx.ExecutionState.mu.Lock()
 				for _, refID := range resultRefs {
-					// Move ownership from child to parent
+					// Move ownership count from brace to parent
 					if count := braceState.ownedObjects[refID]; count > 0 {
-						// Add to parent's owned count (global refcount unchanged)
 						ctx.ExecutionState.ownedObjects[refID] += count
-						// Remove from child's owned count
 						delete(braceState.ownedObjects, refID)
 					}
 				}
@@ -689,7 +687,7 @@ func (e *Executor) substituteBraceExpressions(str string, ctx *SubstitutionConte
 				braceState.mu.Unlock()
 			}
 			
-			// Clean up brace state references (result refs already transferred)
+			// Clean up brace state references (result refs transferred above)
 			braceState.ReleaseAllReferences()
 		}
 	}

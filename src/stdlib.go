@@ -79,10 +79,11 @@ func resolveToString(arg interface{}, executor *Executor) string {
 func (ps *PawScript) RegisterStandardLibrary(scriptArgs []string) {
 	// Helper function to set a StoredList as result with proper reference counting
 	setListResult := func(ctx *Context, list StoredList) {
-		// Store it in the executor's object store
+		// Store it in the executor's object store (starts with refcount=0)
 		id := ctx.executor.storeObject(list, "list")
 		
-		// Set marker WITHOUT claiming (consumer will claim it)
+		// Set marker as result WITHOUT claiming
+		// Consumer will claim when they use it (SetVariable, etc.)
 		marker := fmt.Sprintf("\x00LIST:%d\x00", id)
 		ctx.state.SetResultWithoutClaim(Symbol(marker))
 	}

@@ -280,16 +280,12 @@ func (s *ExecutionState) ClaimObjectReference(objectID int) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 
-	// Check if this is the first claim by this state
-	wasZero := s.ownedObjects[objectID] == 0
-	
-	// Increment local count for tracking
+	// Increment local count for tracking how many times this state owns it
 	s.ownedObjects[objectID]++
 	
-	// Only increment global refcount on first claim by this state
-	if wasZero {
-		s.executor.incrementObjectRefCount(objectID)
-	}
+	// Always increment global refcount for each claim
+	// This makes global refcount = total references across all states
+	s.executor.incrementObjectRefCount(objectID)
 }
 
 // ReleaseObjectReference releases ownership of an object reference
@@ -311,11 +307,13 @@ func (s *ExecutionState) ReleaseObjectReference(objectID int) {
 	// Decrement local count
 	s.ownedObjects[objectID]--
 	
-	// If count reaches zero, remove from map and decrement global refcount
+	// Remove from map if count reaches zero
 	if s.ownedObjects[objectID] == 0 {
 		delete(s.ownedObjects, objectID)
-		s.executor.decrementObjectRefCount(objectID)
 	}
+	
+	// Always decrement global refcount for each release
+	s.executor.decrementObjectRefCount(objectID)
 }
 
 // ReleaseAllReferences releases all owned object references
