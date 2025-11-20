@@ -12,10 +12,23 @@ import (
 
 // RegisterStandardLibrary registers standard library commands
 func (ps *PawScript) RegisterStandardLibrary(scriptArgs []string) {
+	// Helper function to set a StoredList as result with proper reference counting
+	setListResult := func(ctx *Context, list StoredList) {
+		// Store it in the executor's object store
+		id := ctx.executor.storeObject(list, "list")
+		
+		// Claim ownership in this context
+		ctx.state.ClaimObjectReference(id)
+		
+		// Set the marker as the result
+		marker := fmt.Sprintf("\x00LIST:%d\x00", id)
+		ctx.SetResult(Symbol(marker))
+	}
+	
 	// argc - returns number of arguments
 	// Usage: argc           - returns count of script arguments
 	//        argc (a, b, c) - returns count of items in list (3)
-	//        argc {get list} - returns count of items in PawList
+	//        argc {get list} - returns count of items in StoredList
 	ps.RegisterCommand("argc", func(ctx *Context) Result {
 		if len(ctx.Args) == 0 {
 			// No arguments - return script arg count
@@ -26,9 +39,9 @@ func (ps *PawScript) RegisterStandardLibrary(scriptArgs []string) {
 		// Argument provided - parse it as a list
 		listArg := ctx.Args[0]
 
-		// If it's a PawList, return its length
-		if pawList, ok := listArg.(PawList); ok {
-			ctx.SetResult(pawList.Len())
+		// If it's a StoredList, return its length
+		if storedList, ok := listArg.(StoredList); ok {
+			ctx.SetResult(storedList.Len())
 			return BoolStatus(true)
 		}
 
@@ -56,7 +69,7 @@ func (ps *PawScript) RegisterStandardLibrary(scriptArgs []string) {
 	//        argv 1            - returns first script argument (1-indexed)
 	//        argv (a, b, c)    - returns all items in list
 	//        argv (a, b, c), 2 - returns second item from list (1-indexed)
-	//        argv {get list}, 2 - returns second item from PawList (1-indexed)
+	//        argv {get list}, 2 - returns second item from StoredList (1-indexed)
 	ps.RegisterCommand("argv", func(ctx *Context) Result {
 		if len(ctx.Args) == 0 {
 			// No arguments - return all script args
@@ -64,14 +77,14 @@ func (ps *PawScript) RegisterStandardLibrary(scriptArgs []string) {
 			return BoolStatus(true)
 		}
 
-		// Check if first argument is a list (PawList, ParenGroup, or string)
+		// Check if first argument is a list (StoredList, ParenGroup, or string)
 		firstArg := ctx.Args[0]
 		var sourceList []interface{}
 		var isListProvided bool
 
-		if pawList, ok := firstArg.(PawList); ok {
-			// PawList - get items
-			sourceList = pawList.Items()
+		if storedList, ok := firstArg.(StoredList); ok {
+			// StoredList - get items
+			sourceList = storedList.Items()
 			isListProvided = true
 		} else if parenGroup, ok := firstArg.(ParenGroup); ok {
 			// Parse the parenthetic group as a list
@@ -373,9 +386,9 @@ func (ps *PawScript) RegisterStandardLibrary(scriptArgs []string) {
 		var varNames []interface{}
 		isUnpacking := false
 
-		if pawList, ok := firstArg.(PawList); ok {
+		if storedList, ok := firstArg.(StoredList); ok {
 			// First arg is a list - unpack mode
-			varNames = pawList.Items()
+			varNames = storedList.Items()
 			isUnpacking = true
 		} else if parenGroup, ok := firstArg.(ParenGroup); ok {
 			// First arg is a ParenGroup - parse it as comma-separated list
@@ -387,8 +400,8 @@ func (ps *PawScript) RegisterStandardLibrary(scriptArgs []string) {
 			// Unpacking mode - extract values from second arg
 			var values []interface{}
 
-			if pawList, ok := secondArg.(PawList); ok {
-				values = pawList.Items()
+			if storedList, ok := secondArg.(StoredList); ok {
+				values = storedList.Items()
 			} else if parenGroup, ok := secondArg.(ParenGroup); ok {
 				values = parseArguments(string(parenGroup))
 			} else if str, ok := secondArg.(string); ok {
@@ -734,8 +747,8 @@ func (ps *PawScript) RegisterStandardLibrary(scriptArgs []string) {
 	//        list {list a, b}, {list c, d} - nested lists
 	//        list                      - creates empty list
 	ps.RegisterCommand("list", func(ctx *Context) Result {
-		// All arguments become list items (or empty if no args)
-		ctx.SetResult(NewPawList(ctx.Args))
+		// Create and store the list with proper reference counting for nested objects
+		setListResult(ctx, NewStoredListWithRefs(ctx.Args, ctx.executor))
 		return BoolStatus(true)
 	})
 
@@ -752,7 +765,7 @@ func (ps *PawScript) RegisterStandardLibrary(scriptArgs []string) {
 		value := ctx.Args[0]
 
 		switch v := value.(type) {
-		case PawList:
+		case StoredList:
 			ctx.SetResult(v.Len())
 			return BoolStatus(true)
 		case string, QuotedString, Symbol:
@@ -803,12 +816,12 @@ func (ps *PawScript) RegisterStandardLibrary(scriptArgs []string) {
 		end := int(endNum)
 
 		switch v := value.(type) {
-		case PawList:
+		case StoredList:
 			// Handle negative indices
 			if end < 0 {
 				end = v.Len()
 			}
-			ctx.SetResult(v.Slice(start, end))
+			setListResult(ctx, v.Slice(start, end))
 			return BoolStatus(true)
 		case string, QuotedString, Symbol:
 			str := fmt.Sprintf("%v", v)
@@ -848,8 +861,8 @@ func (ps *PawScript) RegisterStandardLibrary(scriptArgs []string) {
 		item := ctx.Args[1]
 
 		switch v := value.(type) {
-		case PawList:
-			ctx.SetResult(v.Append(item))
+		case StoredList:
+			setListResult(ctx, v.Append(item))
 			return BoolStatus(true)
 		default:
 			fmt.Fprintf(os.Stderr, "[APPEND ERROR] Cannot append to type %s\n", getTypeName(v))
@@ -871,8 +884,8 @@ func (ps *PawScript) RegisterStandardLibrary(scriptArgs []string) {
 		item := ctx.Args[1]
 
 		switch v := value.(type) {
-		case PawList:
-			ctx.SetResult(v.Prepend(item))
+		case StoredList:
+			setListResult(ctx, v.Prepend(item))
 			return BoolStatus(true)
 		default:
 			fmt.Fprintf(os.Stderr, "[PREPEND ERROR] Cannot prepend to type %s\n", getTypeName(v))
@@ -894,8 +907,8 @@ func (ps *PawScript) RegisterStandardLibrary(scriptArgs []string) {
 		value := ctx.Args[0]
 
 		switch v := value.(type) {
-		case PawList:
-			ctx.SetResult(v.Compact())
+		case StoredList:
+			setListResult(ctx, v.Compact())
 			return BoolStatus(true)
 		default:
 			fmt.Fprintf(os.Stderr, "[COMPACT ERROR] Cannot compact type %s\n", getTypeName(v))
@@ -916,15 +929,15 @@ func (ps *PawScript) RegisterStandardLibrary(scriptArgs []string) {
 			return BoolStatus(false)
 		}
 
-		// Check if first argument is a PawList
-		if list, ok := ctx.Args[0].(PawList); ok {
+		// Check if first argument is a StoredList
+		if list, ok := ctx.Args[0].(StoredList); ok {
 			// List mode: concatenate lists and append other items
 			result := list
 
 			for i := 1; i < len(ctx.Args); i++ {
 				arg := ctx.Args[i]
 
-				if otherList, ok := arg.(PawList); ok {
+				if otherList, ok := arg.(StoredList); ok {
 					// Concatenate lists
 					result = result.Concat(otherList)
 				} else {
@@ -933,7 +946,7 @@ func (ps *PawScript) RegisterStandardLibrary(scriptArgs []string) {
 				}
 			}
 
-			ctx.SetResult(result)
+			setListResult(ctx, result)
 			return BoolStatus(true)
 		}
 
@@ -971,7 +984,7 @@ func (ps *PawScript) RegisterStandardLibrary(scriptArgs []string) {
 			items[i] = part
 		}
 
-		ctx.SetResult(NewPawList(items))
+		setListResult(ctx, NewStoredList(items))
 		return BoolStatus(true)
 	})
 
@@ -987,9 +1000,9 @@ func (ps *PawScript) RegisterStandardLibrary(scriptArgs []string) {
 
 		delimiter := fmt.Sprintf("%v", ctx.Args[1])
 
-		// Handle PawList
-		if pawList, ok := ctx.Args[0].(PawList); ok {
-			items := pawList.Items()
+		// Handle StoredList
+		if storedList, ok := ctx.Args[0].(StoredList); ok {
+			items := storedList.Items()
 			strItems := make([]string, len(items))
 			for i, item := range items {
 				strItems[i] = fmt.Sprintf("%v", item)
@@ -1184,6 +1197,80 @@ func (ps *PawScript) RegisterStandardLibrary(scriptArgs []string) {
 		ctx.SetResult(result)
 		return BoolStatus(true)
 	})
+
+	// mem_stats - debug command to show stored objects
+	ps.RegisterCommand("mem_stats", func(ctx *Context) Result {
+		// Get a snapshot of stored objects without creating new ones
+		type objectInfo struct {
+			ID       int
+			Type     string
+			RefCount int
+			Size     int
+		}
+		
+		var objects []objectInfo
+		totalSize := 0
+		
+		ctx.executor.mu.RLock()
+		for id, obj := range ctx.executor.storedObjects {
+			size := estimateObjectSize(obj.Value)
+			objects = append(objects, objectInfo{
+				ID:       id,
+				Type:     obj.Type,
+				RefCount: obj.RefCount,
+				Size:     size,
+			})
+			totalSize += size
+		}
+		ctx.executor.mu.RUnlock()
+		
+		// Output using simple fmt to avoid creating new objects
+		fmt.Println("=== Memory Statistics ===")
+		fmt.Printf("Total stored objects: %d\n", len(objects))
+		fmt.Printf("Total estimated size: %d bytes\n\n", totalSize)
+		
+		if len(objects) > 0 {
+			fmt.Println("ID    Type      RefCount  Size(bytes)")
+			fmt.Println("----  --------  --------  -----------")
+			for _, obj := range objects {
+				fmt.Printf("%-4d  %-8s  %-8d  %d\n", obj.ID, obj.Type, obj.RefCount, obj.Size)
+			}
+		}
+		
+		return BoolStatus(true)
+	})
+}
+
+// estimateObjectSize provides a rough estimate of object size in bytes
+func estimateObjectSize(value interface{}) int {
+	switch v := value.(type) {
+	case StoredList:
+		// Base list overhead + items
+		size := 24 // slice header
+		for _, item := range v.Items() {
+			size += estimateItemSize(item)
+		}
+		return size
+	default:
+		return estimateItemSize(value)
+	}
+}
+
+// estimateItemSize estimates size of individual items
+func estimateItemSize(value interface{}) int {
+	switch v := value.(type) {
+	case string, QuotedString, Symbol:
+		return len(fmt.Sprintf("%v", v)) + 16 // string header overhead
+	case ParenGroup:
+		return len(string(v)) + 16
+	case int64, float64, bool:
+		return 8
+	case nil:
+		return 0
+	default:
+		// Unknown type, rough estimate
+		return 32
+	}
 }
 
 // Helper function to convert values to numbers
@@ -1280,7 +1367,7 @@ func getTypeName(val interface{}) string {
 	}
 
 	switch v := val.(type) {
-	case PawList:
+	case StoredList:
 		return "list"
 	case ParenGroup:
 		return "block"

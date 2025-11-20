@@ -64,6 +64,7 @@ func (ms *MacroSystem) ExecuteMacro(
 	args []interface{},
 	state *ExecutionState,
 	invocationPosition *SourcePosition,
+	parentState *ExecutionState,
 ) Result {
 	if name == "" {
 		ms.logger.Error("Macro name is required")
@@ -107,6 +108,15 @@ func (ms *MacroSystem) ExecuteMacro(
 		state = NewExecutionState()
 	}
 
+	// Create a LIST from the arguments and store it as $@
+	argsList := NewStoredList(args)
+	argsListID := state.executor.storeObject(argsList, "list")
+	argsMarker := fmt.Sprintf("\x00LIST:%d\x00", argsListID)
+	
+	// Store the list marker in the state's variables as $@
+	// SetVariable will claim the reference
+	state.SetVariable("$@", Symbol(argsMarker))
+
 	// Create substitution context for macro arguments
 	substitutionContext := &SubstitutionContext{
 		Args:           args,
@@ -116,6 +126,63 @@ func (ms *MacroSystem) ExecuteMacro(
 
 	// Execute the macro commands
 	result := executeCallback(macroDef.Commands, state, substitutionContext)
+	
+	// Extract object references from result before transfer
+	var resultRefs []int
+	if state.HasResult() {
+		resultRefs = state.ExtractObjectReferences(state.GetResult())
+	}
+	
+	// Transfer result to parent state with explicit ownership transfer
+	if parentState != nil && state.HasResult() {
+		// Ensure parent has executor reference
+		if parentState.executor == nil && state.executor != nil {
+			parentState.executor = state.executor
+		}
+		
+		// Parent claims ownership of result objects
+		for _, resultID := range resultRefs {
+			parentState.ClaimObjectReference(resultID)  // Parent claims (+1)
+		}
+		
+		// Set result in parent (won't double-claim due to idempotency)
+		parentState.SetResult(state.GetResult())
+		
+		// Child releases ownership (transfer complete)
+		for _, resultID := range resultRefs {
+			state.ReleaseObjectReference(resultID)  // Child releases (-1)
+		}
+		
+		ms.logger.Debug("Transferred macro result to parent state (claimed then released %d refs)", len(resultRefs))
+	}
+	
+	// Clear all variables (including $@) to release their references
+	state.mu.Lock()
+	for varName := range state.variables {
+		oldValue := state.variables[varName]
+		delete(state.variables, varName)
+		
+		// Extract and release references from the old variable value
+		oldRefs := state.extractObjectReferencesLocked(oldValue)
+		state.mu.Unlock()
+		for _, id := range oldRefs {
+			state.ReleaseObjectReference(id)
+		}
+		state.mu.Lock()
+	}
+	state.mu.Unlock()
+	
+	// Release all remaining owned references (result refs already transferred)
+	state.mu.Lock()
+	for id := range state.ownedObjects {
+		state.mu.Unlock()
+		state.ReleaseObjectReference(id)
+		state.mu.Lock()
+	}
+	
+	// Clear ownedObjects (all refs released)
+	state.ownedObjects = make(map[int]bool)
+	state.mu.Unlock()
 
 	ms.logger.Debug("Macro \"%s\" execution completed with result: %v", name, result)
 	return result

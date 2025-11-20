@@ -39,13 +39,18 @@ func New(config *Config) *PawScript {
 				if state == nil {
 					state = NewExecutionState()
 				}
+				
+				// Ensure state has executor reference before creating child
+				if state.executor == nil {
+					state.executor = executor
+				}
 
 				// Create a child state so the macro has its own fresh variable scope
 				macroState := state.CreateChild()
 
 				result := macroSystem.ExecuteMacro(cmdName, func(commands string, macroExecState *ExecutionState, ctx *SubstitutionContext) Result {
 					return executor.ExecuteWithState(commands, macroExecState, ctx, "", 0, 0)
-				}, args, macroState, position)
+				}, args, macroState, position, state) // Pass parent state
 
 				return result
 			}
@@ -99,7 +104,7 @@ func (ps *PawScript) registerBuiltInMacroCommands() {
 
 		return ps.macroSystem.ExecuteMacro(name, func(commands string, macroExecState *ExecutionState, substCtx *SubstitutionContext) Result {
 			return ps.executor.ExecuteWithState(commands, macroExecState, substCtx, "", 0, 0)
-		}, macroArgs, macroState, ctx.Position)
+		}, macroArgs, macroState, ctx.Position, ctx.state) // Pass parent state
 	})
 
 	// List macros command
@@ -227,7 +232,7 @@ func (ps *PawScript) ExecuteMacro(name string) Result {
 
 	return ps.macroSystem.ExecuteMacro(name, func(commands string, macroState *ExecutionState, ctx *SubstitutionContext) Result {
 		return ps.executor.ExecuteWithState(commands, macroState, ctx, "", 0, 0)
-	}, []interface{}{}, state, nil)
+	}, []interface{}{}, state, nil, nil) // No parent for top-level call
 }
 
 // ListMacros returns a list of all macro names

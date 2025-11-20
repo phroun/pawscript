@@ -241,40 +241,94 @@ type Symbol string
 
 func (s Symbol) String() string { return string(s) }
 
-// PawList represents an immutable list of values
-// All operations return new PawList instances (copy-on-write)
+// StoredList represents an immutable list of values
+// All operations return new StoredList instances (copy-on-write)
 // Slicing shares the backing array for memory efficiency
-type PawList struct {
+type StoredList struct {
 	items []interface{}
 }
 
-// NewPawList creates a new PawList from a slice of items
-func NewPawList(items []interface{}) PawList {
-	return PawList{items: items}
+// NewStoredList creates a new StoredList from a slice of items
+func NewStoredList(items []interface{}) StoredList {
+	return StoredList{items: items}
+}
+
+// NewStoredListWithRefs creates a new StoredList and claims references to any nested objects
+func NewStoredListWithRefs(items []interface{}, executor *Executor) StoredList {
+	list := StoredList{items: items}
+	// Claim references to any nested objects
+	if executor != nil {
+		for _, item := range items {
+			claimNestedReferences(item, executor)
+		}
+	}
+	return list
+}
+
+// claimNestedReferences recursively claims references to nested objects
+func claimNestedReferences(value interface{}, executor *Executor) {
+	switch v := value.(type) {
+	case Symbol:
+		if id := parseObjectMarker(string(v)); id >= 0 {
+			executor.incrementObjectRefCount(id)
+		}
+	case string:
+		if id := parseObjectMarker(v); id >= 0 {
+			executor.incrementObjectRefCount(id)
+		}
+	case StoredList:
+		// First, claim a reference to the list itself
+		if id := executor.findStoredListID(v); id >= 0 {
+			executor.incrementObjectRefCount(id)
+		}
+		// Then recursively claim references in nested list items
+		for _, item := range v.Items() {
+			claimNestedReferences(item, executor)
+		}
+	}
+}
+
+// releaseNestedReferences recursively releases references to nested objects
+func releaseNestedReferences(value interface{}, executor *Executor) {
+	switch v := value.(type) {
+	case Symbol:
+		if id := parseObjectMarker(string(v)); id >= 0 {
+			executor.decrementObjectRefCount(id)
+		}
+	case string:
+		if id := parseObjectMarker(v); id >= 0 {
+			executor.decrementObjectRefCount(id)
+		}
+	case StoredList:
+		// Recursively release references in nested lists
+		for _, item := range v.Items() {
+			releaseNestedReferences(item, executor)
+		}
+	}
 }
 
 // Items returns a copy of the underlying items slice
-func (pl PawList) Items() []interface{} {
+func (pl StoredList) Items() []interface{} {
 	return pl.items
 }
 
 // Len returns the number of items in the list
-func (pl PawList) Len() int {
+func (pl StoredList) Len() int {
 	return len(pl.items)
 }
 
 // Get returns the item at the given index (0-based)
 // Returns nil if index is out of bounds
-func (pl PawList) Get(index int) interface{} {
+func (pl StoredList) Get(index int) interface{} {
 	if index < 0 || index >= len(pl.items) {
 		return nil
 	}
 	return pl.items[index]
 }
 
-// Slice returns a new PawList with items from start to end (end exclusive)
+// Slice returns a new StoredList with items from start to end (end exclusive)
 // Shares the backing array for memory efficiency (O(1) time, O(1) space)
-func (pl PawList) Slice(start, end int) PawList {
+func (pl StoredList) Slice(start, end int) StoredList {
 	if start < 0 {
 		start = 0
 	}
@@ -284,42 +338,42 @@ func (pl PawList) Slice(start, end int) PawList {
 	if start > end {
 		start = end
 	}
-	return PawList{items: pl.items[start:end]}
+	return StoredList{items: pl.items[start:end]}
 }
 
-// Append returns a new PawList with the item appended (O(n) copy-on-write)
-func (pl PawList) Append(item interface{}) PawList {
+// Append returns a new StoredList with the item appended (O(n) copy-on-write)
+func (pl StoredList) Append(item interface{}) StoredList {
 	newItems := make([]interface{}, len(pl.items)+1)
 	copy(newItems, pl.items)
 	newItems[len(pl.items)] = item
-	return PawList{items: newItems}
+	return StoredList{items: newItems}
 }
 
-// Prepend returns a new PawList with the item prepended (O(n) copy-on-write)
-func (pl PawList) Prepend(item interface{}) PawList {
+// Prepend returns a new StoredList with the item prepended (O(n) copy-on-write)
+func (pl StoredList) Prepend(item interface{}) StoredList {
 	newItems := make([]interface{}, len(pl.items)+1)
 	newItems[0] = item
 	copy(newItems[1:], pl.items)
-	return PawList{items: newItems}
+	return StoredList{items: newItems}
 }
 
-// Concat returns a new PawList with items from both lists (O(n+m) copy)
-func (pl PawList) Concat(other PawList) PawList {
+// Concat returns a new StoredList with items from both lists (O(n+m) copy)
+func (pl StoredList) Concat(other StoredList) StoredList {
 	newItems := make([]interface{}, len(pl.items)+len(other.items))
 	copy(newItems, pl.items)
 	copy(newItems[len(pl.items):], other.items)
-	return PawList{items: newItems}
+	return StoredList{items: newItems}
 }
 
-// Compact returns a new PawList with a new backing array
+// Compact returns a new StoredList with a new backing array
 // Use this to free memory if you've sliced a large list
-func (pl PawList) Compact() PawList {
+func (pl StoredList) Compact() StoredList {
 	newItems := make([]interface{}, len(pl.items))
 	copy(newItems, pl.items)
-	return PawList{items: newItems}
+	return StoredList{items: newItems}
 }
 
 // String returns a string representation for debugging
-func (pl PawList) String() string {
+func (pl StoredList) String() string {
 	return "(list)"
 }

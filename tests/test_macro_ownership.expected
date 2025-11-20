@@ -1,0 +1,80 @@
+=== Macro Result Ownership Transfer Test ===
+
+Test 1: Initial state
+=== Memory Statistics ===
+Total stored objects: 0
+Total estimated size: 0 bytes
+
+Expected: 0 objects
+
+Test 2: Macro that returns a list
+After calling macro that returns list:
+=== Memory Statistics ===
+Total stored objects: 1
+Total estimated size: 88 bytes
+
+ID    Type      RefCount  Size(bytes)
+----  --------  --------  -----------
+1     list      1         88
+
+Expected: 1 list with refcount=1 (owned by parent's result)
+
+Test 3: Clear result
+After clearing result:
+=== Memory Statistics ===
+Total stored objects: 0
+Total estimated size: 0 bytes
+
+Expected: 0 lists (should be freed)
+
+Test 4: Macro that returns nested list
+After calling macro that returns nested list:
+=== Memory Statistics ===
+Total stored objects: 2
+Total estimated size: 128 bytes
+
+ID    Type      RefCount  Size(bytes)
+----  --------  --------  -----------
+2     list      1         48
+3     list      1         80
+
+Expected: 2 lists (both owned by parent's result)
+
+Test 5: Clear result again
+After clearing result:
+=== Memory Statistics ===
+Total stored objects: 0
+Total estimated size: 0 bytes
+
+Expected: 0 lists (cascade cleanup)
+
+Test 6: Macro called from another macro
+Inner macro returned, result is: (list)
+After nested macro calls:
+=== Memory Statistics ===
+Total stored objects: 2
+Total estimated size: 96 bytes
+
+ID    Type      RefCount  Size(bytes)
+----  --------  --------  -----------
+4     list      1         48
+5     list      1         48
+
+Expected: 2 lists in result
+
+Test 7: Clear final result
+=== Memory Statistics ===
+Total stored objects: 0
+Total estimated size: 0 bytes
+
+Expected: 0 lists
+
+Test 8: Loop creating many lists via macro
+After creating and clearing 10 lists via macro:
+=== Memory Statistics ===
+Total stored objects: 0
+Total estimated size: 0 bytes
+
+Expected: 0 lists (no leaks from repeated macro calls)
+
+=== Test Complete ===

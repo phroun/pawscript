@@ -1,0 +1,83 @@
+#!/usr/bin/env paw
+# Test macro result ownership transfer fix
+
+echo "=== Macro Result Ownership Transfer Test ==="
+echo ""
+
+echo "Test 1: Initial state"
+mem_stats
+echo "Expected: 0 objects"
+echo ""
+
+echo "Test 2: Macro that returns a list"
+macro make_list (
+    set_result {list data1, data2, data3}
+)
+make_list
+echo "After calling macro that returns list:"
+mem_stats
+echo "Expected: 1 list with refcount=1 (owned by parent's result)"
+echo ""
+
+echo "Test 3: Clear result"
+set_result nil
+echo "After clearing result:"
+mem_stats
+echo "Expected: 0 lists (should be freed)"
+echo ""
+
+echo "Test 4: Macro that returns nested list"
+macro make_nested (
+    set inner, {list nested_data}
+    set_result {list {get inner}, outer_data}
+)
+make_nested
+echo "After calling macro that returns nested list:"
+mem_stats
+echo "Expected: 2 lists (both owned by parent's result)"
+echo ""
+
+echo "Test 5: Clear result again"
+set_result nil
+echo "After clearing result:"
+mem_stats
+echo "Expected: 0 lists (cascade cleanup)"
+echo ""
+
+echo "Test 6: Macro called from another macro"
+macro inner_macro (
+    set_result {list inner_result}
+)
+macro outer_macro (
+    inner_macro
+    echo "Inner macro returned, result is: {get_result}"
+    set_result {list {get_result}, outer_addition}
+)
+outer_macro
+echo "After nested macro calls:"
+mem_stats
+echo "Expected: 2 lists in result"
+echo ""
+
+echo "Test 7: Clear final result"
+set_result nil
+mem_stats
+echo "Expected: 0 lists"
+echo ""
+
+echo "Test 8: Loop creating many lists via macro"
+macro create_temp_list (
+    set_result {list temp}
+)
+set i, 0
+while (lt {get i}, 10), (
+    create_temp_list
+    set i, {add {get i}, 1}
+)
+set_result nil
+echo "After creating and clearing 10 lists via macro:"
+mem_stats
+echo "Expected: 0 lists (no leaks from repeated macro calls)"
+echo ""
+
+echo "=== Test Complete ==="

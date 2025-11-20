@@ -8,14 +8,21 @@ import (
 	"time"
 )
 
+// StoredObject represents a reference-counted stored object
+type StoredObject struct {
+	Value    interface{} // The actual object (StoredList, etc.)
+	Type     string      // "list", "dict", etc.
+	RefCount int         // Number of contexts holding references
+}
+
 // Executor handles command execution
 type Executor struct {
 	mu              sync.RWMutex
 	commands        map[string]Handler
 	activeTokens    map[string]*TokenData
-	tempValues      map[int]interface{} // Storage for complex values during brace substitution
+	storedObjects   map[int]*StoredObject // Global reference-counted object store
 	nextTokenID     int
-	nextTempID      int
+	nextObjectID    int
 	logger          *Logger
 	fallbackHandler func(cmdName string, args []interface{}, state *ExecutionState, position *SourcePosition) Result
 }
@@ -23,12 +30,12 @@ type Executor struct {
 // NewExecutor creates a new command executor
 func NewExecutor(logger *Logger) *Executor {
 	return &Executor{
-		commands:     make(map[string]Handler),
-		activeTokens: make(map[string]*TokenData),
-		tempValues:   make(map[int]interface{}),
-		nextTokenID:  1,
-		nextTempID:   1,
-		logger:       logger,
+		commands:      make(map[string]Handler),
+		activeTokens:  make(map[string]*TokenData),
+		storedObjects: make(map[int]*StoredObject),
+		nextTokenID:   1,
+		nextObjectID:  1,
+		logger:        logger,
 	}
 }
 
@@ -88,6 +95,11 @@ func (e *Executor) RequestCompletionToken(
 	}()
 
 	suspendedResult, hasSuspendedResult := state.Snapshot()
+	
+	// Ensure state has executor reference
+	if state.executor == nil {
+		state.executor = e
+	}
 
 	tokenData := &TokenData{
 		CommandSequence:    nil,
@@ -151,6 +163,11 @@ func (e *Executor) RequestBraceCoordinatorToken(
 		OriginalString:  originalString,
 		SubstitutionCtx: substitutionCtx,
 		ResumeCallback:  resumeCallback,
+	}
+	
+	// Ensure state has executor reference
+	if state != nil && state.executor == nil {
+		state.executor = e
 	}
 
 	tokenData := &TokenData{
@@ -222,6 +239,11 @@ func (e *Executor) ResumeBraceEvaluation(coordinatorToken, childToken string, re
 	targetEval.Completed = true
 	targetEval.Result = result
 	coord.CompletedCount++
+	
+	// Clean up the brace's state references
+	if targetEval.State != nil {
+		targetEval.State.ReleaseAllReferences()
+	}
 
 	if !success {
 		targetEval.Failed = true
@@ -287,7 +309,7 @@ func (e *Executor) finalizeBraceCoordinator(coordinatorToken string) {
 		callbackResult = coord.ResumeCallback("", false)
 	} else {
 		// Substitute all results into the original string
-		finalString := e.substituteAllBraces(coord.OriginalString, coord.Evaluations)
+		finalString := e.substituteAllBraces(coord.OriginalString, coord.Evaluations, coord.SubstitutionCtx.ExecutionState)
 		e.logger.Debug("Brace coordinator %s succeeded, substituted string: %s", coordinatorToken, finalString)
 		callbackResult = coord.ResumeCallback(finalString, true)
 	}
@@ -420,6 +442,11 @@ func (e *Executor) PopAndResumeCommandSequence(tokenID string, status bool) bool
 
 	chainedToken := tokenData.ChainedToken
 	parentToken := tokenData.ParentToken
+	
+	// Release all object references held by this token's state
+	if tokenData.ExecutionState != nil {
+		tokenData.ExecutionState.ReleaseAllReferences()
+	}
 
 	delete(e.activeTokens, tokenID)
 
@@ -476,6 +503,12 @@ func (e *Executor) forceCleanupTokenLocked(tokenID string) {
 	}
 
 	e.cleanupTokenChildrenLocked(tokenID)
+	
+	// Release all object references held by this token's state
+	if tokenData.ExecutionState != nil {
+		tokenData.ExecutionState.ReleaseAllReferences()
+	}
+	
 	delete(e.activeTokens, tokenID)
 }
 
@@ -579,6 +612,8 @@ func (e *Executor) Execute(commandStr string, args ...interface{}) Result {
 	e.logger.Debug("Execute called with command: %s", commandStr)
 
 	state := NewExecutionState()
+	// Ensure cleanup happens when execution completes
+	defer state.ReleaseAllReferences()
 
 	// If args provided, execute as direct command call
 	if len(args) > 0 {
@@ -606,6 +641,11 @@ func (e *Executor) ExecuteWithState(
 	filename string,
 	lineOffset, columnOffset int,
 ) Result {
+	// Ensure state has executor reference for object management
+	if state != nil && state.executor == nil {
+		state.executor = e
+	}
+	
 	parser := NewParser(commandStr, filename)
 	cleanedCommand := parser.RemoveComments(commandStr)
 
@@ -657,4 +697,99 @@ func (e *Executor) ExecuteWithState(
 	return e.executeCommandSequence(commands, state, substitutionCtx)
 }
 
-// Continue in part 2...
+// storeObject stores an object in the global store with an initial refcount of 0
+// Returns the object ID
+func (e *Executor) storeObject(value interface{}, typeName string) int {
+	e.mu.Lock()
+	defer e.mu.Unlock()
+
+	id := e.nextObjectID
+	e.nextObjectID++
+
+	e.storedObjects[id] = &StoredObject{
+		Value:    value,
+		Type:     typeName,
+		RefCount: 0, // Start at 0 - creator must claim ownership
+	}
+
+	e.logger.Debug("Stored object %d (type: %s, refcount: 0)", id, typeName)
+	
+	return id
+}
+
+// incrementObjectRefCount increments the reference count for an object
+func (e *Executor) incrementObjectRefCount(objectID int) {
+	e.mu.Lock()
+	defer e.mu.Unlock()
+
+	if obj, exists := e.storedObjects[objectID]; exists {
+		obj.RefCount++
+		e.logger.Debug("Object %d refcount incremented to %d (type: %s)", objectID, obj.RefCount, obj.Type)
+	} else {
+		e.logger.Warn("Attempted to increment refcount for non-existent object %d", objectID)
+	}
+}
+
+// decrementObjectRefCount decrements the reference count and frees if zero
+func (e *Executor) decrementObjectRefCount(objectID int) {
+	e.mu.Lock()
+	defer e.mu.Unlock()
+
+	if obj, exists := e.storedObjects[objectID]; exists {
+		obj.RefCount--
+		e.logger.Debug("Object %d refcount decremented to %d (type: %s)", objectID, obj.RefCount, obj.Type)
+		
+		if obj.RefCount <= 0 {
+			// Before deleting, release nested references if it's a list
+			if storedList, ok := obj.Value.(StoredList); ok {
+				e.mu.Unlock() // Unlock before recursive calls
+				for _, item := range storedList.Items() {
+					releaseNestedReferences(item, e)
+				}
+				e.mu.Lock() // Re-lock for deletion
+			}
+			
+			delete(e.storedObjects, objectID)
+			e.logger.Debug("Object %d freed (refcount reached 0)", objectID)
+		}
+	} else {
+		e.logger.Warn("Attempted to decrement refcount for non-existent object %d", objectID)
+	}
+}
+
+// getObject retrieves an object from the store without affecting refcount
+func (e *Executor) getObject(objectID int) (interface{}, bool) {
+	e.mu.RLock()
+	defer e.mu.RUnlock()
+
+	if obj, exists := e.storedObjects[objectID]; exists {
+		return obj.Value, true
+	}
+	return nil, false
+}
+
+// findStoredListID finds the ID of a StoredList by searching storedObjects
+// Returns -1 if not found
+func (e *Executor) findStoredListID(list StoredList) int {
+	e.mu.RLock()
+	defer e.mu.RUnlock()
+	
+	// Compare by checking if they share the same backing array
+	for id, obj := range e.storedObjects {
+		if objList, ok := obj.Value.(StoredList); ok {
+			// Two slices share backing array if they have same length and same first element address
+			if len(objList.items) == len(list.items) {
+				if len(objList.items) == 0 {
+					// Both empty - match any empty list for now
+					return id
+				}
+				// Check if they point to the same backing array
+				if &objList.items[0] == &list.items[0] {
+					return id
+				}
+			}
+		}
+	}
+	
+	return -1
+}

@@ -233,7 +233,7 @@ func (e *Executor) executeSingleCommand(
 				cmdName, args := ParseCommand(finalString)
 
 				// Process arguments to resolve any LIST markers
-				args = e.processArguments(args)
+				args = e.processArguments(args, capturedState)
 
 				e.logger.Debug("Parsed as - Command: \"%s\", Args: %v", cmdName, args)
 
@@ -296,7 +296,7 @@ func (e *Executor) executeSingleCommand(
 	cmdName, args := ParseCommand(commandStr)
 
 	// Process arguments to resolve any LIST markers
-	args = e.processArguments(args)
+	args = e.processArguments(args, state)
 
 	e.logger.Debug("Parsed as - Command: \"%s\", Args: %v", cmdName, args)
 
@@ -466,21 +466,43 @@ func (e *Executor) applySubstitution(str string, ctx *SubstitutionContext) strin
 			result = strings.ReplaceAll(result, "$*", "")
 		}
 
-		// Apply $@ (all args as ParenGroup) - creates a ParenGroup literal
-		if len(ctx.Args) > 0 {
-			allArgs := make([]string, len(ctx.Args))
-			for i, arg := range ctx.Args {
-				allArgs[i] = e.formatArgumentForParenGroup(arg)
+		// Apply $@ (all args as LIST) - substitutes the marker from $@ variable
+		// This preserves the LIST object through substitution
+		if ctx.ExecutionState != nil {
+			if argsVar, exists := ctx.ExecutionState.GetVariable("$@"); exists {
+				// The variable contains the \x00LIST:id\x00 marker
+				argsMarker := fmt.Sprintf("%v", argsVar)
+				result = strings.ReplaceAll(result, "$@", argsMarker)
+			} else {
+				// No $@ variable - empty list
+				result = strings.ReplaceAll(result, "$@", "()")
 			}
-			result = strings.ReplaceAll(result, "$@", "("+strings.Join(allArgs, ", ")+")")
 		} else {
 			result = strings.ReplaceAll(result, "$@", "()")
 		}
 
-		// Apply $# (arg count)
-		result = strings.ReplaceAll(result, "$#", fmt.Sprintf("%d", len(ctx.Args)))
+		// Apply $# (arg count) - use argc on $@ list
+		if ctx.ExecutionState != nil {
+			if argsVar, exists := ctx.ExecutionState.GetVariable("$@"); exists {
+				// Get the LIST object
+				if sym, ok := argsVar.(Symbol); ok {
+					marker := string(sym)
+					if id := parseObjectMarker(marker); id >= 0 {
+						if listObj, exists := e.getObject(id); exists {
+							if storedList, ok := listObj.(StoredList); ok {
+								result = strings.ReplaceAll(result, "$#", fmt.Sprintf("%d", storedList.Len()))
+							}
+						}
+					}
+				}
+			}
+		}
+		// Fallback if we couldn't get the list
+		if strings.Contains(result, "$#") {
+			result = strings.ReplaceAll(result, "$#", fmt.Sprintf("%d", len(ctx.Args)))
+		}
 
-		// Apply $1, $2, etc (indexed args) - unwrap for direct substitution
+		// Apply $1, $2, etc (indexed args) - pull from $@ list using argv
 		re := regexp.MustCompile(`\$(\d+)`)
 		result = re.ReplaceAllStringFunc(result, func(match string) string {
 			indexStr := match[1:] // Remove $
@@ -489,6 +511,28 @@ func (e *Executor) applySubstitution(str string, ctx *SubstitutionContext) strin
 				return match
 			}
 
+			// Get from $@ list
+			if ctx.ExecutionState != nil {
+				if argsVar, exists := ctx.ExecutionState.GetVariable("$@"); exists {
+					// Get the LIST object
+					if sym, ok := argsVar.(Symbol); ok {
+						marker := string(sym)
+						if objID := parseObjectMarker(marker); objID >= 0 {
+							if listObj, exists := e.getObject(objID); exists {
+								if storedList, ok := listObj.(StoredList); ok {
+									// index is 1-based, convert to 0-based
+									item := storedList.Get(index - 1)
+									if item != nil {
+										return e.formatArgumentForSubstitution(item)
+									}
+								}
+							}
+						}
+					}
+				}
+			}
+			
+			// Fallback to old behavior
 			index-- // Convert to 0-based
 			if index >= 0 && index < len(ctx.Args) {
 				return e.formatArgumentForSubstitution(ctx.Args[index])
@@ -625,6 +669,17 @@ func (e *Executor) substituteBraceExpressions(str string, ctx *SubstitutionConte
 				}
 				e.logger.Debug("Brace %d completed synchronously with result: %v", i, evaluations[i].Result)
 			}
+			
+			// Transfer ownership of objects in result to parent before cleanup
+			if hasCapturedResult {
+				resultRefs := braceState.ExtractObjectReferences(capturedResult)
+				for _, refID := range resultRefs {
+					ctx.ExecutionState.ClaimObjectReference(refID)
+				}
+			}
+			
+			// Clean up brace state references (synchronous case)
+			braceState.ReleaseAllReferences()
 		}
 	}
 
@@ -680,7 +735,7 @@ func (e *Executor) substituteBraceExpressions(str string, ctx *SubstitutionConte
 	}
 
 	// Substitute all results immediately
-	result := e.substituteAllBraces(str, evaluations)
+	result := e.substituteAllBraces(str, evaluations, ctx.ExecutionState)
 	e.logger.Debug("All braces synchronous, substituted result: %s", result)
 
 	return result
@@ -917,7 +972,7 @@ func (e *Executor) GetTokenStatus() map[string]interface{} {
 }
 
 // substituteAllBraces substitutes all brace evaluation results into the original string
-func (e *Executor) substituteAllBraces(originalString string, evaluations []*BraceEvaluation) string {
+func (e *Executor) substituteAllBraces(originalString string, evaluations []*BraceEvaluation, state *ExecutionState) string {
 	// Sort evaluations by position (descending) so we substitute from end to start
 	// This prevents position shifts from affecting later substitutions
 	sortedEvals := make([]*BraceEvaluation, len(evaluations))
@@ -951,7 +1006,7 @@ func (e *Executor) substituteAllBraces(originalString string, evaluations []*Bra
 			resultValue = fmt.Sprintf("%v", rawValue)
 		} else {
 			// {...} - preserve types properly, considering quote context
-			resultValue = e.formatBraceResult(rawValue, originalString, eval.Location.StartPos)
+			resultValue = e.formatBraceResult(rawValue, originalString, eval.Location.StartPos, state)
 		}
 
 		// Substitute: replace from StartPos to EndPos+1 with resultValue
@@ -999,7 +1054,7 @@ func (e *Executor) isInsideQuotes(str string, pos int) bool {
 
 // formatBraceResult formats a brace evaluation result for substitution
 // Takes the original string and brace position to detect quote context
-func (e *Executor) formatBraceResult(value interface{}, originalString string, bracePos int) string {
+func (e *Executor) formatBraceResult(value interface{}, originalString string, bracePos int, state *ExecutionState) string {
 	// Handle nil specially - output as bare word "nil"
 	if value == nil {
 		return "nil"
@@ -1042,12 +1097,16 @@ func (e *Executor) formatBraceResult(value interface{}, originalString string, b
 		// (don't escape spaces/special chars - that's for bare words only)
 		escaped := e.escapeQuotesAndBackslashes(v)
 		return "\"" + escaped + "\""
-	case PawList:
-		// PawList: use a special marker that preserves the object
+	case StoredList:
+		// StoredList: use a special marker that preserves the object
 		// We'll use a unique placeholder that will be detected during argument parsing
 		// Format: \x00LIST:index\x00 where index is stored in the execution state
-		index := e.storeTempValue(value)
-		return fmt.Sprintf("\x00LIST:%d\x00", index)
+		id := e.storeObject(value, "list")
+		// The creating context claims the first reference
+		if state != nil {
+			state.ClaimObjectReference(id)
+		}
+		return fmt.Sprintf("\x00LIST:%d\x00", id)
 	case int64, float64:
 		// Numbers as-is
 		return fmt.Sprintf("%v", v)
@@ -1136,35 +1195,9 @@ func (e *Executor) findAllTopLevelBraces(str string, ctx *SubstitutionContext) [
 	return braces
 }
 
-// storeTempValue stores a complex value temporarily and returns an index
-// Used to preserve PawList and other complex types through brace substitution
-func (e *Executor) storeTempValue(value interface{}) int {
-	e.mu.Lock()
-	defer e.mu.Unlock()
-
-	id := e.nextTempID
-	e.nextTempID++
-	e.tempValues[id] = value
-
-	return id
-}
-
-// retrieveTempValue retrieves a stored temporary value and removes it
-func (e *Executor) retrieveTempValue(id int) (interface{}, bool) {
-	e.mu.Lock()
-	defer e.mu.Unlock()
-
-	value, exists := e.tempValues[id]
-	if exists {
-		delete(e.tempValues, id) // Clean up after retrieval
-	}
-
-	return value, exists
-}
-
 // processArguments processes arguments array to resolve LIST markers
-// LIST markers: \x00LIST:index\x00 for PawList objects
-func (e *Executor) processArguments(args []interface{}) []interface{} {
+// LIST markers: \x00LIST:index\x00 for StoredList objects
+func (e *Executor) processArguments(args []interface{}, state *ExecutionState) []interface{} {
 	if len(args) == 0 {
 		return args
 	}
@@ -1180,9 +1213,13 @@ func (e *Executor) processArguments(args []interface{}) []interface{} {
 				// Extract the index
 				indexStr := str[len("\x00LIST:") : len(str)-1]
 				if index, err := strconv.Atoi(indexStr); err == nil {
-					// Retrieve the actual PawList value
-					if value, exists := e.retrieveTempValue(index); exists {
+					// Retrieve the actual StoredList value (doesn't affect refcount)
+					if value, exists := e.getObject(index); exists {
 						result[i] = value
+						// Receiving context claims a reference
+						if state != nil {
+							state.ClaimObjectReference(index)
+						}
 						continue
 					}
 				}
