@@ -1147,9 +1147,9 @@ func (e *Executor) isInsideQuotes(str string, pos int) bool {
 //
 // CRITICAL: Object markers (like \x00LIST:7\x00) are handled based on context:
 // - Inside quoted strings: Resolve and format for display (string interpolation)
-//   Example: echo "Result: {get_result}" Ã¢â€ â€™ "Result: (a, b, c)"
+//   Example: echo "Result: {get_result}" ÃƒÂ¢Ã¢â‚¬Â Ã¢â‚¬â„¢ "Result: (a, b, c)"
 // - Outside quotes: Preserve marker unchanged (pass by reference)
-//   Example: set x, {get_result} Ã¢â€ â€™ x = \x00LIST:7\x00
+//   Example: set x, {get_result} ÃƒÂ¢Ã¢â‚¬Â Ã¢â‚¬â„¢ x = \x00LIST:7\x00
 //
 // This ensures nested structures maintain shared storage via reference passing
 // while still supporting human-readable display in string contexts.
@@ -1176,7 +1176,7 @@ func (e *Executor) formatBraceResult(value interface{}, originalString string, b
 						if list, ok := actualValue.(StoredList); ok {
 							return formatListForDisplay(list)
 						}
-					case "string":
+					case "str":
 						// Resolve and display string content
 						if storedStr, ok := actualValue.(StoredString); ok {
 							return e.escapeQuotesAndBackslashes(string(storedStr))
@@ -1394,7 +1394,7 @@ func (e *Executor) processArguments(args []interface{}, state *ExecutionState) [
 							state.ClaimObjectReference(objID)
 						}
 						e.logger.Debug("processArguments[%d]: Resolved list marker to StoredList", i)
-					case "string":
+					case "str":
 						// Keep as marker (pass-by-reference) - don't copy the string
 						// The marker will be resolved when needed (display, string ops)
 						// Keep the original arg (Symbol or string containing marker)

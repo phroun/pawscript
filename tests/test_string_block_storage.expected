@@ -34,11 +34,11 @@ Expected: 0 objects (small block stays inline)
 Test 5: Large block (over 500 chars) - should be stored
 === Memory Statistics ===
 Total stored objects: 1
-Total estimated size: 566 bytes
+Total estimated size: 572 bytes
 
 ID    Type      RefCount  Size(bytes)
 ----  --------  --------  -----------
-2     block     1         566
+2     block     1         572
 Expected: 1 object (type: block, refcount: 1)
 
 Test 6: Clear large block
@@ -51,12 +51,12 @@ Expected: 0 objects (should be freed)
 Test 7: Multiple large strings
 === Memory Statistics ===
 Total stored objects: 2
-Total estimated size: 492 bytes
+Total estimated size: 470 bytes
 
 ID    Type      RefCount  Size(bytes)
 ----  --------  --------  -----------
-3     string    1         246
-4     string    1         246
+3     string    1         238
+4     string    1         232
 Expected: 2 objects (both type: string, both refcount: 1)
 
 Test 8: Clear all large strings
@@ -69,11 +69,11 @@ Expected: 0 objects (all freed)
 Test 9: Large string in result
 === Memory Statistics ===
 Total stored objects: 1
-Total estimated size: 256 bytes
+Total estimated size: 271 bytes
 
 ID    Type      RefCount  Size(bytes)
 ----  --------  --------  -----------
-5     string    1         256
+5     string    1         271
 Expected: 1 object (type: string, refcount: 1)
 
 Test 10: Clear result
@@ -84,16 +84,16 @@ Total estimated size: 0 bytes
 Expected: 0 objects (should be freed)
 
 Test 11: String operations with stored strings
-Upper length: 280
+Upper length: 261
 Expected: length > 200 (operations work on stored strings)
 === Memory Statistics ===
 Total stored objects: 2
-Total estimated size: 576 bytes
+Total estimated size: 554 bytes
 
 ID    Type      RefCount  Size(bytes)
 ----  --------  --------  -----------
-6     string    1         296
-7     string    1         280
+6     string    1         277
+7     string    1         277
 Expected: 2 objects (original + uppercase result)
 
 Test 12: Clean up

@@ -872,8 +872,23 @@ func (e *Executor) findStoredListID(list StoredList) int {
 	e.mu.RLock()
 	defer e.mu.RUnlock()
 	
+	// Get all IDs in sorted order for deterministic iteration
+	ids := make([]int, 0, len(e.storedObjects))
+	for id := range e.storedObjects {
+		ids = append(ids, id)
+	}
+	// Sort IDs to ensure deterministic iteration
+	for i := 0; i < len(ids)-1; i++ {
+		for j := i + 1; j < len(ids); j++ {
+			if ids[i] > ids[j] {
+				ids[i], ids[j] = ids[j], ids[i]
+			}
+		}
+	}
+	
 	// Compare by checking if they share the same backing array
-	for id, obj := range e.storedObjects {
+	for _, id := range ids {
+		obj := e.storedObjects[id]
 		if objList, ok := obj.Value.(StoredList); ok {
 			// Two slices share backing array if they have same length and same first element address
 			if len(objList.items) == len(list.items) {

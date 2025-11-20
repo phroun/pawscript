@@ -1324,6 +1324,15 @@ func (ps *PawScript) RegisterStandardLibrary(scriptArgs []string) {
 		}
 		ctx.executor.mu.RUnlock()
 		
+		// Sort objects by ID for consistent, readable output
+		for i := 0; i < len(objects)-1; i++ {
+			for j := i + 1; j < len(objects); j++ {
+				if objects[i].ID > objects[j].ID {
+					objects[i], objects[j] = objects[j], objects[i]
+				}
+			}
+		}
+		
 		// Output using simple fmt to avoid creating new objects
 		fmt.Println("=== Memory Statistics ===")
 		fmt.Printf("Total stored objects: %d\n", len(objects))

@@ -341,7 +341,7 @@ func (s *ExecutionState) ExtractObjectReferences(value interface{}) []int {
 
 // parseObjectMarker extracts object type and ID from markers like \x00TYPE:123\x00
 // Returns ("", -1) if not a valid object marker
-// Returns (type, id) for valid markers where type is "list", "string", "block", etc.
+// Returns (type, id) for valid markers where type is "list", "str", "block", etc. (lowercase)
 func parseObjectMarker(s string) (string, int) {
 	if !strings.HasPrefix(s, "\x00") || !strings.HasSuffix(s, "\x00") {
 		return "", -1
