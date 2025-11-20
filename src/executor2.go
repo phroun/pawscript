@@ -971,6 +971,46 @@ func (e *Executor) GetTokenStatus() map[string]interface{} {
 	}
 }
 
+// formatListItems formats the items of a StoredList as comma-separated values
+// without the outer parentheses (for use with unescape operator ${...})
+func (e *Executor) formatListItems(list StoredList) string {
+	items := list.Items()
+	if len(items) == 0 {
+		return ""
+	}
+	
+	parts := make([]string, len(items))
+	for i, item := range items {
+		switch v := item.(type) {
+		case StoredList:
+			// Nested lists keep their parentheses
+			parts[i] = formatListForDisplay(v)
+		case ParenGroup:
+			parts[i] = "(" + string(v) + ")"
+		case QuotedString:
+			// Escape internal quotes
+			escaped := strings.ReplaceAll(string(v), "\\", "\\\\")
+			escaped = strings.ReplaceAll(escaped, "\"", "\\\"")
+			parts[i] = "\"" + escaped + "\""
+		case Symbol:
+			parts[i] = string(v)
+		case string:
+			// Regular strings get quoted
+			escaped := strings.ReplaceAll(v, "\\", "\\\\")
+			escaped = strings.ReplaceAll(escaped, "\"", "\\\"")
+			parts[i] = "\"" + escaped + "\""
+		case int64, float64, bool:
+			parts[i] = fmt.Sprintf("%v", v)
+		case nil:
+			parts[i] = "nil"
+		default:
+			parts[i] = fmt.Sprintf("%v", v)
+		}
+	}
+	
+	return strings.Join(parts, ", ")
+}
+
 // substituteAllBraces substitutes all brace evaluation results into the original string
 func (e *Executor) substituteAllBraces(originalString string, evaluations []*BraceEvaluation, state *ExecutionState) string {
 	// Sort evaluations by position (descending) so we substitute from end to start
@@ -1003,7 +1043,12 @@ func (e *Executor) substituteAllBraces(originalString string, evaluations []*Bra
 		var resultValue string
 		if eval.Location.IsUnescape {
 			// ${...} - no escaping, direct insertion
-			resultValue = fmt.Sprintf("%v", rawValue)
+			// For StoredList, unwrap outer parens (just like ParenGroup)
+			if list, ok := rawValue.(StoredList); ok {
+				resultValue = e.formatListItems(list)
+			} else {
+				resultValue = fmt.Sprintf("%v", rawValue)
+			}
 		} else {
 			// {...} - preserve types properly, considering quote context
 			resultValue = e.formatBraceResult(rawValue, originalString, eval.Location.StartPos, state)

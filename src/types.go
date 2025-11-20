@@ -300,10 +300,13 @@ func releaseNestedReferences(value interface{}, executor *Executor) {
 			executor.decrementObjectRefCount(id)
 		}
 	case StoredList:
-		// Recursively release references in nested lists
-		for _, item := range v.Items() {
-			releaseNestedReferences(item, executor)
+		// First, decrement refcount for the list itself
+		// This mirrors what claimNestedReferences does when claiming
+		if id := executor.findStoredListID(v); id >= 0 {
+			executor.decrementObjectRefCount(id)
 		}
+		// Note: The nested list's items will be released when that list is freed
+		// (when its refcount reaches 0), so we don't recursively release here
 	}
 }
 

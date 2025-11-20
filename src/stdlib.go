@@ -10,6 +10,53 @@ import (
 	"strings"
 )
 
+// formatListForDisplay formats a StoredList as a ParenGroup-like representation
+func formatListForDisplay(list StoredList) string {
+	items := list.Items()
+	if len(items) == 0 {
+		return "()"
+	}
+	
+	parts := make([]string, len(items))
+	for i, item := range items {
+		switch v := item.(type) {
+		case StoredList:
+			// Recursively format nested lists
+			parts[i] = formatListForDisplay(v)
+		case ParenGroup:
+			parts[i] = "(" + string(v) + ")"
+		case QuotedString:
+			// Escape internal quotes
+			escaped := strings.ReplaceAll(string(v), "\\", "\\\\")
+			escaped = strings.ReplaceAll(escaped, "\"", "\\\"")
+			parts[i] = "\"" + escaped + "\""
+		case Symbol:
+			parts[i] = string(v)
+		case string:
+			// Regular strings get quoted
+			escaped := strings.ReplaceAll(v, "\\", "\\\\")
+			escaped = strings.ReplaceAll(escaped, "\"", "\\\"")
+			parts[i] = "\"" + escaped + "\""
+		case int64, float64, bool:
+			parts[i] = fmt.Sprintf("%v", v)
+		case nil:
+			parts[i] = "nil"
+		default:
+			parts[i] = fmt.Sprintf("%v", v)
+		}
+	}
+	
+	return "(" + strings.Join(parts, ", ") + ")"
+}
+
+// formatArgForDisplay formats any argument for display, handling StoredList specially
+func formatArgForDisplay(arg interface{}) string {
+	if list, ok := arg.(StoredList); ok {
+		return formatListForDisplay(list)
+	}
+	return fmt.Sprintf("%v", arg)
+}
+
 // RegisterStandardLibrary registers standard library commands
 func (ps *PawScript) RegisterStandardLibrary(scriptArgs []string) {
 	// Helper function to set a StoredList as result with proper reference counting
@@ -184,7 +231,7 @@ func (ps *PawScript) RegisterStandardLibrary(scriptArgs []string) {
 		text := ""
 		for _, arg := range ctx.Args {
 			// No automatic spaces
-			text += fmt.Sprintf("%v", arg)
+			text += formatArgForDisplay(arg)
 		}
 		fmt.Print(text) // No automatic newline - use \n explicitly if needed
 		return BoolStatus(true)
@@ -196,7 +243,7 @@ func (ps *PawScript) RegisterStandardLibrary(scriptArgs []string) {
 			if i > 0 {
 				text += " "
 			}
-			text += fmt.Sprintf("%v", arg)
+			text += formatArgForDisplay(arg)
 		}
 		fmt.Println(text) // Automatic newline in this version!
 		return BoolStatus(true)
