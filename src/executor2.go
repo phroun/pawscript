@@ -1145,9 +1145,9 @@ func (e *Executor) isInsideQuotes(str string, pos int) bool {
 //
 // CRITICAL: Object markers (like \x00LIST:7\x00) are handled based on context:
 // - Inside quoted strings: Resolve and format for display (string interpolation)
-//   Example: echo "Result: {get_result}" → "Result: (a, b, c)"
+//   Example: echo "Result: {get_result}" â†’ "Result: (a, b, c)"
 // - Outside quotes: Preserve marker unchanged (pass by reference)
-//   Example: set x, {get_result} → x = \x00LIST:7\x00
+//   Example: set x, {get_result} â†’ x = \x00LIST:7\x00
 //
 // This ensures nested structures maintain shared storage via reference passing
 // while still supporting human-readable display in string contexts.
@@ -1344,8 +1344,8 @@ func (e *Executor) findAllTopLevelBraces(str string, ctx *SubstitutionContext) [
 	return braces
 }
 
-// processArguments processes arguments array to resolve LIST markers
-// LIST markers: \x00LIST:index\x00 for StoredList objects
+// processArguments processes arguments array to resolve object markers
+// Resolves LIST, STR, and BLOCK markers to their actual values
 func (e *Executor) processArguments(args []interface{}, state *ExecutionState) []interface{} {
 	if len(args) == 0 {
 		return args
@@ -1359,19 +1359,43 @@ func (e *Executor) processArguments(args []interface{}, state *ExecutionState) [
 
 			// Check for object marker
 			if objType, objID := parseObjectMarker(str); objID >= 0 {
-				// Currently only LIST is supported, but this is now ready for STR/BLOCK
-				if objType == "list" {
-					// Retrieve the actual StoredList value (doesn't affect refcount)
-					if value, exists := e.getObject(objID); exists {
+				// Retrieve the actual value (doesn't affect refcount)
+				if value, exists := e.getObject(objID); exists {
+					switch objType {
+					case "list":
+						// Return as StoredList
 						result[i] = value
 						// Receiving context claims a reference
 						if state != nil {
 							state.ClaimObjectReference(objID)
 						}
-						continue
+					case "string":
+						// Convert StoredString back to regular string
+						if storedStr, ok := value.(StoredString); ok {
+							result[i] = string(storedStr)
+						} else {
+							result[i] = value
+						}
+						// Receiving context claims a reference
+						if state != nil {
+							state.ClaimObjectReference(objID)
+						}
+					case "block":
+						// Convert StoredBlock back to ParenGroup
+						if storedBlock, ok := value.(StoredBlock); ok {
+							result[i] = ParenGroup(storedBlock)
+						} else {
+							result[i] = value
+						}
+						// Receiving context claims a reference
+						if state != nil {
+							state.ClaimObjectReference(objID)
+						}
+					default:
+						result[i] = value
 					}
+					continue
 				}
-				// Future: handle "string" and "block" types here
 			}
 		}
 		// Not a marker, keep the original argument

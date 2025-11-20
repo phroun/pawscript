@@ -697,6 +697,33 @@ func (e *Executor) ExecuteWithState(
 	return e.executeCommandSequence(commands, state, substitutionCtx)
 }
 
+// maybeStoreValue checks if a value should be stored as an object and returns the appropriate representation
+// Note: Does NOT claim references - the caller must claim the returned object ID
+func (e *Executor) maybeStoreValue(value interface{}, state *ExecutionState) interface{} {
+	switch v := value.(type) {
+	case string:
+		if len(v) > StringStorageThreshold {
+			id := e.storeObject(StoredString(v), "string")
+			return Symbol(fmt.Sprintf("\x00STR:%d\x00", id))
+		}
+		return v
+	case QuotedString:
+		if len(v) > StringStorageThreshold {
+			id := e.storeObject(StoredString(v), "string")
+			return Symbol(fmt.Sprintf("\x00STR:%d\x00", id))
+		}
+		return v
+	case ParenGroup:
+		if len(v) > BlockStorageThreshold {
+			id := e.storeObject(StoredBlock(v), "block")
+			return Symbol(fmt.Sprintf("\x00BLOCK:%d\x00", id))
+		}
+		return v
+	default:
+		return value
+	}
+}
+
 // storeObject stores an object in the global store with an initial refcount of 0
 // Returns the object ID
 func (e *Executor) storeObject(value interface{}, typeName string) int {
@@ -777,7 +804,15 @@ func (e *Executor) resolveValue(value interface{}) interface{} {
 		if objType, objID := parseObjectMarker(string(sym)); objID >= 0 {
 			if actualValue, exists := e.getObject(objID); exists {
 				e.logger.Debug("Resolved %s marker %d to actual value", objType, objID)
-				return actualValue
+				// Convert stored types back to their original forms
+				switch v := actualValue.(type) {
+				case StoredString:
+					return string(v)
+				case StoredBlock:
+					return ParenGroup(v)
+				default:
+					return actualValue
+				}
 			}
 		}
 	}
@@ -787,7 +822,15 @@ func (e *Executor) resolveValue(value interface{}) interface{} {
 		if objType, objID := parseObjectMarker(str); objID >= 0 {
 			if actualValue, exists := e.getObject(objID); exists {
 				e.logger.Debug("Resolved %s marker %d to actual value", objType, objID)
-				return actualValue
+				// Convert stored types back to their original forms
+				switch v := actualValue.(type) {
+				case StoredString:
+					return string(v)
+				case StoredBlock:
+					return ParenGroup(v)
+				default:
+					return actualValue
+				}
 			}
 		}
 	}

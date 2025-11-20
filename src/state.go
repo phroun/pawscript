@@ -66,8 +66,6 @@ func (s *ExecutionState) SetResult(value interface{}) {
 	defer s.mu.Unlock()
 
 	// Handle the special "undefined" bare identifier token (Symbol type only)
-	// This allows clearing the result with the bare identifier: undefined
-	// But still allows storing the string "undefined" as a type name
 	if sym, ok := value.(Symbol); ok && string(sym) == "undefined" {
 		// Release references in old result before clearing
 		if s.hasResult {
@@ -82,6 +80,13 @@ func (s *ExecutionState) SetResult(value interface{}) {
 		s.currentResult = nil
 		s.hasResult = false
 		return
+	}
+
+	// Check if large strings/blocks should be stored
+	if s.executor != nil {
+		s.mu.Unlock()
+		value = s.executor.maybeStoreValue(value, s)
+		s.mu.Lock()
 	}
 
 	// Extract object references from old and new values
@@ -188,6 +193,11 @@ func (s *ExecutionState) SetVariable(name string, value interface{}) {
 	
 	if s.variables == nil {
 		s.variables = make(map[string]interface{})
+	}
+	
+	// Check if large strings/blocks should be stored
+	if s.executor != nil {
+		value = s.executor.maybeStoreValue(value, s)
 	}
 	
 	// Extract object references from old and new values

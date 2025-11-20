@@ -31,3 +31,4 @@ echo "test_unpacking:"
 ../paw test_unpacking.paw | diff - test_unpacking.expected
 echo "quote-edge-cases:"
 ../paw quote-edge-cases.paw 2>&1 | diff - quote-edge-cases.expected
+

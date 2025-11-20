@@ -1305,6 +1305,10 @@ func estimateObjectSize(value interface{}) int {
 			size += estimateItemSize(item)
 		}
 		return size
+	case StoredString:
+		return len(string(v)) + 16
+	case StoredBlock:
+		return len(string(v)) + 16
 	default:
 		return estimateItemSize(value)
 	}
