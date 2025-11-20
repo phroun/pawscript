@@ -34,14 +34,14 @@ macro make_nested (
 make_nested
 echo "After calling macro that returns nested list:"
 mem_stats
-echo "Expected: 2 lists (both owned by parent's result)"
+echo "Expected: 2 lists (inner and outer, both owned by parent's result)"
 echo ""
 
 echo "Test 5: Clear result again"
 set_result nil
 echo "After clearing result:"
 mem_stats
-echo "Expected: 0 lists (cascade cleanup)"
+echo "Expected: 0 lists (both freed via cascade cleanup)"
 echo ""
 
 echo "Test 6: Macro called from another macro"
@@ -56,7 +56,7 @@ macro outer_macro (
 outer_macro
 echo "After nested macro calls:"
 mem_stats
-echo "Expected: 2 lists in result"
+echo "Expected: 2 lists (inner from inner_macro, outer containing reference to inner)"
 echo ""
 
 echo "Test 7: Clear final result"
@@ -70,7 +70,7 @@ macro create_temp_list (
     set_result {list temp}
 )
 set i, 0
-while (lt {get i}, 10), (
+while ({lt {get i}, 10}), (
     create_temp_list
     set i, {add {get i}, 1}
 )

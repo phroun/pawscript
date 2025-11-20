@@ -271,6 +271,11 @@ func (s *ExecutionState) ReleaseObjectReference(objectID int) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 
+	// Only release if we actually own this object
+	if !s.ownedObjects[objectID] {
+		return // Not owned, nothing to release
+	}
+
 	// Remove from local tracking
 	delete(s.ownedObjects, objectID)
 

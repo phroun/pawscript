@@ -51,7 +51,10 @@ See the `examples/` directory for sample scripts and usage patterns.
 
 ## Changelog
 
-### 0.2.1 -- Novembe 18, 2025
+### 0.2.2 -- November 20, 2025
+- Revised memory handling for list, block, and string types.
+
+### 0.2.1 -- November 18, 2025
 - Macro local scope was broken, now fixed
 - Using list/group args for set now unpacks into variable names in first arg.
 

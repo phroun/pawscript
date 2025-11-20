@@ -17,6 +17,8 @@ echo "test_get_type:"
 ../paw test_get_type.paw | diff - test_get_type.expected
 echo "test_lists:"
 ../paw test_lists.paw | diff - test_lists.expected
+echo "test_macro_ownership:"
+../paw test_macro_ownership.paw | diff - test_macro_ownership.expected
 echo "test_nested_lists:"
 ../paw test_nested_lists.paw | diff - test_nested_lists.expected
 echo "test_ret:"

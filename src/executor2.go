@@ -1140,6 +1140,17 @@ func (e *Executor) isInsideQuotes(str string, pos int) bool {
 
 // formatBraceResult formats a brace evaluation result for substitution
 // Takes the original string and brace position to detect quote context
+// formatBraceResult formats a brace evaluation result for substitution
+// Takes the original string and brace position to detect quote context
+//
+// CRITICAL: Object markers (like \x00LIST:7\x00) are handled based on context:
+// - Inside quoted strings: Resolve and format for display (string interpolation)
+//   Example: echo "Result: {get_result}" → "Result: (a, b, c)"
+// - Outside quotes: Preserve marker unchanged (pass by reference)
+//   Example: set x, {get_result} → x = \x00LIST:7\x00
+//
+// This ensures nested structures maintain shared storage via reference passing
+// while still supporting human-readable display in string contexts.
 func (e *Executor) formatBraceResult(value interface{}, originalString string, bracePos int, state *ExecutionState) string {
 	// Handle nil specially - output as bare word "nil"
 	if value == nil {
@@ -1148,6 +1159,35 @@ func (e *Executor) formatBraceResult(value interface{}, originalString string, b
 
 	// Check if we're inside a quoted string context
 	insideQuotes := e.isInsideQuotes(originalString, bracePos)
+	
+	// If it's a Symbol that might be a marker, return it unchanged to preserve the reference
+	if sym, ok := value.(Symbol); ok {
+		if objType, objID := parseObjectMarker(string(sym)); objID >= 0 {
+			// It's an object marker - pass it through unchanged
+			// Don't resolve and re-store, that would create duplicate storage entries!
+			if insideQuotes {
+				// Inside quotes, need to display the object
+				if actualValue, exists := e.getObject(objID); exists {
+					// Format based on object type
+					switch objType {
+					case "list":
+						if list, ok := actualValue.(StoredList); ok {
+							return formatListForDisplay(list)
+						}
+					}
+					// Fallback for other types
+					return fmt.Sprintf("%v", actualValue)
+				}
+				// Marker not found, display as broken reference
+				return fmt.Sprintf("<invalid-%s-ref:%d>", objType, objID)
+			}
+			// Outside quotes: return the marker as-is to preserve the reference
+			return string(sym)
+		} else {
+			// Not a marker, just a regular symbol
+			return string(sym)
+		}
+	}
 
 	switch v := value.(type) {
 	case bool:
@@ -1172,7 +1212,7 @@ func (e *Executor) formatBraceResult(value interface{}, originalString string, b
 		escaped := e.escapeQuotesAndBackslashes(string(v))
 		return "\"" + escaped + "\""
 	case Symbol:
-		// Symbol as bare identifier
+		// Symbol as bare identifier (shouldn't get here now due to marker resolution above)
 		return string(v)
 	case string:
 		if insideQuotes {
@@ -1184,8 +1224,11 @@ func (e *Executor) formatBraceResult(value interface{}, originalString string, b
 		escaped := e.escapeQuotesAndBackslashes(v)
 		return "\"" + escaped + "\""
 	case StoredList:
-		// StoredList: use a special marker that preserves the object
-		// We'll use a unique placeholder that will be detected during argument parsing
+		if insideQuotes {
+			// Inside quotes: format as readable list display
+			return formatListForDisplay(v)
+		}
+		// Outside quotes: use a special marker that preserves the object
 		// Format: \x00LIST:index\x00 where index is stored in the execution state
 		id := e.storeObject(value, "list")
 		// The creating context claims the first reference
