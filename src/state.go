@@ -118,11 +118,11 @@ func (s *ExecutionState) extractObjectReferencesLocked(value interface{}) []int 
 	
 	switch v := value.(type) {
 	case Symbol:
-		if id := parseObjectMarker(string(v)); id >= 0 {
+		if _, id := parseObjectMarker(string(v)); id >= 0 {
 			refs = append(refs, id)
 		}
 	case string:
-		if id := parseObjectMarker(v); id >= 0 {
+		if _, id := parseObjectMarker(v); id >= 0 {
 			refs = append(refs, id)
 		}
 	case StoredList:
@@ -305,11 +305,11 @@ func (s *ExecutionState) ExtractObjectReferences(value interface{}) []int {
 	
 	switch v := value.(type) {
 	case Symbol:
-		if id := parseObjectMarker(string(v)); id >= 0 {
+		if _, id := parseObjectMarker(string(v)); id >= 0 {
 			refs = append(refs, id)
 		}
 	case string:
-		if id := parseObjectMarker(v); id >= 0 {
+		if _, id := parseObjectMarker(v); id >= 0 {
 			refs = append(refs, id)
 		}
 	case StoredList:
@@ -324,22 +324,30 @@ func (s *ExecutionState) ExtractObjectReferences(value interface{}) []int {
 	return refs
 }
 
-// parseObjectMarker extracts object ID from a marker like \x00LIST:123\x00
-// Returns -1 if not a valid object marker
-func parseObjectMarker(s string) int {
+// parseObjectMarker extracts object type and ID from markers like \x00TYPE:123\x00
+// Returns ("", -1) if not a valid object marker
+// Returns (type, id) for valid markers where type is "list", "string", "block", etc.
+func parseObjectMarker(s string) (string, int) {
 	if !strings.HasPrefix(s, "\x00") || !strings.HasSuffix(s, "\x00") {
-		return -1
+		return "", -1
 	}
 	
-	// Check for LIST marker
-	if strings.HasPrefix(s, "\x00LIST:") {
-		idStr := s[len("\x00LIST:") : len(s)-1]
-		if id, err := strconv.Atoi(idStr); err == nil {
-			return id
-		}
+	// Extract the middle part (e.g., "LIST:123")
+	middle := s[1 : len(s)-1]
+	
+	// Split on colon
+	parts := strings.SplitN(middle, ":", 2)
+	if len(parts) != 2 {
+		return "", -1
 	}
 	
-	// Add other marker types here as needed
+	markerType := strings.ToLower(parts[0])
+	idStr := parts[1]
 	
-	return -1
+	id, err := strconv.Atoi(idStr)
+	if err != nil {
+		return "", -1
+	}
+	
+	return markerType, id
 }

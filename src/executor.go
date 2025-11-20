@@ -768,6 +768,61 @@ func (e *Executor) getObject(objectID int) (interface{}, bool) {
 	return nil, false
 }
 
+// resolveValue resolves any object marker (LIST/STRING/BLOCK) to its actual value
+// If the value is not a marker, returns it unchanged
+// This is the central resolution function - all resolution should go through here
+func (e *Executor) resolveValue(value interface{}) interface{} {
+	// Check if it's a Symbol that might be a marker
+	if sym, ok := value.(Symbol); ok {
+		if objType, objID := parseObjectMarker(string(sym)); objID >= 0 {
+			if actualValue, exists := e.getObject(objID); exists {
+				e.logger.Debug("Resolved %s marker %d to actual value", objType, objID)
+				return actualValue
+			}
+		}
+	}
+	
+	// Check if it's a string that might be a marker
+	if str, ok := value.(string); ok {
+		if objType, objID := parseObjectMarker(str); objID >= 0 {
+			if actualValue, exists := e.getObject(objID); exists {
+				e.logger.Debug("Resolved %s marker %d to actual value", objType, objID)
+				return actualValue
+			}
+		}
+	}
+	
+	// Not a marker, return as-is
+	return value
+}
+
+// resolveValueDeep recursively resolves markers, including nested structures
+// Use this when you need to resolve markers within lists
+func (e *Executor) resolveValueDeep(value interface{}) interface{} {
+	resolved := e.resolveValue(value)
+	
+	// If it resolved to a list, recursively resolve its items
+	if list, ok := resolved.(StoredList); ok {
+		items := list.Items()
+		resolvedItems := make([]interface{}, len(items))
+		hasChanges := false
+		
+		for i, item := range items {
+			resolvedItem := e.resolveValueDeep(item)
+			resolvedItems[i] = resolvedItem
+			if resolvedItem != item {
+				hasChanges = true
+			}
+		}
+		
+		if hasChanges {
+			return NewStoredList(resolvedItems)
+		}
+	}
+	
+	return resolved
+}
+
 // findStoredListID finds the ID of a StoredList by searching storedObjects
 // Returns -1 if not found
 func (e *Executor) findStoredListID(list StoredList) int {

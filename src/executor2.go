@@ -487,7 +487,7 @@ func (e *Executor) applySubstitution(str string, ctx *SubstitutionContext) strin
 				// Get the LIST object
 				if sym, ok := argsVar.(Symbol); ok {
 					marker := string(sym)
-					if id := parseObjectMarker(marker); id >= 0 {
+					if objType, id := parseObjectMarker(marker); objType == "list" && id >= 0 {
 						if listObj, exists := e.getObject(id); exists {
 							if storedList, ok := listObj.(StoredList); ok {
 								result = strings.ReplaceAll(result, "$#", fmt.Sprintf("%d", storedList.Len()))
@@ -517,7 +517,7 @@ func (e *Executor) applySubstitution(str string, ctx *SubstitutionContext) strin
 					// Get the LIST object
 					if sym, ok := argsVar.(Symbol); ok {
 						marker := string(sym)
-						if objID := parseObjectMarker(marker); objID >= 0 {
+						if objType, objID := parseObjectMarker(marker); objType == "list" && objID >= 0 {
 							if listObj, exists := e.getObject(objID); exists {
 								if storedList, ok := listObj.(StoredList); ok {
 									// index is 1-based, convert to 0-based
@@ -788,6 +788,48 @@ func (e *Executor) reEvaluateToken(token string, ctx *SubstitutionContext) strin
 */
 
 /*
+/*
+OBJECT MARKER RESOLUTION POINTS
+
+Markers like \x00LIST:123\x00, \x00STR:456\x00, \x00BLOCK:789\x00 represent stored objects
+passed by reference. They must be resolved to actual values at specific points:
+
+AUTOMATIC RESOLUTION (via processArguments):
+- Before ANY command handler receives arguments
+- Happens in executeSingleCommand before calling handler
+- Resolves LIST markers to StoredList objects
+- Future: will also resolve STR/BLOCK markers
+
+MANUAL RESOLUTION REQUIRED IN:
+1. Display functions:
+   - formatArgForDisplay (stdlib.go) - for echo/write/print
+   - formatListForDisplay - recursive list display
+   
+2. String operations (stdlib.go):
+   - All string commands: split, join, trim, replace, etc.
+   - Must resolve STR markers before operating on string content
+   
+3. Type introspection:
+   - getTypeName - peeks at marker type without resolving
+   - get_inferred_type command - may need to resolve for accurate typing
+   
+4. Comparisons:
+   - eq command - must resolve both sides before comparing
+   
+5. Block execution:
+   - When ParenGroup needs to be executed as code
+   - Must resolve BLOCK markers before passing to executor
+
+STAYS AS MARKER (no resolution needed):
+- Variable storage in state.variables map
+- Result storage in ExecutionState
+- Argument passing between commands (resolved by processArguments)
+- Within StoredList items (resolved on demand)
+
+Use resolveValue() for single-level resolution
+Use resolveValueDeep() for recursive resolution (lists of markers)
+*/
+
 // escapeSpecialCharacters escapes special syntax characters for safe substitution
 func (e *Executor) escapeSpecialCharacters(str string) string {
 	// Characters that have special meaning in PawScript syntax
@@ -803,7 +845,6 @@ func (e *Executor) escapeSpecialCharacters(str string) string {
 	}
 	return result.String()
 }
-*/
 
 // formatArgumentForParenGroup formats an argument for $@ substitution
 // Preserves original forms for creating ParenGroup literals
@@ -1249,25 +1290,25 @@ func (e *Executor) processArguments(args []interface{}, state *ExecutionState) [
 
 	result := make([]interface{}, len(args))
 	for i, arg := range args {
-		// Check if it's a Symbol that might be a LIST marker
+		// Check if it's a Symbol that might be an object marker
 		if sym, ok := arg.(Symbol); ok {
 			str := string(sym)
 
-			// Check for LIST marker
-			if strings.HasPrefix(str, "\x00LIST:") && strings.HasSuffix(str, "\x00") {
-				// Extract the index
-				indexStr := str[len("\x00LIST:") : len(str)-1]
-				if index, err := strconv.Atoi(indexStr); err == nil {
+			// Check for object marker
+			if objType, objID := parseObjectMarker(str); objID >= 0 {
+				// Currently only LIST is supported, but this is now ready for STR/BLOCK
+				if objType == "list" {
 					// Retrieve the actual StoredList value (doesn't affect refcount)
-					if value, exists := e.getObject(index); exists {
+					if value, exists := e.getObject(objID); exists {
 						result[i] = value
 						// Receiving context claims a reference
 						if state != nil {
-							state.ClaimObjectReference(index)
+							state.ClaimObjectReference(objID)
 						}
 						continue
 					}
 				}
+				// Future: handle "string" and "block" types here
 			}
 		}
 		// Not a marker, keep the original argument

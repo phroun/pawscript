@@ -50,7 +50,14 @@ func formatListForDisplay(list StoredList) string {
 }
 
 // formatArgForDisplay formats any argument for display, handling StoredList specially
-func formatArgForDisplay(arg interface{}) string {
+// Also resolves any object markers (LIST/STRING/BLOCK) before displaying
+func formatArgForDisplay(arg interface{}, executor *Executor) string {
+	// Resolve any markers first (LIST/STRING/BLOCK -> actual values)
+	if executor != nil {
+		arg = executor.resolveValue(arg)
+	}
+	
+	// Now format the resolved value
 	if list, ok := arg.(StoredList); ok {
 		return formatListForDisplay(list)
 	}
@@ -231,7 +238,7 @@ func (ps *PawScript) RegisterStandardLibrary(scriptArgs []string) {
 		text := ""
 		for _, arg := range ctx.Args {
 			// No automatic spaces
-			text += formatArgForDisplay(arg)
+			text += formatArgForDisplay(arg, ctx.executor)
 		}
 		fmt.Print(text) // No automatic newline - use \n explicitly if needed
 		return BoolStatus(true)
@@ -243,7 +250,7 @@ func (ps *PawScript) RegisterStandardLibrary(scriptArgs []string) {
 			if i > 0 {
 				text += " "
 			}
-			text += formatArgForDisplay(arg)
+			text += formatArgForDisplay(arg, ctx.executor)
 		}
 		fmt.Println(text) // Automatic newline in this version!
 		return BoolStatus(true)
@@ -1422,6 +1429,11 @@ func getTypeName(val interface{}) string {
 		// QuotedString is still a string type, just with different formatting
 		return "string"
 	case Symbol:
+		// Check if it's an object marker - if so, return the stored type
+		if objType, objID := parseObjectMarker(string(v)); objID >= 0 {
+			// Return the marker type directly (list, string, block)
+			return objType
+		}
 		// Bare identifier (unquoted, non-keyword)
 		return "symbol"
 	case bool:
@@ -1435,6 +1447,10 @@ func getTypeName(val interface{}) string {
 	case float32:
 		return "float"
 	case string:
+		// Check if it's an object marker
+		if objType, objID := parseObjectMarker(v); objID >= 0 {
+			return objType
+		}
 		return "string"
 	case TokenResult:
 		return "token"

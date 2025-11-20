@@ -241,6 +241,24 @@ type Symbol string
 
 func (s Symbol) String() string { return string(s) }
 
+// StoredString represents a large string stored outside the argument flow
+// Strings exceeding StringStorageThreshold are stored as objects and passed by reference
+type StoredString string
+
+func (s StoredString) String() string { return string(s) }
+
+// StoredBlock represents a large code block stored outside the argument flow
+// Blocks (ParenGroup) exceeding BlockStorageThreshold are stored as objects and passed by reference
+type StoredBlock string
+
+func (s StoredBlock) String() string { return string(s) }
+
+// Storage thresholds - values larger than these are stored as objects
+const (
+	StringStorageThreshold = 200 // characters - strings larger than this become StoredString
+	BlockStorageThreshold  = 500 // characters - blocks larger than this become StoredBlock
+)
+
 // StoredList represents an immutable list of values
 // All operations return new StoredList instances (copy-on-write)
 // Slicing shares the backing array for memory efficiency
@@ -269,11 +287,11 @@ func NewStoredListWithRefs(items []interface{}, executor *Executor) StoredList {
 func claimNestedReferences(value interface{}, executor *Executor) {
 	switch v := value.(type) {
 	case Symbol:
-		if id := parseObjectMarker(string(v)); id >= 0 {
+		if _, id := parseObjectMarker(string(v)); id >= 0 {
 			executor.incrementObjectRefCount(id)
 		}
 	case string:
-		if id := parseObjectMarker(v); id >= 0 {
+		if _, id := parseObjectMarker(v); id >= 0 {
 			executor.incrementObjectRefCount(id)
 		}
 	case StoredList:
@@ -292,11 +310,11 @@ func claimNestedReferences(value interface{}, executor *Executor) {
 func releaseNestedReferences(value interface{}, executor *Executor) {
 	switch v := value.(type) {
 	case Symbol:
-		if id := parseObjectMarker(string(v)); id >= 0 {
+		if _, id := parseObjectMarker(string(v)); id >= 0 {
 			executor.decrementObjectRefCount(id)
 		}
 	case string:
-		if id := parseObjectMarker(v); id >= 0 {
+		if _, id := parseObjectMarker(v); id >= 0 {
 			executor.decrementObjectRefCount(id)
 		}
 	case StoredList:
