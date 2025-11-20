@@ -64,6 +64,17 @@ func formatArgForDisplay(arg interface{}, executor *Executor) string {
 	return fmt.Sprintf("%v", arg)
 }
 
+// resolveToString resolves an argument to a string, handling markers
+func resolveToString(arg interface{}, executor *Executor) string {
+	if executor == nil {
+		return fmt.Sprintf("%v", arg)
+	}
+	
+	// Resolve any markers
+	resolved := executor.resolveValue(arg)
+	return fmt.Sprintf("%v", resolved)
+}
+
 // RegisterStandardLibrary registers standard library commands
 func (ps *PawScript) RegisterStandardLibrary(scriptArgs []string) {
 	// Helper function to set a StoredList as result with proper reference counting
@@ -597,8 +608,11 @@ func (ps *PawScript) RegisterStandardLibrary(scriptArgs []string) {
 			fmt.Fprintln(os.Stderr, "[ADD ERROR] Usage: add <a>, <b>")
 			return BoolStatus(false)
 		}
-		a, aOk := toNumber(ctx.Args[0])
-		b, bOk := toNumber(ctx.Args[1])
+		// Resolve markers before converting to numbers
+		resolved0 := ctx.executor.resolveValue(ctx.Args[0])
+		resolved1 := ctx.executor.resolveValue(ctx.Args[1])
+		a, aOk := toNumber(resolved0)
+		b, bOk := toNumber(resolved1)
 		if !aOk || !bOk {
 			fmt.Fprintf(os.Stderr, "[ADD ERROR] Invalid numeric arguments: %v, %v\n", ctx.Args[0], ctx.Args[1])
 			return BoolStatus(false)
@@ -612,8 +626,11 @@ func (ps *PawScript) RegisterStandardLibrary(scriptArgs []string) {
 			fmt.Fprintln(os.Stderr, "[SUB ERROR] Usage: sub <a>, <b>")
 			return BoolStatus(false)
 		}
-		a, aOk := toNumber(ctx.Args[0])
-		b, bOk := toNumber(ctx.Args[1])
+		// Resolve markers before converting to numbers
+		resolved0 := ctx.executor.resolveValue(ctx.Args[0])
+		resolved1 := ctx.executor.resolveValue(ctx.Args[1])
+		a, aOk := toNumber(resolved0)
+		b, bOk := toNumber(resolved1)
 		if !aOk || !bOk {
 			fmt.Fprintf(os.Stderr, "[SUB ERROR] Invalid numeric arguments: %v, %v\n", ctx.Args[0], ctx.Args[1])
 			return BoolStatus(false)
@@ -627,8 +644,11 @@ func (ps *PawScript) RegisterStandardLibrary(scriptArgs []string) {
 			fmt.Fprintln(os.Stderr, "[MUL ERROR] Usage: mul <a>, <b>")
 			return BoolStatus(false)
 		}
-		a, aOk := toNumber(ctx.Args[0])
-		b, bOk := toNumber(ctx.Args[1])
+		// Resolve markers before converting to numbers
+		resolved0 := ctx.executor.resolveValue(ctx.Args[0])
+		resolved1 := ctx.executor.resolveValue(ctx.Args[1])
+		a, aOk := toNumber(resolved0)
+		b, bOk := toNumber(resolved1)
 		if !aOk || !bOk {
 			fmt.Fprintf(os.Stderr, "[MUL ERROR] Invalid numeric arguments: %v, %v\n", ctx.Args[0], ctx.Args[1])
 			return BoolStatus(false)
@@ -642,8 +662,11 @@ func (ps *PawScript) RegisterStandardLibrary(scriptArgs []string) {
 			fmt.Fprintln(os.Stderr, "[DIV ERROR] Usage: div <a>, <b>")
 			return BoolStatus(false)
 		}
-		a, aOk := toNumber(ctx.Args[0])
-		b, bOk := toNumber(ctx.Args[1])
+		// Resolve markers before converting to numbers
+		resolved0 := ctx.executor.resolveValue(ctx.Args[0])
+		resolved1 := ctx.executor.resolveValue(ctx.Args[1])
+		a, aOk := toNumber(resolved0)
+		b, bOk := toNumber(resolved1)
 		if !aOk || !bOk {
 			fmt.Fprintf(os.Stderr, "[DIV ERROR] Invalid numeric arguments: %v, %v\n", ctx.Args[0], ctx.Args[1])
 			return BoolStatus(false)
@@ -663,7 +686,10 @@ func (ps *PawScript) RegisterStandardLibrary(scriptArgs []string) {
 			ctx.SetResult(false)
 			return BoolStatus(false)
 		}
-		result := fmt.Sprintf("%v", ctx.Args[0]) == fmt.Sprintf("%v", ctx.Args[1])
+		// Resolve markers before comparing
+		resolved0 := ctx.executor.resolveValue(ctx.Args[0])
+		resolved1 := ctx.executor.resolveValue(ctx.Args[1])
+		result := fmt.Sprintf("%v", resolved0) == fmt.Sprintf("%v", resolved1)
 		ctx.SetResult(result)
 		return BoolStatus(result)
 	})
@@ -674,15 +700,18 @@ func (ps *PawScript) RegisterStandardLibrary(scriptArgs []string) {
 			ctx.SetResult(false)
 			return BoolStatus(false)
 		}
-		a, aOk := toNumber(ctx.Args[0])
-		b, bOk := toNumber(ctx.Args[1])
+		// Resolve markers first
+		resolved0 := ctx.executor.resolveValue(ctx.Args[0])
+		resolved1 := ctx.executor.resolveValue(ctx.Args[1])
+		a, aOk := toNumber(resolved0)
+		b, bOk := toNumber(resolved1)
 		if aOk && bOk {
 			result := a < b
 			ctx.SetResult(result)
 			return BoolStatus(result)
 		}
 		// String comparison as fallback
-		result := fmt.Sprintf("%v", ctx.Args[0]) < fmt.Sprintf("%v", ctx.Args[1])
+		result := fmt.Sprintf("%v", resolved0) < fmt.Sprintf("%v", resolved1)
 		ctx.SetResult(result)
 		return BoolStatus(result)
 	})
@@ -693,15 +722,18 @@ func (ps *PawScript) RegisterStandardLibrary(scriptArgs []string) {
 			ctx.SetResult(false)
 			return BoolStatus(false)
 		}
-		a, aOk := toNumber(ctx.Args[0])
-		b, bOk := toNumber(ctx.Args[1])
+		// Resolve markers first
+		resolved0 := ctx.executor.resolveValue(ctx.Args[0])
+		resolved1 := ctx.executor.resolveValue(ctx.Args[1])
+		a, aOk := toNumber(resolved0)
+		b, bOk := toNumber(resolved1)
 		if aOk && bOk {
 			result := a > b
 			ctx.SetResult(result)
 			return BoolStatus(result)
 		}
 		// String comparison as fallback
-		result := fmt.Sprintf("%v", ctx.Args[0]) > fmt.Sprintf("%v", ctx.Args[1])
+		result := fmt.Sprintf("%v", resolved0) > fmt.Sprintf("%v", resolved1)
 		ctx.SetResult(result)
 		return BoolStatus(result)
 	})
@@ -712,15 +744,18 @@ func (ps *PawScript) RegisterStandardLibrary(scriptArgs []string) {
 			ctx.SetResult(false)
 			return BoolStatus(false)
 		}
-		a, aOk := toNumber(ctx.Args[0])
-		b, bOk := toNumber(ctx.Args[1])
+		// Resolve markers first
+		resolved0 := ctx.executor.resolveValue(ctx.Args[0])
+		resolved1 := ctx.executor.resolveValue(ctx.Args[1])
+		a, aOk := toNumber(resolved0)
+		b, bOk := toNumber(resolved1)
 		if aOk && bOk {
 			result := a >= b
 			ctx.SetResult(result)
 			return BoolStatus(result)
 		}
 		// String comparison as fallback
-		result := fmt.Sprintf("%v", ctx.Args[0]) >= fmt.Sprintf("%v", ctx.Args[1])
+		result := fmt.Sprintf("%v", resolved0) >= fmt.Sprintf("%v", resolved1)
 		ctx.SetResult(result)
 		return BoolStatus(result)
 	})
@@ -731,15 +766,18 @@ func (ps *PawScript) RegisterStandardLibrary(scriptArgs []string) {
 			ctx.SetResult(false)
 			return BoolStatus(false)
 		}
-		a, aOk := toNumber(ctx.Args[0])
-		b, bOk := toNumber(ctx.Args[1])
+		// Resolve markers first
+		resolved0 := ctx.executor.resolveValue(ctx.Args[0])
+		resolved1 := ctx.executor.resolveValue(ctx.Args[1])
+		a, aOk := toNumber(resolved0)
+		b, bOk := toNumber(resolved1)
 		if aOk && bOk {
 			result := a <= b
 			ctx.SetResult(result)
 			return BoolStatus(result)
 		}
 		// String comparison as fallback
-		result := fmt.Sprintf("%v", ctx.Args[0]) <= fmt.Sprintf("%v", ctx.Args[1])
+		result := fmt.Sprintf("%v", resolved0) <= fmt.Sprintf("%v", resolved1)
 		ctx.SetResult(result)
 		return BoolStatus(result)
 	})
@@ -823,7 +861,9 @@ func (ps *PawScript) RegisterStandardLibrary(scriptArgs []string) {
 			ctx.SetResult(v.Len())
 			return BoolStatus(true)
 		case string, QuotedString, Symbol:
-			str := fmt.Sprintf("%v", v)
+			// Resolve in case it's a string marker
+			resolved := ctx.executor.resolveValue(v)
+			str := fmt.Sprintf("%v", resolved)
 			ctx.SetResult(len(str))
 			return BoolStatus(true)
 		case ParenGroup:
@@ -878,7 +918,9 @@ func (ps *PawScript) RegisterStandardLibrary(scriptArgs []string) {
 			setListResult(ctx, v.Slice(start, end))
 			return BoolStatus(true)
 		case string, QuotedString, Symbol:
-			str := fmt.Sprintf("%v", v)
+			// Resolve in case it's a string marker
+			resolved := ctx.executor.resolveValue(v)
+			str := fmt.Sprintf("%v", resolved)
 			// Handle negative indices
 			if end < 0 {
 				end = len(str)
@@ -1007,7 +1049,9 @@ func (ps *PawScript) RegisterStandardLibrary(scriptArgs []string) {
 		// String mode: concatenate all arguments as strings
 		var result strings.Builder
 		for _, arg := range ctx.Args {
-			result.WriteString(fmt.Sprintf("%v", arg))
+			// Resolve markers before converting to string
+			resolved := ctx.executor.resolveValue(arg)
+			result.WriteString(fmt.Sprintf("%v", resolved))
 		}
 
 		ctx.SetResult(result.String())
@@ -1029,8 +1073,8 @@ func (ps *PawScript) RegisterStandardLibrary(scriptArgs []string) {
 			return BoolStatus(false)
 		}
 
-		str := fmt.Sprintf("%v", ctx.Args[0])
-		delimiter := fmt.Sprintf("%v", ctx.Args[1])
+		str := resolveToString(ctx.Args[0], ctx.executor)
+		delimiter := resolveToString(ctx.Args[1], ctx.executor)
 
 		parts := strings.Split(str, delimiter)
 		items := make([]interface{}, len(parts))
@@ -1052,14 +1096,16 @@ func (ps *PawScript) RegisterStandardLibrary(scriptArgs []string) {
 			return BoolStatus(false)
 		}
 
-		delimiter := fmt.Sprintf("%v", ctx.Args[1])
+		delimiter := resolveToString(ctx.Args[1], ctx.executor)
 
 		// Handle StoredList
 		if storedList, ok := ctx.Args[0].(StoredList); ok {
 			items := storedList.Items()
 			strItems := make([]string, len(items))
 			for i, item := range items {
-				strItems[i] = fmt.Sprintf("%v", item)
+				// Resolve each item in case it's a marker
+				resolved := ctx.executor.resolveValue(item)
+				strItems[i] = fmt.Sprintf("%v", resolved)
 			}
 			ctx.SetResult(strings.Join(strItems, delimiter))
 			return BoolStatus(true)
@@ -1079,7 +1125,7 @@ func (ps *PawScript) RegisterStandardLibrary(scriptArgs []string) {
 			return BoolStatus(false)
 		}
 
-		str := fmt.Sprintf("%v", ctx.Args[0])
+		str := resolveToString(ctx.Args[0], ctx.executor)
 		ctx.SetResult(strings.ToUpper(str))
 		return BoolStatus(true)
 	})
@@ -1093,7 +1139,7 @@ func (ps *PawScript) RegisterStandardLibrary(scriptArgs []string) {
 			return BoolStatus(false)
 		}
 
-		str := fmt.Sprintf("%v", ctx.Args[0])
+		str := resolveToString(ctx.Args[0], ctx.executor)
 		ctx.SetResult(strings.ToLower(str))
 		return BoolStatus(true)
 	})
@@ -1107,7 +1153,7 @@ func (ps *PawScript) RegisterStandardLibrary(scriptArgs []string) {
 			return BoolStatus(false)
 		}
 
-		str := fmt.Sprintf("%v", ctx.Args[0])
+		str := resolveToString(ctx.Args[0], ctx.executor)
 		ctx.SetResult(strings.TrimSpace(str))
 		return BoolStatus(true)
 	})
@@ -1121,7 +1167,7 @@ func (ps *PawScript) RegisterStandardLibrary(scriptArgs []string) {
 			return BoolStatus(false)
 		}
 
-		str := fmt.Sprintf("%v", ctx.Args[0])
+		str := resolveToString(ctx.Args[0], ctx.executor)
 		ctx.SetResult(strings.TrimLeft(str, " \t\n\r"))
 		return BoolStatus(true)
 	})
@@ -1135,7 +1181,7 @@ func (ps *PawScript) RegisterStandardLibrary(scriptArgs []string) {
 			return BoolStatus(false)
 		}
 
-		str := fmt.Sprintf("%v", ctx.Args[0])
+		str := resolveToString(ctx.Args[0], ctx.executor)
 		ctx.SetResult(strings.TrimRight(str, " \t\n\r"))
 		return BoolStatus(true)
 	})
@@ -1149,8 +1195,8 @@ func (ps *PawScript) RegisterStandardLibrary(scriptArgs []string) {
 			return BoolStatus(false)
 		}
 
-		str := fmt.Sprintf("%v", ctx.Args[0])
-		substr := fmt.Sprintf("%v", ctx.Args[1])
+		str := resolveToString(ctx.Args[0], ctx.executor)
+		substr := resolveToString(ctx.Args[1], ctx.executor)
 
 		result := strings.Contains(str, substr)
 		ctx.SetResult(result)
@@ -1168,8 +1214,8 @@ func (ps *PawScript) RegisterStandardLibrary(scriptArgs []string) {
 			return BoolStatus(false)
 		}
 
-		str := fmt.Sprintf("%v", ctx.Args[0])
-		substr := fmt.Sprintf("%v", ctx.Args[1])
+		str := resolveToString(ctx.Args[0], ctx.executor)
+		substr := resolveToString(ctx.Args[1], ctx.executor)
 
 		index := strings.Index(str, substr)
 		ctx.SetResult(int64(index))
@@ -1187,9 +1233,9 @@ func (ps *PawScript) RegisterStandardLibrary(scriptArgs []string) {
 			return BoolStatus(false)
 		}
 
-		str := fmt.Sprintf("%v", ctx.Args[0])
-		old := fmt.Sprintf("%v", ctx.Args[1])
-		new := fmt.Sprintf("%v", ctx.Args[2])
+		str := resolveToString(ctx.Args[0], ctx.executor)
+		old := resolveToString(ctx.Args[1], ctx.executor)
+		new := resolveToString(ctx.Args[2], ctx.executor)
 
 		result := strings.ReplaceAll(str, old, new)
 		ctx.SetResult(result)
@@ -1205,8 +1251,8 @@ func (ps *PawScript) RegisterStandardLibrary(scriptArgs []string) {
 			return BoolStatus(false)
 		}
 
-		str := fmt.Sprintf("%v", ctx.Args[0])
-		prefix := fmt.Sprintf("%v", ctx.Args[1])
+		str := resolveToString(ctx.Args[0], ctx.executor)
+		prefix := resolveToString(ctx.Args[1], ctx.executor)
 
 		result := strings.HasPrefix(str, prefix)
 		ctx.SetResult(result)
@@ -1222,8 +1268,8 @@ func (ps *PawScript) RegisterStandardLibrary(scriptArgs []string) {
 			return BoolStatus(false)
 		}
 
-		str := fmt.Sprintf("%v", ctx.Args[0])
-		suffix := fmt.Sprintf("%v", ctx.Args[1])
+		str := resolveToString(ctx.Args[0], ctx.executor)
+		suffix := resolveToString(ctx.Args[1], ctx.executor)
 
 		result := strings.HasSuffix(str, suffix)
 		ctx.SetResult(result)
@@ -1239,7 +1285,7 @@ func (ps *PawScript) RegisterStandardLibrary(scriptArgs []string) {
 			return BoolStatus(false)
 		}
 
-		str := fmt.Sprintf("%v", ctx.Args[0])
+		str := resolveToString(ctx.Args[0], ctx.executor)
 		count, ok := toNumber(ctx.Args[1])
 		if !ok {
 			fmt.Fprintln(os.Stderr, "[STR_REPEAT ERROR] Count must be a number")

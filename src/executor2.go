@@ -670,15 +670,17 @@ func (e *Executor) substituteBraceExpressions(str string, ctx *SubstitutionConte
 				e.logger.Debug("Brace %d completed synchronously with result: %v", i, evaluations[i].Result)
 			}
 			
-			// Transfer ownership of objects in result to parent before cleanup
+			// Transfer ownership of ALL result objects (LIST/STR/BLOCK) from brace to parent before cleanup
 			if hasCapturedResult {
 				resultRefs := braceState.ExtractObjectReferences(capturedResult)
 				for _, refID := range resultRefs {
+					// Parent claims ownership BEFORE child releases
 					ctx.ExecutionState.ClaimObjectReference(refID)
 				}
 			}
 			
 			// Clean up brace state references (synchronous case)
+			// This will decrement refs for objects we just transferred, but parent already claimed them
 			braceState.ReleaseAllReferences()
 		}
 	}
@@ -1145,9 +1147,9 @@ func (e *Executor) isInsideQuotes(str string, pos int) bool {
 //
 // CRITICAL: Object markers (like \x00LIST:7\x00) are handled based on context:
 // - Inside quoted strings: Resolve and format for display (string interpolation)
-//   Example: echo "Result: {get_result}" â†’ "Result: (a, b, c)"
+//   Example: echo "Result: {get_result}" Ã¢â€ â€™ "Result: (a, b, c)"
 // - Outside quotes: Preserve marker unchanged (pass by reference)
-//   Example: set x, {get_result} â†’ x = \x00LIST:7\x00
+//   Example: set x, {get_result} Ã¢â€ â€™ x = \x00LIST:7\x00
 //
 // This ensures nested structures maintain shared storage via reference passing
 // while still supporting human-readable display in string contexts.
@@ -1173,6 +1175,16 @@ func (e *Executor) formatBraceResult(value interface{}, originalString string, b
 					case "list":
 						if list, ok := actualValue.(StoredList); ok {
 							return formatListForDisplay(list)
+						}
+					case "string":
+						// Resolve and display string content
+						if storedStr, ok := actualValue.(StoredString); ok {
+							return e.escapeQuotesAndBackslashes(string(storedStr))
+						}
+					case "block":
+						// Resolve and display block content
+						if storedBlock, ok := actualValue.(StoredBlock); ok {
+							return e.escapeQuotesAndBackslashes(string(storedBlock))
 						}
 					}
 					// Fallback for other types
@@ -1353,12 +1365,24 @@ func (e *Executor) processArguments(args []interface{}, state *ExecutionState) [
 
 	result := make([]interface{}, len(args))
 	for i, arg := range args {
-		// Check if it's a Symbol that might be an object marker
+		var markerStr string
+		var isMarker bool
+		
+		// Check if it's a Symbol or string that might be an object marker
 		if sym, ok := arg.(Symbol); ok {
-			str := string(sym)
-
+			markerStr = string(sym)
+			isMarker = true
+			e.logger.Debug("processArguments[%d]: Symbol arg, len=%d, first chars=%q", i, len(markerStr), markerStr[:min(len(markerStr), 20)])
+		} else if str, ok := arg.(string); ok {
+			markerStr = str
+			isMarker = true
+			e.logger.Debug("processArguments[%d]: string arg, len=%d, first chars=%q", i, len(markerStr), markerStr[:min(len(markerStr), 20)])
+		}
+		
+		if isMarker {
 			// Check for object marker
-			if objType, objID := parseObjectMarker(str); objID >= 0 {
+			if objType, objID := parseObjectMarker(markerStr); objID >= 0 {
+				e.logger.Debug("processArguments[%d]: Detected %s marker with ID %d", i, objType, objID)
 				// Retrieve the actual value (doesn't affect refcount)
 				if value, exists := e.getObject(objID); exists {
 					switch objType {
@@ -1369,29 +1393,30 @@ func (e *Executor) processArguments(args []interface{}, state *ExecutionState) [
 						if state != nil {
 							state.ClaimObjectReference(objID)
 						}
+						e.logger.Debug("processArguments[%d]: Resolved list marker to StoredList", i)
 					case "string":
-						// Convert StoredString to regular string - this makes a copy
-						if storedStr, ok := value.(StoredString); ok {
-							result[i] = string(storedStr)
-						} else {
-							result[i] = value
-						}
-						// No reference claim needed - we copied the data, not passing the object
+						// Keep as marker (pass-by-reference) - don't copy the string
+						// The marker will be resolved when needed (display, string ops)
+						// Keep the original arg (Symbol or string containing marker)
+						result[i] = arg
+						e.logger.Debug("processArguments[%d]: Preserved string marker (pass-by-reference)", i)
 					case "block":
-						// Convert StoredBlock to ParenGroup - this makes a copy
-						if storedBlock, ok := value.(StoredBlock); ok {
-							result[i] = ParenGroup(storedBlock)
-						} else {
-							result[i] = value
-						}
-						// No reference claim needed - we copied the data, not passing the object
+						// Keep as marker (pass-by-reference) - don't copy the block
+						// The marker will be resolved when needed (execution)
+						result[i] = arg
+						e.logger.Debug("processArguments[%d]: Preserved block marker (pass-by-reference)", i)
 					default:
 						result[i] = value
 					}
 					continue
+				} else {
+					e.logger.Debug("processArguments[%d]: Object %d not found in store!", i, objID)
 				}
+			} else {
+				e.logger.Debug("processArguments[%d]: Not a valid object marker", i)
 			}
 		}
+		
 		// Not a marker, keep the original argument
 		result[i] = arg
 	}
