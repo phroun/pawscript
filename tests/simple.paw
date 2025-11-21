@@ -1,9 +1,0 @@
-macro supersub(
-  macro sub(
-    print "Sub Defined"
-  )
-  print "Supersub Defined"
-)
-
-supersub
-sub

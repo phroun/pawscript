@@ -1,0 +1,6 @@
+[PawScript ERROR] Parse error: Unclosed quote: missing closing "
+  at line 4, column 1 in mixed-quote-error.paw
+
+      3 | echo "This line may not be reached"
+  >   4 | 
+        | ^

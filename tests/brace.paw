@@ -1,2 +1,0 @@
-set a, "hello {set_result b}"
-echo {get a}

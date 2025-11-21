@@ -201,7 +201,7 @@ set exists_var, test
 if {eq {get_type exists_var}, undefined} then (
     echo "  ✗ FAIL: exists_var should exist"
 ) else (
-    echo "  ✓ PASS: exists_var exists (type: {get_type exists_var})"
+    echo "  ✓ PASS: exists_var exists [type: {get_type exists_var}]"
 )
 
 if {eq {get_type does_not_exist}, undefined} then (

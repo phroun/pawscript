@@ -1,0 +1,32 @@
+=== QuotedString and ParenGroup Type Handling ===
+
+Test 1: QuotedString truthiness
+PASS: "false" is falsy
+PASS: "0" is falsy
+PASS: "hello" is truthy
+
+Test 2: QuotedString in arithmetic
+PASS: add "123", 10 = 133
+
+Test 3: Symbol truthiness
+PASS: symbol is truthy
+
+Test 4: Symbol in arithmetic (numeric symbol)
+PASS: add 456, 100 = 556
+
+Test 5: ParenGroup truthiness
+PASS: non-empty ParenGroup is truthy
+
+Test 6: Type checking
+"text" type: string
+symbol type: symbol
+(block) type: block
+
+Test 7: String "false" vs bool false
+PASS: bool false is falsy
+PASS: string "false" is falsy
+
+Test 8: Comparisons across types
+PASS: "42" equals 42 (string coercion)
+
+=== All Edge Case Tests Complete ===

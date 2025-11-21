@@ -4,6 +4,7 @@ import (
 	"fmt"
 	"sync"
 	"time"
+	"sort"
 )
 
 // MacroSystem manages macro definitions and execution
@@ -118,10 +119,14 @@ func (ms *MacroSystem) ExecuteMacro(
 	state.SetVariable("$@", Symbol(argsMarker))
 
 	// Create substitution context for macro arguments
+	// Use macro definition location for error reporting within macro body
 	substitutionContext := &SubstitutionContext{
-		Args:           args,
-		ExecutionState: state,
-		MacroContext:   macroContext,
+		Args:                args,
+		ExecutionState:      state,
+		MacroContext:        macroContext,
+		CurrentLineOffset:   macroDef.DefinitionLine - 1,
+		CurrentColumnOffset: macroDef.DefinitionColumn - 1,
+		Filename:            macroDef.DefinitionFile,
 	}
 
 	// Execute the macro commands
@@ -174,6 +179,7 @@ func (ms *MacroSystem) ListMacros() []string {
 	for name := range ms.macros {
 		names = append(names, name)
 	}
+	sort.Strings(names)
 	return names
 }
 

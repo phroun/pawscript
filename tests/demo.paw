@@ -391,18 +391,21 @@ echo "End edge cases."; print
 # MACRO MANAGEMENT
 # ==========================================
 
-echo "Print macro list:"
-
 # List all defined macros
-macro_list
-
-echo "End macro list."
+echo {macro_list}
 
 # Delete a specific macro
-macro_delete "old_macro"
+macro_delete "greet_formal"
 
-# Clear all macros (commented out to preserve our demos)
-# macro_clear
+# Show it deleted
+echo {macro_list}
+
+# Clear all macros
+macro_clear
+
+echo "Macro list after clear:"
+# Show it deleted
+echo {macro_list}
 
 echo "=== PawScript Syntax Demo Complete ==="
 

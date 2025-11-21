@@ -75,12 +75,16 @@ set value, identifier_name
 
 if {eq {get_type value}, symbol} then (
     echo "Value is a symbol: {get value}"
-) else if {eq {get_type value}, string} then (
-    echo "Value is a string: {get value}"
-) else if {eq {get_type value}, int} then (
-    echo "Value is a number: {get value}"
 ) else (
-    echo "Value is: {get_type value}"
+    if {eq {get_type value}, string} then (
+        echo "Value is a string: {get value}"
+    ) else (
+        if {eq {get_type value}, int} then (
+            echo "Value is a number: {get value}"
+        ) else (
+            echo "Value is: {get_type value}"
+        )
+    )
 )
 echo ""
 

@@ -7,7 +7,6 @@ echo ""
 echo "Test 1: Basic variables"
 set name, "Alice"
 set age, 30
-set age(20)
 set age, {add {get age}, 1}
 gt {get age}, 30
 then {

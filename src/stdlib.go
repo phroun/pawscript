@@ -180,7 +180,7 @@ func (ps *PawScript) RegisterStandardLibrary(scriptArgs []string) {
 					// Try to convert from string/symbol using toNumber
 					num, ok := toNumber(ctx.Args[1])
 					if !ok {
-						fmt.Fprintln(os.Stderr, "[ARGV ERROR] Index must be a number")
+						ctx.LogError(CatCommand, "Index to argv must be a number")
 						ctx.SetResult(nil)
 						return BoolStatus(false)
 					}
@@ -221,27 +221,46 @@ func (ps *PawScript) RegisterStandardLibrary(scriptArgs []string) {
 		return BoolStatus(true)
 	})
 
-	// script_error - output error messages
-	ps.RegisterCommand("script_error", func(ctx *Context) Result {
-		message := "Unknown error"
-		if len(ctx.Args) > 0 {
-			message = fmt.Sprintf("%v", ctx.Args[0])
+	// log_print - output log messages from scripts
+	// Usage: log_print "level", "message"              - logs message at level
+	//        log_print "level", "message", "category"  - logs message at level with category
+	// Levels: debug, warn, error
+	// Returns: true for debug/warn, false for error
+	ps.RegisterCommand("log_print", func(ctx *Context) Result {
+		if len(ctx.Args) < 2 {
+			ctx.LogError(CatIO, "Usage: log_print <level>, <message>, [category]")
+			return BoolStatus(false)
 		}
 
-		errorOutput := fmt.Sprintf("[SCRIPT ERROR] %s", message)
-
-		if ctx.Position != nil {
-			errorOutput += fmt.Sprintf(" at line %d, column %d", ctx.Position.Line, ctx.Position.Column)
-
-			if ctx.Position.OriginalText != "" {
-				errorOutput += fmt.Sprintf("\n  Source: %s", ctx.Position.OriginalText)
-			}
+		// First argument is level
+		levelStr := strings.ToLower(fmt.Sprintf("%v", ctx.Args[0]))
+		var level LogLevel
+		switch levelStr {
+		case "debug":
+			level = LevelDebug
+		case "warn", "warning":
+			level = LevelWarn
+		case "error":
+			level = LevelError
+		default:
+			ctx.LogError(CatIO, fmt.Sprintf("Invalid log level: %s (use debug, warn, or error)", levelStr))
+			return BoolStatus(false)
 		}
 
-		fmt.Fprintln(os.Stderr, errorOutput)
-		return BoolStatus(true)
+		// Second argument is message
+		message := fmt.Sprintf("%v", ctx.Args[1])
+
+		// Third argument is category (optional, default "user")
+		category := CatUser
+		if len(ctx.Args) > 2 {
+			category = LogCategory(fmt.Sprintf("%v", ctx.Args[2]))
+		}
+
+		ctx.logger.Log(level, category, message, ctx.Position, nil)
+
+		// Return false for errors, true otherwise
+		return BoolStatus(level != LevelError)
 	})
-
 	// echo/write/print - output to stdout (no automatic newline)
 	outputCommand := func(ctx *Context) Result {
 		text := ""
@@ -296,7 +315,7 @@ func (ps *PawScript) RegisterStandardLibrary(scriptArgs []string) {
 	// exec - execute external command and capture output
 	ps.RegisterCommand("exec", func(ctx *Context) Result {
 		if len(ctx.Args) == 0 {
-			fmt.Fprintln(os.Stderr, "[EXEC ERROR] No command specified")
+			ctx.LogError(CatIO, "No command specified for exec.")
 			return BoolStatus(false)
 		}
 
@@ -443,7 +462,7 @@ func (ps *PawScript) RegisterStandardLibrary(scriptArgs []string) {
 	//        set {get targets}, {get values}       - dynamic unpacking
 	ps.RegisterCommand("set", func(ctx *Context) Result {
 		if len(ctx.Args) < 2 {
-			fmt.Fprintln(os.Stderr, "[SET ERROR] Usage: set <n> <value>")
+			ctx.LogError(CatCommand, "Usage: set <n>, <value>")
 			return BoolStatus(false)
 		}
 
@@ -504,7 +523,7 @@ func (ps *PawScript) RegisterStandardLibrary(scriptArgs []string) {
 	// get - gets a variable from current scope and sets it as result
 	ps.RegisterCommand("get", func(ctx *Context) Result {
 		if len(ctx.Args) < 1 {
-			fmt.Fprintln(os.Stderr, "[GET ERROR] Usage: get <name>")
+			ctx.LogError(CatCommand, "Usage: get <name>")
 			return BoolStatus(false)
 		}
 
@@ -516,15 +535,15 @@ func (ps *PawScript) RegisterStandardLibrary(scriptArgs []string) {
 			ctx.state.SetResultWithoutClaim(value)
 			return BoolStatus(true)
 		}
-
-		fmt.Fprintf(os.Stderr, "[GET ERROR] Variable not found: %s\n", varName)
+		
+		ctx.LogError(CatVariable, fmt.Sprintf("Variable not found: %s", varName))
 		return BoolStatus(false)
 	})
 
 	// while - loop while condition is true
 	ps.RegisterCommand("while", func(ctx *Context) Result {
 		if len(ctx.Args) < 2 {
-			fmt.Fprintln(os.Stderr, "[WHILE ERROR] Usage: while (condition), (body)")
+			ctx.LogError(CatCommand, "Usage: while (condition), (body)")
 			return BoolStatus(false)
 		}
 
@@ -556,7 +575,7 @@ func (ps *PawScript) RegisterStandardLibrary(scriptArgs []string) {
 
 			// Check if we got a token (async not supported in while condition)
 			if _, isToken := condResult.(TokenResult); isToken {
-				fmt.Fprintln(os.Stderr, "[WHILE ERROR] Async operations not supported in while condition")
+				ctx.LogError(CatFlow, "Async operations not supported in while condition")
 				return BoolStatus(false)
 			}
 
@@ -599,7 +618,7 @@ func (ps *PawScript) RegisterStandardLibrary(scriptArgs []string) {
 		}
 
 		if iterations >= maxIterations {
-			fmt.Fprintln(os.Stderr, "[WHILE ERROR] Maximum iterations (10000) exceeded")
+			ctx.LogError(CatFlow, "Maximum iterations (10000) exceeded")
 			return BoolStatus(false)
 		}
 
@@ -609,7 +628,7 @@ func (ps *PawScript) RegisterStandardLibrary(scriptArgs []string) {
 	// Arithmetic operations
 	ps.RegisterCommand("add", func(ctx *Context) Result {
 		if len(ctx.Args) < 2 {
-			fmt.Fprintln(os.Stderr, "[ADD ERROR] Usage: add <a>, <b>")
+			ctx.LogError(CatCommand, "Usage: add <a>, <b>")
 			return BoolStatus(false)
 		}
 		// Resolve markers before converting to numbers
@@ -618,7 +637,7 @@ func (ps *PawScript) RegisterStandardLibrary(scriptArgs []string) {
 		a, aOk := toNumber(resolved0)
 		b, bOk := toNumber(resolved1)
 		if !aOk || !bOk {
-			fmt.Fprintf(os.Stderr, "[ADD ERROR] Invalid numeric arguments: %v, %v\n", ctx.Args[0], ctx.Args[1])
+			ctx.LogError(CatArgument, fmt.Sprintf("Invalid numeric arguments: %v, %v\n", ctx.Args[0], ctx.Args[1]))
 			return BoolStatus(false)
 		}
 		ctx.SetResult(a + b)
@@ -627,7 +646,7 @@ func (ps *PawScript) RegisterStandardLibrary(scriptArgs []string) {
 
 	ps.RegisterCommand("sub", func(ctx *Context) Result {
 		if len(ctx.Args) < 2 {
-			fmt.Fprintln(os.Stderr, "[SUB ERROR] Usage: sub <a>, <b>")
+			ctx.LogError(CatCommand, "Usage: sub <a>, <b>")
 			return BoolStatus(false)
 		}
 		// Resolve markers before converting to numbers
@@ -636,7 +655,7 @@ func (ps *PawScript) RegisterStandardLibrary(scriptArgs []string) {
 		a, aOk := toNumber(resolved0)
 		b, bOk := toNumber(resolved1)
 		if !aOk || !bOk {
-			fmt.Fprintf(os.Stderr, "[SUB ERROR] Invalid numeric arguments: %v, %v\n", ctx.Args[0], ctx.Args[1])
+			ctx.LogError(CatArgument, fmt.Sprintf("Invalid numeric arguments: %v, %v\n", ctx.Args[0], ctx.Args[1]))
 			return BoolStatus(false)
 		}
 		ctx.SetResult(a - b)
@@ -645,7 +664,7 @@ func (ps *PawScript) RegisterStandardLibrary(scriptArgs []string) {
 
 	ps.RegisterCommand("mul", func(ctx *Context) Result {
 		if len(ctx.Args) < 2 {
-			fmt.Fprintln(os.Stderr, "[MUL ERROR] Usage: mul <a>, <b>")
+			ctx.LogError(CatCommand, "Usage: mul <a>, <b>")
 			return BoolStatus(false)
 		}
 		// Resolve markers before converting to numbers
@@ -654,7 +673,7 @@ func (ps *PawScript) RegisterStandardLibrary(scriptArgs []string) {
 		a, aOk := toNumber(resolved0)
 		b, bOk := toNumber(resolved1)
 		if !aOk || !bOk {
-			fmt.Fprintf(os.Stderr, "[MUL ERROR] Invalid numeric arguments: %v, %v\n", ctx.Args[0], ctx.Args[1])
+			ctx.LogError(CatArgument, fmt.Sprintf("Invalid numeric arguments: %v, %v\n", ctx.Args[0], ctx.Args[1]))
 			return BoolStatus(false)
 		}
 		ctx.SetResult(a * b)
@@ -663,7 +682,7 @@ func (ps *PawScript) RegisterStandardLibrary(scriptArgs []string) {
 
 	ps.RegisterCommand("div", func(ctx *Context) Result {
 		if len(ctx.Args) < 2 {
-			fmt.Fprintln(os.Stderr, "[DIV ERROR] Usage: div <a>, <b>")
+			ctx.LogError(CatCommand, "Usage: div <a>, <b>")
 			return BoolStatus(false)
 		}
 		// Resolve markers before converting to numbers
@@ -672,11 +691,11 @@ func (ps *PawScript) RegisterStandardLibrary(scriptArgs []string) {
 		a, aOk := toNumber(resolved0)
 		b, bOk := toNumber(resolved1)
 		if !aOk || !bOk {
-			fmt.Fprintf(os.Stderr, "[DIV ERROR] Invalid numeric arguments: %v, %v\n", ctx.Args[0], ctx.Args[1])
+			ctx.LogError(CatArgument, fmt.Sprintf("Invalid numeric arguments: %v, %v\n", ctx.Args[0], ctx.Args[1]))
 			return BoolStatus(false)
 		}
 		if b == 0 {
-			fmt.Fprintln(os.Stderr, "[DIV ERROR] Division by zero")
+			ctx.LogError(CatMath, "Division by zero")
 			return BoolStatus(false)
 		}
 		ctx.SetResult(a / b)
@@ -686,7 +705,7 @@ func (ps *PawScript) RegisterStandardLibrary(scriptArgs []string) {
 	// Comparison operations
 	ps.RegisterCommand("eq", func(ctx *Context) Result {
 		if len(ctx.Args) < 2 {
-			fmt.Fprintln(os.Stderr, "[EQ ERROR] Usage: eq <a>, <b>")
+			ctx.LogError(CatCommand, "Usage: eq <a>, <b>")
 			ctx.SetResult(false)
 			return BoolStatus(false)
 		}
@@ -700,7 +719,7 @@ func (ps *PawScript) RegisterStandardLibrary(scriptArgs []string) {
 
 	ps.RegisterCommand("lt", func(ctx *Context) Result {
 		if len(ctx.Args) < 2 {
-			fmt.Fprintln(os.Stderr, "[LT ERROR] Usage: lt <a>, <b>")
+			ctx.LogError(CatCommand, "Usage: lt <a>, <b>")
 			ctx.SetResult(false)
 			return BoolStatus(false)
 		}
@@ -722,7 +741,7 @@ func (ps *PawScript) RegisterStandardLibrary(scriptArgs []string) {
 
 	ps.RegisterCommand("gt", func(ctx *Context) Result {
 		if len(ctx.Args) < 2 {
-			fmt.Fprintln(os.Stderr, "[GT ERROR] Usage: gt <a>, <b>")
+			ctx.LogError(CatCommand, "Usage: gt <a>, <b>")
 			ctx.SetResult(false)
 			return BoolStatus(false)
 		}
@@ -744,7 +763,7 @@ func (ps *PawScript) RegisterStandardLibrary(scriptArgs []string) {
 
 	ps.RegisterCommand("gte", func(ctx *Context) Result {
 		if len(ctx.Args) < 2 {
-			fmt.Fprintln(os.Stderr, "[GTE ERROR] Usage: gte <a>, <b>")
+			ctx.LogError(CatCommand, "Usage: gte <a>, <b>")
 			ctx.SetResult(false)
 			return BoolStatus(false)
 		}
@@ -766,7 +785,7 @@ func (ps *PawScript) RegisterStandardLibrary(scriptArgs []string) {
 
 	ps.RegisterCommand("lte", func(ctx *Context) Result {
 		if len(ctx.Args) < 2 {
-			fmt.Fprintln(os.Stderr, "[LTE ERROR] Usage: lte <a>, <b>")
+			ctx.LogError(CatCommand, "Usage: lte <a>, <b>")
 			ctx.SetResult(false)
 			return BoolStatus(false)
 		}
@@ -789,7 +808,7 @@ func (ps *PawScript) RegisterStandardLibrary(scriptArgs []string) {
 	// if - normalize truthy/falsy values to boolean
 	ps.RegisterCommand("if", func(ctx *Context) Result {
 		if len(ctx.Args) < 1 {
-			fmt.Fprintln(os.Stderr, "[IF ERROR] Usage: if <value>")
+			ctx.LogError(CatCommand, "Usage: if <value>")
 			ctx.SetResult(false)
 			return BoolStatus(false)
 		}
@@ -818,7 +837,7 @@ func (ps *PawScript) RegisterStandardLibrary(scriptArgs []string) {
 	// More efficient than get_inferred_type {get x} for large values or frequent checks
 	ps.RegisterCommand("get_type", func(ctx *Context) Result {
 		if len(ctx.Args) < 1 {
-			fmt.Fprintln(os.Stderr, "[GET_TYPE ERROR] Usage: get_type <variable_name>")
+			ctx.LogError(CatCommand, "Usage: get_type <variable_name>")
 			ctx.SetResult("undefined")
 			return BoolStatus(false)
 		}
@@ -853,7 +872,7 @@ func (ps *PawScript) RegisterStandardLibrary(scriptArgs []string) {
 	//        len "hello"
 	ps.RegisterCommand("len", func(ctx *Context) Result {
 		if len(ctx.Args) < 1 {
-			fmt.Fprintln(os.Stderr, "[LEN ERROR] Usage: len <list|string>")
+			ctx.LogError(CatCommand, "Usage: len <list|string>")
 			ctx.SetResult(0)
 			return BoolStatus(false)
 		}
@@ -876,7 +895,7 @@ func (ps *PawScript) RegisterStandardLibrary(scriptArgs []string) {
 			ctx.SetResult(len(items))
 			return BoolStatus(true)
 		default:
-			fmt.Fprintf(os.Stderr, "[LEN ERROR] Cannot get length of type %s\n", getTypeName(v))
+			ctx.LogError(CatType, fmt.Sprintf("Cannot get length of type %s\n", getTypeName(v)))
 			ctx.SetResult(0)
 			return BoolStatus(false)
 		}
@@ -888,7 +907,7 @@ func (ps *PawScript) RegisterStandardLibrary(scriptArgs []string) {
 	//        slice "hello", 0, 3          - "hel"
 	ps.RegisterCommand("slice", func(ctx *Context) Result {
 		if len(ctx.Args) < 3 {
-			fmt.Fprintln(os.Stderr, "[SLICE ERROR] Usage: slice <list|string>, <start>, <end>")
+			ctx.LogError(CatCommand, "Usage: slice <list|string>, <start>, <end>")
 			ctx.SetResult(nil)
 			return BoolStatus(false)
 		}
@@ -898,7 +917,7 @@ func (ps *PawScript) RegisterStandardLibrary(scriptArgs []string) {
 		// Parse start index
 		startNum, ok := toNumber(ctx.Args[1])
 		if !ok {
-			fmt.Fprintln(os.Stderr, "[SLICE ERROR] Start index must be a number")
+			ctx.LogError(CatArgument, "Start index must be a number")
 			ctx.SetResult(nil)
 			return BoolStatus(false)
 		}
@@ -907,7 +926,7 @@ func (ps *PawScript) RegisterStandardLibrary(scriptArgs []string) {
 		// Parse end index
 		endNum, ok := toNumber(ctx.Args[2])
 		if !ok {
-			fmt.Fprintln(os.Stderr, "[SLICE ERROR] End index must be a number")
+			ctx.LogError(CatArgument, "End index must be a number")
 			ctx.SetResult(nil)
 			return BoolStatus(false)
 		}
@@ -948,7 +967,7 @@ func (ps *PawScript) RegisterStandardLibrary(scriptArgs []string) {
 			}
 			return BoolStatus(true)
 		default:
-			fmt.Fprintf(os.Stderr, "[SLICE ERROR] Cannot slice type %s\n", getTypeName(v))
+			ctx.LogError(CatType, fmt.Sprintf("Cannot slice type %s\n", getTypeName(v)))
 			ctx.SetResult(nil)
 			return BoolStatus(false)
 		}
@@ -958,7 +977,7 @@ func (ps *PawScript) RegisterStandardLibrary(scriptArgs []string) {
 	// Usage: append {get mylist}, newitem
 	ps.RegisterCommand("append", func(ctx *Context) Result {
 		if len(ctx.Args) < 2 {
-			fmt.Fprintln(os.Stderr, "[APPEND ERROR] Usage: append <list>, <item>")
+			ctx.LogError(CatCommand, "Usage: append <list>, <item>")
 			ctx.SetResult(nil)
 			return BoolStatus(false)
 		}
@@ -971,7 +990,7 @@ func (ps *PawScript) RegisterStandardLibrary(scriptArgs []string) {
 			setListResult(ctx, v.Append(item))
 			return BoolStatus(true)
 		default:
-			fmt.Fprintf(os.Stderr, "[APPEND ERROR] Cannot append to type %s\n", getTypeName(v))
+			ctx.LogError(CatType, fmt.Sprintf("Cannot append to type %s\n", getTypeName(v)))
 			ctx.SetResult(nil)
 			return BoolStatus(false)
 		}
@@ -981,7 +1000,7 @@ func (ps *PawScript) RegisterStandardLibrary(scriptArgs []string) {
 	// Usage: prepend {get mylist}, newitem
 	ps.RegisterCommand("prepend", func(ctx *Context) Result {
 		if len(ctx.Args) < 2 {
-			fmt.Fprintln(os.Stderr, "[PREPEND ERROR] Usage: prepend <list>, <item>")
+			ctx.LogError(CatCommand, "Usage: prepend <list>, <item>")
 			ctx.SetResult(nil)
 			return BoolStatus(false)
 		}
@@ -994,7 +1013,7 @@ func (ps *PawScript) RegisterStandardLibrary(scriptArgs []string) {
 			setListResult(ctx, v.Prepend(item))
 			return BoolStatus(true)
 		default:
-			fmt.Fprintf(os.Stderr, "[PREPEND ERROR] Cannot prepend to type %s\n", getTypeName(v))
+			ctx.LogError(CatType, fmt.Sprintf("Cannot prepend to type %s\n", getTypeName(v)))
 			ctx.SetResult(nil)
 			return BoolStatus(false)
 		}
@@ -1005,7 +1024,7 @@ func (ps *PawScript) RegisterStandardLibrary(scriptArgs []string) {
 	// Use this to free memory after slicing a large list
 	ps.RegisterCommand("compact", func(ctx *Context) Result {
 		if len(ctx.Args) < 1 {
-			fmt.Fprintln(os.Stderr, "[COMPACT ERROR] Usage: compact <list>")
+			ctx.LogError(CatCommand, "Usage: compact <list>")
 			ctx.SetResult(nil)
 			return BoolStatus(false)
 		}
@@ -1017,7 +1036,7 @@ func (ps *PawScript) RegisterStandardLibrary(scriptArgs []string) {
 			setListResult(ctx, v.Compact())
 			return BoolStatus(true)
 		default:
-			fmt.Fprintf(os.Stderr, "[COMPACT ERROR] Cannot compact type %s\n", getTypeName(v))
+			ctx.LogError(CatType, fmt.Sprintf("Cannot compact type %s\n", getTypeName(v)))
 			ctx.SetResult(nil)
 			return BoolStatus(false)
 		}
@@ -1030,7 +1049,7 @@ func (ps *PawScript) RegisterStandardLibrary(scriptArgs []string) {
 	//        concat {get list1}, {get list2}, "extra" -> lists concatenated + item appended
 	ps.RegisterCommand("concat", func(ctx *Context) Result {
 		if len(ctx.Args) < 2 {
-			fmt.Fprintln(os.Stderr, "[CONCAT ERROR] Usage: concat <value1>, <value2>, ...")
+			ctx.LogError(CatCommand, "Usage: concat <value1>, <value2>, ...")
 			ctx.SetResult(nil)
 			return BoolStatus(false)
 		}
@@ -1078,7 +1097,7 @@ func (ps *PawScript) RegisterStandardLibrary(scriptArgs []string) {
 	// Inverse of join
 	ps.RegisterCommand("split", func(ctx *Context) Result {
 		if len(ctx.Args) < 2 {
-			fmt.Fprintln(os.Stderr, "[SPLIT ERROR] Usage: split <string>, <delimiter>")
+			ctx.LogError(CatCommand, "Usage: split <string>, <delimiter>")
 			ctx.SetResult(nil)
 			return BoolStatus(false)
 		}
@@ -1101,7 +1120,7 @@ func (ps *PawScript) RegisterStandardLibrary(scriptArgs []string) {
 	// Inverse of split
 	ps.RegisterCommand("join", func(ctx *Context) Result {
 		if len(ctx.Args) < 2 {
-			fmt.Fprintln(os.Stderr, "[JOIN ERROR] Usage: join <list>, <delimiter>")
+			ctx.LogError(CatCommand, "Usage: join <list>, <delimiter>")
 			ctx.SetResult("")
 			return BoolStatus(false)
 		}
@@ -1127,7 +1146,7 @@ func (ps *PawScript) RegisterStandardLibrary(scriptArgs []string) {
 			return BoolStatus(true)
 		}
 
-		fmt.Fprintf(os.Stderr, "[STR_JOIN ERROR] First argument must be a list, got %s\n", getTypeName(ctx.Args[0]))
+		ctx.LogError(CatType, fmt.Sprintf("First argument must be a list, got %s\n", getTypeName(ctx.Args[0])))
 		ctx.SetResult("")
 		return BoolStatus(false)
 	})
@@ -1136,7 +1155,7 @@ func (ps *PawScript) RegisterStandardLibrary(scriptArgs []string) {
 	// Usage: str_upper "hello"  -> "HELLO"
 	ps.RegisterCommand("str_upper", func(ctx *Context) Result {
 		if len(ctx.Args) < 1 {
-			fmt.Fprintln(os.Stderr, "[STR_UPPER ERROR] Usage: str_upper <string>")
+			ctx.LogError(CatCommand, "Usage: str_upper <string>")
 			ctx.SetResult("")
 			return BoolStatus(false)
 		}
@@ -1157,7 +1176,7 @@ func (ps *PawScript) RegisterStandardLibrary(scriptArgs []string) {
 	// Usage: str_lower "HELLO"  -> "hello"
 	ps.RegisterCommand("str_lower", func(ctx *Context) Result {
 		if len(ctx.Args) < 1 {
-			fmt.Fprintln(os.Stderr, "[STR_LOWER ERROR] Usage: str_lower <string>")
+			ctx.LogError(CatCommand, "Usage: str_lower <string>")
 			ctx.SetResult("")
 			return BoolStatus(false)
 		}
@@ -1178,7 +1197,7 @@ func (ps *PawScript) RegisterStandardLibrary(scriptArgs []string) {
 	// Usage: trim "  hello  "  -> "hello"
 	ps.RegisterCommand("trim", func(ctx *Context) Result {
 		if len(ctx.Args) < 1 {
-			fmt.Fprintln(os.Stderr, "[TRIM ERROR] Usage: trim <string>")
+			ctx.LogError(CatCommand, "Usage: trim <string>")
 			ctx.SetResult("")
 			return BoolStatus(false)
 		}
@@ -1198,7 +1217,7 @@ func (ps *PawScript) RegisterStandardLibrary(scriptArgs []string) {
 	// Usage: trim_start "  hello  "  -> "hello  "
 	ps.RegisterCommand("trim_start", func(ctx *Context) Result {
 		if len(ctx.Args) < 1 {
-			fmt.Fprintln(os.Stderr, "[TRIM_START ERROR] Usage: trim_start <string>")
+			ctx.LogError(CatCommand, "Usage: trim_start <string>")
 			ctx.SetResult("")
 			return BoolStatus(false)
 		}
@@ -1218,7 +1237,7 @@ func (ps *PawScript) RegisterStandardLibrary(scriptArgs []string) {
 	// Usage: trim_end "  hello  "  -> "  hello"
 	ps.RegisterCommand("trim_end", func(ctx *Context) Result {
 		if len(ctx.Args) < 1 {
-			fmt.Fprintln(os.Stderr, "[TRIM_END ERROR] Usage: trim_end <string>")
+			ctx.LogError(CatCommand, "Usage: trim_end <string>")
 			ctx.SetResult("")
 			return BoolStatus(false)
 		}
@@ -1238,7 +1257,7 @@ func (ps *PawScript) RegisterStandardLibrary(scriptArgs []string) {
 	// Usage: contains "hello world", "world"  -> true
 	ps.RegisterCommand("contains", func(ctx *Context) Result {
 		if len(ctx.Args) < 2 {
-			fmt.Fprintln(os.Stderr, "[CONTAINS ERROR] Usage: contains <string>, <substring>")
+			ctx.LogError(CatCommand, "Usage: contains <string>, <substring>")
 			ctx.SetResult(false)
 			return BoolStatus(false)
 		}
@@ -1257,7 +1276,7 @@ func (ps *PawScript) RegisterStandardLibrary(scriptArgs []string) {
 	// Always succeeds and sets result (use result to check if found)
 	ps.RegisterCommand("index", func(ctx *Context) Result {
 		if len(ctx.Args) < 2 {
-			fmt.Fprintln(os.Stderr, "[INDEX ERROR] Usage: index <string>, <substring>")
+			ctx.LogError(CatCommand, "Usage: index <string>, <substring>")
 			ctx.SetResult(int64(-1))
 			return BoolStatus(false)
 		}
@@ -1276,7 +1295,7 @@ func (ps *PawScript) RegisterStandardLibrary(scriptArgs []string) {
 	// Replaces ALL occurrences (like strings.ReplaceAll)
 	ps.RegisterCommand("replace", func(ctx *Context) Result {
 		if len(ctx.Args) < 3 {
-			fmt.Fprintln(os.Stderr, "[REPLACE ERROR] Usage: replace <string>, <old>, <new>")
+			ctx.LogError(CatCommand, "Usage: replace <string>, <old>, <new>")
 			ctx.SetResult("")
 			return BoolStatus(false)
 		}
@@ -1299,7 +1318,7 @@ func (ps *PawScript) RegisterStandardLibrary(scriptArgs []string) {
 	// Usage: starts_with "hello world", "hello"  -> true
 	ps.RegisterCommand("starts_with", func(ctx *Context) Result {
 		if len(ctx.Args) < 2 {
-			fmt.Fprintln(os.Stderr, "[STARTS_WITH ERROR] Usage: starts_with <string>, <prefix>")
+			ctx.LogError(CatCommand, "Usage: starts_with <string>, <prefix>")
 			ctx.SetResult(false)
 			return BoolStatus(false)
 		}
@@ -1316,7 +1335,7 @@ func (ps *PawScript) RegisterStandardLibrary(scriptArgs []string) {
 	// Usage: ends_with "hello world", "world"  -> true
 	ps.RegisterCommand("ends_with", func(ctx *Context) Result {
 		if len(ctx.Args) < 2 {
-			fmt.Fprintln(os.Stderr, "[ENDS_WITH ERROR] Usage: ends_with <string>, <suffix>")
+			ctx.LogError(CatCommand, "Usage: ends_with <string>, <suffix>")
 			ctx.SetResult(false)
 			return BoolStatus(false)
 		}
@@ -1333,7 +1352,7 @@ func (ps *PawScript) RegisterStandardLibrary(scriptArgs []string) {
 	// Usage: str_repeat "ab", 3  -> "ababab"
 	ps.RegisterCommand("str_repeat", func(ctx *Context) Result {
 		if len(ctx.Args) < 2 {
-			fmt.Fprintln(os.Stderr, "[STR_REPEAT ERROR] Usage: str_repeat <string>, <count>")
+			ctx.LogError(CatCommand, "Usage: str_repeat <string>, <count>")
 			ctx.SetResult("")
 			return BoolStatus(false)
 		}
@@ -1341,7 +1360,7 @@ func (ps *PawScript) RegisterStandardLibrary(scriptArgs []string) {
 		str := resolveToString(ctx.Args[0], ctx.executor)
 		count, ok := toNumber(ctx.Args[1])
 		if !ok {
-			fmt.Fprintln(os.Stderr, "[STR_REPEAT ERROR] Count must be a number")
+			ctx.LogError(CatArgument, "Count must be a number")
 			ctx.SetResult("")
 			return BoolStatus(false)
 		}

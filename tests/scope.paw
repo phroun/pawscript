@@ -1,0 +1,12 @@
+set x, 10
+
+macro hey(
+  set x, 30
+  echo {get x}
+)
+
+set x, 20
+
+hey
+
+echo {get x}

@@ -1,40 +1,67 @@
 #!/usr/bin/env bash
+echo "bad-command-in-brace:"
+../paw bad-command-in-brace.paw 2>&1 | diff - bad-command-in-brace.expected
 echo "brace-edge-cases:"
 ../paw brace-edge-cases.paw 2>&1 | diff - brace-edge-cases.expected
 echo "demo:"
 ../paw demo.paw 2>&1 | diff - demo.expected
 echo "edge-case:"
-../paw edge-case.paw | diff - edge-case.expected
+../paw edge-case.paw 2>&1 | diff - edge-case.expected
 echo "escape:"
-../paw escape.paw | diff - escape.expected
+../paw escape.paw 2>&1 | diff - escape.expected
 echo "leading-operators:"
 ../paw leading-operators.paw 2>&1 | diff - leading-operators.expected
+echo "macro-parse-error:"
+../paw macro-parse-error.paw 2>&1 | diff - macro-parse-error.expected
+echo "mixed-quote-error:"
+../paw mixed-quote-error.paw 2>&1 | diff - mixed-quote-error.expected
+echo "nested-brace-error:"
+../paw nested-brace-error.paw 2>&1 | diff - nested-brace-error.expected
+echo "nested_macros:"
+../paw nested_macros.paw 2>&1 | diff - nested_macros.expected
+echo "operator-start-of-file:"
+../paw operator-start-of-file.paw 2>&1 | diff - operator-start-of-file.expected
 echo "test_concat_unified:"
 ../paw test_concat_unified.paw 2>&1 | diff - test_concat_unified.expected
 echo "test_get_inferred_type:"
-../paw test_get_inferred_type.paw | diff - test_get_inferred_type.expected
+../paw test_get_inferred_type.paw 2>&1 | diff - test_get_inferred_type.expected
 echo "test_get_type:"
-../paw test_get_type.paw | diff - test_get_type.expected
+../paw test_get_type.paw 2>&1 | diff - test_get_type.expected
+echo "test_if_then_else:"
+../paw test_if_then_else.paw 2>&1 | diff - test_if_then_else.expected
 echo "test_lists:"
-../paw test_lists.paw | diff - test_lists.expected
+../paw test_lists.paw 2>&1 | diff - test_lists.expected
+echo "test_log:"
+../paw test_log.paw 2>&1 | diff - test_log.expected
 echo "test_macro_ownership:"
-../paw test_macro_ownership.paw | diff - test_macro_ownership.expected
+../paw test_macro_ownership.paw 2>&1 | diff - test_macro_ownership.expected
 echo "test_nested_lists:"
-../paw test_nested_lists.paw | diff - test_nested_lists.expected
+../paw test_nested_lists.paw 2>&1 | diff - test_nested_lists.expected
 echo "test_ret:"
-../paw test_ret.paw | diff - test_ret.expected
+../paw test_ret.paw 2>&1 | diff - test_ret.expected
 echo "test_refcounting:"
-../paw test_refcounting.paw | diff - test_refcounting.expected
+../paw test_refcounting.paw 2>&1 | diff - test_refcounting.expected
 echo "test_simple_scoping:"
 ../paw test_simple_scoping.paw 2>&1 | diff - test_simple_scoping.expected
 echo "test_string_block_storage:"
-../paw test_string_block_storage.paw | diff - test_string_block_storage.expected
+../paw test_string_block_storage.paw 2>&1 | diff - test_string_block_storage.expected
 echo "test_string_ops:"
-../paw test_string_ops.paw | diff - test_string_ops.expected
+../paw test_string_ops.paw 2>&1 | diff - test_string_ops.expected
 echo "test_string_ops_refcount"
-../paw test_string_ops_refcount.paw| diff - test_string_ops_refcount.expected
+../paw test_string_ops_refcount.paw 2>&1 | diff - test_string_ops_refcount.expected
+echo "test_symbols"
+../paw test_symbols.paw 2>&1 | diff - test_symbols.expected
+echo "test_type_edge_cases"
+../paw test_type_edge_cases.paw 2>&1 | diff - test_type_edge_cases.expected
+echo "test_type_system"
+../paw test_type_system.paw 2>&1 | diff - test_type_system.expected
 echo "test_unpacking:"
-../paw test_unpacking.paw | diff - test_unpacking.expected
+../paw test_unpacking.paw 2>&1 | diff - test_unpacking.expected
+echo "test_variables_while:"
+../paw test_variables_while.paw 2>&1 | diff - test_variables_while.expected
 echo "quote-edge-cases:"
 ../paw quote-edge-cases.paw 2>&1 | diff - quote-edge-cases.expected
-
+echo "scope:"
+../paw scope.paw 2>&1 | diff - scope.expected
+echo "trailing-operators:"
+../paw trailing-operators.paw 2>&1 | diff - trailing-operators.expected

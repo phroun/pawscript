@@ -1,0 +1,46 @@
+=== Testing Variables, Parenthesis Blocks, and While Loops ===
+
+Test 1: Basic variables
+Alice is old!
+But, she's fine
+Name: Alice
+Age: 31
+
+Test 2: Parenthesis blocks (same scope)
+Inside block, counter = 5
+Outside block, counter = 5
+Expected: counter should be 5 both inside and outside
+
+Test 3: Braces and variables
+x = 10
+doubled = 20
+temp = 20
+Expected: x=10, doubled=20, temp=20 (all accessible)
+
+Test 4: Basic while loop
+  Loop iteration 0
+  Loop iteration 1
+  Loop iteration 2
+  Loop iteration 3
+  Loop iteration 4
+After loop, i = 5
+Expected: printed 0,1,2,3,4 and i=5
+
+Test 5: While loop result value
+Result after while: false
+Expected: 3
+
+Test 6: While loop that doesn't execute
+Result: before
+Expected: 'before' (never touched)
+
+Test 7: Nested while loops
+  outer=0, inner=0
+  outer=0, inner=1
+  outer=1, inner=0
+  outer=1, inner=1
+  outer=2, inner=0
+  outer=2, inner=1
+Expected: outer 0,1,2 each with inner 0,1
+
+=== All Tests Complete ===

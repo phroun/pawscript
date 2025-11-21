@@ -41,7 +41,7 @@ set x, 10
 set y, 5
 
 if {gt {get x}, {get y}} then (
-    echo "  x ({get x}) > y ({get y})"
+    echo "  x [{get x}] > y [{get y}]"
 ) else (
     echo "  x <= y"
 )
@@ -49,7 +49,7 @@ if {gt {get x}, {get y}} then (
 if {eq {get x}, {get y}} then (
     echo "  x == y"
 ) else (
-    echo "  x ({get x}) != y ({get y})"
+    echo "  x [{get x}] != y [{get y}]"
 )
 echo ""
 

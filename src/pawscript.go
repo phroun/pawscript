@@ -49,7 +49,12 @@ func New(config *Config) *PawScript {
 				macroState := state.CreateChild()
 
 				result := macroSystem.ExecuteMacro(cmdName, func(commands string, macroExecState *ExecutionState, ctx *SubstitutionContext) Result {
-					return executor.ExecuteWithState(commands, macroExecState, ctx, "", 0, 0)
+					// Use filename from substitution context for proper error reporting
+					filename := ""
+					if ctx != nil {
+						filename = ctx.Filename
+					}
+					return executor.ExecuteWithState(commands, macroExecState, ctx, filename, 0, 0)
 				}, args, macroState, position, state) // Pass parent state
 
 				return result
@@ -103,7 +108,12 @@ func (ps *PawScript) registerBuiltInMacroCommands() {
 		macroState := ctx.state.CreateChild()
 
 		return ps.macroSystem.ExecuteMacro(name, func(commands string, macroExecState *ExecutionState, substCtx *SubstitutionContext) Result {
-			return ps.executor.ExecuteWithState(commands, macroExecState, substCtx, "", 0, 0)
+			// Use filename from substitution context for proper error reporting
+			filename := ""
+			if substCtx != nil {
+				filename = substCtx.Filename
+			}
+			return ps.executor.ExecuteWithState(commands, macroExecState, substCtx, filename, 0, 0)
 		}, macroArgs, macroState, ctx.Position, ctx.state) // Pass parent state
 	})
 
@@ -117,7 +127,7 @@ func (ps *PawScript) registerBuiltInMacroCommands() {
 	// Delete macro command
 	ps.executor.RegisterCommand("macro_delete", func(ctx *Context) Result {
 		if len(ctx.Args) < 1 {
-			ps.logger.Error("Usage: macro_delete <macro_name>")
+			ctx.LogError(CatCommand, "Usage: macro_delete <macro_name>")
 			return BoolStatus(false)
 		}
 
@@ -125,7 +135,7 @@ func (ps *PawScript) registerBuiltInMacroCommands() {
 		result := ps.macroSystem.DeleteMacro(name)
 
 		if !result {
-			ps.logger.Error("PawScript macro \"%s\" not found or could not be deleted", name)
+			ctx.LogError(CatMacro, fmt.Sprintf("PawScript macro \"%s\" not found or could not be deleted", name))
 		}
 
 		return BoolStatus(result)
@@ -231,7 +241,12 @@ func (ps *PawScript) ExecuteMacro(name string) Result {
 	state := NewExecutionState()
 
 	return ps.macroSystem.ExecuteMacro(name, func(commands string, macroState *ExecutionState, ctx *SubstitutionContext) Result {
-		return ps.executor.ExecuteWithState(commands, macroState, ctx, "", 0, 0)
+		// Use filename from substitution context for proper error reporting
+		filename := ""
+		if ctx != nil {
+			filename = ctx.Filename
+		}
+		return ps.executor.ExecuteWithState(commands, macroState, ctx, filename, 0, 0)
 	}, []interface{}{}, state, nil, nil) // No parent for top-level call
 }
 

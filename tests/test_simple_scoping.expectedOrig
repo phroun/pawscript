@@ -1,0 +1,22 @@
+Top level x = outer
+Trying to get x locally...
+[GET ERROR] Variable not found: x
+Good: x not found in local scope
+Local y = inner
+Trying to get y at top level...
+[GET ERROR] Variable not found: y
+Good: y not found at top level
+Outer macro: a = from outer
+Inner macro: trying to get a...
+[GET ERROR] Variable not found: a
+Good: a not in local scope
+Inner macro: b = from inner
+Outer macro: trying to get b...
+[GET ERROR] Variable not found: b
+Good: b not found in outer scope
+Trying to get a at top level...
+[GET ERROR] Variable not found: a
+Good: a not found at top level
+Trying to get b at top level...
+[GET ERROR] Variable not found: b
+Good: b not found at top level

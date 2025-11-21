@@ -1,0 +1,15 @@
+macro supersub(
+  macro subroutine(
+    print "Sub $1 Defined \\$1"
+    print \\$1
+  )
+  macro "subroutine_$1", (
+    print "Special Sub $1 Defined \\$1"
+    print \\$1
+  )
+  print "Supersub $1 Defined"
+)
+
+supersub Cat
+subroutine Hiss
+subroutine_Cat Meow

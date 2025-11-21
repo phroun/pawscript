@@ -1,0 +1,48 @@
+=== Symbol vs String Tests ===
+
+Test 1: Basic type detection
+42 is type: int
+"text" is type: symbol
+bareword is type: symbol
+(block) is type: block
+
+Test 2: Storing different types in variables
+int_var type: int
+str_var type: string
+sym_var type: symbol
+block_var type: block
+
+Test 3: Undefined variable
+Checking type of 'does_not_exist': undefined
+(Above should show 'undefined')
+
+Test 4: Symbol comparison
+Role is admin (symbol comparison works)
+String 'admin' equals symbol admin (types coerce)
+
+Test 5: Truthiness of symbols
+Non-empty symbol is truthy
+Symbol from variable is truthy
+
+Test 6: Numeric operations
+add symbol + symbol: 912
+add string + int: 556
+
+Test 7: Type-based conditional logic
+Value is a symbol: identifier_name
+
+Test 8: Safe variable access
+Variable existing_var is undefined, using default
+Result: default
+Variable existing_var is undefined, using default
+Result: default
+
+Test 9: Block type
+Type of code_block: block
+
+Test 10: Type preservation in commands
+x (symbol): foo - type: symbol
+y (string): bar - type: string
+z (int): 123 - type: int
+
+=== All Symbol Tests Complete ===

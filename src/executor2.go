@@ -153,16 +153,22 @@ func (e *Executor) executeSingleCommand(
 	// Create a minimal substitution context if one doesn't exist
 	if substitutionCtx == nil {
 		filename := ""
+		lineOffset := 0
+		columnOffset := 0
 		if position != nil {
 			filename = position.Filename
+			// Initialize offsets from command position so brace expressions
+			// report correct file positions
+			lineOffset = position.Line - 1
+			columnOffset = position.Column - 1
 		}
 		substitutionCtx = &SubstitutionContext{
 			Args:                []interface{}{},
 			ExecutionState:      state,
 			ParentContext:       nil,
 			MacroContext:        nil,
-			CurrentLineOffset:   0,
-			CurrentColumnOffset: 0,
+			CurrentLineOffset:   lineOffset,
+			CurrentColumnOffset: columnOffset,
 			Filename:            filename,
 		}
 	} else {
@@ -658,17 +664,19 @@ func (e *Executor) substituteBraceExpressions(str string, ctx *SubstitutionConte
 			// Check if it was successful
 			if boolStatus, ok := executeResult.(BoolStatus); ok && !bool(boolStatus) {
 				evaluations[i].Failed = true
-				evaluations[i].Error = "Command returned false"
+				//evaluations[i].Error = "Command returned false"
 				e.logger.Debug("Brace %d completed synchronously with failure", i)
 			} else {
-				// Use the captured result
-				if hasCapturedResult {
-					evaluations[i].Result = capturedResult
-				} else if boolStatus, ok := executeResult.(BoolStatus); ok {
-					evaluations[i].Result = fmt.Sprintf("%v", bool(boolStatus))
-				}
-				e.logger.Debug("Brace %d completed synchronously with result: %v", i, evaluations[i].Result)
+				e.logger.Debug("Brace %d completed synchronously with success", i)
 			}
+			// Use the captured result - this part used to be in an else
+			if hasCapturedResult {
+				evaluations[i].Result = capturedResult
+				e.logger.Debug("Has captured result: %s", i, evaluations[i].Result)
+			} else if boolStatus, ok := executeResult.(BoolStatus); ok {
+				evaluations[i].Result = fmt.Sprintf("%v", bool(boolStatus))
+			}
+			// end part that used to be in an else
 			
 			// Transfer ownership from brace to parent without changing global refcount
 			// This moves local tracking so consumer doesn't double-claim
@@ -736,7 +744,7 @@ func (e *Executor) substituteBraceExpressions(str string, ctx *SubstitutionConte
 				sourceContext = nil // We'll add this later if needed
 			}
 
-			e.logger.ErrorWithPosition(errorMsg, eval.Position, sourceContext)
+			e.logger.Warn(errorMsg, eval.Position, sourceContext)
 			e.logger.Debug("Synchronous brace evaluation %d failed, aborting command", i)
 			// Return special marker to indicate brace failure
 			return "\x00PAWS_FAILED\x00"
@@ -988,6 +996,7 @@ func (e *Executor) createContext(args []interface{}, state *ExecutionState, posi
 		Position: position,
 		state:    state,
 		executor: e,
+		logger:   e.logger,
 		requestToken: func(cleanup func(string)) string {
 			return e.RequestCompletionToken(cleanup, "", 5*time.Minute, state, position)
 		},
@@ -1154,9 +1163,9 @@ func (e *Executor) isInsideQuotes(str string, pos int) bool {
 //
 // CRITICAL: Object markers (like \x00LIST:7\x00) are handled based on context:
 // - Inside quoted strings: Resolve and format for display (string interpolation)
-//   Example: echo "Result: {get_result}" ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â€šÂ¬Ã‚Â ÃƒÂ¢Ã¢â€šÂ¬Ã¢â€žÂ¢ "Result: (a, b, c)"
+//   Example: echo "Result: {get_result}" -> "Result: (a, b, c)"
 // - Outside quotes: Preserve marker unchanged (pass by reference)
-//   Example: set x, {get_result} ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â€šÂ¬Ã‚Â ÃƒÂ¢Ã¢â€šÂ¬Ã¢â€žÂ¢ x = \x00LIST:7\x00
+//   Example: set x, {get_result} -> x = \x00LIST:7\x00
 //
 // This ensures nested structures maintain shared storage via reference passing
 // while still supporting human-readable display in string contexts.

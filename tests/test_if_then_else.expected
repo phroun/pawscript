@@ -1,0 +1,44 @@
+=== Testing If/Then/Else Keywords ===
+
+Test 1: Basic if-then
+This should print
+
+Test 2: If-then-else
+True branch Good
+False branch Good
+
+Test 3: If-then-else with blocks
+  Statement 1 in true branch
+  Statement 2 in true branch
+
+Test 4: If normalizing truthy/falsy values
+  1 is truthy
+  'hello' is truthy
+
+Test 5: If with comparisons
+  x [10] > y [5]
+  x [10] != y [5]
+
+Test 6: Nested if statements
+  User is admin
+    And user is active
+
+Test 7: Word boundary test
+athena = goddess
+
+Test 8: Complex workflow
+  Score: 95
+  Grade: A
+  Message: Excellent!
+
+Test 9: If with while loop
+  Counter is 0
+  Counter is 1 - special case!
+  Counter is 2
+
+Test 10: Conditional variable assignment
+  Username: admin
+  Authenticated: true
+  Access Level: full
+
+=== All If/Then/Else Tests Complete ===

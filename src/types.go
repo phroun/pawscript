@@ -33,8 +33,14 @@ type Context struct {
 	Position     *SourcePosition
 	state        *ExecutionState
 	executor     *Executor
+	logger       *Logger
 	requestToken func(cleanup func(string)) string
 	resumeToken  func(tokenID string, status bool) bool
+}
+
+// LogError logs a command error with position
+func (c *Context) LogError(cat LogCategory, message string) {
+	c.logger.CommandError(cat, "", message, c.Position)
 }
 
 // SetResult sets the formal result value

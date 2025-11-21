@@ -64,7 +64,7 @@ Test 12: Special string values
   special4 = "true" → string (expected: string)
 
 Test 13: Variable existence checking
-  ✓ PASS: exists_var exists (type: {get_type exists_var})
+  ✓ PASS: exists_var exists [type: symbol]
   ✓ PASS: does_not_exist is undefined
 
 Test 14: Case sensitivity

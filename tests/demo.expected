@@ -152,8 +152,10 @@ grouped  text
 grouped  text = Good
 End edge cases.
 
-Print macro list:
-End macro list.
+[chain_greet complex_demo define_macros describe_args greet greet_formal kitchen_sink quickGreet safe_greet safe_operation smart_echo time_greet validate_and_process]
+[chain_greet complex_demo define_macros describe_args greet kitchen_sink quickGreet safe_greet safe_operation smart_echo time_greet validate_and_process]
+Macro list after clear:
+[]
 === PawScript Syntax Demo Complete ===
 [PawScript ERROR] Unknown command: check_line_and_col_of_error_409_4
-  at line 409, column 4 in demo.paw
+  at line 412, column 4 in demo.paw
