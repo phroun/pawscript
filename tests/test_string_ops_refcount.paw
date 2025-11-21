@@ -6,7 +6,7 @@ echo "=== String Operations Reference Counting Test ==="
 echo ""
 
 # Helper: create a large string (over 200 chars)
-set large_base, "This is a very large string that exceeds the 200 character threshold for automatic storage. It contains enough text to trigger the storage mechanism which will convert it into a stored object."
+set large_base, "This is a very large string that exceeds the 200 character threshold for automatic storage. It contains enough text to trigger the storage mechanism which will convert it into a stored object with a reference marker."
 
 echo "Test 1: Initial state"
 mem_stats
@@ -162,21 +162,21 @@ echo "Expected: 1 object (only large_base)"
 echo ""
 
 # ============ str_join ============
-echo "Test 24: str_join small result"
+echo "Test 24: join small result"
 set items, {list a, b, c}
-set small_join, {str_join {get items}, ", "}
+set small_join, {join {get items}, ", "}
 mem_stats
 echo "Expected: 2 objects (large_base + items list)"
 echo ""
 
-echo "Test 25: str_join large result"
+echo "Test 25: join large result"
 set big_items, {list {get large_base}, {get large_base}}
-set large_join, {str_join {get big_items}, " | "}
+set large_join, {join {get big_items}, " | "}
 mem_stats
 echo "Expected: 4 objects (large_base + items + big_items + large_join)"
 echo ""
 
-echo "Test 26: Clear str_join results"
+echo "Test 26: Clear join results"
 set items, nil
 set small_join, nil
 set big_items, nil
