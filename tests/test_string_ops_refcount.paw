@@ -1,0 +1,215 @@
+#!/usr/bin/env paw
+# Test string operations with reference counting
+# Tests both small (inline) and large (stored) strings
+
+echo "=== String Operations Reference Counting Test ==="
+echo ""
+
+# Helper: create a large string (over 200 chars)
+set large_base, "This is a very large string that exceeds the 200 character threshold for automatic storage. It contains enough text to trigger the storage mechanism which will convert it into a stored object."
+
+echo "Test 1: Initial state"
+mem_stats
+echo "Expected: 0 objects"
+echo ""
+
+# ============ str_upper ============
+echo "Test 2: str_upper with small string"
+set small_upper, {str_upper "hello world"}
+mem_stats
+echo "Expected: 0 objects (small string stays inline)"
+echo ""
+
+echo "Test 3: str_upper with large string"
+set large_upper, {str_upper {get large_base}}
+mem_stats
+echo "Expected: 2 objects (large_base + large_upper)"
+echo ""
+
+echo "Test 4: Clear str_upper results"
+set small_upper, nil
+set large_upper, nil
+mem_stats
+echo "Expected: 1 object (only large_base)"
+echo ""
+
+# ============ str_lower ============
+echo "Test 5: str_lower with small string"
+set small_lower, {str_lower "HELLO WORLD"}
+mem_stats
+echo "Expected: 1 object (large_base)"
+echo ""
+
+echo "Test 6: str_lower with large string"
+set large_lower, {str_lower {get large_base}}
+mem_stats
+echo "Expected: 2 objects (large_base + large_lower)"
+echo ""
+
+echo "Test 7: Clear str_lower results"
+set small_lower, nil
+set large_lower, nil
+mem_stats
+echo "Expected: 1 object (only large_base)"
+echo ""
+
+# ============ trim ============
+echo "Test 8: trim with small string"
+set small_trim, {trim "  hello  "}
+mem_stats
+echo "Expected: 1 object (large_base)"
+echo ""
+
+echo "Test 9: trim with large string"
+set padded_large, "   {get large_base}   "
+set large_trim, {trim {get padded_large}}
+mem_stats
+echo "Expected: 3 objects (large_base + padded_large + large_trim)"
+echo ""
+
+echo "Test 10: Clear trim results"
+set small_trim, nil
+set padded_large, nil
+set large_trim, nil
+mem_stats
+echo "Expected: 1 object (only large_base)"
+echo ""
+
+# ============ trim_start ============
+echo "Test 11: trim_start with small string"
+set small_trim_start, {trim_start "  hello  "}
+mem_stats
+echo "Expected: 1 object (large_base)"
+echo ""
+
+echo "Test 12: Clear trim_start result"
+set small_trim_start, nil
+mem_stats
+echo "Expected: 1 object (large_base)"
+echo ""
+
+# ============ trim_end ============
+echo "Test 13: trim_end with small string"
+set small_trim_end, {trim_end "  hello  "}
+mem_stats
+echo "Expected: 1 object (large_base)"
+echo ""
+
+echo "Test 14: Clear trim_end result"
+set small_trim_end, nil
+mem_stats
+echo "Expected: 1 object (large_base)"
+echo ""
+
+# ============ replace ============
+echo "Test 15: replace with small string"
+set small_replace, {replace "hello world", "world", "there"}
+mem_stats
+echo "Expected: 1 object (large_base)"
+echo ""
+
+echo "Test 16: replace with large string"
+set large_replace, {replace {get large_base}, "string", "STRING"}
+mem_stats
+echo "Expected: 2 objects (large_base + large_replace)"
+echo ""
+
+echo "Test 17: Clear replace results"
+set small_replace, nil
+set large_replace, nil
+mem_stats
+echo "Expected: 1 object (only large_base)"
+echo ""
+
+# ============ str_repeat ============
+echo "Test 18: str_repeat small result"
+set small_repeat, {str_repeat "ab", 3}
+mem_stats
+echo "Expected: 1 object (large_base)"
+echo ""
+
+echo "Test 19: str_repeat large result"
+set large_repeat, {str_repeat "abcdefghij", 25}
+mem_stats
+echo "Expected: 2 objects (large_base + large_repeat of 250 chars)"
+echo ""
+
+echo "Test 20: Clear str_repeat results"
+set small_repeat, nil
+set large_repeat, nil
+mem_stats
+echo "Expected: 1 object (only large_base)"
+echo ""
+
+# ============ slice (string) ============
+echo "Test 21: slice small result from large string"
+set small_slice, {slice {get large_base}, 0, 10}
+mem_stats
+echo "Expected: 1 object (large_base, slice is small)"
+echo ""
+
+echo "Test 22: slice large result from large string"
+set large_slice, {slice {get large_base}, 0, 205}
+mem_stats
+echo "Expected: 2 objects (large_base + large_slice)"
+echo ""
+
+echo "Test 23: Clear slice results"
+set small_slice, nil
+set large_slice, nil
+mem_stats
+echo "Expected: 1 object (only large_base)"
+echo ""
+
+# ============ str_join ============
+echo "Test 24: str_join small result"
+set items, {list a, b, c}
+set small_join, {str_join {get items}, ", "}
+mem_stats
+echo "Expected: 2 objects (large_base + items list)"
+echo ""
+
+echo "Test 25: str_join large result"
+set big_items, {list {get large_base}, {get large_base}}
+set large_join, {str_join {get big_items}, " | "}
+mem_stats
+echo "Expected: 4 objects (large_base + items + big_items + large_join)"
+echo ""
+
+echo "Test 26: Clear str_join results"
+set items, nil
+set small_join, nil
+set big_items, nil
+set large_join, nil
+mem_stats
+echo "Expected: 1 object (only large_base)"
+echo ""
+
+# ============ exec ============
+echo "Test 27: exec with small output"
+set small_exec, {exec echo, "hello"}
+mem_stats
+echo "Expected: 1 object (large_base)"
+echo ""
+
+echo "Test 28: exec with large output"
+set large_exec, {exec echo, {get large_base}}
+mem_stats
+echo "Expected: 2 objects (large_base + large_exec)"
+echo ""
+
+echo "Test 29: Clear exec results"
+set small_exec, nil
+set large_exec, nil
+mem_stats
+echo "Expected: 1 object (only large_base)"
+echo ""
+
+# ============ Final cleanup ============
+echo "Test 30: Clear large_base"
+set large_base, nil
+mem_stats
+echo "Expected: 0 objects (all freed)"
+echo ""
+
+echo "=== Test Complete ==="

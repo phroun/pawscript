@@ -336,7 +336,12 @@ func (ps *PawScript) RegisterStandardLibrary(scriptArgs []string) {
 		success := err == nil && !hasStderrContent
 
 		// Set stdout as the result (even on failure, might be useful)
-		ctx.SetResult(stdout)
+		if ctx.executor != nil {
+			result := ctx.executor.maybeStoreValue(stdout, ctx.state)
+			ctx.state.SetResultWithoutClaim(result)
+		} else {
+			ctx.state.SetResultWithoutClaim(stdout)
+		}
 
 		// Return success status
 		return BoolStatus(success)
@@ -934,7 +939,13 @@ func (ps *PawScript) RegisterStandardLibrary(scriptArgs []string) {
 			if start > end {
 				start = end
 			}
-			ctx.SetResult(str[start:end])
+			result := str[start:end]
+			if ctx.executor != nil {
+				result := ctx.executor.maybeStoreValue(result, ctx.state)
+				ctx.state.SetResultWithoutClaim(result)
+			} else {
+				ctx.state.SetResultWithoutClaim(result)
+			}
 			return BoolStatus(true)
 		default:
 			fmt.Fprintf(os.Stderr, "[SLICE ERROR] Cannot slice type %s\n", getTypeName(v))
@@ -1106,7 +1117,13 @@ func (ps *PawScript) RegisterStandardLibrary(scriptArgs []string) {
 				resolved := ctx.executor.resolveValue(item)
 				strItems[i] = fmt.Sprintf("%v", resolved)
 			}
-			ctx.SetResult(strings.Join(strItems, delimiter))
+			result := strings.Join(strItems, delimiter)
+			if ctx.executor != nil {
+				result := ctx.executor.maybeStoreValue(result, ctx.state)
+				ctx.state.SetResultWithoutClaim(result)
+			} else {
+				ctx.state.SetResultWithoutClaim(result)
+			}
 			return BoolStatus(true)
 		}
 
@@ -1125,7 +1142,14 @@ func (ps *PawScript) RegisterStandardLibrary(scriptArgs []string) {
 		}
 
 		str := resolveToString(ctx.Args[0], ctx.executor)
-		ctx.SetResult(strings.ToUpper(str))
+		// Use SetResultWithoutClaim - consumer will claim
+		result := strings.ToUpper(str)
+		if ctx.executor != nil {
+			result := ctx.executor.maybeStoreValue(result, ctx.state)
+			ctx.state.SetResultWithoutClaim(result)
+		} else {
+			ctx.state.SetResultWithoutClaim(result)
+		}
 		return BoolStatus(true)
 	})
 
@@ -1139,7 +1163,14 @@ func (ps *PawScript) RegisterStandardLibrary(scriptArgs []string) {
 		}
 
 		str := resolveToString(ctx.Args[0], ctx.executor)
-		ctx.SetResult(strings.ToLower(str))
+		// Use SetResultWithoutClaim - consumer will claim
+		result := strings.ToLower(str)
+		if ctx.executor != nil {
+			result := ctx.executor.maybeStoreValue(result, ctx.state)
+			ctx.state.SetResultWithoutClaim(result)
+		} else {
+			ctx.state.SetResultWithoutClaim(result)
+		}
 		return BoolStatus(true)
 	})
 
@@ -1153,7 +1184,13 @@ func (ps *PawScript) RegisterStandardLibrary(scriptArgs []string) {
 		}
 
 		str := resolveToString(ctx.Args[0], ctx.executor)
-		ctx.SetResult(strings.TrimSpace(str))
+		result := strings.TrimSpace(str)
+		if ctx.executor != nil {
+			result := ctx.executor.maybeStoreValue(result, ctx.state)
+			ctx.state.SetResultWithoutClaim(result)
+		} else {
+			ctx.state.SetResultWithoutClaim(result)
+		}
 		return BoolStatus(true)
 	})
 
@@ -1167,7 +1204,13 @@ func (ps *PawScript) RegisterStandardLibrary(scriptArgs []string) {
 		}
 
 		str := resolveToString(ctx.Args[0], ctx.executor)
-		ctx.SetResult(strings.TrimLeft(str, " \t\n\r"))
+		result := strings.TrimLeft(str, " \t\n\r")
+		if ctx.executor != nil {
+			result := ctx.executor.maybeStoreValue(result, ctx.state)
+			ctx.state.SetResultWithoutClaim(result)
+		} else {
+			ctx.state.SetResultWithoutClaim(result)
+		}
 		return BoolStatus(true)
 	})
 
@@ -1181,7 +1224,13 @@ func (ps *PawScript) RegisterStandardLibrary(scriptArgs []string) {
 		}
 
 		str := resolveToString(ctx.Args[0], ctx.executor)
-		ctx.SetResult(strings.TrimRight(str, " \t\n\r"))
+		result := strings.TrimRight(str, " \t\n\r")
+		if ctx.executor != nil {
+			result := ctx.executor.maybeStoreValue(result, ctx.state)
+			ctx.state.SetResultWithoutClaim(result)
+		} else {
+			ctx.state.SetResultWithoutClaim(result)
+		}
 		return BoolStatus(true)
 	})
 
@@ -1237,7 +1286,12 @@ func (ps *PawScript) RegisterStandardLibrary(scriptArgs []string) {
 		new := resolveToString(ctx.Args[2], ctx.executor)
 
 		result := strings.ReplaceAll(str, old, new)
-		ctx.SetResult(result)
+		if ctx.executor != nil {
+			result := ctx.executor.maybeStoreValue(result, ctx.state)
+			ctx.state.SetResultWithoutClaim(result)
+		} else {
+			ctx.state.SetResultWithoutClaim(result)
+		}
 		return BoolStatus(true)
 	})
 
@@ -1293,7 +1347,12 @@ func (ps *PawScript) RegisterStandardLibrary(scriptArgs []string) {
 		}
 
 		result := strings.Repeat(str, int(count))
-		ctx.SetResult(result)
+		if ctx.executor != nil {
+			result := ctx.executor.maybeStoreValue(result, ctx.state)
+			ctx.state.SetResultWithoutClaim(result)
+		} else {
+			ctx.state.SetResultWithoutClaim(result)
+		}
 		return BoolStatus(true)
 	})
 

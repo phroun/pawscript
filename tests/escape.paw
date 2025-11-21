@@ -21,7 +21,7 @@ macro arg_count(
 macro loop_args(
    set list, $@
    set x, 1
-   echo "List:", ${get list}
+   echo "loop_args List:", ${get list}
    while (lt {get x}, {argc {get list}}), (
       set y, {argv {get list}, {get x}}
       echo "Arg {get x} = {get y}"

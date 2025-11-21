@@ -35,7 +35,7 @@ Total estimated size: 133 bytes
 ID    Type      RefCount  Size(bytes)
 ----  --------  --------  -----------
 4     list      1         51
-6     list      1         82
+5     list      1         82
 Expected: 2 lists (inner and outer, both owned by parent's result)
 
 Test 5: Clear result again
@@ -55,8 +55,8 @@ Total estimated size: 138 bytes
 
 ID    Type      RefCount  Size(bytes)
 ----  --------  --------  -----------
-9     list      1         52
-11    list      1         86
+8     list      1         52
+9     list      1         86
 Expected: 2 lists (inner from inner_macro, outer containing reference to inner)
 
 Test 7: Clear final result

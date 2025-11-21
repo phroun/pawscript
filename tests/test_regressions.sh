@@ -23,14 +23,17 @@ echo "test_nested_lists:"
 ../paw test_nested_lists.paw | diff - test_nested_lists.expected
 echo "test_ret:"
 ../paw test_ret.paw | diff - test_ret.expected
+echo "test_refcounting:"
+../paw test_refcounting.paw | diff - test_refcounting.expected
 echo "test_simple_scoping:"
 ../paw test_simple_scoping.paw 2>&1 | diff - test_simple_scoping.expected
 echo "test_string_block_storage:"
 ../paw test_string_block_storage.paw | diff - test_string_block_storage.expected
 echo "test_string_ops:"
 ../paw test_string_ops.paw | diff - test_string_ops.expected
+echo "test_string_ops_refcount"
+../paw test_string_ops_refcount.paw| diff - test_string_ops_refcount.expected
 echo "test_unpacking:"
 ../paw test_unpacking.paw | diff - test_unpacking.expected
 echo "quote-edge-cases:"
 ../paw quote-edge-cases.paw 2>&1 | diff - quote-edge-cases.expected
-
