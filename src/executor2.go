@@ -9,6 +9,358 @@ import (
 	"unicode"
 )
 
+// resolveTildeExpression resolves a tilde expression like ~x or ~"varname" or ~{expr}
+// Returns the resolved value and success status
+func (e *Executor) resolveTildeExpression(expr string, state *ExecutionState, substitutionCtx *SubstitutionContext, position *SourcePosition) (interface{}, bool) {
+	if !strings.HasPrefix(expr, "~") {
+		return nil, false
+	}
+
+	rest := expr[1:] // Remove the tilde
+
+	var varName string
+
+	if strings.HasPrefix(rest, "{") && strings.HasSuffix(rest, "}") {
+		// ~{expr} - evaluate brace expression to get variable name
+		braceContent := rest[1 : len(rest)-1]
+		braceState := NewExecutionStateFromSharedVars(state)
+
+		result := e.ExecuteWithState(braceContent, braceState, substitutionCtx,
+			substitutionCtx.Filename, substitutionCtx.CurrentLineOffset, substitutionCtx.CurrentColumnOffset)
+
+		if boolStatus, ok := result.(BoolStatus); ok && !bool(boolStatus) {
+			return nil, false
+		}
+
+		if braceState.HasResult() {
+			varName = fmt.Sprintf("%v", braceState.GetResult())
+		} else {
+			varName = "true" // Default result of successful command
+		}
+	} else if strings.HasPrefix(rest, "\"") && strings.HasSuffix(rest, "\"") {
+		// ~"varname" - quoted variable name
+		varName = rest[1 : len(rest)-1]
+	} else if strings.HasPrefix(rest, "'") && strings.HasSuffix(rest, "'") {
+		// ~'varname' - single-quoted variable name
+		varName = rest[1 : len(rest)-1]
+	} else if strings.HasPrefix(rest, "~") {
+		// ~~x - chained tilde (resolve x, use result as varname, resolve that)
+		innerValue, ok := e.resolveTildeExpression(rest, state, substitutionCtx, position)
+		if !ok {
+			return nil, false
+		}
+		varName = fmt.Sprintf("%v", innerValue)
+	} else {
+		// ~identifier - bare variable name
+		varName = rest
+	}
+
+	// Now get the variable value
+	value, exists := state.GetVariable(varName)
+	if !exists {
+		e.logger.CommandError(CatVariable, "", fmt.Sprintf("Variable not found: %s", varName), position)
+		return nil, false
+	}
+
+	return value, true
+}
+
+// parseAssignment checks if a command string is an assignment pattern (target: value)
+// Returns target, value string, and whether it's an assignment
+func (e *Executor) parseAssignment(commandStr string) (string, string, bool) {
+	// Look for colon that's not inside quotes, braces, parens, or object markers
+	inQuote := false
+	var quoteChar rune
+	braceDepth := 0
+	parenDepth := 0
+
+	runes := []rune(commandStr)
+	for i := 0; i < len(runes); i++ {
+		char := runes[i]
+
+		// Handle escapes
+		if char == '\\' && i+1 < len(runes) {
+			i++
+			continue
+		}
+
+		// Skip object markers (\x00...\x00) - they may contain colons
+		if char == '\x00' {
+			// Find the closing \x00
+			for i++; i < len(runes) && runes[i] != '\x00'; i++ {
+			}
+			// i now points to closing \x00 (or end of string)
+			continue
+		}
+
+		// Track quotes
+		if !inQuote && (char == '"' || char == '\'') {
+			inQuote = true
+			quoteChar = char
+			continue
+		}
+		if inQuote && char == quoteChar {
+			inQuote = false
+			continue
+		}
+		if inQuote {
+			continue
+		}
+
+		// Track nesting
+		if char == '{' {
+			braceDepth++
+			continue
+		}
+		if char == '}' {
+			braceDepth--
+			// Check if colon follows closing brace at depth 0
+			if braceDepth == 0 && parenDepth == 0 && i+1 < len(runes) && runes[i+1] == ':' {
+				target := strings.TrimSpace(string(runes[:i+1]))
+				valueStr := strings.TrimSpace(string(runes[i+2:]))
+				return target, valueStr, true
+			}
+			continue
+		}
+		if char == '(' {
+			parenDepth++
+			continue
+		}
+		if char == ')' {
+			parenDepth--
+			continue
+		}
+
+		// Check for colon at top level
+		if char == ':' && braceDepth == 0 && parenDepth == 0 {
+			target := strings.TrimSpace(string(runes[:i]))
+			valueStr := strings.TrimSpace(string(runes[i+1:]))
+
+			// Validate target is a valid assignment target
+			if target == "" {
+				return "", "", false
+			}
+
+			// Target can be: identifier, ~expr, "string", 'string', {braceExpr}, (unpack)
+			// It cannot contain unquoted/unbraced spaces (that would be a command with args)
+			if !isValidAssignmentTarget(target) {
+				return "", "", false
+			}
+
+			return target, valueStr, true
+		}
+	}
+
+	return "", "", false
+}
+
+// isValidAssignmentTarget checks if a string is a valid assignment target
+// Valid targets: identifier, ~expr, "string", 'string', {braceExpr}, (unpack)
+// Invalid: anything with unquoted spaces (like "echo foo")
+func isValidAssignmentTarget(target string) bool {
+	if target == "" {
+		return false
+	}
+
+	inQuote := false
+	var quoteChar rune
+	braceDepth := 0
+	parenDepth := 0
+
+	for _, char := range target {
+		// Handle quote tracking
+		if !inQuote && (char == '"' || char == '\'') {
+			inQuote = true
+			quoteChar = char
+			continue
+		}
+		if inQuote && char == quoteChar {
+			inQuote = false
+			continue
+		}
+		if inQuote {
+			continue
+		}
+
+		// Track nesting
+		if char == '{' {
+			braceDepth++
+			continue
+		}
+		if char == '}' {
+			braceDepth--
+			continue
+		}
+		if char == '(' {
+			parenDepth++
+			continue
+		}
+		if char == ')' {
+			parenDepth--
+			continue
+		}
+
+		// Skip object markers
+		if char == '\x00' {
+			continue
+		}
+
+		// Space at top level means this is a command, not an assignment
+		if char == ' ' || char == '\t' {
+			if braceDepth == 0 && parenDepth == 0 {
+				return false
+			}
+		}
+	}
+
+	return true
+}
+
+// handleAssignment handles an assignment statement (target: value)
+func (e *Executor) handleAssignment(target, valueStr string, state *ExecutionState, substitutionCtx *SubstitutionContext, position *SourcePosition) Result {
+	// Check for unpacking pattern: (x, y, z): values
+	if strings.HasPrefix(target, "(") && strings.HasSuffix(target, ")") {
+		return e.handleUnpackingAssignment(target, valueStr, state, substitutionCtx, position)
+	}
+
+	// Resolve the target to get the variable name
+	var varName string
+
+	if strings.HasPrefix(target, "~") {
+		// ~expr: value - resolve tilde to get variable name
+		resolved, ok := e.resolveTildeExpression(target, state, substitutionCtx, position)
+		if !ok {
+			return BoolStatus(false)
+		}
+		varName = fmt.Sprintf("%v", resolved)
+	} else if strings.HasPrefix(target, "{") && strings.HasSuffix(target, "}") {
+		// {expr}: value - evaluate brace to get variable name
+		braceContent := target[1 : len(target)-1]
+		braceState := NewExecutionStateFromSharedVars(state)
+
+		result := e.ExecuteWithState(braceContent, braceState, substitutionCtx,
+			substitutionCtx.Filename, substitutionCtx.CurrentLineOffset, substitutionCtx.CurrentColumnOffset)
+
+		if boolStatus, ok := result.(BoolStatus); ok && !bool(boolStatus) {
+			return BoolStatus(false)
+		}
+
+		if braceState.HasResult() {
+			varName = fmt.Sprintf("%v", braceState.GetResult())
+		} else {
+			e.logger.CommandError(CatVariable, "", "Brace expression for assignment target produced no result", position)
+			return BoolStatus(false)
+		}
+	} else if strings.HasPrefix(target, "\"") && strings.HasSuffix(target, "\"") {
+		// "varname": value - quoted variable name
+		varName = target[1 : len(target)-1]
+	} else if strings.HasPrefix(target, "'") && strings.HasSuffix(target, "'") {
+		// 'varname': value - single-quoted variable name
+		varName = target[1 : len(target)-1]
+	} else {
+		// bare identifier
+		varName = target
+	}
+
+	// Parse and resolve the value
+	var value interface{}
+
+	if valueStr == "" {
+		value = nil
+	} else {
+		// Parse the value string as arguments
+		args := parseArguments(valueStr)
+		if len(args) == 0 {
+			value = nil
+		} else if len(args) == 1 {
+			value = args[0]
+		} else {
+			// Multiple values - create a list? Or use first?
+			// For now, use first value (matching old set behavior)
+			value = args[0]
+		}
+
+		// Resolve tildes in the value
+		value = e.resolveTildesInValue(value, state, substitutionCtx, position)
+	}
+
+	// Assign
+	state.SetVariable(varName, value)
+	return BoolStatus(true)
+}
+
+// handleUnpackingAssignment handles unpacking assignment: (x, y, z): values
+func (e *Executor) handleUnpackingAssignment(target, valueStr string, state *ExecutionState, substitutionCtx *SubstitutionContext, position *SourcePosition) Result {
+	// Parse variable names from target (x, y, z)
+	targetContent := target[1 : len(target)-1]
+	varNames := parseArguments(targetContent)
+
+	// Parse and resolve the values
+	var values []interface{}
+
+	if valueStr == "" {
+		values = nil
+	} else {
+		args := parseArguments(valueStr)
+		for _, arg := range args {
+			// Resolve tildes in each value
+			resolved := e.resolveTildesInValue(arg, state, substitutionCtx, position)
+			
+			// Check if the resolved value is a StoredList - expand it
+			if storedList, ok := resolved.(StoredList); ok {
+				values = append(values, storedList.Items()...)
+			} else if parenGroup, ok := resolved.(ParenGroup); ok {
+				// Parse paren group as values
+				values = append(values, parseArguments(string(parenGroup))...)
+			} else {
+				values = append(values, resolved)
+			}
+		}
+	}
+
+	// Set each variable to its corresponding value
+	for i, varNameInterface := range varNames {
+		varName := fmt.Sprintf("%v", varNameInterface)
+
+		if i < len(values) {
+			state.SetVariable(varName, values[i])
+		} else {
+			// Not enough values - set to nil
+			state.SetVariable(varName, nil)
+		}
+	}
+
+	return BoolStatus(true)
+}
+
+// resolveTildesInValue resolves any tilde expressions in a value
+func (e *Executor) resolveTildesInValue(value interface{}, state *ExecutionState, substitutionCtx *SubstitutionContext, position *SourcePosition) interface{} {
+	switch v := value.(type) {
+	case Symbol:
+		str := string(v)
+		if strings.HasPrefix(str, "~") {
+			resolved, ok := e.resolveTildeExpression(str, state, substitutionCtx, position)
+			if ok {
+				return resolved
+			}
+			// Resolution failed, return as-is (error already logged)
+			return value
+		}
+		return value
+	case string:
+		if strings.HasPrefix(v, "~") {
+			resolved, ok := e.resolveTildeExpression(v, state, substitutionCtx, position)
+			if ok {
+				return resolved
+			}
+			return value
+		}
+		return value
+	default:
+		return value
+	}
+}
+
 // executeCommandSequence executes a sequence of commands
 func (e *Executor) executeCommandSequence(commands []*ParsedCommand, state *ExecutionState, substitutionCtx *SubstitutionContext) Result {
 	lastStatus := true // Default to true for leading operators
@@ -210,6 +562,7 @@ func (e *Executor) executeSingleCommand(
 			capturedState := state
 			capturedPosition := position
 			capturedShouldInvert := shouldInvert
+			capturedSubstitutionCtx := substitutionCtx
 
 			// Get the evaluations so we can access their positions
 			evaluations := coordData.BraceCoordinator.Evaluations
@@ -238,8 +591,8 @@ func (e *Executor) executeSingleCommand(
 				// Now parse and execute the command with the substituted string
 				cmdName, args := ParseCommand(finalString)
 
-				// Process arguments to resolve any LIST markers
-				args = e.processArguments(args, capturedState)
+				// Process arguments to resolve any LIST markers and tilde expressions
+				args = e.processArguments(args, capturedState, capturedSubstitutionCtx, capturedPosition)
 
 				e.logger.Debug("Parsed as - Command: \"%s\", Args: %v", cmdName, args)
 
@@ -298,11 +651,39 @@ func (e *Executor) executeSingleCommand(
 
 	e.logger.Debug("After substitution: \"%s\"", commandStr)
 
+	// Check for assignment pattern (target: value)
+	if target, valueStr, isAssign := e.parseAssignment(commandStr); isAssign {
+		e.logger.Debug("Detected assignment: target=%s, value=%s", target, valueStr)
+		result := e.handleAssignment(target, valueStr, state, substitutionCtx, position)
+		if shouldInvert {
+			return e.invertStatus(result, state, position)
+		}
+		return result
+	}
+
+	// Check for tilde expression (pure value expression as command)
+	if strings.HasPrefix(commandStr, "~") {
+		e.logger.Debug("Detected tilde expression: %s", commandStr)
+		value, ok := e.resolveTildeExpression(commandStr, state, substitutionCtx, position)
+		if ok {
+			state.SetResult(value)
+			if shouldInvert {
+				return BoolStatus(false)
+			}
+			return BoolStatus(true)
+		}
+		// Tilde resolution failed, error already logged
+		if shouldInvert {
+			return BoolStatus(true)
+		}
+		return BoolStatus(false)
+	}
+
 	// Parse command
 	cmdName, args := ParseCommand(commandStr)
 
-	// Process arguments to resolve any LIST markers
-	args = e.processArguments(args, state)
+	// Process arguments to resolve any LIST markers and tilde expressions
+	args = e.processArguments(args, state, substitutionCtx, position)
 
 	e.logger.Debug("Parsed as - Command: \"%s\", Args: %v", cmdName, args)
 
@@ -1405,9 +1786,10 @@ func (e *Executor) findAllTopLevelBraces(str string, ctx *SubstitutionContext) [
 	return braces
 }
 
-// processArguments processes arguments array to resolve object markers
+// processArguments processes arguments array to resolve object markers and tilde expressions
 // Resolves LIST, STR, and BLOCK markers to their actual values
-func (e *Executor) processArguments(args []interface{}, state *ExecutionState) []interface{} {
+// Also resolves ~expr tilde expressions to their variable values
+func (e *Executor) processArguments(args []interface{}, state *ExecutionState, substitutionCtx *SubstitutionContext, position *SourcePosition) []interface{} {
 	if len(args) == 0 {
 		return args
 	}
@@ -1417,7 +1799,7 @@ func (e *Executor) processArguments(args []interface{}, state *ExecutionState) [
 		var markerStr string
 		var isMarker bool
 		
-		// Check if it's a Symbol or string that might be an object marker
+		// Check if it's a Symbol or string that might be an object marker or tilde expression
 		if sym, ok := arg.(Symbol); ok {
 			markerStr = string(sym)
 			isMarker = true
@@ -1429,6 +1811,30 @@ func (e *Executor) processArguments(args []interface{}, state *ExecutionState) [
 		}
 		
 		if isMarker {
+			// Check for tilde expression first (~varname)
+			if strings.HasPrefix(markerStr, "~") {
+				resolved, ok := e.resolveTildeExpression(markerStr, state, substitutionCtx, position)
+				if !ok {
+					// Tilde resolution failed, error already logged - keep original
+					e.logger.Debug("processArguments[%d]: Tilde resolution failed for %q", i, markerStr)
+					result[i] = arg
+					continue
+				}
+				e.logger.Debug("processArguments[%d]: Resolved tilde expression %q to %v", i, markerStr, resolved)
+				// Update arg to the resolved value and check if it's a marker that needs further resolution
+				arg = resolved
+				if sym, ok := resolved.(Symbol); ok {
+					markerStr = string(sym)
+				} else if str, ok := resolved.(string); ok {
+					markerStr = str
+				} else {
+					// Not a string type (e.g., already a StoredList), use directly
+					result[i] = resolved
+					continue
+				}
+				// Fall through to check for object markers in the resolved value
+			}
+			
 			// Check for object marker
 			if objType, objID := parseObjectMarker(markerStr); objID >= 0 {
 				e.logger.Debug("processArguments[%d]: Detected %s marker with ID %d", i, objType, objID)
@@ -1463,7 +1869,7 @@ func (e *Executor) processArguments(args []interface{}, state *ExecutionState) [
 			}
 		}
 		
-		// Not a marker, keep the original argument
+		// Not a marker or tilde, keep the original argument
 		result[i] = arg
 	}
 

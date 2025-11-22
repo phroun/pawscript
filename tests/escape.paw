@@ -1,12 +1,12 @@
-set message, "Hello!"
+message: "Hello!"
 echo "Hello\!"
-echo "{get message}"
+echo "{set_result ~message}"
 
 macro show_args(
-   set Hello, Alice!
-   echo {get Hello}
+   Hello: Alice!
+   echo ~Hello
    echo "Alice! = Good"
-   echo "{get Hello}"
+   echo "{set_result ~Hello}"
    echo "Alice! = Good"
    echo "Next two lines should be the same:"
    echo "$1"
@@ -19,31 +19,31 @@ macro arg_count(
 )
 
 macro loop_args(
-   set list, $@
-   set x, 1
-   echo "loop_args List:", ${get list}
-   while (lt {get x}, {argc {get list}}), (
-      set y, {argv {get list}, {get x}}
-      echo "Arg {get x} = {get y}"
-      set x, {add {get x}, 1}
+   list: $@
+   x: 1
+   echo "loop_args List:", ${set_result ~list}
+   while (lt ~x, {argc ~list}), (
+      y: {argv ~list, ~x}
+      echo "Arg {set_result ~x} = {set_result ~y}"
+      x: {add ~x, 1}
    )
 )
 
 show_args "Hello, Alice!", 2, "third"
 
-set a, "b, c"
-set ${get a}
-echo {get b}
-echo $(get b)
+a: "b: c"
+${set_result ~a}
+echo ~b
+echo $(~b)
 
 loop_args "Hello, Alice", 2, "third", 4th
 
 
 
-set items, (apple, banana, cherry)
+items: (apple, banana, cherry)
 
-echo "Count: {argc {get items}}"
-echo "First: {argv {get items}, 1}"
+echo "Count: {argc ~items}"
+echo "First: {argv ~items, 1}"
 
-set s, 'Hello, "Magoo"'
-echo "The message is {get s}"
+s: 'Hello, "Magoo"'
+echo "The message is {set_result ~s}"

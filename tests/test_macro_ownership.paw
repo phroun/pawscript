@@ -28,8 +28,8 @@ echo ""
 
 echo "Test 4: Macro that returns nested list"
 macro make_nested (
-    set inner, {list nested_data}
-    set_result {list {get inner}, outer_data}
+    inner: {list nested_data}
+    set_result {list ~inner, outer_data}
 )
 make_nested
 echo "After calling macro that returns nested list:"
@@ -69,10 +69,10 @@ echo "Test 8: Loop creating many lists via macro"
 macro create_temp_list (
     set_result {list temp}
 )
-set i, 0
-while ({lt {get i}, 10}), (
+i: 0
+while ({lt ~i, 10}), (
     create_temp_list
-    set i, {add {get i}, 1}
+    i: {add ~i, 1}
 )
 set_result nil
 echo "After creating and clearing 10 lists via macro:"

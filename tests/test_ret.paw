@@ -50,10 +50,10 @@ echo "Result after block: {get_result}"
 echo ""
 
 echo "Test 6: ret exits the containing block"
-set x, 5
+x: 5
 (
     echo "Start of block";
-    {gt {get x}, 3} & ret true, "early exit";
+    {gt ~x, 3} & ret true, "early exit";
     echo "This should NOT print - after ret";
     set_result "late exit"
 ) & echo "Block succeeded: {get_result}"

@@ -356,8 +356,8 @@ write a then echo b
 echo "ab = Good"
 echo "a then write b"
 echo "a t\hen write b = Good"
-set b, (a then echo b)
-echo {get b}
+b: (a then echo b)
+echo ~b
 echo "a t\hen echo b = Good"
 
 # Arguments with operators (inside parentheses)

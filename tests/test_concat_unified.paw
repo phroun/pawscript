@@ -8,14 +8,14 @@ print
 # String concatenation
 # ==========================================
 echo "Test 1: String concatenation"
-set result, {concat "hello", " ", "world"}
-echo "Result: {get result}"
+result: {concat "hello", " ", "world"}
+echo "Result: {set_result ~result}"
 echo "Expected: hello world"
 print
 
 echo "Test 2: Multi-string concatenation"
-set result, {concat "a", "b", "c", "d", "e"}
-echo "Result: {get result}"
+result: {concat "a", "b", "c", "d", "e"}
+echo "Result: {set_result ~result}"
 echo "Expected: abcde"
 print
 
@@ -23,14 +23,14 @@ print
 # List concatenation
 # ==========================================
 echo "Test 3: Two lists"
-set list1, {list "a", "b", "c"}
-set list2, {list "d", "e", "f"}
-set result, {concat {get list1}, {get list2}}
-echo "Result length: {len {get result}}"
+list1: {list "a", "b", "c"}
+list2: {list "d", "e", "f"}
+result: {concat ~list1, ~list2}
+echo "Result length: {len ~result}"
 echo "Expected: 6"
-echo "First item: {argv {get result}, 1}"
+echo "First item: {argv ~result, 1}"
 echo "Expected: a"
-echo "Last item: {argv {get result}, 6}"
+echo "Last item: {argv ~result, 6}"
 echo "Expected: f"
 print
 
@@ -38,11 +38,11 @@ print
 # Mixed: list + items
 # ==========================================
 echo "Test 4: List + individual items"
-set list1, {list "a", "b", "c"}
-set result, {concat {get list1}, "d", "e", "f"}
-echo "Result length: {len {get result}}"
+list1: {list "a", "b", "c"}
+result: {concat ~list1, "d", "e", "f"}
+echo "Result length: {len ~result}"
 echo "Expected: 6"
-echo "Items 4-6: {argv {get result}, 4}, {argv {get result}, 5}, {argv {get result}, 6}"
+echo "Items 4-6: {argv ~result, 4}, {argv ~result, 5}, {argv ~result, 6}"
 echo "Expected: d, e, f"
 print
 
@@ -50,12 +50,12 @@ print
 # Mixed: list + list + items
 # ==========================================
 echo "Test 5: List + list + items"
-set list1, {list "a", "b"}
-set list2, {list "c", "d"}
-set result, {concat {get list1}, {get list2}, "e", "f"}
-echo "Result length: {len {get result}}"
+list1: {list "a", "b"}
+list2: {list "c", "d"}
+result: {concat ~list1, ~list2, "e", "f"}
+echo "Result length: {len ~result}"
 echo "Expected: 6"
-echo "All items: {join {get result}, ","}"
+echo "All items: {join ~result, ","}"
 echo "Expected: a,b,c,d,e,f"
 print
 
@@ -63,17 +63,17 @@ print
 # Edge case: Numbers and mixed types
 # ==========================================
 echo "Test 6: String concatenation with numbers"
-set result, {concat "Count: ", 42, " items"}
-echo "Result: {get result}"
+result: {concat "Count: ", 42, " items"}
+echo "Result: {set_result ~result}"
 echo "Expected: Count: 42 items"
 print
 
 echo "Test 7: List with mixed type items"
-set list1, {list "text", 123}
-set result, {concat {get list1}, true, "more"}
-echo "Result length: {len {get result}}"
+list1: {list "text", 123}
+result: {concat ~list1, true, "more"}
+echo "Result length: {len ~result}"
 echo "Expected: 4"
-echo "Item 3: {argv {get result}, 3}"
+echo "Item 3: {argv ~result, 3}"
 echo "Expected: true"
 print
 
@@ -81,9 +81,9 @@ print
 # Edge case: Empty list concatenation
 # ==========================================
 echo "Test 8: Empty list + items"
-set empty, {list}
-set result, {concat {get empty}, "a", "b", "c"}
-echo "Result length: {len {get result}}"
+empty: {list}
+result: {concat ~empty, "a", "b", "c"}
+echo "Result length: {len ~result}"
 echo "Expected: 3"
 print
 
@@ -91,19 +91,19 @@ print
 # Practical use cases
 # ==========================================
 echo "Test 9: Building a path"
-set parts, {list "home", "user", "documents"}
-set path, {concat "/", {join {get parts}, "/"}}
-echo "Path: {get path}"
+parts: {list "home", "user", "documents"}
+path: {concat "/", {join ~parts, "/"}}
+echo "Path: {set_result ~path}"
 echo "Expected: /home/user/documents"
 print
 
 echo "Test 10: Accumulating items"
-set base, {list "item1"}
-set base, {concat {get base}, "item2"}
-set base, {concat {get base}, "item3"}
-echo "Final length: {len {get base}}"
+base: {list "item1"}
+base: {concat ~base, "item2"}
+base: {concat ~base, "item3"}
+echo "Final length: {len ~base}"
 echo "Expected: 3"
-echo "All: {join {get base}, ", "}"
+echo "All: {join ~base, ", "}"
 echo "Expected: item1, item2, item3"
 print
 
