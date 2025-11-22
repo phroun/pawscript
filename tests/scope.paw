@@ -1,12 +1,12 @@
-set x, 10
+x: 10
 
 macro hey(
-  set x, 30
-  echo {get x}
+  x: 30
+  echo ~x
 )
 
-set x, 20
+x: 20
 
 hey
 
-echo {get x}
+echo ~x

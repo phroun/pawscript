@@ -8,12 +8,12 @@ print
 # concat - concatenate strings
 # ==========================================
 echo "Testing concat..."
-set result, {concat "hello", " ", "world"}
-echo "concat result: {get result}"
+result: {concat "hello", " ", "world"}
+echo "concat result: {set_result ~result}"
 echo "Expected: hello world"
 
-set multi, {concat "a", "b", "c", "d", "e"}
-echo "Multi-concat: {get multi}"
+multi: {concat "a", "b", "c", "d", "e"}
+echo "Multi-concat: {set_result ~multi}"
 echo "Expected: abcde"
 print
 
@@ -21,25 +21,25 @@ print
 # split and join - inverse operations
 # ==========================================
 echo "Testing split..."
-set parts, {split "a,b,c,d", ","}
-echo "Split result length: {len {get parts}}"
+parts: {split "a,b,c,d", ","}
+echo "Split result length: {len ~parts}"
 echo "Expected: 4"
-echo "First item: {argv {get parts}, 1}"
+echo "First item: {argv ~parts, 1}"
 echo "Expected: a"
-echo "Last item: {argv {get parts}, 4}"
+echo "Last item: {argv ~parts, 4}"
 echo "Expected: d"
 print
 
 echo "Testing join..."
-set joined, {join {get parts}, "-"}
-echo "Join result: {get joined}"
+joined: {join ~parts, "-"}
+echo "Join result: {set_result ~joined}"
 echo "Expected: a-b-c-d"
 print
 
 # Test split/join round-trip
-set original, "one|two|three"
-set rejoined, {join {split {get original}, "|"}, "|"}
-echo "Round-trip test: {get rejoined}"
+original: "one|two|three"
+rejoined: {join {split ~original, "|"}, "|"}
+echo "Round-trip test: {set_result ~rejoined}"
 echo "Expected: one|two|three"
 print
 
@@ -47,14 +47,14 @@ print
 # str_upper and str_lower - case conversion
 # ==========================================
 echo "Testing str_upper..."
-set upper, {str_upper "hello world"}
-echo "Uppercase: {get upper}"
+upper: {str_upper "hello world"}
+echo "Uppercase: {set_result ~upper}"
 echo "Expected: HELLO WORLD"
 print
 
 echo "Testing str_lower..."
-set lower, {str_lower "HELLO WORLD"}
-echo "Lowercase: {get lower}"
+lower: {str_lower "HELLO WORLD"}
+echo "Lowercase: {set_result ~lower}"
 echo "Expected: hello world"
 print
 
@@ -62,16 +62,16 @@ print
 # trim functions - whitespace removal
 # ==========================================
 echo "Testing trim..."
-set trimmed, {trim "  hello world  "}
-echo "Trimmed: [{get trimmed}]"
+trimmed: {trim "  hello world  "}
+echo "Trimmed: [{set_result ~trimmed}]"
 echo "Expected: [hello world]"
 print
 
 echo "Testing trim_start..."
-set input, "  hello world  "
-set start, {trim_start {get input}}
+input: "  hello world  "
+start: {trim_start ~input}
 # Verify it starts with "hello" (no leading spaces)
-if {starts_with {get start}, "hello"} then (
+if {starts_with ~start, "hello"} then (
     echo "Start trimmed correctly - starts with hello"
 ) else (
     echo "Start trim FAILED"
@@ -80,8 +80,8 @@ echo "Expected: Start trimmed correctly - starts with hello"
 print
 
 echo "Testing trim_end..."
-set end, {trim_end "  hello world  "}
-echo "End trimmed: [{get end}]"
+end: {trim_end "  hello world  "}
+echo "End trimmed: [{set_result ~end}]"
 echo "Expected: [  hello world]"
 print
 
@@ -108,12 +108,12 @@ print
 # index - finding substrings
 # ==========================================
 echo "Testing index..."
-set idx1, {index "hello world", "world"}
-echo "Index of 'world': {get idx1}"
+idx1: {index "hello world", "world"}
+echo "Index of 'world': {set_result ~idx1}"
 echo "Expected: 6"
 
-set idx2, {index "hello world", "xyz"}
-echo "Index of 'xyz': {get idx2}"
+idx2: {index "hello world", "xyz"}
+echo "Index of 'xyz': {set_result ~idx2}"
 echo "Expected: -1"
 print
 
@@ -121,12 +121,12 @@ print
 # replace - replacing substrings
 # ==========================================
 echo "Testing replace..."
-set replaced, {replace "hello world world", "world", "gopher"}
-echo "Replaced: {get replaced}"
+replaced: {replace "hello world world", "world", "gopher"}
+echo "Replaced: {set_result ~replaced}"
 echo "Expected: hello gopher gopher"
 
-set no_replace, {replace "hello", "xyz", "abc"}
-echo "No match replace: {get no_replace}"
+no_replace: {replace "hello", "xyz", "abc"}
+echo "No match replace: {set_result ~no_replace}"
 echo "Expected: hello"
 print
 
@@ -169,17 +169,17 @@ print
 # str_repeat - repeating strings
 # ==========================================
 echo "Testing str_repeat..."
-set repeated, {str_repeat "ab", 3}
-echo "Repeated: {get repeated}"
+repeated: {str_repeat "ab", 3}
+echo "Repeated: {set_result ~repeated}"
 echo "Expected: ababab"
 
-set single, {str_repeat "x", 1}
-echo "Single repeat: {get single}"
+single: {str_repeat "x", 1}
+echo "Single repeat: {set_result ~single}"
 echo "Expected: x"
 
-set none, {str_repeat "y", 0}
-set none_len, {len {get none}}
-echo "Zero repeat length: {get none_len}"
+none: {str_repeat "y", 0}
+none_len: {len ~none}
+echo "Zero repeat length: {set_result ~none_len}"
 echo "Expected: 0"
 print
 
@@ -187,11 +187,11 @@ print
 # Combining with slice (already works on strings)
 # ==========================================
 echo "Testing concat with slice..."
-set text, "hello world"
-set first_five, {slice {get text}, 0, 5}
-set last_five, {slice {get text}, 6, -1}
-set combined, {concat {get first_five}, " + ", {get last_five}}
-echo "Combined: {get combined}"
+text: "hello world"
+first_five: {slice ~text, 0, 5}
+last_five: {slice ~text, 6, -1}
+combined: {concat ~first_five, " + ", ~last_five}
+echo "Combined: {set_result ~combined}"
 echo "Expected: hello + world"
 print
 
@@ -199,14 +199,14 @@ print
 # Combining with len (already works on strings)
 # ==========================================
 echo "Testing str operations with len..."
-set str, "hello"
-set length, {len {get str}}
-echo "Length of 'hello': {get length}"
+str: "hello"
+length: {len ~str}
+echo "Length of 'hello': {set_result ~length}"
 echo "Expected: 5"
 
-set empty, ""
-set empty_len, {len {get empty}}
-echo "Length of empty string: {get empty_len}"
+empty: ""
+empty_len: {len ~empty}
+echo "Length of empty string: {set_result ~empty_len}"
 echo "Expected: 0"
 print
 
@@ -214,15 +214,15 @@ print
 # Practical example: CSV-like parsing
 # ==========================================
 echo "Practical example: CSV parsing..."
-set csv_line, "John Doe,30,Engineer"
-set fields, {split {get csv_line}, ","}
-set name, {argv {get fields}, 1}
-set age, {argv {get fields}, 2}
-set job, {argv {get fields}, 3}
+csv_line: "John Doe,30,Engineer"
+fields: {split ~csv_line, ","}
+name: {argv ~fields, 1}
+age: {argv ~fields, 2}
+job: {argv ~fields, 3}
 
-echo "Name: {get name}"
-echo "Age: {get age}"
-echo "Job: {get job}"
+echo "Name: {set_result ~name}"
+echo "Age: {set_result ~age}"
+echo "Job: {set_result ~job}"
 echo "Expected: Name: John Doe, Age: 30, Job: Engineer"
 print
 
@@ -230,17 +230,17 @@ print
 # Practical example: Text formatting
 # ==========================================
 echo "Practical example: Text formatting..."
-set raw, "  HELLO WORLD  "
-set trimmed, {trim {get raw}}
-echo "Trimmed: [{get trimmed}]"
+raw: "  HELLO WORLD  "
+trimmed: {trim ~raw}
+echo "Trimmed: [{set_result ~trimmed}]"
 echo "Expected: [HELLO WORLD]"
 
-set formatted, {str_lower {get trimmed}}
-echo "Lowercased: [{get formatted}]"
+formatted: {str_lower ~trimmed}
+echo "Lowercased: [{set_result ~formatted}]"
 echo "Expected: [hello world]"
 
-set upper_version, {str_upper {get formatted}}
-echo "Back to upper: [{get upper_version}]"
+upper_version: {str_upper ~formatted}
+echo "Back to upper: [{set_result ~upper_version}]"
 echo "Expected: [HELLO WORLD]"
 print
 
@@ -248,13 +248,13 @@ print
 # Practical example: Path manipulation
 # ==========================================
 echo "Practical example: Path manipulation..."
-set path, "/home/user/documents/file.txt"
-set parts, {split {get path}, "/"}
-set filename, {argv {get parts}, {len {get parts}}}
-echo "Filename: {get filename}"
+path: "/home/user/documents/file.txt"
+parts: {split ~path, "/"}
+filename: {argv ~parts, {len ~parts}}
+echo "Filename: {set_result ~filename}"
 echo "Expected: file.txt"
 
-if {ends_with {get filename}, ".txt"} then (
+if {ends_with ~filename, ".txt"} then (
     echo "Is a text file: true"
 ) else (
     echo "Is a text file: false"

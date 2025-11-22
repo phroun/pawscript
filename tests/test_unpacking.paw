@@ -1,32 +1,33 @@
 # Test unpacking with set command
 
 echo "Test 1: Unpack list into variables"
-set vector3d, {list 10, 20, 30}
-set (x, y, z), {get vector3d}
-echo "x = {get x}, y = {get y}, z = {get z}"
+vector3d: {list 10, 20, 30}
+(x, y, z): ~vector3d
+echo "SET THEM"
+echo "x = {set_result ~x}, y = {set_result ~y}, z = {set_result ~z}"
 echo "Expected: x = 10, y = 20, z = 30"
 echo ""
 
 echo "Test 2: Unpack ParenGroup into variables"
-set (a, b, c), (100, 200, 300)
-echo "a = {get a}, b = {get b}, c = {get c}"
+(a, b, c): (100, 200, 300)
+echo "a = {set_result ~a}, b = {set_result ~b}, c = {set_result ~c}"
 echo "Expected: a = 100, b = 200, c = 300"
 echo ""
 
 echo "Test 3: Dynamic targets from list"
-set targets, {list p, q, r}
-set {get targets}, (5, 10, 15)
-echo "p = {get p}, q = {get q}, r = {get r}"
+targets: {list p, q, r}
+~targets: (5, 10, 15)
+echo "p = {set_result ~p}, q = {set_result ~q}, r = {set_result ~r}"
 echo "Expected: p = 5, q = 10, r = 15"
 echo ""
 
 echo "Test 4: More variables than values"
-set (m, n, o), (42, 99)
-echo "m = {get m}, n = {get n}, o = {get o}"
+(m, n, o): (42, 99)
+echo "m = {set_result ~m}, n = {set_result ~n}, o = {set_result ~o}"
 echo "Expected: m = 42, n = 99, o = (nil or empty)"
 echo ""
 
 echo "Test 5: Still works with simple assignment"
-set simple, "hello"
-echo "simple = {get simple}"
+simple: "hello"
+echo "simple = {set_result ~simple}"
 echo "Expected: simple = hello"

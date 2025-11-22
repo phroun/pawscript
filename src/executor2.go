@@ -59,7 +59,7 @@ func (e *Executor) resolveTildeExpression(expr string, state *ExecutionState, su
 	value, exists := state.GetVariable(varName)
 	if !exists {
 		e.logger.CommandError(CatVariable, "", fmt.Sprintf("Variable not found: %s", varName), position)
-		return nil, false
+		return nil, true
 	}
 
 	return value, true
