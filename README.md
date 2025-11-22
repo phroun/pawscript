@@ -51,6 +51,9 @@ See the `examples/` directory for sample scripts and usage patterns.
 
 ## Changelog
 
+### 0.2.3 -- November 22, 2025
+- New concise syntax for get ~x and set x:
+
 ### 0.2.2 -- November 21, 2025
 - Revised memory handling for list, block, and string types.
 - Improved consistency of error message handling.
