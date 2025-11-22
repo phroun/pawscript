@@ -1,0 +1,17 @@
+# interactive.paw - Interactive input demo
+
+print "Welcome to PawScript Interactive Demo!"
+
+macro get_input (
+  write "Enter $1: "
+  print "You entered: {read} {read}"
+);
+
+macro super_get (
+  get_input $1
+)
+
+super_get "your name"
+get_input "your favorite color"
+
+print "Thanks for trying PawScript!"

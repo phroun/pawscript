@@ -51,8 +51,11 @@ See the `examples/` directory for sample scripts and usage patterns.
 
 ## Changelog
 
-### 0.2.2 -- November 20, 2025
+### 0.2.2 -- November 21, 2025
 - Revised memory handling for list, block, and string types.
+- Improved consistency of error message handling.
+- Provided print_log to allow deliberate generation of debug messages,
+  warnings, and errors.
 
 ### 0.2.1 -- November 18, 2025
 - Macro local scope was broken, now fixed

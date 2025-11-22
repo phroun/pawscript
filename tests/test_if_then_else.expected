@@ -16,8 +16,8 @@ Test 4: If normalizing truthy/falsy values
   'hello' is truthy
 
 Test 5: If with comparisons
-  x [10] > y [5]
-  x [10] != y [5]
+  x (10) > y (5)
+  x (10) != y (5)
 
 Test 6: Nested if statements
   User is admin

@@ -11,7 +11,10 @@ import (
 	"time"
 )
 
+var version = "dev" // set via -ldflags at build time
+
 func main() {
+
 	// Define command line flags
 	debugFlag := flag.Bool("debug", false, "Enable debug output")
 	verboseFlag := flag.Bool("verbose", false, "Enable verbose output (alias for -debug)")
@@ -175,10 +178,7 @@ func findScriptFile(filename string) string {
 }
 
 func showCopyright() {
-	copyright := `paw, the pawscript interpreter version 0.2 - Copyright (c) 2025 Jeffrey R. Day
-
-`
-	fmt.Fprint(os.Stderr, copyright)
+	fmt.Fprintf(os.Stderr, "paw, the pawscript interpreter version %s - Copyright (c) 2025 Jeffrey R. Day\n\n", version)
 }
 
 func showUsage() {

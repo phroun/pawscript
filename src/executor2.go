@@ -1308,6 +1308,8 @@ func (e *Executor) findAllTopLevelBraces(str string, ctx *SubstitutionContext) [
 	parenDepth := 0
 	braceStart := -1
 	braceIsUnescape := false
+	inQuote := false
+	var quoteChar rune
 
 	line := 1
 	column := 1
@@ -1315,7 +1317,9 @@ func (e *Executor) findAllTopLevelBraces(str string, ctx *SubstitutionContext) [
 	braceStartColumn := 1
 
 	runes := []rune(str)
-	for i, char := range runes {
+	for i := 0; i < len(runes); i++ {
+		char := runes[i]
+
 		if char == '\n' {
 			line++
 			column = 1
@@ -1323,12 +1327,41 @@ func (e *Executor) findAllTopLevelBraces(str string, ctx *SubstitutionContext) [
 			column++
 		}
 
-		if char == '(' {
-			parenDepth++
+		// Handle escape sequences - skip the escaped character
+		if char == '\\' && i+1 < len(runes) {
+			i++ // Skip the escaped character
+			if runes[i] == '\n' {
+				line++
+				column = 1
+			} else {
+				column++
+			}
 			continue
-		} else if char == ')' {
-			parenDepth--
-			continue
+		}
+
+		// Track quote state (only when not inside brace expressions)
+		if braceDepth == 0 {
+			if !inQuote && (char == '"' || char == '\'') {
+				inQuote = true
+				quoteChar = char
+				continue
+			}
+			if inQuote && char == quoteChar {
+				inQuote = false
+				quoteChar = 0
+				continue
+			}
+		}
+
+		// Only track parentheses when NOT inside quotes
+		if !inQuote {
+			if char == '(' {
+				parenDepth++
+				continue
+			} else if char == ')' {
+				parenDepth--
+				continue
+			}
 		}
 
 		if parenDepth == 0 && char == '{' {

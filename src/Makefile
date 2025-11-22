@@ -3,7 +3,7 @@ VERSION := $(shell git describe --tags --always --dirty)
 
 # Release directory
 RELEASE_DIR := ../releases
-TEMPLATE_DIR := ../release-template
+# TEMPLATE_DIR := ../release-template
 INSTALL_DIR := ..
 
 # Detect native platform
@@ -22,7 +22,7 @@ endif
 # Build native version for local use
 build:
 	@echo "Building paw for native platform ($(NATIVE_OS)/$(NATIVE_ARCH))..."
-	go build -o $(INSTALL_DIR)/$(BINARY_NAME) ./cmd/paw
+	go build -ldflags "-X main.version=$(VERSION)" -o $(INSTALL_DIR)/$(BINARY_NAME) ./cmd/paw
 	@echo "Created: $(INSTALL_DIR)/$(BINARY_NAME)"
 
 # Alias for build
@@ -38,10 +38,11 @@ clean-releases:
 define build-release
 	@echo "Building and packaging paw $(3) $(4)..."
 	@mkdir -p $(RELEASE_DIR)/paw-$(VERSION)-$(3)-$(4)
-	@cp -r $(TEMPLATE_DIR)/* $(RELEASE_DIR)/paw-$(VERSION)-$(3)-$(4)/
+	# @cp -r $(TEMPLATE_DIR)/* $(RELEASE_DIR)/paw-$(VERSION)-$(3)-$(4)/
+	@cp -r ../examples $(RELEASE_DIR)/paw-$(VERSION)-$(3)-$(4)/examples
 	@cp ../README.md $(RELEASE_DIR)/paw-$(VERSION)-$(3)-$(4)/README.md
 	@cp ../LICENSE $(RELEASE_DIR)/paw-$(VERSION)-$(3)-$(4)/LICENSE
-	GOOS=$(1) GOARCH=$(2) go build -o $(RELEASE_DIR)/paw-$(VERSION)-$(3)-$(4)/$(5) ./cmd/paw
+	GOOS=$(1) GOARCH=$(2) go build -ldflags "-X main.version=$(VERSION)" -o $(RELEASE_DIR)/paw-$(VERSION)-$(3)-$(4)/$(5) ./cmd/paw
 	@cd $(RELEASE_DIR) && $(6) paw-$(VERSION)-$(3)-$(4)$(7) paw-$(VERSION)-$(3)-$(4)
 	@rm -rf $(RELEASE_DIR)/paw-$(VERSION)-$(3)-$(4)
 	@echo "Created: $(RELEASE_DIR)/paw-$(VERSION)-$(3)-$(4)$(7)"
@@ -82,7 +83,7 @@ test-coverage:
 
 run-example:
 	@echo "Running hello.paw example..."
-	@../paw ../release-template/examples/hello.paw -- arg1 arg2 arg3
+	@../paw ../examples/hello.paw -- arg1 arg2 arg3
 
 clean:
 	@echo "Cleaning..."
