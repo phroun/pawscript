@@ -227,11 +227,20 @@ func (e *Executor) handleAssignment(target, valueStr string, state *ExecutionSta
 	var varName string
 
 	if strings.HasPrefix(target, "~") {
-		// ~expr: value - resolve tilde to get variable name
+		// ~expr: value - resolve tilde to get variable name (or list of names for dynamic unpacking)
 		resolved, ok := e.resolveTildeExpression(target, state, substitutionCtx, position)
 		if !ok {
 			return BoolStatus(false)
 		}
+
+		// Resolve any object markers to actual values
+		resolved = e.resolveValue(resolved)
+
+		// Check if the resolved value is a list - this means dynamic unpacking
+		if storedList, ok := resolved.(StoredList); ok {
+			return e.handleDynamicUnpackingAssignment(storedList.Items(), valueStr, state, substitutionCtx, position)
+		}
+
 		varName = fmt.Sprintf("%v", resolved)
 	} else if strings.HasPrefix(target, "{") && strings.HasSuffix(target, "}") {
 		// {expr}: value - evaluate brace to get variable name
@@ -289,31 +298,47 @@ func (e *Executor) handleAssignment(target, valueStr string, state *ExecutionSta
 	return BoolStatus(true)
 }
 
-// handleUnpackingAssignment handles unpacking assignment: (x, y, z): values
+// handleUnpackingAssignment handles unpacking assignment: (x, y, z): listValue
+// Expects a single list-like value after the colon (StoredList, ParenGroup, or brace expression)
 func (e *Executor) handleUnpackingAssignment(target, valueStr string, state *ExecutionState, substitutionCtx *SubstitutionContext, position *SourcePosition) Result {
 	// Parse variable names from target (x, y, z)
 	targetContent := target[1 : len(target)-1]
 	varNames := parseArguments(targetContent)
 
-	// Parse and resolve the values
+	return e.handleDynamicUnpackingAssignment(varNames, valueStr, state, substitutionCtx, position)
+}
+
+// handleDynamicUnpackingAssignment handles unpacking where variable names are provided as a slice
+func (e *Executor) handleDynamicUnpackingAssignment(varNames []interface{}, valueStr string, state *ExecutionState, substitutionCtx *SubstitutionContext, position *SourcePosition) Result {
+	// Parse and resolve the single list value
 	var values []interface{}
 
 	if valueStr == "" {
 		values = nil
 	} else {
+		// Parse as a single argument (the list)
 		args := parseArguments(valueStr)
-		for _, arg := range args {
-			// Resolve tildes in each value
-			resolved := e.resolveTildesInValue(arg, state, substitutionCtx, position)
-			
-			// Check if the resolved value is a StoredList - expand it
+		if len(args) == 0 {
+			values = nil
+		} else {
+			// Take the first (and should be only) argument
+			listArg := args[0]
+
+			// Resolve tildes
+			resolved := e.resolveTildesInValue(listArg, state, substitutionCtx, position)
+
+			// Resolve any object markers (like \x00LIST:1\x00) to actual values
+			resolved = e.resolveValue(resolved)
+
+			// Extract items from the list-like value
 			if storedList, ok := resolved.(StoredList); ok {
-				values = append(values, storedList.Items()...)
+				values = storedList.Items()
 			} else if parenGroup, ok := resolved.(ParenGroup); ok {
-				// Parse paren group as values
-				values = append(values, parseArguments(string(parenGroup))...)
+				// Parse paren group contents as values
+				values = parseArguments(string(parenGroup))
 			} else {
-				values = append(values, resolved)
+				// Not a list - single value unpacking
+				values = []interface{}{resolved}
 			}
 		}
 	}
@@ -475,25 +500,30 @@ func (e *Executor) executeSingleCommand(
 	}
 
 	// Check for parenthesis block - execute in same scope
+	// BUT first check if this is an unpacking assignment like (a, b, c): values
 	if strings.HasPrefix(commandStr, "(") && strings.HasSuffix(commandStr, ")") {
-		blockContent := commandStr[1 : len(commandStr)-1]
+		// Check if this is actually an unpacking assignment pattern
+		if _, _, isAssign := e.parseAssignment(commandStr); !isAssign {
+			blockContent := commandStr[1 : len(commandStr)-1]
 
-		e.logger.Debug("Executing parenthesis block in same scope: (%s)", blockContent)
+			e.logger.Debug("Executing parenthesis block in same scope: (%s)", blockContent)
 
-		// Execute block content in the SAME state (no child scope)
-		result := e.ExecuteWithState(
-			blockContent,
-			state, // Same state, not a child
-			substitutionCtx,
-			position.Filename,
-			0, 0,
-		)
+			// Execute block content in the SAME state (no child scope)
+			result := e.ExecuteWithState(
+				blockContent,
+				state, // Same state, not a child
+				substitutionCtx,
+				position.Filename,
+				0, 0,
+			)
 
-		// Apply inversion if needed
-		if shouldInvert {
-			return e.invertStatus(result, state, position)
+			// Apply inversion if needed
+			if shouldInvert {
+				return e.invertStatus(result, state, position)
+			}
+			return result
 		}
-		return result
+		// Fall through to handle as assignment later
 	}
 
 	// Apply syntactic sugar
@@ -1059,24 +1089,35 @@ func (e *Executor) substituteBraceExpressions(str string, ctx *SubstitutionConte
 			}
 			// end part that used to be in an else
 			
-			// Transfer ownership from brace to parent without changing global refcount
-			// This moves local tracking so consumer doesn't double-claim
+			// Handle ownership for result references
+			// Two cases:
+			// 1. Pass-through of shared variable: parent already owns it, child's claim is temporary
+			// 2. New object creation: parent doesn't own it yet, needs to take ownership
 			if hasCapturedResult {
 				resultRefs := braceState.ExtractObjectReferences(capturedResult)
-				braceState.mu.Lock()
-				ctx.ExecutionState.mu.Lock()
 				for _, refID := range resultRefs {
-					// Move ownership count from brace to parent
-					if count := braceState.ownedObjects[refID]; count > 0 {
-						ctx.ExecutionState.ownedObjects[refID] += count
-						delete(braceState.ownedObjects, refID)
+					braceState.mu.Lock()
+					childCount := braceState.ownedObjects[refID]
+					braceState.mu.Unlock()
+					
+					if childCount > 0 {
+						// Check if parent already owns this object
+						ctx.ExecutionState.mu.Lock()
+						parentOwns := ctx.ExecutionState.ownedObjects[refID] > 0
+						ctx.ExecutionState.mu.Unlock()
+						
+						if !parentOwns {
+							// New object - parent needs to claim it
+							// Claim for parent (increments global refcount)
+							ctx.ExecutionState.ClaimObjectReference(refID)
+						}
+						// If parent already owns it, don't add extra ownership
+						// The child's claim will be released below
 					}
 				}
-				ctx.ExecutionState.mu.Unlock()
-				braceState.mu.Unlock()
 			}
 			
-			// Clean up brace state references (result refs transferred above)
+			// Clean up brace state references
 			braceState.ReleaseAllReferences()
 		}
 	}

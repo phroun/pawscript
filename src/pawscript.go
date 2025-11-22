@@ -49,12 +49,16 @@ func New(config *Config) *PawScript {
 				macroState := state.CreateChild()
 
 				result := macroSystem.ExecuteMacro(cmdName, func(commands string, macroExecState *ExecutionState, ctx *SubstitutionContext) Result {
-					// Use filename from substitution context for proper error reporting
+					// Use filename and offsets from substitution context for proper error reporting
 					filename := ""
+					lineOffset := 0
+					columnOffset := 0
 					if ctx != nil {
 						filename = ctx.Filename
+						lineOffset = ctx.CurrentLineOffset
+						columnOffset = ctx.CurrentColumnOffset
 					}
-					return executor.ExecuteWithState(commands, macroExecState, ctx, filename, 0, 0)
+					return executor.ExecuteWithState(commands, macroExecState, ctx, filename, lineOffset, columnOffset)
 				}, args, macroState, position, state) // Pass parent state
 
 				return result
@@ -108,12 +112,16 @@ func (ps *PawScript) registerBuiltInMacroCommands() {
 		macroState := ctx.state.CreateChild()
 
 		return ps.macroSystem.ExecuteMacro(name, func(commands string, macroExecState *ExecutionState, substCtx *SubstitutionContext) Result {
-			// Use filename from substitution context for proper error reporting
+			// Use filename and offsets from substitution context for proper error reporting
 			filename := ""
+			lineOffset := 0
+			columnOffset := 0
 			if substCtx != nil {
 				filename = substCtx.Filename
+				lineOffset = substCtx.CurrentLineOffset
+				columnOffset = substCtx.CurrentColumnOffset
 			}
-			return ps.executor.ExecuteWithState(commands, macroExecState, substCtx, filename, 0, 0)
+			return ps.executor.ExecuteWithState(commands, macroExecState, substCtx, filename, lineOffset, columnOffset)
 		}, macroArgs, macroState, ctx.Position, ctx.state) // Pass parent state
 	})
 

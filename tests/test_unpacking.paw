@@ -3,7 +3,6 @@
 echo "Test 1: Unpack list into variables"
 vector3d: {list 10, 20, 30}
 (x, y, z): ~vector3d
-echo "SET THEM"
 echo "x = {set_result ~x}, y = {set_result ~y}, z = {set_result ~z}"
 echo "Expected: x = 10, y = 20, z = 30"
 echo ""
