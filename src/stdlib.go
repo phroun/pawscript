@@ -582,6 +582,146 @@ func (ps *PawScript) RegisterStandardLibrary(scriptArgs []string) {
 		return BoolStatus(success)
 	})
 
+	// include - include another source file
+	// Simple form: include "filename.paw" - executes in current environment
+	// Advanced form: include (imports...), "filename.paw" - runs in restricted environment
+	//   Named args: newio: stdio -> merge exports["stdio"] into LibraryInherited["newio"]
+	//   Positional args: logger -> merge exports["logger"] into LibraryInherited["logger"]
+	ps.RegisterCommand("include", func(ctx *Context) Result {
+		if len(ctx.Args) == 0 {
+			ctx.LogError(CatIO, "Usage: include \"filename\" or include (imports...), \"filename\"")
+			return BoolStatus(false)
+		}
+
+		var filename string
+		var importSpec []interface{}
+		var importNamedSpec map[string]interface{}
+		isAdvancedForm := false
+
+		// Check if first arg is a paren group or list (advanced form)
+		firstArg := ctx.Args[0]
+		if ctx.executor != nil {
+			firstArg = ctx.executor.resolveValue(firstArg)
+		}
+
+		switch v := firstArg.(type) {
+		case ParenGroup:
+			// Advanced form with paren group
+			isAdvancedForm = true
+			importSpec, importNamedSpec = parseArguments(string(v))
+			if len(ctx.Args) < 2 {
+				ctx.LogError(CatIO, "include: filename required after import specification")
+				return BoolStatus(false)
+			}
+			filename = fmt.Sprintf("%v", ctx.Args[1])
+		case StoredList:
+			// Advanced form with list
+			isAdvancedForm = true
+			importSpec = v.Items()
+			importNamedSpec = make(map[string]interface{})
+			if len(ctx.Args) < 2 {
+				ctx.LogError(CatIO, "include: filename required after import specification")
+				return BoolStatus(false)
+			}
+			filename = fmt.Sprintf("%v", ctx.Args[1])
+		default:
+			// Simple form - just filename
+			filename = fmt.Sprintf("%v", ctx.Args[0])
+		}
+
+		// Remove quotes if present
+		if strings.HasPrefix(filename, "\"") && strings.HasSuffix(filename, "\"") {
+			filename = filename[1 : len(filename)-1]
+		} else if strings.HasPrefix(filename, "'") && strings.HasSuffix(filename, "'") {
+			filename = filename[1 : len(filename)-1]
+		}
+
+		// Read file
+		content, err := os.ReadFile(filename)
+		if err != nil {
+			ctx.LogError(CatIO, fmt.Sprintf("include: failed to read file %s: %v", filename, err))
+			return BoolStatus(false)
+		}
+
+		if isAdvancedForm {
+			// Advanced form: run in restricted environment
+			restrictedEnv := NewMacroModuleEnvironment(ctx.state.moduleEnv)
+
+			// Create execution state with restricted environment
+			execState := NewExecutionState()
+			execState.moduleEnv = restrictedEnv
+			execState.executor = ctx.executor
+			defer execState.ReleaseAllReferences()
+
+			// Execute in restricted environment
+			result := ctx.executor.ExecuteWithState(string(content), execState, nil, filename, 0, 0)
+
+			// Check if execution failed
+			if boolStatus, ok := result.(BoolStatus); ok && !bool(boolStatus) {
+				return BoolStatus(false)
+			}
+
+			// Process import specifications and merge exports into LibraryInherited
+			ctx.state.moduleEnv.mu.Lock()
+			defer ctx.state.moduleEnv.mu.Unlock()
+
+			// Ensure we have a copy of LibraryRestricted for modifications
+			ctx.state.moduleEnv.CopyLibraryRestricted()
+
+			// Process positional args: import module into same name
+			for _, arg := range importSpec {
+				moduleName := fmt.Sprintf("%v", arg)
+				if section, exists := restrictedEnv.ModuleExports[moduleName]; exists {
+					// Create or get target section
+					if ctx.state.moduleEnv.LibraryRestricted[moduleName] == nil {
+						ctx.state.moduleEnv.LibraryRestricted[moduleName] = make(ModuleSection)
+					}
+					// Also update LibraryInherited
+					if ctx.state.moduleEnv.LibraryInherited[moduleName] == nil {
+						ctx.state.moduleEnv.LibraryInherited[moduleName] = make(ModuleSection)
+					}
+					// Merge items
+					for itemName, item := range section {
+						ctx.state.moduleEnv.LibraryRestricted[moduleName][itemName] = item
+						ctx.state.moduleEnv.LibraryInherited[moduleName][itemName] = item
+					}
+				}
+			}
+
+			// Process named args: import module into different name
+			for targetName, sourceArg := range importNamedSpec {
+				sourceName := fmt.Sprintf("%v", sourceArg)
+				if section, exists := restrictedEnv.ModuleExports[sourceName]; exists {
+					// Create or get target section
+					if ctx.state.moduleEnv.LibraryRestricted[targetName] == nil {
+						ctx.state.moduleEnv.LibraryRestricted[targetName] = make(ModuleSection)
+					}
+					// Also update LibraryInherited
+					if ctx.state.moduleEnv.LibraryInherited[targetName] == nil {
+						ctx.state.moduleEnv.LibraryInherited[targetName] = make(ModuleSection)
+					}
+					// Merge items
+					for itemName, item := range section {
+						ctx.state.moduleEnv.LibraryRestricted[targetName][itemName] = item
+						ctx.state.moduleEnv.LibraryInherited[targetName][itemName] = item
+					}
+				}
+			}
+
+			return BoolStatus(true)
+		} else {
+			// Simple form: execute in current environment
+			result := ctx.executor.ExecuteWithState(string(content), ctx.state, nil, filename, 0, 0)
+
+			// Check if execution failed
+			if boolStatus, ok := result.(BoolStatus); ok && !bool(boolStatus) {
+				return BoolStatus(false)
+			}
+
+			return BoolStatus(true)
+		}
+	})
+
 	// true - sets success state
 	ps.RegisterCommand("true", func(ctx *Context) Result {
 		return BoolStatus(true)
