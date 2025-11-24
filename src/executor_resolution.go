@@ -136,14 +136,15 @@ func (e *Executor) resolveTildeExpression(expr string, state *ExecutionState, su
 	}
 	if state.moduleEnv != nil {
 		state.moduleEnv.mu.RLock()
-		// Check ObjectsModule first
+		// Check ObjectsModule first (local overrides)
 		if state.moduleEnv.ObjectsModule != nil {
 			if obj, exists := state.moduleEnv.ObjectsModule[objName]; exists {
 				state.moduleEnv.mu.RUnlock()
 				return obj, true
 			}
-		} else if state.moduleEnv.ObjectsInherited != nil {
-			// Only check ObjectsInherited if ObjectsModule is nil
+		}
+		// Fall back to ObjectsInherited (inherited from parent)
+		if state.moduleEnv.ObjectsInherited != nil {
 			if obj, exists := state.moduleEnv.ObjectsInherited[objName]; exists {
 				state.moduleEnv.mu.RUnlock()
 				return obj, true

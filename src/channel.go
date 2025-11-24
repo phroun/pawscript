@@ -83,8 +83,13 @@ func ChannelSend(ch *StoredChannel, value interface{}) error {
 		}
 	} else {
 		// Message from main channel -> broadcast to all subscribers
-		for id := range mainCh.Subscribers {
-			consumedBy[id] = false
+		if len(mainCh.Subscribers) > 0 {
+			for id := range mainCh.Subscribers {
+				consumedBy[id] = false
+			}
+		} else {
+			// No subscribers - main channel can read its own messages
+			consumedBy[0] = false
 		}
 	}
 

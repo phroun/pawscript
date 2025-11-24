@@ -307,7 +307,7 @@ func (ps *PawScript) RegisterStandardLibrary(scriptArgs []string) {
 		return BoolStatus(level != LevelError)
 	})
 	// Helper to resolve a channel name (like "#out" or "#err") to a channel
-	// Resolution order: local vars -> ObjectsModule -> ObjectsInherited (only if Module is nil)
+	// Resolution order: local vars -> ObjectsModule -> ObjectsInherited (fallback)
 	resolveChannel := func(ctx *Context, channelName string) *StoredChannel {
 		// First, check local macro variables
 		if value, exists := ctx.state.GetVariable(channelName); exists {
@@ -321,14 +321,16 @@ func (ps *PawScript) RegisterStandardLibrary(scriptArgs []string) {
 			ctx.state.moduleEnv.mu.RLock()
 			defer ctx.state.moduleEnv.mu.RUnlock()
 
+			// Check ObjectsModule first (local overrides)
 			if ctx.state.moduleEnv.ObjectsModule != nil {
 				if obj, exists := ctx.state.moduleEnv.ObjectsModule[channelName]; exists {
 					if channel, ok := obj.(*StoredChannel); ok {
 						return channel
 					}
 				}
-			} else if ctx.state.moduleEnv.ObjectsInherited != nil {
-				// Only check ObjectsInherited if ObjectsModule is nil
+			}
+			// Fall back to ObjectsInherited
+			if ctx.state.moduleEnv.ObjectsInherited != nil {
 				if obj, exists := ctx.state.moduleEnv.ObjectsInherited[channelName]; exists {
 					if channel, ok := obj.(*StoredChannel); ok {
 						return channel
@@ -345,8 +347,12 @@ func (ps *PawScript) RegisterStandardLibrary(scriptArgs []string) {
 	getOutputChannel := func(ctx *Context, defaultName string) (*StoredChannel, []interface{}, bool) {
 		args := ctx.Args
 
-		// Check if first arg is a symbol starting with #
+		// Check if first arg is already a channel (from tilde resolution)
 		if len(args) > 0 {
+			if ch, ok := args[0].(*StoredChannel); ok {
+				return ch, args[1:], true
+			}
+			// Or if first arg is a symbol starting with #
 			if sym, ok := args[0].(Symbol); ok {
 				symStr := string(sym)
 				if strings.HasPrefix(symStr, "#") {
@@ -366,8 +372,12 @@ func (ps *PawScript) RegisterStandardLibrary(scriptArgs []string) {
 	}
 
 	getInputChannel := func(ctx *Context, defaultName string) (*StoredChannel, bool) {
-		// Check if first arg is a symbol starting with #
+		// Check if first arg is already a channel (from tilde resolution)
 		if len(ctx.Args) > 0 {
+			if ch, ok := ctx.Args[0].(*StoredChannel); ok {
+				return ch, true
+			}
+			// Or if first arg is a symbol starting with #
 			if sym, ok := ctx.Args[0].(Symbol); ok {
 				symStr := string(sym)
 				if strings.HasPrefix(symStr, "#") {

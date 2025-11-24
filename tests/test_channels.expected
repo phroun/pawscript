@@ -28,4 +28,4 @@ Sub1 open: true
 Sub1 after close: false
 
 === Test 9: System channels ===
-System channels created
+System channels accessed via tilde

@@ -69,6 +69,7 @@ print "Sub1 after close: ~after"
 print ""
 
 print "=== Test 9: System channels ==="
-stdout_ch: {system_channel stdout}
-stdin_ch: {system_channel stdin}
-print "System channels created"
+# Access native IO channels via tilde with # prefix
+stdout_ch: ~#stdout
+stdin_ch: ~#stdin
+print "System channels accessed via tilde"

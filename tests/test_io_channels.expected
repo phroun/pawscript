@@ -1,0 +1,41 @@
+=== IO CHANNEL TESTS ===
+
+Test 1: Access native IO channels via tilde with # prefix
+stdout channel type: unknown(*pawscript.StoredChannel)
+
+Test 2: Access io channel aliases
+out alias type: unknown(*pawscript.StoredChannel)
+err alias type: unknown(*pawscript.StoredChannel)
+
+Test 3: Create custom channel and use with echo (channel arg)
+Sent message to custom channel
+
+Test 4: Read from custom channel
+Received from custom channel: Message to custom channel
+
+
+Test 5: Multiple messages to custom channel
+Channel has 3 messages queued
+
+Test 6: print with custom channel
+After print, channel has 4 messages
+
+Test 7: write with custom channel (no newline)
+After write, channel has 5 messages
+
+Test 8: Drain messages from custom channel
+Drained messages:
+  1: First message
+
+  2: Second message
+
+  3: Third message
+
+  4: Print message
+
+  5: Write message
+
+Test 9: Channel should be empty now
+Final channel length: 0
+
+=== ALL IO CHANNEL TESTS COMPLETE ===

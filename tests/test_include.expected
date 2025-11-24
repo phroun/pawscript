@@ -1,0 +1,17 @@
+=== INCLUDE COMMAND TESTS ===
+
+Test 1: Simple include
+test_include.inc loaded
+
+Test 2: Use macro from included file
+Hello from included file!
+
+Test 3: Use variable from included file
+included_var = I was set in the included file
+
+Test 4: Include non-existent file should fail gracefully
+[PawScript ERROR] include: failed to read file nonexistent_file.paw: open nonexistent_file.paw: no such file or directory
+  at line 19, column 1 in test_include.paw
+Expected: file not found error handled
+
+=== ALL INCLUDE TESTS COMPLETE ===

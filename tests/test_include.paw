@@ -1,0 +1,22 @@
+# Test include command functionality
+
+echo "=== INCLUDE COMMAND TESTS ==="
+echo ""
+
+echo "Test 1: Simple include"
+include "test_include.inc"
+echo ""
+
+echo "Test 2: Use macro from included file"
+included_greeting
+echo ""
+
+echo "Test 3: Use variable from included file"
+echo "included_var = ~included_var"
+echo ""
+
+echo "Test 4: Include non-existent file should fail gracefully"
+include "nonexistent_file.paw" || echo "Expected: file not found error handled"
+echo ""
+
+echo "=== ALL INCLUDE TESTS COMPLETE ==="

@@ -1,0 +1,80 @@
+# Test IO channel functionality
+
+echo "=== IO CHANNEL TESTS ==="
+echo ""
+
+echo "Test 1: Access native IO channels via tilde with # prefix"
+# The ~#stdout should resolve to the io::#stdout channel (from ObjectsInherited)
+out_ch: ~#stdout
+echo "stdout channel type: {get_type out_ch}"
+echo ""
+
+echo "Test 2: Access io channel aliases"
+# Short aliases
+out_alias: ~#out
+err_alias: ~#err
+echo "out alias type: {get_type out_alias}"
+echo "err alias type: {get_type err_alias}"
+echo ""
+
+echo "Test 3: Create custom channel and use with echo (channel arg)"
+custom_ch: {channel 10}
+# Use echo with explicit channel target (pass channel object)
+# Note: echo, print, write accept a channel as first arg when it resolves to a *StoredChannel
+echo ~custom_ch, "Message to custom channel"
+echo "Sent message to custom channel"
+echo ""
+
+echo "Test 4: Read from custom channel"
+msg: {channel_recv ~custom_ch}
+sender: {argv ~msg, 1}
+value: {argv ~msg, 2}
+echo "Received from custom channel: ~value"
+echo ""
+
+echo "Test 5: Multiple messages to custom channel"
+echo ~custom_ch, "First message"
+echo ~custom_ch, "Second message"
+echo ~custom_ch, "Third message"
+len_after: {len ~custom_ch}
+echo "Channel has ~len_after messages queued"
+echo ""
+
+echo "Test 6: print with custom channel"
+print ~custom_ch, "Print message"
+len_now: {len ~custom_ch}
+echo "After print, channel has ~len_now messages"
+echo ""
+
+echo "Test 7: write with custom channel (no newline)"
+write ~custom_ch, "Write message"
+len_final: {len ~custom_ch}
+echo "After write, channel has ~len_final messages"
+echo ""
+
+echo "Test 8: Drain messages from custom channel"
+# Read all the messages we sent
+m1: {channel_recv ~custom_ch}
+v1: {argv ~m1, 2}
+m2: {channel_recv ~custom_ch}
+v2: {argv ~m2, 2}
+m3: {channel_recv ~custom_ch}
+v3: {argv ~m3, 2}
+m4: {channel_recv ~custom_ch}
+v4: {argv ~m4, 2}
+m5: {channel_recv ~custom_ch}
+v5: {argv ~m5, 2}
+echo "Drained messages:"
+echo "  1: ~v1"
+echo "  2: ~v2"
+echo "  3: ~v3"
+echo "  4: ~v4"
+echo "  5: ~v5"
+echo ""
+
+echo "Test 9: Channel should be empty now"
+final_len: {len ~custom_ch}
+echo "Final channel length: ~final_len"
+echo ""
+
+echo "=== ALL IO CHANNEL TESTS COMPLETE ==="
