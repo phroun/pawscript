@@ -306,26 +306,172 @@ func (ps *PawScript) RegisterStandardLibrary(scriptArgs []string) {
 		// Return false for errors, true otherwise
 		return BoolStatus(level != LevelError)
 	})
-	// echo/write/print - output to stdout (no automatic newline)
+	// Helper to get a channel from first argument or default
+	// Returns (channel, remaining args, found)
+	getOutputChannel := func(ctx *Context, defaultName string) (*StoredChannel, []interface{}, bool) {
+		args := ctx.Args
+		var ch *StoredChannel
+
+		// Check if first arg is a symbol that matches an object
+		if len(args) > 0 {
+			if sym, ok := args[0].(Symbol); ok {
+				symStr := string(sym)
+				if strings.HasPrefix(symStr, "#") {
+					// Look up in ObjectsModule/ObjectsInherited
+					if ctx.state.moduleEnv != nil {
+						ctx.state.moduleEnv.mu.RLock()
+						var obj interface{}
+						found := false
+						if ctx.state.moduleEnv.ObjectsModule != nil {
+							if o, exists := ctx.state.moduleEnv.ObjectsModule[symStr]; exists {
+								obj = o
+								found = true
+							}
+						}
+						if !found && ctx.state.moduleEnv.ObjectsInherited != nil {
+							if o, exists := ctx.state.moduleEnv.ObjectsInherited[symStr]; exists {
+								obj = o
+								found = true
+							}
+						}
+						ctx.state.moduleEnv.mu.RUnlock()
+
+						if found {
+							if channel, ok := obj.(*StoredChannel); ok {
+								return channel, args[1:], true
+							}
+						}
+					}
+				}
+			}
+		}
+
+		// Use default channel from io module
+		if ctx.state.moduleEnv != nil {
+			ctx.state.moduleEnv.mu.RLock()
+			if ioSection, exists := ctx.state.moduleEnv.LibraryRestricted["io"]; exists {
+				if item, exists := ioSection[defaultName]; exists {
+					if channel, ok := item.Value.(*StoredChannel); ok {
+						ch = channel
+					}
+				}
+			}
+			ctx.state.moduleEnv.mu.RUnlock()
+		}
+
+		return ch, args, ch != nil
+	}
+
+	getInputChannel := func(ctx *Context, defaultName string) (*StoredChannel, bool) {
+		// Check if first arg is a symbol that matches an object
+		if len(ctx.Args) > 0 {
+			if sym, ok := ctx.Args[0].(Symbol); ok {
+				symStr := string(sym)
+				if strings.HasPrefix(symStr, "#") {
+					// Look up in ObjectsModule/ObjectsInherited
+					if ctx.state.moduleEnv != nil {
+						ctx.state.moduleEnv.mu.RLock()
+						var obj interface{}
+						found := false
+						if ctx.state.moduleEnv.ObjectsModule != nil {
+							if o, exists := ctx.state.moduleEnv.ObjectsModule[symStr]; exists {
+								obj = o
+								found = true
+							}
+						}
+						if !found && ctx.state.moduleEnv.ObjectsInherited != nil {
+							if o, exists := ctx.state.moduleEnv.ObjectsInherited[symStr]; exists {
+								obj = o
+								found = true
+							}
+						}
+						ctx.state.moduleEnv.mu.RUnlock()
+
+						if found {
+							if channel, ok := obj.(*StoredChannel); ok {
+								return channel, true
+							}
+						}
+					}
+				}
+			}
+		}
+
+		// Use default channel from io module
+		var ch *StoredChannel
+		if ctx.state.moduleEnv != nil {
+			ctx.state.moduleEnv.mu.RLock()
+			if ioSection, exists := ctx.state.moduleEnv.LibraryRestricted["io"]; exists {
+				if item, exists := ioSection[defaultName]; exists {
+					if channel, ok := item.Value.(*StoredChannel); ok {
+						ch = channel
+					}
+				}
+			}
+			ctx.state.moduleEnv.mu.RUnlock()
+		}
+
+		return ch, ch != nil
+	}
+
+	// write - output without automatic newline
+	// Usage: write [#channel] args...
 	outputCommand := func(ctx *Context) Result {
+		ch, args, found := getOutputChannel(ctx, "#out")
+		if !found {
+			// Fallback to direct stdout if no channel available
+			text := ""
+			for _, arg := range ctx.Args {
+				text += formatArgForDisplay(arg, ctx.executor)
+			}
+			fmt.Print(text)
+			return BoolStatus(true)
+		}
+
 		text := ""
-		for _, arg := range ctx.Args {
-			// No automatic spaces
+		for _, arg := range args {
 			text += formatArgForDisplay(arg, ctx.executor)
 		}
-		fmt.Print(text) // No automatic newline - use \n explicitly if needed
+
+		err := ChannelSend(ch, text)
+		if err != nil {
+			ctx.LogError(CatIO, fmt.Sprintf("Failed to write: %v", err))
+			return BoolStatus(false)
+		}
 		return BoolStatus(true)
 	}
 
+	// echo/print - output with automatic newline and spaces between args
+	// Usage: echo [#channel] args...
 	outputLineCommand := func(ctx *Context) Result {
+		ch, args, found := getOutputChannel(ctx, "#out")
+		if !found {
+			// Fallback to direct stdout if no channel available
+			text := ""
+			for i, arg := range ctx.Args {
+				if i > 0 {
+					text += " "
+				}
+				text += formatArgForDisplay(arg, ctx.executor)
+			}
+			fmt.Println(text)
+			return BoolStatus(true)
+		}
+
 		text := ""
-		for i, arg := range ctx.Args {
+		for i, arg := range args {
 			if i > 0 {
 				text += " "
 			}
 			text += formatArgForDisplay(arg, ctx.executor)
 		}
-		fmt.Println(text) // Automatic newline in this version!
+
+		// Add newline for echo/print (channel doesn't add it automatically)
+		err := ChannelSend(ch, text+"\n")
+		if err != nil {
+			ctx.LogError(CatIO, fmt.Sprintf("Failed to write: %v", err))
+			return BoolStatus(false)
+		}
 		return BoolStatus(true)
 	}
 
@@ -333,28 +479,38 @@ func (ps *PawScript) RegisterStandardLibrary(scriptArgs []string) {
 	ps.RegisterCommand("echo", outputLineCommand)
 	ps.RegisterCommand("print", outputLineCommand)
 
-	// read - read a line from stdin
+	// read - read a line from stdin or specified channel
+	// Usage: read [#channel]
 	ps.RegisterCommand("read", func(ctx *Context) Result {
-		token := ctx.RequestToken(nil)
-
-		go func() {
-			reader := bufio.NewReader(os.Stdin)
-			line, err := reader.ReadString('\n')
-
-			if err == nil {
-				// Remove trailing newline
-				if len(line) > 0 && line[len(line)-1] == '\n' {
-					line = line[:len(line)-1]
+		ch, found := getInputChannel(ctx, "#in")
+		if !found {
+			// Fallback to direct stdin read
+			token := ctx.RequestToken(nil)
+			go func() {
+				reader := bufio.NewReader(os.Stdin)
+				line, err := reader.ReadString('\n')
+				if err == nil {
+					if len(line) > 0 && line[len(line)-1] == '\n' {
+						line = line[:len(line)-1]
+					}
+					ctx.SetResult(line)
+					ctx.ResumeToken(token, true)
+				} else {
+					ctx.SetResult("")
+					ctx.ResumeToken(token, false)
 				}
-				ctx.SetResult(line)
-				ctx.ResumeToken(token, true)
-			} else {
-				ctx.SetResult("")
-				ctx.ResumeToken(token, false)
-			}
-		}()
+			}()
+			return TokenResult(token)
+		}
 
-		return TokenResult(token)
+		// Use channel for reading
+		_, value, err := ChannelRecv(ch)
+		if err != nil {
+			ctx.LogError(CatIO, fmt.Sprintf("Failed to read: %v", err))
+			return BoolStatus(false)
+		}
+		ctx.SetResult(value)
+		return BoolStatus(true)
 	})
 
 	// msleep - sleep for specified milliseconds (async)

@@ -48,6 +48,7 @@ func (env *ModuleEnvironment) PopulateIOModule() {
 	}
 
 	// Create stdout channel - write-only
+	// Note: NativeSend does NOT add newline - callers add it if needed
 	stdoutCh := &StoredChannel{
 		BufferSize:       0,
 		Messages:         make([]ChannelMessage, 0),
@@ -56,7 +57,7 @@ func (env *ModuleEnvironment) PopulateIOModule() {
 		IsClosed:         false,
 		Timestamp:        time.Now(),
 		NativeSend: func(v interface{}) error {
-			_, err := fmt.Fprintf(os.Stdout, "%v\n", v)
+			_, err := fmt.Fprintf(os.Stdout, "%v", v)
 			return err
 		},
 		NativeRecv: func() (interface{}, error) {
@@ -65,6 +66,7 @@ func (env *ModuleEnvironment) PopulateIOModule() {
 	}
 
 	// Create stderr channel - write-only
+	// Note: NativeSend does NOT add newline - callers add it if needed
 	stderrCh := &StoredChannel{
 		BufferSize:       0,
 		Messages:         make([]ChannelMessage, 0),
@@ -73,7 +75,7 @@ func (env *ModuleEnvironment) PopulateIOModule() {
 		IsClosed:         false,
 		Timestamp:        time.Now(),
 		NativeSend: func(v interface{}) error {
-			_, err := fmt.Fprintf(os.Stderr, "%v\n", v)
+			_, err := fmt.Fprintf(os.Stderr, "%v", v)
 			return err
 		},
 		NativeRecv: func() (interface{}, error) {
@@ -82,6 +84,7 @@ func (env *ModuleEnvironment) PopulateIOModule() {
 	}
 
 	// Create stdio channel - bidirectional (read from stdin, write to stdout)
+	// Note: NativeSend does NOT add newline - callers add it if needed
 	stdioReader := bufio.NewReader(os.Stdin)
 	stdioCh := &StoredChannel{
 		BufferSize:       0,
@@ -91,7 +94,7 @@ func (env *ModuleEnvironment) PopulateIOModule() {
 		IsClosed:         false,
 		Timestamp:        time.Now(),
 		NativeSend: func(v interface{}) error {
-			_, err := fmt.Fprintf(os.Stdout, "%v\n", v)
+			_, err := fmt.Fprintf(os.Stdout, "%v", v)
 			return err
 		},
 		NativeRecv: func() (interface{}, error) {
@@ -123,11 +126,18 @@ func (env *ModuleEnvironment) PopulateIOModule() {
 	ioModule["#err"] = &ModuleItem{Type: "object", Value: stderrCh}
 	ioModule["#io"] = &ModuleItem{Type: "object", Value: stdioCh}
 
-	// Also update LibraryRestricted to include the io module
+	// Also update LibraryRestricted to include the new io objects
+	// (commands were already added by PopulateStdlibModules)
 	if env.LibraryRestricted["io"] == nil {
 		env.LibraryRestricted["io"] = make(ModuleSection)
 	}
-	for itemName, item := range ioModule {
-		env.LibraryRestricted["io"][itemName] = item
-	}
+	// Add only the channel objects (not commands - they're already there)
+	env.LibraryRestricted["io"]["#stdin"] = ioModule["#stdin"]
+	env.LibraryRestricted["io"]["#stdout"] = ioModule["#stdout"]
+	env.LibraryRestricted["io"]["#stderr"] = ioModule["#stderr"]
+	env.LibraryRestricted["io"]["#stdio"] = ioModule["#stdio"]
+	env.LibraryRestricted["io"]["#in"] = ioModule["#in"]
+	env.LibraryRestricted["io"]["#out"] = ioModule["#out"]
+	env.LibraryRestricted["io"]["#err"] = ioModule["#err"]
+	env.LibraryRestricted["io"]["#io"] = ioModule["#io"]
 }

@@ -379,15 +379,30 @@ func (env *ModuleEnvironment) PopulateStdlibModules() {
 		"exec": true,
 	}
 
+	// List of commands that go into the "io" module
+	ioCommands := map[string]bool{
+		"echo":  true,
+		"print": true,
+		"write": true,
+		"read":  true,
+	}
+
 	// Create stdlib module
 	stdlibModule := make(ModuleSection)
 	// Create sys module
 	sysModule := make(ModuleSection)
+	// Create io module (for commands - objects added by PopulateIOModule)
+	ioModule := make(ModuleSection)
 
 	// Distribute commands from CommandRegistryInherited into modules
 	for cmdName, handler := range env.CommandRegistryInherited {
 		if sysCommands[cmdName] {
 			sysModule[cmdName] = &ModuleItem{
+				Type:  "command",
+				Value: handler,
+			}
+		} else if ioCommands[cmdName] {
+			ioModule[cmdName] = &ModuleItem{
 				Type:  "command",
 				Value: handler,
 			}
@@ -402,6 +417,7 @@ func (env *ModuleEnvironment) PopulateStdlibModules() {
 	// Add modules to LibraryInherited
 	env.LibraryInherited["stdlib"] = stdlibModule
 	env.LibraryInherited["sys"] = sysModule
+	env.LibraryInherited["io"] = ioModule
 
 	// Initially, LibraryRestricted should allow all modules
 	env.LibraryRestricted = make(Library)
