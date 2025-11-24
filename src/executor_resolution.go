@@ -122,8 +122,13 @@ func (e *Executor) resolveTildeExpression(expr string, state *ExecutionState, su
 		varName = rest
 	}
 
-	// First, check for objects with matching name (#-prefixed) in module environment
-	// This gives objects priority over local variables for scope-like behavior
+	// First, check local macro variables
+	value, exists := state.GetVariable(varName)
+	if exists {
+		return value, true
+	}
+
+	// Then, check for objects with matching name (#-prefixed) in module environment
 	objName := "#" + varName
 	if state.moduleEnv != nil {
 		state.moduleEnv.mu.RLock()
@@ -133,9 +138,8 @@ func (e *Executor) resolveTildeExpression(expr string, state *ExecutionState, su
 				state.moduleEnv.mu.RUnlock()
 				return obj, true
 			}
-		}
-		// Then check ObjectsInherited
-		if state.moduleEnv.ObjectsInherited != nil {
+		} else if state.moduleEnv.ObjectsInherited != nil {
+			// Only check ObjectsInherited if ObjectsModule is nil
 			if obj, exists := state.moduleEnv.ObjectsInherited[objName]; exists {
 				state.moduleEnv.mu.RUnlock()
 				return obj, true
@@ -144,14 +148,9 @@ func (e *Executor) resolveTildeExpression(expr string, state *ExecutionState, su
 		state.moduleEnv.mu.RUnlock()
 	}
 
-	// Fall back to local variable lookup
-	value, exists := state.GetVariable(varName)
-	if !exists {
-		e.logger.CommandError(CatVariable, "", fmt.Sprintf("Variable not found: %s", varName), position)
-		return nil, true
-	}
-
-	return value, true
+	// Nothing found
+	e.logger.CommandError(CatVariable, "", fmt.Sprintf("Variable not found: %s", varName), position)
+	return nil, true
 }
 
 // resolveTildesInValue resolves any tilde expressions in a value

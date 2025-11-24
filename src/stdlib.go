@@ -306,112 +306,84 @@ func (ps *PawScript) RegisterStandardLibrary(scriptArgs []string) {
 		// Return false for errors, true otherwise
 		return BoolStatus(level != LevelError)
 	})
+	// Helper to resolve a channel name (like "#out" or "#err") to a channel
+	// Resolution order: local vars -> ObjectsModule -> ObjectsInherited (only if Module is nil)
+	resolveChannel := func(ctx *Context, channelName string) *StoredChannel {
+		// First, check local macro variables
+		if value, exists := ctx.state.GetVariable(channelName); exists {
+			if channel, ok := value.(*StoredChannel); ok {
+				return channel
+			}
+		}
+
+		// Then, check ObjectsModule/ObjectsInherited
+		if ctx.state.moduleEnv != nil {
+			ctx.state.moduleEnv.mu.RLock()
+			defer ctx.state.moduleEnv.mu.RUnlock()
+
+			if ctx.state.moduleEnv.ObjectsModule != nil {
+				if obj, exists := ctx.state.moduleEnv.ObjectsModule[channelName]; exists {
+					if channel, ok := obj.(*StoredChannel); ok {
+						return channel
+					}
+				}
+			} else if ctx.state.moduleEnv.ObjectsInherited != nil {
+				// Only check ObjectsInherited if ObjectsModule is nil
+				if obj, exists := ctx.state.moduleEnv.ObjectsInherited[channelName]; exists {
+					if channel, ok := obj.(*StoredChannel); ok {
+						return channel
+					}
+				}
+			}
+		}
+
+		return nil
+	}
+
 	// Helper to get a channel from first argument or default
 	// Returns (channel, remaining args, found)
 	getOutputChannel := func(ctx *Context, defaultName string) (*StoredChannel, []interface{}, bool) {
 		args := ctx.Args
-		var ch *StoredChannel
 
-		// Check if first arg is a symbol that matches an object
+		// Check if first arg is a symbol starting with #
 		if len(args) > 0 {
 			if sym, ok := args[0].(Symbol); ok {
 				symStr := string(sym)
 				if strings.HasPrefix(symStr, "#") {
-					// Look up in ObjectsModule/ObjectsInherited
-					if ctx.state.moduleEnv != nil {
-						ctx.state.moduleEnv.mu.RLock()
-						var obj interface{}
-						found := false
-						if ctx.state.moduleEnv.ObjectsModule != nil {
-							if o, exists := ctx.state.moduleEnv.ObjectsModule[symStr]; exists {
-								obj = o
-								found = true
-							}
-						}
-						if !found && ctx.state.moduleEnv.ObjectsInherited != nil {
-							if o, exists := ctx.state.moduleEnv.ObjectsInherited[symStr]; exists {
-								obj = o
-								found = true
-							}
-						}
-						ctx.state.moduleEnv.mu.RUnlock()
-
-						if found {
-							if channel, ok := obj.(*StoredChannel); ok {
-								return channel, args[1:], true
-							}
-						}
+					if ch := resolveChannel(ctx, symStr); ch != nil {
+						return ch, args[1:], true
 					}
 				}
 			}
 		}
 
-		// Use default channel from io module
-		if ctx.state.moduleEnv != nil {
-			ctx.state.moduleEnv.mu.RLock()
-			if ioSection, exists := ctx.state.moduleEnv.LibraryRestricted["io"]; exists {
-				if item, exists := ioSection[defaultName]; exists {
-					if channel, ok := item.Value.(*StoredChannel); ok {
-						ch = channel
-					}
-				}
-			}
-			ctx.state.moduleEnv.mu.RUnlock()
+		// Use default channel (also resolved through local vars first)
+		if ch := resolveChannel(ctx, defaultName); ch != nil {
+			return ch, args, true
 		}
 
-		return ch, args, ch != nil
+		return nil, args, false
 	}
 
 	getInputChannel := func(ctx *Context, defaultName string) (*StoredChannel, bool) {
-		// Check if first arg is a symbol that matches an object
+		// Check if first arg is a symbol starting with #
 		if len(ctx.Args) > 0 {
 			if sym, ok := ctx.Args[0].(Symbol); ok {
 				symStr := string(sym)
 				if strings.HasPrefix(symStr, "#") {
-					// Look up in ObjectsModule/ObjectsInherited
-					if ctx.state.moduleEnv != nil {
-						ctx.state.moduleEnv.mu.RLock()
-						var obj interface{}
-						found := false
-						if ctx.state.moduleEnv.ObjectsModule != nil {
-							if o, exists := ctx.state.moduleEnv.ObjectsModule[symStr]; exists {
-								obj = o
-								found = true
-							}
-						}
-						if !found && ctx.state.moduleEnv.ObjectsInherited != nil {
-							if o, exists := ctx.state.moduleEnv.ObjectsInherited[symStr]; exists {
-								obj = o
-								found = true
-							}
-						}
-						ctx.state.moduleEnv.mu.RUnlock()
-
-						if found {
-							if channel, ok := obj.(*StoredChannel); ok {
-								return channel, true
-							}
-						}
+					if ch := resolveChannel(ctx, symStr); ch != nil {
+						return ch, true
 					}
 				}
 			}
 		}
 
-		// Use default channel from io module
-		var ch *StoredChannel
-		if ctx.state.moduleEnv != nil {
-			ctx.state.moduleEnv.mu.RLock()
-			if ioSection, exists := ctx.state.moduleEnv.LibraryRestricted["io"]; exists {
-				if item, exists := ioSection[defaultName]; exists {
-					if channel, ok := item.Value.(*StoredChannel); ok {
-						ch = channel
-					}
-				}
-			}
-			ctx.state.moduleEnv.mu.RUnlock()
+		// Use default channel (also resolved through local vars first)
+		if ch := resolveChannel(ctx, defaultName); ch != nil {
+			return ch, true
 		}
 
-		return ch, ch != nil
+		return nil, false
 	}
 
 	// write - output without automatic newline
