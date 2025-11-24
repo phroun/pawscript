@@ -136,20 +136,12 @@ func (ps *PawScript) CreateRestrictedSnapshot() *ModuleEnvironment {
 // ExecuteWithEnvironment executes a command string using a specific module environment
 // This allows running scripts in a restricted/isolated environment created by
 // CreateRestrictedSnapshot. Exports from this execution are NOT merged into root.
-func (ps *PawScript) ExecuteWithEnvironment(commandString string, env *ModuleEnvironment) Result {
+// Optional source location parameters help track the origin of the code for error messages.
+func (ps *PawScript) ExecuteWithEnvironment(commandString string, env *ModuleEnvironment, filename string, lineOffset, columnOffset int) Result {
 	state := NewExecutionState()
 	state.moduleEnv = env
 	defer state.ReleaseAllReferences()
-	return ps.executor.ExecuteWithState(commandString, state, nil, "", 0, 0)
-}
-
-// ExecuteFileWithEnvironment executes a script file using a specific module environment
-// with proper filename tracking. Exports from this execution are NOT merged into root.
-func (ps *PawScript) ExecuteFileWithEnvironment(commandString, filename string, env *ModuleEnvironment) Result {
-	state := NewExecutionState()
-	state.moduleEnv = env
-	defer state.ReleaseAllReferences()
-	return ps.executor.ExecuteWithState(commandString, state, nil, filename, 0, 0)
+	return ps.executor.ExecuteWithState(commandString, state, nil, filename, lineOffset, columnOffset)
 }
 
 // RequestToken requests an async completion token
