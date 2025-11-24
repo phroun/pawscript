@@ -30,7 +30,8 @@ func (ms *MacroSystem) SetExecutor(executor *Executor) {
 }
 
 // DefineMacro defines a new macro and returns its object ID
-func (ms *MacroSystem) DefineMacro(name, commands string, position *SourcePosition) (int, bool) {
+// If moduleEnv is provided, the macro captures that environment for lexical scoping
+func (ms *MacroSystem) DefineMacro(name, commands string, position *SourcePosition, moduleEnv *ModuleEnvironment) (int, bool) {
 	if name == "" || commands == "" {
 		ms.logger.Error("Macro name and commands are required")
 		return -1, false
@@ -41,8 +42,13 @@ func (ms *MacroSystem) DefineMacro(name, commands string, position *SourcePositi
 		return -1, false
 	}
 
-	// Create the StoredMacro object
-	macro := NewStoredMacro(commands, position)
+	// Create the StoredMacro object with captured module environment
+	var macro StoredMacro
+	if moduleEnv != nil {
+		macro = NewStoredMacroWithEnv(commands, position, moduleEnv)
+	} else {
+		macro = NewStoredMacro(commands, position)
+	}
 
 	// Store it in the executor's object store
 	objectID := ms.executor.storeObject(macro, "macro")

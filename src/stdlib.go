@@ -1525,6 +1525,9 @@ func (ps *PawScript) RegisterStandardLibrary(scriptArgs []string) {
 	ps.RegisterCommand("macro", func(ctx *Context) Result {
 		ps.logger.Debug("macro command called with %d args", len(ctx.Args))
 
+		// Capture the current module environment for lexical scoping
+		macroEnv := NewMacroModuleEnvironment(ctx.state.moduleEnv)
+
 		// Check for anonymous macro: macro (body)
 		// If only 1 arg, create anonymous macro
 		if len(ctx.Args) == 1 {
@@ -1532,8 +1535,8 @@ func (ps *PawScript) RegisterStandardLibrary(scriptArgs []string) {
 			commands := fmt.Sprintf("%v", ctx.Args[0])
 			ps.logger.Debug("Creating anonymous macro with commands: %s", commands)
 
-			// Create StoredMacro object
-			macro := NewStoredMacro(commands, ctx.Position)
+			// Create StoredMacro object with captured environment
+			macro := NewStoredMacroWithEnv(commands, ctx.Position, macroEnv)
 
 			// Store it in the executor's object store
 			objectID := ctx.executor.storeObject(macro, "macro")
@@ -1559,7 +1562,7 @@ func (ps *PawScript) RegisterStandardLibrary(scriptArgs []string) {
 
 		ps.logger.Debug("Defining macro '%s' with commands: %s", name, commands)
 
-		_, result := ps.macroSystem.DefineMacro(name, commands, ctx.Position)
+		_, result := ps.macroSystem.DefineMacro(name, commands, ctx.Position, macroEnv)
 		if !result {
 			ps.logger.Error("Failed to define macro \"%s\"", name)
 			return BoolStatus(false)

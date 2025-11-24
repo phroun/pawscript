@@ -125,6 +125,33 @@ func (ps *PawScript) Execute(commandString string, args ...interface{}) Result {
 	return ps.executor.ExecuteWithState(commandString, state, nil, "", 0, 0)
 }
 
+// CreateRestrictedSnapshot creates a restricted environment snapshot
+// This captures the current state with copy-on-write isolation, similar to what
+// a macro definition would capture. Use with ExecuteWithEnvironment to run
+// scripts in a restricted/isolated environment.
+func (ps *PawScript) CreateRestrictedSnapshot() *ModuleEnvironment {
+	return NewMacroModuleEnvironment(ps.rootModuleEnv)
+}
+
+// ExecuteWithEnvironment executes a command string using a specific module environment
+// This allows running scripts in a restricted/isolated environment created by
+// CreateRestrictedSnapshot. Exports from this execution are NOT merged into root.
+func (ps *PawScript) ExecuteWithEnvironment(commandString string, env *ModuleEnvironment) Result {
+	state := NewExecutionState()
+	state.moduleEnv = env
+	defer state.ReleaseAllReferences()
+	return ps.executor.ExecuteWithState(commandString, state, nil, "", 0, 0)
+}
+
+// ExecuteFileWithEnvironment executes a script file using a specific module environment
+// with proper filename tracking. Exports from this execution are NOT merged into root.
+func (ps *PawScript) ExecuteFileWithEnvironment(commandString, filename string, env *ModuleEnvironment) Result {
+	state := NewExecutionState()
+	state.moduleEnv = env
+	defer state.ReleaseAllReferences()
+	return ps.executor.ExecuteWithState(commandString, state, nil, filename, 0, 0)
+}
+
 // RequestToken requests an async completion token
 func (ps *PawScript) RequestToken(cleanupCallback func(string), parentToken string, timeout time.Duration) string {
 	if timeout == 0 {
@@ -154,7 +181,8 @@ func (ps *PawScript) DefineMacro(name, commandSequence string) bool {
 		ps.logger.Warn("Macros are disabled in configuration")
 		return false
 	}
-	_, ok := ps.macroSystem.DefineMacro(name, commandSequence, nil)
+	// When defining from Go API, use root environment (no restriction)
+	_, ok := ps.macroSystem.DefineMacro(name, commandSequence, nil, nil)
 	return ok
 }
 

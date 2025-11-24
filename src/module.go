@@ -107,6 +107,58 @@ func NewChildModuleEnvironment(parent *ModuleEnvironment) *ModuleEnvironment {
 	}
 }
 
+// NewMacroModuleEnvironment creates an environment for a macro definition
+// This captures the current state with copy-on-write isolation:
+// - Inherited layers point to parent's current Module layers
+// - Module layers share the same reference (COW ensures isolation on modification)
+// - ModuleExports is shared by reference
+func NewMacroModuleEnvironment(parent *ModuleEnvironment) *ModuleEnvironment {
+	parent.mu.RLock()
+	defer parent.mu.RUnlock()
+
+	// Get effective registries from parent (what macro should see)
+	// For commands, we need to merge inherited + module to get full view
+	effectiveCommands := getEffectiveCommandRegistry(parent)
+	effectiveMacros := getEffectiveMacroRegistry(parent)
+	effectiveObjects := getEffectiveObjectRegistry(parent)
+
+	return &ModuleEnvironment{
+		DefaultName: parent.DefaultName,
+
+		// Library: both point to parent's LibraryRestricted
+		// COW flag reset - any modification creates a new copy
+		LibraryInherited:  parent.LibraryRestricted,
+		LibraryRestricted: parent.LibraryRestricted,
+
+		// Commands: both point to effective command registry
+		// COW flag reset - any modification creates a new copy
+		CommandRegistryInherited: effectiveCommands,
+		CommandRegistryModule:    effectiveCommands,
+
+		// Macros: both point to effective macro registry
+		// COW flag reset - any modification creates a new copy
+		MacrosInherited: effectiveMacros,
+		MacrosModule:    effectiveMacros,
+
+		// Objects: both point to effective object registry
+		// COW flag reset - any modification creates a new copy
+		ObjectsInherited: effectiveObjects,
+		ObjectsModule:    effectiveObjects,
+
+		// ModuleExports is shared by reference
+		ModuleExports: parent.ModuleExports,
+
+		// Fresh import metadata for this macro
+		ImportedFrom: make(map[string]*ImportMetadata),
+
+		// COW flags reset - first modification triggers copy
+		libraryRestrictedCopied: false,
+		commandsModuleCopied:    false,
+		macrosModuleCopied:      false,
+		objectsModuleCopied:     false,
+	}
+}
+
 // Helper functions to get effective registries
 func getEffectiveCommandRegistry(env *ModuleEnvironment) map[string]Handler {
 	// If no module-specific registry, just inherit
