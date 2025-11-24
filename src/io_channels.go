@@ -140,4 +140,18 @@ func (env *ModuleEnvironment) PopulateIOModule() {
 	env.LibraryRestricted["io"]["#out"] = ioModule["#out"]
 	env.LibraryRestricted["io"]["#err"] = ioModule["#err"]
 	env.LibraryRestricted["io"]["#io"] = ioModule["#io"]
+
+	// Also add io channel objects to ObjectsInherited so they're accessible
+	// via tilde (~#stdout, ~#out, etc.) without explicit IMPORT
+	if env.ObjectsInherited == nil {
+		env.ObjectsInherited = make(map[string]interface{})
+	}
+	env.ObjectsInherited["#stdin"] = stdinCh
+	env.ObjectsInherited["#stdout"] = stdoutCh
+	env.ObjectsInherited["#stderr"] = stderrCh
+	env.ObjectsInherited["#stdio"] = stdioCh
+	env.ObjectsInherited["#in"] = stdinCh
+	env.ObjectsInherited["#out"] = stdoutCh
+	env.ObjectsInherited["#err"] = stderrCh
+	env.ObjectsInherited["#io"] = stdioCh
 }

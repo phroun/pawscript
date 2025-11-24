@@ -128,8 +128,12 @@ func (e *Executor) resolveTildeExpression(expr string, state *ExecutionState, su
 		return value, true
 	}
 
-	// Then, check for objects with matching name (#-prefixed) in module environment
-	objName := "#" + varName
+	// Then, check for objects with matching name in module environment
+	// If varName already starts with #, use it as-is; otherwise add # prefix
+	objName := varName
+	if !strings.HasPrefix(varName, "#") {
+		objName = "#" + varName
+	}
 	if state.moduleEnv != nil {
 		state.moduleEnv.mu.RLock()
 		// Check ObjectsModule first
