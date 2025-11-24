@@ -1,0 +1,35 @@
+# Test module system functionality
+
+echo "=== MODULE SYSTEM TESTS ==="
+echo ""
+
+echo "Test 1: Basic MODULE command"
+MODULE test_module
+echo "✓ MODULE command executed"
+echo ""
+
+echo "Test 2: LIBRARY restrict/allow"
+LIBRARY "restrict *"
+echo "✓ LIBRARY restrict executed"
+LIBRARY "allow stdlib"
+echo "✓ LIBRARY allow executed"
+echo ""
+
+echo "Test 3: IMPORT from stdlib"
+IMPORT "stdlib::echo,add"
+echo "✓ IMPORT command executed"
+echo ""
+
+echo "Test 4: Use imported command"
+add 2, 3
+=> sum
+echo "sum = ~sum"
+echo "Expected: sum = 5"
+echo ""
+
+echo "Test 5: REMOVE command"
+REMOVE add
+echo "✓ REMOVE command executed"
+echo ""
+
+echo "All module system tests complete!"

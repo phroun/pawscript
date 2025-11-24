@@ -35,7 +35,7 @@ const (
 	CatString   LogCategory = "string"   // String operations
 	CatType     LogCategory = "type"     // Type operations
 	CatFlow     LogCategory = "flow"     // Flow control (while, if, ret)
-	CatImport   LogCategory = "import"   // Import/module operations
+	CatSystem   LogCategory = "system"   // System/module operations
 	CatApp      LogCategory = "app"      // Application specific
 	CatUser     LogCategory = "user"     // User generated/custom
 )
@@ -77,7 +77,7 @@ func (l *Logger) DisableCategory(cat LogCategory) {
 func (l *Logger) EnableAllCategories() {
 	for _, cat := range []LogCategory{
 		CatParse, CatCommand, CatVariable, CatArgument, CatIO,
-		CatMacro, CatAsync, CatMemory, CatMath, CatList, CatString, CatType, CatFlow, CatImport, CatApp, CatUser,
+		CatMacro, CatAsync, CatMemory, CatMath, CatList, CatString, CatType, CatFlow, CatSystem, CatApp, CatUser,
 	} {
 		l.enabledCategories[cat] = true
 	}

@@ -229,13 +229,37 @@ func (e *Executor) executeSingleCommand(
 
 				e.logger.Debug("Parsed as - Command: \"%s\", Args: %v", cmdName, args)
 
-				// Try registered command
-				e.mu.RLock()
-				handler, exists := e.commands[cmdName]
-				e.mu.RUnlock()
+				// Check for super commands first
+				if result, handled := e.executeSuperCommand(cmdName, args, namedArgs, capturedState, capturedPosition); handled {
+					if capturedShouldInvert {
+						return e.invertStatus(result, capturedState, capturedPosition)
+					}
+					return result
+				}
+
+				// Check for macros in module environment
+				if macro, exists := capturedState.moduleEnv.GetMacro(cmdName); exists {
+					e.logger.Debug("Found macro \"%s\" in module environment", cmdName)
+					result := e.executeMacro(macro, args, namedArgs, capturedState, capturedPosition)
+					if capturedShouldInvert {
+						return e.invertStatus(result, capturedState, capturedPosition)
+					}
+					return result
+				}
+
+				// Check for commands in module environment
+				if handler, exists := capturedState.moduleEnv.GetCommand(cmdName); exists {
+					e.logger.Debug("Found command \"%s\" in module environment", cmdName)
+					ctx := e.createContext(args, namedArgs, capturedState, capturedPosition)
+					result := handler(ctx)
+					if capturedShouldInvert {
+						return e.invertStatus(result, capturedState, capturedPosition)
+					}
+					return result
+				}
 
 				// Try fallback handler if command not found
-				if !exists && e.fallbackHandler != nil {
+				if e.fallbackHandler != nil {
 					e.logger.Debug("Command \"%s\" not found, trying fallback handler", cmdName)
 					fallbackResult := e.fallbackHandler(cmdName, args, namedArgs, capturedState, capturedPosition)
 					if fallbackResult != nil {
@@ -247,23 +271,11 @@ func (e *Executor) executeSingleCommand(
 					}
 				}
 
-				if !exists {
-					e.logger.UnknownCommandError(cmdName, capturedPosition, nil)
-					result := BoolStatus(false)
-					if capturedShouldInvert {
-						return BoolStatus(!bool(result))
-					}
-					return result
-				}
-
-				// Execute command
-				e.logger.Debug("Executing %s with args: %v", cmdName, args)
-				ctx := e.createContext(args, namedArgs, capturedState, capturedPosition)
-				result := handler(ctx)
-
-				// Apply inversion if needed
+				// Command not found
+				e.logger.UnknownCommandError(cmdName, capturedPosition, nil)
+				result := BoolStatus(false)
 				if capturedShouldInvert {
-					return e.invertStatus(result, capturedState, capturedPosition)
+					return BoolStatus(!bool(result))
 				}
 				return result
 			}
@@ -320,13 +332,37 @@ func (e *Executor) executeSingleCommand(
 
 	e.logger.Debug("Parsed as - Command: \"%s\", Args: %v", cmdName, args)
 
-	// Try registered command
-	e.mu.RLock()
-	handler, exists := e.commands[cmdName]
-	e.mu.RUnlock()
+	// Check for super commands first (MODULE, LIBRARY, IMPORT, REMOVE, EXPORT)
+	if result, handled := e.executeSuperCommand(cmdName, args, namedArgs, state, position); handled {
+		if shouldInvert {
+			return e.invertStatus(result, state, position)
+		}
+		return result
+	}
+
+	// Check for macros in module environment
+	if macro, exists := state.moduleEnv.GetMacro(cmdName); exists {
+		e.logger.Debug("Found macro \"%s\" in module environment", cmdName)
+		result := e.executeMacro(macro, args, namedArgs, state, position)
+		if shouldInvert {
+			return e.invertStatus(result, state, position)
+		}
+		return result
+	}
+
+	// Check for commands in module environment
+	if handler, exists := state.moduleEnv.GetCommand(cmdName); exists {
+		e.logger.Debug("Found command \"%s\" in module environment", cmdName)
+		ctx := e.createContext(args, namedArgs, state, position)
+		result := handler(ctx)
+		if shouldInvert {
+			return e.invertStatus(result, state, position)
+		}
+		return result
+	}
 
 	// Try fallback handler if command not found
-	if !exists && e.fallbackHandler != nil {
+	if e.fallbackHandler != nil {
 		e.logger.Debug("Command \"%s\" not found, trying fallback handler", cmdName)
 		fallbackResult := e.fallbackHandler(cmdName, args, namedArgs, state, position)
 		if fallbackResult != nil {
@@ -338,25 +374,12 @@ func (e *Executor) executeSingleCommand(
 		}
 	}
 
-	if !exists {
-		e.logger.UnknownCommandError(cmdName, position, nil)
-		result := BoolStatus(false)
-		if shouldInvert {
-			return BoolStatus(!bool(result))
-		}
-		return result
-	}
-
-	// Execute command
-	e.logger.Debug("Executing %s with args: %v", cmdName, args)
-	ctx := e.createContext(args, namedArgs, state, position)
-	result := handler(ctx)
-
-	// Apply inversion if needed
+	// Command not found
+	e.logger.UnknownCommandError(cmdName, position, nil)
+	result := BoolStatus(false)
 	if shouldInvert {
-		return e.invertStatus(result, state, position)
+		return BoolStatus(!bool(result))
 	}
-
 	return result
 }
 
@@ -570,5 +593,79 @@ func (e *Executor) invertStatus(result Result, state *ExecutionState, position *
 	}
 
 	// Unknown result type, return as-is
+	return result
+}
+
+// executeMacro executes a macro from the module environment
+func (e *Executor) executeMacro(
+	macro *StoredMacro,
+	args []interface{},
+	namedArgs map[string]interface{},
+	state *ExecutionState,
+	position *SourcePosition,
+) Result {
+	// Create macro context for error tracking
+	macroContext := &MacroContext{
+		MacroName:        "", // Name not available here
+		DefinitionFile:   macro.DefinitionFile,
+		DefinitionLine:   macro.DefinitionLine,
+		DefinitionColumn: macro.DefinitionColumn,
+	}
+
+	if position != nil {
+		macroContext.InvocationFile = position.Filename
+		macroContext.InvocationLine = position.Line
+		macroContext.InvocationColumn = position.Column
+		macroContext.ParentMacro = position.MacroContext
+	}
+
+	e.logger.Debug("Executing macro defined at %s:%d, called from %s:%d",
+		macro.DefinitionFile, macro.DefinitionLine,
+		position.Filename, position.Line)
+
+	// Create child state for macro execution
+	macroState := NewExecutionStateFrom(state)
+
+	// If macro has a captured environment, use it (create child from captured)
+	// Otherwise use the current state's environment
+	if macro.ModuleEnv != nil {
+		macroState.moduleEnv = NewChildModuleEnvironment(macro.ModuleEnv)
+	}
+
+	// Ensure macro state has executor reference
+	macroState.executor = e
+
+	// Create a LIST from the arguments (both positional and named) and store it as $@
+	argsList := NewStoredListWithRefs(args, namedArgs, e)
+	argsListID := e.storeObject(argsList, "list")
+	argsMarker := fmt.Sprintf("\x00LIST:%d\x00", argsListID)
+
+	// Store the list marker in the macro state's variables as $@
+	macroState.SetVariable("$@", Symbol(argsMarker))
+
+	// Create substitution context for macro arguments
+	substitutionContext := &SubstitutionContext{
+		Args:                args,
+		ExecutionState:      macroState,
+		MacroContext:        macroContext,
+		CurrentLineOffset:   macro.DefinitionLine - 1,
+		CurrentColumnOffset: macro.DefinitionColumn - 1,
+		Filename:            macro.DefinitionFile,
+	}
+
+	// Execute the macro commands
+	result := e.ExecuteWithState(macro.Commands, macroState, substitutionContext,
+		macro.DefinitionFile, macro.DefinitionLine-1, macro.DefinitionColumn-1)
+
+	// Transfer result to parent state
+	if macroState.HasResult() {
+		state.SetResult(macroState.GetResult())
+		e.logger.Debug("Transferred macro result to parent state: %v", macroState.GetResult())
+	}
+
+	// Clean up macro state
+	macroState.ReleaseAllReferences()
+
+	e.logger.Debug("Macro execution completed with result: %v", result)
 	return result
 }

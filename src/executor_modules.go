@@ -5,222 +5,449 @@ import (
 	"strings"
 )
 
-// Module system - modules contain named items that can be imported individually
-// e.g., stdlib module contains: macro, call, macro_list, etc.
-// Import with "stdlib::macro" to import a specific command
-// Import with "stdlib" to import all commands from the module
-
-// moduleItems stores module -> item name -> handler mapping
-var moduleItems = make(map[string]map[string]Handler)
-
-// ImportedItemInfo tracks metadata about an imported item
-type ImportedItemInfo struct {
-	Module       string // e.g., "stdlib"
-	OriginalName string // e.g., "macro"
-	Alias        string // e.g., "my_macro" (empty if no alias, same as registered name)
+// executeSuperCommand checks if cmdName is a super command and executes it
+// Returns (result, handled) where handled indicates if it was a super command
+func (e *Executor) executeSuperCommand(
+	cmdName string,
+	args []interface{},
+	namedArgs map[string]interface{},
+	state *ExecutionState,
+	position *SourcePosition,
+) (Result, bool) {
+	switch cmdName {
+	case "MODULE":
+		return e.handleMODULE(args, state, position), true
+	case "LIBRARY":
+		return e.handleLIBRARY(args, state, position), true
+	case "IMPORT":
+		return e.handleIMPORT(args, state, position), true
+	case "REMOVE":
+		return e.handleREMOVE(args, state, position), true
+	case "EXPORT":
+		return e.handleEXPORT(args, namedArgs, state, position), true
+	default:
+		return nil, false
+	}
 }
 
-// importedItemsMap tracks which items have been imported (by full path)
-var importedItemsMap = make(map[string]*ImportedItemInfo)
-
-// RegisterModuleItem registers a single item within a module
-// e.g., RegisterModuleItem("stdlib", "macro", handler)
-func (e *Executor) RegisterModuleItem(moduleName, itemName string, handler Handler) {
-	e.mu.Lock()
-	defer e.mu.Unlock()
-	if moduleItems[moduleName] == nil {
-		moduleItems[moduleName] = make(map[string]Handler)
+// handleMODULE sets the default module name for exports
+// Usage: MODULE module_name
+func (e *Executor) handleMODULE(args []interface{}, state *ExecutionState, position *SourcePosition) Result {
+	if len(args) != 1 {
+		e.logger.CommandError(CatSystem, "MODULE", "Expected 1 argument (module name)", position)
+		return BoolStatus(false)
 	}
-	moduleItems[moduleName][itemName] = handler
-	e.logger.Debug("Registered module item: %s::%s", moduleName, itemName)
+
+	moduleName := fmt.Sprintf("%v", args[0])
+	if moduleName == "" {
+		e.logger.CommandError(CatSystem, "MODULE", "Module name cannot be empty", position)
+		return BoolStatus(false)
+	}
+
+	state.moduleEnv.mu.Lock()
+	state.moduleEnv.DefaultName = moduleName
+	state.moduleEnv.mu.Unlock()
+
+	e.logger.Debug("MODULE: Set default module name to \"%s\"", moduleName)
+	return BoolStatus(true)
 }
 
-// ImportModule imports ALL items from a module (e.g., "stdlib")
-// Returns true if successful, false if module not found
-func (e *Executor) ImportModule(moduleName string) bool {
-	e.mu.RLock()
-	items, moduleExists := moduleItems[moduleName]
-	if !moduleExists {
-		e.mu.RUnlock()
-		return false
-	}
-	// Copy item names to avoid holding lock during registration
-	itemNames := make([]string, 0, len(items))
-	for name := range items {
-		itemNames = append(itemNames, name)
-	}
-	e.mu.RUnlock()
-
-	// Import each item
-	for _, itemName := range itemNames {
-		fullPath := moduleName + "::" + itemName
-		e.ImportItemWithAlias(fullPath, "")
+// handleLIBRARY manipulates LibraryRestricted
+// Usage: LIBRARY "pattern"
+// Patterns: "restrict *", "allow *", "restrict module", "allow module",
+//           "allow module::item1,item2", "allow dest=source"
+func (e *Executor) handleLIBRARY(args []interface{}, state *ExecutionState, position *SourcePosition) Result {
+	if len(args) != 1 {
+		e.logger.CommandError(CatSystem, "LIBRARY", "Expected 1 argument (pattern)", position)
+		return BoolStatus(false)
 	}
 
-	e.logger.Debug("Imported all items from module: %s", moduleName)
-	return true
-}
+	pattern := fmt.Sprintf("%v", args[0])
+	parts := strings.Fields(pattern)
 
-// ImportItem imports a single item from a module (e.g., "stdlib::macro")
-// Returns true if successful, false if item not found
-func (e *Executor) ImportItem(fullPath string) bool {
-	return e.ImportItemWithAlias(fullPath, "")
-}
-
-// ImportItemWithAlias imports a single item with an optional alias
-// e.g., ImportItemWithAlias("stdlib::macro", "my_macro") registers as "my_macro"
-// If alias is empty, uses the original item name
-func (e *Executor) ImportItemWithAlias(fullPath, alias string) bool {
-	// Parse "module::item" format
-	parts := strings.SplitN(fullPath, "::", 2)
-	if len(parts) != 2 {
-		return false
-	}
-	moduleName := parts[0]
-	itemName := parts[1]
-
-	// Determine the registered name
-	registeredName := itemName
-	if alias != "" {
-		registeredName = alias
+	if len(parts) < 2 {
+		e.logger.CommandError(CatSystem, "LIBRARY", fmt.Sprintf("Invalid pattern: %s", pattern), position)
+		return BoolStatus(false)
 	}
 
-	e.mu.Lock()
+	action := parts[0]
+	target := parts[1]
 
-	// Check if already imported (by full path)
-	if importedItemsMap[fullPath] != nil {
-		e.mu.Unlock()
-		e.logger.Debug("Item already imported: %s", fullPath)
-		return true
-	}
+	state.moduleEnv.mu.Lock()
+	defer state.moduleEnv.mu.Unlock()
 
-	// Check if module and item exist
-	items, moduleExists := moduleItems[moduleName]
-	if !moduleExists {
-		e.mu.Unlock()
-		return false
-	}
-
-	handler, itemExists := items[itemName]
-	if !itemExists {
-		e.mu.Unlock()
-		return false
-	}
-
-	// Mark as imported with metadata
-	importedItemsMap[fullPath] = &ImportedItemInfo{
-		Module:       moduleName,
-		OriginalName: itemName,
-		Alias:        registeredName,
-	}
-	e.mu.Unlock()
-
-	// Register the command with the appropriate name
-	e.RegisterCommand(registeredName, handler)
-	e.logger.Debug("Imported item: %s (registered as command '%s')", fullPath, registeredName)
-	return true
-}
-
-// HasModuleItem checks if a module item is registered
-func (e *Executor) HasModuleItem(fullPath string) bool {
-	parts := strings.SplitN(fullPath, "::", 2)
-	if len(parts) != 2 {
-		return false
-	}
-	e.mu.RLock()
-	defer e.mu.RUnlock()
-	if items, exists := moduleItems[parts[0]]; exists {
-		_, itemExists := items[parts[1]]
-		return itemExists
-	}
-	return false
-}
-
-// IsItemImported checks if a module item has been imported
-func (e *Executor) IsItemImported(fullPath string) bool {
-	e.mu.RLock()
-	defer e.mu.RUnlock()
-	return importedItemsMap[fullPath] != nil
-}
-
-// GetImportInfo returns metadata about an imported item, or nil if not imported
-func (e *Executor) GetImportInfo(fullPath string) *ImportedItemInfo {
-	e.mu.RLock()
-	defer e.mu.RUnlock()
-	return importedItemsMap[fullPath]
-}
-
-// ListModules returns a list of all available module names
-func (e *Executor) ListModules() []string {
-	e.mu.RLock()
-	defer e.mu.RUnlock()
-	names := make([]string, 0, len(moduleItems))
-	for name := range moduleItems {
-		names = append(names, name)
-	}
-	return names
-}
-
-// ListModuleItems returns a list of all items in a module
-func (e *Executor) ListModuleItems(moduleName string) []string {
-	e.mu.RLock()
-	defer e.mu.RUnlock()
-	if items, exists := moduleItems[moduleName]; exists {
-		names := make([]string, 0, len(items))
-		for name := range items {
-			names = append(names, name)
-		}
-		return names
-	}
-	return nil
-}
-
-// registerSuperCommands registers built-in super commands (always available, ALL CAPS)
-func (ps *PawScript) registerSuperCommands() {
-	// IMPORT - import items from modules (super command)
-	// Usage: IMPORT stdlib                       - import all items from module
-	//        IMPORT "stdlib::macro"              - import single item
-	//        IMPORT "stdlib::macro", "stdlib::call" - import multiple items
-	//        IMPORT my_macro: "stdlib::macro"    - import with alias (named arg)
-	ps.executor.RegisterCommand("IMPORT", func(ctx *Context) Result {
-		// Handle named arguments as aliases: alias_name: "module::item"
-		for alias, value := range ctx.NamedArgs {
-			itemPath := fmt.Sprintf("%v", value)
-			if !strings.Contains(itemPath, "::") {
-				ctx.logger.CommandError(CatImport, "IMPORT", fmt.Sprintf("Aliased import must use module::item format: %s", itemPath), ctx.Position)
-				return BoolStatus(false)
-			}
-			if !ctx.executor.ImportItemWithAlias(itemPath, alias) {
-				ctx.logger.CommandError(CatImport, "IMPORT", fmt.Sprintf("Item not found: %s", itemPath), ctx.Position)
-				return BoolStatus(false)
-			}
+	switch action {
+	case "restrict":
+		if target == "*" {
+			// Empty LibraryRestricted
+			state.moduleEnv.CopyLibraryRestricted()
+			state.moduleEnv.LibraryRestricted = make(Library)
+			e.logger.Debug("LIBRARY: Restricted all modules")
+		} else {
+			// Remove specific module
+			state.moduleEnv.CopyLibraryRestricted()
+			delete(state.moduleEnv.LibraryRestricted, target)
+			e.logger.Debug("LIBRARY: Restricted module \"%s\"", target)
 		}
 
-		// Handle positional arguments
-		for _, arg := range ctx.Args {
-			itemPath := fmt.Sprintf("%v", arg)
-
-			// Check if it's a module name (no ::) or specific item (has ::)
-			if !strings.Contains(itemPath, "::") {
-				// Module name - import all items from the module
-				if !ctx.executor.ImportModule(itemPath) {
-					ctx.logger.CommandError(CatImport, "IMPORT", fmt.Sprintf("Module not found: %s", itemPath), ctx.Position)
-					return BoolStatus(false)
+	case "allow":
+		if target == "*" {
+			// Copy all from Inherited
+			state.moduleEnv.CopyLibraryRestricted()
+			for modName, section := range state.moduleEnv.LibraryInherited {
+				newSection := make(ModuleSection)
+				for itemName, item := range section {
+					newSection[itemName] = item
 				}
+				state.moduleEnv.LibraryRestricted[modName] = newSection
+			}
+			e.logger.Debug("LIBRARY: Allowed all modules")
+		} else if strings.Contains(target, "=") {
+			// Rename: "dest=source"
+			renameParts := strings.SplitN(target, "=", 2)
+			if len(renameParts) != 2 {
+				e.logger.CommandError(CatSystem, "LIBRARY", fmt.Sprintf("Invalid rename pattern: %s", target), position)
+				return BoolStatus(false)
+			}
+			destName := renameParts[0]
+			sourceName := renameParts[1]
+
+			// Find source in Inherited
+			if section, exists := state.moduleEnv.LibraryInherited[sourceName]; exists {
+				state.moduleEnv.CopyLibraryRestricted()
+				newSection := make(ModuleSection)
+				for itemName, item := range section {
+					newSection[itemName] = item
+				}
+				state.moduleEnv.LibraryRestricted[destName] = newSection
+				e.logger.Debug("LIBRARY: Renamed module \"%s\" to \"%s\"", sourceName, destName)
 			} else {
-				// Specific item - import just that item
-				if !ctx.executor.ImportItem(itemPath) {
-					ctx.logger.CommandError(CatImport, "IMPORT", fmt.Sprintf("Item not found: %s", itemPath), ctx.Position)
+				e.logger.CommandError(CatSystem, "LIBRARY", fmt.Sprintf("Source module not found: %s", sourceName), position)
+				return BoolStatus(false)
+			}
+		} else if strings.Contains(target, "::") {
+			// Specific items: "module::item1,item2,#obj"
+			moduleParts := strings.SplitN(target, "::", 2)
+			if len(moduleParts) != 2 {
+				e.logger.CommandError(CatSystem, "LIBRARY", fmt.Sprintf("Invalid module::items pattern: %s", target), position)
+				return BoolStatus(false)
+			}
+			moduleName := moduleParts[0]
+			itemsStr := moduleParts[1]
+			items := strings.Split(itemsStr, ",")
+
+			// Find source module
+			sourceSection, exists := state.moduleEnv.LibraryInherited[moduleName]
+			if !exists {
+				e.logger.CommandError(CatSystem, "LIBRARY", fmt.Sprintf("Module not found: %s", moduleName), position)
+				return BoolStatus(false)
+			}
+
+			state.moduleEnv.CopyLibraryRestricted()
+
+			// Ensure module exists in LibraryRestricted
+			if state.moduleEnv.LibraryRestricted[moduleName] == nil {
+				state.moduleEnv.LibraryRestricted[moduleName] = make(ModuleSection)
+			}
+
+			// Add specific items
+			for _, itemName := range items {
+				itemName = strings.TrimSpace(itemName)
+				if item, exists := sourceSection[itemName]; exists {
+					state.moduleEnv.LibraryRestricted[moduleName][itemName] = item
+					e.logger.Debug("LIBRARY: Allowed %s::%s", moduleName, itemName)
+				} else {
+					e.logger.CommandError(CatSystem, "LIBRARY", fmt.Sprintf("Item not found: %s::%s", moduleName, itemName), position)
 					return BoolStatus(false)
 				}
 			}
+		} else {
+			// Add entire module
+			if section, exists := state.moduleEnv.LibraryInherited[target]; exists {
+				state.moduleEnv.CopyLibraryRestricted()
+				newSection := make(ModuleSection)
+				for itemName, item := range section {
+					newSection[itemName] = item
+				}
+				state.moduleEnv.LibraryRestricted[target] = newSection
+				e.logger.Debug("LIBRARY: Allowed module \"%s\"", target)
+			} else {
+				e.logger.CommandError(CatSystem, "LIBRARY", fmt.Sprintf("Module not found: %s", target), position)
+				return BoolStatus(false)
+			}
 		}
 
-		if len(ctx.Args) == 0 && len(ctx.NamedArgs) == 0 {
-			ctx.logger.CommandError(CatImport, "IMPORT", "Usage: IMPORT <module> or IMPORT <module::item>, ...", ctx.Position)
-			return BoolStatus(false)
+	default:
+		e.logger.CommandError(CatSystem, "LIBRARY", fmt.Sprintf("Unknown action: %s (expected 'restrict' or 'allow')", action), position)
+		return BoolStatus(false)
+	}
+
+	return BoolStatus(true)
+}
+
+// handleIMPORT imports items from LibraryRestricted into module registries
+// Usage: IMPORT "module" or IMPORT "module::item1,item2" or IMPORT "module::orig=alias"
+func (e *Executor) handleIMPORT(args []interface{}, state *ExecutionState, position *SourcePosition) Result {
+	if len(args) != 1 {
+		e.logger.CommandError(CatSystem, "IMPORT", "Expected 1 argument (module spec)", position)
+		return BoolStatus(false)
+	}
+
+	spec := fmt.Sprintf("%v", args[0])
+
+	state.moduleEnv.mu.Lock()
+	defer state.moduleEnv.mu.Unlock()
+
+	var moduleName string
+	var itemsToImport []string
+	var importAll bool
+
+	if strings.Contains(spec, "::") {
+		// Specific items: "module::item1,item2" or "module::orig=alias"
+		parts := strings.SplitN(spec, "::", 2)
+		moduleName = parts[0]
+		itemsStr := parts[1]
+		itemsToImport = strings.Split(itemsStr, ",")
+		importAll = false
+	} else {
+		// Import all items from module
+		moduleName = spec
+		importAll = true
+	}
+
+	// Find module in LibraryRestricted
+	section, exists := state.moduleEnv.LibraryRestricted[moduleName]
+	if !exists {
+		e.logger.CommandError(CatSystem, "IMPORT", fmt.Sprintf("Module not found in library: %s", moduleName), position)
+		return BoolStatus(false)
+	}
+
+	if importAll {
+		// Import all items
+		for itemName, item := range section {
+			e.importItem(state, moduleName, itemName, itemName, item)
+		}
+		e.logger.Debug("IMPORT: Imported all items from module \"%s\"", moduleName)
+	} else {
+		// Import specific items
+		for _, itemSpec := range itemsToImport {
+			itemSpec = strings.TrimSpace(itemSpec)
+
+			var originalName, localName string
+			if strings.Contains(itemSpec, "=") {
+				// Aliasing: "newname=original" (local=original)
+				aliasParts := strings.SplitN(itemSpec, "=", 2)
+				localName = aliasParts[0]    // New name (local alias)
+				originalName = aliasParts[1] // Original name from library
+			} else {
+				// No aliasing
+				originalName = itemSpec
+				localName = itemSpec
+			}
+
+			item, exists := section[originalName]
+			if !exists {
+				e.logger.CommandError(CatSystem, "IMPORT", fmt.Sprintf("Item not found: %s::%s", moduleName, originalName), position)
+				return BoolStatus(false)
+			}
+
+			e.importItem(state, moduleName, originalName, localName, item)
+			e.logger.Debug("IMPORT: Imported %s::%s as \"%s\"", moduleName, originalName, localName)
+		}
+	}
+
+	return BoolStatus(true)
+}
+
+// importItem imports a single item into the appropriate registry
+// NOTE: Caller must hold state.moduleEnv.mu lock
+func (e *Executor) importItem(state *ExecutionState, moduleName, originalName, localName string, item *ModuleItem) {
+	switch item.Type {
+	case "command":
+		state.moduleEnv.EnsureCommandRegistryEmpty()
+		state.moduleEnv.CommandRegistryModule[localName] = item.Value.(Handler)
+		state.moduleEnv.ImportedFrom[localName] = &ImportMetadata{
+			ModuleName:   moduleName,
+			OriginalName: originalName,
 		}
 
-		return BoolStatus(true)
-	})
+	case "macro":
+		state.moduleEnv.EnsureMacroRegistryEmpty()
+		state.moduleEnv.MacrosModule[localName] = item.Value.(*StoredMacro)
+		state.moduleEnv.ImportedFrom[localName] = &ImportMetadata{
+			ModuleName:   moduleName,
+			OriginalName: originalName,
+		}
+
+	case "object":
+		state.moduleEnv.EnsureObjectRegistryEmpty()
+		state.moduleEnv.ObjectsModule[localName] = item.Value
+		state.moduleEnv.ImportedFrom[localName] = &ImportMetadata{
+			ModuleName:   moduleName,
+			OriginalName: originalName,
+		}
+	}
+}
+
+// handleREMOVE removes items from module registries
+// Usage: REMOVE item1 item2 item3...
+func (e *Executor) handleREMOVE(args []interface{}, state *ExecutionState, position *SourcePosition) Result {
+	if len(args) == 0 {
+		e.logger.CommandError(CatSystem, "REMOVE", "Expected at least 1 argument (item names)", position)
+		return BoolStatus(false)
+	}
+
+	state.moduleEnv.mu.Lock()
+	defer state.moduleEnv.mu.Unlock()
+
+	for _, arg := range args {
+		itemName := fmt.Sprintf("%v", arg)
+
+		// Try to remove from each registry
+		removedFrom := ""
+
+		// Check commands (lock already held by caller)
+		if state.moduleEnv.CommandRegistryModule != nil {
+			if _, exists := state.moduleEnv.CommandRegistryModule[itemName]; exists {
+				delete(state.moduleEnv.CommandRegistryModule, itemName)
+				removedFrom = "commands"
+			}
+		}
+
+		// Check macros (lock already held by caller)
+		if removedFrom == "" && state.moduleEnv.MacrosModule != nil {
+			if _, exists := state.moduleEnv.MacrosModule[itemName]; exists {
+				delete(state.moduleEnv.MacrosModule, itemName)
+				removedFrom = "macros"
+			}
+		}
+
+		// Check objects (lock already held by caller)
+		if removedFrom == "" && state.moduleEnv.ObjectsModule != nil {
+			if _, exists := state.moduleEnv.ObjectsModule[itemName]; exists {
+				delete(state.moduleEnv.ObjectsModule, itemName)
+				removedFrom = "objects"
+			}
+		}
+
+		// Remove from ImportedFrom
+		if removedFrom != "" {
+			delete(state.moduleEnv.ImportedFrom, itemName)
+			e.logger.Debug("REMOVE: Removed \"%s\" from %s", itemName, removedFrom)
+		} else {
+			e.logger.Debug("REMOVE: Item \"%s\" not found (no-op)", itemName)
+		}
+	}
+
+	return BoolStatus(true)
+}
+
+// handleEXPORT exports items to ModuleExports
+// Usage: EXPORT item1 item2 #obj1 item3...
+func (e *Executor) handleEXPORT(args []interface{}, namedArgs map[string]interface{}, state *ExecutionState, position *SourcePosition) Result {
+	if len(args) == 0 {
+		e.logger.CommandError(CatSystem, "EXPORT", "Expected at least 1 argument (item names)", position)
+		return BoolStatus(false)
+	}
+
+	state.moduleEnv.mu.Lock()
+	defer state.moduleEnv.mu.Unlock()
+
+	// Check if MODULE has been called
+	if state.moduleEnv.DefaultName == "" {
+		e.logger.CommandError(CatSystem, "EXPORT", "MODULE must be called before EXPORT", position)
+		return BoolStatus(false)
+	}
+
+	moduleName := state.moduleEnv.DefaultName
+
+	// Ensure module section exists in ModuleExports
+	if state.moduleEnv.ModuleExports[moduleName] == nil {
+		state.moduleEnv.ModuleExports[moduleName] = make(ModuleSection)
+	}
+
+	section := state.moduleEnv.ModuleExports[moduleName]
+
+	for _, arg := range args {
+		itemName := fmt.Sprintf("%v", arg)
+
+		// Check if it's an object export (#-prefixed)
+		if strings.HasPrefix(itemName, "#") {
+			// Export from ObjectsModule
+			objName := itemName // Keep the # prefix
+			var objValue interface{}
+			found := false
+
+			if state.moduleEnv.ObjectsModule != nil {
+				if val, exists := state.moduleEnv.ObjectsModule[objName]; exists {
+					objValue = val
+					found = true
+				}
+			}
+			if !found && state.moduleEnv.ObjectsInherited != nil {
+				if val, exists := state.moduleEnv.ObjectsInherited[objName]; exists {
+					objValue = val
+					found = true
+				}
+			}
+
+			if !found {
+				e.logger.CommandError(CatSystem, "EXPORT", fmt.Sprintf("Object not found: %s", objName), position)
+				return BoolStatus(false)
+			}
+
+			section[objName] = &ModuleItem{
+				Type:  "object",
+				Value: objValue,
+			}
+			e.logger.Debug("EXPORT: Exported object \"%s\" from module \"%s\"", objName, moduleName)
+			continue
+		}
+
+		// Check for macro first
+		if state.moduleEnv.MacrosModule != nil {
+			if macro, exists := state.moduleEnv.MacrosModule[itemName]; exists {
+				section[itemName] = &ModuleItem{
+					Type:  "macro",
+					Value: macro,
+				}
+				e.logger.Debug("EXPORT: Exported macro \"%s\" from module \"%s\"", itemName, moduleName)
+				continue
+			}
+		}
+		if macro, exists := state.moduleEnv.MacrosInherited[itemName]; exists {
+			section[itemName] = &ModuleItem{
+				Type:  "macro",
+				Value: macro,
+			}
+			e.logger.Debug("EXPORT: Exported macro \"%s\" from module \"%s\"", itemName, moduleName)
+			continue
+		}
+
+		// Check for command
+		if state.moduleEnv.CommandRegistryModule != nil {
+			if handler, exists := state.moduleEnv.CommandRegistryModule[itemName]; exists {
+				section[itemName] = &ModuleItem{
+					Type:  "command",
+					Value: handler,
+				}
+				e.logger.Debug("EXPORT: Exported command \"%s\" from module \"%s\"", itemName, moduleName)
+				continue
+			}
+		}
+		if handler, exists := state.moduleEnv.CommandRegistryInherited[itemName]; exists {
+			section[itemName] = &ModuleItem{
+				Type:  "command",
+				Value: handler,
+			}
+			e.logger.Debug("EXPORT: Exported command \"%s\" from module \"%s\"", itemName, moduleName)
+			continue
+		}
+
+		// Not found
+		e.logger.CommandError(CatSystem, "EXPORT", fmt.Sprintf("Item not found: %s", itemName), position)
+		return BoolStatus(false)
+	}
+
+	return BoolStatus(true)
 }

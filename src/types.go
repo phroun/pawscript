@@ -288,6 +288,7 @@ type StoredMacro struct {
 	DefinitionLine   int
 	DefinitionColumn int
 	Timestamp        time.Time
+	ModuleEnv        *ModuleEnvironment // Captured module environment
 }
 
 // NewStoredMacro creates a new StoredMacro
@@ -310,7 +311,15 @@ func NewStoredMacro(commands string, position *SourcePosition) StoredMacro {
 		DefinitionLine:   line,
 		DefinitionColumn: column,
 		Timestamp:        time.Now(),
+		ModuleEnv:        nil, // Will be set by caller
 	}
+}
+
+// NewStoredMacroWithEnv creates a new StoredMacro with captured environment
+func NewStoredMacroWithEnv(commands string, position *SourcePosition, moduleEnv *ModuleEnvironment) StoredMacro {
+	macro := NewStoredMacro(commands, position)
+	macro.ModuleEnv = moduleEnv
+	return macro
 }
 
 // String returns a string representation for debugging

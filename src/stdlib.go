@@ -1474,10 +1474,10 @@ func (ps *PawScript) RegisterStandardLibrary(scriptArgs []string) {
 			RefCount int
 			Size     int
 		}
-		
+
 		var objects []objectInfo
 		totalSize := 0
-		
+
 		ctx.executor.mu.RLock()
 		for id, obj := range ctx.executor.storedObjects {
 			size := estimateObjectSize(obj.Value)
@@ -1490,7 +1490,7 @@ func (ps *PawScript) RegisterStandardLibrary(scriptArgs []string) {
 			totalSize += size
 		}
 		ctx.executor.mu.RUnlock()
-		
+
 		// Sort objects by ID for consistent, readable output
 		for i := 0; i < len(objects)-1; i++ {
 			for j := i + 1; j < len(objects); j++ {
@@ -1499,12 +1499,12 @@ func (ps *PawScript) RegisterStandardLibrary(scriptArgs []string) {
 				}
 			}
 		}
-		
+
 		// Output using simple fmt to avoid creating new objects
 		fmt.Println("=== Memory Statistics ===")
 		fmt.Printf("Total stored objects: %d\n", len(objects))
 		fmt.Printf("Total estimated size: %d bytes\n\n", totalSize)
-		
+
 		if len(objects) > 0 {
 			fmt.Println("ID    Type      RefCount  Size(bytes)")
 			fmt.Println("----  --------  --------  -----------")
@@ -1512,9 +1512,756 @@ func (ps *PawScript) RegisterStandardLibrary(scriptArgs []string) {
 				fmt.Printf("%-4d  %-8s  %-8d  %d\n", obj.ID, obj.Type, obj.RefCount, obj.Size)
 			}
 		}
-		
+
 		return BoolStatus(true)
 	})
+
+	// ==========================================
+	// MACRO AND FIBER COMMANDS
+	// These commands enable macros, channels, and fibers
+	// ==========================================
+
+	// Define macro command
+	ps.RegisterCommand("macro", func(ctx *Context) Result {
+		ps.logger.Debug("macro command called with %d args", len(ctx.Args))
+
+		// Check for anonymous macro: macro (body)
+		// If only 1 arg, create anonymous macro
+		if len(ctx.Args) == 1 {
+			// Anonymous macro: macro (body)
+			commands := fmt.Sprintf("%v", ctx.Args[0])
+			ps.logger.Debug("Creating anonymous macro with commands: %s", commands)
+
+			// Create StoredMacro object
+			macro := NewStoredMacro(commands, ctx.Position)
+
+			// Store it in the executor's object store
+			objectID := ctx.executor.storeObject(macro, "macro")
+
+			// Create a marker for the macro
+			macroMarker := fmt.Sprintf("\x00MACRO:%d\x00", objectID)
+
+			// Set the marker as the result and claim a reference
+			ctx.state.SetResult(Symbol(macroMarker))
+
+			ps.logger.Debug("Created anonymous macro (object %d)", objectID)
+			return BoolStatus(true)
+		}
+
+		// Named macro: macro name, (body)
+		if len(ctx.Args) < 2 {
+			ps.logger.Error("Usage: macro <name>, <commands> OR macro <commands>")
+			return BoolStatus(false)
+		}
+
+		name := fmt.Sprintf("%v", ctx.Args[0])
+		commands := fmt.Sprintf("%v", ctx.Args[1])
+
+		ps.logger.Debug("Defining macro '%s' with commands: %s", name, commands)
+
+		_, result := ps.macroSystem.DefineMacro(name, commands, ctx.Position)
+		if !result {
+			ps.logger.Error("Failed to define macro \"%s\"", name)
+			return BoolStatus(false)
+		}
+
+		// For named macros, don't set a result - they're registered by name
+		// (only anonymous macros return the macro object as a result)
+		ps.logger.Debug("Successfully defined named macro '%s'", name)
+
+		return BoolStatus(true)
+	})
+
+	// Call macro or command
+	ps.RegisterCommand("call", func(ctx *Context) Result {
+		if len(ctx.Args) < 1 {
+			ps.logger.Error("Usage: call <macro_name_or_object>, [args...]")
+			return BoolStatus(false)
+		}
+
+		callArgs := ctx.Args[1:]
+
+		// Create a child state so the called macro/command has its own scope
+		// but can access parent variables via get_parent/set_parent
+		childState := ctx.state.CreateChild()
+
+		firstArg := ctx.Args[0]
+
+		// Check if the first argument is already a resolved StoredCommand object
+		if cmd, ok := firstArg.(StoredCommand); ok {
+			ps.logger.Debug("Calling resolved StoredCommand object: %s", cmd.CommandName)
+
+			// Create a new context for the command with the child state
+			cmdCtx := &Context{
+				Args:      callArgs,
+				NamedArgs: ctx.NamedArgs,
+				Position:  ctx.Position,
+				state:     childState,
+				executor:  ctx.executor,
+				logger:    ctx.logger,
+			}
+
+			// Execute the command handler
+			result := cmd.Handler(cmdCtx)
+
+			// Transfer result to parent state if one was set
+			if childState.HasResult() {
+				ctx.state.SetResult(childState.GetResult())
+			}
+
+			return result
+		}
+
+		// Check if the first argument is already a resolved StoredMacro object
+		if macro, ok := firstArg.(StoredMacro); ok {
+			ps.logger.Debug("Calling resolved StoredMacro object")
+
+			// Execute the stored macro directly
+			return ps.macroSystem.ExecuteStoredMacro(&macro, func(commands string, macroExecState *ExecutionState, substCtx *SubstitutionContext) Result {
+				filename := ""
+				lineOffset := 0
+				columnOffset := 0
+				if substCtx != nil {
+					filename = substCtx.Filename
+					lineOffset = substCtx.CurrentLineOffset
+					columnOffset = substCtx.CurrentColumnOffset
+				}
+				return ps.executor.ExecuteWithState(commands, macroExecState, substCtx, filename, lineOffset, columnOffset)
+			}, callArgs, ctx.NamedArgs, childState, ctx.Position, ctx.state)
+		}
+
+		// Check if the first argument is a marker (Symbol)
+		if sym, ok := firstArg.(Symbol); ok {
+			markerType, objectID := parseObjectMarker(string(sym))
+
+			// Handle StoredCommand marker
+			if markerType == "command" && objectID >= 0 {
+				ps.logger.Debug("Calling StoredCommand via marker (object %d)", objectID)
+
+				// Retrieve the command object
+				obj, exists := ctx.executor.getObject(objectID)
+				if !exists {
+					ps.logger.Error("Command object %d not found", objectID)
+					return BoolStatus(false)
+				}
+
+				cmd, ok := obj.(StoredCommand)
+				if !ok {
+					ps.logger.Error("Object %d is not a StoredCommand", objectID)
+					return BoolStatus(false)
+				}
+
+				// Create a new context for the command with the child state
+				cmdCtx := &Context{
+					Args:      callArgs,
+					NamedArgs: ctx.NamedArgs,
+					Position:  ctx.Position,
+					state:     childState,
+					executor:  ctx.executor,
+					logger:    ctx.logger,
+				}
+
+				// Execute the command handler
+				result := cmd.Handler(cmdCtx)
+
+				// Transfer result to parent state if one was set
+				if childState.HasResult() {
+					ctx.state.SetResult(childState.GetResult())
+				}
+
+				return result
+			}
+
+			// Handle StoredMacro marker
+			if markerType == "macro" && objectID >= 0 {
+				// It's a StoredMacro marker - retrieve and execute it
+				ps.logger.Debug("Calling StoredMacro via marker (object %d)", objectID)
+
+				// Retrieve the macro object
+				obj, exists := ctx.executor.getObject(objectID)
+				if !exists {
+					ps.logger.Error("Macro object %d not found", objectID)
+					return BoolStatus(false)
+				}
+
+				macro, ok := obj.(StoredMacro)
+				if !ok {
+					ps.logger.Error("Object %d is not a StoredMacro", objectID)
+					return BoolStatus(false)
+				}
+
+				// Execute the stored macro directly
+				return ps.macroSystem.ExecuteStoredMacro(&macro, func(commands string, macroExecState *ExecutionState, substCtx *SubstitutionContext) Result {
+					filename := ""
+					lineOffset := 0
+					columnOffset := 0
+					if substCtx != nil {
+						filename = substCtx.Filename
+						lineOffset = substCtx.CurrentLineOffset
+						columnOffset = substCtx.CurrentColumnOffset
+					}
+					return ps.executor.ExecuteWithState(commands, macroExecState, substCtx, filename, lineOffset, columnOffset)
+				}, callArgs, ctx.NamedArgs, childState, ctx.Position, ctx.state)
+			}
+		}
+
+		// Otherwise, treat it as a macro name
+		name := fmt.Sprintf("%v", firstArg)
+		ps.logger.Debug("Calling macro by name: %s", name)
+
+		return ps.macroSystem.ExecuteMacro(name, func(commands string, macroExecState *ExecutionState, substCtx *SubstitutionContext) Result {
+			// Use filename and offsets from substitution context for proper error reporting
+			filename := ""
+			lineOffset := 0
+			columnOffset := 0
+			if substCtx != nil {
+				filename = substCtx.Filename
+				lineOffset = substCtx.CurrentLineOffset
+				columnOffset = substCtx.CurrentColumnOffset
+			}
+			return ps.executor.ExecuteWithState(commands, macroExecState, substCtx, filename, lineOffset, columnOffset)
+		}, callArgs, ctx.NamedArgs, childState, ctx.Position, ctx.state) // Pass parent state
+	})
+
+	// List macros command
+	ps.RegisterCommand("macro_list", func(ctx *Context) Result {
+		macros := ps.macroSystem.ListMacros()
+		ctx.SetResult(fmt.Sprintf("%v", macros))
+		return BoolStatus(true)
+	})
+
+	// Delete macro command
+	ps.RegisterCommand("macro_delete", func(ctx *Context) Result {
+		if len(ctx.Args) < 1 {
+			ctx.LogError(CatCommand, "Usage: macro_delete <macro_name>")
+			return BoolStatus(false)
+		}
+
+		name := fmt.Sprintf("%v", ctx.Args[0])
+		result := ps.macroSystem.DeleteMacro(name)
+
+		if !result {
+			ctx.LogError(CatMacro, fmt.Sprintf("PawScript macro \"%s\" not found or could not be deleted", name))
+		}
+
+		return BoolStatus(result)
+	})
+
+	// Command reference command - get a reference to a built-in or registered command
+	ps.RegisterCommand("command_ref", func(ctx *Context) Result {
+		if len(ctx.Args) < 1 {
+			ps.logger.Error("Usage: command_ref <command_name>")
+			return BoolStatus(false)
+		}
+
+		commandName := fmt.Sprintf("%v", ctx.Args[0])
+		ps.logger.Debug("Getting command reference for: %s", commandName)
+
+		// Get the command handler from the executor
+		handler, exists := ctx.executor.GetCommand(commandName)
+		if !exists {
+			ps.logger.Error("Command \"%s\" not found", commandName)
+			return BoolStatus(false)
+		}
+
+		// Create StoredCommand object
+		cmd := NewStoredCommand(commandName, handler)
+
+		// Store it in the executor's object store
+		objectID := ctx.executor.storeObject(cmd, "command")
+
+		// Create a marker for the command
+		commandMarker := fmt.Sprintf("\x00COMMAND:%d\x00", objectID)
+
+		// Set the marker as the result
+		ctx.state.SetResult(Symbol(commandMarker))
+
+		ps.logger.Debug("Created command reference for '%s' (object %d)", commandName, objectID)
+		return BoolStatus(true)
+	})
+
+	// Channel command - create a native or custom channel
+	ps.RegisterCommand("channel", func(ctx *Context) Result {
+		// Parse arguments for buffer size and custom handlers
+		bufferSize := 0
+		var customSend, customRecv, customClose *StoredMacro
+
+		// Check for buffer size as first positional argument
+		if len(ctx.Args) > 0 {
+			// Try to parse as int
+			if size, ok := ctx.Args[0].(int); ok {
+				bufferSize = size
+			} else if sizeStr, ok := ctx.Args[0].(string); ok {
+				fmt.Sscanf(sizeStr, "%d", &bufferSize)
+			}
+		}
+
+		// Check for custom send/recv/close handlers in named args
+		if sendVal, ok := ctx.NamedArgs["send"]; ok {
+			if macro, ok := sendVal.(StoredMacro); ok {
+				customSend = &macro
+			}
+		}
+		if recvVal, ok := ctx.NamedArgs["recv"]; ok {
+			if macro, ok := recvVal.(StoredMacro); ok {
+				customRecv = &macro
+			}
+		}
+		if closeVal, ok := ctx.NamedArgs["close"]; ok {
+			if macro, ok := closeVal.(StoredMacro); ok {
+				customClose = &macro
+			}
+		}
+
+		// Create channel
+		ch := NewStoredChannel(bufferSize)
+		ch.CustomSend = customSend
+		ch.CustomRecv = customRecv
+		ch.CustomClose = customClose
+
+		// Store in object store
+		objectID := ctx.executor.storeObject(ch, "channel")
+		channelMarker := fmt.Sprintf("\x00CHANNEL:%d\x00", objectID)
+		ctx.state.SetResult(Symbol(channelMarker))
+
+		ps.logger.Debug("Created channel (object %d) with buffer size %d", objectID, bufferSize)
+		return BoolStatus(true)
+	})
+
+	ps.RegisterCommand("channel_subscribe", func(ctx *Context) Result {
+		if len(ctx.Args) < 1 {
+			ps.logger.Error("Usage: channel_subscribe <channel>")
+			return BoolStatus(false)
+		}
+
+		// Get channel from first argument
+		var ch *StoredChannel
+		if channelObj, ok := ctx.Args[0].(*StoredChannel); ok {
+			ch = channelObj
+		} else if sym, ok := ctx.Args[0].(Symbol); ok {
+			markerType, objectID := parseObjectMarker(string(sym))
+			if markerType == "channel" && objectID >= 0 {
+				obj, exists := ctx.executor.getObject(objectID)
+				if !exists {
+					ps.logger.Error("Channel object %d not found", objectID)
+					return BoolStatus(false)
+				}
+				if channelObj, ok := obj.(*StoredChannel); ok {
+					ch = channelObj
+				}
+			}
+		}
+
+		if ch == nil {
+			ps.logger.Error("First argument must be a channel")
+			return BoolStatus(false)
+		}
+
+		// Subscribe to channel
+		subscriber, err := ChannelSubscribe(ch)
+		if err != nil {
+			ps.logger.Error("Failed to subscribe: %v", err)
+			return BoolStatus(false)
+		}
+
+		// Store subscriber in object store
+		objectID := ctx.executor.storeObject(subscriber, "channel")
+		subscriberMarker := fmt.Sprintf("\x00CHANNEL:%d\x00", objectID)
+		ctx.state.SetResult(Symbol(subscriberMarker))
+
+		ps.logger.Debug("Created subscriber %d for channel (object %d)", subscriber.SubscriberID, objectID)
+		return BoolStatus(true)
+	})
+
+	ps.RegisterCommand("channel_send", func(ctx *Context) Result {
+		if len(ctx.Args) < 2 {
+			ps.logger.Error("Usage: channel_send <channel>, <value>")
+			return BoolStatus(false)
+		}
+
+		// Get channel from first argument
+		var ch *StoredChannel
+		if channelObj, ok := ctx.Args[0].(*StoredChannel); ok {
+			ch = channelObj
+		} else if sym, ok := ctx.Args[0].(Symbol); ok {
+			markerType, objectID := parseObjectMarker(string(sym))
+			if markerType == "channel" && objectID >= 0 {
+				obj, exists := ctx.executor.getObject(objectID)
+				if !exists {
+					ps.logger.Error("Channel object %d not found", objectID)
+					return BoolStatus(false)
+				}
+				if channelObj, ok := obj.(*StoredChannel); ok {
+					ch = channelObj
+				}
+			}
+		}
+
+		if ch == nil {
+			ps.logger.Error("First argument must be a channel")
+			return BoolStatus(false)
+		}
+
+		// Send value to channel
+		err := ChannelSend(ch, ctx.Args[1])
+		if err != nil {
+			ps.logger.Error("Failed to send: %v", err)
+			return BoolStatus(false)
+		}
+
+		return BoolStatus(true)
+	})
+
+	ps.RegisterCommand("channel_recv", func(ctx *Context) Result {
+		if len(ctx.Args) < 1 {
+			ps.logger.Error("Usage: channel_recv <channel>")
+			return BoolStatus(false)
+		}
+
+		// Get channel from first argument
+		var ch *StoredChannel
+		if channelObj, ok := ctx.Args[0].(*StoredChannel); ok {
+			ch = channelObj
+		} else if sym, ok := ctx.Args[0].(Symbol); ok {
+			markerType, objectID := parseObjectMarker(string(sym))
+			if markerType == "channel" && objectID >= 0 {
+				obj, exists := ctx.executor.getObject(objectID)
+				if !exists {
+					ps.logger.Error("Channel object %d not found", objectID)
+					return BoolStatus(false)
+				}
+				if channelObj, ok := obj.(*StoredChannel); ok {
+					ch = channelObj
+				}
+			}
+		}
+
+		if ch == nil {
+			ps.logger.Error("First argument must be a channel")
+			return BoolStatus(false)
+		}
+
+		// Receive from channel
+		senderID, value, err := ChannelRecv(ch)
+		if err != nil {
+			ps.logger.Error("Failed to receive: %v", err)
+			return BoolStatus(false)
+		}
+
+		// Return tuple (sender_id, value) as a StoredList
+		tuple := NewStoredList([]interface{}{senderID, value})
+		tupleID := ctx.executor.storeObject(tuple, "list")
+		tupleMarker := fmt.Sprintf("\x00LIST:%d\x00", tupleID)
+		ctx.state.SetResult(Symbol(tupleMarker))
+
+		return BoolStatus(true)
+	})
+
+	ps.RegisterCommand("channel_close", func(ctx *Context) Result {
+		if len(ctx.Args) < 1 {
+			ps.logger.Error("Usage: channel_close <channel>")
+			return BoolStatus(false)
+		}
+
+		// Get channel from first argument
+		var ch *StoredChannel
+		if channelObj, ok := ctx.Args[0].(*StoredChannel); ok {
+			ch = channelObj
+		} else if sym, ok := ctx.Args[0].(Symbol); ok {
+			markerType, objectID := parseObjectMarker(string(sym))
+			if markerType == "channel" && objectID >= 0 {
+				obj, exists := ctx.executor.getObject(objectID)
+				if !exists {
+					ps.logger.Error("Channel object %d not found", objectID)
+					return BoolStatus(false)
+				}
+				if channelObj, ok := obj.(*StoredChannel); ok {
+					ch = channelObj
+				}
+			}
+		}
+
+		if ch == nil {
+			ps.logger.Error("First argument must be a channel")
+			return BoolStatus(false)
+		}
+
+		// Close channel
+		err := ChannelClose(ch)
+		if err != nil {
+			ps.logger.Error("Failed to close: %v", err)
+			return BoolStatus(false)
+		}
+
+		return BoolStatus(true)
+	})
+
+	ps.RegisterCommand("channel_disconnect", func(ctx *Context) Result {
+		if len(ctx.Args) < 2 {
+			ps.logger.Error("Usage: channel_disconnect <channel>, <subscriber_id>")
+			return BoolStatus(false)
+		}
+
+		// Get channel from first argument
+		var ch *StoredChannel
+		if channelObj, ok := ctx.Args[0].(*StoredChannel); ok {
+			ch = channelObj
+		} else if sym, ok := ctx.Args[0].(Symbol); ok {
+			markerType, objectID := parseObjectMarker(string(sym))
+			if markerType == "channel" && objectID >= 0 {
+				obj, exists := ctx.executor.getObject(objectID)
+				if !exists {
+					ps.logger.Error("Channel object %d not found", objectID)
+					return BoolStatus(false)
+				}
+				if channelObj, ok := obj.(*StoredChannel); ok {
+					ch = channelObj
+				}
+			}
+		}
+
+		if ch == nil {
+			ps.logger.Error("First argument must be a channel")
+			return BoolStatus(false)
+		}
+
+		// Parse subscriber ID
+		subscriberID := 0
+		if id, ok := ctx.Args[1].(int); ok {
+			subscriberID = id
+		} else if idStr, ok := ctx.Args[1].(string); ok {
+			fmt.Sscanf(idStr, "%d", &subscriberID)
+		}
+
+		// Disconnect subscriber
+		err := ChannelDisconnect(ch, subscriberID)
+		if err != nil {
+			ps.logger.Error("Failed to disconnect: %v", err)
+			return BoolStatus(false)
+		}
+
+		return BoolStatus(true)
+	})
+
+	ps.RegisterCommand("channel_opened", func(ctx *Context) Result {
+		if len(ctx.Args) < 1 {
+			ps.logger.Error("Usage: channel_opened <channel>")
+			return BoolStatus(false)
+		}
+
+		// Get channel from first argument
+		var ch *StoredChannel
+		if channelObj, ok := ctx.Args[0].(*StoredChannel); ok {
+			ch = channelObj
+		} else if sym, ok := ctx.Args[0].(Symbol); ok {
+			markerType, objectID := parseObjectMarker(string(sym))
+			if markerType == "channel" && objectID >= 0 {
+				obj, exists := ctx.executor.getObject(objectID)
+				if !exists {
+					ps.logger.Error("Channel object %d not found", objectID)
+					return BoolStatus(false)
+				}
+				if channelObj, ok := obj.(*StoredChannel); ok {
+					ch = channelObj
+				}
+			}
+		}
+
+		if ch == nil {
+			ps.logger.Error("First argument must be a channel")
+			return BoolStatus(false)
+		}
+
+		// Check if opened
+		opened := ChannelIsOpened(ch)
+		ctx.state.SetResult(opened)
+
+		return BoolStatus(true)
+	})
+
+	ps.RegisterCommand("system_channel", func(ctx *Context) Result {
+		if len(ctx.Args) < 1 {
+			ps.logger.Error("Usage: system_channel <name>")
+			ps.logger.Error("  Available: stdin, stdout, stderr, stdio")
+			return BoolStatus(false)
+		}
+
+		channelType := fmt.Sprintf("%v", ctx.Args[0])
+
+		// Create channel with custom handlers based on type
+		ch := NewStoredChannel(0) // Unbuffered for I/O
+
+		switch channelType {
+		case "stdin":
+			// Read-only channel from stdin
+			ch.CustomRecv = &StoredMacro{
+				Commands: "# Read from stdin",
+			}
+			// Send should error
+			ch.CustomSend = &StoredMacro{
+				Commands: "# Cannot send to stdin",
+			}
+
+		case "stdout":
+			// Write-only channel to stdout
+			ch.CustomSend = &StoredMacro{
+				Commands: "# Write to stdout",
+			}
+			// Recv should error
+			ch.CustomRecv = &StoredMacro{
+				Commands: "# Cannot read from stdout",
+			}
+
+		case "stderr":
+			// Write-only channel to stderr
+			ch.CustomSend = &StoredMacro{
+				Commands: "# Write to stderr",
+			}
+			// Recv should error
+			ch.CustomRecv = &StoredMacro{
+				Commands: "# Cannot read from stderr",
+			}
+
+		case "stdio":
+			// Bidirectional: read from stdin, write to stdout
+			ch.CustomRecv = &StoredMacro{
+				Commands: "# Read from stdin",
+			}
+			ch.CustomSend = &StoredMacro{
+				Commands: "# Write to stdout",
+			}
+
+		default:
+			ps.logger.Error("Unknown system channel type: %s", channelType)
+			ps.logger.Error("  Available: stdin, stdout, stderr, stdio")
+			return BoolStatus(false)
+		}
+
+		// Store in object store
+		objectID := ctx.executor.storeObject(ch, "channel")
+		channelMarker := fmt.Sprintf("\x00CHANNEL:%d\x00", objectID)
+		ctx.state.SetResult(Symbol(channelMarker))
+
+		ps.logger.Debug("Created system channel '%s' (object %d)", channelType, objectID)
+		return BoolStatus(true)
+	})
+
+	// Fiber commands
+	ps.RegisterCommand("fiber_spawn", func(ctx *Context) Result {
+		if len(ctx.Args) < 1 {
+			ps.logger.Error("Usage: fiber_spawn <macro>, [args...]")
+			return BoolStatus(false)
+		}
+
+		firstArg := ctx.Args[0]
+		fiberArgs := ctx.Args[1:]
+		namedArgs := ctx.NamedArgs
+
+		// Get the macro to execute
+		var macro *StoredMacro
+
+		// Check if first argument is a resolved StoredMacro object
+		if m, ok := firstArg.(StoredMacro); ok {
+			macro = &m
+		} else if sym, ok := firstArg.(Symbol); ok {
+			markerType, objectID := parseObjectMarker(string(sym))
+			if markerType == "macro" && objectID >= 0 {
+				obj, exists := ctx.executor.getObject(objectID)
+				if !exists {
+					ps.logger.Error("Macro object %d not found", objectID)
+					return BoolStatus(false)
+				}
+				if m, ok := obj.(StoredMacro); ok {
+					macro = &m
+				}
+			}
+		}
+
+		if macro == nil {
+			ps.logger.Error("First argument must be a macro")
+			return BoolStatus(false)
+		}
+
+		// Spawn the fiber
+		handle := ctx.executor.SpawnFiber(macro, ps.macroSystem, fiberArgs, namedArgs)
+
+		// Store the fiber handle as an object
+		objectID := ctx.executor.storeObject(handle, "fiber")
+		fiberMarker := fmt.Sprintf("\x00FIBER:%d\x00", objectID)
+		ctx.state.SetResult(Symbol(fiberMarker))
+
+		ps.logger.Debug("Spawned fiber %d (object %d)", handle.ID, objectID)
+		return BoolStatus(true)
+	})
+
+	ps.RegisterCommand("fiber_wait", func(ctx *Context) Result {
+		if len(ctx.Args) < 1 {
+			ps.logger.Error("Usage: fiber_wait <fiber_handle>")
+			return BoolStatus(false)
+		}
+
+		var handle *FiberHandle
+		if h, ok := ctx.Args[0].(*FiberHandle); ok {
+			handle = h
+		} else if sym, ok := ctx.Args[0].(Symbol); ok {
+			markerType, objectID := parseObjectMarker(string(sym))
+			if markerType == "fiber" && objectID >= 0 {
+				obj, exists := ctx.executor.getObject(objectID)
+				if !exists {
+					ps.logger.Error("Fiber object %d not found", objectID)
+					return BoolStatus(false)
+				}
+				if h, ok := obj.(*FiberHandle); ok {
+					handle = h
+				}
+			}
+		}
+
+		if handle == nil {
+			ps.logger.Error("First argument must be a fiber handle")
+			return BoolStatus(false)
+		}
+
+		result, err := ctx.executor.WaitForFiber(handle)
+		if err != nil {
+			ps.logger.Error("Failed to wait for fiber: %v", err)
+			return BoolStatus(false)
+		}
+
+		if result != nil {
+			ctx.state.SetResult(result)
+		}
+
+		return BoolStatus(true)
+	})
+
+	ps.RegisterCommand("fiber_count", func(ctx *Context) Result {
+		count := ctx.executor.GetFiberCount()
+		ctx.state.SetResult(count)
+		return BoolStatus(true)
+	})
+
+	ps.RegisterCommand("fiber_id", func(ctx *Context) Result {
+		fiberID := ctx.state.fiberID
+		ctx.state.SetResult(fiberID)
+		return BoolStatus(true)
+	})
+
+	ps.RegisterCommand("fiber_wait_all", func(ctx *Context) Result {
+		// Wait for all child fibers to complete
+		ctx.executor.WaitForAllFibers()
+		return BoolStatus(true)
+	})
+
+	// Clear all macros command
+	ps.RegisterCommand("macro_clear", func(ctx *Context) Result {
+		count := ps.macroSystem.ClearMacros()
+		ctx.SetResult(fmt.Sprintf("Cleared %d PawScript macros", count))
+		return BoolStatus(true)
+	})
+
+	// Populate module system with stdlib commands organized into modules
+	ps.rootModuleEnv.PopulateStdlibModules()
 }
 
 // estimateObjectSize provides a rough estimate of object size in bytes

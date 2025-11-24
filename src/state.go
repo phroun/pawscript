@@ -13,9 +13,10 @@ type ExecutionState struct {
 	hasResult     bool
 	lastStatus    bool // Tracks the status (success/failure) of the last command
 	variables     map[string]interface{}
-	ownedObjects  map[int]int // Count of references this state owns for each object ID
-	executor      *Executor   // Reference to executor for object management
-	fiberID       int         // ID of the fiber this state belongs to (0 for main)
+	ownedObjects  map[int]int          // Count of references this state owns for each object ID
+	executor      *Executor            // Reference to executor for object management
+	fiberID       int                  // ID of the fiber this state belongs to (0 for main)
+	moduleEnv     *ModuleEnvironment   // Module environment for this state
 }
 
 // NewExecutionState creates a new execution state
@@ -25,8 +26,9 @@ func NewExecutionState() *ExecutionState {
 		lastStatus:   true, // Default to success
 		variables:    make(map[string]interface{}),
 		ownedObjects: make(map[int]int),
-		executor:     nil, // Will be set when attached to executor
-		fiberID:      0,   // Main fiber
+		executor:     nil,                 // Will be set when attached to executor
+		fiberID:      0,                   // Main fiber
+		moduleEnv:    NewModuleEnvironment(), // Create new module environment
 	}
 }
 
@@ -37,13 +39,14 @@ func NewExecutionStateFrom(parent *ExecutionState) *ExecutionState {
 	}
 
 	return &ExecutionState{
-		currentResult: nil,                  // Fresh result storage for this child
-		hasResult:     false,                // Child starts with no result
-		lastStatus:    true,                 // Child starts with success status
-		variables:     make(map[string]interface{}), // Create fresh map
-		ownedObjects:  make(map[int]int),    // Fresh owned objects counter
-		executor:      parent.executor,      // Share executor reference
-		fiberID:       parent.fiberID,       // Inherit fiber ID
+		currentResult: nil,                             // Fresh result storage for this child
+		hasResult:     false,                           // Child starts with no result
+		lastStatus:    true,                            // Child starts with success status
+		variables:     make(map[string]interface{}),    // Create fresh map
+		ownedObjects:  make(map[int]int),               // Fresh owned objects counter
+		executor:      parent.executor,                 // Share executor reference
+		fiberID:       parent.fiberID,                  // Inherit fiber ID
+		moduleEnv:     NewChildModuleEnvironment(parent.moduleEnv), // Create child module environment
 	}
 }
 
@@ -65,6 +68,7 @@ func NewExecutionStateFromSharedVars(parent *ExecutionState) *ExecutionState {
 		ownedObjects:  make(map[int]int),    // Fresh owned objects counter (will clean up separately)
 		executor:      parent.executor,      // Share executor reference
 		fiberID:       parent.fiberID,       // Inherit fiber ID
+		moduleEnv:     parent.moduleEnv,     // Share module environment with parent
 	}
 }
 
