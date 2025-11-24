@@ -98,7 +98,7 @@ func NewChildModuleEnvironment(parent *ModuleEnvironment) *ModuleEnvironment {
 		MacrosModule:             nil, // nil = use inherited
 		ObjectsInherited:         getEffectiveObjectRegistry(parent),
 		ObjectsModule:            nil, // nil = use inherited
-		ModuleExports:            parent.ModuleExports, // Share exports (pass by reference)
+		ModuleExports:            make(Library), // Start blank - caller merges after execution
 		ImportedFrom:             make(map[string]*ImportMetadata),
 		libraryRestrictedCopied:  false,
 		commandsModuleCopied:     false,
@@ -111,7 +111,7 @@ func NewChildModuleEnvironment(parent *ModuleEnvironment) *ModuleEnvironment {
 // This captures the current state with copy-on-write isolation:
 // - Inherited layers point to parent's current Module layers
 // - Module layers share the same reference (COW ensures isolation on modification)
-// - ModuleExports is shared by reference
+// - ModuleExports starts blank; caller merges exports into their LibraryInherited after execution
 func NewMacroModuleEnvironment(parent *ModuleEnvironment) *ModuleEnvironment {
 	parent.mu.RLock()
 	defer parent.mu.RUnlock()
@@ -145,8 +145,8 @@ func NewMacroModuleEnvironment(parent *ModuleEnvironment) *ModuleEnvironment {
 		ObjectsInherited: effectiveObjects,
 		ObjectsModule:    effectiveObjects,
 
-		// ModuleExports is shared by reference
-		ModuleExports: parent.ModuleExports,
+		// ModuleExports starts blank - caller merges into their LibraryInherited after execution
+		ModuleExports: make(Library),
 
 		// Fresh import metadata for this macro
 		ImportedFrom: make(map[string]*ImportMetadata),
