@@ -1,0 +1,23 @@
+=== Test 1: Get reference to print command ===
+Hello via command reference
+
+=== Test 2: Get reference to echo command ===
+Echo via command reference
+
+=== Test 3: Call add via command reference ===
+10 + 20 = 30
+
+=== Test 4: Call mul via command reference ===
+7 * 8 = 56
+
+=== Test 5: Direct command_ref call in brace ===
+100 - 25 = 75
+
+=== Test 6: Command ref with set_result ===
+Result: value_from_command_ref
+
+=== Test 7: Store multiple command references ===
+Stored 3 command references
+
+=== Test 8: Command ref to macro command ===
+Got reference to macro command

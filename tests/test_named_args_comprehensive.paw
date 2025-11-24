@@ -1,0 +1,60 @@
+#!/usr/bin/env pawscript
+
+echo "=== Test 1: Basic named arguments ==="
+basic: {list 1, 2, 3, x: 10}
+echo ~basic
+echo "Len: {len ~basic}"
+
+echo ""
+echo "=== Test 2: Append preserves named args ==="
+appended: {append ~basic, 4}
+echo ~appended
+echo "Len: {len ~appended}"
+
+echo ""
+echo "=== Test 3: Prepend preserves named args ==="
+prepended: {prepend ~basic, 0}
+echo ~prepended
+echo "Len: {len ~prepended}"
+
+echo ""
+echo "=== Test 4: Slice preserves named args ==="
+sliced: {slice ~basic, 0, 2}
+echo ~sliced
+echo "Len: {len ~sliced}"
+
+echo ""
+echo "=== Test 5: Compact preserves named args ==="
+compacted: {compact ~basic}
+echo ~compacted
+echo "Len: {len ~compacted}"
+
+echo ""
+echo "=== Test 6: Concat merges named args ==="
+list1: {list a, b, x: 1, y: 2}
+list2: {list c, d, y: 20, z: 30}
+concatenated: {concat ~list1, ~list2}
+echo ~concatenated
+echo "Len: {len ~concatenated}"
+
+echo ""
+echo "=== Test 7: Multiple colons in one list ==="
+multi: {list pos1, key1: val1, pos2, key2: val2, pos3}
+echo ~multi
+echo "Len: {len ~multi}"
+
+echo ""
+echo "=== Test 8: Empty list with only named args ==="
+named_only: {list x: 100, y: 200}
+echo ~named_only
+echo "Len: {len ~named_only}"
+
+echo ""
+echo "=== Test 9: Quoted keys and values ==="
+quoted: {list "name": "John", "age": 30}
+echo ~quoted
+
+echo ""
+echo "=== Test 10: Numeric and symbol keys ==="
+mixed_keys: {list 1: "one", abc: "alphabet"}
+echo ~mixed_keys

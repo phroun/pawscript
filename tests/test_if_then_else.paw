@@ -37,30 +37,30 @@ echo ""
 
 # Test 5: If with comparison results
 echo "Test 5: If with comparisons"
-set x, 10
-set y, 5
+x: 10
+y: 5
 
-if {gt {get x}, {get y}} then (
-    echo "  x ({get x}) > y ({get y})"
+if {gt ~x, ~y} then (
+    echo "  x (~x) > y (~y)"
 ) else (
     echo "  x <= y"
 )
 
-if {eq {get x}, {get y}} then (
+if {eq ~x, ~y} then (
     echo "  x == y"
 ) else (
-    echo "  x ({get x}) != y ({get y})"
+    echo "  x (~x) != y (~y)"
 )
 echo ""
 
 # Test 6: Nested if statements
 echo "Test 6: Nested if statements"
-set role, "admin"
-set active, true
+role: "admin"
+active: true
 
-if {eq {get role}, "admin"} then (
+if {eq ~role, "admin"} then (
     echo "  User is admin";
-    if {get active} then (
+    if ~active then (
         echo "    And user is active"
     ) else (
         echo "    But user is inactive"
@@ -72,62 +72,62 @@ echo ""
 
 # Test 7: Word boundary test - "then" inside another word
 echo "Test 7: Word boundary test"
-set athena, "goddess"
-echo "athena = {get athena}"
+athena: "goddess"
+echo "athena = ~athena"
 # This should work - "then" is part of "athena", not a keyword
 echo ""
 
 # Test 8: Complex workflow with if/then/else
 echo "Test 8: Complex workflow"
-set score, 95
+score: 95
 
-if {gt {get score}, 90} then (
-    set grade, "A";
-    set message, "Excellent!"
+if {gt ~score, 90} then (
+    grade: "A";
+    message: "Excellent!"
 ) else (
-    if {gt {get score}, 80} then (
-        set grade, "B";
-        set message, "Good job!"
+    if {gt ~score, 80} then (
+        grade: "B";
+        message: "Good job!"
     ) else (
-        set grade, "C";
-        set message, "Keep trying!"
+        grade: "C";
+        message: "Keep trying!"
     )
 )
 
-echo "  Score: {get score}"
-echo "  Grade: {get grade}"
-echo "  Message: {get message}"
+echo "  Score: ~score"
+echo "  Grade: ~grade"
+echo "  Message: ~message"
 echo ""
 
 # Test 9: If with while loop
 echo "Test 9: If with while loop"
-set counter, 0
-while (lt {get counter}, 3), (
-    if {eq {get counter}, 1} then (
+counter: 0
+while (lt ~counter, 3), (
+    if {eq ~counter, 1} then (
         echo "  Counter is 1 - special case!"
     ) else (
-        echo "  Counter is {get counter}"
+        echo "  Counter is ~counter"
     );
-    set counter, {add {get counter}, 1}
+    counter: {add ~counter, 1}
 )
 echo ""
 
 # Test 10: Setting variables based on conditions
 echo "Test 10: Conditional variable assignment"
-set authenticated, false
-set username, "admin"
+authenticated: false
+username: "admin"
 
-if {eq {get username}, "admin"} then (
-    set authenticated, true;
-    set accessLevel, "full"
+if {eq ~username, "admin"} then (
+    authenticated: true;
+    accessLevel: "full"
 ) else (
-    set authenticated, false;
-    set accessLevel, "limited"
+    authenticated: false;
+    accessLevel: "limited"
 )
 
-echo "  Username: {get username}"
-echo "  Authenticated: {get authenticated}"
-echo "  Access Level: {get accessLevel}"
+echo "  Username: ~username"
+echo "  Authenticated: ~authenticated"
+echo "  Access Level: ~accessLevel"
 echo ""
 
 echo "=== All If/Then/Else Tests Complete ==="

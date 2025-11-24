@@ -10,68 +10,95 @@ Expected: 0 objects
 Test 2: Macro that returns a list
 After calling macro that returns list:
 === Memory Statistics ===
-Total stored objects: 1
-Total estimated size: 87 bytes
+Total stored objects: 2
+Total estimated size: 119 bytes
 
 ID    Type      RefCount  Size(bytes)
 ----  --------  --------  -----------
-2     list      1         87
+1     macro     1         32
+3     list      1         87
 Expected: 1 list with refcount=1 (owned by parent's result)
 
 Test 3: Clear result
 After clearing result:
 === Memory Statistics ===
-Total stored objects: 0
-Total estimated size: 0 bytes
+Total stored objects: 1
+Total estimated size: 32 bytes
 
+ID    Type      RefCount  Size(bytes)
+----  --------  --------  -----------
+1     macro     1         32
 Expected: 0 lists (should be freed)
 
 Test 4: Macro that returns nested list
 After calling macro that returns nested list:
 === Memory Statistics ===
-Total stored objects: 2
-Total estimated size: 133 bytes
+Total stored objects: 4
+Total estimated size: 197 bytes
 
 ID    Type      RefCount  Size(bytes)
 ----  --------  --------  -----------
-4     list      1         51
-5     list      1         82
+1     macro     1         32
+4     macro     1         32
+6     list      1         51
+7     list      1         82
 Expected: 2 lists (inner and outer, both owned by parent's result)
 
 Test 5: Clear result again
 After clearing result:
 === Memory Statistics ===
-Total stored objects: 0
-Total estimated size: 0 bytes
+Total stored objects: 2
+Total estimated size: 64 bytes
 
+ID    Type      RefCount  Size(bytes)
+----  --------  --------  -----------
+1     macro     1         32
+4     macro     1         32
 Expected: 0 lists (both freed via cascade cleanup)
 
 Test 6: Macro called from another macro
 Inner macro returned, result is: (inner_result)
 After nested macro calls:
 === Memory Statistics ===
-Total stored objects: 2
-Total estimated size: 138 bytes
+Total stored objects: 6
+Total estimated size: 266 bytes
 
 ID    Type      RefCount  Size(bytes)
 ----  --------  --------  -----------
-8     list      1         52
-9     list      1         86
+1     macro     1         32
+4     macro     1         32
+8     macro     1         32
+9     macro     1         32
+12    list      1         52
+13    list      1         86
 Expected: 2 lists (inner from inner_macro, outer containing reference to inner)
 
 Test 7: Clear final result
 === Memory Statistics ===
-Total stored objects: 0
-Total estimated size: 0 bytes
+Total stored objects: 4
+Total estimated size: 128 bytes
 
+ID    Type      RefCount  Size(bytes)
+----  --------  --------  -----------
+1     macro     1         32
+4     macro     1         32
+8     macro     1         32
+9     macro     1         32
 Expected: 0 lists
 
 Test 8: Loop creating many lists via macro
 After creating and clearing 10 lists via macro:
 === Memory Statistics ===
-Total stored objects: 0
-Total estimated size: 0 bytes
+Total stored objects: 5
+Total estimated size: 160 bytes
 
+ID    Type      RefCount  Size(bytes)
+----  --------  --------  -----------
+1     macro     1         32
+4     macro     1         32
+8     macro     1         32
+9     macro     1         32
+14    macro     1         32
 Expected: 0 lists (no leaks from repeated macro calls)
 
 === Test Complete ===

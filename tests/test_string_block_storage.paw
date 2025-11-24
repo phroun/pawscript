@@ -5,51 +5,51 @@ echo "=== String/Block Storage Test ==="
 echo ""
 
 echo "Test 1: Small string (under 200 chars) - should NOT be stored"
-set small_str, "This is a small string that is under the 200 character threshold for automatic storage as an object reference"
+small_str: "This is a small string that is under the 200 character threshold for automatic storage as an object reference"
 mem_stats
 echo "Expected: 0 objects (small string stays inline)"
 echo ""
 
 echo "Test 2: Large string (over 200 chars) - should be stored"
-set large_str, "This is a very large string that exceeds the 200 character threshold for automatic storage. It contains enough text to trigger the storage mechanism which will convert it into a stored object with a reference marker. This way we avoid copying large strings around and save memory."
+large_str: "This is a very large string that exceeds the 200 character threshold for automatic storage. It contains enough text to trigger the storage mechanism which will convert it into a stored object with a reference marker. This way we avoid copying large strings around and save memory."
 mem_stats
 echo "Expected: 1 object (type: string, refcount: 1)"
 echo ""
 
 echo "Test 3: Clear large string"
-set large_str, nil
+large_str: nil
 mem_stats
 echo "Expected: 0 objects (should be freed)"
 echo ""
 
 echo "Test 4: Small block (under 500 chars) - should NOT be stored"
-set small_block, (echo "This is a small code block"; echo "It has a few commands"; echo "But stays under 500 characters total")
+small_block: (echo "This is a small code block"; echo "It has a few commands"; echo "But stays under 500 characters total")
 mem_stats
 echo "Expected: 0 objects (small block stays inline)"
 echo ""
 
 echo "Test 5: Large block (over 500 chars) - should be stored"
-set large_block, (echo "This is a very large code block that exceeds the 500 character threshold"; echo "It contains many commands"; echo "Each command adds to the total size"; echo "When the total exceeds 500 characters"; echo "The block is automatically stored as an object"; echo "This saves memory by avoiding copying"; echo "The block is accessed by reference"; echo "Only when executed is the actual code retrieved"; echo "This is especially useful for large macro definitions"; echo "Or complex code blocks that are passed around"; echo "But not immediately executed")
+large_block: (echo "This is a very large code block that exceeds the 500 character threshold"; echo "It contains many commands"; echo "Each command adds to the total size"; echo "When the total exceeds 500 characters"; echo "The block is automatically stored as an object"; echo "This saves memory by avoiding copying"; echo "The block is accessed by reference"; echo "Only when executed is the actual code retrieved"; echo "This is especially useful for large macro definitions"; echo "Or complex code blocks that are passed around"; echo "But not immediately executed")
 mem_stats
 echo "Expected: 1 object (type: block, refcount: 1)"
 echo ""
 
 echo "Test 6: Clear large block"
-set large_block, nil
+large_block: nil
 mem_stats
 echo "Expected: 0 objects (should be freed)"
 echo ""
 
 echo "Test 7: Multiple large strings"
-set str1, "First large string that exceeds the 200 character threshold. It contains enough text to trigger automatic storage as an object reference. This allows efficient memory management for large text values in PawScript programs."
-set str2, "Second large string that also exceeds the 200 character threshold. Each large string gets its own storage slot with proper reference counting. This ensures memory is managed correctly even with multiple large values."
+str1: "First large string that exceeds the 200 character threshold. It contains enough text to trigger automatic storage as an object reference. This allows efficient memory management for large text values in PawScript programs."
+str2: "Second large string that also exceeds the 200 character threshold. Each large string gets its own storage slot with proper reference counting. This ensures memory is managed correctly even with multiple large values."
 mem_stats
 echo "Expected: 2 objects (both type: string, both refcount: 1)"
 echo ""
 
 echo "Test 8: Clear all large strings"
-set str1, nil
-set str2, nil
+str1: nil
+str2: nil
 mem_stats
 echo "Expected: 0 objects (all freed)"
 echo ""
@@ -67,17 +67,17 @@ echo "Expected: 0 objects (should be freed)"
 echo ""
 
 echo "Test 11: String operations with stored strings"
-set large_text, "This is a large text string that will be stored as an object reference due to its length exceeding 200 characters. The string operations should still work correctly by resolving the reference automatically before performing operations like uppercase conversion."
-set upper, {str_upper {get large_text}}
-echo "Upper length: {len {get upper}}"
+large_text: "This is a large text string that will be stored as an object reference due to its length exceeding 200 characters. The string operations should still work correctly by resolving the reference automatically before performing operations like uppercase conversion."
+upper: {str_upper ~large_text}
+echo "Upper length: {len ~upper}"
 echo "Expected: length > 200 (operations work on stored strings)"
 mem_stats
 echo "Expected: 2 objects (original + uppercase result)"
 echo ""
 
 echo "Test 12: Clean up"
-set large_text, nil
-set upper, nil
+large_text: nil
+upper: nil
 mem_stats
 echo "Expected: 0 objects"
 echo ""

@@ -5,65 +5,65 @@ echo ""
 
 # Test 1: Basic variable set and get
 echo "Test 1: Basic variables"
-set name, "Alice"
-set age, 30
-set age, {add {get age}, 1}
-gt {get age}, 30
+name: "Alice"
+age: 30
+age: {add ~age, 1}
+gt ~age, 30
 then {
    echo "Alice is old!"
 }
-lt {get age}, 20
+lt ~age, 20
 then {
    echo "Alice is too young."
 } else {
    echo "But, she's fine"
 }
-echo "Name: {get name}"
-echo "Age: {get age}"
+echo "Name: ~name"
+echo "Age: ~age"
 echo ""
 
 # Test 2: Parenthesis blocks share scope
 echo "Test 2: Parenthesis blocks (same scope)"
-set counter, 0
+counter: 0
 (
-    set counter, 5;
-    echo "Inside block, counter = {get counter}"
+    counter: 5;
+    echo "Inside block, counter = ~counter"
 )
-echo "Outside block, counter = {get counter}"
+echo "Outside block, counter = ~counter"
 echo "Expected: counter should be 5 both inside and outside"
 echo ""
 
 # Test 3: Variables in brace expressions (same scope now)
 echo "Test 3: Braces and variables"
-set x, 10
-set doubled, {
-    set temp, {mul {get x}, 2};
-    get temp
+x: 10
+doubled: {
+    temp: {mul ~x, 2};
+    ret ~temp
 }
-echo "x = {get x}"
-echo "doubled = {get doubled}"
-echo "temp = {get temp}"
+echo "x = ~x"
+echo "doubled = ~doubled"
+echo "temp = ~temp"
 echo "Expected: x=10, doubled=20, temp=20 (all accessible)"
 echo ""
 
 # Test 4: While loop basic
 echo "Test 4: Basic while loop"
-set i, 0
-while (lt {get i}, 5), (
-    echo "  Loop iteration {get i}";
-    set i, {add {get i}, 1}
+i: 0
+while (lt ~i, 5), (
+    echo "  Loop iteration ~i";
+    i: {add ~i, 1}
 )
-echo "After loop, i = {get i}"
+echo "After loop, i = ~i"
 echo "Expected: printed 0,1,2,3,4 and i=5"
 echo ""
 
 # Test 5: While loop result value
 echo "Test 5: While loop result value"
-set count, 0
+count: 0
 set_result "initial"
-while (lt {get count}, 3), (
-    set count, {add {get count}, 1};
-    set_result {get count}
+while (lt ~count, 3), (
+    count: {add ~count, 1};
+    set_result ~count
 )
 echo "Result after while: {get_result}"
 echo "Expected: 3"
@@ -81,14 +81,14 @@ echo ""
 
 # Test 7: Nested while loops
 echo "Test 7: Nested while loops"
-set outer, 0
-while (lt {get outer}, 3), (
-    set inner, 0;
-    while (lt {get inner}, 2), (
-        echo "  outer={get outer}, inner={get inner}";
-        set inner, {add {get inner}, 1}
+outer: 0
+while (lt ~outer, 3), (
+    inner: 0;
+    while (lt ~inner, 2), (
+        echo "  outer=~outer, inner=~inner";
+        inner: {add ~inner, 1}
     );
-    set outer, {add {get outer}, 1}
+    outer: {add ~outer, 1}
 )
 echo "Expected: outer 0,1,2 each with inner 0,1"
 echo ""

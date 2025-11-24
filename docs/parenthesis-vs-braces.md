@@ -27,50 +27,50 @@ Parentheses group content as data, protecting it from interpretation.
 
 1. **Comments are removed**:
    ```pawscript
-   set a, (code # comment)
+   a: (code # comment)
    # Stores: "code "
    ```
 
 2. **Keywords are preserved**:
    ```pawscript
-   set a, (if x then y else z)
+   a: (if x then y else z)
    # Stores: "if x then y else z"
    ```
 
 3. **Escape sequences are kept literal**:
    ```pawscript
-   set a, (hello\nworld)
+   a: (hello\nworld)
    # Stores: "hello\nworld" (literal backslash-n, NOT a newline)
    ```
 
 4. **Outer parens are stripped**:
    ```pawscript
-   set a, (content)
+   a: (content)
    # Stores: "content" (without the parens)
    ```
 
 5. **Nested structure is preserved**:
    ```pawscript
-   set a, (outer (inner) more)
+   a: (outer (inner) more)
    # Stores: "outer (inner) more"
    ```
 
 6. **Quotes inside are preserved**:
    ```pawscript
-   set a, (say "hello")
+   a: (say "hello")
    # Stores: "say "hello"" (quotes kept)
    ```
 
 7. **Braces inside are preserved** (NOT evaluated):
    ```pawscript
-   set a, (code {with braces})
+   a: (code {with braces})
    # Stores: "code {with braces}" (literal braces, not evaluated)
    ```
 
 ### Example: Full Pipeline
 
 ```pawscript
-set code, (if true then #( comment )# echo "yes\n" else echo "no")
+code: (if true then #( comment )# echo "yes\n" else echo "no")
 
 # Step 1: Comment removal
 # Result: (if true then  echo "yes\n" else echo "no")
@@ -120,10 +120,10 @@ Braces trigger **immediate evaluation** during the substitution phase, which hap
 
 3. **Result replaces the entire brace expression**:
    ```pawscript
-   set a, {set_result computed}
+   a: {set_result computed}
    # Executes: set_result computed
    # Result: "computed"
-   # Substitutes: set a, computed
+   # Substitutes: a: computed
    # Stores: "computed" (not "{set_result computed}")
    ```
 
@@ -141,7 +141,7 @@ Braces trigger **immediate evaluation** during the substitution phase, which hap
 **Braces at top level (outside parens/quotes):** Evaluated immediately
 
 ```pawscript
-set a, {set_result test}
+a: {set_result test}
 # Brace at top level → Evaluated
 # Executes: set_result test
 # Stores: "test" (the result)
@@ -150,7 +150,7 @@ set a, {set_result test}
 **Braces inside parentheses:** Kept as literal text
 
 ```pawscript
-set a, (code {with braces})
+a: (code {with braces})
 # Braces inside parens → NOT evaluated
 # Stores: "code {with braces}" (literal text)
 ```
@@ -158,10 +158,10 @@ set a, (code {with braces})
 **Braces inside quotes:** Evaluated (substituted)
 
 ```pawscript
-set a, "result: {set_result test}"
+a: "result: {set_result test}"
 # Braces inside quotes → Evaluated
 # Executes: set_result test → "test"
-# Becomes: set a, "result: test"
+# Becomes: a: "result: test"
 # Stores: "result: test"
 ```
 
@@ -171,13 +171,13 @@ set a, "result: {set_result test}"
 
 ```pawscript
 # Parentheses: Store code as text
-set a, (echo hello)
-echo {get a}
+a: (echo hello)
+echo ~a
 # Output: echo hello
 
 # Braces: Execute and store result
-set b, {set_result hello}
-echo {get b}
+b: {set_result hello}
+echo ~b
 # Output: hello
 ```
 
@@ -185,12 +185,12 @@ echo {get b}
 
 ```pawscript
 # Parentheses preserve nested braces
-set a, (outer {inner})
-echo {get a}
+a: (outer {inner})
+echo ~a
 # Output: outer {inner}
 
 # Braces at top level evaluate immediately
-set b, outer {set_result inner}
+b: outer {set_result inner}
 # Executes: set_result inner → "inner"
 # Stores: "outer inner"
 ```
@@ -199,12 +199,12 @@ set b, outer {set_result inner}
 
 ```pawscript
 # Parentheses: Keep literal
-set a, (hello\nworld)
-echo {get a}
+a: (hello\nworld)
+echo ~a
 # Output: hello\nworld (literal backslash-n)
 
 # Braces with quotes: Process escapes in quotes
-set b, {set_result "hello\nworld"}
+b: {set_result "hello\nworld"}
 # Executes: set_result "hello\nworld"
 # The string has escape processed: actual newline
 # Result stored: "hello
@@ -215,10 +215,10 @@ set b, {set_result "hello\nworld"}
 
 ```pawscript
 # Both remove comments during processing
-set a, (code #comment)
+a: (code #comment)
 # Stores: "code "
 
-set b, {set_result test #comment}
+b: {set_result test #comment}
 # Executes: set_result test (comment removed)
 # Stores: "test"
 ```
@@ -227,12 +227,12 @@ set b, {set_result test #comment}
 
 ```pawscript
 # Parentheses: Keywords preserved
-set a, (if x then y else z)
-echo {get a}
+a: (if x then y else z)
+echo ~a
 # Output: if x then y else z
 
 # Braces: Keywords normalized during execution
-set b, {set_result "dummy"; echo "if x then y"}
+b: {set_result "dummy"; echo "if x then y"}
 # The string inside quotes is not normalized
 # But if we had: {if true then echo "yes" else echo "no"}
 # During execution, keywords would be normalized
@@ -243,7 +243,7 @@ set b, {set_result "dummy"; echo "if x then y"}
 ### For Parentheses
 
 ```
-User writes: set a, (if x then y #comment)
+User writes: a: (if x then y #comment)
        ↓
 1. Comment removal: (if x then y )
        ↓
@@ -257,7 +257,7 @@ User writes: set a, (if x then y #comment)
 ### For Braces (Top Level)
 
 ```
-User writes: set a, {set_result test #comment}
+User writes: a: {set_result test #comment}
        ↓
 1. Substitution phase detects brace expression
        ↓
@@ -270,7 +270,7 @@ User writes: set a, {set_result test #comment}
        ↓
 4. Result ("test") replaces entire {..}
        ↓
-5. String becomes: set a, test
+5. String becomes: a: test
        ↓
 6. Stored value: "test"
 ```
@@ -278,7 +278,7 @@ User writes: set a, {set_result test #comment}
 ### For Braces (Inside Parens)
 
 ```
-User writes: set a, (code {braces})
+User writes: a: (code {braces})
        ↓
 1. Substitution phase detects parens
        ↓
@@ -297,16 +297,16 @@ User writes: set a, (code {braces})
 
 ```pawscript
 # Store conditional logic
-set condition, (if {get ready} then start_process else wait)
+condition: (if ~ready then start_process else wait)
 
 # Store loop body
-set loop_body, (
+loop_body: (
     process_item;
     increment_counter
 )
 
 # Store complex command
-set handler, (handle_error & retry | abort)
+handler: (handle_error & retry | abort)
 ```
 
 ### Braces: Computed Values
@@ -315,16 +315,16 @@ set handler, (handle_error & retry | abort)
 
 ```pawscript
 # Computed arguments
-echo "Count: {get counter}"
+echo "Count: ~counter"
 
 # Computed filenames
-save_file "output_{get timestamp}.txt"
+save_file "output_~timestamp;.txt"
 
 # Nested computations
-set total, {add {get x}, {get y}}
+total: {add ~x, ~y}
 
 # Conditional values
-set msg, {if {get error} then echo "Failed" else echo "OK"}
+msg: {if ~error then echo "Failed" else echo "OK"}
 ```
 
 ## Summary Table
@@ -361,7 +361,7 @@ set msg, {if {get error} then echo "Failed" else echo "OK"}
 Content is only fully parsed (keywords normalized, etc.) when explicitly executed:
 
 ```pawscript
-set code, (if true then echo "yes" else echo "no")
+code: (if true then echo "yes" else echo "no")
 # Stored: "if true then echo "yes" else echo "no"" (preserved)
 
 # If you execute it somehow (future feature):
@@ -386,10 +386,10 @@ echo {if true then echo "yes" else echo "no"}
 ### Empty Constructs
 
 ```pawscript
-set a, ()
+a: ()
 # Stores: "" (empty string)
 
-set b, {}
+b: {}
 # Executes: (empty command)
 # Result: false (no command to execute)
 ```
@@ -397,10 +397,10 @@ set b, {}
 ### Whitespace
 
 ```pawscript
-set a, (  spaced  )
+a: (  spaced  )
 # Stores: "  spaced  " (whitespace preserved)
 
-set b, {  echo test  }
+b: {  echo test  }
 # Executes: echo test (whitespace trimmed during execution)
 # Result: "test"
 ```
@@ -409,11 +409,11 @@ set b, {  echo test  }
 
 ```pawscript
 # Parens can contain braces (literal)
-set a, (outer {inner})
+a: (outer {inner})
 # Stores: "outer {inner}"
 
 # Braces can contain parens (executed)
-set b, {set_result (grouped text)}
+b: {set_result (grouped text)}
 # Executes: set_result (grouped text)
 # Result: "grouped text" (parens stripped during argument parsing)
 ```

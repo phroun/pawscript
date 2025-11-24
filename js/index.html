@@ -2,10 +2,270 @@
 <html lang="en">
 <head>
   <meta charset="UTF-8">
-  <title>PawScript Browser Test</title>
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>PawScript WASM Demo</title>
+  <style>
+    body {
+      font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Oxygen, Ubuntu, Cantarell, sans-serif;
+      max-width: 900px;
+      margin: 40px auto;
+      padding: 0 20px;
+      line-height: 1.6;
+    }
+    h1 {
+      color: #2c3e50;
+      border-bottom: 3px solid #3498db;
+      padding-bottom: 10px;
+    }
+    .demo-section {
+      margin: 30px 0;
+      padding: 20px;
+      background: #f8f9fa;
+      border-radius: 8px;
+      border-left: 4px solid #3498db;
+    }
+    .demo-section h3 {
+      margin-top: 0;
+      color: #2c3e50;
+    }
+    input, textarea {
+      width: 100%;
+      padding: 10px;
+      margin: 10px 0;
+      border: 1px solid #ddd;
+      border-radius: 4px;
+      font-family: 'Monaco', 'Courier New', monospace;
+      font-size: 14px;
+    }
+    button {
+      background: #3498db;
+      color: white;
+      border: none;
+      padding: 10px 20px;
+      border-radius: 4px;
+      cursor: pointer;
+      font-size: 14px;
+    }
+    button:hover {
+      background: #2980b9;
+    }
+    button:disabled {
+      background: #95a5a6;
+      cursor: not-allowed;
+    }
+    .output {
+      background: #2c3e50;
+      color: #ecf0f1;
+      padding: 15px;
+      border-radius: 4px;
+      font-family: 'Monaco', 'Courier New', monospace;
+      font-size: 13px;
+      margin-top: 10px;
+      white-space: pre-wrap;
+      max-height: 300px;
+      overflow-y: auto;
+    }
+    .success { color: #2ecc71; }
+    .error { color: #e74c3c; }
+    .info { color: #3498db; }
+    #status {
+      padding: 10px;
+      margin: 20px 0;
+      border-radius: 4px;
+      font-weight: bold;
+    }
+    #status.loading {
+      background: #f39c12;
+      color: white;
+    }
+    #status.ready {
+      background: #2ecc71;
+      color: white;
+    }
+    #status.error {
+      background: #e74c3c;
+      color: white;
+    }
+  </style>
 </head>
 <body>
+  <h1>🐾 PawScript WASM Demo</h1>
+  
+  <div id="status" class="loading">Loading PawScript WASM...</div>
+
+  <div class="demo-section">
+    <h3>Interactive Command Executor</h3>
+    <input 
+      type="text" 
+      id="command-input" 
+      placeholder='Try: echo "Hello WASM!" or greet "Your Name"'
+      disabled
+    />
+    <button id="execute-btn" disabled>Execute</button>
+    <div id="output" class="output">Output will appear here...</div>
+  </div>
+
+  <div class="demo-section">
+    <h3>Multi-line Script</h3>
+    <textarea 
+      id="script-input" 
+      rows="6" 
+      placeholder="Enter multiple commands (one per line or separated by ;)"
+      disabled
+    >x: {add 10, 20, 30}
+echo "Sum calculated: ~x"
+y: {mul 3, 4, 5}
+echo "Product calculated: ~y"</textarea>
+    <button id="script-btn" disabled>Run Script</button>
+    <div id="script-output" class="output">Output will appear here...</div>
+  </div>
+
+  <div class="demo-section">
+    <h3>Async Demo</h3>
+    <button id="async-btn" disabled>Start Async Operation</button>
+    <div id="async-output" class="output">Click button to start...</div>
+  </div>
+
   <script src="./wasm_exec_loader.js"></script>
-  <script type="module" src="./main.js"></script>
+  <script type="module">
+    import { PawScript } from './index.js';
+
+    let paw;
+    const status = document.getElementById('status');
+    const commandInput = document.getElementById('command-input');
+    const executeBtn = document.getElementById('execute-btn');
+    const output = document.getElementById('output');
+    const scriptInput = document.getElementById('script-input');
+    const scriptBtn = document.getElementById('script-btn');
+    const scriptOutput = document.getElementById('script-output');
+    const asyncBtn = document.getElementById('async-btn');
+    const asyncOutput = document.getElementById('async-output');
+
+    function log(element, message, className = '') {
+      const line = message;
+      element.textContent += (element.textContent ? '\n' : '') + line;
+      element.scrollTop = element.scrollHeight;
+    }
+
+    function clearOutput(element) {
+      element.textContent = '';
+    }
+
+    async function init() {
+      try {
+        status.textContent = 'Initializing PawScript...';
+        paw = new PawScript({ debug: false, allowMacros: true });
+        await paw.ready;
+
+        // Track current output element for echo
+        let currentOutput = output;
+
+        // Register custom commands
+        paw.registerCommands({
+          echo: (ctx) => {
+            // Override the Go echo to write to UI instead of console
+            const message = ctx.args.join(' ');
+            log(currentOutput, message);
+            return true;
+          }
+        });
+
+        status.textContent = '✓ PawScript Ready!';
+        status.className = 'ready';
+        
+        // Enable inputs
+        commandInput.disabled = false;
+        executeBtn.disabled = false;
+        scriptInput.disabled = false;
+        scriptBtn.disabled = false;
+        asyncBtn.disabled = false;
+
+        // Set up event listeners
+        executeBtn.addEventListener('click', () => {
+          currentOutput = output;
+          executeCommand();
+        });
+        commandInput.addEventListener('keypress', (e) => {
+          if (e.key === 'Enter') {
+            currentOutput = output;
+            executeCommand();
+          }
+        });
+        scriptBtn.addEventListener('click', () => {
+          currentOutput = scriptOutput;
+          executeScript();
+        });
+        asyncBtn.addEventListener('click', () => {
+          currentOutput = asyncOutput;
+          executeAsync();
+        });
+
+      } catch (err) {
+        status.textContent = `✗ Error: ${err.message}`;
+        status.className = 'error';
+        console.error('Initialization error:', err);
+      }
+    }
+
+    function executeCommand() {
+      const command = commandInput.value.trim();
+      if (!command) return;
+
+      try {
+        const result = paw.execute(command);
+      } catch (err) {
+        log(output, `✗ Error: ${err.message}`, 'error');
+      }
+
+      commandInput.value = '';
+    }
+
+    function executeScript() {
+      const script = scriptInput.value.trim();
+      if (!script) return;
+
+      clearOutput(scriptOutput);
+      log(scriptOutput, '=== Executing Script ===', 'info');
+
+      const lines = script.split('\n').filter(line => line.trim());
+      
+      try {
+        const result = paw.execute(script);
+      } catch (err) {
+        log(scriptOutput, `  ✗ Error: ${err.message}`, 'error');
+      }
+
+      log(scriptOutput, '=== Script Complete ===', 'info');
+    }
+
+    function executeAsync() {
+      clearOutput(asyncOutput);
+      log(asyncOutput, 'Starting async operation...', 'info');
+
+      // Register async command
+      paw.registerCommand('async_work', (ctx) => {
+        const token = ctx.requestToken();
+        log(asyncOutput, `Got token: ${token}`, 'info');
+
+        setTimeout(() => {
+          log(asyncOutput, 'Async work complete!', 'success');
+          ctx.setResult('Async result data');
+          paw.resumeToken(token, true);
+          log(asyncOutput, 'Token resumed', 'success');
+        }, 2000);
+
+        return token;
+      });
+
+      const result = paw.execute('async_work');
+      
+      if (result.type === 'token') {
+        log(asyncOutput, `Execution suspended (will resume in 2s)`, 'info');
+      }
+    }
+
+    // Initialize on load
+    init();
+  </script>
 </body>
 </html>

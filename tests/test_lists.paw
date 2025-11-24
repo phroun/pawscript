@@ -6,10 +6,10 @@ echo ""
 
 # Test 1: Creating lists
 echo "Test 1: Creating lists"
-set empty, {list}
-set fruits, {list apple, banana, cherry}
-set nums, {list 1, 2, 3, 4, 5}
-set mixed, {list 42, "text", true, nil}
+empty: {list}
+fruits: {list apple, banana, cherry}
+nums: {list 1, 2, 3, 4, 5}
+mixed: {list 42, "text", true, nil}
 
 echo "Empty list created"
 echo "Fruits list created"
@@ -27,130 +27,130 @@ echo ""
 
 # Test 3: List length
 echo "Test 3: List length (len command)"
-echo "Length of empty: {len {get empty}}"
-echo "Length of fruits: {len {get fruits}}"
-echo "Length of nums: {len {get nums}}"
+echo "Length of empty: {len ~empty}"
+echo "Length of fruits: {len ~fruits}"
+echo "Length of nums: {len ~nums}"
 echo "(Expected: 0, 3, 5)"
 echo ""
 
 # Test 4: argc with lists
 echo "Test 4: argc with PawList"
-echo "argc of fruits: {argc {get fruits}}"
-echo "argc of nums: {argc {get nums}}"
-echo "argc of empty: {argc {get empty}}"
+echo "argc of fruits: {argc ~fruits}"
+echo "argc of nums: {argc ~nums}"
+echo "argc of empty: {argc ~empty}"
 echo "(Expected: 3, 5, 0)"
 echo ""
 
 # Test 5: argv with lists
 echo "Test 5: argv with PawList (1-indexed)"
-echo "First fruit: {argv {get fruits}, 1}"
-echo "Second fruit: {argv {get fruits}, 2}"
-echo "Third fruit: {argv {get fruits}, 3}"
+echo "First fruit: {argv ~fruits, 1}"
+echo "Second fruit: {argv ~fruits, 2}"
+echo "Third fruit: {argv ~fruits, 3}"
 echo "(Expected: apple, banana, cherry)"
 echo ""
 
 # Test 6: Slicing (end exclusive)
 echo "Test 6: Slicing lists"
-set slice1, {slice {get fruits}, 0, 2}
-echo "Slice [0:2] of fruits: {argv {get slice1}, 1}, {argv {get slice1}, 2}"
+slice1: {slice ~fruits, 0, 2}
+echo "Slice [0:2] of fruits: {argv ~slice1, 1}, {argv ~slice1, 2}"
 
-set slice2, {slice {get nums}, 1, 4}
-echo "Slice [1:4] of nums: {argv {get slice2}, 1}, {argv {get slice2}, 2}, {argv {get slice2}, 3}"
+slice2: {slice ~nums, 1, 4}
+echo "Slice [1:4] of nums: {argv ~slice2, 1}, {argv ~slice2, 2}, {argv ~slice2, 3}"
 
-set slice3, {slice {get nums}, 2, -1}
-echo "Slice [2:end] of nums: {len {get slice3}} items"
+slice3: {slice ~nums, 2, -1}
+echo "Slice [2:end] of nums: {len ~slice3} items"
 echo "(Expected: apple,banana | 2,3,4 | 3 items)"
 echo ""
 
 # Test 7: Appending (immutable - returns new list)
 echo "Test 7: Appending to lists (immutable)"
-set original, {list a, b, c}
-echo "Original length: {len {get original}}"
+original: {list a, b, c}
+echo "Original length: {len ~original}"
 
-set appended, {append {get original}, d}
-echo "After append, new list length: {len {get appended}}"
-echo "Original list length still: {len {get original}}"
-echo "Appended list items: {argv {get appended}, 1}, {argv {get appended}, 2}, {argv {get appended}, 3}, {argv {get appended}, 4}"
+appended: {append ~original, d}
+echo "After append, new list length: {len ~appended}"
+echo "Original list length still: {len ~original}"
+echo "Appended list items: {argv ~appended, 1}, {argv ~appended, 2}, {argv ~appended, 3}, {argv ~appended, 4}"
 echo "(Expected: 3, 4, 3, a,b,c,d)"
 echo ""
 
 # Test 8: Prepending
 echo "Test 8: Prepending to lists"
-set prepended, {prepend {get original}, z}
-echo "Prepended list items: {argv {get prepended}, 1}, {argv {get prepended}, 2}, {argv {get prepended}, 3}, {argv {get prepended}, 4}"
+prepended: {prepend ~original, z}
+echo "Prepended list items: {argv ~prepended, 1}, {argv ~prepended, 2}, {argv ~prepended, 3}, {argv ~prepended, 4}"
 echo "(Expected: z,a,b,c)"
 echo ""
 
 # Test 9: Concatenating lists
 echo "Test 9: Concatenating lists"
-set list1, {list 1, 2, 3}
-set list2, {list 4, 5, 6}
-set combined, {concat {get list1}, {get list2}}
-echo "Combined length: {len {get combined}}"
-echo "Combined items: {argv {get combined}, 1}, {argv {get combined}, 2}, {argv {get combined}, 3}, {argv {get combined}, 4}, {argv {get combined}, 5}, {argv {get combined}, 6}"
+list1: {list 1, 2, 3}
+list2: {list 4, 5, 6}
+combined: {concat ~list1, ~list2}
+echo "Combined length: {len ~combined}"
+echo "Combined items: {argv ~combined, 1}, {argv ~combined, 2}, {argv ~combined, 3}, {argv ~combined, 4}, {argv ~combined, 5}, {argv ~combined, 6}"
 echo "(Expected: 6, 1,2,3,4,5,6)"
 echo ""
 
 # Test 10: Functional style - building up lists
 echo "Test 10: Functional style (rebinding)"
-set mylist, {list}
-echo "Starting with empty list: {len {get mylist}} items"
+mylist: {list}
+echo "Starting with empty list: {len ~mylist} items"
 
-set mylist, {append {get mylist}, first}
-echo "After append first: {len {get mylist}} items"
+mylist: {append ~mylist, first}
+echo "After append first: {len ~mylist} items"
 
-set mylist, {append {get mylist}, second}
-echo "After append second: {len {get mylist}} items"
+mylist: {append ~mylist, second}
+echo "After append second: {len ~mylist} items"
 
-set mylist, {append {get mylist}, third}
-echo "After append third: {len {get mylist}} items"
+mylist: {append ~mylist, third}
+echo "After append third: {len ~mylist} items"
 
-echo "Final list: {argv {get mylist}, 1}, {argv {get mylist}, 2}, {argv {get mylist}, 3}"
+echo "Final list: {argv ~mylist, 1}, {argv ~mylist, 2}, {argv ~mylist, 3}"
 echo "(Expected: 0, 1, 2, 3, first,second,third)"
 echo ""
 
 # Test 11: List from ParenGroup
 echo "Test 11: Creating list from ParenGroup"
-set fromParen, {list red, green, blue}
-echo "List from paren length: {len {get fromParen}}"
-echo "Items: {argv {get fromParen}, 1}, {argv {get fromParen}, 2}, {argv {get fromParen}, 3}"
+fromParen: {list red, green, blue}
+echo "List from paren length: {len ~fromParen}"
+echo "Items: {argv ~fromParen, 1}, {argv ~fromParen, 2}, {argv ~fromParen, 3}"
 echo "(Expected: 3, red,green,blue)"
 echo ""
 
 # Test 12: Slicing shares backing array (memory efficient)
 echo "Test 12: Memory efficiency - slicing"
-set large, {list 1, 2, 3, 4, 5, 6, 7, 8, 9, 10}
-set small1, {slice {get large}, 0, 3}
-set small2, {slice {get large}, 3, 6}
-set small3, {slice {get large}, 6, 10}
+large: {list 1, 2, 3, 4, 5, 6, 7, 8, 9, 10}
+small1: {slice ~large, 0, 3}
+small2: {slice ~large, 3, 6}
+small3: {slice ~large, 6, 10}
 
-echo "Large list: {len {get large}} items"
-echo "Small slices: {len {get small1}}, {len {get small2}}, {len {get small3}} items"
+echo "Large list: {len ~large} items"
+echo "Small slices: {len ~small1}, {len ~small2}, {len ~small3} items"
 echo "(All slices share backing array!)"
 echo "(Expected: 10, 3,3,4)"
 echo ""
 
 # Test 13: Compact to free backing array
 echo "Test 13: Compact operation"
-set huge, {list 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15}
-set tiny, {slice {get huge}, 0, 2}
-set freed, {compact {get tiny}}
+huge: {list 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15}
+tiny: {slice ~huge, 0, 2}
+freed: {compact ~tiny}
 
-echo "Tiny slice length: {len {get tiny}}"
-echo "Compacted length: {len {get freed}}"
-echo "Items same: {argv {get freed}, 1}, {argv {get freed}, 2}"
+echo "Tiny slice length: {len ~tiny}"
+echo "Compacted length: {len ~freed}"
+echo "Items same: {argv ~freed, 1}, {argv ~freed, 2}"
 echo "(Expected: 2, 2, 1,2)"
 echo ""
 
 # Test 14: String slicing
 echo "Test 14: String slicing (works too!)"
-set text, "hello world"
-set sub1, {slice {get text}, 0, 5}
-set sub2, {slice {get text}, 6, -1}
+text: "hello world"
+sub1: {slice ~text, 0, 5}
+sub2: {slice ~text, 6, -1}
 
-echo "Original: {get text}"
-echo "Slice [0:5]: {get sub1}"
-echo "Slice [6:end]: {get sub2}"
+echo "Original: ~text"
+echo "Slice [0:5]: ~sub1"
+echo "Slice [6:end]: ~sub2"
 echo "(Expected: hello world, hello, world)"
 echo ""
 
@@ -163,31 +163,31 @@ echo ""
 
 # Test 16: Nested list operations
 echo "Test 16: Nested operations"
-set base, {list 1, 2, 3}
-set result, {append {slice {get base}, 0, 2}, 99}
-echo "Result length: {len {get result}}"
-echo "Result items: {argv {get result}, 1}, {argv {get result}, 2}, {argv {get result}, 3}"
+base: {list 1, 2, 3}
+result: {append {slice ~base, 0, 2}, 99}
+echo "Result length: {len ~result}"
+echo "Result items: {argv ~result, 1}, {argv ~result, 2}, {argv ~result, 3}"
 echo "(Expected: 3, 1,2,99)"
 echo ""
 
 # Test 17: Lists with variables
 echo "Test 17: Lists containing variables"
-set x, 10
-set y, 20
-set z, 30
-set coords, {list {get x}, {get y}, {get z}}
-echo "Coordinates: {argv {get coords}, 1}, {argv {get coords}, 2}, {argv {get coords}, 3}"
+x: 10
+y: 20
+z: 30
+coords: {list ~x, ~y, ~z}
+echo "Coordinates: {argv ~coords, 1}, {argv ~coords, 2}, {argv ~coords, 3}"
 echo "(Expected: 10,20,30)"
 echo ""
 
 # Test 18: Type preservation in lists
 echo "Test 18: Type preservation"
-set typedList, {list 42, "text", true, symbol, nil}
-echo "Item 1 type: {get_inferred_type {argv {get typedList}, 1}}"
-echo "Item 2 type: {get_inferred_type {argv {get typedList}, 2}}"
-echo "Item 3 type: {get_inferred_type {argv {get typedList}, 3}}"
-echo "Item 4 type: {get_inferred_type {argv {get typedList}, 4}}"
-echo "Item 5 type: {get_inferred_type {argv {get typedList}, 5}}"
+typedList: {list 42, "text", true, symbol, nil}
+echo "Item 1 type: {get_inferred_type {argv ~typedList, 1}}"
+echo "Item 2 type: {get_inferred_type {argv ~typedList, 2}}"
+echo "Item 3 type: {get_inferred_type {argv ~typedList, 3}}"
+echo "Item 4 type: {get_inferred_type {argv ~typedList, 4}}"
+echo "Item 5 type: {get_inferred_type {argv ~typedList, 5}}"
 echo "(Expected: int, string, bool, symbol, nil)"
 echo ""
 

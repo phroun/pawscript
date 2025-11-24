@@ -1,0 +1,22 @@
+=== Test 1: Create and call anonymous macro ===
+Hello from anonymous macro
+
+=== Test 2: Anonymous macro with arguments ===
+Args: foo and bar
+
+=== Test 3: Anonymous macro with result ===
+Result: computed_value
+
+=== Test 4: Anonymous macro in brace expression ===
+Value: 42
+
+=== Test 5: Store multiple anonymous macros ===
+5 + 10 = 15
+5 * 10 = 50
+
+=== Test 6: Anonymous macro with named arguments ===
+x=$x, y=$y
+
+=== Test 7: Compare named and anonymous macros ===
+Named: from named macro
+Anonymous: from anonymous macro

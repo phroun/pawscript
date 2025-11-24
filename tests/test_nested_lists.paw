@@ -6,111 +6,111 @@ echo ""
 
 # Test 1: Nested lists
 echo "Test 1: Nested lists"
-set inner1, {list a, b, c}
-set inner2, {list 1, 2, 3}
-set nested, {list {get inner1}, {get inner2}, simple}
+inner1: {list a, b, c}
+inner2: {list 1, 2, 3}
+nested: {list ~inner1, ~inner2, simple}
 
-echo "Nested list length: {len {get nested}}"
-echo "First item type: {get_inferred_type {argv {get nested}, 1}}"
-echo "Second item type: {get_inferred_type {argv {get nested}, 2}}"
-echo "Third item type: {get_inferred_type {argv {get nested}, 3}}"
+echo "Nested list length: {len ~nested}"
+echo "First item type: {get_inferred_type {argv ~nested, 1}}"
+echo "Second item type: {get_inferred_type {argv ~nested, 2}}"
+echo "Third item type: {get_inferred_type {argv ~nested, 3}}"
 echo "(Expected: 3, list, list, symbol)"
 echo ""
 
 # Test 2: Access nested list elements
 echo "Test 2: Access nested list elements"
-set first_inner, {argv {get nested}, 1}
-echo "First inner list length: {len {get first_inner}}"
-echo "First element of first inner: {argv {get first_inner}, 1}"
+first_inner: {argv ~nested, 1}
+echo "First inner list length: {len ~first_inner}"
+echo "First element of first inner: {argv ~first_inner, 1}"
 echo "(Expected: 3, a)"
 echo ""
 
 # Test 3: Direct nested list creation
 echo "Test 3: Direct nested list creation"
-set matrix, {list {list 1, 2}, {list 3, 4}, {list 5, 6}}
-echo "Matrix length: {len {get matrix}}"
-set row1, {argv {get matrix}, 1}
-echo "First row length: {len {get row1}}"
-echo "Matrix[1][1]: {argv {get row1}, 1}"
-echo "Matrix[1][2]: {argv {get row1}, 2}"
+matrix: {list {list 1, 2}, {list 3, 4}, {list 5, 6}}
+echo "Matrix length: {len ~matrix}"
+row1: {argv ~matrix, 1}
+echo "First row length: {len ~row1}"
+echo "Matrix[1][1]: {argv ~row1, 1}"
+echo "Matrix[1][2]: {argv ~row1, 2}"
 echo "(Expected: 3, 2, 1, 2)"
 echo ""
 
 # Test 4: Lists containing blocks (code)
 echo "Test 4: Lists containing blocks"
-set commands, {list (echo hello), (set x, 10), (echo world)}
-echo "Commands list length: {len {get commands}}"
-echo "First command type: {get_inferred_type {argv {get commands}, 1}}"
-echo "Second command type: {get_inferred_type {argv {get commands}, 2}}"
+commands: {list (echo hello), (x: 10), (echo world)}
+echo "Commands list length: {len ~commands}"
+echo "First command type: {get_inferred_type {argv ~commands, 1}}"
+echo "Second command type: {get_inferred_type {argv ~commands, 2}}"
 echo "(Expected: 3, block, block)"
 echo ""
 
 # Test 5: Mixed types including lists and blocks
 echo "Test 5: Mixed types"
-set mixed, {list 42, "text", {list nested}, (code block), true, nil}
-echo "Mixed list length: {len {get mixed}}"
-echo "Item 1 type: {get_inferred_type {argv {get mixed}, 1}}"
-echo "Item 2 type: {get_inferred_type {argv {get mixed}, 2}}"
-echo "Item 3 type: {get_inferred_type {argv {get mixed}, 3}}"
-echo "Item 4 type: {get_inferred_type {argv {get mixed}, 4}}"
-echo "Item 5 type: {get_inferred_type {argv {get mixed}, 5}}"
-echo "Item 6 type: {get_inferred_type {argv {get mixed}, 6}}"
+mixed: {list 42, "text", {list nested}, (code block), true, nil}
+echo "Mixed list length: {len ~mixed}"
+echo "Item 1 type: {get_inferred_type {argv ~mixed, 1}}"
+echo "Item 2 type: {get_inferred_type {argv ~mixed, 2}}"
+echo "Item 3 type: {get_inferred_type {argv ~mixed, 3}}"
+echo "Item 4 type: {get_inferred_type {argv ~mixed, 4}}"
+echo "Item 5 type: {get_inferred_type {argv ~mixed, 5}}"
+echo "Item 6 type: {get_inferred_type {argv ~mixed, 6}}"
 echo "(Expected: 6, int, string, list, block, bool, nil)"
 echo ""
 
 # Test 6: Deeply nested lists
 echo "Test 6: Deeply nested (3 levels)"
-set deep, {list {list {list innermost}}}
-echo "Outer length: {len {get deep}}"
-set level2, {argv {get deep}, 1}
-echo "Level 2 type: {get_inferred_type {get level2}}"
-echo "Level 2 length: {len {get level2}}"
-set level3, {argv {get level2}, 1}
-echo "Level 3 type: {get_inferred_type {get level3}}"
-echo "Level 3 length: {len {get level3}}"
-echo "Innermost value: {argv {get level3}, 1}"
+deep: {list {list {list innermost}}}
+echo "Outer length: {len ~deep}"
+level2: {argv ~deep, 1}
+echo "Level 2 type: {get_inferred_type ~level2}"
+echo "Level 2 length: {len ~level2}"
+level3: {argv ~level2, 1}
+echo "Level 3 type: {get_inferred_type ~level3}"
+echo "Level 3 length: {len ~level3}"
+echo "Innermost value: {argv ~level3, 1}"
 echo "(Expected: 1, list, 1, list, 1, innermost)"
 echo ""
 
 # Test 7: Building nested structure functionally
 echo "Test 7: Building nested structure"
-set data, {list}
-set data, {append {get data}, {list first, sublist}}
-set data, {append {get data}, {list second, sublist}}
-echo "Built nested list length: {len {get data}}"
-set first_sub, {argv {get data}, 1}
-echo "First sublist: {argv {get first_sub}, 1}, {argv {get first_sub}, 2}"
+data: {list}
+data: {append ~data, {list first, sublist}}
+data: {append ~data, {list second, sublist}}
+echo "Built nested list length: {len ~data}"
+first_sub: {argv ~data, 1}
+echo "First sublist: {argv ~first_sub, 1}, {argv ~first_sub, 2}"
 echo "(Expected: 2, first, sublist)"
 echo ""
 
 # Test 8: List of blocks that could be executed
 echo "Test 8: Executable blocks in list"
-set actions, {list (echo "Action 1"), (echo "Action 2"), (echo "Action 3")}
-echo "Actions list length: {len {get actions}}"
+actions: {list (echo "Action 1"), (echo "Action 2"), (echo "Action 3")}
+echo "Actions list length: {len ~actions}"
 echo "All items are blocks (type check passed)"
 echo ""
 
 # Test 9: Empty nested lists
 echo "Test 9: Empty nested lists"
-set with_empty, {list {list}, {list a}, {list}}
-echo "List with empties length: {len {get with_empty}}"
-set first_empty, {argv {get with_empty}, 1}
-set second_item, {argv {get with_empty}, 2}
-set third_empty, {argv {get with_empty}, 3}
-echo "First (empty) length: {len {get first_empty}}"
-echo "Second length: {len {get second_item}}"
-echo "Third (empty) length: {len {get third_empty}}"
+with_empty: {list {list}, {list a}, {list}}
+echo "List with empties length: {len ~with_empty}"
+first_empty: {argv ~with_empty, 1}
+second_item: {argv ~with_empty, 2}
+third_empty: {argv ~with_empty, 3}
+echo "First (empty) length: {len ~first_empty}"
+echo "Second length: {len ~second_item}"
+echo "Third (empty) length: {len ~third_empty}"
 echo "(Expected: 3, 0, 1, 0)"
 echo ""
 
 # Test 10: Slicing nested lists
 echo "Test 10: Slicing preserves structure"
-set big, {list {list a}, {list b}, {list c}, {list d}}
-set sliced, {slice {get big}, 1, 3}
-echo "Sliced length: {len {get sliced}}"
-set first_from_slice, {argv {get sliced}, 1}
-echo "First item type: {get_inferred_type {get first_from_slice}}"
-echo "First item content: {argv {get first_from_slice}, 1}"
+big: {list {list a}, {list b}, {list c}, {list d}}
+sliced: {slice ~big, 1, 3}
+echo "Sliced length: {len ~sliced}"
+first_from_slice: {argv ~sliced, 1}
+echo "First item type: {get_inferred_type ~first_from_slice}"
+echo "First item content: {argv ~first_from_slice, 1}"
 echo "(Expected: 2, list, b)"
 echo ""
 

@@ -6,44 +6,89 @@ import (
 	"fmt"
 	"os"
 	"os/exec"
+	"sort"
 	"strconv"
 	"strings"
+	"time"
 )
 
 // formatListForDisplay formats a StoredList as a ParenGroup-like representation
 func formatListForDisplay(list StoredList) string {
-	items := list.Items()
-	if len(items) == 0 {
-		return "()"
+	var parts []string
+	
+	// First, add named arguments (key: value pairs)
+	namedArgs := list.NamedArgs()
+	if len(namedArgs) > 0 {
+		// Get keys in sorted order for consistent output
+		keys := make([]string, 0, len(namedArgs))
+		for k := range namedArgs {
+			keys = append(keys, k)
+		}
+		sort.Strings(keys)
+		
+		for _, key := range keys {
+			value := namedArgs[key]
+			var valueStr string
+			switch v := value.(type) {
+			case StoredList:
+				valueStr = formatListForDisplay(v)
+			case ParenGroup:
+				valueStr = "(" + string(v) + ")"
+			case QuotedString:
+				escaped := strings.ReplaceAll(string(v), "\\", "\\\\")
+				escaped = strings.ReplaceAll(escaped, "\"", "\\\"")
+				valueStr = "\"" + escaped + "\""
+			case Symbol:
+				valueStr = string(v)
+			case string:
+				escaped := strings.ReplaceAll(v, "\\", "\\\\")
+				escaped = strings.ReplaceAll(escaped, "\"", "\\\"")
+				valueStr = "\"" + escaped + "\""
+			case int64, float64, bool:
+				valueStr = fmt.Sprintf("%v", v)
+			case nil:
+				valueStr = "nil"
+			default:
+				valueStr = fmt.Sprintf("%v", v)
+			}
+			
+			// Format as "key: value"
+			parts = append(parts, key + ": " + valueStr)
+		}
 	}
 	
-	parts := make([]string, len(items))
-	for i, item := range items {
+	// Then, add positional items
+	items := list.Items()
+	for _, item := range items {
 		switch v := item.(type) {
 		case StoredList:
 			// Recursively format nested lists
-			parts[i] = formatListForDisplay(v)
+			parts = append(parts, formatListForDisplay(v))
 		case ParenGroup:
-			parts[i] = "(" + string(v) + ")"
+			parts = append(parts, "(" + string(v) + ")")
 		case QuotedString:
 			// Escape internal quotes
 			escaped := strings.ReplaceAll(string(v), "\\", "\\\\")
 			escaped = strings.ReplaceAll(escaped, "\"", "\\\"")
-			parts[i] = "\"" + escaped + "\""
+			parts = append(parts, "\"" + escaped + "\"")
 		case Symbol:
-			parts[i] = string(v)
+			parts = append(parts, string(v))
 		case string:
 			// Regular strings get quoted
 			escaped := strings.ReplaceAll(v, "\\", "\\\\")
 			escaped = strings.ReplaceAll(escaped, "\"", "\\\"")
-			parts[i] = "\"" + escaped + "\""
+			parts = append(parts, "\"" + escaped + "\"")
 		case int64, float64, bool:
-			parts[i] = fmt.Sprintf("%v", v)
+			parts = append(parts, fmt.Sprintf("%v", v))
 		case nil:
-			parts[i] = "nil"
+			parts = append(parts, "nil")
 		default:
-			parts[i] = fmt.Sprintf("%v", v)
+			parts = append(parts, fmt.Sprintf("%v", v))
 		}
+	}
+	
+	if len(parts) == 0 {
+		return "()"
 	}
 	
 	return "(" + strings.Join(parts, ", ") + ")"
@@ -91,7 +136,7 @@ func (ps *PawScript) RegisterStandardLibrary(scriptArgs []string) {
 	// argc - returns number of arguments
 	// Usage: argc           - returns count of script arguments
 	//        argc (a, b, c) - returns count of items in list (3)
-	//        argc {get list} - returns count of items in StoredList
+	//        argc ~list     - returns count of items in StoredList
 	ps.RegisterCommand("argc", func(ctx *Context) Result {
 		if len(ctx.Args) == 0 {
 			// No arguments - return script arg count
@@ -110,14 +155,14 @@ func (ps *PawScript) RegisterStandardLibrary(scriptArgs []string) {
 
 		// If it's a ParenGroup, parse the contents
 		if parenGroup, ok := listArg.(ParenGroup); ok {
-			args := parseArguments(string(parenGroup))
+			args, _ := parseArguments(string(parenGroup))
 			ctx.SetResult(len(args))
 			return BoolStatus(true)
 		}
 
 		// If it's a string that looks like a list, parse it
 		if str, ok := listArg.(string); ok {
-			args := parseArguments(str)
+			args, _ := parseArguments(str)
 			ctx.SetResult(len(args))
 			return BoolStatus(true)
 		}
@@ -132,7 +177,7 @@ func (ps *PawScript) RegisterStandardLibrary(scriptArgs []string) {
 	//        argv 1            - returns first script argument (1-indexed)
 	//        argv (a, b, c)    - returns all items in list
 	//        argv (a, b, c), 2 - returns second item from list (1-indexed)
-	//        argv {get list}, 2 - returns second item from StoredList (1-indexed)
+	//        argv ~list, 2     - returns second item from StoredList (1-indexed)
 	ps.RegisterCommand("argv", func(ctx *Context) Result {
 		if len(ctx.Args) == 0 {
 			// No arguments - return all script args
@@ -151,13 +196,13 @@ func (ps *PawScript) RegisterStandardLibrary(scriptArgs []string) {
 			isListProvided = true
 		} else if parenGroup, ok := firstArg.(ParenGroup); ok {
 			// Parse the parenthetic group as a list
-			sourceList = parseArguments(string(parenGroup))
+			sourceList, _ = parseArguments(string(parenGroup))
 			isListProvided = true
 		} else if str, ok := firstArg.(string); ok {
 			// Check if it looks like a comma-separated list
 			// Only treat as list if it contains a comma or if we have 2 args
 			if len(ctx.Args) > 1 || strings.Contains(str, ",") {
-				sourceList = parseArguments(str)
+				sourceList, _ = parseArguments(str)
 				isListProvided = true
 			}
 		}
@@ -312,6 +357,49 @@ func (ps *PawScript) RegisterStandardLibrary(scriptArgs []string) {
 		return TokenResult(token)
 	})
 
+	// msleep - sleep for specified milliseconds (async)
+	ps.RegisterCommand("msleep", func(ctx *Context) Result {
+		if len(ctx.Args) < 1 {
+			ps.logger.Error("Usage: msleep <milliseconds>")
+			return BoolStatus(false)
+		}
+
+		// Parse milliseconds argument
+		var ms int64
+		switch v := ctx.Args[0].(type) {
+		case int:
+			ms = int64(v)
+		case int64:
+			ms = v
+		case float64:
+			ms = int64(v)
+		case string:
+			parsed, err := strconv.ParseInt(v, 10, 64)
+			if err != nil {
+				ps.logger.Error("msleep: invalid milliseconds value: %v", v)
+				return BoolStatus(false)
+			}
+			ms = parsed
+		default:
+			ps.logger.Error("msleep: milliseconds must be a number, got %T", v)
+			return BoolStatus(false)
+		}
+
+		if ms < 0 {
+			ps.logger.Error("msleep: milliseconds cannot be negative")
+			return BoolStatus(false)
+		}
+
+		token := ctx.RequestToken(nil)
+
+		go func() {
+			time.Sleep(time.Duration(ms) * time.Millisecond)
+			ctx.ResumeToken(token, true)
+		}()
+
+		return TokenResult(token)
+	})
+
 	// exec - execute external command and capture output
 	ps.RegisterCommand("exec", func(ctx *Context) Result {
 		if len(ctx.Args) == 0 {
@@ -396,151 +484,36 @@ func (ps *PawScript) RegisterStandardLibrary(scriptArgs []string) {
 	})
 
 	// ret - early return from block
-	// Usage: ret                    - leave status and result unchanged
-	//        ret <value>            - set status from truthiness, leave result unchanged
-	//        ret <value>, <result>  - set status from truthiness, set result
-	//        ret , <result>         - leave status unchanged, set result (first arg is nil/empty)
+	// Usage: ret              - leave status and result unchanged
+	//        ret <value>      - leave status unchanged, set result
 	ps.RegisterCommand("ret", func(ctx *Context) Result {
 		switch len(ctx.Args) {
 		case 0:
-			// No arguments - leave everything as-is
-			// Get current status from state (default to true if none)
-			// We need to get the current status somehow...
-			// For now, let's default to true
+			// No arguments - leave everything as-is, preserve last status
 			return EarlyReturn{
-				Status:    BoolStatus(true),
+				Status:    BoolStatus(ctx.state.GetLastStatus()),
 				Result:    ctx.GetResult(),
 				HasResult: ctx.HasResult(),
 			}
 
 		case 1:
-			// One argument - set status from truthiness, keep result
-			status := toBool(ctx.Args[0])
+			// One argument - leave status unchanged, set result
 			return EarlyReturn{
-				Status:    BoolStatus(status),
-				Result:    ctx.GetResult(),
-				HasResult: ctx.HasResult(),
+				Status:    BoolStatus(ctx.state.GetLastStatus()),
+				Result:    ctx.Args[0],
+				HasResult: true,
 			}
 
 		default:
-			// Two or more arguments - check first for nil/empty
-			firstArg := ctx.Args[0]
-			secondArg := ctx.Args[1]
-
-			// If first arg is nil, Symbol(""), or empty string, leave status unchanged
-			if firstArg == nil || firstArg == "" {
-				return EarlyReturn{
-					Status:    BoolStatus(true), // Current status (defaulting to true)
-					Result:    secondArg,
-					HasResult: true,
-				}
-			}
-
-			// Check if it's an empty symbol
-			if sym, ok := firstArg.(Symbol); ok && string(sym) == "" {
-				return EarlyReturn{
-					Status:    BoolStatus(true), // Current status (defaulting to true)
-					Result:    secondArg,
-					HasResult: true,
-				}
-			}
-
-			// Normal case - set status from first arg, result from second
-			status := toBool(firstArg)
-			return EarlyReturn{
-				Status:    BoolStatus(status),
-				Result:    secondArg,
-				HasResult: true,
-			}
-		}
-	})
-
-	// set - sets a variable in current scope
-	// Usage: set varname, value                    - simple assignment
-	//        set (x, y, z), {list 1, 2, 3}         - unpack list into variables
-	//        set (a, b), (10, 20)                  - unpack ParenGroup into variables
-	//        set {get targets}, {get values}       - dynamic unpacking
-	ps.RegisterCommand("set", func(ctx *Context) Result {
-		if len(ctx.Args) < 2 {
-			ctx.LogError(CatCommand, "Usage: set <n>, <value>")
+			// Too many arguments - error
+			ctx.LogError(CatCommand, "Usage: ret [value]")
 			return BoolStatus(false)
 		}
-
-		firstArg := ctx.Args[0]
-		secondArg := ctx.Args[1]
-
-		// Check if first arg is a list or ParenGroup (for unpacking)
-		var varNames []interface{}
-		isUnpacking := false
-
-		if storedList, ok := firstArg.(StoredList); ok {
-			// First arg is a list - unpack mode
-			varNames = storedList.Items()
-			isUnpacking = true
-		} else if parenGroup, ok := firstArg.(ParenGroup); ok {
-			// First arg is a ParenGroup - parse it as comma-separated list
-			varNames = parseArguments(string(parenGroup))
-			isUnpacking = true
-		}
-
-		if isUnpacking {
-			// Unpacking mode - extract values from second arg
-			var values []interface{}
-
-			if storedList, ok := secondArg.(StoredList); ok {
-				values = storedList.Items()
-			} else if parenGroup, ok := secondArg.(ParenGroup); ok {
-				values = parseArguments(string(parenGroup))
-			} else if str, ok := secondArg.(string); ok {
-				// Try parsing as comma-separated values
-				values = parseArguments(str)
-			} else {
-				// Single value - wrap in slice
-				values = []interface{}{secondArg}
-			}
-
-			// Set each variable to its corresponding value
-			for i, varNameInterface := range varNames {
-				varName := fmt.Sprintf("%v", varNameInterface)
-
-				if i < len(values) {
-					ctx.state.SetVariable(varName, values[i])
-				} else {
-					// Not enough values - set to nil
-					ctx.state.SetVariable(varName, nil)
-				}
-			}
-
-			return BoolStatus(true)
-		}
-
-		// Normal mode - simple assignment
-		varName := fmt.Sprintf("%v", firstArg)
-		ctx.state.SetVariable(varName, secondArg)
-		return BoolStatus(true)
 	})
 
-	// get - gets a variable from current scope and sets it as result
-	ps.RegisterCommand("get", func(ctx *Context) Result {
-		if len(ctx.Args) < 1 {
-			ctx.LogError(CatCommand, "Usage: get <name>")
-			return BoolStatus(false)
-		}
-
-		varName := fmt.Sprintf("%v", ctx.Args[0])
-		value, exists := ctx.state.GetVariable(varName)
-
-		if exists {
-			// Use SetResultWithoutClaim since we're just returning an existing reference
-			ctx.state.SetResultWithoutClaim(value)
-			return BoolStatus(true)
-		}
-		
-		ctx.LogError(CatVariable, fmt.Sprintf("Variable not found: %s", varName))
-		return BoolStatus(false)
-	})
 
 	// while - loop while condition is true
+	// Fully supports async operations in loop body via synchronous blocking
 	ps.RegisterCommand("while", func(ctx *Context) Result {
 		if len(ctx.Args) < 2 {
 			ctx.LogError(CatCommand, "Usage: while (condition), (body)")
@@ -608,9 +581,28 @@ func (ps *PawScript) RegisterStandardLibrary(scriptArgs []string) {
 				return earlyReturn.Status
 			}
 
-			// If body returns a token (async), return it
-			if _, isToken := bodyResult.(TokenResult); isToken {
-				return bodyResult
+			// If body returns a token (async), block waiting for it to complete
+			if bodyToken, isToken := bodyResult.(TokenResult); isToken {
+				tokenID := string(bodyToken)
+
+				// Create a channel to wait on
+				waitChan := make(chan ResumeData, 1)
+
+				// Attach the wait channel to the token
+				ctx.executor.attachWaitChan(tokenID, waitChan)
+
+				// Block waiting for the async operation to complete
+				resumeData := <-waitChan
+
+				// Check if the operation succeeded
+				if !resumeData.Status {
+					ctx.LogError(CatFlow, "Async operation in while loop failed")
+					return BoolStatus(false)
+				}
+
+				// Continue to next iteration - all local state is preserved!
+				iterations++
+				continue
 			}
 
 			// Result is whatever the body set (don't overwrite it)
@@ -834,7 +826,7 @@ func (ps *PawScript) RegisterStandardLibrary(scriptArgs []string) {
 	})
 
 	// get_type - returns the type of a variable without fetching its value
-	// More efficient than get_inferred_type {get x} for large values or frequent checks
+	// More efficient than get_inferred_type ~x for large values or frequent checks
 	ps.RegisterCommand("get_type", func(ctx *Context) Result {
 		if len(ctx.Args) < 1 {
 			ctx.LogError(CatCommand, "Usage: get_type <variable_name>")
@@ -857,22 +849,24 @@ func (ps *PawScript) RegisterStandardLibrary(scriptArgs []string) {
 
 	// list - creates an immutable list from arguments
 	// Usage: list item1, item2, item3  - creates list from individual arguments
-	//        list {get x}, {get y}     - computed values work (braces evaluate first)
+	//        list ~x, ~y               - computed values work (braces evaluate first)
 	//        list (a), (b), (c)        - blocks as items
 	//        list {list a, b}, {list c, d} - nested lists
 	//        list                      - creates empty list
 	ps.RegisterCommand("list", func(ctx *Context) Result {
 		// Create and store the list with proper reference counting for nested objects
-		setListResult(ctx, NewStoredListWithRefs(ctx.Args, ctx.executor))
+		// Include both positional arguments and named arguments
+		setListResult(ctx, NewStoredListWithRefs(ctx.Args, ctx.NamedArgs, ctx.executor))
 		return BoolStatus(true)
 	})
 
-	// len - returns the length of a list or string
-	// Usage: len {get mylist}
+	// len - returns the length of a list, string, or channel
+	// Usage: len ~mylist
 	//        len "hello"
+	//        len ~mychannel  - returns number of unread messages
 	ps.RegisterCommand("len", func(ctx *Context) Result {
 		if len(ctx.Args) < 1 {
-			ctx.LogError(CatCommand, "Usage: len <list|string>")
+			ctx.LogError(CatCommand, "Usage: len <list|string|channel>")
 			ctx.SetResult(0)
 			return BoolStatus(false)
 		}
@@ -883,6 +877,10 @@ func (ps *PawScript) RegisterStandardLibrary(scriptArgs []string) {
 		case StoredList:
 			ctx.SetResult(v.Len())
 			return BoolStatus(true)
+		case *StoredChannel:
+			// Return number of unread messages
+			ctx.SetResult(ChannelLen(v))
+			return BoolStatus(true)
 		case string, QuotedString, Symbol:
 			// Resolve in case it's a string marker
 			resolved := ctx.executor.resolveValue(v)
@@ -891,7 +889,7 @@ func (ps *PawScript) RegisterStandardLibrary(scriptArgs []string) {
 			return BoolStatus(true)
 		case ParenGroup:
 			// Treat as a list by parsing
-			items := parseArguments(string(v))
+			items, _ := parseArguments(string(v))
 			ctx.SetResult(len(items))
 			return BoolStatus(true)
 		default:
@@ -902,8 +900,8 @@ func (ps *PawScript) RegisterStandardLibrary(scriptArgs []string) {
 	})
 
 	// slice - returns a slice of a list or string (end exclusive)
-	// Usage: slice {get mylist}, 0, 3    - items 0, 1, 2
-	//        slice {get mylist}, 1, -1   - from index 1 to end
+	// Usage: slice ~mylist, 0, 3    - items 0, 1, 2
+	//        slice ~mylist, 1, -1   - from index 1 to end
 	//        slice "hello", 0, 3          - "hel"
 	ps.RegisterCommand("slice", func(ctx *Context) Result {
 		if len(ctx.Args) < 3 {
@@ -974,7 +972,7 @@ func (ps *PawScript) RegisterStandardLibrary(scriptArgs []string) {
 	})
 
 	// append - returns a new list with item appended
-	// Usage: append {get mylist}, newitem
+	// Usage: append ~mylist, newitem
 	ps.RegisterCommand("append", func(ctx *Context) Result {
 		if len(ctx.Args) < 2 {
 			ctx.LogError(CatCommand, "Usage: append <list>, <item>")
@@ -997,7 +995,7 @@ func (ps *PawScript) RegisterStandardLibrary(scriptArgs []string) {
 	})
 
 	// prepend - returns a new list with item prepended
-	// Usage: prepend {get mylist}, newitem
+	// Usage: prepend ~mylist, newitem
 	ps.RegisterCommand("prepend", func(ctx *Context) Result {
 		if len(ctx.Args) < 2 {
 			ctx.LogError(CatCommand, "Usage: prepend <list>, <item>")
@@ -1020,7 +1018,7 @@ func (ps *PawScript) RegisterStandardLibrary(scriptArgs []string) {
 	})
 
 	// compact - returns a new list with a fresh backing array
-	// Usage: compact {get mylist}
+	// Usage: compact ~mylist
 	// Use this to free memory after slicing a large list
 	ps.RegisterCommand("compact", func(ctx *Context) Result {
 		if len(ctx.Args) < 1 {
@@ -1044,9 +1042,9 @@ func (ps *PawScript) RegisterStandardLibrary(scriptArgs []string) {
 
 	// concat - polymorphic concatenation
 	// Usage: concat "hello", " ", "world"            -> "hello world" (strings)
-	//        concat {get list1}, {get list2}         -> combined list (lists)
-	//        concat {get list}, "item1", "item2"     -> list with items appended
-	//        concat {get list1}, {get list2}, "extra" -> lists concatenated + item appended
+	//        concat ~list1, ~list2                   -> combined list (lists)
+	//        concat ~list, "item1", "item2"          -> list with items appended
+	//        concat ~list1, ~list2, "extra"          -> lists concatenated + item appended
 	ps.RegisterCommand("concat", func(ctx *Context) Result {
 		if len(ctx.Args) < 2 {
 			ctx.LogError(CatCommand, "Usage: concat <value1>, <value2>, ...")
@@ -1087,6 +1085,98 @@ func (ps *PawScript) RegisterStandardLibrary(scriptArgs []string) {
 		return BoolStatus(true)
 	})
 
+	// keys - returns a list of all keys from a list's named arguments
+	// Usage: keys ~mylist  -> list of keys as values
+	ps.RegisterCommand("keys", func(ctx *Context) Result {
+		if len(ctx.Args) < 1 {
+			ctx.LogError(CatCommand, "Usage: keys <list>")
+			ctx.SetResult(nil)
+			return BoolStatus(false)
+		}
+
+		value := ctx.Args[0]
+
+		switch v := value.(type) {
+		case StoredList:
+			namedArgs := v.NamedArgs()
+			if len(namedArgs) == 0 {
+				// No named arguments, return empty list
+				setListResult(ctx, NewStoredList([]interface{}{}))
+				return BoolStatus(true)
+			}
+
+			// Extract keys and sort them for consistent ordering
+			keys := make([]string, 0, len(namedArgs))
+			for key := range namedArgs {
+				keys = append(keys, key)
+			}
+			sort.Strings(keys)
+
+			// Convert to []interface{} for the list
+			items := make([]interface{}, len(keys))
+			for i, key := range keys {
+				items[i] = key
+			}
+
+			setListResult(ctx, NewStoredList(items))
+			return BoolStatus(true)
+		default:
+			ctx.LogError(CatType, fmt.Sprintf("Cannot get keys from type %s", getTypeName(v)))
+			ctx.SetResult(nil)
+			return BoolStatus(false)
+		}
+	})
+
+	// get_val - returns the value for a key from a list's named arguments
+	// Usage: get_val ~mylist, "radius"  -> value of radius
+	ps.RegisterCommand("get_val", func(ctx *Context) Result {
+		if len(ctx.Args) < 2 {
+			ctx.LogError(CatCommand, "Usage: get_val <list>, <key>")
+			ctx.SetResult(nil)
+			return BoolStatus(false)
+		}
+
+		listValue := ctx.Args[0]
+		keyValue := ctx.Args[1]
+
+		// Convert key to string
+		var keyStr string
+		switch k := keyValue.(type) {
+		case string:
+			keyStr = k
+		case Symbol:
+			keyStr = string(k)
+		case QuotedString:
+			keyStr = string(k)
+		default:
+			keyStr = fmt.Sprint(k)
+		}
+
+		switch v := listValue.(type) {
+		case StoredList:
+			namedArgs := v.NamedArgs()
+			if namedArgs == nil {
+				ctx.LogError(CatCommand, fmt.Sprintf("List has no named arguments"))
+				ctx.SetResult(nil)
+				return BoolStatus(false)
+			}
+
+			value, exists := namedArgs[keyStr]
+			if !exists {
+				ctx.LogError(CatCommand, fmt.Sprintf("Key '%s' not found in list", keyStr))
+				ctx.SetResult(nil)
+				return BoolStatus(false)
+			}
+
+			ctx.SetResult(value)
+			return BoolStatus(true)
+		default:
+			ctx.LogError(CatType, fmt.Sprintf("Cannot get value from type %s", getTypeName(v)))
+			ctx.SetResult(nil)
+			return BoolStatus(false)
+		}
+	})
+
 	// ==========================================
 	// STRING MANIPULATION FUNCTIONS
 	// Following same semantics as list operations where possible
@@ -1116,7 +1206,7 @@ func (ps *PawScript) RegisterStandardLibrary(scriptArgs []string) {
 	})
 
 	// join - join list into string with delimiter
-	// Usage: join {get mylist}, ","  -> "a,b,c"
+	// Usage: join ~mylist, ","  -> "a,b,c"
 	// Inverse of split
 	ps.RegisterCommand("join", func(ctx *Context) Result {
 		if len(ctx.Args) < 2 {
@@ -1557,6 +1647,10 @@ func getTypeName(val interface{}) string {
 	}
 
 	switch v := val.(type) {
+	case StoredMacro:
+		return "macro"
+	case StoredCommand:
+		return "command"
 	case StoredList:
 		return "list"
 	case ParenGroup:

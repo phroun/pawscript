@@ -139,11 +139,11 @@ echo "innertrueNested: = Good for side-effect printing."
 echo "Nested: inner = Good for captured printing."
 
 # Braces in string concatenation
-echo "prefix{set_result middle}suffix"
+echo "prefix{ret middle}suffix"
 echo "prefixmiddlesuffix = Good"
 
 # Multiple braces in one argument
-echo "{set_result Hello} {set_result World}"
+echo "{ret Hello} {ret World}"
 echo "Hello World = Good"
 
 echo "Braces testing complete."; print
@@ -201,7 +201,7 @@ call describe_args, "alpha", "beta"
 echo "You provided 2 arguments: \"alpha\", \"beta\"; First argument: alpha; Second argument: beta = Good"
 
 # Macros with brace expressions
-macro smart_echo(echo "Smart: {set_result $1}")
+macro smart_echo(echo "Smart: {ret $1}")
 smart_echo "test"
 echo "Smart: test = Good"
 
@@ -356,8 +356,8 @@ write a then echo b
 echo "ab = Good"
 echo "a then write b"
 echo "a t\hen write b = Good"
-set b, (a then echo b)
-echo {get b}
+b: (a then echo b)
+echo ~b
 echo "a t\hen echo b = Good"
 
 # Arguments with operators (inside parentheses)

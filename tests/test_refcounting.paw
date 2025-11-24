@@ -5,111 +5,111 @@ echo "=== Reference Counting Test ==="
 echo ""
 
 echo "Test 1: Single list reference"
-set list1, {list a, b, c}
+list1: {list a, b, c}
 mem_stats
 echo "Expected: 1 list with refcount=1"
 echo ""
 
 echo "Test 2: Multiple variables referencing same list"
-set list2, {get list1}
+list2: ~list1
 mem_stats
 echo "Expected: 1 list with refcount=2 (list1 and list2 both reference it)"
 echo ""
 
 echo "Test 3: Clear one reference"
-set list1, nil
+list1: nil
 mem_stats
 echo "Expected: 1 list with refcount=1 (only list2 references it)"
 echo ""
 
 echo "Test 4: Clear last reference"
-set list2, nil
+list2: nil
 mem_stats
 echo "Expected: 0 lists (freed when last reference cleared)"
 echo ""
 
 echo "Test 5: Large string with multiple references"
-set str1, "This is a very large string that exceeds the 200 character threshold for automatic storage. It contains enough text to trigger the storage mechanism which will convert it into a stored object with a reference marker. This way we avoid copying large strings around and save memory."
+str1: "This is a very large string that exceeds the 200 character threshold for automatic storage. It contains enough text to trigger the storage mechanism which will convert it into a stored object with a reference marker. This way we avoid copying large strings around and save memory."
 mem_stats
 echo "Expected: 1 string with refcount=1"
 echo ""
 
 echo "Test 6: Copy string reference to another variable"
-set str2, {get str1}
+str2: ~str1
 mem_stats
 echo "Expected: 1 string with refcount=2 (str1 and str2 both reference it)"
 echo ""
 
 echo "Test 7: Copy to third variable"
-set str3, {get str2}
+str3: ~str2
 mem_stats
 echo "Expected: 1 string with refcount=3 (str1, str2, str3 all reference it)"
 echo ""
 
 echo "Test 8: Clear middle reference"
-set str2, nil
+str2: nil
 mem_stats
 echo "Expected: 1 string with refcount=2 (str1 and str3 still reference it)"
 echo ""
 
 echo "Test 9: Clear remaining references"
-set str1, nil
-set str3, nil
+str1: nil
+str3: nil
 mem_stats
 echo "Expected: 0 objects (string freed)"
 echo ""
 
 echo "Test 10: Large block with multiple references"
-set block1, (echo "This is a very large code block that exceeds the 500 character threshold"; echo "It contains many commands"; echo "Each command adds to the total size"; echo "When the total exceeds 500 characters"; echo "The block is automatically stored as an object"; echo "This saves memory by avoiding copying"; echo "The block is accessed by reference"; echo "Only when executed is the actual code retrieved"; echo "This is especially useful for large macro definitions"; echo "Or complex code blocks that are passed around"; echo "But not immediately executed")
+block1: (echo "This is a very large code block that exceeds the 500 character threshold"; echo "It contains many commands"; echo "Each command adds to the total size"; echo "When the total exceeds 500 characters"; echo "The block is automatically stored as an object"; echo "This saves memory by avoiding copying"; echo "The block is accessed by reference"; echo "Only when executed is the actual code retrieved"; echo "This is especially useful for large macro definitions"; echo "Or complex code blocks that are passed around"; echo "But not immediately executed")
 mem_stats
 echo "Expected: 1 block with refcount=1"
 echo ""
 
 echo "Test 11: Share block across variables"
-set block2, {get block1}
-set block3, {get block1}
+block2: ~block1
+block3: ~block1
 mem_stats
 echo "Expected: 1 block with refcount=3 (block1, block2, block3)"
 echo ""
 
 echo "Test 12: Clear all block references"
-set block1, nil
-set block2, nil
-set block3, nil
+block1: nil
+block2: nil
+block3: nil
 mem_stats
 echo "Expected: 0 objects (block freed)"
 echo ""
 
 echo "Test 13: Nested list with shared inner list"
-set inner, {list x, y, z}
-set outer1, {list {get inner}, a}
-set outer2, {list {get inner}, b}
+inner: {list x, y, z}
+outer1: {list ~inner, a}
+outer2: {list ~inner, b}
 mem_stats
 echo "Expected: 3 lists - inner (refcount=3), outer1 (refcount=1), outer2 (refcount=1)"
 echo ""
 
 echo "Test 14: Clear outer lists but keep inner"
-set outer1, nil
-set outer2, nil
+outer1: nil
+outer2: nil
 mem_stats
 echo "Expected: 1 list (inner) with refcount=1"
 echo ""
 
 echo "Test 15: Clear inner list"
-set inner, nil
+inner: nil
 mem_stats
 echo "Expected: 0 lists"
 echo ""
 
 echo "Test 16: List in result with refcount"
-set mylist, {list data}
-set_result {get mylist}
+mylist: {list data}
+set_result ~mylist
 mem_stats
 echo "Expected: 1 list with refcount=2 (mylist variable + result)"
 echo ""
 
 echo "Test 17: Clear variable, result still holds reference"
-set mylist, nil
+mylist: nil
 mem_stats
 echo "Expected: 1 list with refcount=1 (only result)"
 echo ""

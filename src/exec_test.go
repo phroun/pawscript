@@ -1,6 +1,7 @@
 package pawscript
 
 import (
+	"fmt"
 	"strings"
 	"testing"
 )
@@ -81,7 +82,7 @@ func TestExecCommand(t *testing.T) {
 		var output string
 		ps.RegisterCommand("show", func(ctx *Context) Result {
 			if len(ctx.Args) > 0 {
-				output = strings.TrimSpace(ctx.Args[0].(string))
+				output = strings.TrimSpace(fmt.Sprintf("%v", ctx.Args[0]))
 			}
 			return BoolStatus(true)
 		})

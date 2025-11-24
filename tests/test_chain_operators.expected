@@ -1,0 +1,66 @@
+=== CHAIN OPERATOR TESTS (~>) ===
+
+HELLO world
+Expected: HELLO world
+
+Test 2: ~> with no additional args
+HELLO
+Expected: HELLO
+
+Test 3: Multiple ~> chains
+FIRST second
+FIRST third
+Expected: FIRST second
+Expected: FIRST third
+
+=== LONG CHAIN OPERATOR TESTS (~~>) ===
+
+Test 4: ~~> appends FIRST with comma
+world HELLO
+Expected: world HELLO
+
+Test 5: ~~> with no additional args
+TEST
+Expected: TEST
+
+Test 6: Multiple ~~> chains
+second FIRST
+third FIRST
+Expected: second FIRST
+Expected: third FIRST
+
+=== FAT ARROW OPERATOR TESTS (=>) ===
+
+Test 7: => assigns result
+result = PAWSCRIPT
+Expected: result = PAWSCRIPT
+
+=== MIXED OPERATOR TESTS ===
+
+Test 8: Combining ~> and =>
+greeting = hello world
+Expected: greeting = hello world
+
+Test 9: Combining ~~> and =>
+final = value TEST
+Expected: final = value TEST
+
+=== COMPACT SYNTAX TESTS ===
+
+Test 10: Compact ~>
+TEST ok
+Expected: TEST ok
+
+Test 11: Compact ~~>
+prefix value
+Expected: prefix value
+
+Test 12: Compact =>
+var = DATA
+Expected: var = DATA
+
+Test 13: All on one line
+output = CHAIN test
+Expected: output = CHAIN test
+
+All chain operator tests complete!

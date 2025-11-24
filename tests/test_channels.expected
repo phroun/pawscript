@@ -1,0 +1,31 @@
+=== Test 1: Create channel ====
+Channel created
+
+=== Test 2: Subscribe to channel ===
+Created 2 subscribers
+
+=== Test 3: Channel broadcasts to subscribers ===
+Sub1: broadcast from 0
+Sub2: broadcast from 0
+
+=== Test 4: Subscriber sends to channel ===
+Channel: from_sub1 from 1
+
+=== Test 5: Subscriber doesn't receive own messages ===
+Channel got: self_test from 1
+Sub2 got: from_sub1 from 1
+
+=== Test 6: Channel length ===
+Channel: 0 unread
+Sub1: 3 unread
+Sub2: 4 unread
+
+=== Test 7: Channel status ===
+Channel open: true
+Sub1 open: true
+
+=== Test 8: Close subscriber ===
+Sub1 after close: false
+
+=== Test 9: System channels ===
+System channels created

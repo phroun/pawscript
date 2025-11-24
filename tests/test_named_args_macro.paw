@@ -1,0 +1,16 @@
+#!/usr/bin/env pawscript
+
+echo "=== Test: Named arguments in macros ==="
+
+# Define a macro that uses $@
+macro test_macro (
+  echo "Received \$\@:"
+  echo $@
+  echo "Len of \$\@: {len $@}"
+)
+
+# Call macro with named arguments
+call test_macro, arg1, arg2, key1: value1, key2: value2
+
+echo ""
+echo "Done"

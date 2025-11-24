@@ -1,0 +1,69 @@
+=== Tilde Interpolation Tests ===
+
+Test 1: Basic interpolation
+Hello Alice!
+Expected: Hello Alice!
+
+Test 2: Semicolon terminator
+I'm walking to the store
+Expected: I'm walking to the store
+
+Test 3: Without semicolon (different variable)
+I'm running to the store
+Expected: I'm running to the store
+
+Test 4: Multiple variables
+Name: John Doe
+Expected: Name: John Doe
+
+Test 5: Variable at end
+Hello
+Expected: Hello
+
+Test 6: Variable at start
+world! How are you?
+Expected: world! How are you?
+
+Test 7: Escaped tilde
+This ~is a literal tilde
+Expected: This ~is a literal tilde
+
+Test 8: Escaped tilde then variable
+~not_var but Alice is
+Expected: ~not_var but Alice is
+
+Test 9: Variable with underscore
+Value: underscored
+Expected: Value: underscored
+
+Test 10: Variable with numbers
+The second one
+Expected: The second one
+
+Test 11: Semicolon mid-text
+Let's jumped over it
+Expected: Let's jumped over it
+
+Test 12: Multiple semicolon-terminated
+onetwoone
+Expected: onetwoone
+
+Test 13: Combined with braces
+x is 5 and x+1 is 6
+Expected: x is 5 and x+1 is 6
+
+Test 14: Undefined variable
+[PawScript ERROR] Variable not found: undefined_var
+  at line 99, column 1 in test_tilde_interpolation.paw
+This  should be empty
+Expected: Error logged, empty substitution
+
+Test 15: Bare tilde still works
+bare_value
+Expected: bare_value
+
+Test 16: Single quotes no interpolation
+This ~name should not interpolate
+Expected: This ~name should not interpolate
+
+=== All Tilde Interpolation Tests Complete ===

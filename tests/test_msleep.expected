@@ -1,0 +1,13 @@
+=== Test 1: Basic sleep ===
+Before sleep
+After 100ms sleep
+
+=== Test 2: Sleep with variable ===
+After 50ms sleep
+
+=== Test 3: Multiple sleeps ===
+After 10ms
+After 20ms
+After 30ms
+
+All tests complete

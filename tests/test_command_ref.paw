@@ -1,0 +1,44 @@
+# Test command_ref functionality
+
+print "=== Test 1: Get reference to print command ==="
+print_ref: {command_ref print}
+call ~print_ref, "Hello via command reference"
+print ""
+
+print "=== Test 2: Get reference to echo command ==="
+echo_ref: {command_ref echo}
+call ~echo_ref, "Echo via command reference"
+print ""
+
+print "=== Test 3: Call add via command reference ==="
+add_ref: {command_ref add}
+sum: {call ~add_ref, 10, 20}
+print "10 + 20 = ~sum"
+print ""
+
+print "=== Test 4: Call mul via command reference ==="
+mul_ref: {command_ref mul}
+product: {call ~mul_ref, 7, 8}
+print "7 * 8 = ~product"
+print ""
+
+print "=== Test 5: Direct command_ref call in brace ==="
+result: {call {command_ref sub}, 100, 25}
+print "100 - 25 = ~result"
+print ""
+
+print "=== Test 6: Command ref with set_result ==="
+result_ref: {command_ref set_result}
+call ~result_ref, "value_from_command_ref"
+val: {get_result}
+print "Result: ~val"
+print ""
+
+print "=== Test 7: Store multiple command references ==="
+commands: {list {command_ref add}, {command_ref mul}, {command_ref sub}}
+print "Stored 3 command references"
+print ""
+
+print "=== Test 8: Command ref to macro command ==="
+macro_cmd_ref: {command_ref macro}
+print "Got reference to macro command"

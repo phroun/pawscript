@@ -1,0 +1,13 @@
+Person data:
+(age: 30, city: "Boston", role: "Engineer", John, Smith)
+
+All keys:
+("age", "city", "role")
+
+Get individual values:
+Age: 30
+City: Boston
+Role: Engineer
+
+Iterate over keys:
+Found 3 keys

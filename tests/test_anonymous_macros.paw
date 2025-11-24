@@ -1,0 +1,50 @@
+# Test anonymous macro functionality
+
+print "=== Test 1: Create and call anonymous macro ==="
+m1: {macro (print "Hello from anonymous macro")}
+call ~m1
+print ""
+
+print "=== Test 2: Anonymous macro with arguments ==="
+m2: {macro (print "Args: $1 and $2")}
+call ~m2, foo, bar
+print ""
+
+print "=== Test 3: Anonymous macro with result ==="
+m3: {macro (set_result "computed_value")}
+result: {call ~m3}
+print "Result: ~result"
+print ""
+
+print "=== Test 4: Anonymous macro in brace expression ==="
+value: {call {macro (set_result 42)}}
+print "Value: ~value"
+print ""
+
+print "=== Test 5: Store multiple anonymous macros ==="
+adder: {macro (set_result {add $1, $2})}
+multiplier: {macro (set_result {mul $1, $2})}
+
+sum: {call ~adder, 5, 10}
+product: {call ~multiplier, 5, 10}
+
+print "5 + 10 = ~sum"
+print "5 * 10 = ~product"
+print ""
+
+print "=== Test 6: Anonymous macro with named arguments ==="
+m4: {macro (print "x=$x, y=$y")}
+call ~m4, x: alpha, y: beta
+print ""
+
+print "=== Test 7: Compare named and anonymous macros ==="
+macro named_test (
+  set_result "from named macro"
+)
+anon_test: {macro (set_result "from anonymous macro")}
+
+r1: {named_test}
+r2: {call ~anon_test}
+
+print "Named: ~r1"
+print "Anonymous: ~r2"

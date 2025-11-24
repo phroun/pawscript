@@ -51,6 +51,15 @@ See the `examples/` directory for sample scripts and usage patterns.
 
 ## Changelog
 
+### 0.2.4 -- November 23, 2025
+- Commands/macros now support named arguments, separated by colon.
+- Lists can now function as a key:value store (map/dictionary/hash-table)
+- `keys` returns a list of keys from a list
+- `get_val` given a list and a key, extracts the corresponding value
+
+### 0.2.3 -- November 22, 2025
+- New concise syntax for get ~x and set x:
+
 ### 0.2.2 -- November 21, 2025
 - Revised memory handling for list, block, and string types.
 - Improved consistency of error message handling.

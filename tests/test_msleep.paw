@@ -1,0 +1,24 @@
+# Test msleep functionality
+
+print "=== Test 1: Basic sleep ==="
+print "Before sleep"
+msleep 100
+print "After 100ms sleep"
+print ""
+
+print "=== Test 2: Sleep with variable ==="
+delay: 50
+msleep ~delay
+print "After 50ms sleep"
+print ""
+
+print "=== Test 3: Multiple sleeps ==="
+msleep 10
+print "After 10ms"
+msleep 20
+print "After 20ms"
+msleep 30
+print "After 30ms"
+print ""
+
+print "All tests complete"

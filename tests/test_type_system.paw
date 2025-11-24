@@ -18,20 +18,26 @@ echo ""
 # Test 2: get_type with variables
 echo "Test 2: get_type with variables"
 
-set num, 42
+num: 42
 echo "Type of num variable: {get_type num}"
 
-set str, "hello"
+str: "hello"
 echo "Type of str variable: {get_type str}"
 
-set bool_val, true
+bool_val: true
 echo "Type of bool_val variable: {get_type bool_val}"
 
-set sym, myidentifier
+sym: myidentifier
 echo "Type of sym variable (symbol): {get_type sym}"
 
-set blk, (code block)
+blk: (code block)
 echo "Type of blk variable (block): {get_type blk}"
+
+macro: {macro (echo "Hello!")}
+echo "Type of macro variable (macro): {get_type macro}"
+
+cmd: {command_ref "echo"}
+echo "Type of cmd variable (command): {get_type cmd}"
 
 echo ""
 
@@ -49,10 +55,10 @@ echo ""
 
 # Test 5: Using symbols in commands
 echo "Test 5: Symbols work in normal commands"
-set x, foo
-set y, "foo"
-echo "x (symbol) = {get x}"
-echo "y (string) = {get y}"
+x: foo
+y: "foo"
+echo "x (symbol) = ~x"
+echo "y (string) = ~y"
 echo "x type: {get_type x}"
 echo "y type: {get_type y}"
 echo ""
@@ -60,7 +66,7 @@ echo ""
 # Test 6: nil handling
 echo "Test 6: nil handling"
 echo "Type of nil: {get_inferred_type nil}"
-set null_var, nil
+null_var: nil
 echo "Type of null_var: {get_type null_var}"
 echo ""
 

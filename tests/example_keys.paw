@@ -1,0 +1,22 @@
+#!/usr/bin/env pawscript
+
+# Create a list with named arguments
+person: {list John, Smith, age: 30, city: "Boston", role: "Engineer"}
+
+echo "Person data:"
+echo ~person
+
+echo ""
+echo "All keys:"
+echo {keys ~person}
+
+echo ""
+echo "Get individual values:"
+echo "Age: {get_val ~person, age}"
+echo "City: {get_val ~person, city}"
+echo "Role: {get_val ~person, role}"
+
+echo ""
+echo "Iterate over keys:"
+keylist: {keys ~person}
+echo "Found {len ~keylist} keys"

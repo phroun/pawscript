@@ -1,24 +1,40 @@
 {
-  "name": "pawscript",
-  "description": "PawScript runtime (Go → WASM) with JS wrapper — Node + Browser",
-  "version": "2.0.0",
+  "name": "pawscript-wasm",
+  "description": "PawScript WASM bindings for JavaScript and TypeScript",
+  "version": "2.1.0",
   "type": "module",
   "main": "dist/index.js",
   "types": "dist/index.d.ts",
   "files": [
     "dist",
-    "vm.wasm",
-    "wasm_exec.js"
+    "pawscript.wasm",
+    "wasm_exec.js",
+    "README.md"
   ],
   "scripts": {
     "clean": "rm -rf dist",
-    "build:ts": "tsc -p tsconfig.json && npm run copy:wasm",
-    "copy:wasm": "mkdir -p dist && cp src/wasm_exec_loader.js dist/ || true && cp ./index.html dist/ || true && cp ../pawscript.wasm dist/ || true",
-    "build:browser": "tsc src/main.ts --module nodenext --outDir dist",
-    "build": "npm run clean && npm run build:ts"
+    "build:wasm": "cd ../src && GOOS=js GOARCH=wasm go build -o pawscript.wasm ./wasm/main.go || GOOS=js GOARCH=wasm go build -o pawscript.wasm ./wasm/main.go",
+    "build:ts": "tsc -p tsconfig.json",
+    "copy:assets": "mkdir -p dist && cp -f pawscript.wasm dist/ 2>/dev/null || true && (cp -f wasm_exec.js dist/wasm_exec.js 2>/dev/null || cp -f src/wasm_exec_loader.js dist/wasm_exec_loader.js 2>/dev/null || true) && (cp -f index.html dist/ 2>/dev/null || cp -f src/index.html dist/ 2>/dev/null || true)",
+    "build": "npm run clean && npm run build:ts && npm run copy:assets",
+    "serve": "npx http-server dist -p 8000 -o",
+    "dev": "npm run build && npm run serve",
+    "test:node": "node dist/main.js",
+    "test:browser": "npm run build && npm run serve"
   },
+  "keywords": [
+    "pawscript",
+    "wasm",
+    "webassembly",
+    "scripting",
+    "command-language"
+  ],
   "devDependencies": {
     "@types/node": "^24.10.1",
     "typescript": "^5.2.2"
-  }
+  },
+  "engines": {
+    "node": ">=18.0.0"
+  },
+  "license": "MIT"
 }

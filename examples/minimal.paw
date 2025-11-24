@@ -1,5 +1,5 @@
 # This is a comment
 
 write "Who are you? "
-set name, {read}
-echo "Hello, {get name}"
+name: {read}
+echo "Hello, {set_result ~name}"

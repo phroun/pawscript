@@ -1,0 +1,23 @@
+=== Test 1: fiber_id in main ===
+Main fiber ID: 0
+
+=== Test 2: Spawn simple fiber ===
+Hello from fiber!
+Fiber completed
+
+=== Test 3: Fiber with result ===
+Result: 42
+
+=== Test 4: Fiber with arguments ===
+6 * 7 = 42
+
+=== Test 5: Multiple fibers ===
+Results: fiber1, fiber2, fiber3
+
+=== Test 6: Fiber count ===
+Active fibers: 0
+
+=== Test 7: fiber_id inside fiber ===
+Waiting for all fibers...
+Inside fiber, ID: 7
+All fibers completed

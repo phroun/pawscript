@@ -4,70 +4,8 @@ import (
 	"context"
 	"fmt"
 	"strings"
-	"sync"
 	"time"
 )
-
-// StoredObject represents a reference-counted stored object
-type StoredObject struct {
-	Value    interface{} // The actual object (StoredList, etc.)
-	Type     string      // "list", "dict", etc.
-	RefCount int         // Number of contexts holding references
-}
-
-// Executor handles command execution
-type Executor struct {
-	mu              sync.RWMutex
-	commands        map[string]Handler
-	activeTokens    map[string]*TokenData
-	storedObjects   map[int]*StoredObject // Global reference-counted object store
-	nextTokenID     int
-	nextObjectID    int
-	logger          *Logger
-	fallbackHandler func(cmdName string, args []interface{}, state *ExecutionState, position *SourcePosition) Result
-}
-
-// NewExecutor creates a new command executor
-func NewExecutor(logger *Logger) *Executor {
-	return &Executor{
-		commands:      make(map[string]Handler),
-		activeTokens:  make(map[string]*TokenData),
-		storedObjects: make(map[int]*StoredObject),
-		nextTokenID:   1,
-		nextObjectID:  1,
-		logger:        logger,
-	}
-}
-
-// RegisterCommand registers a command handler
-func (e *Executor) RegisterCommand(name string, handler Handler) {
-	e.mu.Lock()
-	e.commands[name] = handler
-	e.mu.Unlock()
-	e.logger.Debug("Registered command: %s", name)
-}
-
-// UnregisterCommand unregisters a command
-func (e *Executor) UnregisterCommand(name string) bool {
-	e.mu.Lock()
-	defer e.mu.Unlock()
-
-	if _, exists := e.commands[name]; exists {
-		delete(e.commands, name)
-		e.logger.Debug("Unregistered command: %s", name)
-		return true
-	}
-
-	e.logger.Warn("Attempted to unregister unknown command: %s", name)
-	return false
-}
-
-// SetFallbackHandler sets a fallback handler for unknown commands
-func (e *Executor) SetFallbackHandler(handler func(string, []interface{}, *ExecutionState, *SourcePosition) Result) {
-	e.mu.Lock()
-	e.fallbackHandler = handler
-	e.mu.Unlock()
-}
 
 // RequestCompletionToken requests a new completion token for async operations
 func (e *Executor) RequestCompletionToken(
@@ -80,7 +18,14 @@ func (e *Executor) RequestCompletionToken(
 	e.mu.Lock()
 	defer e.mu.Unlock()
 
-	tokenID := fmt.Sprintf("token_%d", e.nextTokenID)
+	// Get fiber ID from state (0 for main fiber)
+	fiberID := 0
+	if state != nil {
+		fiberID = state.fiberID
+	}
+
+	// Include fiber ID in token format for easier debugging
+	tokenID := fmt.Sprintf("fiber-%d-token-%d", fiberID, e.nextTokenID)
 	e.nextTokenID++
 
 	ctx, cancel := context.WithTimeout(context.Background(), timeout)
@@ -95,7 +40,7 @@ func (e *Executor) RequestCompletionToken(
 	}()
 
 	suspendedResult, hasSuspendedResult := state.Snapshot()
-	
+
 	// Ensure state has executor reference
 	if state.executor == nil {
 		state.executor = e
@@ -113,6 +58,7 @@ func (e *Executor) RequestCompletionToken(
 		SuspendedResult:    suspendedResult,
 		HasSuspendedResult: hasSuspendedResult,
 		Position:           position,
+		FiberID:            fiberID,
 	}
 
 	e.activeTokens[tokenID] = tokenData
@@ -123,8 +69,8 @@ func (e *Executor) RequestCompletionToken(
 		}
 	}
 
-	e.logger.Debug("Created completion token: %s, parent: %s, hasResult: %v",
-		tokenID, parentTokenID, hasSuspendedResult)
+	e.logger.Debug("Created completion token: %s (fiber %d), parent: %s, hasResult: %v",
+		tokenID, fiberID, parentTokenID, hasSuspendedResult)
 
 	return tokenID
 }
@@ -164,7 +110,7 @@ func (e *Executor) RequestBraceCoordinatorToken(
 		SubstitutionCtx: substitutionCtx,
 		ResumeCallback:  resumeCallback,
 	}
-	
+
 	// Ensure state has executor reference
 	if state != nil && state.executor == nil {
 		state.executor = e
@@ -239,7 +185,7 @@ func (e *Executor) ResumeBraceEvaluation(coordinatorToken, childToken string, re
 	targetEval.Completed = true
 	targetEval.Result = result
 	coord.CompletedCount++
-	
+
 	// Clean up the brace's state references
 	if targetEval.State != nil {
 		targetEval.State.ReleaseAllReferences()
@@ -433,19 +379,27 @@ func (e *Executor) PopAndResumeCommandSequence(tokenID string, status bool) bool
 	}
 
 	success := effectiveStatus
+	var newChainedToken string
 	if tokenData.CommandSequence != nil {
 		seq := tokenData.CommandSequence
 		e.mu.Unlock() // Unlock before resuming to avoid deadlock
-		success = e.resumeCommandSequence(seq, effectiveStatus, state)
+		success, newChainedToken = e.resumeCommandSequence(seq, effectiveStatus, state)
 		e.mu.Lock()
 	}
 
-	chainedToken := tokenData.ChainedToken
+	// If resume created a new chained token, use it; otherwise use the existing one
+	chainedToken := newChainedToken
+	if chainedToken == "" {
+		chainedToken = tokenData.ChainedToken
+	}
 	parentToken := tokenData.ParentToken
-	
-	// Release all object references held by this token's state
-	if tokenData.ExecutionState != nil {
-		tokenData.ExecutionState.ReleaseAllReferences()
+	fiberID := tokenData.FiberID
+	waitChan := tokenData.WaitChan
+
+	// Check if this token belongs to a fiber
+	var fiberHandle *FiberHandle
+	if fiberID != 0 {
+		fiberHandle = e.activeFibers[fiberID]
 	}
 
 	delete(e.activeTokens, tokenID)
@@ -458,9 +412,51 @@ func (e *Executor) PopAndResumeCommandSequence(tokenID string, status bool) bool
 
 	e.mu.Unlock()
 
+	// If this token belongs to a fiber, send resume data to the fiber
+	if fiberHandle != nil {
+		e.logger.Debug("Sending resume data to fiber %d for token %s", fiberID, tokenID)
+		resumeData := ResumeData{
+			TokenID: tokenID,
+			Status:  success,
+			Result:  state.GetResult(),
+		}
+		// Non-blocking send since fiber might not be waiting yet
+		select {
+		case fiberHandle.ResumeChan <- resumeData:
+			e.logger.Debug("Successfully sent resume data to fiber %d", fiberID)
+		default:
+			e.logger.Warn("Fiber %d resume channel full or not ready", fiberID)
+		}
+	}
+
+	// If this token has a wait channel (synchronous blocking), send to it
+	if waitChan != nil {
+		e.logger.Debug("Sending resume data to wait channel for token %s", tokenID)
+		resumeData := ResumeData{
+			TokenID: tokenID,
+			Status:  success,
+			Result:  state.GetResult(),
+		}
+		// Send to wait channel (blocking is expected here)
+		waitChan <- resumeData
+		e.logger.Debug("Successfully sent resume data to wait channel")
+	}
+
 	if chainedToken != "" {
 		e.logger.Debug("Triggering chained token %s with result %v", chainedToken, success)
-		return e.PopAndResumeCommandSequence(chainedToken, success)
+		result := e.PopAndResumeCommandSequence(chainedToken, success)
+
+		// Release all object references held by this token's state
+		if tokenData.ExecutionState != nil {
+			tokenData.ExecutionState.ReleaseAllReferences()
+		}
+
+		return result
+	}
+
+	// No chain - safe to release now
+	if tokenData.ExecutionState != nil {
+		tokenData.ExecutionState.ReleaseAllReferences()
 	}
 
 	return success
@@ -503,17 +499,18 @@ func (e *Executor) forceCleanupTokenLocked(tokenID string) {
 	}
 
 	e.cleanupTokenChildrenLocked(tokenID)
-	
+
 	// Release all object references held by this token's state
 	if tokenData.ExecutionState != nil {
 		tokenData.ExecutionState.ReleaseAllReferences()
 	}
-	
+
 	delete(e.activeTokens, tokenID)
 }
 
 // resumeCommandSequence resumes execution of a command sequence
-func (e *Executor) resumeCommandSequence(seq *CommandSequence, status bool, state *ExecutionState) bool {
+// Returns (success, newChainedToken) where newChainedToken is non-empty if a new token chain was created
+func (e *Executor) resumeCommandSequence(seq *CommandSequence, status bool, state *ExecutionState) (bool, string) {
 	switch seq.Type {
 	case "sequence":
 		return e.resumeSequence(seq, status, state)
@@ -523,399 +520,262 @@ func (e *Executor) resumeCommandSequence(seq *CommandSequence, status bool, stat
 		return e.resumeOr(seq, status, state)
 	default:
 		e.logger.Error("Unknown command sequence type: %s", seq.Type)
-		return false
+		return false, ""
 	}
 }
 
 // resumeSequence resumes a sequential command sequence
-func (e *Executor) resumeSequence(seq *CommandSequence, status bool, state *ExecutionState) bool {
+// Returns (success, newChainedToken) where newChainedToken is non-empty if a new token chain was created
+func (e *Executor) resumeSequence(seq *CommandSequence, status bool, state *ExecutionState) (bool, string) {
 	success := status
 
-	for _, parsedCmd := range seq.RemainingCommands {
+	for i, parsedCmd := range seq.RemainingCommands {
 		if strings.TrimSpace(parsedCmd.Command) == "" {
 			continue
 		}
 
 		cmdResult := e.executeParsedCommand(parsedCmd, state, nil)
 
+		// Check for early return
+		if earlyReturn, ok := cmdResult.(EarlyReturn); ok {
+			e.logger.Debug("Command returned early return during resume, terminating sequence")
+			if earlyReturn.HasResult {
+				state.SetResult(earlyReturn.Result)
+			}
+			return bool(earlyReturn.Status), ""
+		}
+
 		if tokenResult, ok := cmdResult.(TokenResult); ok {
-			e.logger.Warn("Command returned token during resume: %s", string(tokenResult))
-			return false
+			e.logger.Debug("Command returned token during resume: %s, chaining remaining commands", string(tokenResult))
+
+			// Handle remaining commands after this token
+			remainingCommands := seq.RemainingCommands[i+1:]
+			if len(remainingCommands) > 0 {
+				// Create a new sequence token for the remaining commands
+				sequenceToken := e.RequestCompletionToken(
+					func(tokenID string) {
+						e.logger.Debug("Cleaning up suspended sequence for token %s", tokenID)
+					},
+					"",
+					5*time.Minute,
+					state,
+					parsedCmd.Position,
+				)
+
+				err := e.PushCommandSequence(sequenceToken, "sequence", remainingCommands, 0, "sequence", state, parsedCmd.Position)
+				if err != nil {
+					e.logger.Error("Failed to push command sequence: %v", err)
+					return false, ""
+				}
+
+				// Chain the current token to the sequence token
+				e.chainTokens(string(tokenResult), sequenceToken)
+
+				// Return the sequence token as the new chain
+				return true, sequenceToken
+			}
+
+			// No more commands, return the token itself as the new chain
+			return true, string(tokenResult)
 		}
 
 		success = bool(cmdResult.(BoolStatus))
+		state.SetLastStatus(success)
 	}
 
-	return success
+	return success, ""
 }
 
 // resumeConditional resumes a conditional sequence
-func (e *Executor) resumeConditional(seq *CommandSequence, status bool, state *ExecutionState) bool {
+// Returns (success, newChainedToken) where newChainedToken is non-empty if a new token chain was created
+func (e *Executor) resumeConditional(seq *CommandSequence, status bool, state *ExecutionState) (bool, string) {
 	if !status {
-		return false
+		return false, ""
 	}
 
 	success := status
 
-	for _, parsedCmd := range seq.RemainingCommands {
+	for i, parsedCmd := range seq.RemainingCommands {
 		if strings.TrimSpace(parsedCmd.Command) == "" {
 			continue
 		}
 
 		cmdResult := e.executeParsedCommand(parsedCmd, state, nil)
 
+		// Check for early return
+		if earlyReturn, ok := cmdResult.(EarlyReturn); ok {
+			e.logger.Debug("Command returned early return during resume, terminating sequence")
+			if earlyReturn.HasResult {
+				state.SetResult(earlyReturn.Result)
+			}
+			return bool(earlyReturn.Status), ""
+		}
+
 		if tokenResult, ok := cmdResult.(TokenResult); ok {
-			e.logger.Warn("Command returned token during resume: %s", string(tokenResult))
-			return false
+			e.logger.Debug("Command returned token during conditional resume: %s, chaining remaining commands", string(tokenResult))
+
+			// Handle remaining commands after this token
+			remainingCommands := seq.RemainingCommands[i+1:]
+			if len(remainingCommands) > 0 {
+				// Create a new sequence token for the remaining commands
+				sequenceToken := e.RequestCompletionToken(
+					func(tokenID string) {
+						e.logger.Debug("Cleaning up suspended conditional sequence for token %s", tokenID)
+					},
+					"",
+					5*time.Minute,
+					state,
+					parsedCmd.Position,
+				)
+
+				err := e.PushCommandSequence(sequenceToken, "conditional", remainingCommands, 0, "conditional", state, parsedCmd.Position)
+				if err != nil {
+					e.logger.Error("Failed to push command sequence: %v", err)
+					return false, ""
+				}
+
+				// Chain the current token to the sequence token
+				e.chainTokens(string(tokenResult), sequenceToken)
+
+				// Return the sequence token as the new chain
+				return true, sequenceToken
+			}
+
+			// No more commands, return the token itself as the new chain
+			return true, string(tokenResult)
 		}
 
 		success = bool(cmdResult.(BoolStatus))
+		state.SetLastStatus(success)
 		if !success {
 			break
 		}
 	}
 
-	return success
+	return success, ""
 }
 
 // resumeOr resumes an OR sequence
-func (e *Executor) resumeOr(seq *CommandSequence, status bool, state *ExecutionState) bool {
+// Returns (success, newChainedToken) where newChainedToken is non-empty if a new token chain was created
+func (e *Executor) resumeOr(seq *CommandSequence, status bool, state *ExecutionState) (bool, string) {
 	if status {
-		return true
+		return true, ""
 	}
 
 	success := false
 
-	for _, parsedCmd := range seq.RemainingCommands {
+	for i, parsedCmd := range seq.RemainingCommands {
 		if strings.TrimSpace(parsedCmd.Command) == "" {
 			continue
 		}
 
 		cmdResult := e.executeParsedCommand(parsedCmd, state, nil)
 
+		// Check for early return
+		if earlyReturn, ok := cmdResult.(EarlyReturn); ok {
+			e.logger.Debug("Command returned early return during resume, terminating sequence")
+			if earlyReturn.HasResult {
+				state.SetResult(earlyReturn.Result)
+			}
+			return bool(earlyReturn.Status), ""
+		}
+
 		if tokenResult, ok := cmdResult.(TokenResult); ok {
-			e.logger.Warn("Command returned token during resume: %s", string(tokenResult))
-			return false
+			e.logger.Debug("Command returned token during OR resume: %s, chaining remaining commands", string(tokenResult))
+
+			// Handle remaining commands after this token
+			remainingCommands := seq.RemainingCommands[i+1:]
+			if len(remainingCommands) > 0 {
+				// Create a new sequence token for the remaining commands
+				sequenceToken := e.RequestCompletionToken(
+					func(tokenID string) {
+						e.logger.Debug("Cleaning up suspended OR sequence for token %s", tokenID)
+					},
+					"",
+					5*time.Minute,
+					state,
+					parsedCmd.Position,
+				)
+
+				err := e.PushCommandSequence(sequenceToken, "or", remainingCommands, 0, "or", state, parsedCmd.Position)
+				if err != nil {
+					e.logger.Error("Failed to push command sequence: %v", err)
+					return false, ""
+				}
+
+				// Chain the current token to the sequence token
+				e.chainTokens(string(tokenResult), sequenceToken)
+
+				// Return the sequence token as the new chain
+				return true, sequenceToken
+			}
+
+			// No more commands, return the token itself as the new chain
+			return true, string(tokenResult)
 		}
 
 		success = bool(cmdResult.(BoolStatus))
+		state.SetLastStatus(success)
 		if success {
 			break
 		}
 	}
 
-	return success
+	return success, ""
 }
 
-// Execute executes a command string
-func (e *Executor) Execute(commandStr string, args ...interface{}) Result {
-	e.logger.Debug("Execute called with command: %s", commandStr)
-
-	state := NewExecutionState()
-	// Ensure cleanup happens when execution completes
-	defer state.ReleaseAllReferences()
-
-	// If args provided, execute as direct command call
-	if len(args) > 0 {
-		e.mu.RLock()
-		handler, exists := e.commands[commandStr]
-		e.mu.RUnlock()
-
-		if exists {
-			ctx := e.createContext(args, state, nil)
-			return handler(ctx)
-		}
-
-		e.logger.UnknownCommandError(commandStr, nil, nil)
-		return BoolStatus(false)
-	}
-
-	return e.ExecuteWithState(commandStr, state, nil, "", 0, 0)
-}
-
-// ExecuteWithState executes with explicit state and substitution context
-func (e *Executor) ExecuteWithState(
-	commandStr string,
-	state *ExecutionState,
-	substitutionCtx *SubstitutionContext,
-	filename string,
-	lineOffset, columnOffset int,
-) Result {
-	// Ensure state has executor reference for object management
-	if state != nil && state.executor == nil {
-		state.executor = e
-	}
-	
-	parser := NewParser(commandStr, filename)
-	cleanedCommand := parser.RemoveComments(commandStr)
-
-	// Normalize keywords: 'then' -> '&', 'else' -> '|'
-	normalizedCommand := parser.NormalizeKeywords(cleanedCommand)
-
-	commands, err := parser.ParseCommandSequence(normalizedCommand)
-	if err != nil {
-		// Extract position and context from PawScriptError if available
-		if pawErr, ok := err.(*PawScriptError); ok {
-			// Apply offsets to error position
-			if pawErr.Position != nil && (lineOffset > 0 || columnOffset > 0) {
-				adjustedPosition := *pawErr.Position
-				adjustedPosition.Line += lineOffset
-				if adjustedPosition.Line == lineOffset+1 {
-					adjustedPosition.Column += columnOffset
-				}
-				e.logger.ParseError(pawErr.Message, &adjustedPosition, pawErr.Context)
-			} else {
-				e.logger.ParseError(pawErr.Message, pawErr.Position, pawErr.Context)
-			}
-		} else {
-			e.logger.ParseError(err.Error(), nil, nil)
-		}
-		return BoolStatus(false)
-	}
-
-	if len(commands) == 0 {
-		return BoolStatus(true)
-	}
-
-	// Apply position offsets to all commands
-	if lineOffset > 0 || columnOffset > 0 {
-		for _, cmd := range commands {
-			if cmd.Position != nil {
-				cmd.Position.Line += lineOffset
-				// Only apply column offset to first line
-				if cmd.Position.Line == lineOffset+1 {
-					cmd.Position.Column += columnOffset
-				}
-			}
-		}
-	}
-
-	if len(commands) == 1 {
-		return e.executeParsedCommand(commands[0], state, substitutionCtx)
-	}
-
-	return e.executeCommandSequence(commands, state, substitutionCtx)
-}
-
-// maybeStoreValue checks if a value should be stored as an object and returns the appropriate representation
-// Note: Does NOT claim references - the caller must claim the returned object ID
-func (e *Executor) maybeStoreValue(value interface{}, state *ExecutionState) interface{} {
-	switch v := value.(type) {
-	case string:
-		if len(v) > StringStorageThreshold {
-			id := e.storeObject(StoredString(v), "string")
-			return Symbol(fmt.Sprintf("\x00STR:%d\x00", id))
-		}
-		return v
-	case QuotedString:
-		if len(v) > StringStorageThreshold {
-			id := e.storeObject(StoredString(v), "string")
-			return Symbol(fmt.Sprintf("\x00STR:%d\x00", id))
-		}
-		return v
-	case ParenGroup:
-		if len(v) > BlockStorageThreshold {
-			id := e.storeObject(StoredBlock(v), "block")
-			return Symbol(fmt.Sprintf("\x00BLOCK:%d\x00", id))
-		}
-		return v
-	case StoredList:
-		// StoredList objects come from processArguments resolving markers
-		// Convert back to marker to maintain pass-by-reference semantics
-		if id := e.findStoredListID(v); id >= 0 {
-			// The list already exists in storage
-			// Don't claim here - we're just converting from StoredList to Symbol
-			// The state will claim it through normal SetVariable/SetResult flow
-			return Symbol(fmt.Sprintf("\x00LIST:%d\x00", id))
-		}
-		// List not found in store - this shouldn't happen normally
-		// Store it as a new object
-		id := e.storeObject(v, "list")
-		return Symbol(fmt.Sprintf("\x00LIST:%d\x00", id))
-	default:
-		return value
-	}
-}
-
-// storeObject stores an object in the global store with an initial refcount of 0
-// Returns the object ID
-func (e *Executor) storeObject(value interface{}, typeName string) int {
+// chainTokens chains two tokens together
+func (e *Executor) chainTokens(firstToken, secondToken string) {
 	e.mu.Lock()
 	defer e.mu.Unlock()
 
-	id := e.nextObjectID
-	e.nextObjectID++
+	firstTokenData, exists1 := e.activeTokens[firstToken]
+	secondTokenData, exists2 := e.activeTokens[secondToken]
 
-	e.storedObjects[id] = &StoredObject{
-		Value:    value,
-		Type:     typeName,
-		RefCount: 0, // Start at 0 - creator must claim ownership
+	if !exists1 || !exists2 {
+		e.logger.Error("Cannot chain tokens: %s or %s not found", firstToken, secondToken)
+		return
 	}
 
-	e.logger.Debug("Stored object %d (type: %s, refcount: 0)", id, typeName)
-	
-	return id
+	firstTokenData.ChainedToken = secondToken
+	secondTokenData.ParentToken = firstToken
+
+	e.logger.Debug("Chained token %s to complete after %s", secondToken, firstToken)
 }
 
-// incrementObjectRefCount increments the reference count for an object
-func (e *Executor) incrementObjectRefCount(objectID int) {
+// attachWaitChan attaches a wait channel to a token for synchronous blocking
+func (e *Executor) attachWaitChan(tokenID string, waitChan chan ResumeData) {
 	e.mu.Lock()
 	defer e.mu.Unlock()
 
-	if obj, exists := e.storedObjects[objectID]; exists {
-		obj.RefCount++
-		e.logger.Debug("Object %d refcount incremented to %d (type: %s)", objectID, obj.RefCount, obj.Type)
+	if tokenData, exists := e.activeTokens[tokenID]; exists {
+		tokenData.WaitChan = waitChan
+		e.logger.Debug("Attached wait channel to token %s", tokenID)
 	} else {
-		e.logger.Warn("Attempted to increment refcount for non-existent object %d", objectID)
+		e.logger.Warn("Attempted to attach wait channel to non-existent token: %s", tokenID)
 	}
 }
 
-// decrementObjectRefCount decrements the reference count and frees if zero
-func (e *Executor) decrementObjectRefCount(objectID int) {
-	e.mu.Lock()
-	defer e.mu.Unlock()
-
-	if obj, exists := e.storedObjects[objectID]; exists {
-		obj.RefCount--
-		e.logger.Debug("Object %d refcount decremented to %d (type: %s)", objectID, obj.RefCount, obj.Type)
-		
-		if obj.RefCount <= 0 {
-			// Before deleting, release nested references if it's a list
-			if storedList, ok := obj.Value.(StoredList); ok {
-				e.mu.Unlock() // Unlock before recursive calls
-				for _, item := range storedList.Items() {
-					releaseNestedReferences(item, e)
-				}
-				e.mu.Lock() // Re-lock for deletion
-			}
-			
-			delete(e.storedObjects, objectID)
-			e.logger.Debug("Object %d freed (refcount reached 0)", objectID)
-		}
-	} else {
-		e.logger.Warn("Attempted to decrement refcount for non-existent object %d", objectID)
-	}
-}
-
-// getObject retrieves an object from the store without affecting refcount
-func (e *Executor) getObject(objectID int) (interface{}, bool) {
+// GetTokenStatus returns information about active tokens
+func (e *Executor) GetTokenStatus() map[string]interface{} {
 	e.mu.RLock()
 	defer e.mu.RUnlock()
 
-	if obj, exists := e.storedObjects[objectID]; exists {
-		return obj.Value, true
-	}
-	return nil, false
-}
+	tokens := make([]map[string]interface{}, 0, len(e.activeTokens))
 
-// resolveValue resolves any object marker (LIST/STRING/BLOCK) to its actual value
-// If the value is not a marker, returns it unchanged
-// This is the central resolution function - all resolution should go through here
-func (e *Executor) resolveValue(value interface{}) interface{} {
-	// Check if it's a Symbol that might be a marker
-	if sym, ok := value.(Symbol); ok {
-		if objType, objID := parseObjectMarker(string(sym)); objID >= 0 {
-			if actualValue, exists := e.getObject(objID); exists {
-				e.logger.Debug("Resolved %s marker %d to actual value", objType, objID)
-				// Convert stored types back to their original forms
-				switch v := actualValue.(type) {
-				case StoredString:
-					return string(v)
-				case StoredBlock:
-					return ParenGroup(v)
-				default:
-					return actualValue
-				}
-			}
-		}
+	for id, data := range e.activeTokens {
+		tokens = append(tokens, map[string]interface{}{
+			"id":                 id,
+			"parentToken":        data.ParentToken,
+			"childCount":         len(data.Children),
+			"hasCommandSequence": data.CommandSequence != nil,
+			"age":                time.Since(data.Timestamp).Milliseconds(),
+			"hasSuspendedResult": data.HasSuspendedResult,
+		})
 	}
-	
-	// Check if it's a string that might be a marker
-	if str, ok := value.(string); ok {
-		if objType, objID := parseObjectMarker(str); objID >= 0 {
-			if actualValue, exists := e.getObject(objID); exists {
-				e.logger.Debug("Resolved %s marker %d to actual value", objType, objID)
-				// Convert stored types back to their original forms
-				switch v := actualValue.(type) {
-				case StoredString:
-					return string(v)
-				case StoredBlock:
-					return ParenGroup(v)
-				default:
-					return actualValue
-				}
-			}
-		}
-	}
-	
-	// Not a marker, return as-is
-	return value
-}
 
-// resolveValueDeep recursively resolves markers, including nested structures
-// Use this when you need to resolve markers within lists
-func (e *Executor) resolveValueDeep(value interface{}) interface{} {
-	resolved := e.resolveValue(value)
-	
-	// If it resolved to a list, recursively resolve its items
-	if list, ok := resolved.(StoredList); ok {
-		items := list.Items()
-		resolvedItems := make([]interface{}, len(items))
-		hasChanges := false
-		
-		for i, item := range items {
-			resolvedItem := e.resolveValueDeep(item)
-			resolvedItems[i] = resolvedItem
-			if resolvedItem != item {
-				hasChanges = true
-			}
-		}
-		
-		if hasChanges {
-			return NewStoredList(resolvedItems)
-		}
+	return map[string]interface{}{
+		"activeCount": len(e.activeTokens),
+		"tokens":      tokens,
 	}
-	
-	return resolved
-}
-
-// findStoredListID finds the ID of a StoredList by searching storedObjects
-// Returns -1 if not found
-func (e *Executor) findStoredListID(list StoredList) int {
-	e.mu.RLock()
-	defer e.mu.RUnlock()
-	
-	// Get all IDs in sorted order for deterministic iteration
-	ids := make([]int, 0, len(e.storedObjects))
-	for id := range e.storedObjects {
-		ids = append(ids, id)
-	}
-	// Sort IDs to ensure deterministic iteration
-	for i := 0; i < len(ids)-1; i++ {
-		for j := i + 1; j < len(ids); j++ {
-			if ids[i] > ids[j] {
-				ids[i], ids[j] = ids[j], ids[i]
-			}
-		}
-	}
-	
-	// Compare by checking if they share the same backing array
-	for _, id := range ids {
-		obj := e.storedObjects[id]
-		if objList, ok := obj.Value.(StoredList); ok {
-			// Two slices share backing array if they have same length and same first element address
-			if len(objList.items) == len(list.items) {
-				if len(objList.items) == 0 {
-					// Both empty - match any empty list for now
-					return id
-				}
-				// Check if they point to the same backing array
-				if &objList.items[0] == &list.items[0] {
-					return id
-				}
-			}
-		}
-	}
-	
-	return -1
 }

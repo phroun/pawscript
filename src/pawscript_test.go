@@ -1,6 +1,7 @@
 package pawscript
 
 import (
+	"fmt"
 	"testing"
 	"time"
 )
@@ -40,7 +41,7 @@ func TestCommandWithArguments(t *testing.T) {
 		t.Errorf("Expected 3 arguments, got %d", len(receivedArgs))
 	}
 
-	if receivedArgs[0] != "hello" {
+	if fmt.Sprintf("%v", receivedArgs[0]) != "hello" {
 		t.Errorf("Expected 'hello', got %v", receivedArgs[0])
 	}
 
@@ -146,7 +147,7 @@ func TestResultManagement(t *testing.T) {
 
 	ps.Execute("set_value 'test'; get_value")
 
-	if capturedResult != "test" {
+	if fmt.Sprintf("%v", capturedResult) != "test" {
 		t.Errorf("Expected 'test', got %v", capturedResult)
 	}
 }
@@ -184,7 +185,7 @@ func TestMacroWithArguments(t *testing.T) {
 	var receivedArg string
 	ps.RegisterCommand("echo", func(ctx *Context) Result {
 		if len(ctx.Args) > 0 {
-			receivedArg = ctx.Args[0].(string)
+			receivedArg = fmt.Sprintf("%v", ctx.Args[0])
 		}
 		return BoolStatus(true)
 	})
@@ -242,7 +243,7 @@ func TestBraceExpressions(t *testing.T) {
 	var receivedArg string
 	ps.RegisterCommand("echo", func(ctx *Context) Result {
 		if len(ctx.Args) > 0 {
-			receivedArg = ctx.Args[0].(string)
+			receivedArg = fmt.Sprintf("%v", ctx.Args[0])
 		}
 		return BoolStatus(true)
 	})

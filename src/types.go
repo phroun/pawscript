@@ -2,6 +2,8 @@ package pawscript
 
 import (
 	"context"
+	"fmt"
+	"sync"
 	"time"
 )
 
@@ -30,6 +32,7 @@ type MacroContext struct {
 // Context is passed to command handlers
 type Context struct {
 	Args         []interface{}
+	NamedArgs    map[string]interface{} // Named arguments (key: value)
 	Position     *SourcePosition
 	state        *ExecutionState
 	executor     *Executor
@@ -104,9 +107,11 @@ func (EarlyReturn) isResult() {}
 type ParsedCommand struct {
 	Command      string
 	Arguments    []interface{}
+	NamedArgs    map[string]interface{} // Named arguments (key: value)
 	Position     *SourcePosition
 	OriginalLine string
 	Separator    string // "none", ";", "&", "|"
+	ChainType    string // "none", "chain" (~>), "chain_append" (~~>), "assign" (=>)
 }
 
 // CommandSequence represents suspended command execution
@@ -131,6 +136,14 @@ type BraceLocation struct {
 	StartColumn      int
 	PositionInParent *SourcePosition
 	IsUnescape       bool // true if ${...}, false if {...}
+}
+
+// TildeLocation tracks the position of a tilde variable reference in a string
+type TildeLocation struct {
+	StartPos    int    // Position of the ~
+	EndPos      int    // Position of last char of varname (or semicolon if present)
+	VarName     string // The variable name (without ~ or ;)
+	HasSemicolon bool  // true if terminated by explicit semicolon
 }
 
 // BraceEvaluation tracks the evaluation state of a single brace expression
@@ -173,6 +186,8 @@ type TokenData struct {
 	Position           *SourcePosition
 	BraceCoordinator   *BraceCoordinator // For coordinating parallel brace evaluation
 	InvertStatus       bool              // If true, invert the success status when this token completes
+	FiberID            int               // ID of the fiber that created this token
+	WaitChan           chan ResumeData   // For synchronous blocking (e.g., in while loops)
 }
 
 // MacroDefinition stores a macro definition
@@ -265,25 +280,179 @@ const (
 	BlockStorageThreshold  = 500 // characters - blocks larger than this become StoredBlock
 )
 
-// StoredList represents an immutable list of values
+// StoredMacro represents a macro stored as a reference-counted object
+// This can be either a named macro (registered in the macro system) or anonymous
+type StoredMacro struct {
+	Commands         string
+	DefinitionFile   string
+	DefinitionLine   int
+	DefinitionColumn int
+	Timestamp        time.Time
+}
+
+// NewStoredMacro creates a new StoredMacro
+func NewStoredMacro(commands string, position *SourcePosition) StoredMacro {
+	filename := "<unknown>"
+	line := 1
+	column := 1
+
+	if position != nil {
+		if position.Filename != "" {
+			filename = position.Filename
+		}
+		line = position.Line
+		column = position.Column
+	}
+
+	return StoredMacro{
+		Commands:         commands,
+		DefinitionFile:   filename,
+		DefinitionLine:   line,
+		DefinitionColumn: column,
+		Timestamp:        time.Now(),
+	}
+}
+
+// String returns a string representation for debugging
+func (sm StoredMacro) String() string {
+	return "(macro)"
+}
+
+// StoredCommand represents a built-in or registered command stored as a reference-counted object
+// This allows commands to be treated as first-class values
+type StoredCommand struct {
+	CommandName string
+	Handler     Handler
+	Timestamp   time.Time
+}
+
+// NewStoredCommand creates a new StoredCommand
+func NewStoredCommand(name string, handler Handler) StoredCommand {
+	return StoredCommand{
+		CommandName: name,
+		Handler:     handler,
+		Timestamp:   time.Now(),
+	}
+}
+
+// String returns a string representation for debugging
+func (sc StoredCommand) String() string {
+	return "(command)"
+}
+
+// ChannelMessage represents a message in a channel buffer
+type ChannelMessage struct {
+	SenderID   int
+	Value      interface{}
+	ConsumedBy map[int]bool // Track which subscribers have read this message
+}
+
+// StoredChannel represents a bidirectional communication channel with pub-sub support
+// Supports both native (Go-backed) and custom (macro-backed) channels
+type StoredChannel struct {
+	mu              sync.RWMutex
+	BufferSize      int
+	Messages        []ChannelMessage
+	Subscribers     map[int]*StoredChannel // Map of subscriber ID to subscriber endpoint
+	NextSubscriberID int
+	IsClosed        bool
+	IsSubscriber    bool             // True if this is a subscriber endpoint
+	SubscriberID    int              // ID of this subscriber (0 for main channel)
+	ParentChannel   *StoredChannel   // Reference to parent if this is a subscriber
+	CustomSend      *StoredMacro     // Optional custom send handler
+	CustomRecv      *StoredMacro     // Optional custom recv handler
+	CustomClose     *StoredMacro     // Optional custom close handler
+	Timestamp       time.Time
+}
+
+// NewStoredChannel creates a new channel with optional buffer size
+func NewStoredChannel(bufferSize int) *StoredChannel {
+	return &StoredChannel{
+		BufferSize:      bufferSize,
+		Messages:        make([]ChannelMessage, 0),
+		Subscribers:     make(map[int]*StoredChannel),
+		NextSubscriberID: 1,
+		IsClosed:        false,
+		IsSubscriber:    false,
+		SubscriberID:    0,
+		ParentChannel:   nil,
+		Timestamp:       time.Now(),
+	}
+}
+
+// NewChannelSubscriber creates a subscriber endpoint for a channel
+func NewChannelSubscriber(parent *StoredChannel, id int) *StoredChannel {
+	return &StoredChannel{
+		BufferSize:    parent.BufferSize,
+		Messages:      nil, // Subscribers share parent's message buffer
+		Subscribers:   nil, // Subscribers can't have their own subscribers
+		IsClosed:      false,
+		IsSubscriber:  true,
+		SubscriberID:  id,
+		ParentChannel: parent,
+		Timestamp:     time.Now(),
+	}
+}
+
+// String returns a string representation for debugging
+func (ch *StoredChannel) String() string {
+	if ch.IsSubscriber {
+		return fmt.Sprintf("(channel-sub:%d)", ch.SubscriberID)
+	}
+	return "(channel)"
+}
+
+// ResumeData contains information for resuming a suspended fiber
+type ResumeData struct {
+	TokenID string
+	Status  bool
+	Result  interface{}
+}
+
+// FiberHandle represents a running fiber (lightweight thread)
+type FiberHandle struct {
+	mu           sync.RWMutex
+	ID           int
+	State        *ExecutionState
+	SuspendedOn  string          // tokenID if suspended, "" if running
+	ResumeChan   chan ResumeData // Channel for resuming suspended fiber
+	Result       interface{}     // Final result when fiber completes
+	Error        error           // Error if fiber failed
+	CompleteChan chan struct{}   // Closed when fiber completes
+	Completed    bool            // True when fiber has finished
+}
+
+// StoredList represents an immutable list of values with optional named arguments
 // All operations return new StoredList instances (copy-on-write)
 // Slicing shares the backing array for memory efficiency
+// Named arguments (key-value pairs) are stored separately from positional items
 type StoredList struct {
-	items []interface{}
+	items      []interface{}
+	namedArgs  map[string]interface{} // Named arguments (key: value)
 }
 
 // NewStoredList creates a new StoredList from a slice of items
 func NewStoredList(items []interface{}) StoredList {
-	return StoredList{items: items}
+	return StoredList{items: items, namedArgs: nil}
+}
+
+// NewStoredListWithNamed creates a new StoredList with both positional items and named arguments
+func NewStoredListWithNamed(items []interface{}, namedArgs map[string]interface{}) StoredList {
+	return StoredList{items: items, namedArgs: namedArgs}
 }
 
 // NewStoredListWithRefs creates a new StoredList and claims references to any nested objects
-func NewStoredListWithRefs(items []interface{}, executor *Executor) StoredList {
-	list := StoredList{items: items}
-	// Claim references to any nested objects
+func NewStoredListWithRefs(items []interface{}, namedArgs map[string]interface{}, executor *Executor) StoredList {
+	list := StoredList{items: items, namedArgs: namedArgs}
+	// Claim references to any nested objects in positional items
 	if executor != nil {
 		for _, item := range items {
 			claimNestedReferences(item, executor)
+		}
+		// Claim references to any nested objects in named arguments (both keys and values)
+		for key, value := range namedArgs {
+			claimNestedReferences(key, executor)
+			claimNestedReferences(value, executor)
 		}
 	}
 	return list
@@ -305,9 +474,14 @@ func claimNestedReferences(value interface{}, executor *Executor) {
 		if id := executor.findStoredListID(v); id >= 0 {
 			executor.incrementObjectRefCount(id)
 		}
-		// Then recursively claim references in nested list items
+		// Then recursively claim references in positional list items
 		for _, item := range v.Items() {
 			claimNestedReferences(item, executor)
+		}
+		// Also claim references in named arguments (both keys and values)
+		for key, val := range v.NamedArgs() {
+			claimNestedReferences(key, executor)
+			claimNestedReferences(val, executor)
 		}
 	}
 }
@@ -339,7 +513,13 @@ func (pl StoredList) Items() []interface{} {
 	return pl.items
 }
 
-// Len returns the number of items in the list
+// NamedArgs returns the named arguments map (direct reference, not a copy)
+// Returns nil if there are no named arguments
+func (pl StoredList) NamedArgs() map[string]interface{} {
+	return pl.namedArgs
+}
+
+// Len returns the number of positional items in the list (excludes named arguments)
 func (pl StoredList) Len() int {
 	return len(pl.items)
 }
@@ -355,6 +535,7 @@ func (pl StoredList) Get(index int) interface{} {
 
 // Slice returns a new StoredList with items from start to end (end exclusive)
 // Shares the backing array for memory efficiency (O(1) time, O(1) space)
+// Preserves named arguments from the original list
 func (pl StoredList) Slice(start, end int) StoredList {
 	if start < 0 {
 		start = 0
@@ -365,42 +546,65 @@ func (pl StoredList) Slice(start, end int) StoredList {
 	if start > end {
 		start = end
 	}
-	return StoredList{items: pl.items[start:end]}
+	return StoredList{items: pl.items[start:end], namedArgs: pl.namedArgs}
 }
 
 // Append returns a new StoredList with the item appended (O(n) copy-on-write)
+// Preserves named arguments from the original list
 func (pl StoredList) Append(item interface{}) StoredList {
 	newItems := make([]interface{}, len(pl.items)+1)
 	copy(newItems, pl.items)
 	newItems[len(pl.items)] = item
-	return StoredList{items: newItems}
+	return StoredList{items: newItems, namedArgs: pl.namedArgs}
 }
 
 // Prepend returns a new StoredList with the item prepended (O(n) copy-on-write)
+// Preserves named arguments from the original list
 func (pl StoredList) Prepend(item interface{}) StoredList {
 	newItems := make([]interface{}, len(pl.items)+1)
 	newItems[0] = item
 	copy(newItems[1:], pl.items)
-	return StoredList{items: newItems}
+	return StoredList{items: newItems, namedArgs: pl.namedArgs}
 }
 
 // Concat returns a new StoredList with items from both lists (O(n+m) copy)
+// Named arguments are merged, with keys from 'other' replacing keys from 'pl' when both contain the same key
 func (pl StoredList) Concat(other StoredList) StoredList {
 	newItems := make([]interface{}, len(pl.items)+len(other.items))
 	copy(newItems, pl.items)
 	copy(newItems[len(pl.items):], other.items)
-	return StoredList{items: newItems}
+	
+	// Merge named arguments
+	var newNamedArgs map[string]interface{}
+	if pl.namedArgs != nil || other.namedArgs != nil {
+		newNamedArgs = make(map[string]interface{})
+		// Copy from pl first
+		for k, v := range pl.namedArgs {
+			newNamedArgs[k] = v
+		}
+		// Then copy from other, overwriting any duplicate keys
+		for k, v := range other.namedArgs {
+			newNamedArgs[k] = v
+		}
+	}
+	
+	return StoredList{items: newItems, namedArgs: newNamedArgs}
 }
 
 // Compact returns a new StoredList with a new backing array
 // Use this to free memory if you've sliced a large list
+// Preserves named arguments from the original list
 func (pl StoredList) Compact() StoredList {
 	newItems := make([]interface{}, len(pl.items))
 	copy(newItems, pl.items)
-	return StoredList{items: newItems}
+	return StoredList{items: newItems, namedArgs: pl.namedArgs}
 }
 
 // String returns a string representation for debugging
+// Named arguments appear before positional items
 func (pl StoredList) String() string {
-	return "(list)"
+	if len(pl.namedArgs) == 0 {
+		return "(list)"
+	}
+	return "(list with named args)"
 }

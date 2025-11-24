@@ -1,0 +1,35 @@
+=== Testing ret in Brace Expressions ===
+
+Test 1: Simple ret with result in brace
+Value: hello
+Expected: Value: hello
+
+Test 2: ret with conditional
+5 is small
+Expected: 5 is small
+15 is large
+Expected: 15 is large
+
+Test 3: Nested braces with ret
+Result: inner
+Expected: Result: inner
+
+Test 4: ret with both status and result
+Status: success
+Expected: Status: success
+Status: error
+Expected: Status: error
+
+Test 5: ret in string interpolation
+Message: Hello Alice!
+Expected: Message: Hello Alice!
+
+Test 6: ret for early exit
+empty
+Expected: empty
+skipped
+Expected: skipped
+processed: data
+Expected: processed: data
+
+=== All ret in Brace Tests Complete ===

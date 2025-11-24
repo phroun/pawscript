@@ -1,0 +1,52 @@
+#!/usr/bin/env pawscript
+
+echo "=== Test 1: keys command on list with named args ==="
+mylist: {list 1, 2, 3, x: 10, y: 20, z: 30}
+echo "List:"
+echo ~mylist
+echo "Keys:"
+echo {keys ~mylist}
+
+echo ""
+echo "=== Test 2: keys command on list with no named args ==="
+simple: {list a, b, c}
+echo "List:"
+echo ~simple
+echo "Keys:"
+echo {keys ~simple}
+
+echo ""
+echo "=== Test 3: get_val command ==="
+data: {list pos1, pos2, name: "John", age: 30, city: "NYC"}
+echo "List:"
+echo ~data
+echo "Get 'name':"
+echo {get_val ~data, name}
+echo "Get 'age':"
+echo {get_val ~data, age}
+echo "Get 'city':"
+echo {get_val ~data, city}
+
+echo ""
+echo "=== Test 4: get_val with quoted key ==="
+echo "Get 'name' with quoted key:"
+echo {get_val ~data, "name"}
+
+echo ""
+echo "=== Test 5: keys sorted order ==="
+unsorted: {list z: 1, a: 2, m: 3, b: 4}
+echo "List:"
+echo ~unsorted
+echo "Keys (should be sorted):"
+echo {keys ~unsorted}
+
+echo ""
+echo "=== Test 6: Using in macro ==="
+macro show_named_args(
+  myargs: $@
+  echo "Keys in", $@
+  echo {keys ~myargs}
+  echo "Value of 'radius':"
+  echo {get_val ~myargs, radius}
+)
+show_named_args 1, 2, radius: 5.5, height: 10

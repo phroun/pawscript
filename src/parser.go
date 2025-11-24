@@ -309,6 +309,7 @@ func (p *Parser) ParseCommandSequence(commandStr string) ([]*ParsedCommand, erro
 	commandStartColumn := 1
 	commandStartPos := 0 // Track position in the string for source map lookup
 	currentSeparator := "none"
+	nextChainType := "none" // Track chain type for NEXT command
 
 	runes := []rune(commandStr)
 	i := 0
@@ -337,7 +338,11 @@ func (p *Parser) ParseCommandSequence(commandStr string) ([]*ParsedCommand, erro
 				Position:     pos,
 				OriginalLine: "",
 				Separator:    separator,
+				ChainType:    nextChainType, // Use tracked chain type
 			})
+
+			// Reset chain type after using it
+			nextChainType = "none"
 		}
 		currentCommand.Reset()
 		commandStartLine = endLine
@@ -423,6 +428,38 @@ func (p *Parser) ParseCommandSequence(commandStr string) ([]*ParsedCommand, erro
 		}
 
 		// Handle separators at top level
+		// Check for three-character operator first: ~~>
+		if char == '~' && i+2 < len(runes) && runes[i+1] == '~' && runes[i+2] == '>' {
+			addCommand(currentCommand.String(), currentSeparator, line, column+3, commandStartPos)
+			currentSeparator = ";"
+			// Mark that NEXT command needs chain_append injection
+			nextChainType = "chain_append"
+			i += 3
+			column += 3
+			continue
+		}
+
+		// Check for two-character operators: ~> and =>
+		if char == '~' && i+1 < len(runes) && runes[i+1] == '>' {
+			addCommand(currentCommand.String(), currentSeparator, line, column+2, commandStartPos)
+			currentSeparator = ";"
+			// Mark that NEXT command needs chain injection
+			nextChainType = "chain"
+			i += 2
+			column += 2
+			continue
+		}
+
+		if char == '=' && i+1 < len(runes) && runes[i+1] == '>' {
+			addCommand(currentCommand.String(), currentSeparator, line, column+2, commandStartPos)
+			currentSeparator = ";"
+			// Mark that NEXT command needs assign injection
+			nextChainType = "assign"
+			i += 2
+			column += 2
+			continue
+		}
+
 		if char == ';' {
 			addCommand(currentCommand.String(), currentSeparator, line, column+1, commandStartPos)
 			currentSeparator = ";"
@@ -485,14 +522,15 @@ func (p *Parser) ParseCommandSequence(commandStr string) ([]*ParsedCommand, erro
 		addCommand(currentCommand.String(), currentSeparator, line, column, commandStartPos)
 	}
 
-	return commands, nil
+	// Post-process commands to apply chain operators
+	return p.applyChainOperators(commands)
 }
 
 // ParseCommand parses a single command into name and arguments
-func ParseCommand(commandStr string) (string, []interface{}) {
+func ParseCommand(commandStr string) (string, []interface{}, map[string]interface{}) {
 	commandStr = strings.TrimSpace(commandStr)
 	if commandStr == "" {
-		return "", nil
+		return "", nil, nil
 	}
 
 	// Find command end
@@ -525,23 +563,24 @@ func ParseCommand(commandStr string) (string, []interface{}) {
 	}
 
 	if commandEnd == -1 {
-		return commandStr, nil
+		return commandStr, nil, nil
 	}
 
 	command := string(runes[:commandEnd])
 	argsStr := strings.TrimSpace(string(runes[commandEnd:]))
 
 	if argsStr == "" {
-		return command, nil
+		return command, nil, nil
 	}
 
-	args := parseArguments(argsStr)
-	return command, args
+	args, namedArgs := parseArguments(argsStr)
+	return command, args, namedArgs
 }
 
-// parseArguments parses argument string into slice
-func parseArguments(argsStr string) []interface{} {
+// parseArguments parses argument string into slice of positional args and named args
+func parseArguments(argsStr string) ([]interface{}, map[string]interface{}) {
 	var args []interface{}
+	namedArgs := make(map[string]interface{})
 	var currentArg strings.Builder
 	inQuote := false
 	var quoteChar rune
@@ -553,6 +592,24 @@ func parseArguments(argsStr string) []interface{} {
 
 	for i < len(runes) {
 		char := runes[i]
+
+		// Skip object markers (\x00...\x00) - they may contain colons
+		if char == '\x00' {
+			// Write the opening \x00
+			currentArg.WriteRune(char)
+			i++
+			// Find and write everything up to the closing \x00
+			for i < len(runes) && runes[i] != '\x00' {
+				currentArg.WriteRune(runes[i])
+				i++
+			}
+			// Write the closing \x00 if we found it
+			if i < len(runes) {
+				currentArg.WriteRune(runes[i])
+				i++
+			}
+			continue
+		}
 
 		if char == '\\' && i+1 < len(runes) {
 			currentArg.WriteRune(char)
@@ -605,6 +662,134 @@ func parseArguments(argsStr string) []interface{} {
 			continue
 		}
 
+		// Check for top-level colon (not inside quotes, parens, or braces, and not escaped)
+		if !inQuote && parenCount == 0 && braceCount == 0 && char == ':' {
+			// The value to the left becomes the key
+			key := parseArgumentValue(strings.TrimSpace(currentArg.String()))
+			currentArg.Reset()
+			
+			// Skip whitespace after colon
+			for i+1 < len(runes) && unicode.IsSpace(runes[i+1]) {
+				i++
+			}
+			i++
+			
+			// Parse the value until we hit a comma or end of string
+			var valueArg strings.Builder
+			valueParenCount := 0
+			valueBraceCount := 0
+			valueInQuote := false
+			var valueQuoteChar rune
+			
+			for i < len(runes) {
+				valueChar := runes[i]
+				
+				// Skip object markers (\x00...\x00) in values too
+				if valueChar == '\x00' {
+					valueArg.WriteRune(valueChar)
+					i++
+					for i < len(runes) && runes[i] != '\x00' {
+						valueArg.WriteRune(runes[i])
+						i++
+					}
+					if i < len(runes) {
+						valueArg.WriteRune(runes[i])
+						i++
+					}
+					continue
+				}
+				
+				if valueChar == '\\' && i+1 < len(runes) {
+					valueArg.WriteRune(valueChar)
+					valueArg.WriteRune(runes[i+1])
+					i += 2
+					continue
+				}
+				
+				if !valueInQuote && (valueChar == '"' || valueChar == '\'') {
+					valueInQuote = true
+					valueQuoteChar = valueChar
+					valueArg.WriteRune(valueChar)
+					i++
+					continue
+				}
+				
+				if valueInQuote && valueChar == valueQuoteChar {
+					valueInQuote = false
+					valueQuoteChar = 0
+					valueArg.WriteRune(valueChar)
+					i++
+					continue
+				}
+				
+				if !valueInQuote && valueChar == '(' {
+					valueParenCount++
+					valueArg.WriteRune(valueChar)
+					i++
+					continue
+				}
+				
+				if !valueInQuote && valueChar == ')' {
+					valueParenCount--
+					valueArg.WriteRune(valueChar)
+					i++
+					continue
+				}
+				
+				if !valueInQuote && valueChar == '{' {
+					valueBraceCount++
+					valueArg.WriteRune(valueChar)
+					i++
+					continue
+				}
+				
+				if !valueInQuote && valueChar == '}' {
+					valueBraceCount--
+					valueArg.WriteRune(valueChar)
+					i++
+					continue
+				}
+				
+				// Check for comma at top level - this ends the value
+				if !valueInQuote && valueParenCount == 0 && valueBraceCount == 0 && valueChar == ',' {
+					break
+				}
+				
+				valueArg.WriteRune(valueChar)
+				i++
+			}
+			
+			value := parseArgumentValue(strings.TrimSpace(valueArg.String()))
+			
+			// Convert key to string for map storage
+			keyStr := ""
+			switch k := key.(type) {
+			case string:
+				keyStr = k
+			case Symbol:
+				keyStr = string(k)
+			case QuotedString:
+				keyStr = string(k)
+			case ParenGroup:
+				keyStr = string(k)
+			default:
+				// For other types, use fmt.Sprint
+				keyStr = fmt.Sprint(k)
+			}
+			
+			namedArgs[keyStr] = value
+			
+			// Skip comma if present
+			if i < len(runes) && runes[i] == ',' {
+				// Skip whitespace after comma
+				for i+1 < len(runes) && unicode.IsSpace(runes[i+1]) {
+					i++
+				}
+				i++
+			}
+			continue
+		}
+
 		if !inQuote && parenCount == 0 && braceCount == 0 && char == ',' {
 			args = append(args, parseArgumentValue(strings.TrimSpace(currentArg.String())))
 			currentArg.Reset()
@@ -623,11 +808,14 @@ func parseArguments(argsStr string) []interface{} {
 	}
 
 	trimmed := strings.TrimSpace(currentArg.String())
-	if trimmed != "" || len(args) > 0 {
+	if trimmed != "" {
 		args = append(args, parseArgumentValue(trimmed))
 	}
 
-	return args
+	if len(namedArgs) == 0 {
+		return args, nil
+	}
+	return args, namedArgs
 }
 
 // parseArgumentValue parses a single argument value
@@ -720,6 +908,11 @@ func parseStringLiteral(str string) string {
 				i += 2
 			case '\n':
 				// Line continuation: backslash followed by newline produces empty string
+				i += 2
+			case '~':
+				// Escaped tilde: preserve as \~ for later processing by applySubstitution
+				result.WriteRune('\\')
+				result.WriteRune('~')
 				i += 2
 			case 'x':
 				// Hex escape: \xHH
@@ -950,4 +1143,66 @@ func (p *Parser) NormalizeKeywords(source string) string {
 	p.sourceMap.TransformedToOriginal = newMappings
 
 	return result.String()
+}
+
+// applyChainOperators applies chain operator transformations to parsed commands
+// Processes ~> (chain) and => (assign) operators by injecting {get_result}
+func (p *Parser) applyChainOperators(commands []*ParsedCommand) ([]*ParsedCommand, error) {
+	for i := 0; i < len(commands); i++ {
+		cmd := commands[i]
+
+		switch cmd.ChainType {
+		case "chain":
+			// ~> operator: prepend {get_result} to current command's arguments
+			// Transform: "cmd~>next args" => "next {get_result}, args"
+			// Insert {get_result} as first argument after command name
+			parts := strings.SplitN(cmd.Command, " ", 2)
+			if len(parts) == 1 {
+				// No existing arguments
+				cmd.Command = parts[0] + " {get_result}"
+			} else {
+				// Has existing arguments - insert {get_result} before them with comma
+				cmd.Command = parts[0] + " {get_result}, " + parts[1]
+			}
+
+		case "chain_append":
+			// ~~> operator: append {get_result} as last argument
+			// Transform: "cmd~~>next args" => "next args, {get_result}"
+			// Append {get_result} as last argument
+			parts := strings.SplitN(cmd.Command, " ", 2)
+			if len(parts) == 1 {
+				// No existing arguments
+				cmd.Command = parts[0] + " {get_result}"
+			} else {
+				// Has existing arguments - append {get_result} after them with comma
+				cmd.Command = parts[0] + " " + parts[1] + ", {get_result}"
+			}
+
+		case "assign":
+			// => operator: turn command into assignment
+			// Transform: "cmd=>varname" => "varname: {get_result}"
+			cmdName := strings.TrimSpace(cmd.Command)
+			if cmdName == "" {
+				return nil, &PawScriptError{
+					Message:  "Fat arrow operator (=>) requires a variable name after it",
+					Position: cmd.Position,
+					Context:  p.sourceMap.OriginalLines,
+				}
+			}
+
+			// Check if it looks like a valid identifier
+			if strings.ContainsAny(cmdName, " \t\n(){}[]") {
+				return nil, &PawScriptError{
+					Message:  fmt.Sprintf("Invalid variable name after => operator: '%s'", cmdName),
+					Position: cmd.Position,
+					Context:  p.sourceMap.OriginalLines,
+				}
+			}
+
+			// Transform to assignment
+			cmd.Command = fmt.Sprintf("%s: {get_result}", cmdName)
+		}
+	}
+
+	return commands, nil
 }

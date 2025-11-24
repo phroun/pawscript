@@ -98,7 +98,7 @@ echo "\e[31mRed text\e[0m"
 echo "Before\0After"
 # Output: Before[null]After (contains actual null byte)
 
-set data, "Binary\0Data"
+data: "Binary\0Data"
 # Stores string with embedded null byte
 ```
 
@@ -197,13 +197,13 @@ Line2"
 # Output: Value: Line1\nLine2
 
 # Tabs are escaped as \t (short form)
-set value, "Col1	Col2"
-echo "Data: {get value}"
+value: "Col1	Col2"
+echo "Data: ~value"
 # Output: Data: Col1\tCol2
 
 # Null bytes are escaped as \0 (short form)
-set data, "Before\0After"
-echo "Stored: {get value}"
+data: "Before\0After"
+echo "Stored: ~value"
 # Output: Stored: Before\0After
 
 # Syntax characters are escaped
@@ -275,7 +275,7 @@ echo "\U99999999"
 ### Binary Data
 
 ```pawscript
-set packet, "\x00\x01\x02\x03"
+packet: "\x00\x01\x02\x03"
 # Store binary data with null bytes and control chars
 ```
 
@@ -289,7 +289,7 @@ echo "\e[2J\e[H"
 ### Multi-line Strings
 
 ```pawscript
-set config, "line1\nline2\nline3"
+config: "line1\nline2\nline3"
 # Store multi-line content in single string
 ```
 

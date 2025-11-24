@@ -1,0 +1,37 @@
+=== Test 1: keys command on list with named args ===
+List:
+(x: 10, y: 20, z: 30, 1, 2, 3)
+Keys:
+("x", "y", "z")
+
+=== Test 2: keys command on list with no named args ===
+List:
+(a, b, c)
+Keys:
+()
+
+=== Test 3: get_val command ===
+List:
+(age: 30, city: "NYC", name: "John", pos1, pos2)
+Get 'name':
+John
+Get 'age':
+30
+Get 'city':
+NYC
+
+=== Test 4: get_val with quoted key ===
+Get 'name' with quoted key:
+John
+
+=== Test 5: keys sorted order ===
+List:
+(a: 2, b: 4, m: 3, z: 1)
+Keys (should be sorted):
+("a", "b", "m", "z")
+
+=== Test 6: Using in macro ===
+Keys in (height: 10, radius: 5.5, 1, 2)
+("height", "radius")
+Value of 'radius':
+5.5

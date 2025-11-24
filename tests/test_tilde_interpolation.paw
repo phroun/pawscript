@@ -1,0 +1,116 @@
+# Test tilde interpolation in strings
+
+echo "=== Tilde Interpolation Tests ==="
+echo ""
+
+# Basic interpolation
+name: "Alice"
+echo "Test 1: Basic interpolation"
+echo "Hello ~name!"
+echo "Expected: Hello Alice!"
+echo ""
+
+# Semicolon terminator
+verb: "walk"
+echo "Test 2: Semicolon terminator"
+echo "I'm ~verb;ing to the store"
+echo "Expected: I'm walking to the store"
+echo ""
+
+# Without semicolon - different variable
+echo "Test 3: Without semicolon (different variable)"
+verbing: "running"
+echo "I'm ~verbing to the store"
+echo "Expected: I'm running to the store"
+echo ""
+
+# Multiple variables in one string
+first: "John"
+last: "Doe"
+echo "Test 4: Multiple variables"
+echo "Name: ~first ~last"
+echo "Expected: Name: John Doe"
+echo ""
+
+# Variable at end of string
+greeting: "Hello"
+echo "Test 5: Variable at end"
+echo "~greeting"
+echo "Expected: Hello"
+echo ""
+
+# Variable at start of string
+suffix: "world!"
+echo "Test 6: Variable at start"
+echo "~suffix How are you?"
+echo "Expected: world! How are you?"
+echo ""
+
+# Escaped tilde
+echo "Test 7: Escaped tilde"
+echo "This \~is a literal tilde"
+echo 'Expected: This ~is a literal tilde'
+echo ""
+
+# Escaped tilde followed by variable
+echo "Test 8: Escaped tilde then variable"
+echo "\~not_var but ~name is"
+echo 'Expected: ~not_var but Alice is'
+echo ""
+
+# Variable with underscore
+my_var: "underscored"
+echo "Test 9: Variable with underscore"
+echo "Value: ~my_var"
+echo "Expected: Value: underscored"
+echo ""
+
+# Variable with numbers
+var2: "second"
+echo "Test 10: Variable with numbers"
+echo "The ~var2 one"
+echo "Expected: The second one"
+echo ""
+
+# Semicolon in middle of text
+action: "jump"
+echo "Test 11: Semicolon mid-text"
+echo "Let's ~action;ed over it"
+echo "Expected: Let's jumped over it"
+echo ""
+
+# Multiple semicolon-terminated vars
+a: "one"
+b: "two"
+echo "Test 12: Multiple semicolon-terminated"
+echo "~a;~b;~a"
+echo "Expected: onetwoone"
+echo ""
+
+# Combined with brace expressions
+x: 5
+echo "Test 13: Combined with braces"
+echo "x is ~x and x+1 is {add ~x, 1}"
+echo "Expected: x is 5 and x+1 is 6"
+echo ""
+
+# Undefined variable (should show error but continue)
+echo "Test 14: Undefined variable"
+echo "This ~undefined_var should be empty"
+echo "Expected: Error logged, empty substitution"
+echo ""
+
+# Bare tilde should still work (not affected by string interpolation)
+bare_var: "bare_value"
+echo "Test 15: Bare tilde still works"
+echo ~bare_var
+echo "Expected: bare_value"
+echo ""
+
+# Single quotes should NOT interpolate
+echo "Test 16: Single quotes no interpolation"
+echo 'This ~name should not interpolate'
+echo 'Expected: This ~name should not interpolate'
+echo ""
+
+echo "=== All Tilde Interpolation Tests Complete ==="

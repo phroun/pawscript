@@ -11,18 +11,22 @@ type ExecutionState struct {
 	mu            sync.RWMutex
 	currentResult interface{}
 	hasResult     bool
+	lastStatus    bool // Tracks the status (success/failure) of the last command
 	variables     map[string]interface{}
 	ownedObjects  map[int]int // Count of references this state owns for each object ID
 	executor      *Executor   // Reference to executor for object management
+	fiberID       int         // ID of the fiber this state belongs to (0 for main)
 }
 
 // NewExecutionState creates a new execution state
 func NewExecutionState() *ExecutionState {
 	return &ExecutionState{
 		hasResult:    false,
+		lastStatus:   true, // Default to success
 		variables:    make(map[string]interface{}),
 		ownedObjects: make(map[int]int),
 		executor:     nil, // Will be set when attached to executor
+		fiberID:      0,   // Main fiber
 	}
 }
 
@@ -35,9 +39,11 @@ func NewExecutionStateFrom(parent *ExecutionState) *ExecutionState {
 	return &ExecutionState{
 		currentResult: nil,                  // Fresh result storage for this child
 		hasResult:     false,                // Child starts with no result
+		lastStatus:    true,                 // Child starts with success status
 		variables:     make(map[string]interface{}), // Create fresh map
 		ownedObjects:  make(map[int]int),    // Fresh owned objects counter
 		executor:      parent.executor,      // Share executor reference
+		fiberID:       parent.fiberID,       // Inherit fiber ID
 	}
 }
 
@@ -54,9 +60,11 @@ func NewExecutionStateFromSharedVars(parent *ExecutionState) *ExecutionState {
 	return &ExecutionState{
 		currentResult: parent.currentResult, // Inherit parent's result for get_result
 		hasResult:     parent.hasResult,     // Inherit parent's result state
+		lastStatus:    parent.lastStatus,    // Inherit parent's last status
 		variables:     parent.variables,     // Share the variables map with parent
 		ownedObjects:  make(map[int]int),    // Fresh owned objects counter (will clean up separately)
 		executor:      parent.executor,      // Share executor reference
+		fiberID:       parent.fiberID,       // Inherit fiber ID
 	}
 }
 
@@ -184,6 +192,20 @@ func (s *ExecutionState) ClearResult() {
 	defer s.mu.Unlock()
 	s.currentResult = nil
 	s.hasResult = false
+}
+
+// GetLastStatus returns the last command status
+func (s *ExecutionState) GetLastStatus() bool {
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+	return s.lastStatus
+}
+
+// SetLastStatus sets the last command status
+func (s *ExecutionState) SetLastStatus(status bool) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	s.lastStatus = status
 }
 
 // CreateChild creates a child state that inherits current result

@@ -1,0 +1,6 @@
+=== Test: Named arguments in macros ===
+Received $@:
+(key1: value1, key2: value2, arg1, arg2)
+Len of $@: 2
+
+Done

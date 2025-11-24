@@ -1,0 +1,78 @@
+#!/usr/bin/env paw
+
+echo "=== Testing ret in Brace Expressions ==="
+echo ""
+
+# Test 1: ret with result in simple brace
+echo "Test 1: Simple ret with result in brace"
+macro get_value(true;ret "hello")
+echo "Value: {get_value}"
+echo "Expected: Value: hello"
+echo ""
+
+# Test 2: ret with conditional logic
+echo "Test 2: ret with conditional"
+macro check_number(
+    if {gt $1, 10} then (
+        ret "large"
+    ) else (
+        true
+        ret "small"
+    )
+)
+echo "5 is {check_number 5}"
+echo "Expected: 5 is small"
+echo "15 is {check_number 15}"
+echo "Expected: 15 is large"
+echo ""
+
+# Test 3: ret in nested braces
+echo "Test 3: Nested braces with ret"
+macro outer(
+    true;ret {set_result "inner"}
+)
+echo "Result: {outer}"
+echo "Expected: Result: inner"
+echo ""
+
+# Test 4: ret with status and result
+echo "Test 4: ret with both status and result"
+macro maybe_fail(
+    if {eq $1, "fail"}
+    then (ret "error")
+    else (true;ret "success")
+)
+echo "Status: {maybe_fail "ok"}"
+echo "Expected: Status: success"
+echo "Status: {maybe_fail "fail"}"
+echo "Expected: Status: error"
+echo ""
+
+# Test 5: ret in string interpolation with brace
+echo "Test 5: ret in string interpolation"
+name: "Alice"
+macro greeting(true;ret "Hello")
+echo "Message: {greeting} ~name!"
+echo "Expected: Message: Hello Alice!"
+echo ""
+
+# Test 6: ret with early exit from complex logic
+echo "Test 6: ret for early exit"
+macro process(
+    if {eq "$1", ""} then (
+        ret "empty"
+    );
+    if {eq $1, "skip"} then (
+        ret "skipped"
+    );
+    true;ret "processed: $1"
+)
+echo "{process ''}"
+echo "Expected: empty"
+echo "{process 'skip'}"
+echo "Expected: skipped"
+echo "{process 'data'}"
+echo "Expected: processed: data"
+echo ""
+
+echo "=== All ret in Brace Tests Complete ==="

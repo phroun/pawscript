@@ -1,0 +1,74 @@
+# Test channel functionality
+
+print "=== Test 1: Create channel ===="
+ch: {channel 5}
+print "Channel created"
+print ""
+
+print "=== Test 2: Subscribe to channel ==="
+sub1: {channel_subscribe ~ch}
+sub2: {channel_subscribe ~ch}
+print "Created 2 subscribers"
+print ""
+
+print "=== Test 3: Channel broadcasts to subscribers ==="
+channel_send ~ch, "broadcast"
+msg1: {channel_recv ~sub1}
+msg2: {channel_recv ~sub2}
+s1: {argv ~msg1, 1}
+v1: {argv ~msg1, 2}
+s2: {argv ~msg2, 1}
+v2: {argv ~msg2, 2}
+print "Sub1: ~v1 from ~s1"
+print "Sub2: ~v2 from ~s2"
+print ""
+
+print "=== Test 4: Subscriber sends to channel ==="
+channel_send ~sub1, "from_sub1"
+msg: {channel_recv ~ch}
+sender: {argv ~msg, 1}
+value: {argv ~msg, 2}
+print "Channel: ~value from ~sender"
+print ""
+
+print "=== Test 5: Subscriber doesn't receive own messages ==="
+channel_send ~sub1, "self_test"
+msgch: {channel_recv ~ch}
+msgs2: {channel_recv ~sub2}
+sch: {argv ~msgch, 1}
+vch: {argv ~msgch, 2}
+ss2: {argv ~msgs2, 1}
+vs2: {argv ~msgs2, 2}
+print "Channel got: ~vch from ~sch"
+print "Sub2 got: ~vs2 from ~ss2"
+print ""
+
+print "=== Test 6: Channel length ==="
+channel_send ~ch, "msg1"
+channel_send ~ch, "msg2"
+channel_send ~ch, "msg3"
+len_ch: {len ~ch}
+len_s1: {len ~sub1}
+len_s2: {len ~sub2}
+print "Channel: ~len_ch unread"
+print "Sub1: ~len_s1 unread"
+print "Sub2: ~len_s2 unread"
+print ""
+
+print "=== Test 7: Channel status ==="
+opened1: {channel_opened ~ch}
+opened2: {channel_opened ~sub1}
+print "Channel open: ~opened1"
+print "Sub1 open: ~opened2"
+print ""
+
+print "=== Test 8: Close subscriber ==="
+channel_close ~sub1
+after: {channel_opened ~sub1}
+print "Sub1 after close: ~after"
+print ""
+
+print "=== Test 9: System channels ==="
+stdout_ch: {system_channel stdout}
+stdin_ch: {system_channel stdin}
+print "System channels created"

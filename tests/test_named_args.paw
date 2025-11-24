@@ -1,0 +1,18 @@
+#!/usr/bin/env pawscript
+
+# Test basic named arguments in list command
+z: {list 1, 2, 3, radius: 4}
+echo "Created list with named argument"
+echo ~z
+
+# Test multiple named arguments
+mixed: {list a, b, c, x:10, y: 20}
+echo "Created list with multiple named arguments"
+echo ~mixed
+
+# Test that len only counts positional items
+echo "Length of z (should be 3):"
+echo {len ~z}
+
+echo "Length of mixed (should be 3):"
+echo {len ~mixed}

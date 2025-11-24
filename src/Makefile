@@ -25,6 +25,11 @@ build:
 	go build -ldflags "-X main.version=$(VERSION)" -o $(INSTALL_DIR)/$(BINARY_NAME) ./cmd/paw
 	@echo "Created: $(INSTALL_DIR)/$(BINARY_NAME)"
 
+build-token-example:
+	@echo "Building paw for native platform ($(NATIVE_OS)/$(NATIVE_ARCH))..."
+	go build -ldflags "-X main.version=$(VERSION)" -o $(INSTALL_DIR)/token_example ./cmd/token_example
+	@echo "Created: $(INSTALL_DIR)/token_example"
+
 # Alias for build
 install: build
 

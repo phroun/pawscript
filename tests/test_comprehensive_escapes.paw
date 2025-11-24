@@ -79,8 +79,8 @@ echo ""
 
 # Test 9: Control characters in substitution
 echo "Test 9: Control chars in substitution"
-set value, "Tab:	Here"
-echo "Stored: {get value}"
+value: "Tab:	Here"
+echo "Stored: ~value"
 echo "Expected to see: Stored: Tab:\\tHere (escaped tab)"
 echo ""
 
@@ -99,8 +99,8 @@ echo ""
 
 # Test 12: Null byte preservation
 echo "Test 12: Null byte"
-set nulltest, "Before\0After"
-echo "Value: {get nulltest}"
+nulltest: "Before\0After"
+echo "Value: ~nulltest"
 echo "Expected: Value: Before\\0After"
 echo ""
 

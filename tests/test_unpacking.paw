@@ -1,32 +1,90 @@
-# Test unpacking with set command
+# Test unpacking with assignment operator
 
 echo "Test 1: Unpack list into variables"
-set vector3d, {list 10, 20, 30}
-set (x, y, z), {get vector3d}
-echo "x = {get x}, y = {get y}, z = {get z}"
+vector3d: {list 10, 20, 30}
+(x, y, z): ~vector3d
+echo "x = ~x, y = ~y, z = ~z"
 echo "Expected: x = 10, y = 20, z = 30"
 echo ""
 
 echo "Test 2: Unpack ParenGroup into variables"
-set (a, b, c), (100, 200, 300)
-echo "a = {get a}, b = {get b}, c = {get c}"
+(a, b, c): (100, 200, 300)
+echo "a = ~a, b = ~b, c = ~c"
 echo "Expected: a = 100, b = 200, c = 300"
 echo ""
 
 echo "Test 3: Dynamic targets from list"
-set targets, {list p, q, r}
-set {get targets}, (5, 10, 15)
-echo "p = {get p}, q = {get q}, r = {get r}"
+targets: {list p, q, r}
+~targets: (5, 10, 15)
+echo "p = ~p, q = ~q, r = ~r"
 echo "Expected: p = 5, q = 10, r = 15"
 echo ""
 
 echo "Test 4: More variables than values"
-set (m, n, o), (42, 99)
-echo "m = {get m}, n = {get n}, o = {get o}"
+(m, n, o): (42, 99)
+echo "m = ~m, n = ~n, o = ~o"
 echo "Expected: m = 42, n = 99, o = (nil or empty)"
 echo ""
 
 echo "Test 5: Still works with simple assignment"
-set simple, "hello"
-echo "simple = {get simple}"
+simple: "hello"
+echo "simple = ~simple"
 echo "Expected: simple = hello"
+echo ""
+
+echo "=== NAMED ARGUMENT UNPACKING TESTS ==="
+echo ""
+
+echo "Test 6: Named extraction with same key/var name (x:, y:)"
+coords: {list x: 100, y: 200, z: 300}
+(x:, y:): ~coords
+echo "x = ~x, y = ~y"
+echo "Expected: x = 100, y = 200"
+echo ""
+
+echo "Test 7: Named extraction with different key/var name (r: radius)"
+circle: {list r: 50, x: 10, y: 20}
+(r: radius, x: centerX): ~circle
+echo "radius = ~radius, centerX = ~centerX"
+echo "Expected: radius = 50, centerX = 10"
+echo ""
+
+echo "Test 8: Mixed positional and named extraction"
+mixed: {list name: "Alice", 25, id: 1001, "Engineer"}
+(name:, age, id: userId, job): ~mixed
+echo "name = ~name, age = ~age, userId = ~userId, job = ~job"
+echo "Expected: name = Alice, age = 25, userId = 1001, job = Engineer"
+echo ""
+
+echo "Test 9: Named args skip over when extracting positional"
+data: {list a: 10, b: 20, 1, 2, 3, c: 30}
+(first, second, third): ~data
+echo "first = ~first, second = ~second, third = ~third"
+echo "Expected: first = 1, second = 2, third = 3"
+echo ""
+
+echo "Test 10: Named extraction from ParenGroup"
+(x:, y:): (x: 5, y: 10, z: 15)
+echo "x = ~x, y = ~y"
+echo "Expected: x = 5, y = 10"
+echo ""
+
+echo "Test 11: Missing named keys get nil"
+incomplete: {list x: 100}
+(x:, y:, z:): ~incomplete
+echo "x = ~x, y = ~y, z = ~z"
+echo "Expected: x = 100, y = (nil or empty), z = (nil or empty)"
+echo ""
+
+echo "Test 12: Complex mixed unpacking"
+person: {list name: "Bob", age: 30, "USA", role: "Developer", "Active"}
+(name:, country, role: position, status): ~person
+echo "name = ~name, country = ~country, position = ~position, status = ~status"
+echo "Expected: name = Bob, country = USA, position = Developer, status = Active"
+echo ""
+
+echo "Test 13: All positional still works (backward compatibility)"
+simple_list: {list 1, 2, 3}
+(a, b, c): ~simple_list
+echo "a = ~a, b = ~b, c = ~c"
+echo "Expected: a = 1, b = 2, c = 3"

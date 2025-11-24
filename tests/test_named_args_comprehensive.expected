@@ -1,0 +1,37 @@
+=== Test 1: Basic named arguments ===
+(x: 10, 1, 2, 3)
+Len: 3
+
+=== Test 2: Append preserves named args ===
+(x: 10, 1, 2, 3, 4)
+Len: 4
+
+=== Test 3: Prepend preserves named args ===
+(x: 10, 0, 1, 2, 3)
+Len: 4
+
+=== Test 4: Slice preserves named args ===
+(x: 10, 1, 2)
+Len: 2
+
+=== Test 5: Compact preserves named args ===
+(x: 10, 1, 2, 3)
+Len: 3
+
+=== Test 6: Concat merges named args ===
+(x: 1, y: 20, z: 30, a, b, c, d)
+Len: 4
+
+=== Test 7: Multiple colons in one list ===
+(key1: val1, key2: val2, pos1, pos2, pos3)
+Len: 3
+
+=== Test 8: Empty list with only named args ===
+(x: 100, y: 200)
+Len: 0
+
+=== Test 9: Quoted keys and values ===
+(age: 30, name: "John")
+
+=== Test 10: Numeric and symbol keys ===
+(1: "one", abc: "alphabet")

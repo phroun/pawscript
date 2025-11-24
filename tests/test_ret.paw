@@ -16,7 +16,7 @@ echo "Test 2: ret with status value (true)"
 set_result "cleared"
 (
     echo "Before ret true";
-    ret true;
+    true;ret
     echo "This should NOT print"
 )
 echo "Result after block: {get_result}"
@@ -25,15 +25,15 @@ echo ""
 echo "Test 3: ret with status value (false)"
 (
     echo "Before ret false";
-    ret false;
+    false;ret
     echo "This should NOT print"
-) | echo "Caught false return correctly"
+) & echo "ERROR: false did not work" | echo "Caught false return correctly"
 echo ""
 
 echo "Test 4: ret with status and result"
 (
     echo "Before ret with result";
-    ret true, "computed value";
+    true;ret "computed value";
     echo "This should NOT print"
 )
 echo "Result after block: {get_result}"
@@ -43,26 +43,26 @@ echo "Test 5: ret with omitted status (comma first)"
 (
     set_result "will be replaced";
     echo "Before ret with result only";
-    ret , "new result";
+    ret "new result";
     echo "This should NOT print"
 )
 echo "Result after block: {get_result}"
 echo ""
 
 echo "Test 6: ret exits the containing block"
-set x, 5
+x: 5
 (
     echo "Start of block";
-    {gt {get x}, 3} & ret true, "early exit";
+    {gt ~x, 3} & ret "early exit";
     echo "This should NOT print - after ret";
-    set_result "late exit"
+    ret "late exit"
 ) & echo "Block succeeded: {get_result}"
 echo ""
 
 echo "Test 7: ret with ! inversion"
 !(
     echo "In inverted block";
-    ret true;
+    ret
     echo "Should not print"
 ) & echo "Inverted true is false" | echo "! should make this succeed"
 echo ""
@@ -72,9 +72,9 @@ echo "Test 8: Nested blocks with ret"
     echo "Outer block start";
     (
         echo "Inner block";
-        ret false, "inner result"
-    ) | echo "Inner failed as expected";
+        false;ret "inner result"
+    ) & echo "ERROR: Inner succeeded unexpectedly" | echo "Inner failed as expected";
     echo "Back in outer block";
-    ret true, "outer result"
+    ret "outer result"
 )
 echo "Final result: {get_result}"

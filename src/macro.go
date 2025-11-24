@@ -3,66 +3,77 @@ package pawscript
 import (
 	"fmt"
 	"sync"
-	"time"
 	"sort"
 )
 
 // MacroSystem manages macro definitions and execution
 type MacroSystem struct {
-	mu     sync.RWMutex
-	macros map[string]*MacroDefinition
-	logger *Logger
+	mu       sync.RWMutex
+	macros   map[string]int // Maps macro name to StoredMacro object ID
+	executor *Executor      // Reference to executor for object storage
+	logger   *Logger
 }
 
 // NewMacroSystem creates a new macro system
 func NewMacroSystem(logger *Logger) *MacroSystem {
 	return &MacroSystem{
-		macros: make(map[string]*MacroDefinition),
+		macros: make(map[string]int),
 		logger: logger,
 	}
 }
 
-// DefineMacro defines a new macro
-func (ms *MacroSystem) DefineMacro(name, commands string, position *SourcePosition) bool {
-	if name == "" || commands == "" {
-		ms.logger.Error("Macro name and commands are required")
-		return false
-	}
-
-	filename := "<unknown>"
-	line := 1
-	column := 1
-
-	if position != nil {
-		if position.Filename != "" {
-			filename = position.Filename
-		}
-		line = position.Line
-		column = position.Column
-	}
-
-	macro := &MacroDefinition{
-		Name:             name,
-		Commands:         commands,
-		DefinitionFile:   filename,
-		DefinitionLine:   line,
-		DefinitionColumn: column,
-		Timestamp:        time.Now(),
-	}
-
+// SetExecutor sets the executor reference for object storage
+func (ms *MacroSystem) SetExecutor(executor *Executor) {
 	ms.mu.Lock()
-	ms.macros[name] = macro
-	ms.mu.Unlock()
-
-	ms.logger.Debug("Defined macro \"%s\" at %s:%d", name, macro.DefinitionFile, macro.DefinitionLine)
-	return true
+	defer ms.mu.Unlock()
+	ms.executor = executor
 }
 
-// ExecuteMacro executes a macro with the given arguments
+// DefineMacro defines a new macro and returns its object ID
+func (ms *MacroSystem) DefineMacro(name, commands string, position *SourcePosition) (int, bool) {
+	if name == "" || commands == "" {
+		ms.logger.Error("Macro name and commands are required")
+		return -1, false
+	}
+
+	if ms.executor == nil {
+		ms.logger.Error("MacroSystem executor not set")
+		return -1, false
+	}
+
+	// Create the StoredMacro object
+	macro := NewStoredMacro(commands, position)
+
+	// Store it in the executor's object store
+	objectID := ms.executor.storeObject(macro, "macro")
+
+	ms.mu.Lock()
+
+	// If a macro with this name already exists, release its reference
+	if oldID, exists := ms.macros[name]; exists {
+		ms.logger.Debug("Replacing existing macro \"%s\" (object %d)", name, oldID)
+		ms.mu.Unlock()
+		ms.executor.decrementObjectRefCount(oldID)
+		ms.mu.Lock()
+	}
+
+	// Store the new macro's object ID and claim a reference
+	ms.macros[name] = objectID
+	ms.mu.Unlock()
+
+	// Increment reference count since the registry now holds a reference
+	ms.executor.incrementObjectRefCount(objectID)
+
+	ms.logger.Debug("Defined macro \"%s\" at %s:%d (object %d)", name, macro.DefinitionFile, macro.DefinitionLine, objectID)
+	return objectID, true
+}
+
+// ExecuteMacro executes a macro by name with the given arguments
 func (ms *MacroSystem) ExecuteMacro(
 	name string,
 	executeCallback func(commands string, state *ExecutionState, ctx *SubstitutionContext) Result,
 	args []interface{},
+	namedArgs map[string]interface{},
 	state *ExecutionState,
 	invocationPosition *SourcePosition,
 	parentState *ExecutionState,
@@ -73,7 +84,7 @@ func (ms *MacroSystem) ExecuteMacro(
 	}
 
 	ms.mu.RLock()
-	macroDef, exists := ms.macros[name]
+	objectID, exists := ms.macros[name]
 	ms.mu.RUnlock()
 
 	if !exists {
@@ -81,12 +92,57 @@ func (ms *MacroSystem) ExecuteMacro(
 		return BoolStatus(false)
 	}
 
+	if ms.executor == nil {
+		ms.logger.Error("MacroSystem executor not set")
+		return BoolStatus(false)
+	}
+
+	// Retrieve the stored macro
+	obj, exists := ms.executor.getObject(objectID)
+	if !exists {
+		ms.logger.Error("Macro object %d not found in storage", objectID)
+		return BoolStatus(false)
+	}
+
+	macro, ok := obj.(StoredMacro)
+	if !ok {
+		ms.logger.Error("Object %d is not a StoredMacro", objectID)
+		return BoolStatus(false)
+	}
+
+	return ms.executeStoredMacro(name, &macro, executeCallback, args, namedArgs, state, invocationPosition, parentState)
+}
+
+// ExecuteStoredMacro executes a StoredMacro object directly
+func (ms *MacroSystem) ExecuteStoredMacro(
+	macro *StoredMacro,
+	executeCallback func(commands string, state *ExecutionState, ctx *SubstitutionContext) Result,
+	args []interface{},
+	namedArgs map[string]interface{},
+	state *ExecutionState,
+	invocationPosition *SourcePosition,
+	parentState *ExecutionState,
+) Result {
+	return ms.executeStoredMacro("", macro, executeCallback, args, namedArgs, state, invocationPosition, parentState)
+}
+
+// executeStoredMacro is the internal implementation for executing a StoredMacro
+func (ms *MacroSystem) executeStoredMacro(
+	name string,
+	macro *StoredMacro,
+	executeCallback func(commands string, state *ExecutionState, ctx *SubstitutionContext) Result,
+	args []interface{},
+	namedArgs map[string]interface{},
+	state *ExecutionState,
+	invocationPosition *SourcePosition,
+	parentState *ExecutionState,
+) Result {
 	// Create macro context for error tracking
 	macroContext := &MacroContext{
-		MacroName:        name,
-		DefinitionFile:   macroDef.DefinitionFile,
-		DefinitionLine:   macroDef.DefinitionLine,
-		DefinitionColumn: macroDef.DefinitionColumn,
+		MacroName:        name, // Empty for anonymous macros
+		DefinitionFile:   macro.DefinitionFile,
+		DefinitionLine:   macro.DefinitionLine,
+		DefinitionColumn: macro.DefinitionColumn,
 	}
 
 	if invocationPosition != nil {
@@ -96,8 +152,14 @@ func (ms *MacroSystem) ExecuteMacro(
 		macroContext.ParentMacro = invocationPosition.MacroContext
 	}
 
-	debugInfo := fmt.Sprintf("Executing macro \"%s\" defined at %s:%d",
-		name, macroDef.DefinitionFile, macroDef.DefinitionLine)
+	debugInfo := ""
+	if name != "" {
+		debugInfo = fmt.Sprintf("Executing macro \"%s\" defined at %s:%d",
+			name, macro.DefinitionFile, macro.DefinitionLine)
+	} else {
+		debugInfo = fmt.Sprintf("Executing anonymous macro defined at %s:%d",
+			macro.DefinitionFile, macro.DefinitionLine)
+	}
 	if invocationPosition != nil {
 		debugInfo += fmt.Sprintf(", called from %s:%d",
 			invocationPosition.Filename, invocationPosition.Line)
@@ -109,11 +171,16 @@ func (ms *MacroSystem) ExecuteMacro(
 		state = NewExecutionState()
 	}
 
-	// Create a LIST from the arguments and store it as $@
-	argsList := NewStoredList(args)
+	// Ensure state has executor reference
+	if state.executor == nil && ms.executor != nil {
+		state.executor = ms.executor
+	}
+
+	// Create a LIST from the arguments (both positional and named) and store it as $@
+	argsList := NewStoredListWithRefs(args, namedArgs, state.executor)
 	argsListID := state.executor.storeObject(argsList, "list")
 	argsMarker := fmt.Sprintf("\x00LIST:%d\x00", argsListID)
-	
+
 	// Store the list marker in the state's variables as $@
 	// SetVariable will claim the reference
 	state.SetVariable("$@", Symbol(argsMarker))
@@ -124,35 +191,35 @@ func (ms *MacroSystem) ExecuteMacro(
 		Args:                args,
 		ExecutionState:      state,
 		MacroContext:        macroContext,
-		CurrentLineOffset:   macroDef.DefinitionLine - 1,
-		CurrentColumnOffset: macroDef.DefinitionColumn - 1,
-		Filename:            macroDef.DefinitionFile,
+		CurrentLineOffset:   macro.DefinitionLine - 1,
+		CurrentColumnOffset: macro.DefinitionColumn - 1,
+		Filename:            macro.DefinitionFile,
 	}
 
 	// Execute the macro commands
-	result := executeCallback(macroDef.Commands, state, substitutionContext)
-	
+	result := executeCallback(macro.Commands, state, substitutionContext)
+
 	// Transfer result to parent state
 	if parentState != nil && state.HasResult() {
 		// Ensure parent has executor reference
 		if parentState.executor == nil && state.executor != nil {
 			parentState.executor = state.executor
 		}
-		
+
 		// Set result in parent (this will claim ownership)
 		parentState.SetResult(state.GetResult())
-		
+
 		// Don't clear macro result here - ReleaseAllReferences will handle it
-		
-		ms.logger.Debug("Transferred macro result to parent state")
+
+		ms.logger.Debug("Transferred macro result to parent state: %v", state.GetResult())
 	}
-	
+
 	// Clear all variables (including $@) to release their references
 	state.mu.Lock()
 	for varName := range state.variables {
 		oldValue := state.variables[varName]
 		delete(state.variables, varName)
-		
+
 		// Extract and release references from the old variable value
 		oldRefs := state.extractObjectReferencesLocked(oldValue)
 		state.mu.Unlock()
@@ -162,11 +229,15 @@ func (ms *MacroSystem) ExecuteMacro(
 		state.mu.Lock()
 	}
 	state.mu.Unlock()
-	
+
 	// Release all remaining owned references
 	state.ReleaseAllReferences()
 
-	ms.logger.Debug("Macro \"%s\" execution completed with result: %v", name, result)
+	if name != "" {
+		ms.logger.Debug("Macro \"%s\" execution completed with result: %v", name, result)
+	} else {
+		ms.logger.Debug("Anonymous macro execution completed with result: %v", result)
+	}
 	return result
 }
 
@@ -186,49 +257,117 @@ func (ms *MacroSystem) ListMacros() []string {
 // GetMacro returns the commands for a macro
 func (ms *MacroSystem) GetMacro(name string) *string {
 	ms.mu.RLock()
-	defer ms.mu.RUnlock()
+	objectID, exists := ms.macros[name]
+	ms.mu.RUnlock()
 
-	if macro, exists := ms.macros[name]; exists {
+	if !exists || ms.executor == nil {
+		return nil
+	}
+
+	obj, exists := ms.executor.getObject(objectID)
+	if !exists {
+		return nil
+	}
+
+	if macro, ok := obj.(StoredMacro); ok {
 		return &macro.Commands
 	}
 	return nil
 }
 
-// GetMacroDefinition returns the full macro definition
+// GetMacroDefinition returns the full macro definition as a MacroDefinition for compatibility
 func (ms *MacroSystem) GetMacroDefinition(name string) *MacroDefinition {
 	ms.mu.RLock()
-	defer ms.mu.RUnlock()
+	objectID, exists := ms.macros[name]
+	ms.mu.RUnlock()
 
-	if macro, exists := ms.macros[name]; exists {
-		// Return a copy to prevent external modification
-		macroCopy := *macro
-		return &macroCopy
+	if !exists || ms.executor == nil {
+		return nil
+	}
+
+	obj, exists := ms.executor.getObject(objectID)
+	if !exists {
+		return nil
+	}
+
+	if macro, ok := obj.(StoredMacro); ok {
+		// Return a MacroDefinition for backward compatibility
+		return &MacroDefinition{
+			Name:             name,
+			Commands:         macro.Commands,
+			DefinitionFile:   macro.DefinitionFile,
+			DefinitionLine:   macro.DefinitionLine,
+			DefinitionColumn: macro.DefinitionColumn,
+			Timestamp:        macro.Timestamp,
+		}
 	}
 	return nil
+}
+
+// GetStoredMacro returns the StoredMacro object for a macro by name
+func (ms *MacroSystem) GetStoredMacro(name string) (*StoredMacro, bool) {
+	ms.mu.RLock()
+	objectID, exists := ms.macros[name]
+	ms.mu.RUnlock()
+
+	if !exists || ms.executor == nil {
+		return nil, false
+	}
+
+	obj, exists := ms.executor.getObject(objectID)
+	if !exists {
+		return nil, false
+	}
+
+	if macro, ok := obj.(StoredMacro); ok {
+		return &macro, true
+	}
+	return nil, false
 }
 
 // DeleteMacro deletes a macro
 func (ms *MacroSystem) DeleteMacro(name string) bool {
 	ms.mu.Lock()
-	defer ms.mu.Unlock()
-
-	if _, exists := ms.macros[name]; !exists {
+	objectID, exists := ms.macros[name]
+	if !exists {
+		ms.mu.Unlock()
 		ms.logger.Error("Macro \"%s\" not found", name)
 		return false
 	}
 
 	delete(ms.macros, name)
-	ms.logger.Debug("Deleted macro \"%s\"", name)
+	ms.mu.Unlock()
+
+	// Release the reference held by the registry
+	if ms.executor != nil {
+		ms.executor.decrementObjectRefCount(objectID)
+	}
+
+	ms.logger.Debug("Deleted macro \"%s\" (released object %d)", name, objectID)
 	return true
 }
 
 // ClearMacros clears all macros
 func (ms *MacroSystem) ClearMacros() int {
 	ms.mu.Lock()
-	defer ms.mu.Unlock()
+
+	// Collect all object IDs before clearing
+	objectIDs := make([]int, 0, len(ms.macros))
+	for _, objectID := range ms.macros {
+		objectIDs = append(objectIDs, objectID)
+	}
 
 	count := len(ms.macros)
-	ms.macros = make(map[string]*MacroDefinition)
+	ms.macros = make(map[string]int)
+	ms.mu.Unlock()
+
+	// Release all references
+	if ms.executor != nil {
+		for _, objectID := range objectIDs {
+			ms.executor.decrementObjectRefCount(objectID)
+		}
+	}
+
 	ms.logger.Debug("Cleared %d macros", count)
 	return count
 }

@@ -1,0 +1,67 @@
+# Test call command with StoredMacro and StoredCommand objects
+
+print "=== Test 1: Call with named macro ==="
+macro greet (
+  print "Hello, $1!"
+)
+call greet, World
+print ""
+
+print "=== Test 2: Call with anonymous macro ==="
+greeter: {macro (print "Hi, $1!")}
+call ~greeter, Friend
+print ""
+
+print "=== Test 3: Call with command reference ==="
+printer: {command_ref print}
+call ~printer, "Message from command ref"
+print ""
+
+print "=== Test 4: Mix macros and commands in variables ==="
+macro double (
+  set_result {mul $1, 2}
+)
+doubler_macro: {macro (set_result {mul $1, 2})}
+doubler_cmd: {command_ref mul}
+
+r1: {call double, 5}
+r2: {call ~doubler_macro, 5}
+r3: {call ~doubler_cmd, 5, 2}
+
+print "Named macro: ~r1"
+print "Anonymous macro: ~r2"
+print "Command ref: ~r3"
+print ""
+
+print "=== Test 5: Both types produce results correctly ==="
+macro compute_macro (
+  set_result {add $1, $2}
+)
+
+compute_cmd: {command_ref add}
+
+r1: {call compute_macro, 10, 20}
+r2: {call ~compute_cmd, 10, 20}
+
+print "Macro result: ~r1"
+print "Command result: ~r2"
+print ""
+
+print "=== Test 6: Multiple stored objects ==="
+m1: {macro (print "From macro 1")}
+m2: {macro (print "From macro 2")}
+c1: {command_ref echo}
+
+call ~m1
+call ~m2
+call ~c1, "From command"
+print ""
+
+print "=== Test 7: Chain operations with stored objects ==="
+add_cmd: {command_ref add}
+mul_macro: {macro (set_result {mul $1, $2})}
+
+step1: {call ~add_cmd, 5, 10}
+step2: {call ~mul_macro, ~step1, 2}
+
+print "((5 + 10) * 2) = ~step2"

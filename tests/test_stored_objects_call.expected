@@ -1,0 +1,25 @@
+=== Test 1: Call with named macro ===
+Hello, World!
+
+=== Test 2: Call with anonymous macro ===
+Hi, Friend!
+
+=== Test 3: Call with command reference ===
+Message from command ref
+
+=== Test 4: Mix macros and commands in variables ===
+Named macro: 10
+Anonymous macro: 10
+Command ref: 10
+
+=== Test 5: Both types produce results correctly ===
+Macro result: 30
+Command result: 30
+
+=== Test 6: Multiple stored objects ===
+From macro 1
+From macro 2
+From command
+
+=== Test 7: Chain operations with stored objects ===
+((5 + 10) * 2) = 30

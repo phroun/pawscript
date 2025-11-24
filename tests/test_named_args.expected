@@ -1,0 +1,8 @@
+Created list with named argument
+(radius: 4, 1, 2, 3)
+Created list with multiple named arguments
+(x: 10, y: 20, a, b, c)
+Length of z (should be 3):
+3
+Length of mixed (should be 3):
+3

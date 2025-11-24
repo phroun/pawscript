@@ -1,5 +1,6 @@
 .DS_Store
 /paw
+/token_example
 dist
 node_modules
 /paw-arm64.exe

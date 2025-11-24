@@ -11,9 +11,43 @@ p = 5, q = 10, r = 15
 Expected: p = 5, q = 10, r = 15
 
 Test 4: More variables than values
-m = 42, n = 99, o = nil
+m = 42, n = 99, o = <nil>
 Expected: m = 42, n = 99, o = (nil or empty)
 
 Test 5: Still works with simple assignment
 simple = hello
 Expected: simple = hello
+
+=== NAMED ARGUMENT UNPACKING TESTS ===
+
+Test 6: Named extraction with same key/var name (x:, y:)
+x = 100, y = 200
+Expected: x = 100, y = 200
+
+Test 7: Named extraction with different key/var name (r: radius)
+radius = 50, centerX = 10
+Expected: radius = 50, centerX = 10
+
+Test 8: Mixed positional and named extraction
+name = Alice, age = 25, userId = 1001, job = Engineer
+Expected: name = Alice, age = 25, userId = 1001, job = Engineer
+
+Test 9: Named args skip over when extracting positional
+first = 1, second = 2, third = 3
+Expected: first = 1, second = 2, third = 3
+
+Test 10: Named extraction from ParenGroup
+x = 5, y = 10
+Expected: x = 5, y = 10
+
+Test 11: Missing named keys get nil
+x = 100, y = <nil>, z = <nil>
+Expected: x = 100, y = (nil or empty), z = (nil or empty)
+
+Test 12: Complex mixed unpacking
+name = Bob, country = USA, position = Developer, status = Active
+Expected: name = Bob, country = USA, position = Developer, status = Active
+
+Test 13: All positional still works (backward compatibility)
+a = 1, b = 2, c = 3
+Expected: a = 1, b = 2, c = 3
