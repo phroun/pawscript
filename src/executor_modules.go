@@ -120,9 +120,9 @@ func (e *Executor) ListModuleItems(moduleName string) []string {
 // registerSuperCommands registers built-in super commands (always available, ALL CAPS)
 func (ps *PawScript) registerSuperCommands() {
 	// IMPORT - import items from modules (super command)
-	// Usage: import "stdlib::macro"              - import single item
-	//        import "stdlib::macro", "stdlib::call" - import multiple items
-	ps.executor.RegisterCommand("import", func(ctx *Context) Result {
+	// Usage: IMPORT "stdlib::macro"              - import single item
+	//        IMPORT "stdlib::macro", "stdlib::call" - import multiple items
+	ps.executor.RegisterCommand("IMPORT", func(ctx *Context) Result {
 		if len(ctx.Args) < 1 {
 			ctx.logger.CommandError(CatImport, "IMPORT", "Usage: import <module::item>, ...", ctx.Position)
 			return BoolStatus(false)
