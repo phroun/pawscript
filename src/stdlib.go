@@ -2182,8 +2182,13 @@ func (ps *PawScript) RegisterStandardLibrary(scriptArgs []string) {
 			return BoolStatus(false)
 		}
 
-		// Spawn the fiber
-		handle := ctx.executor.SpawnFiber(macro, ps.macroSystem, fiberArgs, namedArgs)
+		// Spawn the fiber - use macro's lexical environment if available, otherwise caller's
+		parentModuleEnv := macro.ModuleEnv
+		if parentModuleEnv == nil {
+			// Inline macros may not have captured env, use caller's
+			parentModuleEnv = ctx.state.moduleEnv
+		}
+		handle := ctx.executor.SpawnFiber(macro, ps.macroSystem, fiberArgs, namedArgs, parentModuleEnv)
 
 		// Store the fiber handle as an object
 		objectID := ctx.executor.storeObject(handle, "fiber")

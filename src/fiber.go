@@ -52,15 +52,23 @@ func (e *Executor) GetSuspendedFibers() map[int]string {
 }
 
 // SpawnFiber spawns a new fiber to execute a macro
-func (e *Executor) SpawnFiber(macro *StoredMacro, macroSystem *MacroSystem, args []interface{}, namedArgs map[string]interface{}) *FiberHandle {
+// parentModuleEnv allows the fiber to inherit commands from the parent context
+func (e *Executor) SpawnFiber(macro *StoredMacro, macroSystem *MacroSystem, args []interface{}, namedArgs map[string]interface{}, parentModuleEnv *ModuleEnvironment) *FiberHandle {
 	e.mu.Lock()
 	fiberID := e.nextFiberID
 	e.nextFiberID++
 	e.mu.Unlock()
 
+	// Create fiber state - inherit module environment if provided
+	fiberState := NewExecutionState()
+	if parentModuleEnv != nil {
+		// Replace the default module environment with one that inherits from parent
+		fiberState.moduleEnv = NewChildModuleEnvironment(parentModuleEnv)
+	}
+
 	handle := &FiberHandle{
 		ID:           fiberID,
-		State:        NewExecutionState(),
+		State:        fiberState,
 		ResumeChan:   make(chan ResumeData, 1), // Buffered to avoid blocking
 		CompleteChan: make(chan struct{}),
 		Completed:    false,
