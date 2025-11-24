@@ -372,6 +372,11 @@ type StoredChannel struct {
 	CustomRecv      *StoredMacro     // Optional custom recv handler
 	CustomClose     *StoredMacro     // Optional custom close handler
 	Timestamp       time.Time
+	// Native function handlers for Go-backed channels (stdio, etc.)
+	// If set, these are called instead of the buffer-based operations
+	NativeSend      func(interface{}) error         // Native send handler
+	NativeRecv      func() (interface{}, error)     // Native receive handler
+	NativeClose     func() error                    // Native close handler
 }
 
 // NewStoredChannel creates a new channel with optional buffer size

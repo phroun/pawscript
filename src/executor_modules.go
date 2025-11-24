@@ -291,14 +291,32 @@ func (e *Executor) importItem(state *ExecutionState, moduleName, originalName, l
 
 // handleREMOVE removes items from module registries
 // Usage: REMOVE item1 item2 item3...
+// Usage: REMOVE ALL - resets MacrosModule, CommandRegistryModule, and ObjectsModule to clean slate
 func (e *Executor) handleREMOVE(args []interface{}, state *ExecutionState, position *SourcePosition) Result {
 	if len(args) == 0 {
-		e.logger.CommandError(CatSystem, "REMOVE", "Expected at least 1 argument (item names)", position)
+		e.logger.CommandError(CatSystem, "REMOVE", "Expected at least 1 argument (item names or ALL)", position)
 		return BoolStatus(false)
 	}
 
 	state.moduleEnv.mu.Lock()
 	defer state.moduleEnv.mu.Unlock()
+
+	// Check for REMOVE ALL (symbol, not quoted string)
+	if len(args) == 1 {
+		if sym, ok := args[0].(Symbol); ok && string(sym) == "ALL" {
+			// Reset all module registries to clean slate
+			state.moduleEnv.MacrosModule = make(map[string]*StoredMacro)
+			state.moduleEnv.macrosModuleCopied = true
+			state.moduleEnv.CommandRegistryModule = make(map[string]Handler)
+			state.moduleEnv.commandsModuleCopied = true
+			state.moduleEnv.ObjectsModule = make(map[string]interface{})
+			state.moduleEnv.objectsModuleCopied = true
+			// Clear ImportedFrom as well
+			state.moduleEnv.ImportedFrom = make(map[string]*ImportMetadata)
+			e.logger.Debug("REMOVE ALL: Reset all module registries to clean slate")
+			return BoolStatus(true)
+		}
+	}
 
 	for _, arg := range args {
 		itemName := fmt.Sprintf("%v", arg)

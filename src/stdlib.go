@@ -2082,73 +2082,6 @@ func (ps *PawScript) RegisterStandardLibrary(scriptArgs []string) {
 		return BoolStatus(true)
 	})
 
-	ps.RegisterCommand("system_channel", func(ctx *Context) Result {
-		if len(ctx.Args) < 1 {
-			ps.logger.Error("Usage: system_channel <name>")
-			ps.logger.Error("  Available: stdin, stdout, stderr, stdio")
-			return BoolStatus(false)
-		}
-
-		channelType := fmt.Sprintf("%v", ctx.Args[0])
-
-		// Create channel with custom handlers based on type
-		ch := NewStoredChannel(0) // Unbuffered for I/O
-
-		switch channelType {
-		case "stdin":
-			// Read-only channel from stdin
-			ch.CustomRecv = &StoredMacro{
-				Commands: "# Read from stdin",
-			}
-			// Send should error
-			ch.CustomSend = &StoredMacro{
-				Commands: "# Cannot send to stdin",
-			}
-
-		case "stdout":
-			// Write-only channel to stdout
-			ch.CustomSend = &StoredMacro{
-				Commands: "# Write to stdout",
-			}
-			// Recv should error
-			ch.CustomRecv = &StoredMacro{
-				Commands: "# Cannot read from stdout",
-			}
-
-		case "stderr":
-			// Write-only channel to stderr
-			ch.CustomSend = &StoredMacro{
-				Commands: "# Write to stderr",
-			}
-			// Recv should error
-			ch.CustomRecv = &StoredMacro{
-				Commands: "# Cannot read from stderr",
-			}
-
-		case "stdio":
-			// Bidirectional: read from stdin, write to stdout
-			ch.CustomRecv = &StoredMacro{
-				Commands: "# Read from stdin",
-			}
-			ch.CustomSend = &StoredMacro{
-				Commands: "# Write to stdout",
-			}
-
-		default:
-			ps.logger.Error("Unknown system channel type: %s", channelType)
-			ps.logger.Error("  Available: stdin, stdout, stderr, stdio")
-			return BoolStatus(false)
-		}
-
-		// Store in object store
-		objectID := ctx.executor.storeObject(ch, "channel")
-		channelMarker := fmt.Sprintf("\x00CHANNEL:%d\x00", objectID)
-		ctx.state.SetResult(Symbol(channelMarker))
-
-		ps.logger.Debug("Created system channel '%s' (object %d)", channelType, objectID)
-		return BoolStatus(true)
-	})
-
 	// Fiber commands
 	ps.RegisterCommand("fiber_spawn", func(ctx *Context) Result {
 		if len(ctx.Args) < 1 {
@@ -2270,6 +2203,9 @@ func (ps *PawScript) RegisterStandardLibrary(scriptArgs []string) {
 
 	// Populate module system with stdlib commands organized into modules
 	ps.rootModuleEnv.PopulateStdlibModules()
+
+	// Populate IO module with native stdin/stdout/stderr/stdio channels
+	ps.rootModuleEnv.PopulateIOModule()
 }
 
 // estimateObjectSize provides a rough estimate of object size in bytes

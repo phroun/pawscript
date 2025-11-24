@@ -122,7 +122,29 @@ func (e *Executor) resolveTildeExpression(expr string, state *ExecutionState, su
 		varName = rest
 	}
 
-	// Now get the variable value
+	// First, check for objects with matching name (#-prefixed) in module environment
+	// This gives objects priority over local variables for scope-like behavior
+	objName := "#" + varName
+	if state.moduleEnv != nil {
+		state.moduleEnv.mu.RLock()
+		// Check ObjectsModule first
+		if state.moduleEnv.ObjectsModule != nil {
+			if obj, exists := state.moduleEnv.ObjectsModule[objName]; exists {
+				state.moduleEnv.mu.RUnlock()
+				return obj, true
+			}
+		}
+		// Then check ObjectsInherited
+		if state.moduleEnv.ObjectsInherited != nil {
+			if obj, exists := state.moduleEnv.ObjectsInherited[objName]; exists {
+				state.moduleEnv.mu.RUnlock()
+				return obj, true
+			}
+		}
+		state.moduleEnv.mu.RUnlock()
+	}
+
+	// Fall back to local variable lookup
 	value, exists := state.GetVariable(varName)
 	if !exists {
 		e.logger.CommandError(CatVariable, "", fmt.Sprintf("Variable not found: %s", varName), position)

@@ -47,6 +47,11 @@ func ChannelSend(ch *StoredChannel, value interface{}) error {
 		return fmt.Errorf("channel is closed")
 	}
 
+	// Check for native send handler first
+	if ch.NativeSend != nil {
+		return ch.NativeSend(value)
+	}
+
 	// Get the main channel
 	mainCh := ch
 	senderID := 0
@@ -113,6 +118,12 @@ func ChannelRecv(ch *StoredChannel) (int, interface{}, error) {
 
 	if ch.IsClosed {
 		return 0, nil, fmt.Errorf("channel is closed")
+	}
+
+	// Check for native receive handler first
+	if ch.NativeRecv != nil {
+		value, err := ch.NativeRecv()
+		return 0, value, err
 	}
 
 	// Get the main channel and receiver ID
@@ -185,6 +196,13 @@ func ChannelClose(ch *StoredChannel) error {
 
 	if ch.IsClosed {
 		return fmt.Errorf("channel already closed")
+	}
+
+	// Call native close handler if present
+	if ch.NativeClose != nil {
+		err := ch.NativeClose()
+		ch.IsClosed = true
+		return err
 	}
 
 	if ch.IsSubscriber {
