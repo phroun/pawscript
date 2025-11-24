@@ -264,7 +264,7 @@ func (e *Executor) handleIMPORT(args []interface{}, state *ExecutionState, posit
 func (e *Executor) importItem(state *ExecutionState, moduleName, originalName, localName string, item *ModuleItem) {
 	switch item.Type {
 	case "command":
-		state.moduleEnv.EnsureCommandRegistryEmpty()
+		state.moduleEnv.EnsureCommandRegistryCopied()
 		state.moduleEnv.CommandRegistryModule[localName] = item.Value.(Handler)
 		state.moduleEnv.ImportedFrom[localName] = &ImportMetadata{
 			ModuleName:   moduleName,
@@ -272,7 +272,7 @@ func (e *Executor) importItem(state *ExecutionState, moduleName, originalName, l
 		}
 
 	case "macro":
-		state.moduleEnv.EnsureMacroRegistryEmpty()
+		state.moduleEnv.EnsureMacroRegistryCopied()
 		state.moduleEnv.MacrosModule[localName] = item.Value.(*StoredMacro)
 		state.moduleEnv.ImportedFrom[localName] = &ImportMetadata{
 			ModuleName:   moduleName,
@@ -280,7 +280,7 @@ func (e *Executor) importItem(state *ExecutionState, moduleName, originalName, l
 		}
 
 	case "object":
-		state.moduleEnv.EnsureObjectRegistryEmpty()
+		state.moduleEnv.EnsureObjectRegistryCopied()
 		state.moduleEnv.ObjectsModule[localName] = item.Value
 		state.moduleEnv.ImportedFrom[localName] = &ImportMetadata{
 			ModuleName:   moduleName,

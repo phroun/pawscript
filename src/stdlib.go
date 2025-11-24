@@ -307,7 +307,7 @@ func (ps *PawScript) RegisterStandardLibrary(scriptArgs []string) {
 		return BoolStatus(level != LevelError)
 	})
 	// Helper to resolve a channel name (like "#out" or "#err") to a channel
-	// Resolution order: local vars -> ObjectsModule -> ObjectsInherited (fallback)
+	// Resolution order: local vars -> ObjectsModule (which contains inherited via COW)
 	resolveChannel := func(ctx *Context, channelName string) *StoredChannel {
 		// First, check local macro variables
 		if value, exists := ctx.state.GetVariable(channelName); exists {
@@ -316,22 +316,13 @@ func (ps *PawScript) RegisterStandardLibrary(scriptArgs []string) {
 			}
 		}
 
-		// Then, check ObjectsModule/ObjectsInherited
+		// Then, check ObjectsModule (which either IS Inherited or is a COW copy)
 		if ctx.state.moduleEnv != nil {
 			ctx.state.moduleEnv.mu.RLock()
 			defer ctx.state.moduleEnv.mu.RUnlock()
 
-			// Check ObjectsModule first (local overrides)
 			if ctx.state.moduleEnv.ObjectsModule != nil {
 				if obj, exists := ctx.state.moduleEnv.ObjectsModule[channelName]; exists {
-					if channel, ok := obj.(*StoredChannel); ok {
-						return channel
-					}
-				}
-			}
-			// Fall back to ObjectsInherited
-			if ctx.state.moduleEnv.ObjectsInherited != nil {
-				if obj, exists := ctx.state.moduleEnv.ObjectsInherited[channelName]; exists {
 					if channel, ok := obj.(*StoredChannel); ok {
 						return channel
 					}

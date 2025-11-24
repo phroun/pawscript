@@ -86,24 +86,39 @@ func NewChildModuleEnvironment(parent *ModuleEnvironment) *ModuleEnvironment {
 	parent.mu.RLock()
 	defer parent.mu.RUnlock()
 
+	// Get effective registries from parent
+	effectiveCommands := getEffectiveCommandRegistry(parent)
+	effectiveMacros := getEffectiveMacroRegistry(parent)
+	effectiveObjects := getEffectiveObjectRegistry(parent)
+
 	// Child inherits from parent's LibraryRestricted (becomes new Inherited)
 	// Child starts with its Restricted pointing to same instance
 	return &ModuleEnvironment{
-		DefaultName:              parent.DefaultName,
-		LibraryInherited:         parent.LibraryRestricted, // Inherit parent's restricted
-		LibraryRestricted:        parent.LibraryRestricted, // Start with same reference
-		CommandRegistryInherited: getEffectiveCommandRegistry(parent),
-		CommandRegistryModule:    nil, // nil = use inherited
-		MacrosInherited:          getEffectiveMacroRegistry(parent),
-		MacrosModule:             nil, // nil = use inherited
-		ObjectsInherited:         getEffectiveObjectRegistry(parent),
-		ObjectsModule:            nil, // nil = use inherited
-		ModuleExports:            make(Library), // Start blank - caller merges after execution
-		ImportedFrom:             make(map[string]*ImportMetadata),
-		libraryRestrictedCopied:  false,
-		commandsModuleCopied:     false,
-		macrosModuleCopied:       false,
-		objectsModuleCopied:      false,
+		DefaultName:       parent.DefaultName,
+		LibraryInherited:  parent.LibraryRestricted, // Inherit parent's restricted
+		LibraryRestricted: parent.LibraryRestricted, // Start with same reference
+
+		// Commands: both point to effective command registry
+		// COW flag reset - any modification creates a new copy
+		CommandRegistryInherited: effectiveCommands,
+		CommandRegistryModule:    effectiveCommands,
+
+		// Macros: both point to effective macro registry
+		// COW flag reset - any modification creates a new copy
+		MacrosInherited: effectiveMacros,
+		MacrosModule:    effectiveMacros,
+
+		// Objects: both point to effective object registry
+		// COW flag reset - any modification creates a new copy
+		ObjectsInherited: effectiveObjects,
+		ObjectsModule:    effectiveObjects,
+
+		ModuleExports:           make(Library), // Start blank - caller merges after execution
+		ImportedFrom:            make(map[string]*ImportMetadata),
+		libraryRestrictedCopied: false,
+		commandsModuleCopied:    false,
+		macrosModuleCopied:      false,
+		objectsModuleCopied:     false,
 	}
 }
 
@@ -217,31 +232,55 @@ func (env *ModuleEnvironment) CopyLibraryRestricted() {
 	env.libraryRestrictedCopied = true
 }
 
-// EnsureCommandRegistryEmpty creates an empty CommandRegistryModule if it doesn't exist
-// Used for module isolation - does NOT copy from Inherited
-func (env *ModuleEnvironment) EnsureCommandRegistryEmpty() {
-	if env.CommandRegistryModule == nil {
-		env.CommandRegistryModule = make(map[string]Handler)
-		env.commandsModuleCopied = true
+// EnsureCommandRegistryCopied performs copy-on-write for CommandRegistryModule
+// Copies from Inherited to create an isolated Module map
+func (env *ModuleEnvironment) EnsureCommandRegistryCopied() {
+	if env.commandsModuleCopied {
+		return
 	}
+	// Copy from Inherited to new Module
+	newModule := make(map[string]Handler)
+	if env.CommandRegistryInherited != nil {
+		for k, v := range env.CommandRegistryInherited {
+			newModule[k] = v
+		}
+	}
+	env.CommandRegistryModule = newModule
+	env.commandsModuleCopied = true
 }
 
-// EnsureMacroRegistryEmpty creates an empty MacrosModule if it doesn't exist
-// Used for module isolation - does NOT copy from Inherited
-func (env *ModuleEnvironment) EnsureMacroRegistryEmpty() {
-	if env.MacrosModule == nil {
-		env.MacrosModule = make(map[string]*StoredMacro)
-		env.macrosModuleCopied = true
+// EnsureMacroRegistryCopied performs copy-on-write for MacrosModule
+// Copies from Inherited to create an isolated Module map
+func (env *ModuleEnvironment) EnsureMacroRegistryCopied() {
+	if env.macrosModuleCopied {
+		return
 	}
+	// Copy from Inherited to new Module
+	newModule := make(map[string]*StoredMacro)
+	if env.MacrosInherited != nil {
+		for k, v := range env.MacrosInherited {
+			newModule[k] = v
+		}
+	}
+	env.MacrosModule = newModule
+	env.macrosModuleCopied = true
 }
 
-// EnsureObjectRegistryEmpty creates an empty ObjectsModule if it doesn't exist
-// Used for module isolation - does NOT copy from Inherited
-func (env *ModuleEnvironment) EnsureObjectRegistryEmpty() {
-	if env.ObjectsModule == nil {
-		env.ObjectsModule = make(map[string]interface{})
-		env.objectsModuleCopied = true
+// EnsureObjectRegistryCopied performs copy-on-write for ObjectsModule
+// Copies from Inherited to create an isolated Module map
+func (env *ModuleEnvironment) EnsureObjectRegistryCopied() {
+	if env.objectsModuleCopied {
+		return
 	}
+	// Copy from Inherited to new Module
+	newModule := make(map[string]interface{})
+	if env.ObjectsInherited != nil {
+		for k, v := range env.ObjectsInherited {
+			newModule[k] = v
+		}
+	}
+	env.ObjectsModule = newModule
+	env.objectsModuleCopied = true
 }
 
 // CopyCommandRegistry performs copy-on-write for CommandRegistryModule
@@ -305,21 +344,14 @@ func (env *ModuleEnvironment) CopyObjectRegistry() {
 }
 
 // GetCommand looks up a command from the module's command registry
-// Checks Module registry first, then falls back to Inherited
+// Only checks Module (which starts pointing to Inherited and diverges on COW)
 func (env *ModuleEnvironment) GetCommand(name string) (Handler, bool) {
 	env.mu.RLock()
 	defer env.mu.RUnlock()
 
-	// Check Module first if it exists
+	// Module either points to Inherited or is a COW copy - just check Module
 	if env.CommandRegistryModule != nil {
 		if handler, ok := env.CommandRegistryModule[name]; ok {
-			return handler, true
-		}
-	}
-
-	// Fall back to Inherited
-	if env.CommandRegistryInherited != nil {
-		if handler, ok := env.CommandRegistryInherited[name]; ok {
 			return handler, true
 		}
 	}
