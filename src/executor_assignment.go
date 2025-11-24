@@ -240,6 +240,12 @@ func (e *Executor) handleAssignment(target, valueStr string, state *ExecutionSta
 		value = e.resolveTildesInValue(value, state, substitutionCtx, position)
 	}
 
+	// Check for undefined - delete variable instead of setting
+	if sym, ok := value.(Symbol); ok && string(sym) == "undefined" {
+		state.DeleteVariable(varName)
+		return BoolStatus(true)
+	}
+
 	// Assign
 	state.SetVariable(varName, value)
 	return BoolStatus(true)
