@@ -44,6 +44,12 @@ type TerminalState struct {
 	// Color tracking (for preserving background when only foreground changes)
 	CurrentFG int // current foreground color (-1 = default)
 	CurrentBG int // current background color (-1 = default)
+
+	// Attribute tracking
+	Bold      bool
+	AttrBlink bool // named differently to avoid conflict with cursor Blink
+	Underline bool
+	Invert    bool
 }
 
 // NewTerminalState creates a new terminal state with defaults
@@ -398,4 +404,91 @@ func ANSIClearMode(mode string) string {
 	default:
 		return ""
 	}
+}
+
+// ANSIReset returns the ANSI reset sequence
+func ANSIReset() string {
+	return "\x1b[0m"
+}
+
+// GetTerminalType returns the terminal type from TERM environment variable
+func GetTerminalType() string {
+	term := os.Getenv("TERM")
+	if term == "" {
+		return "unknown"
+	}
+	return term
+}
+
+// SupportsANSI returns true if the terminal likely supports ANSI escape codes
+func SupportsANSI() bool {
+	// If not a terminal, likely doesn't support ANSI (unless it's a pipe to something that does)
+	if !IsTerminal() {
+		return false
+	}
+
+	termType := os.Getenv("TERM")
+	if termType == "" {
+		return false
+	}
+
+	// Check for known ANSI-supporting terminal types
+	termType = strings.ToLower(termType)
+
+	// Most modern terminals support ANSI
+	ansiTerms := []string{
+		"xterm", "vt100", "vt102", "vt220", "vt320", "ansi", "linux",
+		"screen", "tmux", "rxvt", "konsole", "gnome", "putty",
+		"cygwin", "mintty", "eterm", "alacritty", "kitty", "iterm",
+	}
+
+	for _, t := range ansiTerms {
+		if strings.Contains(termType, t) {
+			return true
+		}
+	}
+
+	// Also check COLORTERM environment variable
+	colorTerm := os.Getenv("COLORTERM")
+	if colorTerm != "" {
+		return true
+	}
+
+	// If TERM is set and not "dumb", assume ANSI support
+	return termType != "dumb"
+}
+
+// SupportsColor returns true if the terminal likely supports color
+func SupportsColor() bool {
+	if !SupportsANSI() {
+		return false
+	}
+
+	termType := strings.ToLower(os.Getenv("TERM"))
+
+	// Check for explicit color support indicators
+	if strings.Contains(termType, "color") || strings.Contains(termType, "256color") || strings.Contains(termType, "truecolor") {
+		return true
+	}
+
+	// Check COLORTERM
+	colorTerm := os.Getenv("COLORTERM")
+	if colorTerm != "" {
+		return true
+	}
+
+	// Most xterm-like terminals support color
+	colorTerms := []string{
+		"xterm", "linux", "screen", "tmux", "rxvt", "konsole",
+		"gnome", "putty", "cygwin", "mintty", "eterm", "alacritty",
+		"kitty", "iterm",
+	}
+
+	for _, t := range colorTerms {
+		if strings.Contains(termType, t) {
+			return true
+		}
+	}
+
+	return false
 }

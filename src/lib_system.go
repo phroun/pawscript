@@ -759,11 +759,48 @@ func (ps *PawScript) RegisterSystemLib(scriptArgs []string) {
 	// color - set foreground and/or background colors with optional attributes
 	// color <fg>           - set foreground only, preserve background
 	// color <fg>, <bg>     - set both foreground and background
-	// Named args: bold, blink, underline, invert (boolean)
+	// Named args: bold, blink, underline, invert (boolean), reset (boolean)
+	// Returns: list with (fg, bg, bold:, blink:, underline:, invert:, term:, ansi:, color:)
 	ps.RegisterCommand("color", func(ctx *Context) Result {
 		ts := ps.terminalState
 		ts.mu.Lock()
 		defer ts.mu.Unlock()
+
+		// Check for reset option first
+		if v, ok := ctx.NamedArgs["reset"]; ok && isTruthy(v) {
+			// Emit reset sequence
+			fmt.Print(ANSIReset())
+
+			// Reset all tracked state to defaults
+			ts.CurrentFG = -1
+			ts.CurrentBG = -1
+			ts.Bold = false
+			ts.AttrBlink = false
+			ts.Underline = false
+			ts.Invert = false
+			ts.HasCleared = false
+
+			// Build and return result list
+			resultNamedArgs := map[string]interface{}{
+				"bold":      false,
+				"blink":     false,
+				"underline": false,
+				"invert":    false,
+				"term":      GetTerminalType(),
+				"ansi":      SupportsANSI(),
+				"color":     SupportsColor(),
+			}
+
+			result := NewStoredListWithNamed([]interface{}{
+				int64(-1), // fg (default)
+				int64(-1), // bg (default)
+			}, resultNamedArgs)
+
+			id := ctx.executor.storeObject(result, "list")
+			marker := fmt.Sprintf("\x00LIST:%d\x00", id)
+			ctx.state.SetResultWithoutClaim(Symbol(marker))
+			return BoolStatus(true)
+		}
 
 		// Parse color arguments
 		fg := -1 // -1 means don't change
@@ -808,10 +845,11 @@ func (ps *PawScript) RegisterSystemLib(scriptArgs []string) {
 		}
 
 		// Parse named arguments for attributes
-		bold := false
-		blink := false
-		underline := false
-		invert := false
+		// Start with current tracked state
+		bold := ts.Bold
+		blink := ts.AttrBlink
+		underline := ts.Underline
+		invert := ts.Invert
 
 		if v, ok := ctx.NamedArgs["bold"]; ok {
 			bold = isTruthy(v)
@@ -840,15 +878,39 @@ func (ps *PawScript) RegisterSystemLib(scriptArgs []string) {
 			fmt.Print(ansiCode)
 		}
 
-		// Update tracked colors
+		// Update tracked state
 		if fg >= 0 {
 			ts.CurrentFG = fg
 		}
 		if bg >= 0 {
 			ts.CurrentBG = bg
 		}
-
+		ts.Bold = bold
+		ts.AttrBlink = blink
+		ts.Underline = underline
+		ts.Invert = invert
 		ts.HasCleared = false
+
+		// Build and return result list
+		resultNamedArgs := map[string]interface{}{
+			"bold":      ts.Bold,
+			"blink":     ts.AttrBlink,
+			"underline": ts.Underline,
+			"invert":    ts.Invert,
+			"term":      GetTerminalType(),
+			"ansi":      SupportsANSI(),
+			"color":     SupportsColor(),
+		}
+
+		result := NewStoredListWithNamed([]interface{}{
+			int64(ts.CurrentFG),
+			int64(ts.CurrentBG),
+		}, resultNamedArgs)
+
+		id := ctx.executor.storeObject(result, "list")
+		marker := fmt.Sprintf("\x00LIST:%d\x00", id)
+		ctx.state.SetResultWithoutClaim(Symbol(marker))
+
 		return BoolStatus(true)
 	})
 
