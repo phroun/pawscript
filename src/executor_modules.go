@@ -233,9 +233,16 @@ func (e *Executor) handleIMPORT(args []interface{}, state *ExecutionState, posit
 	}
 
 	if importAll {
-		// Import all items
+		// Import all items - collect errors for collisions
+		var collisions []string
 		for itemName, item := range section {
-			e.importItem(state, moduleName, itemName, itemName, item)
+			if errMsg := e.importItem(state, moduleName, itemName, itemName, item, false); errMsg != "" {
+				collisions = append(collisions, errMsg)
+			}
+		}
+		if len(collisions) > 0 {
+			e.logger.CommandError(CatSystem, "IMPORT", fmt.Sprintf("Name collisions: %s", strings.Join(collisions, "; ")), position)
+			return BoolStatus(false)
 		}
 		e.logger.Debug("IMPORT: Imported all items from module \"%s\"", moduleName)
 	} else {
@@ -244,15 +251,18 @@ func (e *Executor) handleIMPORT(args []interface{}, state *ExecutionState, posit
 			itemSpec = strings.TrimSpace(itemSpec)
 
 			var originalName, localName string
+			var hasRename bool
 			if strings.Contains(itemSpec, "=") {
-				// Aliasing: "newname=original" (local=original)
-				aliasParts := strings.SplitN(itemSpec, "=", 2)
-				localName = aliasParts[0]    // New name (local alias)
-				originalName = aliasParts[1] // Original name from library
+				// Rename syntax: "newname=original" (local=original)
+				renameParts := strings.SplitN(itemSpec, "=", 2)
+				localName = renameParts[0]    // New local name
+				originalName = renameParts[1] // Original name from library
+				hasRename = true
 			} else {
-				// No aliasing
+				// No rename
 				originalName = itemSpec
 				localName = itemSpec
+				hasRename = false
 			}
 
 			item, exists := section[originalName]
@@ -261,7 +271,10 @@ func (e *Executor) handleIMPORT(args []interface{}, state *ExecutionState, posit
 				return BoolStatus(false)
 			}
 
-			e.importItem(state, moduleName, originalName, localName, item)
+			if errMsg := e.importItem(state, moduleName, originalName, localName, item, hasRename); errMsg != "" {
+				e.logger.CommandError(CatSystem, "IMPORT", errMsg, position)
+				return BoolStatus(false)
+			}
 			e.logger.Debug("IMPORT: Imported %s::%s as \"%s\"", moduleName, originalName, localName)
 		}
 	}
@@ -269,11 +282,18 @@ func (e *Executor) handleIMPORT(args []interface{}, state *ExecutionState, posit
 	return BoolStatus(true)
 }
 
-// importItem imports a single item into the appropriate registry
+// importItem imports a single item into the appropriate registry.
+// If hasRename is false and the item already exists, returns an error string.
 // NOTE: Caller must hold state.moduleEnv.mu lock
-func (e *Executor) importItem(state *ExecutionState, moduleName, originalName, localName string, item *ModuleItem) {
+func (e *Executor) importItem(state *ExecutionState, moduleName, originalName, localName string, item *ModuleItem, hasRename bool) string {
 	switch item.Type {
 	case "command":
+		// Check for collision if no explicit rename
+		if !hasRename {
+			if handler, exists := state.moduleEnv.CommandRegistryModule[localName]; exists && handler != nil {
+				return fmt.Sprintf("command '%s' already exists; to import, use rename syntax: <newname>=%s", localName, originalName)
+			}
+		}
 		state.moduleEnv.EnsureCommandRegistryCopied()
 		state.moduleEnv.CommandRegistryModule[localName] = item.Value.(Handler)
 		state.moduleEnv.ImportedFrom[localName] = &ImportMetadata{
@@ -282,6 +302,12 @@ func (e *Executor) importItem(state *ExecutionState, moduleName, originalName, l
 		}
 
 	case "macro":
+		// Check for collision if no explicit rename
+		if !hasRename {
+			if macro, exists := state.moduleEnv.MacrosModule[localName]; exists && macro != nil {
+				return fmt.Sprintf("macro '%s' already exists; to import, use rename syntax: <newname>=%s", localName, originalName)
+			}
+		}
 		state.moduleEnv.EnsureMacroRegistryCopied()
 		state.moduleEnv.MacrosModule[localName] = item.Value.(*StoredMacro)
 		state.moduleEnv.ImportedFrom[localName] = &ImportMetadata{
@@ -290,6 +316,12 @@ func (e *Executor) importItem(state *ExecutionState, moduleName, originalName, l
 		}
 
 	case "object":
+		// Check for collision if no explicit rename
+		if !hasRename {
+			if _, exists := state.moduleEnv.ObjectsModule[localName]; exists {
+				return fmt.Sprintf("object '%s' already exists; to import, use rename syntax: <newname>=%s", localName, originalName)
+			}
+		}
 		state.moduleEnv.EnsureObjectRegistryCopied()
 		state.moduleEnv.ObjectsModule[localName] = item.Value
 		state.moduleEnv.ImportedFrom[localName] = &ImportMetadata{
@@ -297,6 +329,7 @@ func (e *Executor) importItem(state *ExecutionState, moduleName, originalName, l
 			OriginalName: originalName,
 		}
 	}
+	return "" // success
 }
 
 // handleREMOVE removes items from module registries
