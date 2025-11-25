@@ -15,26 +15,26 @@ underline: false
 invert: false
 
 === Test 4: Setting foreground updates state ===
-[31mAfter color 4, fg: 4
+[31mAfter color 4, fg: 4
 
 === Test 5: Setting both colors ===
-[93;44mAfter color 14,1: fg=14, bg=1
+[93;44mAfter color 14,1: fg=14, bg=1
 
 === Test 6: Setting attributes ===
-[0;1;4;97;44m[0;1;4;39;49mAfter bold+underline: bold=true, underline=true
+[0;1;4;97;44m[0;1;4;39;49mAfter bold+underline: bold=true, underline=true
 
 === Test 7: Reset clears everything ===
-[0mAfter reset: fg=-1, bg=-1, bold=false, underline=false
+[0mAfter reset: fg=-1, bg=-1, bold=false, underline=false
 
 === Test 8: Color name parsing ===
-[31mred -> 4
-[34mblue -> 1
-[32mgreen -> 2
-[93myellow -> 14
-[97mwhite -> 15
-[30mblack -> 0
-[0m
+[31mred -> 4
+[34mblue -> 1
+[32mgreen -> 2
+[93myellow -> 14
+[97mwhite -> 15
+[30mblack -> 0
+[0m
 === Test 9: Attribute persistence ===
-[31m[0;1;39;49m[0;1;39;49mAfter red then bold: fg=4, bold=true
-[0m
+[31m[0;1;39;49m[0;1;39;49mAfter red then bold: fg=4, bold=true
+[0m
 === All color tests passed ===

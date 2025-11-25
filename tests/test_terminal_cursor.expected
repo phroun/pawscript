@@ -14,20 +14,20 @@ shape: block
 duplex: true
 
 === Test 4: Setting position ===
-[10;5HAfter x:5, y:10 -> x=5, y=10
+[10;5HAfter x:5, y:10 -> x=5, y=10
 
 === Test 5: Setting visibility ===
-[?25lAfter visible:false -> visible=false
-[?25hAfter visible:true -> visible=true
+[?25lAfter visible:false -> visible=false
+[?25hAfter visible:true -> visible=true
 
 === Test 6: Setting shape ===
-[3 qAfter shape:underline -> shape=underline
-[1 qAfter shape:block -> shape=block
+[3 qAfter shape:underline -> shape=underline
+[1 qAfter shape:block -> shape=block
 
 === Test 7: Sticky region parameters ===
 After setting region: rows=20, cols=60
 
 === Test 8: Reset clears state ===
-[0m[?25h[?7hAfter reset: visible=true, duplex=true, shape=block
+[0m[?25h[?7hAfter reset: visible=true, duplex=true, shape=block
 
 === All cursor tests passed ===
