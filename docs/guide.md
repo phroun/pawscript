@@ -92,7 +92,7 @@ Blocks can be used directly as conditions or bodies in `while`, or as the body o
 
 ### Braces `{...}` - Evaluate Immediately
 
-Content is executed as a command and the result substituted in place.
+Content is executed as a command and the formal result substituted in place.
 
 ```paw
 x: 5
@@ -132,19 +132,19 @@ not eq 1, 2         # Returns success (1 != 2, so eq fails, inverted to success)
 
 ## Chain Operators
 
-### `~>` - Chain (result as first argument)
+### `~>` - Chain (formal result as first argument)
 
 ```paw
 add 2, 3 ~> mul 10    # mul 5, 10 = 50
 ```
 
-### `~~>` - Chain Append (result as last argument)
+### `~~>` - Chain Append (formal result as last argument)
 
 ```paw
 add 2, 3 ~~> sub 10   # sub 10, 5 = 5
 ```
 
-### `=>` - Capture Result
+### `=>` - Capture Formal Result
 
 ```paw
 add 2, 3 => sum       # sum = 5
@@ -314,12 +314,12 @@ fiber_wait_all          # Wait for all fibers
 | `true` | Sets success status |
 | `false` | Sets failure status |
 | `ret [value]` | Early return from block with optional value |
-| `set_result value` | Set the result register |
-| `get_result` | Get the result register value |
-| `if value` | Tests truthiness: sets success if truthy, failure if falsy; also sets result to boolean |
-| `eq a, b` | Sets success if a equals b, failure otherwise; also sets result to boolean |
+| `set_result value` | Set the formal result |
+| `get_result` | Get the formal result value |
+| `if value` | Tests truthiness: sets success if truthy, failure if falsy; also sets formal result to boolean |
+| `eq a, b` | Sets success if a equals b, failure otherwise; also sets formal result to boolean |
 | `macro name(body)` | Define a named macro |
-| `add a, b` | Add numbers, result is the sum |
+| `add a, b` | Add numbers; formal result is the sum |
 
 ### Lists and Data (`stdlib`)
 
@@ -501,9 +501,9 @@ cmd1 else cmd2           # If cmd1 fails
 !cmd                     # Invert status
 
 # Chaining
-cmd1 ~> cmd2             # Result as first arg
-cmd1 ~~> cmd2            # Result as last arg
-cmd1 => var              # Capture result
+cmd1 ~> cmd2             # Formal result as first arg
+cmd1 ~~> cmd2            # Formal result as last arg
+cmd1 => var              # Capture formal result
 
 # Blocks
 (code)                   # Store for later
