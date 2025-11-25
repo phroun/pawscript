@@ -79,8 +79,8 @@ See the `examples/` directory for sample scripts and usage patterns.
 - `os::#args` provides script arguments as a StoredList; `argc`/`argv` use
   it by default
 - `x: undefined` syntax deletes a variable from local scope
-- `echo`, `print`, `write`, `read` accept `#channel` as first arg to override 
-  efault output/input
+- `echo`, `print`, `write`, `read` accept `#channel` as first arg to override
+  default output/input
 - Reorganized standard library into modular source files
 
 ### 0.2.4 -- November 23, 2025
