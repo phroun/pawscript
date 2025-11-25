@@ -64,6 +64,19 @@
       white-space: pre-wrap;
       max-height: 300px;
       overflow-y: auto;
+      outline: none;
+    }
+    .output.input-mode {
+      border: 2px solid #3498db;
+      box-shadow: 0 0 5px rgba(52, 152, 219, 0.5);
+    }
+    .output .input-cursor {
+      background: #ecf0f1;
+      color: #2c3e50;
+      animation: blink 1s step-end infinite;
+    }
+    @keyframes blink {
+      50% { opacity: 0; }
     }
     .success { color: #2ecc71; }
     .error { color: #e74c3c; }
@@ -142,13 +155,16 @@ echo "Product calculated: ~y"</textarea>
     const asyncOutput = document.getElementById('async-output');
 
     function log(element, message, className = '') {
-      const line = message;
-      element.textContent += (element.textContent ? '\n' : '') + line;
+      // Use appendChild to preserve any input cursor or other DOM elements
+      if (element.childNodes.length > 0) {
+        element.appendChild(document.createTextNode('\n'));
+      }
+      element.appendChild(document.createTextNode(message));
       element.scrollTop = element.scrollHeight;
     }
 
     function clearOutput(element) {
-      element.textContent = '';
+      element.innerHTML = '';
     }
 
     async function init() {
@@ -160,6 +176,90 @@ echo "Product calculated: ~y"</textarea>
         // Track current output element for echo
         let currentOutput = output;
 
+        // Stdin input handling state
+        let inputState = {
+          active: false,
+          buffer: '',
+          token: null,
+          ctx: null,
+          outputElement: null,
+          cursorSpan: null,
+          keyHandler: null
+        };
+
+        // Create stdin input handler
+        function startStdinInput(outputElement, ctx) {
+          return new Promise((resolve) => {
+            inputState.active = true;
+            inputState.buffer = '';
+            inputState.ctx = ctx;
+            inputState.outputElement = outputElement;
+
+            // Make output focusable and add input-mode class
+            outputElement.setAttribute('tabindex', '0');
+            outputElement.classList.add('input-mode');
+
+            // Add cursor at end
+            inputState.cursorSpan = document.createElement('span');
+            inputState.cursorSpan.className = 'input-cursor';
+            inputState.cursorSpan.textContent = ' ';
+            outputElement.appendChild(inputState.cursorSpan);
+
+            // Focus and scroll to end
+            outputElement.focus();
+            outputElement.scrollTop = outputElement.scrollHeight;
+
+            // Key handler
+            inputState.keyHandler = (e) => {
+              if (!inputState.active) return;
+
+              e.preventDefault();
+              e.stopPropagation();
+
+              if (e.key === 'Enter') {
+                // Submit input
+                const result = inputState.buffer;
+                finishStdinInput();
+                resolve(result);
+              } else if (e.key === 'Backspace') {
+                // Remove last character from buffer and display
+                if (inputState.buffer.length > 0) {
+                  inputState.buffer = inputState.buffer.slice(0, -1);
+                  // Remove the character before the cursor
+                  const textNode = inputState.cursorSpan.previousSibling;
+                  if (textNode && textNode.nodeType === Node.TEXT_NODE) {
+                    textNode.textContent = textNode.textContent.slice(0, -1);
+                  }
+                }
+              } else if (e.key.length === 1) {
+                // Regular character - add to buffer and display
+                inputState.buffer += e.key;
+                // Insert character before cursor
+                const textNode = document.createTextNode(e.key);
+                outputElement.insertBefore(textNode, inputState.cursorSpan);
+                outputElement.scrollTop = outputElement.scrollHeight;
+              }
+            };
+
+            outputElement.addEventListener('keydown', inputState.keyHandler);
+          });
+        }
+
+        function finishStdinInput() {
+          if (inputState.cursorSpan) {
+            inputState.cursorSpan.remove();
+            inputState.cursorSpan = null;
+          }
+          if (inputState.outputElement) {
+            inputState.outputElement.classList.remove('input-mode');
+            inputState.outputElement.removeEventListener('keydown', inputState.keyHandler);
+            // Add newline after input
+            inputState.outputElement.appendChild(document.createTextNode('\n'));
+          }
+          inputState.active = false;
+          inputState.keyHandler = null;
+        }
+
         // Register custom commands
         paw.registerCommands({
           echo: (ctx) => {
@@ -167,6 +267,30 @@ echo "Product calculated: ~y"</textarea>
             const message = ctx.args.join(' ');
             log(currentOutput, message);
             return true;
+          },
+          print: (ctx) => {
+            // Same as echo
+            const message = ctx.args.join(' ');
+            log(currentOutput, message);
+            return true;
+          },
+          write: (ctx) => {
+            // Write without newline
+            const message = ctx.args.join('');
+            currentOutput.textContent += message;
+            currentOutput.scrollTop = currentOutput.scrollHeight;
+            return true;
+          },
+          read: (ctx) => {
+            // Override read to capture keyboard input
+            const token = ctx.requestToken();
+
+            startStdinInput(currentOutput, ctx).then((input) => {
+              ctx.setResult(input);
+              paw.resumeToken(token, true);
+            });
+
+            return token;
           }
         });
 
