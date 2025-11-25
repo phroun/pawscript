@@ -7,9 +7,11 @@ macro supersub(
     print "Special Sub $1 Defined \\$1"
     print \\$1
   )
+  EXPORT subroutine, "subroutine_$1"
   print "Supersub $1 Defined"
 )
 
 supersub Cat
+IMPORT "exports"
 subroutine Hiss
 subroutine_Cat Meow

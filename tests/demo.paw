@@ -180,9 +180,13 @@ macro "define_macros", (
         echo "Hello \\$1!" |
         echo "Hello there!"
     )
+
+    # Export the macros so they're available to the caller
+    EXPORT greet_formal, describe_args, safe_greet
 )
 
 define_macros
+IMPORT "exports"
 
 echo "Nothing should have printed yet after definition of macros."
 
