@@ -24,6 +24,7 @@ type Executor struct {
 	nextFiberID     int
 	logger          *Logger
 	fallbackHandler func(cmdName string, args []interface{}, namedArgs map[string]interface{}, state *ExecutionState, position *SourcePosition) Result
+	macroSystem     *MacroSystem // Reference to macro system for EXPORT
 }
 
 // NewExecutor creates a new command executor

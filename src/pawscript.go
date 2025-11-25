@@ -28,6 +28,9 @@ func New(config *Config) *PawScript {
 	// Set executor reference on macro system for object storage
 	macroSystem.SetExecutor(executor)
 
+	// Set macro system reference on executor for EXPORT
+	executor.macroSystem = macroSystem
+
 	// Create root module environment for all execution states
 	rootModuleEnv := NewModuleEnvironment()
 

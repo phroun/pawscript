@@ -527,6 +527,7 @@ func (e *Executor) removeItem(state *ExecutionState, itemName, itemType string) 
 
 // handleEXPORT exports items to ModuleExports
 // Usage: EXPORT item1 item2 #obj1 item3...
+// Exports can be: macros (from macroSystem or module registries), commands, objects (#prefix), or variables
 func (e *Executor) handleEXPORT(args []interface{}, namedArgs map[string]interface{}, state *ExecutionState, position *SourcePosition) Result {
 	if len(args) == 0 {
 		e.logger.CommandError(CatSystem, "EXPORT", "Expected at least 1 argument (item names)", position)
@@ -587,9 +588,29 @@ func (e *Executor) handleEXPORT(args []interface{}, namedArgs map[string]interfa
 			continue
 		}
 
-		// Check for macro first
+		// Check for macro in the executor's macroSystem (user-defined macros)
+		if e.macroSystem != nil {
+			e.macroSystem.mu.RLock()
+			objectID, macroExists := e.macroSystem.macros[itemName]
+			e.macroSystem.mu.RUnlock()
+			if macroExists {
+				// Retrieve the actual StoredMacro
+				if obj, exists := e.getObject(objectID); exists {
+					if macro, ok := obj.(StoredMacro); ok {
+						section[itemName] = &ModuleItem{
+							Type:  "macro",
+							Value: &macro,
+						}
+						e.logger.Debug("EXPORT: Exported macro \"%s\" from module \"%s\"", itemName, moduleName)
+						continue
+					}
+				}
+			}
+		}
+
+		// Check for macro in module registries (imported macros)
 		if state.moduleEnv.MacrosModule != nil {
-			if macro, exists := state.moduleEnv.MacrosModule[itemName]; exists {
+			if macro, exists := state.moduleEnv.MacrosModule[itemName]; exists && macro != nil {
 				section[itemName] = &ModuleItem{
 					Type:  "macro",
 					Value: macro,
@@ -598,7 +619,7 @@ func (e *Executor) handleEXPORT(args []interface{}, namedArgs map[string]interfa
 				continue
 			}
 		}
-		if macro, exists := state.moduleEnv.MacrosInherited[itemName]; exists {
+		if macro, exists := state.moduleEnv.MacrosInherited[itemName]; exists && macro != nil {
 			section[itemName] = &ModuleItem{
 				Type:  "macro",
 				Value: macro,
@@ -609,7 +630,7 @@ func (e *Executor) handleEXPORT(args []interface{}, namedArgs map[string]interfa
 
 		// Check for command
 		if state.moduleEnv.CommandRegistryModule != nil {
-			if handler, exists := state.moduleEnv.CommandRegistryModule[itemName]; exists {
+			if handler, exists := state.moduleEnv.CommandRegistryModule[itemName]; exists && handler != nil {
 				section[itemName] = &ModuleItem{
 					Type:  "command",
 					Value: handler,
@@ -618,12 +639,22 @@ func (e *Executor) handleEXPORT(args []interface{}, namedArgs map[string]interfa
 				continue
 			}
 		}
-		if handler, exists := state.moduleEnv.CommandRegistryInherited[itemName]; exists {
+		if handler, exists := state.moduleEnv.CommandRegistryInherited[itemName]; exists && handler != nil {
 			section[itemName] = &ModuleItem{
 				Type:  "command",
 				Value: handler,
 			}
 			e.logger.Debug("EXPORT: Exported command \"%s\" from module \"%s\"", itemName, moduleName)
+			continue
+		}
+
+		// Check for variable (export variable value as an object)
+		if val, exists := state.GetVariable(itemName); exists {
+			section[itemName] = &ModuleItem{
+				Type:  "object",
+				Value: val,
+			}
+			e.logger.Debug("EXPORT: Exported variable \"%s\" as object from module \"%s\"", itemName, moduleName)
 			continue
 		}
 
