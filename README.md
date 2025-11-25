@@ -69,6 +69,24 @@ See the `examples/` directory for sample scripts and usage patterns.
 
 ## Changelog
 
+### 0.2.6 -- November 25, 2025
+- `env_dump` returns all environment variables as a list with named args
+- `rune` converts a character to its Unicode code point (inverse of `chr`)
+- `ord` alias for `rune` for familiarity with other languages
+- `microtime` returns current Unix timestamp in microseconds
+- `datetime` returns formatted date/time string, accepts optional format string
+- `clear` clears terminal screen with optional mode: eol, bol, line, eos, bos, screen
+- `cursor` controls terminal cursor position, visibility, shape, and echo (duplex)
+  - Supports sticky parameters: xbase, ybase, rows, cols, indent, head
+  - Options: x, y, visible, shape, blink, color, free, duplex, reset
+  - Returns current cursor state as a list with named args
+- `color` sets terminal foreground/background colors using CGA palette (0-15)
+  - Accepts color numbers or names: black, blue, green, cyan, red, purple, brown,
+    silver, light blue, bright green, aqua, bright red, pink, yellow, white
+  - Attributes: bold, blink, underline, invert (persist across calls)
+  - Option reset: true emits ANSI reset and clears all tracked state
+  - Returns current color state with terminal capability info (term, ansi, color)
+
 ### 0.2.5 -- November 24, 2025
 - Module environment with copy-on-write semantics for macro/fiber isolation
 - Native IO channels: `io::#stdin`, `#stdout`, `#stderr`, `#stdio`
