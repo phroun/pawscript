@@ -288,10 +288,26 @@ func (s *ExecutionState) GetVariable(name string) (interface{}, bool) {
 // DeleteVariable removes a variable from the current scope
 func (s *ExecutionState) DeleteVariable(name string) {
 	s.mu.Lock()
-	defer s.mu.Unlock()
 
-	if s.variables != nil {
-		delete(s.variables, name)
+	if s.variables == nil {
+		s.mu.Unlock()
+		return
+	}
+
+	// Extract object references from the value being deleted
+	var oldRefs []int
+	if oldValue, exists := s.variables[name]; exists {
+		oldRefs = s.extractObjectReferencesLocked(oldValue)
+	}
+
+	delete(s.variables, name)
+
+	// Release lock before doing reference management
+	s.mu.Unlock()
+
+	// Release old references
+	for _, id := range oldRefs {
+		s.ReleaseObjectReference(id)
 	}
 }
 
