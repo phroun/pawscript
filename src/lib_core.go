@@ -680,22 +680,22 @@ func (ps *PawScript) RegisterCoreLib() {
 		output.WriteString(fmt.Sprintf("\n--- Library Restricted (%d) ---\n", len(env.LibraryRestricted)))
 		writeLibrarySectionWrapped(&output, env.LibraryRestricted)
 
-		// Imported items
-		output.WriteString(fmt.Sprintf("\n--- Imported (%d) ---\n", len(env.ImportedFrom)))
-		if len(env.ImportedFrom) == 0 {
+		// Item metadata (shows import info)
+		output.WriteString(fmt.Sprintf("\n--- Imported (%d) ---\n", len(env.ItemMetadataModule)))
+		if len(env.ItemMetadataModule) == 0 {
 			output.WriteString("  (none)\n")
 		} else {
-			impNames := make([]string, 0, len(env.ImportedFrom))
-			for name := range env.ImportedFrom {
+			impNames := make([]string, 0, len(env.ItemMetadataModule))
+			for name := range env.ItemMetadataModule {
 				impNames = append(impNames, name)
 			}
 			sort.Strings(impNames)
 			for _, name := range impNames {
-				meta := env.ImportedFrom[name]
+				meta := env.ItemMetadataModule[name]
 				if meta.OriginalName != name {
-					output.WriteString(fmt.Sprintf("  %s <- %s::%s\n", name, meta.ModuleName, meta.OriginalName))
+					output.WriteString(fmt.Sprintf("  %s <- %s::%s\n", name, meta.ImportedFromModule, meta.OriginalName))
 				} else {
-					output.WriteString(fmt.Sprintf("  %s <- %s\n", name, meta.ModuleName))
+					output.WriteString(fmt.Sprintf("  %s <- %s\n", name, meta.ImportedFromModule))
 				}
 			}
 		}

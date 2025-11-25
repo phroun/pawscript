@@ -236,7 +236,9 @@ func (e *Executor) handleIMPORT(args []interface{}, state *ExecutionState, posit
 		// Import all items - collect errors for collisions
 		var collisions []string
 		for itemName, item := range section {
-			if errMsg := e.importItem(state, moduleName, itemName, itemName, item, false); errMsg != "" {
+			// moduleName is used for both ImportedFromModule and OriginalModuleName
+			// (they may differ if MODULE command renamed the module)
+			if errMsg := e.importItem(state, moduleName, moduleName, itemName, itemName, item, false); errMsg != "" {
 				collisions = append(collisions, errMsg)
 			}
 		}
@@ -271,7 +273,7 @@ func (e *Executor) handleIMPORT(args []interface{}, state *ExecutionState, posit
 				return BoolStatus(false)
 			}
 
-			if errMsg := e.importItem(state, moduleName, originalName, localName, item, hasRename); errMsg != "" {
+			if errMsg := e.importItem(state, moduleName, moduleName, originalName, localName, item, hasRename); errMsg != "" {
 				e.logger.CommandError(CatSystem, "IMPORT", errMsg, position)
 				return BoolStatus(false)
 			}
@@ -284,8 +286,18 @@ func (e *Executor) handleIMPORT(args []interface{}, state *ExecutionState, posit
 
 // importItem imports a single item into the appropriate registry.
 // If hasRename is false and the item already exists, returns an error string.
+// originalModuleName is the module name as it appears in LibraryInherited (for metadata)
 // NOTE: Caller must hold state.moduleEnv.mu lock
-func (e *Executor) importItem(state *ExecutionState, moduleName, originalName, localName string, item *ModuleItem, hasRename bool) string {
+func (e *Executor) importItem(state *ExecutionState, moduleName, originalModuleName, originalName, localName string, item *ModuleItem, hasRename bool) string {
+	// Create metadata for this item
+	metadata := &ItemMetadata{
+		OriginalModuleName: originalModuleName,
+		ImportedFromModule: moduleName,
+		OriginalName:       originalName,
+		ItemType:           item.Type,
+		RegistrationSource: "standard", // Will be overwritten for macros/objects with source info
+	}
+
 	switch item.Type {
 	case "command":
 		// Check for collision if no explicit rename
@@ -296,10 +308,6 @@ func (e *Executor) importItem(state *ExecutionState, moduleName, originalName, l
 		}
 		state.moduleEnv.EnsureCommandRegistryCopied()
 		state.moduleEnv.CommandRegistryModule[localName] = item.Value.(Handler)
-		state.moduleEnv.ImportedFrom[localName] = &ImportMetadata{
-			ModuleName:   moduleName,
-			OriginalName: originalName,
-		}
 
 	case "macro":
 		// Check for collision if no explicit rename
@@ -310,9 +318,12 @@ func (e *Executor) importItem(state *ExecutionState, moduleName, originalName, l
 		}
 		state.moduleEnv.EnsureMacroRegistryCopied()
 		state.moduleEnv.MacrosModule[localName] = item.Value.(*StoredMacro)
-		state.moduleEnv.ImportedFrom[localName] = &ImportMetadata{
-			ModuleName:   moduleName,
-			OriginalName: originalName,
+		// Get source location from stored macro if available
+		if storedMacro, ok := item.Value.(*StoredMacro); ok && storedMacro != nil {
+			metadata.SourceFile = storedMacro.DefinitionFile
+			metadata.SourceLine = storedMacro.DefinitionLine
+			metadata.SourceColumn = storedMacro.DefinitionColumn
+			metadata.RegistrationSource = ""
 		}
 
 	case "object":
@@ -324,21 +335,24 @@ func (e *Executor) importItem(state *ExecutionState, moduleName, originalName, l
 		}
 		state.moduleEnv.EnsureObjectRegistryCopied()
 		state.moduleEnv.ObjectsModule[localName] = item.Value
-		state.moduleEnv.ImportedFrom[localName] = &ImportMetadata{
-			ModuleName:   moduleName,
-			OriginalName: originalName,
-		}
+		metadata.RegistrationSource = ""
 	}
+
+	// Store metadata
+	state.moduleEnv.EnsureMetadataRegistryCopied()
+	state.moduleEnv.ItemMetadataModule[localName] = metadata
+
 	return "" // success
 }
 
 // handleREMOVE removes items from module registries
 // Usage: REMOVE ALL - resets all registries to clean slate
 // Usage: REMOVE modulename - removes all items from that module
-// Usage: REMOVE "module::item1,item2" - removes specific items by scoped name
+// Usage: REMOVE "module::item1,item2" - removes specific items by scoped name (original names)
+// Usage: REMOVE MY "localname1,localname2" - removes items by their local (possibly renamed) names
 func (e *Executor) handleREMOVE(args []interface{}, state *ExecutionState, position *SourcePosition) Result {
 	if len(args) == 0 {
-		e.logger.CommandError(CatSystem, "REMOVE", "Expected at least 1 argument (ALL, module name, or module::items)", position)
+		e.logger.CommandError(CatSystem, "REMOVE", "Expected at least 1 argument (ALL, MY, module name, or module::items)", position)
 		return BoolStatus(false)
 	}
 
@@ -355,9 +369,40 @@ func (e *Executor) handleREMOVE(args []interface{}, state *ExecutionState, posit
 			state.moduleEnv.commandsModuleCopied = true
 			state.moduleEnv.ObjectsModule = make(map[string]interface{})
 			state.moduleEnv.objectsModuleCopied = true
-			// Clear ImportedFrom as well
-			state.moduleEnv.ImportedFrom = make(map[string]*ImportMetadata)
+			state.moduleEnv.ItemMetadataModule = make(map[string]*ItemMetadata)
+			state.moduleEnv.metadataModuleCopied = true
 			e.logger.Debug("REMOVE ALL: Reset all module registries to clean slate")
+			return BoolStatus(true)
+		}
+	}
+
+	// Check for REMOVE MY "localname1,localname2"
+	if len(args) >= 2 {
+		if sym, ok := args[0].(Symbol); ok && string(sym) == "MY" {
+			// Remove by local names (no module:: prefix allowed)
+			for _, arg := range args[1:] {
+				namesStr := fmt.Sprintf("%v", arg)
+				names := strings.Split(namesStr, ",")
+				for _, name := range names {
+					localName := strings.TrimSpace(name)
+					if localName == "" {
+						continue
+					}
+					// Cannot use module:: prefix with MY
+					if strings.Contains(localName, "::") {
+						e.logger.CommandError(CatSystem, "REMOVE", "REMOVE MY does not accept module:: prefix; use local names only", position)
+						return BoolStatus(false)
+					}
+					// Find item type from metadata or by checking registries
+					itemType := e.findItemType(state, localName)
+					if itemType == "" {
+						e.logger.CommandError(CatSystem, "REMOVE", fmt.Sprintf("Item not found: %s", localName), position)
+						return BoolStatus(false)
+					}
+					e.removeItem(state, localName, itemType)
+					e.logger.Debug("REMOVE MY: Removed \"%s\"", localName)
+				}
+			}
 			return BoolStatus(true)
 		}
 	}
@@ -366,7 +411,7 @@ func (e *Executor) handleREMOVE(args []interface{}, state *ExecutionState, posit
 		spec := fmt.Sprintf("%v", arg)
 
 		if strings.Contains(spec, "::") {
-			// Scoped removal: "module::item1,item2"
+			// Scoped removal: "module::item1,item2" (using original library names)
 			parts := strings.SplitN(spec, "::", 2)
 			moduleName := parts[0]
 			itemsStr := parts[1]
@@ -378,7 +423,7 @@ func (e *Executor) handleREMOVE(args []interface{}, state *ExecutionState, posit
 				return BoolStatus(false)
 			}
 
-			// Parse comma-separated items
+			// Parse comma-separated items (original library names)
 			items := strings.Split(itemsStr, ",")
 			for _, itemSpec := range items {
 				itemName := strings.TrimSpace(itemSpec)
@@ -418,6 +463,26 @@ func (e *Executor) handleREMOVE(args []interface{}, state *ExecutionState, posit
 	return BoolStatus(true)
 }
 
+// findItemType determines the type of an item by checking registries
+// Returns "command", "macro", "object", or "" if not found
+func (e *Executor) findItemType(state *ExecutionState, localName string) string {
+	// Check metadata first
+	if meta, exists := state.moduleEnv.ItemMetadataModule[localName]; exists && meta != nil {
+		return meta.ItemType
+	}
+	// Fall back to checking registries
+	if handler, exists := state.moduleEnv.CommandRegistryModule[localName]; exists && handler != nil {
+		return "command"
+	}
+	if macro, exists := state.moduleEnv.MacrosModule[localName]; exists && macro != nil {
+		return "macro"
+	}
+	if _, exists := state.moduleEnv.ObjectsModule[localName]; exists {
+		return "object"
+	}
+	return ""
+}
+
 // removeItem removes a single item from the appropriate registry
 // NOTE: Caller must hold state.moduleEnv.mu lock
 func (e *Executor) removeItem(state *ExecutionState, itemName, itemType string) {
@@ -438,8 +503,11 @@ func (e *Executor) removeItem(state *ExecutionState, itemName, itemType string) 
 			delete(state.moduleEnv.ObjectsModule, itemName)
 		}
 	}
-	// Remove from ImportedFrom tracking
-	delete(state.moduleEnv.ImportedFrom, itemName)
+	// Remove metadata tracking
+	if _, exists := state.moduleEnv.ItemMetadataModule[itemName]; exists {
+		state.moduleEnv.EnsureMetadataRegistryCopied()
+		delete(state.moduleEnv.ItemMetadataModule, itemName)
+	}
 }
 
 // handleEXPORT exports items to ModuleExports
