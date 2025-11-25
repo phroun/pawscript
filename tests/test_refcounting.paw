@@ -1,5 +1,6 @@
 #!/usr/bin/env paw
 # Test reference counting - showing refcount > 1 scenarios
+# Note: Assignments set the formal result, so refcounts include +1 for result
 
 echo "=== Reference Counting Test ==="
 echo ""
@@ -7,19 +8,19 @@ echo ""
 echo "Test 1: Single list reference"
 list1: {list a, b, c}
 mem_stats
-echo "Expected: 1 list with refcount=1"
+echo "Expected: 1 list with refcount=2 (list1 + result from assignment)"
 echo ""
 
 echo "Test 2: Multiple variables referencing same list"
 list2: ~list1
 mem_stats
-echo "Expected: 1 list with refcount=2 (list1 and list2 both reference it)"
+echo "Expected: 1 list with refcount=3 (list1 + list2 + result)"
 echo ""
 
-echo "Test 3: Clear one reference"
+echo "Test 3: Clear one reference with nil (also clears result)"
 list1: nil
 mem_stats
-echo "Expected: 1 list with refcount=1 (only list2 references it)"
+echo "Expected: 1 list with refcount=1 (only list2; nil assignment cleared result)"
 echo ""
 
 echo "Test 4: Clear last reference"
@@ -31,25 +32,25 @@ echo ""
 echo "Test 5: Large string with multiple references"
 str1: "This is a very large string that exceeds the 200 character threshold for automatic storage. It contains enough text to trigger the storage mechanism which will convert it into a stored object with a reference marker. This way we avoid copying large strings around and save memory."
 mem_stats
-echo "Expected: 1 string with refcount=1"
+echo "Expected: 1 string with refcount=2 (str1 + result)"
 echo ""
 
 echo "Test 6: Copy string reference to another variable"
 str2: ~str1
 mem_stats
-echo "Expected: 1 string with refcount=2 (str1 and str2 both reference it)"
+echo "Expected: 1 string with refcount=3 (str1 + str2 + result)"
 echo ""
 
 echo "Test 7: Copy to third variable"
 str3: ~str2
 mem_stats
-echo "Expected: 1 string with refcount=3 (str1, str2, str3 all reference it)"
+echo "Expected: 1 string with refcount=4 (str1 + str2 + str3 + result)"
 echo ""
 
 echo "Test 8: Clear middle reference"
 str2: nil
 mem_stats
-echo "Expected: 1 string with refcount=2 (str1 and str3 still reference it)"
+echo "Expected: 1 string with refcount=2 (str1 + str3; result now holds nil)"
 echo ""
 
 echo "Test 9: Clear remaining references"
@@ -62,14 +63,14 @@ echo ""
 echo "Test 10: Large block with multiple references"
 block1: (echo "This is a very large code block that exceeds the 500 character threshold"; echo "It contains many commands"; echo "Each command adds to the total size"; echo "When the total exceeds 500 characters"; echo "The block is automatically stored as an object"; echo "This saves memory by avoiding copying"; echo "The block is accessed by reference"; echo "Only when executed is the actual code retrieved"; echo "This is especially useful for large macro definitions"; echo "Or complex code blocks that are passed around"; echo "But not immediately executed")
 mem_stats
-echo "Expected: 1 block with refcount=1"
+echo "Expected: 1 block with refcount=2 (block1 + result)"
 echo ""
 
 echo "Test 11: Share block across variables"
 block2: ~block1
 block3: ~block1
 mem_stats
-echo "Expected: 1 block with refcount=3 (block1, block2, block3)"
+echo "Expected: 1 block with refcount=4 (block1 + block2 + block3 + result)"
 echo ""
 
 echo "Test 12: Clear all block references"
@@ -85,7 +86,7 @@ inner: {list x, y, z}
 outer1: {list ~inner, a}
 outer2: {list ~inner, b}
 mem_stats
-echo "Expected: 3 lists - inner (refcount=3), outer1 (refcount=1), outer2 (refcount=1)"
+echo "Expected: 3 lists - inner (refcount=3), outer1 (refcount=1), outer2 (refcount=2 with result)"
 echo ""
 
 echo "Test 14: Clear outer lists but keep inner"
@@ -108,16 +109,52 @@ mem_stats
 echo "Expected: 1 list with refcount=2 (mylist variable + result)"
 echo ""
 
-echo "Test 17: Clear variable, result still holds reference"
+echo "Test 17: Clear variable with nil (clears both variable and result)"
 mylist: nil
 mem_stats
-echo "Expected: 1 list with refcount=1 (only result)"
+echo "Expected: 0 lists (nil assignment also sets result to nil)"
 echo ""
 
-echo "Test 18: Clear result"
+echo "Test 18: Demonstrate undefined preserves result"
+mylist2: {list preserved}
+set_result ~mylist2
+mem_stats
+echo "Expected: 1 list with refcount=2 (mylist2 + result)"
+echo ""
+
+echo "Test 19: Delete variable with undefined (preserves result)"
+mylist2: undefined
+mem_stats
+echo "Expected: 1 list with refcount=1 (only result; undefined leaves result intact)"
+echo ""
+
+echo "Test 20: Clear result after undefined"
 set_result nil
 mem_stats
+echo "Expected: 0 lists (result cleared, list freed)"
+echo ""
+
+echo "Test 21: Compare nil vs undefined - nil clears result"
+testvar: {list compare_nil}
+set_result ~testvar
+echo "Before nil assignment:"
+mem_stats
+testvar: nil
+echo "After nil assignment (result also cleared):"
+mem_stats
 echo "Expected: 0 lists"
+echo ""
+
+echo "Test 22: Compare nil vs undefined - undefined preserves result"
+testvar2: {list compare_undefined}
+set_result ~testvar2
+echo "Before undefined assignment:"
+mem_stats
+testvar2: undefined
+echo "After undefined assignment (result preserved):"
+mem_stats
+echo "Expected: 1 list with refcount=1 (only result)"
+set_result nil
 echo ""
 
 echo "=== Test Complete ==="
