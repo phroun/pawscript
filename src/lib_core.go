@@ -700,39 +700,27 @@ func (ps *PawScript) RegisterCoreLib() {
 			}
 		}
 
-		// CommandRegistryModule
-		output.WriteString(fmt.Sprintf("\n--- Commands (%d) ---\n", len(env.CommandRegistryModule)))
-		if len(env.CommandRegistryModule) == 0 {
-			output.WriteString("  (none)\n")
-		} else {
-			cmdNames := make([]string, 0, len(env.CommandRegistryModule))
-			for name, handler := range env.CommandRegistryModule {
-				if handler != nil { // Skip REMOVEd commands
-					cmdNames = append(cmdNames, name)
-				}
+		// CommandRegistryModule - count only non-nil (non-REMOVEd) commands
+		cmdNames := make([]string, 0, len(env.CommandRegistryModule))
+		for name, handler := range env.CommandRegistryModule {
+			if handler != nil { // Skip REMOVEd commands
+				cmdNames = append(cmdNames, name)
 			}
-			sort.Strings(cmdNames)
-			writeWrappedList(&output, cmdNames, 2)
 		}
+		sort.Strings(cmdNames)
+		output.WriteString(fmt.Sprintf("\n--- Commands (%d) ---\n", len(cmdNames)))
+		writeWrappedList(&output, cmdNames, 2)
 
-		// MacrosModule
-		output.WriteString(fmt.Sprintf("\n--- Macros (%d) ---\n", len(env.MacrosModule)))
-		if len(env.MacrosModule) == 0 {
-			output.WriteString("  (none)\n")
-		} else {
-			macroNames := make([]string, 0, len(env.MacrosModule))
-			for name, macro := range env.MacrosModule {
-				if macro != nil { // Skip REMOVEd macros
-					macroNames = append(macroNames, name)
-				}
-			}
-			sort.Strings(macroNames)
-			if len(macroNames) == 0 {
-				output.WriteString("  (none)\n")
-			} else {
-				writeWrappedList(&output, macroNames, 2)
+		// MacrosModule - count only non-nil (non-REMOVEd) macros
+		macroNames := make([]string, 0, len(env.MacrosModule))
+		for name, macro := range env.MacrosModule {
+			if macro != nil { // Skip REMOVEd macros
+				macroNames = append(macroNames, name)
 			}
 		}
+		sort.Strings(macroNames)
+		output.WriteString(fmt.Sprintf("\n--- Macros (%d) ---\n", len(macroNames)))
+		writeWrappedList(&output, macroNames, 2)
 
 		// ObjectsModule
 		output.WriteString(fmt.Sprintf("\n--- Objects (%d) ---\n", len(env.ObjectsModule)))

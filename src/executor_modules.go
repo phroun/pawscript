@@ -367,25 +367,26 @@ func (e *Executor) handleREMOVE(args []interface{}, state *ExecutionState, posit
 		// Try to remove from each registry
 		removedFrom := ""
 
-		// Check commands (lock already held by caller)
-		if state.moduleEnv.CommandRegistryModule != nil {
-			if _, exists := state.moduleEnv.CommandRegistryModule[itemName]; exists {
-				delete(state.moduleEnv.CommandRegistryModule, itemName)
-				removedFrom = "commands"
-			}
+		// Check commands - must COW before modifying
+		if _, exists := state.moduleEnv.CommandRegistryModule[itemName]; exists {
+			state.moduleEnv.EnsureCommandRegistryCopied()
+			state.moduleEnv.CommandRegistryModule[itemName] = nil // nil marks as REMOVEd
+			removedFrom = "commands"
 		}
 
-		// Check macros (lock already held by caller)
-		if removedFrom == "" && state.moduleEnv.MacrosModule != nil {
+		// Check macros - must COW before modifying
+		if removedFrom == "" {
 			if _, exists := state.moduleEnv.MacrosModule[itemName]; exists {
-				delete(state.moduleEnv.MacrosModule, itemName)
+				state.moduleEnv.EnsureMacroRegistryCopied()
+				state.moduleEnv.MacrosModule[itemName] = nil // nil marks as REMOVEd
 				removedFrom = "macros"
 			}
 		}
 
-		// Check objects (lock already held by caller)
-		if removedFrom == "" && state.moduleEnv.ObjectsModule != nil {
+		// Check objects - must COW before modifying
+		if removedFrom == "" {
 			if _, exists := state.moduleEnv.ObjectsModule[itemName]; exists {
+				state.moduleEnv.EnsureObjectRegistryCopied()
 				delete(state.moduleEnv.ObjectsModule, itemName)
 				removedFrom = "objects"
 			}
