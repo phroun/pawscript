@@ -145,8 +145,8 @@ func (ps *PawScript) RegisterStandardLibraryWithIO(scriptArgs []string, ioConfig
 	ps.RegisterChannelsLib()         // channels::
 	ps.RegisterFibersLib()           // fibers::
 
-	// Populate module system with stdlib commands organized into modules
-	ps.rootModuleEnv.PopulateStdlibModules()
+	// Copy commands from LibraryInherited to CommandRegistryInherited for direct access
+	ps.rootModuleEnv.PopulateDefaultImports()
 
 	// Populate IO module with native stdin/stdout/stderr/stdio channels
 	// Uses custom channels from ioConfig if provided

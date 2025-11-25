@@ -344,16 +344,21 @@ func (env *ModuleEnvironment) CopyObjectRegistry() {
 }
 
 // GetCommand looks up a command from the module's command registry
-// Only checks Module (which starts pointing to Inherited and diverges on COW)
+// Checks CommandRegistryModule first, falls back to CommandRegistryInherited
 func (env *ModuleEnvironment) GetCommand(name string) (Handler, bool) {
 	env.mu.RLock()
 	defer env.mu.RUnlock()
 
-	// Module either points to Inherited or is a COW copy - just check Module
+	// Check Module first (may be nil, meaning "use inherited")
 	if env.CommandRegistryModule != nil {
 		if handler, ok := env.CommandRegistryModule[name]; ok {
 			return handler, true
 		}
+	}
+
+	// Fall back to Inherited
+	if handler, ok := env.CommandRegistryInherited[name]; ok {
+		return handler, true
 	}
 
 	return nil, false
@@ -400,120 +405,30 @@ func (env *ModuleEnvironment) RegisterCommandToModule(name string, handler Handl
 	env.CommandRegistryModule[name] = handler
 }
 
-// PopulateStdlibModules populates LibraryInherited with stdlib commands organized into modules
-// This should be called after all commands are registered in CommandRegistryInherited
-func (env *ModuleEnvironment) PopulateStdlibModules() {
+// PopulateDefaultImports copies all commands and objects from LibraryInherited
+// into CommandRegistryInherited and ObjectsInherited, making them directly callable.
+// This should be called after all commands are registered via RegisterCommandInModule.
+func (env *ModuleEnvironment) PopulateDefaultImports() {
 	env.mu.Lock()
 	defer env.mu.Unlock()
 
-	// List of commands that go into the "core" module
-	coreCommands := map[string]bool{
-		"true":             true,
-		"false":            true,
-		"set_result":       true,
-		"get_result":       true,
-		"ret":              true,
-		"get_inferred_type": true,
-		"get_type":         true,
-		"list":             true,
-		"len":              true,
-		"keys":             true,
-		"get_val":          true,
-	}
-
-	// List of commands that go into the "macros" module
-	macrosCommands := map[string]bool{
-		"macro":        true,
-		"call":         true,
-		"macro_list":   true,
-		"macro_delete": true,
-		"macro_clear":  true,
-		"command_ref":  true,
-	}
-
-	// List of commands that go into the "flow" module
-	flowCommands := map[string]bool{
-		"if":    true,
-		"while": true,
-	}
-
-	// List of commands that go into the "debug" module
-	debugCommands := map[string]bool{
-		"mem_stats": true,
-		"env_dump":  true,
-		"log_print": true,
-	}
-
-	// List of commands that go into the "sys" module
-	sysCommands := map[string]bool{
-		"exec":      true,
-		"microtime": true,
-		"datetime":  true,
-	}
-
-	// List of commands that go into the "io" module
-	ioCommands := map[string]bool{
-		"echo":   true,
-		"print":  true,
-		"write":  true,
-		"read":   true,
-		"rune":   true,
-		"ord":    true,
-		"clear":  true,
-		"cursor": true,
-		"color":  true,
-	}
-
-	// Create module sections
-	coreModule := make(ModuleSection)
-	macrosModule := make(ModuleSection)
-	flowModule := make(ModuleSection)
-	debugModule := make(ModuleSection)
-	sysModule := make(ModuleSection)
-	ioModule := make(ModuleSection)
-	stdlibModule := make(ModuleSection) // catch-all for remaining commands
-
-	// Distribute commands from CommandRegistryInherited into modules
-	for cmdName, handler := range env.CommandRegistryInherited {
-		item := &ModuleItem{
-			Type:  "command",
-			Value: handler,
-		}
-		if coreCommands[cmdName] {
-			coreModule[cmdName] = item
-		} else if macrosCommands[cmdName] {
-			macrosModule[cmdName] = item
-		} else if flowCommands[cmdName] {
-			flowModule[cmdName] = item
-		} else if debugCommands[cmdName] {
-			debugModule[cmdName] = item
-		} else if sysCommands[cmdName] {
-			sysModule[cmdName] = item
-		} else if ioCommands[cmdName] {
-			ioModule[cmdName] = item
-		} else {
-			stdlibModule[cmdName] = item
-		}
-	}
-
-	// Add modules to LibraryInherited
-	env.LibraryInherited["core"] = coreModule
-	env.LibraryInherited["macros"] = macrosModule
-	env.LibraryInherited["flow"] = flowModule
-	env.LibraryInherited["debug"] = debugModule
-	env.LibraryInherited["sys"] = sysModule
-	env.LibraryInherited["io"] = ioModule
-	env.LibraryInherited["stdlib"] = stdlibModule
-
-	// Initially, LibraryRestricted should allow all modules
-	env.LibraryRestricted = make(Library)
-	for modName, section := range env.LibraryInherited {
-		newSection := make(ModuleSection)
+	// Iterate through all modules in LibraryInherited
+	for _, section := range env.LibraryInherited {
 		for itemName, item := range section {
-			newSection[itemName] = item
+			switch item.Type {
+			case "command":
+				if handler, ok := item.Value.(Handler); ok {
+					env.CommandRegistryInherited[itemName] = handler
+				}
+			case "object":
+				env.ObjectsInherited[itemName] = item.Value
+			// Note: macros are not auto-imported; they must be defined at runtime
+			}
 		}
-		env.LibraryRestricted[modName] = newSection
 	}
+
+	// LibraryRestricted already points to LibraryInherited (set in NewModuleEnvironment)
+	// No need to copy - they share the same reference until LIBRARY command uses COW
 }
 
 // MergeExportsInto merges this environment's ModuleExports into another environment's LibraryInherited

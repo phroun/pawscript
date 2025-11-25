@@ -89,11 +89,45 @@ func (ps *PawScript) Configure(config *Config) {
 	ps.logger.SetEnabled(config.Debug)
 }
 
-// RegisterCommand registers a command handler
+// RegisterCommand registers a command handler (legacy - adds to CommandRegistryInherited directly)
 func (ps *PawScript) RegisterCommand(name string, handler Handler) {
 	ps.executor.RegisterCommand(name, handler)
 	// Also register to root module environment
 	ps.rootModuleEnv.CommandRegistryInherited[name] = handler
+}
+
+// RegisterCommandInModule registers a command handler in a specific module within LibraryInherited
+func (ps *PawScript) RegisterCommandInModule(moduleName, cmdName string, handler Handler) {
+	ps.rootModuleEnv.mu.Lock()
+	defer ps.rootModuleEnv.mu.Unlock()
+
+	// Ensure module section exists
+	if ps.rootModuleEnv.LibraryInherited[moduleName] == nil {
+		ps.rootModuleEnv.LibraryInherited[moduleName] = make(ModuleSection)
+	}
+
+	// Add command to the module
+	ps.rootModuleEnv.LibraryInherited[moduleName][cmdName] = &ModuleItem{
+		Type:  "command",
+		Value: handler,
+	}
+}
+
+// RegisterObjectInModule registers an object (like #stdin) in a specific module within LibraryInherited
+func (ps *PawScript) RegisterObjectInModule(moduleName, objName string, value interface{}) {
+	ps.rootModuleEnv.mu.Lock()
+	defer ps.rootModuleEnv.mu.Unlock()
+
+	// Ensure module section exists
+	if ps.rootModuleEnv.LibraryInherited[moduleName] == nil {
+		ps.rootModuleEnv.LibraryInherited[moduleName] = make(ModuleSection)
+	}
+
+	// Add object to the module
+	ps.rootModuleEnv.LibraryInherited[moduleName][objName] = &ModuleItem{
+		Type:  "object",
+		Value: value,
+	}
 }
 
 // RegisterCommands registers multiple command handlers

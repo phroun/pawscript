@@ -19,17 +19,17 @@ func (ps *PawScript) RegisterCoreLib() {
 	// ==================== core:: module ====================
 
 	// true - sets success state
-	ps.RegisterCommand("true", func(ctx *Context) Result {
+	ps.RegisterCommandInModule("core", "true", func(ctx *Context) Result {
 		return BoolStatus(true)
 	})
 
 	// false - sets error state
-	ps.RegisterCommand("false", func(ctx *Context) Result {
+	ps.RegisterCommandInModule("core", "false", func(ctx *Context) Result {
 		return BoolStatus(false)
 	})
 
 	// set_result - explicitly sets the result value
-	ps.RegisterCommand("set_result", func(ctx *Context) Result {
+	ps.RegisterCommandInModule("core", "set_result", func(ctx *Context) Result {
 		if len(ctx.Args) > 0 {
 			ctx.SetResult(ctx.Args[0])
 		} else {
@@ -39,7 +39,7 @@ func (ps *PawScript) RegisterCoreLib() {
 	})
 
 	// get_result - gets the current result value and keeps it as the result
-	ps.RegisterCommand("get_result", func(ctx *Context) Result {
+	ps.RegisterCommandInModule("core", "get_result", func(ctx *Context) Result {
 		if ctx.HasResult() {
 			return BoolStatus(true)
 		}
@@ -47,7 +47,7 @@ func (ps *PawScript) RegisterCoreLib() {
 	})
 
 	// ret - early return from block
-	ps.RegisterCommand("ret", func(ctx *Context) Result {
+	ps.RegisterCommandInModule("core", "ret", func(ctx *Context) Result {
 		switch len(ctx.Args) {
 		case 0:
 			return EarlyReturn{
@@ -68,7 +68,7 @@ func (ps *PawScript) RegisterCoreLib() {
 	})
 
 	// get_inferred_type - returns the type of a value
-	ps.RegisterCommand("get_inferred_type", func(ctx *Context) Result {
+	ps.RegisterCommandInModule("core", "get_inferred_type", func(ctx *Context) Result {
 		if len(ctx.Args) < 1 {
 			ctx.SetResult("undefined")
 			return BoolStatus(true)
@@ -80,7 +80,7 @@ func (ps *PawScript) RegisterCoreLib() {
 	})
 
 	// get_type - returns the type of a variable without fetching its value
-	ps.RegisterCommand("get_type", func(ctx *Context) Result {
+	ps.RegisterCommandInModule("core", "get_type", func(ctx *Context) Result {
 		if len(ctx.Args) < 1 {
 			ctx.LogError(CatCommand, "Usage: get_type <variable_name>")
 			ctx.SetResult("undefined")
@@ -101,13 +101,13 @@ func (ps *PawScript) RegisterCoreLib() {
 	})
 
 	// list - creates an immutable list from arguments
-	ps.RegisterCommand("list", func(ctx *Context) Result {
+	ps.RegisterCommandInModule("core", "list", func(ctx *Context) Result {
 		setListResult(ctx, NewStoredListWithRefs(ctx.Args, ctx.NamedArgs, ctx.executor))
 		return BoolStatus(true)
 	})
 
 	// len - returns the length of a list, string, or channel
-	ps.RegisterCommand("len", func(ctx *Context) Result {
+	ps.RegisterCommandInModule("core", "len", func(ctx *Context) Result {
 		if len(ctx.Args) < 1 {
 			ctx.LogError(CatCommand, "Usage: len <list|string|channel>")
 			ctx.SetResult(0)
@@ -199,7 +199,7 @@ func (ps *PawScript) RegisterCoreLib() {
 	})
 
 	// keys - returns a list of all keys from a list's named arguments
-	ps.RegisterCommand("keys", func(ctx *Context) Result {
+	ps.RegisterCommandInModule("core", "keys", func(ctx *Context) Result {
 		if len(ctx.Args) < 1 {
 			ctx.LogError(CatCommand, "Usage: keys <list>")
 			ctx.SetResult(nil)
@@ -237,7 +237,7 @@ func (ps *PawScript) RegisterCoreLib() {
 	})
 
 	// get_val - returns the value for a key from a list's named arguments
-	ps.RegisterCommand("get_val", func(ctx *Context) Result {
+	ps.RegisterCommandInModule("core", "get_val", func(ctx *Context) Result {
 		if len(ctx.Args) < 2 {
 			ctx.LogError(CatCommand, "Usage: get_val <list>, <key>")
 			ctx.SetResult(nil)
@@ -287,7 +287,7 @@ func (ps *PawScript) RegisterCoreLib() {
 	// ==================== macros:: module ====================
 
 	// macro - define a macro
-	ps.RegisterCommand("macro", func(ctx *Context) Result {
+	ps.RegisterCommandInModule("macros", "macro", func(ctx *Context) Result {
 		ps.logger.Debug("macro command called with %d args", len(ctx.Args))
 
 		// Capture the current module environment for lexical scoping
@@ -329,7 +329,7 @@ func (ps *PawScript) RegisterCoreLib() {
 	})
 
 	// call - call a macro or command
-	ps.RegisterCommand("call", func(ctx *Context) Result {
+	ps.RegisterCommandInModule("macros", "call", func(ctx *Context) Result {
 		if len(ctx.Args) < 1 {
 			ps.logger.Error("Usage: call <macro_name_or_object>, [args...]")
 			return BoolStatus(false)
@@ -462,14 +462,14 @@ func (ps *PawScript) RegisterCoreLib() {
 	})
 
 	// macro_list - list all defined macros
-	ps.RegisterCommand("macro_list", func(ctx *Context) Result {
+	ps.RegisterCommandInModule("macros", "macro_list", func(ctx *Context) Result {
 		macros := ps.macroSystem.ListMacros()
 		ctx.SetResult(fmt.Sprintf("%v", macros))
 		return BoolStatus(true)
 	})
 
 	// macro_delete - delete a macro by name
-	ps.RegisterCommand("macro_delete", func(ctx *Context) Result {
+	ps.RegisterCommandInModule("macros", "macro_delete", func(ctx *Context) Result {
 		if len(ctx.Args) < 1 {
 			ctx.LogError(CatCommand, "Usage: macro_delete <macro_name>")
 			return BoolStatus(false)
@@ -486,14 +486,14 @@ func (ps *PawScript) RegisterCoreLib() {
 	})
 
 	// macro_clear - clear all macros
-	ps.RegisterCommand("macro_clear", func(ctx *Context) Result {
+	ps.RegisterCommandInModule("macros", "macro_clear", func(ctx *Context) Result {
 		count := ps.macroSystem.ClearMacros()
 		ctx.SetResult(fmt.Sprintf("Cleared %d PawScript macros", count))
 		return BoolStatus(true)
 	})
 
 	// command_ref - get a reference to a built-in or registered command
-	ps.RegisterCommand("command_ref", func(ctx *Context) Result {
+	ps.RegisterCommandInModule("macros", "command_ref", func(ctx *Context) Result {
 		if len(ctx.Args) < 1 {
 			ps.logger.Error("Usage: command_ref <command_name>")
 			return BoolStatus(false)
@@ -502,7 +502,7 @@ func (ps *PawScript) RegisterCoreLib() {
 		commandName := fmt.Sprintf("%v", ctx.Args[0])
 		ps.logger.Debug("Getting command reference for: %s", commandName)
 
-		handler, exists := ctx.executor.GetCommand(commandName)
+		handler, exists := ctx.state.moduleEnv.GetCommand(commandName)
 		if !exists {
 			ps.logger.Error("Command \"%s\" not found", commandName)
 			return BoolStatus(false)
@@ -520,7 +520,7 @@ func (ps *PawScript) RegisterCoreLib() {
 	// ==================== flow:: module ====================
 
 	// while - loop while condition is true
-	ps.RegisterCommand("while", func(ctx *Context) Result {
+	ps.RegisterCommandInModule("flow", "while", func(ctx *Context) Result {
 		if len(ctx.Args) < 2 {
 			ctx.LogError(CatCommand, "Usage: while (condition), (body)")
 			return BoolStatus(false)
@@ -608,7 +608,7 @@ func (ps *PawScript) RegisterCoreLib() {
 	// ==================== debug:: module ====================
 
 	// mem_stats - debug command to show stored objects
-	ps.RegisterCommand("mem_stats", func(ctx *Context) Result {
+	ps.RegisterCommandInModule("debug", "mem_stats", func(ctx *Context) Result {
 		type objectInfo struct {
 			ID       int
 			Type     string
@@ -661,7 +661,7 @@ func (ps *PawScript) RegisterCoreLib() {
 	})
 
 	// env_dump - debug command to show module environment details
-	ps.RegisterCommand("env_dump", func(ctx *Context) Result {
+	ps.RegisterCommandInModule("debug", "env_dump", func(ctx *Context) Result {
 		outCtx := NewOutputContext(ctx.state, ctx.executor)
 		var output strings.Builder
 
