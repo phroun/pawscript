@@ -333,11 +333,12 @@ func (e *Executor) importItem(state *ExecutionState, moduleName, originalName, l
 }
 
 // handleREMOVE removes items from module registries
-// Usage: REMOVE item1 item2 item3...
-// Usage: REMOVE ALL - resets MacrosModule, CommandRegistryModule, and ObjectsModule to clean slate
+// Usage: REMOVE ALL - resets all registries to clean slate
+// Usage: REMOVE modulename - removes all items from that module
+// Usage: REMOVE "module::item1,item2" - removes specific items by scoped name
 func (e *Executor) handleREMOVE(args []interface{}, state *ExecutionState, position *SourcePosition) Result {
 	if len(args) == 0 {
-		e.logger.CommandError(CatSystem, "REMOVE", "Expected at least 1 argument (item names or ALL)", position)
+		e.logger.CommandError(CatSystem, "REMOVE", "Expected at least 1 argument (ALL, module name, or module::items)", position)
 		return BoolStatus(false)
 	}
 
@@ -362,46 +363,83 @@ func (e *Executor) handleREMOVE(args []interface{}, state *ExecutionState, posit
 	}
 
 	for _, arg := range args {
-		itemName := fmt.Sprintf("%v", arg)
+		spec := fmt.Sprintf("%v", arg)
 
-		// Try to remove from each registry
-		removedFrom := ""
+		if strings.Contains(spec, "::") {
+			// Scoped removal: "module::item1,item2"
+			parts := strings.SplitN(spec, "::", 2)
+			moduleName := parts[0]
+			itemsStr := parts[1]
 
-		// Check commands - must COW before modifying
-		if _, exists := state.moduleEnv.CommandRegistryModule[itemName]; exists {
-			state.moduleEnv.EnsureCommandRegistryCopied()
-			state.moduleEnv.CommandRegistryModule[itemName] = nil // nil marks as REMOVEd
-			removedFrom = "commands"
-		}
-
-		// Check macros - must COW before modifying
-		if removedFrom == "" {
-			if _, exists := state.moduleEnv.MacrosModule[itemName]; exists {
-				state.moduleEnv.EnsureMacroRegistryCopied()
-				state.moduleEnv.MacrosModule[itemName] = nil // nil marks as REMOVEd
-				removedFrom = "macros"
+			// Verify module exists in LibraryRestricted
+			section, exists := state.moduleEnv.LibraryRestricted[moduleName]
+			if !exists {
+				e.logger.CommandError(CatSystem, "REMOVE", fmt.Sprintf("Module not found: %s", moduleName), position)
+				return BoolStatus(false)
 			}
-		}
 
-		// Check objects - must COW before modifying
-		if removedFrom == "" {
-			if _, exists := state.moduleEnv.ObjectsModule[itemName]; exists {
-				state.moduleEnv.EnsureObjectRegistryCopied()
-				delete(state.moduleEnv.ObjectsModule, itemName)
-				removedFrom = "objects"
+			// Parse comma-separated items
+			items := strings.Split(itemsStr, ",")
+			for _, itemSpec := range items {
+				itemName := strings.TrimSpace(itemSpec)
+				if itemName == "" {
+					continue
+				}
+
+				// Verify item exists in the module
+				item, exists := section[itemName]
+				if !exists {
+					e.logger.CommandError(CatSystem, "REMOVE", fmt.Sprintf("Item not found: %s::%s", moduleName, itemName), position)
+					return BoolStatus(false)
+				}
+
+				e.removeItem(state, itemName, item.Type)
+				e.logger.Debug("REMOVE: Removed %s::%s", moduleName, itemName)
 			}
-		}
-
-		// Remove from ImportedFrom
-		if removedFrom != "" {
-			delete(state.moduleEnv.ImportedFrom, itemName)
-			e.logger.Debug("REMOVE: Removed \"%s\" from %s", itemName, removedFrom)
 		} else {
-			e.logger.Debug("REMOVE: Item \"%s\" not found (no-op)", itemName)
+			// Module removal: remove all items from the module
+			moduleName := spec
+
+			// Find module in LibraryRestricted
+			section, exists := state.moduleEnv.LibraryRestricted[moduleName]
+			if !exists {
+				e.logger.CommandError(CatSystem, "REMOVE", fmt.Sprintf("Module not found: %s", moduleName), position)
+				return BoolStatus(false)
+			}
+
+			// Remove all items from this module
+			for itemName, item := range section {
+				e.removeItem(state, itemName, item.Type)
+			}
+			e.logger.Debug("REMOVE: Removed all items from module \"%s\"", moduleName)
 		}
 	}
 
 	return BoolStatus(true)
+}
+
+// removeItem removes a single item from the appropriate registry
+// NOTE: Caller must hold state.moduleEnv.mu lock
+func (e *Executor) removeItem(state *ExecutionState, itemName, itemType string) {
+	switch itemType {
+	case "command":
+		if _, exists := state.moduleEnv.CommandRegistryModule[itemName]; exists {
+			state.moduleEnv.EnsureCommandRegistryCopied()
+			state.moduleEnv.CommandRegistryModule[itemName] = nil // nil marks as REMOVEd
+		}
+	case "macro":
+		if _, exists := state.moduleEnv.MacrosModule[itemName]; exists {
+			state.moduleEnv.EnsureMacroRegistryCopied()
+			state.moduleEnv.MacrosModule[itemName] = nil // nil marks as REMOVEd
+		}
+	case "object":
+		if _, exists := state.moduleEnv.ObjectsModule[itemName]; exists {
+			state.moduleEnv.EnsureObjectRegistryCopied()
+			delete(state.moduleEnv.ObjectsModule, itemName)
+		}
+	}
+	// Remove from ImportedFrom tracking
+	delete(state.moduleEnv.ImportedFrom, itemName)
 }
 
 // handleEXPORT exports items to ModuleExports
