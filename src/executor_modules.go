@@ -197,87 +197,91 @@ func (e *Executor) handleLIBRARY(args []interface{}, state *ExecutionState, posi
 
 // handleIMPORT imports items from LibraryRestricted into module registries
 // Usage: IMPORT "module" or IMPORT "module::item1,item2" or IMPORT "module::orig=alias"
+// Multiple arguments can be provided: IMPORT "module1" "module2::item" "module3"
 func (e *Executor) handleIMPORT(args []interface{}, state *ExecutionState, position *SourcePosition) Result {
-	if len(args) != 1 {
-		e.logger.CommandError(CatSystem, "IMPORT", "Expected 1 argument (module spec)", position)
+	if len(args) == 0 {
+		e.logger.CommandError(CatSystem, "IMPORT", "Expected at least 1 argument (module spec)", position)
 		return BoolStatus(false)
 	}
-
-	spec := fmt.Sprintf("%v", args[0])
 
 	state.moduleEnv.mu.Lock()
 	defer state.moduleEnv.mu.Unlock()
 
-	var moduleName string
-	var itemsToImport []string
-	var importAll bool
+	// Process each argument as a separate import spec
+	for _, arg := range args {
+		spec := fmt.Sprintf("%v", arg)
 
-	if strings.Contains(spec, "::") {
-		// Specific items: "module::item1,item2" or "module::orig=alias"
-		parts := strings.SplitN(spec, "::", 2)
-		moduleName = parts[0]
-		itemsStr := parts[1]
-		itemsToImport = strings.Split(itemsStr, ",")
-		importAll = false
-	} else {
-		// Import all items from module
-		moduleName = spec
-		importAll = true
-	}
+		var moduleName string
+		var itemsToImport []string
+		var importAll bool
 
-	// Find module in LibraryRestricted
-	section, exists := state.moduleEnv.LibraryRestricted[moduleName]
-	if !exists {
-		e.logger.CommandError(CatSystem, "IMPORT", fmt.Sprintf("Module not found in library: %s", moduleName), position)
-		return BoolStatus(false)
-	}
-
-	if importAll {
-		// Import all items - collect errors for collisions
-		var collisions []string
-		for itemName, item := range section {
-			// moduleName is used for both ImportedFromModule and OriginalModuleName
-			// (they may differ if MODULE command renamed the module)
-			if errMsg := e.importItem(state, moduleName, moduleName, itemName, itemName, item, false); errMsg != "" {
-				collisions = append(collisions, errMsg)
-			}
+		if strings.Contains(spec, "::") {
+			// Specific items: "module::item1,item2" or "module::orig=alias"
+			parts := strings.SplitN(spec, "::", 2)
+			moduleName = parts[0]
+			itemsStr := parts[1]
+			itemsToImport = strings.Split(itemsStr, ",")
+			importAll = false
+		} else {
+			// Import all items from module
+			moduleName = spec
+			importAll = true
 		}
-		if len(collisions) > 0 {
-			e.logger.CommandError(CatSystem, "IMPORT", fmt.Sprintf("Name collisions: %s", strings.Join(collisions, "; ")), position)
+
+		// Find module in LibraryRestricted
+		section, exists := state.moduleEnv.LibraryRestricted[moduleName]
+		if !exists {
+			e.logger.CommandError(CatSystem, "IMPORT", fmt.Sprintf("Module not found in library: %s", moduleName), position)
 			return BoolStatus(false)
 		}
-		e.logger.Debug("IMPORT: Imported all items from module \"%s\"", moduleName)
-	} else {
-		// Import specific items
-		for _, itemSpec := range itemsToImport {
-			itemSpec = strings.TrimSpace(itemSpec)
 
-			var originalName, localName string
-			var hasRename bool
-			if strings.Contains(itemSpec, "=") {
-				// Rename syntax: "newname=original" (local=original)
-				renameParts := strings.SplitN(itemSpec, "=", 2)
-				localName = renameParts[0]    // New local name
-				originalName = renameParts[1] // Original name from library
-				hasRename = true
-			} else {
-				// No rename
-				originalName = itemSpec
-				localName = itemSpec
-				hasRename = false
+		if importAll {
+			// Import all items - collect errors for collisions
+			var collisions []string
+			for itemName, item := range section {
+				// moduleName is used for both ImportedFromModule and OriginalModuleName
+				// (they may differ if MODULE command renamed the module)
+				if errMsg := e.importItem(state, moduleName, moduleName, itemName, itemName, item, false); errMsg != "" {
+					collisions = append(collisions, errMsg)
+				}
 			}
-
-			item, exists := section[originalName]
-			if !exists {
-				e.logger.CommandError(CatSystem, "IMPORT", fmt.Sprintf("Item not found: %s::%s", moduleName, originalName), position)
+			if len(collisions) > 0 {
+				e.logger.CommandError(CatSystem, "IMPORT", fmt.Sprintf("Name collisions: %s", strings.Join(collisions, "; ")), position)
 				return BoolStatus(false)
 			}
+			e.logger.Debug("IMPORT: Imported all items from module \"%s\"", moduleName)
+		} else {
+			// Import specific items
+			for _, itemSpec := range itemsToImport {
+				itemSpec = strings.TrimSpace(itemSpec)
 
-			if errMsg := e.importItem(state, moduleName, moduleName, originalName, localName, item, hasRename); errMsg != "" {
-				e.logger.CommandError(CatSystem, "IMPORT", errMsg, position)
-				return BoolStatus(false)
+				var originalName, localName string
+				var hasRename bool
+				if strings.Contains(itemSpec, "=") {
+					// Rename syntax: "newname=original" (local=original)
+					renameParts := strings.SplitN(itemSpec, "=", 2)
+					localName = renameParts[0]    // New local name
+					originalName = renameParts[1] // Original name from library
+					hasRename = true
+				} else {
+					// No rename
+					originalName = itemSpec
+					localName = itemSpec
+					hasRename = false
+				}
+
+				item, exists := section[originalName]
+				if !exists {
+					e.logger.CommandError(CatSystem, "IMPORT", fmt.Sprintf("Item not found: %s::%s", moduleName, originalName), position)
+					return BoolStatus(false)
+				}
+
+				if errMsg := e.importItem(state, moduleName, moduleName, originalName, localName, item, hasRename); errMsg != "" {
+					e.logger.CommandError(CatSystem, "IMPORT", errMsg, position)
+					return BoolStatus(false)
+				}
+				e.logger.Debug("IMPORT: Imported %s::%s as \"%s\"", moduleName, originalName, localName)
 			}
-			e.logger.Debug("IMPORT: Imported %s::%s as \"%s\"", moduleName, originalName, localName)
 		}
 	}
 
@@ -350,6 +354,8 @@ func (e *Executor) importItem(state *ExecutionState, moduleName, originalModuleN
 // Usage: REMOVE modulename - removes all items from that module
 // Usage: REMOVE "module::item1,item2" - removes specific items by scoped name (original names)
 // Usage: REMOVE MY "localname1,localname2" - removes items by their local (possibly renamed) names
+// Multiple arguments can be provided, each processed independently:
+// Usage: REMOVE "module1" MY "item1,item2" "module2::item3"
 func (e *Executor) handleREMOVE(args []interface{}, state *ExecutionState, position *SourcePosition) Result {
 	if len(args) == 0 {
 		e.logger.CommandError(CatSystem, "REMOVE", "Expected at least 1 argument (ALL, MY, module name, or module::items)", position)
@@ -376,19 +382,22 @@ func (e *Executor) handleREMOVE(args []interface{}, state *ExecutionState, posit
 		}
 	}
 
-	// Check for REMOVE MY "localname1,localname2" - now parsed as "<MY>localname1,localname2"
-	// The parser concatenates MY + "string" into "<MY>string"
-	for i, arg := range args {
+	// Process each argument independently
+	for _, arg := range args {
 		var argStr string
 		switch v := arg.(type) {
 		case QuotedString:
 			argStr = string(v)
 		case string:
 			argStr = v
+		case Symbol:
+			argStr = string(v)
 		default:
-			continue
+			argStr = fmt.Sprintf("%v", arg)
 		}
 
+		// Check for MY-prefixed argument: "<MY>localname1,localname2"
+		// The parser concatenates MY + "string" into "<MY>string"
 		if strings.HasPrefix(argStr, "<MY>") {
 			// Remove by local names (no module:: prefix allowed)
 			namesStr := strings.TrimPrefix(argStr, "<MY>")
@@ -412,26 +421,12 @@ func (e *Executor) handleREMOVE(args []interface{}, state *ExecutionState, posit
 				e.removeItem(state, localName, itemType)
 				e.logger.Debug("REMOVE MY: Removed \"%s\"", localName)
 			}
-			// Remove this arg from processing and continue with remaining args
-			args = append(args[:i], args[i+1:]...)
-			if len(args) == 0 {
-				return BoolStatus(true)
-			}
-			break // Restart the loop with remaining args
+			continue // Move to next argument
 		}
-	}
 
-	// If all args were MY-prefixed, we're done
-	if len(args) == 0 {
-		return BoolStatus(true)
-	}
-
-	for _, arg := range args {
-		spec := fmt.Sprintf("%v", arg)
-
-		if strings.Contains(spec, "::") {
-			// Scoped removal: "module::item1,item2" (using original library names)
-			parts := strings.SplitN(spec, "::", 2)
+		// Check for scoped removal: "module::item1,item2"
+		if strings.Contains(argStr, "::") {
+			parts := strings.SplitN(argStr, "::", 2)
 			moduleName := parts[0]
 			itemsStr := parts[1]
 
@@ -460,23 +455,24 @@ func (e *Executor) handleREMOVE(args []interface{}, state *ExecutionState, posit
 				e.removeItem(state, itemName, item.Type)
 				e.logger.Debug("REMOVE: Removed %s::%s", moduleName, itemName)
 			}
-		} else {
-			// Module removal: remove all items from the module
-			moduleName := spec
-
-			// Find module in LibraryRestricted
-			section, exists := state.moduleEnv.LibraryRestricted[moduleName]
-			if !exists {
-				e.logger.CommandError(CatSystem, "REMOVE", fmt.Sprintf("Module not found: %s", moduleName), position)
-				return BoolStatus(false)
-			}
-
-			// Remove all items from this module
-			for itemName, item := range section {
-				e.removeItem(state, itemName, item.Type)
-			}
-			e.logger.Debug("REMOVE: Removed all items from module \"%s\"", moduleName)
+			continue // Move to next argument
 		}
+
+		// Module removal: remove all items from the module
+		moduleName := argStr
+
+		// Find module in LibraryRestricted
+		section, exists := state.moduleEnv.LibraryRestricted[moduleName]
+		if !exists {
+			e.logger.CommandError(CatSystem, "REMOVE", fmt.Sprintf("Module not found: %s", moduleName), position)
+			return BoolStatus(false)
+		}
+
+		// Remove all items from this module
+		for itemName, item := range section {
+			e.removeItem(state, itemName, item.Type)
+		}
+		e.logger.Debug("REMOVE: Removed all items from module \"%s\"", moduleName)
 	}
 
 	return BoolStatus(true)
