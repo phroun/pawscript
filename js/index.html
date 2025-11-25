@@ -347,10 +347,7 @@ echo "Product calculated: ~y"</textarea>
     function executeScript() {
       const script = scriptInput.value.trim();
       if (!script) return;
-
       clearOutput(scriptOutput);
-      log(scriptOutput, '=== Executing Script ===', 'info');
-
       const lines = script.split('\n').filter(line => line.trim());
       
       try {
@@ -358,8 +355,6 @@ echo "Product calculated: ~y"</textarea>
       } catch (err) {
         log(scriptOutput, `  ✗ Error: ${err.message}`, 'error');
       }
-
-      log(scriptOutput, '=== Script Complete ===', 'info');
     }
 
     function executeAsync() {
