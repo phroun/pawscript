@@ -430,12 +430,9 @@ func (e *Executor) substituteTildeExpressions(str string, state *ExecutionState,
 		// Look up the variable - first in local variables, then in ObjectsModule
 		value, exists := state.GetVariable(tilde.VarName)
 		if !exists && state.moduleEnv != nil {
-			// Fallback: check ObjectsModule and ObjectsInherited
+			// Fallback: check ObjectsModule only (not ObjectsInherited)
 			state.moduleEnv.mu.RLock()
 			if obj, found := state.moduleEnv.ObjectsModule[tilde.VarName]; found {
-				value = obj
-				exists = true
-			} else if obj, found := state.moduleEnv.ObjectsInherited[tilde.VarName]; found {
 				value = obj
 				exists = true
 			}
