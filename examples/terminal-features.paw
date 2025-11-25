@@ -68,11 +68,11 @@ print ""
 # Demo: CGA color numbers
 print "=== All 16 CGA Colors ==="
 i: 0
-while {lt ~i, 16} [
+while (lt ~i, 16), (
     color ~i
     write "Color ~i "
     i: {add ~i, 1}
-]
+)
 color reset: true
 print ""
 print ""

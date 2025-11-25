@@ -1,7 +1,13 @@
 # PawScript
 
+[![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](https://opensource.org/licenses/MIT)
+
 PawScript: a command language with token-based suspension suitable for
 general purpose scripting, but built with application integration in mind.
+
+*If you use this, please support me on ko-fi:  [https://ko-fi.com/jeffday](https://ko-fi.com/F2F61JR2B4)*
+
+[![ko-fi](https://ko-fi.com/img/githubbutton_sm.svg)](https://ko-fi.com/F2F61JR2B4)
 
 ## Features
 
