@@ -179,82 +179,17 @@ func (ps *PawScript) RegisterMathLib() {
 		return BoolStatus(result)
 	})
 
-	// if - conditional execution
+	// if - normalize truthy/falsy values to boolean
 	ps.RegisterCommand("if", func(ctx *Context) Result {
-		if len(ctx.Args) < 2 {
-			ctx.LogError(CatCommand, "Usage: if <condition>, <then_body>, [else_body]")
+		if len(ctx.Args) < 1 {
+			ctx.LogError(CatCommand, "Usage: if <value>")
+			ctx.SetResult(false)
 			return BoolStatus(false)
 		}
 
-		condition := ctx.Args[0]
-		thenBody := fmt.Sprintf("%v", ctx.Args[1])
-
-		// Evaluate condition
-		condResult := evaluateCondition(condition)
-
-		if condResult {
-			// Execute then body
-			thenState := NewExecutionStateFromSharedVars(ctx.state)
-			result := ctx.executor.ExecuteWithState(thenBody, thenState, nil, ctx.Position.Filename, ctx.Position.Line, ctx.Position.Column)
-
-			if thenState.HasResult() {
-				ctx.state.SetResult(thenState.GetResult())
-			}
-
-			if status, ok := result.(BoolStatus); ok {
-				return status
-			}
-			return BoolStatus(true)
-		} else if len(ctx.Args) >= 3 {
-			// Execute else body if provided
-			elseBody := fmt.Sprintf("%v", ctx.Args[2])
-			elseState := NewExecutionStateFromSharedVars(ctx.state)
-			result := ctx.executor.ExecuteWithState(elseBody, elseState, nil, ctx.Position.Filename, ctx.Position.Line, ctx.Position.Column)
-
-			if elseState.HasResult() {
-				ctx.state.SetResult(elseState.GetResult())
-			}
-
-			if status, ok := result.(BoolStatus); ok {
-				return status
-			}
-			return BoolStatus(true)
-		}
-
-		return BoolStatus(false)
+		// Normalize the first argument to boolean
+		result := toBool(ctx.Args[0])
+		ctx.SetResult(result)
+		return BoolStatus(result)
 	})
-}
-
-// evaluateCondition evaluates a condition value to boolean
-func evaluateCondition(condition interface{}) bool {
-	switch v := condition.(type) {
-	case bool:
-		return v
-	case int64:
-		return v != 0
-	case float64:
-		return v != 0
-	case string:
-		lower := v
-		if lower == "true" || lower == "1" {
-			return true
-		}
-		if lower == "false" || lower == "0" || lower == "" {
-			return false
-		}
-		return len(v) > 0
-	case Symbol:
-		s := string(v)
-		if s == "true" || s == "1" {
-			return true
-		}
-		if s == "false" || s == "0" || s == "" {
-			return false
-		}
-		return len(s) > 0
-	case nil:
-		return false
-	default:
-		return true
-	}
 }
