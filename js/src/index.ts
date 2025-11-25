@@ -149,6 +149,16 @@ export class PawScript {
   }
 
   /**
+   * Set a callback function that will be invoked when the 'clear' command is executed.
+   * This is useful for clearing the output display in browser environments.
+   */
+  public setClearCallback(callback: () => void): boolean {
+    const setCallback = (globalThis as any).pawscript_set_clear_callback;
+    if (!setCallback) throw new Error("PawScript WASM not ready yet");
+    return setCallback(callback);
+  }
+
+  /**
    * Execute a command and wait for completion if async
    * Returns a promise that resolves with the result
    */

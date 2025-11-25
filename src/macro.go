@@ -170,7 +170,7 @@ func (ms *MacroSystem) executeStoredMacro(
 		debugInfo += fmt.Sprintf(", called from %s:%d",
 			invocationPosition.Filename, invocationPosition.Line)
 	}
-	ms.logger.Debug(debugInfo)
+	ms.logger.Debug("%s", debugInfo)
 
 	// Create execution state if not provided
 	if state == nil {

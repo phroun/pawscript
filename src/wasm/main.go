@@ -13,7 +13,8 @@ import (
 
 // wasmPaw wraps PawScript and manages the JS bridge
 type wasmPaw struct {
-	ps *pawscript.PawScript
+	ps            *pawscript.PawScript
+	clearCallback js.Value // JavaScript callback for clear
 }
 
 // --- Type conversion helpers ---
@@ -255,6 +256,16 @@ func (w *wasmPaw) wasmGetTokenStatus(this js.Value, args []js.Value) interface{}
 	return goToJS(status)
 }
 
+// wasmSetClearCallback sets the JavaScript callback for clear command
+// Signature: pawscript_set_clear_callback(callback: () => void)
+func (w *wasmPaw) wasmSetClearCallback(this js.Value, args []js.Value) interface{} {
+	if len(args) < 1 {
+		return false
+	}
+	w.clearCallback = args[0]
+	return true
+}
+
 // --- Main entrypoint ---
 func main() {
 	cfg := &pawscript.Config{
@@ -281,6 +292,15 @@ func main() {
 	js.Global().Set("pawscript_set_variable", js.FuncOf(wasm.wasmSetVariable))
 	js.Global().Set("pawscript_get_result", js.FuncOf(wasm.wasmGetResult))
 	js.Global().Set("pawscript_get_token_status", js.FuncOf(wasm.wasmGetTokenStatus))
+	js.Global().Set("pawscript_set_clear_callback", js.FuncOf(wasm.wasmSetClearCallback))
+
+	// Override the clear command for WASM to call JS callback
+	ps.RegisterCommand("clear", func(ctx *pawscript.Context) pawscript.Result {
+		if wasm.clearCallback.Type() == js.TypeFunction {
+			wasm.clearCallback.Invoke()
+		}
+		return pawscript.BoolStatus(true)
+	})
 
 	fmt.Println("PawScript WASM ready!")
 

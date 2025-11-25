@@ -241,6 +241,72 @@ func toNumber(val interface{}) (float64, bool) {
 	}
 }
 
+// toInt64 converts values to int64
+func toInt64(val interface{}) (int64, bool) {
+	switch v := val.(type) {
+	case int64:
+		return v, true
+	case int:
+		return int64(v), true
+	case float64:
+		return int64(v), true
+	case Symbol:
+		str := string(v)
+		if i, err := strconv.ParseInt(str, 10, 64); err == nil {
+			return i, true
+		}
+		if f, err := strconv.ParseFloat(str, 64); err == nil {
+			return int64(f), true
+		}
+		return 0, false
+	case QuotedString:
+		str := string(v)
+		if i, err := strconv.ParseInt(str, 10, 64); err == nil {
+			return i, true
+		}
+		if f, err := strconv.ParseFloat(str, 64); err == nil {
+			return int64(f), true
+		}
+		return 0, false
+	case string:
+		if i, err := strconv.ParseInt(v, 10, 64); err == nil {
+			return i, true
+		}
+		if f, err := strconv.ParseFloat(v, 64); err == nil {
+			return int64(f), true
+		}
+		return 0, false
+	default:
+		return 0, false
+	}
+}
+
+// isTruthy checks if a value is truthy (non-zero, non-empty, non-false)
+func isTruthy(val interface{}) bool {
+	switch v := val.(type) {
+	case bool:
+		return v
+	case int64:
+		return v != 0
+	case int:
+		return v != 0
+	case float64:
+		return v != 0
+	case string:
+		return v != "" && v != "0" && v != "false"
+	case Symbol:
+		s := string(v)
+		return s != "" && s != "0" && s != "false"
+	case QuotedString:
+		s := string(v)
+		return s != "" && s != "0" && s != "false"
+	case nil:
+		return false
+	default:
+		return true // non-nil values are truthy by default
+	}
+}
+
 // toBool converts values to boolean
 func toBool(val interface{}) bool {
 	switch v := val.(type) {

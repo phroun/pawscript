@@ -705,6 +705,213 @@ func (ps *PawScript) RegisterSystemLib(scriptArgs []string) {
 		return BoolStatus(true)
 	})
 
+	// clear - clear terminal screen
+	// In terminal mode: sends ANSI clear sequence
+	// In redirected mode: sends newline + 39 equal signs + newlines (unless last output was clear)
+	ps.RegisterCommand("clear", func(ctx *Context) Result {
+		ts := ps.terminalState
+		ts.mu.Lock()
+		defer ts.mu.Unlock()
+
+		// Check if output is to a terminal
+		if IsTerminal() {
+			// Terminal mode - send ANSI clear and home cursor
+			fmt.Print(ANSIClearScreen())
+			// Reset cursor position in our tracking
+			ts.X = ts.XBase
+			ts.Y = ts.YBase
+			ts.HasCleared = true
+		} else {
+			// Redirected mode - send separator unless we just cleared
+			if !ts.HasCleared {
+				fmt.Print("\n=======================================\n\n")
+				ts.HasCleared = true
+			}
+		}
+
+		return BoolStatus(true)
+	})
+
+	// cursor - get/set cursor position and appearance
+	// Named args: xbase, ybase, rows, cols, indent, head (sticky - set once)
+	//             x/col, y/row (position), h/v (relative movement)
+	//             visible, shape, blink, color, free
+	// Returns: list with screen_rows, screen_cols, x, y, row, col, and settings
+	ps.RegisterCommand("cursor", func(ctx *Context) Result {
+		ts := ps.terminalState
+		ts.mu.Lock()
+		defer ts.mu.Unlock()
+
+		// Re-detect screen size each time for accuracy
+		ts.detectScreenSize()
+
+		// Process sticky region parameters
+		if xbase, ok := ctx.NamedArgs["xbase"]; ok {
+			if v, ok := toInt64(xbase); ok {
+				ts.XBase = int(v)
+			}
+		}
+		if ybase, ok := ctx.NamedArgs["ybase"]; ok {
+			if v, ok := toInt64(ybase); ok {
+				ts.YBase = int(v)
+			}
+		}
+		if rows, ok := ctx.NamedArgs["rows"]; ok {
+			if v, ok := toInt64(rows); ok {
+				ts.Rows = int(v)
+			}
+		}
+		if cols, ok := ctx.NamedArgs["cols"]; ok {
+			if v, ok := toInt64(cols); ok {
+				ts.Cols = int(v)
+			}
+		}
+		if indent, ok := ctx.NamedArgs["indent"]; ok {
+			if v, ok := toInt64(indent); ok {
+				ts.Indent = int(v)
+			}
+		}
+		if head, ok := ctx.NamedArgs["head"]; ok {
+			if v, ok := toInt64(head); ok {
+				ts.Head = int(v)
+			}
+		}
+
+		// Process free mode
+		if free, ok := ctx.NamedArgs["free"]; ok {
+			ts.Free = isTruthy(free)
+		}
+
+		// Process cursor appearance
+		if visible, ok := ctx.NamedArgs["visible"]; ok {
+			ts.Visible = isTruthy(visible)
+			if ts.Visible {
+				fmt.Print(ANSIShowCursor())
+			} else {
+				fmt.Print(ANSIHideCursor())
+			}
+		}
+		if shape, ok := ctx.NamedArgs["shape"]; ok {
+			ts.Shape = fmt.Sprintf("%v", shape)
+			fmt.Print(ANSISetCursorShape(ts.Shape, ts.Blink))
+		}
+		if blink, ok := ctx.NamedArgs["blink"]; ok {
+			ts.Blink = fmt.Sprintf("%v", blink)
+			fmt.Print(ANSISetCursorShape(ts.Shape, ts.Blink))
+		}
+		if color, ok := ctx.NamedArgs["color"]; ok {
+			if v, ok := toInt64(color); ok {
+				ts.Color = int(v)
+			}
+		}
+
+		// Process position changes (x/col, y/row)
+		posChanged := false
+		if x, ok := ctx.NamedArgs["x"]; ok {
+			if v, ok := toInt64(x); ok {
+				ts.X = int(v)
+				posChanged = true
+			}
+		}
+		if col, ok := ctx.NamedArgs["col"]; ok {
+			if v, ok := toInt64(col); ok {
+				ts.X = int(v)
+				posChanged = true
+			}
+		}
+		if y, ok := ctx.NamedArgs["y"]; ok {
+			if v, ok := toInt64(y); ok {
+				ts.Y = int(v)
+				posChanged = true
+			}
+		}
+		if row, ok := ctx.NamedArgs["row"]; ok {
+			if v, ok := toInt64(row); ok {
+				ts.Y = int(v)
+				posChanged = true
+			}
+		}
+
+		// Process relative movement (h, v)
+		if h, ok := ctx.NamedArgs["h"]; ok {
+			if v, ok := toInt64(h); ok {
+				ts.X += int(v)
+				posChanged = true
+			}
+		}
+		if v, ok := ctx.NamedArgs["v"]; ok {
+			if val, ok := toInt64(v); ok {
+				ts.Y += int(val)
+				posChanged = true
+			}
+		}
+
+		// Handle positional arguments for x, y
+		if len(ctx.Args) >= 1 {
+			if v, ok := toInt64(ctx.Args[0]); ok {
+				ts.X = int(v)
+				posChanged = true
+			}
+		}
+		if len(ctx.Args) >= 2 {
+			if v, ok := toInt64(ctx.Args[1]); ok {
+				ts.Y = int(v)
+				posChanged = true
+			}
+		}
+
+		// Clamp position if changed
+		if posChanged {
+			// Unlock for ClampPosition which takes its own lock
+			ts.mu.Unlock()
+			ts.ClampPosition()
+			ts.mu.Lock()
+
+			// Move cursor - emit ANSI codes
+			physX := ts.GetPhysicalX()
+			physY := ts.GetPhysicalY()
+			fmt.Print(ANSIMoveCursor(physY, physX))
+		}
+
+		// Cursor output marks position tracking as stale
+		ts.HasCleared = false
+
+		// Build result list with named args for all current state
+		resultNamedArgs := map[string]interface{}{
+			"screen_rows": int64(ts.ScreenRows),
+			"screen_cols": int64(ts.ScreenCols),
+			"x":           int64(ts.X),
+			"y":           int64(ts.Y),
+			"col":         int64(ts.X),
+			"row":         int64(ts.Y),
+			"rows":        int64(ts.Rows),
+			"cols":        int64(ts.Cols),
+			"head":        int64(ts.Head),
+			"indent":      int64(ts.Indent),
+			"visible":     ts.Visible,
+			"shape":       ts.Shape,
+			"blink":       ts.Blink,
+			"color":       int64(ts.Color),
+		}
+
+		// Positional items: screen_rows, screen_cols, x, y, phys_x, phys_y
+		result := NewStoredListWithNamed([]interface{}{
+			int64(ts.ScreenRows),
+			int64(ts.ScreenCols),
+			int64(ts.X),
+			int64(ts.Y),
+			int64(ts.GetPhysicalX()),
+			int64(ts.GetPhysicalY()),
+		}, resultNamedArgs)
+
+		// Store and return the list
+		id := ctx.executor.storeObject(result, "list")
+		marker := fmt.Sprintf("\x00LIST:%d\x00", id)
+		ctx.state.SetResultWithoutClaim(Symbol(marker))
+
+		return BoolStatus(true)
+	})
+
 	// ==================== sys:: module ====================
 
 	// msleep - sleep for specified milliseconds (async)

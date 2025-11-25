@@ -415,12 +415,14 @@ func (env *ModuleEnvironment) PopulateStdlibModules() {
 
 	// List of commands that go into the "io" module
 	ioCommands := map[string]bool{
-		"echo":  true,
-		"print": true,
-		"write": true,
-		"read":  true,
-		"rune":  true,
-		"ord":   true,
+		"echo":   true,
+		"print":  true,
+		"write":  true,
+		"read":   true,
+		"rune":   true,
+		"ord":    true,
+		"clear":  true,
+		"cursor": true,
 	}
 
 	// Create stdlib module
