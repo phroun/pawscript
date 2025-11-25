@@ -82,6 +82,8 @@ See the `examples/` directory for sample scripts and usage patterns.
 - `echo`, `print`, `write`, `read` accept `#channel` as first arg to override
   default output/input
 - Reorganized standard library into modular source files
+- `sort` command for lists with optional custom comparator and `desc:` parameter
+- `while` loop condition now supports async operations (e.g., `msleep`)
 
 ### 0.2.4 -- November 23, 2025
 - Commands/macros now support named arguments, separated by colon.
