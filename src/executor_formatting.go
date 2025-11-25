@@ -7,6 +7,7 @@ import (
 )
 
 // escapeSpecialCharacters escapes special syntax characters for safe substitution
+// nolint:unused // Reserved for future use
 func (e *Executor) escapeSpecialCharacters(str string) string {
 	// Characters that have special meaning in PawScript syntax
 	// Must be escaped when substituting into command text
@@ -25,6 +26,7 @@ func (e *Executor) escapeSpecialCharacters(str string) string {
 // formatArgumentForParenGroup formats an argument for $@ substitution
 // Preserves original forms for creating ParenGroup literals
 // Similar to formatArgumentForList but without escaping quotes (not in string context)
+// nolint:unused // Reserved for future use
 func (e *Executor) formatArgumentForParenGroup(arg interface{}) string {
 	switch v := arg.(type) {
 	case ParenGroup:

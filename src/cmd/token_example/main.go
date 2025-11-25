@@ -53,14 +53,14 @@ mem_stats
 echo "5. Script complete"
 `
 
-	fmt.Println("=== Minimal Async Demo ===\n")
+	fmt.Println("=== Minimal Async Demo ===")
 
 	// Execute - returns IMMEDIATELY if async
 	result := ps.Execute(script)
 
 	if _, isToken := result.(pawscript.TokenResult); isToken {
 		fmt.Println("→ main: Script suspended, control returned to main()")
-		fmt.Println("→ main: Entering counter loop...\n")
+		fmt.Println("→ main: Entering counter loop...")
 
 		// Main loop - continues while script is suspended
 		for i := 1; i <= 7; i++ {

@@ -51,6 +51,7 @@ func (e *Executor) resolveValue(value interface{}) interface{} {
 
 // resolveValueDeep recursively resolves markers, including nested structures
 // Use this when you need to resolve markers within lists
+// nolint:unused // Reserved for future use
 func (e *Executor) resolveValueDeep(value interface{}) interface{} {
 	resolved := e.resolveValue(value)
 

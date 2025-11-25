@@ -22,6 +22,7 @@ func (e *Executor) unregisterFiber(fiberID int) {
 }
 
 // getFiber retrieves a fiber by ID
+// nolint:unused // Reserved for future use
 func (e *Executor) getFiber(fiberID int) *FiberHandle {
 	e.mu.RLock()
 	defer e.mu.RUnlock()
