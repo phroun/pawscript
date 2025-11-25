@@ -25,7 +25,9 @@ func (ps *PawScript) RegisterFibersLib() {
 		if m, ok := firstArg.(StoredMacro); ok {
 			macro = &m
 		} else if sym, ok := firstArg.(Symbol); ok {
-			markerType, objectID := parseObjectMarker(string(sym))
+			symStr := string(sym)
+			// First check if it's an object marker
+			markerType, objectID := parseObjectMarker(symStr)
 			if markerType == "macro" && objectID >= 0 {
 				obj, exists := ctx.executor.getObject(objectID)
 				if !exists {
@@ -35,11 +37,21 @@ func (ps *PawScript) RegisterFibersLib() {
 				if m, ok := obj.(StoredMacro); ok {
 					macro = &m
 				}
+			} else {
+				// Try to look up as a named macro
+				if m, found := ps.macroSystem.GetStoredMacro(symStr); found {
+					macro = m
+				}
+			}
+		} else if str, ok := firstArg.(string); ok {
+			// Try to look up as a named macro (string form)
+			if m, found := ps.macroSystem.GetStoredMacro(str); found {
+				macro = m
 			}
 		}
 
 		if macro == nil {
-			ps.logger.Error("First argument must be a macro")
+			ps.logger.Error("First argument must be a macro or macro name")
 			return BoolStatus(false)
 		}
 
