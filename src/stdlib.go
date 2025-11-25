@@ -1133,6 +1133,7 @@ func (ps *PawScript) RegisterStandardLibrary(scriptArgs []string) {
 	// Usage: len ~mylist
 	//        len "hello"
 	//        len ~mychannel  - returns number of unread messages
+	//        len #stdout     - auto-resolves #-prefixed symbols
 	ps.RegisterCommand("len", func(ctx *Context) Result {
 		if len(ctx.Args) < 1 {
 			ctx.LogError(CatCommand, "Usage: len <list|string|channel>")
@@ -1141,6 +1142,22 @@ func (ps *PawScript) RegisterStandardLibrary(scriptArgs []string) {
 		}
 
 		value := ctx.Args[0]
+
+		// Check for #-prefixed symbol (resolve like tilde would)
+		if sym, ok := value.(Symbol); ok {
+			symStr := string(sym)
+			if strings.HasPrefix(symStr, "#") {
+				if ctx.state.moduleEnv != nil {
+					ctx.state.moduleEnv.mu.RLock()
+					if ctx.state.moduleEnv.ObjectsModule != nil {
+						if obj, exists := ctx.state.moduleEnv.ObjectsModule[symStr]; exists {
+							value = obj
+						}
+					}
+					ctx.state.moduleEnv.mu.RUnlock()
+				}
+			}
+		}
 
 		switch v := value.(type) {
 		case StoredList:
@@ -2156,15 +2173,32 @@ func (ps *PawScript) RegisterStandardLibrary(scriptArgs []string) {
 		if channelObj, ok := ctx.Args[0].(*StoredChannel); ok {
 			ch = channelObj
 		} else if sym, ok := ctx.Args[0].(Symbol); ok {
-			markerType, objectID := parseObjectMarker(string(sym))
-			if markerType == "channel" && objectID >= 0 {
-				obj, exists := ctx.executor.getObject(objectID)
-				if !exists {
-					ps.logger.Error("Channel object %d not found", objectID)
-					return BoolStatus(false)
+			symStr := string(sym)
+			// Check for #-prefixed symbol (resolve like tilde would)
+			if strings.HasPrefix(symStr, "#") {
+				if ctx.state.moduleEnv != nil {
+					ctx.state.moduleEnv.mu.RLock()
+					if ctx.state.moduleEnv.ObjectsModule != nil {
+						if obj, exists := ctx.state.moduleEnv.ObjectsModule[symStr]; exists {
+							if channelObj, ok := obj.(*StoredChannel); ok {
+								ch = channelObj
+							}
+						}
+					}
+					ctx.state.moduleEnv.mu.RUnlock()
 				}
-				if channelObj, ok := obj.(*StoredChannel); ok {
-					ch = channelObj
+			} else {
+				// Check for channel marker
+				markerType, objectID := parseObjectMarker(symStr)
+				if markerType == "channel" && objectID >= 0 {
+					obj, exists := ctx.executor.getObject(objectID)
+					if !exists {
+						ps.logger.Error("Channel object %d not found", objectID)
+						return BoolStatus(false)
+					}
+					if channelObj, ok := obj.(*StoredChannel); ok {
+						ch = channelObj
+					}
 				}
 			}
 		}
@@ -2195,15 +2229,32 @@ func (ps *PawScript) RegisterStandardLibrary(scriptArgs []string) {
 		if channelObj, ok := ctx.Args[0].(*StoredChannel); ok {
 			ch = channelObj
 		} else if sym, ok := ctx.Args[0].(Symbol); ok {
-			markerType, objectID := parseObjectMarker(string(sym))
-			if markerType == "channel" && objectID >= 0 {
-				obj, exists := ctx.executor.getObject(objectID)
-				if !exists {
-					ps.logger.Error("Channel object %d not found", objectID)
-					return BoolStatus(false)
+			symStr := string(sym)
+			// Check for #-prefixed symbol (resolve like tilde would)
+			if strings.HasPrefix(symStr, "#") {
+				if ctx.state.moduleEnv != nil {
+					ctx.state.moduleEnv.mu.RLock()
+					if ctx.state.moduleEnv.ObjectsModule != nil {
+						if obj, exists := ctx.state.moduleEnv.ObjectsModule[symStr]; exists {
+							if channelObj, ok := obj.(*StoredChannel); ok {
+								ch = channelObj
+							}
+						}
+					}
+					ctx.state.moduleEnv.mu.RUnlock()
 				}
-				if channelObj, ok := obj.(*StoredChannel); ok {
-					ch = channelObj
+			} else {
+				// Check for channel marker
+				markerType, objectID := parseObjectMarker(symStr)
+				if markerType == "channel" && objectID >= 0 {
+					obj, exists := ctx.executor.getObject(objectID)
+					if !exists {
+						ps.logger.Error("Channel object %d not found", objectID)
+						return BoolStatus(false)
+					}
+					if channelObj, ok := obj.(*StoredChannel); ok {
+						ch = channelObj
+					}
 				}
 			}
 		}
