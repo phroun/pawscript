@@ -97,3 +97,5 @@ echo "test_include:"
 ../paw test_include.paw 2>&1 | diff - test_include.expected
 echo "test_io_channels:"
 ../paw test_io_channels.paw 2>&1 | diff - test_io_channels.expected
+echo "test_sort:"
+../paw test_sort.paw 2>&1 | diff - test_sort.expected

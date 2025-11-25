@@ -1,0 +1,107 @@
+=== Sort Tests ===
+
+Test 1: Basic number sorting
+Original: 3, 1, 4, 1, 5, 9, 2, 6
+Sorted: 1, 1, 2, 3, 4, 5, 6, 9
+(Expected: 1, 1, 2, 3, 4, 5, 6, 9)
+
+Test 2: Mixed integer and float sorting
+Original: 3.5, 1, 2.5, 4, 1.5
+Sorted: 1, 1.5, 2.5, 3.5, 4
+(Expected: 1, 1.5, 2.5, 3.5, 4)
+
+Test 3: Symbol sorting (alphabetical)
+Original: cherry, apple, banana, date
+Sorted: apple, banana, cherry, date
+(Expected: apple, banana, cherry, date)
+
+Test 4: String sorting (alphabetical)
+Original: cherry, apple, banana, date
+Sorted: apple, banana, cherry, date
+(Expected: apple, banana, cherry, date)
+
+Test 5: Mixed type sorting
+(nil < false < true < numbers < symbols < strings)
+Sorted count: 8
+First item type: nil
+Second item type: bool
+Third item type: bool
+(Expected: 8, nil, bool, bool)
+
+Test 6: Descending sort
+Original: 3, 1, 4, 1, 5
+Descending: 5, 4, 3, 1, 1
+(Expected: 5, 4, 3, 1, 1)
+
+Test 7: Custom comparator (reverse with gt)
+Original: 3, 1, 4, 1, 5
+Custom (gt): 5, 4, 3, 1, 1
+(Expected: 5, 4, 3, 1, 1)
+
+Test 8: Custom comparator (named macro)
+Original: 10, 5, 20, 15
+Macro sorted: 20, 15, 10, 5
+(Expected: 20, 15, 10, 5)
+
+Test 9: Named arguments preserved
+Original positional count: 3
+Sorted positional: a, b, c
+Key1 value: value1
+Key2 value: value2
+(Expected: a, b, c with keys intact)
+
+Test 10: Empty list sorting
+Empty list length: 0
+(Expected: 0)
+
+Test 11: Single element list
+Single element: 42
+(Expected: 42)
+
+Test 12: Already sorted list
+Sorted: 1, 2, 3, 4, 5
+(Expected: 1, 2, 3, 4, 5)
+
+Test 13: Reverse sorted list
+Sorted: 1, 2, 3, 4, 5
+(Expected: 1, 2, 3, 4, 5)
+
+Test 14: ParenGroup input
+Sorted: a, b, m, z
+(Expected: a, b, m, z)
+
+Test 15: Stable sort test
+Bool count: 5
+First: false
+Third: true
+(Expected: 5, false, true)
+
+Test 16: Custom length-based string sort
+By length: ant, cat, dog, elephant, hippopotamus
+(Expected: ant, cat, dog, elephant, hippopotamus)
+
+Test 17: Custom comparator + desc
+Custom lt + desc: 4, 3, 1
+(Expected: 4, 3, 1)
+
+Test 18: Long StoredStrings mixed with short strings
+Count: 6
+First starts with: apple
+Second starts with: apricot
+Third starts with: banana
+Fourth starts with: cherry
+Fifth starts with: mango
+Sixth starts with: zebra
+(Expected: 6, apple, apricot, banana, cherry, mango, zebra)
+
+Test 19: Only long StoredStrings
+First starts with: apricot
+Second starts with: banana
+Third starts with: cherry
+(Expected: apricot, banana, cherry)
+
+Test 20: Sort with command reference comparator
+Command ref sorted: 5, 4, 3, 1, 1
+(Expected: 5, 4, 3, 1, 1)
+
+=== All Sort Tests Complete ===

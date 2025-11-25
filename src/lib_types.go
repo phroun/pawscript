@@ -577,7 +577,7 @@ func (ps *PawScript) RegisterTypesLib() {
 			}
 		} else {
 			// Default sort using Go's native sorting
-			sortItemsDefault(items)
+			sortItemsDefaultWithExecutor(items, ctx.executor)
 		}
 
 		// Reverse if descending
@@ -596,7 +596,8 @@ func (ps *PawScript) RegisterTypesLib() {
 
 // sortItemsDefault sorts items using the default PawScript ordering:
 // nil < false < true < numbers (low to high) < symbols (alpha) < strings (alpha) < other (original order)
-func sortItemsDefault(items []interface{}) {
+// executor is optional - if provided, resolves object markers before categorizing
+func sortItemsDefaultWithExecutor(items []interface{}, executor *Executor) {
 	// Assign sort keys to preserve stable sort for "other" items
 	type sortItem struct {
 		value    interface{}
@@ -610,7 +611,13 @@ func sortItemsDefault(items []interface{}) {
 	for i, item := range items {
 		si := sortItem{value: item, origIdx: i, category: 6}
 
-		switch v := item.(type) {
+		// Resolve markers if executor available
+		resolved := item
+		if executor != nil {
+			resolved = executor.resolveValue(item)
+		}
+
+		switch v := resolved.(type) {
 		case nil:
 			si.category = 0
 		case bool:
@@ -629,9 +636,19 @@ func sortItemsDefault(items []interface{}) {
 			si.category = 3
 			si.numVal = v
 		case Symbol:
-			si.category = 4
-			si.strVal = string(v)
+			// Check if it's an object marker for a string
+			if markerType, _ := parseObjectMarker(string(v)); markerType == "string" {
+				// Already resolved above, so this is a non-string symbol
+				si.category = 4
+				si.strVal = string(v)
+			} else {
+				si.category = 4
+				si.strVal = string(v)
+			}
 		case QuotedString:
+			si.category = 5
+			si.strVal = string(v)
+		case StoredString:
 			si.category = 5
 			si.strVal = string(v)
 		case string:

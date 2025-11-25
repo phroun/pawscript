@@ -548,13 +548,15 @@ func (ps *PawScript) RegisterCoreLib() {
 				return earlyReturn.Status
 			}
 
-			if _, isToken := condResult.(TokenResult); isToken {
-				ctx.LogError(CatFlow, "Async operations not supported in while condition")
-				return BoolStatus(false)
-			}
-
+			// Handle async in condition
 			shouldContinue := false
-			if boolRes, ok := condResult.(BoolStatus); ok {
+			if condToken, isToken := condResult.(TokenResult); isToken {
+				tokenID := string(condToken)
+				waitChan := make(chan ResumeData, 1)
+				ctx.executor.attachWaitChan(tokenID, waitChan)
+				resumeData := <-waitChan
+				shouldContinue = resumeData.Status
+			} else if boolRes, ok := condResult.(BoolStatus); ok {
 				shouldContinue = bool(boolRes)
 			}
 

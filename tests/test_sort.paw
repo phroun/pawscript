@@ -1,0 +1,207 @@
+#!/usr/bin/env paw
+# Comprehensive test for sort command
+
+echo "=== Sort Tests ==="
+echo ""
+
+# Test 1: Basic number sorting
+echo "Test 1: Basic number sorting"
+nums: (3, 1, 4, 1, 5, 9, 2, 6)
+sorted_nums: {sort ~nums}
+echo "Original: 3, 1, 4, 1, 5, 9, 2, 6"
+echo "Sorted: {join ~sorted_nums, ", "}"
+echo "(Expected: 1, 1, 2, 3, 4, 5, 6, 9)"
+echo ""
+
+# Test 2: Mixed integer and float sorting
+echo "Test 2: Mixed integer and float sorting"
+mixed_nums: (3.5, 1, 2.5, 4, 1.5)
+sorted_mixed: {sort ~mixed_nums}
+echo "Original: 3.5, 1, 2.5, 4, 1.5"
+echo "Sorted: {join ~sorted_mixed, ", "}"
+echo "(Expected: 1, 1.5, 2.5, 3.5, 4)"
+echo ""
+
+# Test 3: Symbol sorting (alphabetical)
+echo "Test 3: Symbol sorting (alphabetical)"
+symbols: (cherry, apple, banana, date)
+sorted_symbols: {sort ~symbols}
+echo "Original: cherry, apple, banana, date"
+echo "Sorted: {join ~sorted_symbols, ", "}"
+echo "(Expected: apple, banana, cherry, date)"
+echo ""
+
+# Test 4: String sorting (alphabetical)
+echo "Test 4: String sorting (alphabetical)"
+strings: ("cherry", "apple", "banana", "date")
+sorted_strings: {sort ~strings}
+echo "Original: cherry, apple, banana, date"
+echo "Sorted: {join ~sorted_strings, ", "}"
+echo "(Expected: apple, banana, cherry, date)"
+echo ""
+
+# Test 5: Mixed type sorting (default order)
+echo "Test 5: Mixed type sorting"
+echo "(nil < false < true < numbers < symbols < strings)"
+mixed: (5, nil, true, "beta", alpha, false, 2, "alpha")
+sorted_mixed: {sort ~mixed}
+echo "Sorted count: {len ~sorted_mixed}"
+echo "First item type: {get_inferred_type {argv ~sorted_mixed, 1}}"
+echo "Second item type: {get_inferred_type {argv ~sorted_mixed, 2}}"
+echo "Third item type: {get_inferred_type {argv ~sorted_mixed, 3}}"
+echo "(Expected: 8, nil, bool, bool)"
+echo ""
+
+# Test 6: Descending sort
+echo "Test 6: Descending sort"
+nums2: (3, 1, 4, 1, 5)
+desc: {sort ~nums2, desc: true}
+echo "Original: 3, 1, 4, 1, 5"
+echo "Descending: {join ~desc, ", "}"
+echo "(Expected: 5, 4, 3, 1, 1)"
+echo ""
+
+# Test 7: Custom comparator with immediate block
+echo "Test 7: Custom comparator (reverse with gt)"
+nums3: (3, 1, 4, 1, 5)
+custom_sorted: {sort ~nums3, (gt $1, $2)}
+echo "Original: 3, 1, 4, 1, 5"
+echo "Custom (gt): {join ~custom_sorted, ", "}"
+echo "(Expected: 5, 4, 3, 1, 1)"
+echo ""
+
+# Test 8: Custom comparator with named macro
+echo "Test 8: Custom comparator (named macro)"
+macro reverse_cmp (gt $1, $2)
+nums4: (10, 5, 20, 15)
+macro_sorted: {sort ~nums4, reverse_cmp}
+echo "Original: 10, 5, 20, 15"
+echo "Macro sorted: {join ~macro_sorted, ", "}"
+echo "(Expected: 20, 15, 10, 5)"
+echo ""
+
+# Test 9: Named arguments preservation
+echo "Test 9: Named arguments preserved"
+with_named: (c, a, b, key1: "value1", key2: "value2")
+sorted_named: {sort ~with_named}
+echo "Original positional count: 3"
+echo "Sorted positional: {join ~sorted_named, ", "}"
+echo "Key1 value: {get_val ~sorted_named, key1}"
+echo "Key2 value: {get_val ~sorted_named, key2}"
+echo "(Expected: a, b, c with keys intact)"
+echo ""
+
+# Test 10: Empty list
+echo "Test 10: Empty list sorting"
+empty: ()
+sorted_empty: {sort ~empty}
+echo "Empty list length: {len ~sorted_empty}"
+echo "(Expected: 0)"
+echo ""
+
+# Test 11: Single element list
+echo "Test 11: Single element list"
+single: (42)
+sorted_single: {sort ~single}
+echo "Single element: {argv ~sorted_single, 1}"
+echo "(Expected: 42)"
+echo ""
+
+# Test 12: Already sorted list
+echo "Test 12: Already sorted list"
+already: (1, 2, 3, 4, 5)
+resorted: {sort ~already}
+echo "Sorted: {join ~resorted, ", "}"
+echo "(Expected: 1, 2, 3, 4, 5)"
+echo ""
+
+# Test 13: Reverse sorted list
+echo "Test 13: Reverse sorted list"
+reversed: (5, 4, 3, 2, 1)
+resorted2: {sort ~reversed}
+echo "Sorted: {join ~resorted2, ", "}"
+echo "(Expected: 1, 2, 3, 4, 5)"
+echo ""
+
+# Test 14: Sort with ParenGroup input
+echo "Test 14: ParenGroup input"
+sorted_paren: {sort (z, a, m, b)}
+echo "Sorted: {join ~sorted_paren, ", "}"
+echo "(Expected: a, b, m, z)"
+echo ""
+
+# Test 15: Stable sort (equal elements keep original order)
+echo "Test 15: Stable sort test"
+bools: (true, false, true, false, true)
+sorted_bools: {sort ~bools}
+echo "Bool count: {len ~sorted_bools}"
+# After sorting, all false come before all true
+echo "First: {argv ~sorted_bools, 1}"
+echo "Third: {argv ~sorted_bools, 3}"
+echo "(Expected: 5, false, true)"
+echo ""
+
+# Test 16: Complex custom comparator
+echo "Test 16: Custom length-based string sort"
+macro by_length (lt {len $1}, {len $2})
+words: (cat, elephant, dog, hippopotamus, ant)
+len_sorted: {sort ~words, by_length}
+echo "By length: {join ~len_sorted, ", "}"
+# Note: Items with same length sorted alphabetically as secondary sort
+echo "(Expected: ant, cat, dog, elephant, hippopotamus)"
+echo ""
+
+# Test 17: Descending with custom comparator
+echo "Test 17: Custom comparator + desc"
+nums5: (3, 1, 4)
+# Custom says use default (lt), then desc reverses
+custom_desc: {sort ~nums5, (lt $1, $2), desc: true}
+echo "Custom lt + desc: {join ~custom_desc, ", "}"
+echo "(Expected: 4, 3, 1)"
+echo ""
+
+# Test 18: Long strings (StoredStrings > 250 chars) mixed with short strings
+echo "Test 18: Long StoredStrings mixed with short strings"
+short_a: "apple"
+short_z: "zebra"
+short_m: "mango"
+# Create strings > 250 chars to trigger StoredString storage
+long_b: "banana_xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx"
+long_c: "cherry_xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx"
+long_a: "apricot_xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx"
+
+# Use list command to properly resolve tilde references
+mixed_strings: {list ~short_z, ~long_b, ~short_a, ~long_c, ~short_m, ~long_a}
+sorted_strings: {sort ~mixed_strings}
+
+# Extract first chars of each sorted item to verify order
+echo "Count: {len ~sorted_strings}"
+echo "First starts with: {slice {argv ~sorted_strings, 1}, 0, 5}"
+echo "Second starts with: {slice {argv ~sorted_strings, 2}, 0, 7}"
+echo "Third starts with: {slice {argv ~sorted_strings, 3}, 0, 6}"
+echo "Fourth starts with: {slice {argv ~sorted_strings, 4}, 0, 6}"
+echo "Fifth starts with: {slice {argv ~sorted_strings, 5}, 0, 5}"
+echo "Sixth starts with: {slice {argv ~sorted_strings, 6}, 0, 5}"
+echo "(Expected: 6, apple, apricot, banana, cherry, mango, zebra)"
+echo ""
+
+# Test 19: Long strings only
+echo "Test 19: Only long StoredStrings"
+only_long: {list ~long_c, ~long_a, ~long_b}
+sorted_long: {sort ~only_long}
+echo "First starts with: {slice {argv ~sorted_long, 1}, 0, 7}"
+echo "Second starts with: {slice {argv ~sorted_long, 2}, 0, 6}"
+echo "Third starts with: {slice {argv ~sorted_long, 3}, 0, 6}"
+echo "(Expected: apricot, banana, cherry)"
+echo ""
+
+# Test 20: Comparator with command reference
+echo "Test 20: Sort with command reference comparator"
+cmd_ref: {command_ref gt}
+ref_nums: (3, 1, 4, 1, 5)
+ref_sorted: {sort ~ref_nums, ~cmd_ref}
+echo "Command ref sorted: {join ~ref_sorted, ", "}"
+echo "(Expected: 5, 4, 3, 1, 1)"
+echo ""
+
+echo "=== All Sort Tests Complete ==="
