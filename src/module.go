@@ -406,6 +406,44 @@ func (env *ModuleEnvironment) PopulateStdlibModules() {
 	env.mu.Lock()
 	defer env.mu.Unlock()
 
+	// List of commands that go into the "core" module
+	coreCommands := map[string]bool{
+		"true":             true,
+		"false":            true,
+		"set_result":       true,
+		"get_result":       true,
+		"ret":              true,
+		"get_inferred_type": true,
+		"get_type":         true,
+		"list":             true,
+		"len":              true,
+		"keys":             true,
+		"get_val":          true,
+	}
+
+	// List of commands that go into the "macros" module
+	macrosCommands := map[string]bool{
+		"macro":        true,
+		"call":         true,
+		"macro_list":   true,
+		"macro_delete": true,
+		"macro_clear":  true,
+		"command_ref":  true,
+	}
+
+	// List of commands that go into the "flow" module
+	flowCommands := map[string]bool{
+		"if":    true,
+		"while": true,
+	}
+
+	// List of commands that go into the "debug" module
+	debugCommands := map[string]bool{
+		"mem_stats": true,
+		"env_dump":  true,
+		"log_print": true,
+	}
+
 	// List of commands that go into the "sys" module
 	sysCommands := map[string]bool{
 		"exec":      true,
@@ -426,37 +464,46 @@ func (env *ModuleEnvironment) PopulateStdlibModules() {
 		"color":  true,
 	}
 
-	// Create stdlib module
-	stdlibModule := make(ModuleSection)
-	// Create sys module
+	// Create module sections
+	coreModule := make(ModuleSection)
+	macrosModule := make(ModuleSection)
+	flowModule := make(ModuleSection)
+	debugModule := make(ModuleSection)
 	sysModule := make(ModuleSection)
-	// Create io module (for commands - objects added by PopulateIOModule)
 	ioModule := make(ModuleSection)
+	stdlibModule := make(ModuleSection) // catch-all for remaining commands
 
 	// Distribute commands from CommandRegistryInherited into modules
 	for cmdName, handler := range env.CommandRegistryInherited {
-		if sysCommands[cmdName] {
-			sysModule[cmdName] = &ModuleItem{
-				Type:  "command",
-				Value: handler,
-			}
+		item := &ModuleItem{
+			Type:  "command",
+			Value: handler,
+		}
+		if coreCommands[cmdName] {
+			coreModule[cmdName] = item
+		} else if macrosCommands[cmdName] {
+			macrosModule[cmdName] = item
+		} else if flowCommands[cmdName] {
+			flowModule[cmdName] = item
+		} else if debugCommands[cmdName] {
+			debugModule[cmdName] = item
+		} else if sysCommands[cmdName] {
+			sysModule[cmdName] = item
 		} else if ioCommands[cmdName] {
-			ioModule[cmdName] = &ModuleItem{
-				Type:  "command",
-				Value: handler,
-			}
+			ioModule[cmdName] = item
 		} else {
-			stdlibModule[cmdName] = &ModuleItem{
-				Type:  "command",
-				Value: handler,
-			}
+			stdlibModule[cmdName] = item
 		}
 	}
 
 	// Add modules to LibraryInherited
-	env.LibraryInherited["stdlib"] = stdlibModule
+	env.LibraryInherited["core"] = coreModule
+	env.LibraryInherited["macros"] = macrosModule
+	env.LibraryInherited["flow"] = flowModule
+	env.LibraryInherited["debug"] = debugModule
 	env.LibraryInherited["sys"] = sysModule
 	env.LibraryInherited["io"] = ioModule
+	env.LibraryInherited["stdlib"] = stdlibModule
 
 	// Initially, LibraryRestricted should allow all modules
 	env.LibraryRestricted = make(Library)
