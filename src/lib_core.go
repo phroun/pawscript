@@ -680,23 +680,56 @@ func (ps *PawScript) RegisterCoreLib() {
 		output.WriteString(fmt.Sprintf("\n--- Library Restricted (%d) ---\n", len(env.LibraryRestricted)))
 		writeLibrarySectionWrapped(&output, env.LibraryRestricted)
 
-		// Item metadata (shows import info)
+		// Item metadata (shows import info) - grouped by source module
 		output.WriteString(fmt.Sprintf("\n--- Imported (%d) ---\n", len(env.ItemMetadataModule)))
 		if len(env.ItemMetadataModule) == 0 {
 			output.WriteString("  (none)\n")
 		} else {
-			impNames := make([]string, 0, len(env.ItemMetadataModule))
-			for name := range env.ItemMetadataModule {
-				impNames = append(impNames, name)
-			}
-			sort.Strings(impNames)
-			for _, name := range impNames {
-				meta := env.ItemMetadataModule[name]
+			// Group items by their source module
+			byModule := make(map[string][]string)
+			for name, meta := range env.ItemMetadataModule {
+				// Format: name(original) if renamed, else just name
+				displayName := name
 				if meta.OriginalName != name {
-					output.WriteString(fmt.Sprintf("  %s <- %s::%s\n", name, meta.ImportedFromModule, meta.OriginalName))
-				} else {
-					output.WriteString(fmt.Sprintf("  %s <- %s\n", name, meta.ImportedFromModule))
+					displayName = fmt.Sprintf("%s(%s)", name, meta.OriginalName)
 				}
+				byModule[meta.ImportedFromModule] = append(byModule[meta.ImportedFromModule], displayName)
+			}
+
+			// Get sorted module names
+			modNames := make([]string, 0, len(byModule))
+			for modName := range byModule {
+				modNames = append(modNames, modName)
+			}
+			sort.Strings(modNames)
+
+			// Output in same format as Library Restricted
+			for _, modName := range modNames {
+				items := byModule[modName]
+				sort.Strings(items)
+
+				// Write "  modname:: " prefix
+				prefix := fmt.Sprintf("  %s:: ", modName)
+				output.WriteString(prefix)
+
+				// Continuation indent is 4 spaces
+				contIndent := "    "
+				lineLen := len(prefix)
+
+				for i, name := range items {
+					if i > 0 {
+						output.WriteString(", ")
+						lineLen += 2
+					}
+					if lineLen+len(name) > 78 && i > 0 {
+						output.WriteString("\n")
+						output.WriteString(contIndent)
+						lineLen = len(contIndent)
+					}
+					output.WriteString(name)
+					lineLen += len(name)
+				}
+				output.WriteString("\n")
 			}
 		}
 
