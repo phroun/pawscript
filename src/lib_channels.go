@@ -19,7 +19,7 @@ func (ps *PawScript) RegisterChannelsLib() {
 			if size, ok := ctx.Args[0].(int); ok {
 				bufferSize = size
 			} else if sizeStr, ok := ctx.Args[0].(string); ok {
-				fmt.Sscanf(sizeStr, "%d", &bufferSize)
+				_, _ = fmt.Sscanf(sizeStr, "%d", &bufferSize)
 			}
 		}
 
@@ -315,7 +315,7 @@ func (ps *PawScript) RegisterChannelsLib() {
 		if id, ok := ctx.Args[1].(int); ok {
 			subscriberID = id
 		} else if idStr, ok := ctx.Args[1].(string); ok {
-			fmt.Sscanf(idStr, "%d", &subscriberID)
+			_, _ = fmt.Sscanf(idStr, "%d", &subscriberID)
 		}
 
 		err := ChannelDisconnect(ch, subscriberID)

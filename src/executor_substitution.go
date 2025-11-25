@@ -802,9 +802,10 @@ func (e *Executor) formatBraceResult(value interface{}, originalString string, b
 			if _, objID := parseObjectMarker(string(sym)); objID >= 0 {
 				if insideQuotes {
 					// Inside quotes: resolve and format for display
-					if actualValue, exists := e.getObject(objID); exists {
-						value = actualValue
-						// Fall through to format the resolved value
+					if _, exists := e.getObject(objID); exists {
+						// Object exists - return the symbol as string for now
+						// TODO: Consider formatting the resolved value
+						return string(sym)
 					} else {
 						return string(sym)
 					}

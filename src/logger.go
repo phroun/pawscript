@@ -146,9 +146,9 @@ func (l *Logger) Log(level LogLevel, cat LogCategory, message string, position *
 
 	// Route to appropriate output
 	if level == LevelDebug {
-		fmt.Fprintln(l.out, output)
+		_, _ = fmt.Fprintln(l.out, output)
 	} else {
-		fmt.Fprintln(l.errOut, output)
+		_, _ = fmt.Fprintln(l.errOut, output)
 	}
 }
 

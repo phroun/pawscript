@@ -100,9 +100,9 @@ func ChannelSend(ch *StoredChannel, value interface{}) error {
 	}
 
 	// Call custom send handler if present
+	// nolint:staticcheck // TODO: Execute custom send macro when implemented
 	if mainCh.CustomSend != nil {
-		// TODO: Execute custom send macro
-		// For now, just append the message
+		_ = mainCh.CustomSend // Placeholder for future implementation
 	}
 
 	mainCh.Messages = append(mainCh.Messages, msg)
@@ -223,8 +223,9 @@ func ChannelClose(ch *StoredChannel) error {
 		ch.Subscribers = make(map[int]*StoredChannel)
 
 		// Call custom close handler if present
+		// nolint:staticcheck // TODO: Execute custom close macro when implemented
 		if ch.CustomClose != nil {
-			// TODO: Execute custom close macro
+			_ = ch.CustomClose // Placeholder for future implementation
 		}
 	}
 
