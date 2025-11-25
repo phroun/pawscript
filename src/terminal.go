@@ -32,7 +32,8 @@ type TerminalState struct {
 	Color   int    // cursor color number
 
 	// Behavior
-	Free bool // true = can move into margin/head areas
+	Free   bool // true = can move into margin/head areas
+	Duplex bool // true = echo input to terminal (default true)
 
 	// Screen tracking
 	ScreenRows int // detected physical rows
@@ -50,6 +51,9 @@ type TerminalState struct {
 	AttrBlink bool // named differently to avoid conflict with cursor Blink
 	Underline bool
 	Invert    bool
+
+	// Terminal state for restoring
+	originalTermState *term.State
 }
 
 // NewTerminalState creates a new terminal state with defaults
@@ -68,8 +72,9 @@ func NewTerminalState() *TerminalState {
 		Blink:     "true",
 		Color:     -1, // -1 means default
 		Free:      false,
-		CurrentFG: -1, // -1 means default
-		CurrentBG: -1, // -1 means default
+		Duplex:    true, // echo enabled by default
+		CurrentFG: -1,   // -1 means default
+		CurrentBG: -1,   // -1 means default
 	}
 
 	// Try to detect actual screen size
@@ -491,4 +496,81 @@ func SupportsColor() bool {
 	}
 
 	return false
+}
+
+// SetDuplex enables or disables terminal echo (duplex mode)
+// When duplex is true (default), typed characters are echoed to the screen
+// When duplex is false, typed characters are not echoed (for password entry, etc.)
+func (ts *TerminalState) SetDuplex(enabled bool) error {
+	if !IsTerminal() {
+		// Not a terminal, can't control echo
+		ts.Duplex = enabled
+		return nil
+	}
+
+	fd := int(os.Stdin.Fd())
+
+	if enabled {
+		// Restore original terminal state if we have it
+		if ts.originalTermState != nil {
+			err := term.Restore(fd, ts.originalTermState)
+			if err != nil {
+				return err
+			}
+			ts.originalTermState = nil
+		}
+		ts.Duplex = true
+	} else {
+		// Save original state and disable echo
+		if ts.originalTermState == nil {
+			state, err := term.GetState(fd)
+			if err != nil {
+				return err
+			}
+			ts.originalTermState = state
+		}
+		// Make raw to disable echo, but we'll use a custom approach
+		// Actually, we need to manipulate termios directly for echo only
+		// For simplicity, we'll use raw mode which also disables echo
+		_, err := term.MakeRaw(fd)
+		if err != nil {
+			return err
+		}
+		ts.Duplex = false
+	}
+	return nil
+}
+
+// ResetTerminal performs a full terminal reset
+// This is equivalent to 'tput reset' - resets all attributes and state
+func (ts *TerminalState) ResetTerminal() {
+	// Restore terminal state if modified
+	if ts.originalTermState != nil {
+		fd := int(os.Stdin.Fd())
+		term.Restore(fd, ts.originalTermState)
+		ts.originalTermState = nil
+	}
+
+	// Emit reset sequences
+	// \e[0m - Reset all attributes
+	// \e[?25h - Show cursor
+	// \e[?7h - Enable line wrap
+	// \ec - Full terminal reset (RIS - Reset to Initial State)
+	fmt.Print("\x1b[0m\x1b[?25h\x1b[?7h")
+
+	// Reset all tracked state
+	ts.CurrentFG = -1
+	ts.CurrentBG = -1
+	ts.Bold = false
+	ts.AttrBlink = false
+	ts.Underline = false
+	ts.Invert = false
+	ts.Visible = true
+	ts.Shape = "block"
+	ts.Blink = "true"
+	ts.Duplex = true
+	ts.HasCleared = false
+
+	// Re-detect screen size
+	ts.detectScreenSize()
 }

@@ -917,15 +917,29 @@ func (ps *PawScript) RegisterSystemLib(scriptArgs []string) {
 	// cursor - get/set cursor position and appearance
 	// Named args: xbase, ybase, rows, cols, indent, head (sticky - set once)
 	//             x/col, y/row (position), h/v (relative movement)
-	//             visible, shape, blink, color, free
+	//             visible, shape, blink, color, free, duplex, reset
 	// Returns: list with screen_rows, screen_cols, x, y, row, col, and settings
 	ps.RegisterCommand("cursor", func(ctx *Context) Result {
 		ts := ps.terminalState
 		ts.mu.Lock()
 		defer ts.mu.Unlock()
 
+		// Handle reset FIRST, before any other processing
+		// This resets terminal to initial state (like tput reset)
+		if v, ok := ctx.NamedArgs["reset"]; ok && isTruthy(v) {
+			ts.ResetTerminal()
+		}
+
 		// Re-detect screen size each time for accuracy
 		ts.detectScreenSize()
+
+		// Process duplex (echo) setting
+		if duplex, ok := ctx.NamedArgs["duplex"]; ok {
+			enabled := isTruthy(duplex)
+			ts.mu.Unlock()
+			ts.SetDuplex(enabled)
+			ts.mu.Lock()
+		}
 
 		// Process sticky region parameters
 		if xbase, ok := ctx.NamedArgs["xbase"]; ok {
@@ -1074,6 +1088,7 @@ func (ps *PawScript) RegisterSystemLib(scriptArgs []string) {
 			"shape":       ts.Shape,
 			"blink":       ts.Blink,
 			"color":       int64(ts.Color),
+			"duplex":      ts.Duplex,
 		}
 
 		// Positional items: screen_rows, screen_cols, x, y, phys_x, phys_y
