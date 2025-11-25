@@ -427,8 +427,20 @@ func (e *Executor) substituteTildeExpressions(str string, state *ExecutionState,
 		// Append everything before this tilde
 		result = append(result, runes[lastEnd:tilde.StartPos]...)
 
-		// Look up the variable
+		// Look up the variable - first in local variables, then in ObjectsModule
 		value, exists := state.GetVariable(tilde.VarName)
+		if !exists && state.moduleEnv != nil {
+			// Fallback: check ObjectsModule and ObjectsInherited
+			state.moduleEnv.mu.RLock()
+			if obj, found := state.moduleEnv.ObjectsModule[tilde.VarName]; found {
+				value = obj
+				exists = true
+			} else if obj, found := state.moduleEnv.ObjectsInherited[tilde.VarName]; found {
+				value = obj
+				exists = true
+			}
+			state.moduleEnv.mu.RUnlock()
+		}
 		if exists {
 			// Resolve any object markers to get display value
 			resolved := e.resolveValue(value)
@@ -625,12 +637,15 @@ func (e *Executor) findAllTildeLocations(str string) []*TildeLocation {
 			tildeStart := i
 			i++ // Move past the tilde
 
-			// Collect variable name characters (letters, digits, underscore)
+			// Collect variable name characters (letters, digits, underscore, or # prefix)
+			// The # prefix is allowed for ObjectsModule items like #stdin, #stdout
 			varStart := i
+			isFirst := true
 			for i < len(runes) {
 				c := runes[i]
-				if unicode.IsLetter(c) || unicode.IsDigit(c) || c == '_' {
+				if unicode.IsLetter(c) || unicode.IsDigit(c) || c == '_' || (isFirst && c == '#') {
 					i++
+					isFirst = false
 				} else {
 					break
 				}
