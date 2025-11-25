@@ -2,12 +2,13 @@
 
 Test 1: Initial state
 === Memory Statistics ===
-Total stored objects: 1
-Total estimated size: 232 bytes
+Total stored objects: 2
+Total estimated size: 464 bytes
 
 ID    Type      RefCount  Size(bytes)
 ----  --------  --------  -----------
 1     string    1         232
+2     string    1         232
 Expected: 0 objects
 
 Test 2: str_upper with small string
@@ -28,7 +29,7 @@ Total estimated size: 464 bytes
 ID    Type      RefCount  Size(bytes)
 ----  --------  --------  -----------
 1     string    1         232
-2     string    1         232
+3     string    2         232
 Expected: 2 objects (large_base + large_upper)
 
 Test 4: Clear str_upper results
@@ -59,7 +60,7 @@ Total estimated size: 464 bytes
 ID    Type      RefCount  Size(bytes)
 ----  --------  --------  -----------
 1     string    1         232
-3     string    1         232
+4     string    2         232
 Expected: 2 objects (large_base + large_lower)
 
 Test 7: Clear str_lower results
@@ -90,8 +91,8 @@ Total estimated size: 702 bytes
 ID    Type      RefCount  Size(bytes)
 ----  --------  --------  -----------
 1     string    1         232
-4     string    1         238
-5     string    1         232
+5     string    1         238
+7     string    2         232
 Expected: 3 objects (large_base + padded_large + large_trim)
 
 Test 10: Clear trim results
@@ -162,7 +163,7 @@ Total estimated size: 464 bytes
 ID    Type      RefCount  Size(bytes)
 ----  --------  --------  -----------
 1     string    1         232
-6     string    1         232
+8     string    2         232
 Expected: 2 objects (large_base + large_replace)
 
 Test 17: Clear replace results
@@ -193,7 +194,7 @@ Total estimated size: 498 bytes
 ID    Type      RefCount  Size(bytes)
 ----  --------  --------  -----------
 1     string    1         232
-7     string    1         266
+9     string    2         266
 Expected: 2 objects (large_base + large_repeat of 250 chars)
 
 Test 20: Clear str_repeat results
@@ -224,7 +225,7 @@ Total estimated size: 453 bytes
 ID    Type      RefCount  Size(bytes)
 ----  --------  --------  -----------
 1     string    1         232
-8     string    1         221
+10    string    2         221
 Expected: 2 objects (large_base + large_slice)
 
 Test 23: Clear slice results
@@ -245,7 +246,7 @@ Total estimated size: 307 bytes
 ID    Type      RefCount  Size(bytes)
 ----  --------  --------  -----------
 1     string    1         232
-9     list      1         75
+11    list      1         75
 Expected: 2 objects (large_base + items list)
 
 Test 25: join large result
@@ -256,9 +257,9 @@ Total estimated size: 828 bytes
 ID    Type      RefCount  Size(bytes)
 ----  --------  --------  -----------
 1     string    3         232
-9     list      1         75
-10    list      1         70
-11    string    1         451
+11    list      1         75
+12    list      1         70
+13    string    2         451
 Expected: 4 objects (large_base + items + big_items + large_join)
 
 Test 26: Clear join results

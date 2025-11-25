@@ -7,8 +7,8 @@ Total estimated size: 75 bytes
 
 ID    Type      RefCount  Size(bytes)
 ----  --------  --------  -----------
-1     list      1         75
-Expected: 1 list with refcount=1
+1     list      2         75
+Expected: 1 list with refcount=2 (list1 + result from assignment)
 
 Test 2: Multiple variables referencing same list
 === Memory Statistics ===
@@ -17,10 +17,10 @@ Total estimated size: 75 bytes
 
 ID    Type      RefCount  Size(bytes)
 ----  --------  --------  -----------
-1     list      2         75
-Expected: 1 list with refcount=2 (list1 and list2 both reference it)
+1     list      3         75
+Expected: 1 list with refcount=3 (list1 + list2 + result)
 
-Test 3: Clear one reference
+Test 3: Clear one reference with nil (also clears result)
 === Memory Statistics ===
 Total stored objects: 1
 Total estimated size: 75 bytes
@@ -28,7 +28,7 @@ Total estimated size: 75 bytes
 ID    Type      RefCount  Size(bytes)
 ----  --------  --------  -----------
 1     list      1         75
-Expected: 1 list with refcount=1 (only list2 references it)
+Expected: 1 list with refcount=1 (only list2; nil assignment cleared result)
 
 Test 4: Clear last reference
 === Memory Statistics ===
@@ -39,13 +39,14 @@ Expected: 0 lists (freed when last reference cleared)
 
 Test 5: Large string with multiple references
 === Memory Statistics ===
-Total stored objects: 1
-Total estimated size: 296 bytes
+Total stored objects: 2
+Total estimated size: 592 bytes
 
 ID    Type      RefCount  Size(bytes)
 ----  --------  --------  -----------
 2     string    1         296
-Expected: 1 string with refcount=1
+3     string    1         296
+Expected: 1 string with refcount=2 (str1 + result)
 
 Test 6: Copy string reference to another variable
 === Memory Statistics ===
@@ -54,8 +55,8 @@ Total estimated size: 296 bytes
 
 ID    Type      RefCount  Size(bytes)
 ----  --------  --------  -----------
-2     string    2         296
-Expected: 1 string with refcount=2 (str1 and str2 both reference it)
+2     string    3         296
+Expected: 1 string with refcount=3 (str1 + str2 + result)
 
 Test 7: Copy to third variable
 === Memory Statistics ===
@@ -64,8 +65,8 @@ Total estimated size: 296 bytes
 
 ID    Type      RefCount  Size(bytes)
 ----  --------  --------  -----------
-2     string    3         296
-Expected: 1 string with refcount=3 (str1, str2, str3 all reference it)
+2     string    4         296
+Expected: 1 string with refcount=4 (str1 + str2 + str3 + result)
 
 Test 8: Clear middle reference
 === Memory Statistics ===
@@ -75,7 +76,7 @@ Total estimated size: 296 bytes
 ID    Type      RefCount  Size(bytes)
 ----  --------  --------  -----------
 2     string    2         296
-Expected: 1 string with refcount=2 (str1 and str3 still reference it)
+Expected: 1 string with refcount=2 (str1 + str3; result now holds nil)
 
 Test 9: Clear remaining references
 === Memory Statistics ===
@@ -86,13 +87,14 @@ Expected: 0 objects (string freed)
 
 Test 10: Large block with multiple references
 === Memory Statistics ===
-Total stored objects: 1
-Total estimated size: 572 bytes
+Total stored objects: 2
+Total estimated size: 1144 bytes
 
 ID    Type      RefCount  Size(bytes)
 ----  --------  --------  -----------
-3     block     1         572
-Expected: 1 block with refcount=1
+4     block     1         572
+5     block     1         572
+Expected: 1 block with refcount=2 (block1 + result)
 
 Test 11: Share block across variables
 === Memory Statistics ===
@@ -101,8 +103,8 @@ Total estimated size: 572 bytes
 
 ID    Type      RefCount  Size(bytes)
 ----  --------  --------  -----------
-3     block     3         572
-Expected: 1 block with refcount=3 (block1, block2, block3)
+4     block     4         572
+Expected: 1 block with refcount=4 (block1 + block2 + block3 + result)
 
 Test 12: Clear all block references
 === Memory Statistics ===
@@ -118,10 +120,10 @@ Total estimated size: 221 bytes
 
 ID    Type      RefCount  Size(bytes)
 ----  --------  --------  -----------
-4     list      3         75
-5     list      1         73
-6     list      1         73
-Expected: 3 lists - inner (refcount=3), outer1 (refcount=1), outer2 (refcount=1)
+6     list      3         75
+7     list      1         73
+8     list      2         73
+Expected: 3 lists - inner (refcount=3), outer1 (refcount=1), outer2 (refcount=2 with result)
 
 Test 14: Clear outer lists but keep inner
 === Memory Statistics ===
@@ -130,7 +132,7 @@ Total estimated size: 75 bytes
 
 ID    Type      RefCount  Size(bytes)
 ----  --------  --------  -----------
-4     list      1         75
+6     list      1         75
 Expected: 1 list (inner) with refcount=1
 
 Test 15: Clear inner list
@@ -147,24 +149,76 @@ Total estimated size: 44 bytes
 
 ID    Type      RefCount  Size(bytes)
 ----  --------  --------  -----------
-7     list      2         44
+9     list      2         44
 Expected: 1 list with refcount=2 (mylist variable + result)
 
-Test 17: Clear variable, result still holds reference
+Test 17: Clear variable with nil (clears both variable and result)
+=== Memory Statistics ===
+Total stored objects: 0
+Total estimated size: 0 bytes
+
+Expected: 0 lists (nil assignment also sets result to nil)
+
+Test 18: Demonstrate undefined preserves result
 === Memory Statistics ===
 Total stored objects: 1
-Total estimated size: 44 bytes
+Total estimated size: 49 bytes
 
 ID    Type      RefCount  Size(bytes)
 ----  --------  --------  -----------
-7     list      1         44
-Expected: 1 list with refcount=1 (only result)
+10    list      2         49
+Expected: 1 list with refcount=2 (mylist2 + result)
 
-Test 18: Clear result
+Test 19: Delete variable with undefined (preserves result)
+=== Memory Statistics ===
+Total stored objects: 1
+Total estimated size: 49 bytes
+
+ID    Type      RefCount  Size(bytes)
+----  --------  --------  -----------
+10    list      1         49
+Expected: 1 list with refcount=1 (only result; undefined leaves result intact)
+
+Test 20: Clear result after undefined
+=== Memory Statistics ===
+Total stored objects: 0
+Total estimated size: 0 bytes
+
+Expected: 0 lists (result cleared, list freed)
+
+Test 21: Compare nil vs undefined - nil clears result
+Before nil assignment:
+=== Memory Statistics ===
+Total stored objects: 1
+Total estimated size: 51 bytes
+
+ID    Type      RefCount  Size(bytes)
+----  --------  --------  -----------
+11    list      2         51
+After nil assignment (result also cleared):
 === Memory Statistics ===
 Total stored objects: 0
 Total estimated size: 0 bytes
 
 Expected: 0 lists
+
+Test 22: Compare nil vs undefined - undefined preserves result
+Before undefined assignment:
+=== Memory Statistics ===
+Total stored objects: 1
+Total estimated size: 57 bytes
+
+ID    Type      RefCount  Size(bytes)
+----  --------  --------  -----------
+12    list      2         57
+After undefined assignment (result preserved):
+=== Memory Statistics ===
+Total stored objects: 1
+Total estimated size: 57 bytes
+
+ID    Type      RefCount  Size(bytes)
+----  --------  --------  -----------
+12    list      1         57
+Expected: 1 list with refcount=1 (only result)
 
 === Test Complete ===
