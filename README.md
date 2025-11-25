@@ -5,15 +5,16 @@ general purpose scripting, but built with application integration in mind.
 
 ## Features
 
-- **Cross-Platform**: Built natively for arm64 or x86_64 on any of macOS, Linux, and MS-Windows, and also for WebAssembly (Node or Browser)
-- **Complex Command Syntax**: Support for sequences (`;`), conditionals (`&`), and alternatives (`|`)
-- **Token-Based Suspension**: Pause and resume command execution for long-running operations
-- **Macro System**: Define and execute reusable command sequences with argument substitution
-- **Syntactic Sugar**: Automatic transformation of convenient syntax patterns
-- **Brace Expressions**: Execute commands within `{...}` and substitute results
-- **Thread-Safe**: All operations are safe for concurrent use
-- **Host Agnostic**: Clean interface for integration with any application
-- **Command Line Tool**: Execute PawScript files directly from the command line
+- **Cross-Platform**: Native builds for arm64/x86_64 on macOS, Linux, Windows, plus WebAssembly
+- **Module System**: Namespaced standard library (core::, io::, os::, math::, str::, channels::, fibers::)
+- **Fibers & Channels**: Lightweight concurrent execution with channel-based communication
+- **Token-Based Suspension**: Pause and resume execution for async operations
+- **Macro System**: Reusable command sequences with lexical scoping and argument substitution
+- **Immutable Lists**: Copy-on-write semantics with named argument support (key: value)
+- **Custom IO Channels**: Host apps can provide custom stdin/stdout/stderr handlers
+- **Brace Expressions**: Inline command evaluation with `{...}` substitution
+- **Thread-Safe**: All operations safe for concurrent use
+- **Host Integration**: Clean API for embedding in applications
 
 ## Installation
 
@@ -33,16 +34,33 @@ Contributions are welcome! Please ensure:
 
 ## Architecture
 
-The implementation consists of:
+Core components in `src/`:
 
-- **types.go**: Core type definitions
-- **state.go**: Execution state management
-- **logger.go**: Logging with position tracking
+- **pawscript.go**: Main API and PawScript instance
+- **types.go**: Core type definitions (StoredList, StoredChannel, StoredMacro, etc.)
 - **parser.go**: Command parsing with source mapping
-- **macro.go**: Macro system
-- **executor.go** / **executor2.go**: Command execution engine
-- **pawscript.go**: Main API
-- **stdlib.go**: Standard library commands
+- **executor_*.go**: Execution engine (core, commands, tokens, resolution, substitution, formatting)
+- **state.go**: Execution state and variable management
+- **module.go**: Module environment with copy-on-write semantics
+- **macro.go**: Macro system with lexical scoping
+- **channel.go**: Channel implementation for inter-fiber communication
+- **fiber.go**: Fiber system for concurrent execution
+
+Standard library in `src/lib_*.go`:
+
+- **lib_core.go**: core::, macros::, flow::, debug:: modules
+- **lib_math.go**: math::, cmp:: modules
+- **lib_types.go**: strlist::, str:: modules
+- **lib_system.go**: os::, io::, sys:: modules
+- **lib_channels.go**: channels:: module
+- **lib_fibers.go**: fibers:: module
+
+Supporting files:
+
+- **stdlib.go**: Library registration and helpers
+- **io_channels.go**: Native IO channel setup (with custom handler support)
+- **os_args.go**: Script argument handling
+- **logger.go**: Logging with position tracking
 - **cmd/paw/main.go**: CLI tool
 
 ## Examples
