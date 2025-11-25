@@ -620,7 +620,9 @@ func parseArguments(argsStr string) ([]interface{}, map[string]interface{}) {
 			// potentialString was never confirmed - error, revert to original
 			// For now, just use originalItem
 			args = append(args, originalItem)
-		} else if currentValue != nil {
+		} else {
+			// Always append - even if currentValue is nil (the PawScript nil literal)
+			// We know we have a valid value because currentType != unitNone
 			args = append(args, currentValue)
 		}
 		currentValue = nil
