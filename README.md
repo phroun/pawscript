@@ -69,6 +69,17 @@ See the `examples/` directory for sample scripts and usage patterns.
 
 ## Changelog
 
+### 0.2.5 -- November 24, 2025
+- Module environment with copy-on-write semantics for macro/fiber isolation
+- Native IO channels: `io::#stdin`, `#stdout`, `#stderr`, `#stdio` (and short aliases `#in`, `#out`, `#err`, `#io`)
+- Host applications can provide custom IO channel handlers via `RegisterStandardLibraryWithIO()`
+- `#-prefixed` symbols auto-resolve: local variables first, then module objects
+- `include` command for sourcing files, with optional selective imports
+- `os::#args` provides script arguments as a StoredList; `argc`/`argv` use it by default
+- `x: undefined` syntax deletes a variable from local scope
+- `echo`, `print`, `write`, `read` moved to io:: module with channel selection
+- Reorganized standard library into modular source files
+
 ### 0.2.4 -- November 23, 2025
 - Commands/macros now support named arguments, separated by colon.
 - Lists can now function as a key:value store (map/dictionary/hash-table)
