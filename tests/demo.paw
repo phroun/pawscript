@@ -253,7 +253,7 @@ macro complex_demo(
     true & (
         echo "Phase 1 complete" &
         echo "Phase 2 starting" &
-        echo "Result: {set_result $1 processed}"
+        echo "Result: {set_result "$1 processed"}"
     ) | echo "Something went wrong";
     echo "Demo complete"
 )
@@ -332,7 +332,7 @@ macro validate_and_process(
     true & (
         echo "Validation passed" &
         echo "Processing $1..." &
-        echo "Result: {echo $1 processed}"
+        echo "Result: {echo "$1 processed"}"
     ) | (
         echo "Validation failed for $1" &
         echo "Using default processing"

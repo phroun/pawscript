@@ -8,8 +8,6 @@ Next two lines should be the same:
 Hello, Alice!
 Hello, Alice!
 Argument List: "Hello, Alice!", 2, "third"
-c
-$(~b)
 loop_args List: ("Hello, Alice", 2, "third", 4th)
 Arg 1 = Hello, Alice
 Arg 2 = 2

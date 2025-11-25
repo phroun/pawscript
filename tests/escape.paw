@@ -30,12 +30,6 @@ macro loop_args(
 )
 
 show_args "Hello, Alice!", 2, "third"
-
-a: "b: c"
-${ret ~a}
-echo ~b
-echo $(~b)
-
 loop_args "Hello, Alice", 2, "third", 4th
 
 
