@@ -13,6 +13,48 @@ import (
 
 var version = "dev" // set via -ldflags at build time
 
+// ANSI color codes for terminal output
+const (
+	colorYellow = "\x1b[93m" // Bright yellow foreground
+	colorReset  = "\x1b[0m"  // Reset to default
+)
+
+// stderrSupportsColor checks if stderr is a terminal that supports color output
+// Returns true if we should use ANSI color codes
+func stderrSupportsColor() bool {
+	// Check if stderr is a terminal (not redirected/piped)
+	stderrInfo, err := os.Stderr.Stat()
+	if err != nil {
+		return false
+	}
+	// ModeCharDevice indicates a terminal
+	if (stderrInfo.Mode() & os.ModeCharDevice) == 0 {
+		return false
+	}
+
+	// Respect NO_COLOR environment variable (https://no-color.org/)
+	if _, exists := os.LookupEnv("NO_COLOR"); exists {
+		return false
+	}
+
+	// Check TERM isn't "dumb" (which doesn't support colors)
+	if term := os.Getenv("TERM"); term == "dumb" {
+		return false
+	}
+
+	return true
+}
+
+// errorPrintf prints an error message to stderr, using color if supported
+func errorPrintf(format string, args ...interface{}) {
+	message := fmt.Sprintf(format, args...)
+	if stderrSupportsColor() {
+		fmt.Fprintf(os.Stderr, "%s%s%s", colorYellow, message, colorReset)
+	} else {
+		fmt.Fprint(os.Stderr, message)
+	}
+}
+
 func main() {
 
 	// Define command line flags
@@ -64,9 +106,9 @@ func main() {
 		foundFile := findScriptFile(requestedFile)
 
 		if foundFile == "" {
-			fmt.Fprintf(os.Stderr, "Error: Script file not found: %s\n", requestedFile)
+			errorPrintf("Error: Script file not found: %s\n", requestedFile)
 			if !strings.Contains(requestedFile, ".") {
-				fmt.Fprintf(os.Stderr, "Also tried: %s.paw\n", requestedFile)
+				errorPrintf("Also tried: %s.paw\n", requestedFile)
 			}
 			os.Exit(1)
 		}
@@ -75,7 +117,7 @@ func main() {
 
 		content, err := os.ReadFile(scriptFile)
 		if err != nil {
-			fmt.Fprintf(os.Stderr, "Error reading script file: %v\n", err)
+			errorPrintf("Error reading script file: %v\n", err)
 			os.Exit(1)
 		}
 		scriptContent = string(content)
@@ -89,7 +131,7 @@ func main() {
 		// No filename, but stdin is redirected - read from stdin
 		content, err := io.ReadAll(os.Stdin)
 		if err != nil {
-			fmt.Fprintf(os.Stderr, "Error reading from stdin: %v\n", err)
+			errorPrintf("Error reading from stdin: %v\n", err)
 			os.Exit(1)
 		}
 		scriptContent = string(content)
@@ -142,7 +184,7 @@ func main() {
 		for {
 			select {
 			case <-timeout:
-				fmt.Fprintf(os.Stderr, "Timeout waiting for async operations to complete\n")
+				errorPrintf("Timeout waiting for async operations to complete\n")
 				os.Exit(1)
 			case <-ticker.C:
 				// Check if there are still active tokens

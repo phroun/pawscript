@@ -41,8 +41,11 @@ type Context struct {
 	resumeToken  func(tokenID string, status bool) bool
 }
 
-// LogError logs a command error with position
+// LogError logs a command error with position, routing through execution state channels
 func (c *Context) LogError(cat LogCategory, message string) {
+	// Set output context for channel routing
+	c.logger.SetOutputContext(NewOutputContext(c.state, c.executor))
+	defer c.logger.ClearOutputContext()
 	c.logger.CommandError(cat, "", message, c.Position)
 }
 
