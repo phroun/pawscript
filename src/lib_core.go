@@ -677,7 +677,7 @@ func (ps *PawScript) RegisterCoreLib() {
 		}
 
 		// Library modules
-		output.WriteString("\n--- Library Modules ---\n")
+		output.WriteString(fmt.Sprintf("\n--- Library Modules (%d) ---\n", len(env.LibraryRestricted)))
 		if len(env.LibraryRestricted) == 0 {
 			output.WriteString("  (none)\n")
 		} else {
@@ -695,7 +695,7 @@ func (ps *PawScript) RegisterCoreLib() {
 					itemNames = append(itemNames, itemName)
 				}
 				sort.Strings(itemNames)
-				output.WriteString(fmt.Sprintf("  %s: %s\n", modName, strings.Join(itemNames, ", ")))
+				output.WriteString(fmt.Sprintf("  %s:: %s\n", modName, strings.Join(itemNames, ", ")))
 			}
 		}
 
@@ -709,7 +709,7 @@ func (ps *PawScript) RegisterCoreLib() {
 				effectiveCommands[name] = true
 			}
 		}
-		output.WriteString("\n--- Commands ---\n")
+		output.WriteString(fmt.Sprintf("\n--- Commands (%d) ---\n", len(effectiveCommands)))
 		if len(effectiveCommands) == 0 {
 			output.WriteString("  (none)\n")
 		} else {
@@ -746,7 +746,7 @@ func (ps *PawScript) RegisterCoreLib() {
 				effectiveMacros[name] = true
 			}
 		}
-		output.WriteString("\n--- Macros ---\n")
+		output.WriteString(fmt.Sprintf("\n--- Macros (%d) ---\n", len(effectiveMacros)))
 		if len(effectiveMacros) == 0 {
 			output.WriteString("  (none)\n")
 		} else {
@@ -782,7 +782,7 @@ func (ps *PawScript) RegisterCoreLib() {
 				effectiveObjects[name] = true
 			}
 		}
-		output.WriteString("\n--- Objects ---\n")
+		output.WriteString(fmt.Sprintf("\n--- Objects (%d) ---\n", len(effectiveObjects)))
 		if len(effectiveObjects) == 0 {
 			output.WriteString("  (none)\n")
 		} else {
@@ -809,7 +809,7 @@ func (ps *PawScript) RegisterCoreLib() {
 		}
 
 		// Module exports
-		output.WriteString("\n--- Exports ---\n")
+		output.WriteString(fmt.Sprintf("\n--- Exports (%d) ---\n", len(env.ModuleExports)))
 		if len(env.ModuleExports) == 0 {
 			output.WriteString("  (none)\n")
 		} else {
@@ -826,12 +826,12 @@ func (ps *PawScript) RegisterCoreLib() {
 					itemNames = append(itemNames, itemName)
 				}
 				sort.Strings(itemNames)
-				output.WriteString(fmt.Sprintf("  %s: %s\n", modName, strings.Join(itemNames, ", ")))
+				output.WriteString(fmt.Sprintf("  %s:: %s\n", modName, strings.Join(itemNames, ", ")))
 			}
 		}
 
 		// Imported items
-		output.WriteString("\n--- Imported ---\n")
+		output.WriteString(fmt.Sprintf("\n--- Imported (%d) ---\n", len(env.ImportedFrom)))
 		if len(env.ImportedFrom) == 0 {
 			output.WriteString("  (none)\n")
 		} else {
