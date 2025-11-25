@@ -577,191 +577,332 @@ func ParseCommand(commandStr string) (string, []interface{}, map[string]interfac
 	return command, args, namedArgs
 }
 
+// argUnitType represents the type of a parsed argument unit
+type argUnitType int
+
+const (
+	unitNone argUnitType = iota
+	unitString
+	unitNumber
+	unitSymbol
+	unitNil
+	unitBool
+	unitParen
+	unitBrace
+	unitComplex // object markers, etc.
+)
+
 // parseArguments parses argument string into slice of positional args and named args
+// Implements concatenation rules for adjacent units without commas
 func parseArguments(argsStr string) ([]interface{}, map[string]interface{}) {
 	var args []interface{}
 	namedArgs := make(map[string]interface{})
-	var currentArg strings.Builder
-	inQuote := false
-	var quoteChar rune
-	parenCount := 0
-	braceCount := 0
 
 	runes := []rune(argsStr)
 	i := 0
 
+	// State for combination rules
+	var currentValue interface{}
+	var currentType argUnitType
+	var potentialString bool
+	var originalItem interface{}
+	var lastWasNumber bool
+	var sugar bool
+	var pendingPositional strings.Builder // For tracking invalid positional after paren without comma
+	var hasPendingPositional bool
+
+	// Helper to finalize current argument
+	finalizeArg := func() {
+		if currentType == unitNone {
+			return
+		}
+		if potentialString {
+			// potentialString was never confirmed - error, revert to original
+			// For now, just use originalItem
+			args = append(args, originalItem)
+		} else if currentValue != nil {
+			args = append(args, currentValue)
+		}
+		currentValue = nil
+		currentType = unitNone
+		potentialString = false
+		originalItem = nil
+		lastWasNumber = false
+	}
+
+	// Helper to get string representation for concatenation
+	valueToString := func(v interface{}) string {
+		switch val := v.(type) {
+		case QuotedString:
+			return string(val)
+		case string:
+			return val
+		case Symbol:
+			return "<" + string(val) + ">"
+		case int64:
+			return strconv.FormatInt(val, 10)
+		case float64:
+			return strconv.FormatFloat(val, 'f', -1, 64)
+		case bool:
+			if val {
+				return "<true>"
+			}
+			return "<false>"
+		case nil:
+			return "<nil>"
+		default:
+			return fmt.Sprintf("%v", val)
+		}
+	}
+
+	// Helper to combine a new unit with current state
+	combineUnit := func(newValue interface{}, newType argUnitType) bool {
+		// Check for pending positional (after paren without comma)
+		if hasPendingPositional {
+			if newType != unitNone {
+				// More positional content - accumulate for later error
+				pendingPositional.WriteString(valueToString(newValue))
+				return true
+			}
+			return true
+		}
+
+		// If sugar is set, only named args allowed - positional is error
+		if sugar && newType != unitNone {
+			// This will be caught when we try to finalize
+			// For now, just discard
+			return true
+		}
+
+		if currentType == unitNone {
+			// First unit
+			currentValue = newValue
+			currentType = newType
+			return true
+		}
+
+		// Apply combination rules based on current type
+		switch currentType {
+		case unitString:
+			// String + something
+			switch newType {
+			case unitString:
+				// Concatenate strings
+				s1 := valueToString(currentValue)
+				s2 := valueToString(newValue)
+				currentValue = QuotedString(s1 + s2)
+				lastWasNumber = false
+			case unitNumber:
+				// Concatenate number, track lastWasNumber
+				s := valueToString(currentValue)
+				if lastWasNumber {
+					s += "; "
+				}
+				s += valueToString(newValue)
+				currentValue = QuotedString(s)
+				lastWasNumber = true
+			case unitSymbol, unitNil, unitBool:
+				// Concatenate with angle brackets
+				s := valueToString(currentValue)
+				s += valueToString(newValue) // valueToString already adds <>
+				currentValue = QuotedString(s)
+				lastWasNumber = false
+			case unitParen:
+				// Imply comma, start new arg, set sugar
+				finalizeArg()
+				currentValue = newValue
+				currentType = newType
+				sugar = true
+			case unitComplex:
+				// Error, discard
+				lastWasNumber = false
+				return false
+			}
+
+		case unitNumber, unitSymbol, unitNil, unitBool:
+			// Number/Symbol/nil/bool + something
+			switch newType {
+			case unitString:
+				// Convert to string with angle brackets for first item
+				s := valueToString(currentValue) + valueToString(newValue)
+				// Remove the angle brackets from the string part
+				if qs, ok := newValue.(QuotedString); ok {
+					s = valueToString(currentValue) + string(qs)
+				}
+				currentValue = QuotedString(s)
+				currentType = unitString
+				potentialString = false // Confirmed as string
+				lastWasNumber = false
+			case unitNumber, unitSymbol, unitNil, unitBool:
+				// Enter or continue potentialString mode
+				if !potentialString {
+					potentialString = true
+					originalItem = currentValue
+				}
+				// Build string
+				s := valueToString(currentValue)
+				if lastWasNumber && newType == unitNumber {
+					s += "; "
+				}
+				s += valueToString(newValue)
+				currentValue = QuotedString(s)
+				currentType = unitString // Treat as string for further combinations
+				lastWasNumber = (newType == unitNumber)
+			case unitParen:
+				if currentType == unitSymbol {
+					// Symbol + paren: symbol becomes string, imply comma, paren is block
+					strVal := QuotedString(string(currentValue.(Symbol)))
+					finalizeArg()
+					args = append(args, strVal)
+					currentValue = newValue
+					currentType = newType
+					sugar = true
+				} else {
+					// Other types + paren: error if potentialString, else just error
+					if potentialString {
+						// Revert to original
+						args = append(args, originalItem)
+						currentValue = nil
+						currentType = unitNone
+						potentialString = false
+						originalItem = nil
+					}
+					return false
+				}
+			case unitComplex:
+				// Error
+				if potentialString {
+					args = append(args, originalItem)
+					currentValue = nil
+					currentType = unitNone
+					potentialString = false
+					originalItem = nil
+				}
+				return false
+			}
+
+		case unitParen:
+			// Paren + something (without comma) - only named args allowed
+			if newType != unitNone {
+				// Start tracking pending positional for error
+				hasPendingPositional = true
+				pendingPositional.WriteString(valueToString(newValue))
+			}
+
+		case unitComplex:
+			// Complex objects can't combine
+			return false
+		}
+
+		return true
+	}
+
+	// Skip leading whitespace
+	for i < len(runes) && unicode.IsSpace(runes[i]) {
+		i++
+	}
+
 	for i < len(runes) {
 		char := runes[i]
 
-		// Skip object markers (\x00...\x00) - they may contain colons
-		if char == '\x00' {
-			// Write the opening \x00
-			currentArg.WriteRune(char)
+		// Skip whitespace (but not as part of parsing a unit)
+		if unicode.IsSpace(char) {
 			i++
-			// Find and write everything up to the closing \x00
-			for i < len(runes) && runes[i] != '\x00' {
-				currentArg.WriteRune(runes[i])
+			continue
+		}
+
+		// Check for comma - explicit argument separator
+		if char == ',' {
+			// Check for pending positional error
+			if hasPendingPositional {
+				// Error: positional after paren without comma
+				// Discard pending, continue
+				hasPendingPositional = false
+				pendingPositional.Reset()
+			}
+			finalizeArg()
+			sugar = false // Comma resets sugar for subsequent args... actually no, sugar persists
+			// Actually re-reading: after sugar=true, only named args allowed
+			// But comma should still finalize current arg
+			i++
+			// Skip whitespace after comma
+			for i < len(runes) && unicode.IsSpace(runes[i]) {
 				i++
 			}
-			// Write the closing \x00 if we found it
-			if i < len(runes) {
-				currentArg.WriteRune(runes[i])
-				i++
+			continue
+		}
+
+		// Check for colon - key:value separator
+		if char == ':' {
+			// Check for pending positional error
+			if hasPendingPositional {
+				hasPendingPositional = false
+				pendingPositional.Reset()
 			}
-			continue
-		}
+			// Current value becomes key
+			if potentialString {
+				// Error state - can't use as key
+				currentValue = originalItem
+				potentialString = false
+			}
+			key := currentValue
+			currentValue = nil
+			currentType = unitNone
 
-		if char == '\\' && i+1 < len(runes) {
-			currentArg.WriteRune(char)
-			currentArg.WriteRune(runes[i+1])
-			i += 2
-			continue
-		}
-
-		if !inQuote && (char == '"' || char == '\'') {
-			inQuote = true
-			quoteChar = char
-			currentArg.WriteRune(char)
 			i++
-			continue
-		}
-
-		if inQuote && char == quoteChar {
-			inQuote = false
-			quoteChar = 0
-			currentArg.WriteRune(char)
-			i++
-			continue
-		}
-
-		if !inQuote && char == '(' {
-			parenCount++
-			currentArg.WriteRune(char)
-			i++
-			continue
-		}
-
-		if !inQuote && char == ')' {
-			parenCount--
-			currentArg.WriteRune(char)
-			i++
-			continue
-		}
-
-		if !inQuote && char == '{' {
-			braceCount++
-			currentArg.WriteRune(char)
-			i++
-			continue
-		}
-
-		if !inQuote && char == '}' {
-			braceCount--
-			currentArg.WriteRune(char)
-			i++
-			continue
-		}
-
-		// Check for top-level colon (not inside quotes, parens, or braces, and not escaped)
-		if !inQuote && parenCount == 0 && braceCount == 0 && char == ':' {
-			// The value to the left becomes the key
-			key := parseArgumentValue(strings.TrimSpace(currentArg.String()))
-			currentArg.Reset()
-			
 			// Skip whitespace after colon
-			for i+1 < len(runes) && unicode.IsSpace(runes[i+1]) {
+			for i < len(runes) && unicode.IsSpace(runes[i]) {
 				i++
 			}
-			i++
-			
-			// Parse the value until we hit a comma or end of string
-			var valueArg strings.Builder
-			valueParenCount := 0
-			valueBraceCount := 0
-			valueInQuote := false
-			var valueQuoteChar rune
-			
+
+			// Parse value using same rules
+			var valueBuilder []interface{}
+			var valType argUnitType
+			var valPotentialString bool
+			var valOriginalItem interface{}
+			var valLastWasNumber bool
+			var valCurrent interface{}
+
+			// Parse value until comma or end
 			for i < len(runes) {
-				valueChar := runes[i]
-				
-				// Skip object markers (\x00...\x00) in values too
-				if valueChar == '\x00' {
-					valueArg.WriteRune(valueChar)
-					i++
-					for i < len(runes) && runes[i] != '\x00' {
-						valueArg.WriteRune(runes[i])
-						i++
-					}
-					if i < len(runes) {
-						valueArg.WriteRune(runes[i])
-						i++
-					}
-					continue
-				}
-				
-				if valueChar == '\\' && i+1 < len(runes) {
-					valueArg.WriteRune(valueChar)
-					valueArg.WriteRune(runes[i+1])
-					i += 2
-					continue
-				}
-				
-				if !valueInQuote && (valueChar == '"' || valueChar == '\'') {
-					valueInQuote = true
-					valueQuoteChar = valueChar
-					valueArg.WriteRune(valueChar)
+				vc := runes[i]
+				if unicode.IsSpace(vc) {
 					i++
 					continue
 				}
-				
-				if valueInQuote && valueChar == valueQuoteChar {
-					valueInQuote = false
-					valueQuoteChar = 0
-					valueArg.WriteRune(valueChar)
-					i++
-					continue
-				}
-				
-				if !valueInQuote && valueChar == '(' {
-					valueParenCount++
-					valueArg.WriteRune(valueChar)
-					i++
-					continue
-				}
-				
-				if !valueInQuote && valueChar == ')' {
-					valueParenCount--
-					valueArg.WriteRune(valueChar)
-					i++
-					continue
-				}
-				
-				if !valueInQuote && valueChar == '{' {
-					valueBraceCount++
-					valueArg.WriteRune(valueChar)
-					i++
-					continue
-				}
-				
-				if !valueInQuote && valueChar == '}' {
-					valueBraceCount--
-					valueArg.WriteRune(valueChar)
-					i++
-					continue
-				}
-				
-				// Check for comma at top level - this ends the value
-				if !valueInQuote && valueParenCount == 0 && valueBraceCount == 0 && valueChar == ',' {
+				if vc == ',' {
 					break
 				}
-				
-				valueArg.WriteRune(valueChar)
-				i++
+
+				// Parse next unit for value
+				unit, utype, newI := parseNextUnit(runes, i)
+				if newI == i {
+					// No progress, skip char
+					i++
+					continue
+				}
+				i = newI
+
+				// Apply combination rules for value
+				if valType == unitNone {
+					valCurrent = unit
+					valType = utype
+				} else {
+					// Combine following similar rules
+					valCurrent, valType, valPotentialString, valOriginalItem, valLastWasNumber = combineValueUnit(
+						valCurrent, valType, valPotentialString, valOriginalItem, valLastWasNumber,
+						unit, utype)
+				}
 			}
-			
-			value := parseArgumentValue(strings.TrimSpace(valueArg.String()))
-			
-			// Convert key to string for map storage
+
+			// Finalize value
+			finalValue := valCurrent
+			if valPotentialString {
+				finalValue = valOriginalItem
+			}
+			_ = valLastWasNumber // silence unused warning
+
+			// Convert key to string
 			keyStr := ""
 			switch k := key.(type) {
 			case string:
@@ -772,50 +913,334 @@ func parseArguments(argsStr string) ([]interface{}, map[string]interface{}) {
 				keyStr = string(k)
 			case ParenGroup:
 				keyStr = string(k)
+			case int64:
+				keyStr = strconv.FormatInt(k, 10)
+			case float64:
+				keyStr = strconv.FormatFloat(k, 'f', -1, 64)
 			default:
-				// For other types, use fmt.Sprint
-				keyStr = fmt.Sprint(k)
+				if k != nil {
+					keyStr = fmt.Sprint(k)
+				}
 			}
-			
-			namedArgs[keyStr] = value
-			
+
+			if keyStr != "" {
+				namedArgs[keyStr] = finalValue
+			}
+			_ = valueBuilder // silence unused
+
 			// Skip comma if present
 			if i < len(runes) && runes[i] == ',' {
-				// Skip whitespace after comma
-				for i+1 < len(runes) && unicode.IsSpace(runes[i+1]) {
+				i++
+				for i < len(runes) && unicode.IsSpace(runes[i]) {
 					i++
 				}
-				i++
 			}
 			continue
 		}
 
-		if !inQuote && parenCount == 0 && braceCount == 0 && char == ',' {
-			args = append(args, parseArgumentValue(strings.TrimSpace(currentArg.String())))
-			currentArg.Reset()
-
-			// Skip whitespace after comma
-			for i+1 < len(runes) && unicode.IsSpace(runes[i+1]) {
-				i++
-			}
-
+		// Parse next unit
+		unit, utype, newI := parseNextUnit(runes, i)
+		if newI == i {
+			// No progress, skip character
 			i++
 			continue
 		}
+		i = newI
 
-		currentArg.WriteRune(char)
-		i++
+		// Combine with current state
+		combineUnit(unit, utype)
 	}
 
-	trimmed := strings.TrimSpace(currentArg.String())
-	if trimmed != "" {
-		args = append(args, parseArgumentValue(trimmed))
+	// Check for pending positional error at end
+	if hasPendingPositional {
+		// Error: positional after paren without comma - discard
+		hasPendingPositional = false
+		pendingPositional.Reset()
 	}
+
+	// Finalize last argument
+	finalizeArg()
 
 	if len(namedArgs) == 0 {
 		return args, nil
 	}
 	return args, namedArgs
+}
+
+// parseNextUnit parses the next complete unit from the rune slice starting at position i
+// Returns the parsed value, its type, and the new position
+func parseNextUnit(runes []rune, i int) (interface{}, argUnitType, int) {
+	if i >= len(runes) {
+		return nil, unitNone, i
+	}
+
+	char := runes[i]
+
+	// Skip whitespace
+	for i < len(runes) && unicode.IsSpace(runes[i]) {
+		i++
+		if i >= len(runes) {
+			return nil, unitNone, i
+		}
+		char = runes[i]
+	}
+
+	// Object markers (\x00...\x00)
+	if char == '\x00' {
+		start := i
+		i++
+		for i < len(runes) && runes[i] != '\x00' {
+			i++
+		}
+		if i < len(runes) {
+			i++ // Include closing \x00
+		}
+		return string(runes[start:i]), unitComplex, i
+	}
+
+	// Quoted string
+	if char == '"' || char == '\'' {
+		quoteChar := char
+		start := i
+		i++
+		for i < len(runes) {
+			if runes[i] == '\\' && i+1 < len(runes) {
+				i += 2
+				continue
+			}
+			if runes[i] == quoteChar {
+				i++
+				break
+			}
+			i++
+		}
+		raw := string(runes[start:i])
+		if len(raw) >= 2 {
+			content := parseStringLiteral(raw[1 : len(raw)-1])
+			return QuotedString(content), unitString, i
+		}
+		return QuotedString(""), unitString, i
+	}
+
+	// Paren group
+	if char == '(' {
+		start := i
+		depth := 1
+		i++
+		inQuote := false
+		var qChar rune
+		for i < len(runes) && depth > 0 {
+			c := runes[i]
+			if c == '\\' && i+1 < len(runes) {
+				i += 2
+				continue
+			}
+			if !inQuote && (c == '"' || c == '\'') {
+				inQuote = true
+				qChar = c
+				i++
+				continue
+			}
+			if inQuote && c == qChar {
+				inQuote = false
+				i++
+				continue
+			}
+			if !inQuote {
+				if c == '(' {
+					depth++
+				} else if c == ')' {
+					depth--
+				}
+			}
+			i++
+		}
+		raw := string(runes[start:i])
+		if len(raw) >= 2 {
+			return ParenGroup(raw[1 : len(raw)-1]), unitParen, i
+		}
+		return ParenGroup(""), unitParen, i
+	}
+
+	// Brace expression (already resolved, but handle syntax)
+	if char == '{' {
+		start := i
+		depth := 1
+		i++
+		inQuote := false
+		var qChar rune
+		for i < len(runes) && depth > 0 {
+			c := runes[i]
+			if c == '\\' && i+1 < len(runes) {
+				i += 2
+				continue
+			}
+			if !inQuote && (c == '"' || c == '\'') {
+				inQuote = true
+				qChar = c
+				i++
+				continue
+			}
+			if inQuote && c == qChar {
+				inQuote = false
+				i++
+				continue
+			}
+			if !inQuote {
+				if c == '{' {
+					depth++
+				} else if c == '}' {
+					depth--
+				}
+			}
+			i++
+		}
+		raw := string(runes[start:i])
+		// Brace expressions are treated as strings (they're already resolved)
+		return QuotedString(raw), unitString, i
+	}
+
+	// Bare word (symbol, number, nil, true, false)
+	start := i
+	for i < len(runes) {
+		c := runes[i]
+		if unicode.IsSpace(c) || c == ',' || c == ':' || c == '(' || c == ')' || c == '{' || c == '}' || c == '"' || c == '\'' {
+			break
+		}
+		i++
+	}
+
+	if i == start {
+		return nil, unitNone, i
+	}
+
+	word := string(runes[start:i])
+
+	// Check for special values
+	if word == "nil" {
+		return nil, unitNil, i
+	}
+	if word == "true" {
+		return true, unitBool, i
+	}
+	if word == "false" {
+		return false, unitBool, i
+	}
+
+	// Try parsing as number
+	if num, err := strconv.ParseInt(word, 10, 64); err == nil {
+		return num, unitNumber, i
+	}
+	if num, err := strconv.ParseFloat(word, 64); err == nil {
+		return num, unitNumber, i
+	}
+
+	// It's a symbol
+	return Symbol(word), unitSymbol, i
+}
+
+// combineValueUnit applies combination rules for parsing a value (after colon)
+// Returns updated state
+func combineValueUnit(
+	current interface{}, curType argUnitType,
+	potentialString bool, originalItem interface{}, lastWasNumber bool,
+	newValue interface{}, newType argUnitType,
+) (interface{}, argUnitType, bool, interface{}, bool) {
+
+	// Helper to get string representation
+	valueToStr := func(v interface{}) string {
+		switch val := v.(type) {
+		case QuotedString:
+			return string(val)
+		case string:
+			return val
+		case Symbol:
+			return "<" + string(val) + ">"
+		case int64:
+			return strconv.FormatInt(val, 10)
+		case float64:
+			return strconv.FormatFloat(val, 'f', -1, 64)
+		case bool:
+			if val {
+				return "<true>"
+			}
+			return "<false>"
+		case nil:
+			return "<nil>"
+		default:
+			return fmt.Sprintf("%v", val)
+		}
+	}
+
+	switch curType {
+	case unitString:
+		switch newType {
+		case unitString:
+			s := valueToStr(current) + valueToStr(newValue)
+			if qs, ok := newValue.(QuotedString); ok {
+				s = valueToStr(current)
+				// For string, don't add angle brackets
+				if cs, ok := current.(QuotedString); ok {
+					s = string(cs)
+				}
+				s += string(qs)
+			}
+			return QuotedString(s), unitString, false, nil, false
+		case unitNumber:
+			s := valueToStr(current)
+			if cs, ok := current.(QuotedString); ok {
+				s = string(cs)
+			}
+			if lastWasNumber {
+				s += "; "
+			}
+			s += valueToStr(newValue)
+			return QuotedString(s), unitString, false, nil, true
+		case unitSymbol, unitNil, unitBool:
+			s := valueToStr(current)
+			if cs, ok := current.(QuotedString); ok {
+				s = string(cs)
+			}
+			s += valueToStr(newValue)
+			return QuotedString(s), unitString, false, nil, false
+		case unitParen:
+			// For values, paren just becomes part of string? Or error?
+			// Treating as separate would be weird in value context
+			// Let's treat paren in value as error/ignored
+			return current, curType, potentialString, originalItem, lastWasNumber
+		}
+
+	case unitNumber, unitSymbol, unitNil, unitBool:
+		switch newType {
+		case unitString:
+			s := valueToStr(current)
+			if qs, ok := newValue.(QuotedString); ok {
+				s += string(qs)
+			} else {
+				s += valueToStr(newValue)
+			}
+			return QuotedString(s), unitString, false, nil, false
+		case unitNumber, unitSymbol, unitNil, unitBool:
+			if !potentialString {
+				potentialString = true
+				originalItem = current
+			}
+			s := valueToStr(current)
+			if lastWasNumber && newType == unitNumber {
+				s += "; "
+			}
+			s += valueToStr(newValue)
+			return QuotedString(s), unitString, potentialString, originalItem, (newType == unitNumber)
+		case unitParen:
+			// Error in value context
+			if potentialString {
+				return originalItem, curType, false, nil, false
+			}
+			return current, curType, potentialString, originalItem, lastWasNumber
+		}
+	}
+
+	return current, curType, potentialString, originalItem, lastWasNumber
 }
 
 // parseArgumentValue parses a single argument value

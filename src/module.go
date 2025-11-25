@@ -16,11 +16,29 @@ type ModuleSection map[string]*ModuleItem // itemName -> ModuleItem
 // Library is a two-level structure: moduleName -> itemName -> ModuleItem
 type Library map[string]ModuleSection
 
-// ImportedFrom tracks metadata about imported items
-// Structure: localName -> {moduleName, originalName}
-type ImportMetadata struct {
-	ModuleName   string
+// ItemMetadata tracks comprehensive metadata about an item in the registry
+type ItemMetadata struct {
+	// Original module name as registered/loaded from disk or stdlib
+	OriginalModuleName string
+
+	// For macros/objects: source location where defined/exported
+	// For commands: empty
+	SourceFile   string
+	SourceLine   int
+	SourceColumn int
+
+	// For commands: "standard" (stdlib) or "host" (registered by host app)
+	// For macros/objects: empty
+	RegistrationSource string
+
+	// The module name it was IMPORTed from (may differ if renamed via MODULE)
+	ImportedFromModule string
+
+	// The original item name in the library (before any rename via IMPORT)
 	OriginalName string
+
+	// The item type: "command", "macro", "object"
+	ItemType string
 }
 
 // ModuleEnvironment encapsulates the module system state
@@ -49,14 +67,16 @@ type ModuleEnvironment struct {
 	// Module exports (accumulated during execution)
 	ModuleExports Library
 
-	// Import metadata for REMOVE and debugging
-	ImportedFrom map[string]*ImportMetadata
+	// Item metadata tracking (keyed by local name)
+	ItemMetadataInherited map[string]*ItemMetadata // Reference from parent
+	ItemMetadataModule    map[string]*ItemMetadata // Copy-on-write
 
 	// Tracking flags for copy-on-write
 	libraryRestrictedCopied bool
 	commandsModuleCopied    bool
 	macrosModuleCopied      bool
 	objectsModuleCopied     bool
+	metadataModuleCopied    bool
 }
 
 // NewModuleEnvironment creates a new module environment
@@ -67,6 +87,7 @@ func NewModuleEnvironment() *ModuleEnvironment {
 	cmdRegistry := make(map[string]Handler)
 	macroRegistry := make(map[string]*StoredMacro)
 	objRegistry := make(map[string]interface{})
+	metadataRegistry := make(map[string]*ItemMetadata)
 
 	return &ModuleEnvironment{
 		DefaultName:              "",
@@ -79,11 +100,13 @@ func NewModuleEnvironment() *ModuleEnvironment {
 		ObjectsInherited:         objRegistry,
 		ObjectsModule:            objRegistry, // Same instance, COW on modification
 		ModuleExports:            make(Library),
-		ImportedFrom:             make(map[string]*ImportMetadata),
+		ItemMetadataInherited:    metadataRegistry,
+		ItemMetadataModule:       metadataRegistry, // Same instance, COW on modification
 		libraryRestrictedCopied:  false,
 		commandsModuleCopied:     false,
 		macrosModuleCopied:       false,
 		objectsModuleCopied:      false,
+		metadataModuleCopied:     false,
 	}
 }
 
@@ -96,6 +119,7 @@ func NewChildModuleEnvironment(parent *ModuleEnvironment) *ModuleEnvironment {
 	effectiveCommands := getEffectiveCommandRegistry(parent)
 	effectiveMacros := getEffectiveMacroRegistry(parent)
 	effectiveObjects := getEffectiveObjectRegistry(parent)
+	effectiveMetadata := getEffectiveMetadataRegistry(parent)
 
 	// Child inherits from parent's LibraryRestricted (becomes new Inherited)
 	// Child starts with its Restricted pointing to same instance
@@ -119,12 +143,16 @@ func NewChildModuleEnvironment(parent *ModuleEnvironment) *ModuleEnvironment {
 		ObjectsInherited: effectiveObjects,
 		ObjectsModule:    effectiveObjects,
 
+		// Metadata: both point to effective metadata registry
+		ItemMetadataInherited: effectiveMetadata,
+		ItemMetadataModule:    effectiveMetadata,
+
 		ModuleExports:           make(Library), // Start blank - caller merges after execution
-		ImportedFrom:            make(map[string]*ImportMetadata),
 		libraryRestrictedCopied: false,
 		commandsModuleCopied:    false,
 		macrosModuleCopied:      false,
 		objectsModuleCopied:     false,
+		metadataModuleCopied:    false,
 	}
 }
 
@@ -138,10 +166,10 @@ func NewMacroModuleEnvironment(parent *ModuleEnvironment) *ModuleEnvironment {
 	defer parent.mu.RUnlock()
 
 	// Get effective registries from parent (what macro should see)
-	// For commands, we need to merge inherited + module to get full view
 	effectiveCommands := getEffectiveCommandRegistry(parent)
 	effectiveMacros := getEffectiveMacroRegistry(parent)
 	effectiveObjects := getEffectiveObjectRegistry(parent)
+	effectiveMetadata := getEffectiveMetadataRegistry(parent)
 
 	return &ModuleEnvironment{
 		DefaultName: parent.DefaultName,
@@ -166,17 +194,19 @@ func NewMacroModuleEnvironment(parent *ModuleEnvironment) *ModuleEnvironment {
 		ObjectsInherited: effectiveObjects,
 		ObjectsModule:    effectiveObjects,
 
+		// Metadata: both point to effective metadata registry
+		ItemMetadataInherited: effectiveMetadata,
+		ItemMetadataModule:    effectiveMetadata,
+
 		// ModuleExports starts blank - caller merges into their LibraryInherited after execution
 		ModuleExports: make(Library),
-
-		// Fresh import metadata for this macro
-		ImportedFrom: make(map[string]*ImportMetadata),
 
 		// COW flags reset - first modification triggers copy
 		libraryRestrictedCopied: false,
 		commandsModuleCopied:    false,
 		macrosModuleCopied:      false,
 		objectsModuleCopied:     false,
+		metadataModuleCopied:    false,
 	}
 }
 
@@ -194,6 +224,10 @@ func getEffectiveMacroRegistry(env *ModuleEnvironment) map[string]*StoredMacro {
 
 func getEffectiveObjectRegistry(env *ModuleEnvironment) map[string]interface{} {
 	return env.ObjectsModule
+}
+
+func getEffectiveMetadataRegistry(env *ModuleEnvironment) map[string]*ItemMetadata {
+	return env.ItemMetadataModule
 }
 
 // CopyLibraryRestricted performs copy-on-write for LibraryRestricted
@@ -259,6 +293,21 @@ func (env *ModuleEnvironment) EnsureObjectRegistryCopied() {
 	}
 	env.ObjectsModule = newModule
 	env.objectsModuleCopied = true
+}
+
+// EnsureMetadataRegistryCopied performs copy-on-write for ItemMetadataModule.
+// Creates an isolated copy so modifications don't affect the original shared map.
+func (env *ModuleEnvironment) EnsureMetadataRegistryCopied() {
+	if env.metadataModuleCopied {
+		return
+	}
+	// Copy current state to a new map
+	newModule := make(map[string]*ItemMetadata, len(env.ItemMetadataModule))
+	for k, v := range env.ItemMetadataModule {
+		newModule[k] = v
+	}
+	env.ItemMetadataModule = newModule
+	env.metadataModuleCopied = true
 }
 
 // CopyCommandRegistry is an alias for EnsureCommandRegistryCopied for backward compatibility.
@@ -340,21 +389,34 @@ func (env *ModuleEnvironment) RegisterCommandToModule(name string, handler Handl
 
 // PopulateDefaultImports copies all commands and objects from LibraryInherited
 // into CommandRegistryInherited and ObjectsInherited, making them directly callable.
+// Also populates ItemMetadataInherited with metadata for each item.
 // This should be called after all commands are registered via RegisterCommandInModule.
 func (env *ModuleEnvironment) PopulateDefaultImports() {
 	env.mu.Lock()
 	defer env.mu.Unlock()
 
 	// Iterate through all modules in LibraryInherited
-	for _, section := range env.LibraryInherited {
+	for moduleName, section := range env.LibraryInherited {
 		for itemName, item := range section {
+			// Create metadata for this item
+			metadata := &ItemMetadata{
+				OriginalModuleName: moduleName,
+				ImportedFromModule: moduleName,
+				OriginalName:       itemName,
+				ItemType:           item.Type,
+				RegistrationSource: "standard", // Default for stdlib
+			}
+
 			switch item.Type {
 			case "command":
 				if handler, ok := item.Value.(Handler); ok {
 					env.CommandRegistryInherited[itemName] = handler
+					env.ItemMetadataInherited[itemName] = metadata
 				}
 			case "object":
 				env.ObjectsInherited[itemName] = item.Value
+				metadata.RegistrationSource = "" // Objects don't have registration source
+				env.ItemMetadataInherited[itemName] = metadata
 			// Note: macros are not auto-imported; they must be defined at runtime
 			}
 		}
