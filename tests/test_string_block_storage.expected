@@ -9,12 +9,13 @@ Expected: 0 objects (small string stays inline)
 
 Test 2: Large string (over 200 chars) - should be stored
 === Memory Statistics ===
-Total stored objects: 1
-Total estimated size: 296 bytes
+Total stored objects: 2
+Total estimated size: 592 bytes
 
 ID    Type      RefCount  Size(bytes)
 ----  --------  --------  -----------
 1     string    1         296
+2     string    1         296
 Expected: 1 object (type: string, refcount: 1)
 
 Test 3: Clear large string
@@ -33,12 +34,13 @@ Expected: 0 objects (small block stays inline)
 
 Test 5: Large block (over 500 chars) - should be stored
 === Memory Statistics ===
-Total stored objects: 1
-Total estimated size: 572 bytes
+Total stored objects: 2
+Total estimated size: 1144 bytes
 
 ID    Type      RefCount  Size(bytes)
 ----  --------  --------  -----------
-2     block     1         572
+3     block     1         572
+4     block     1         572
 Expected: 1 object (type: block, refcount: 1)
 
 Test 6: Clear large block
@@ -50,13 +52,14 @@ Expected: 0 objects (should be freed)
 
 Test 7: Multiple large strings
 === Memory Statistics ===
-Total stored objects: 2
-Total estimated size: 470 bytes
+Total stored objects: 3
+Total estimated size: 702 bytes
 
 ID    Type      RefCount  Size(bytes)
 ----  --------  --------  -----------
-3     string    1         238
-4     string    1         232
+5     string    1         238
+7     string    1         232
+8     string    1         232
 Expected: 2 objects (both type: string, both refcount: 1)
 
 Test 8: Clear all large strings
@@ -73,7 +76,7 @@ Total estimated size: 271 bytes
 
 ID    Type      RefCount  Size(bytes)
 ----  --------  --------  -----------
-5     string    1         271
+9     string    1         271
 Expected: 1 object (type: string, refcount: 1)
 
 Test 10: Clear result
@@ -92,8 +95,8 @@ Total estimated size: 554 bytes
 
 ID    Type      RefCount  Size(bytes)
 ----  --------  --------  -----------
-6     string    1         277
-7     string    1         277
+10    string    1         277
+12    string    2         277
 Expected: 2 objects (original + uppercase result)
 
 Test 12: Clean up
