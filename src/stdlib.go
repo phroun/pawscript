@@ -132,13 +132,21 @@ func (ps *PawScript) RegisterStandardLibrary(scriptArgs []string) {
 		marker := fmt.Sprintf("\x00LIST:%d\x00", id)
 		ctx.state.SetResultWithoutClaim(Symbol(marker))
 	}
-	
-	// Helper to resolve a value to a StoredList (handles markers and direct objects)
+
+	// Helper to resolve a value to a StoredList (handles markers, direct objects, ParenGroups)
 	// Returns the list and a boolean indicating if found
 	valueToList := func(ctx *Context, val interface{}) (StoredList, bool) {
 		switch v := val.(type) {
 		case StoredList:
 			return v, true
+		case ParenGroup:
+			// Parse ParenGroup into items and create StoredList
+			items, _ := parseArguments(string(v))
+			return NewStoredList(items), true
+		case StoredBlock:
+			// Parse StoredBlock into items and create StoredList
+			items, _ := parseArguments(string(v))
+			return NewStoredList(items), true
 		case Symbol:
 			markerType, objectID := parseObjectMarker(string(v))
 			if markerType == "list" && objectID >= 0 {
