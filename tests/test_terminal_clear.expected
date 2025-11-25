@@ -1,0 +1,19 @@
+=== Test 1: Clear eol ===
+before[Kafter
+=== Test 2: Clear bol ===
+before[1Kafter
+=== Test 3: Clear line ===
+before[2Kafter
+=== Test 4: Clear eos ===
+before[Jafter
+=== Test 5: Clear bos ===
+before[1Jafter
+=== Test 6: Clear screen ===
+before[2Jafter
+=== Test 7: Default clear (redirected mode) ===
+
+=======================================
+
+After first clear
+After second clear (no double separator)
+=== All clear tests passed ===

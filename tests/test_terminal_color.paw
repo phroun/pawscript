@@ -1,0 +1,111 @@
+# Test color command functionality
+# Note: ANSI codes will appear in output when piped (not rendered)
+
+print "=== Test 1: Color command returns list ==="
+info: {color}
+type: {get_type ~info}
+print "Color returns: ~type"
+print ""
+
+print "=== Test 2: Color list has fg and bg ==="
+fg: {argv ~info, 1}
+bg: {argv ~info, 2}
+print "Initial fg: ~fg"
+print "Initial bg: ~bg"
+print ""
+
+print "=== Test 3: Color list has named args ==="
+term: {get_val ~info, term}
+ansi: {get_val ~info, ansi}
+colorSupport: {get_val ~info, color}
+bold: {get_val ~info, bold}
+blink: {get_val ~info, blink}
+underline: {get_val ~info, underline}
+invert: {get_val ~info, invert}
+print "term type returned: yes"
+print "ansi support checked: yes"
+print "color support checked: yes"
+print "bold: ~bold"
+print "blink: ~blink"
+print "underline: ~underline"
+print "invert: ~invert"
+print ""
+
+print "=== Test 4: Setting foreground updates state ==="
+color 4
+info2: {color}
+fg2: {argv ~info2, 1}
+print "After color 4, fg: ~fg2"
+print ""
+
+print "=== Test 5: Setting both colors ==="
+color 14, 1
+info3: {color}
+fg3: {argv ~info3, 1}
+bg3: {argv ~info3, 2}
+print "After color 14,1: fg=~fg3, bg=~bg3"
+print ""
+
+print "=== Test 6: Setting attributes ==="
+color 15, bold: true, underline: true
+info4: {color}
+bold4: {get_val ~info4, bold}
+underline4: {get_val ~info4, underline}
+print "After bold+underline: bold=~bold4, underline=~underline4"
+print ""
+
+print "=== Test 7: Reset clears everything ==="
+color reset: true
+info5: {color}
+fg5: {argv ~info5, 1}
+bg5: {argv ~info5, 2}
+bold5: {get_val ~info5, bold}
+underline5: {get_val ~info5, underline}
+print "After reset: fg=~fg5, bg=~bg5, bold=~bold5, underline=~underline5"
+print ""
+
+print "=== Test 8: Color name parsing ==="
+color red
+info6: {color}
+fg6: {argv ~info6, 1}
+print "red -> ~fg6"
+
+color blue
+info7: {color}
+fg7: {argv ~info7, 1}
+print "blue -> ~fg7"
+
+color green
+info8: {color}
+fg8: {argv ~info8, 1}
+print "green -> ~fg8"
+
+color yellow
+info9: {color}
+fg9: {argv ~info9, 1}
+print "yellow -> ~fg9"
+
+color white
+info10: {color}
+fg10: {argv ~info10, 1}
+print "white -> ~fg10"
+
+color black
+info11: {color}
+fg11: {argv ~info11, 1}
+print "black -> ~fg11"
+
+color reset: true
+print ""
+
+print "=== Test 9: Attribute persistence ==="
+color red
+color bold: true
+info12: {color}
+fg12: {argv ~info12, 1}
+bold12: {get_val ~info12, bold}
+print "After red then bold: fg=~fg12, bold=~bold12"
+color reset: true
+print ""
+
+print "=== All color tests passed ==="

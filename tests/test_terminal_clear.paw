@@ -1,0 +1,42 @@
+# Test clear command functionality
+# Note: When output is piped, clear outputs separator instead of ANSI codes
+
+print "=== Test 1: Clear eol ==="
+write "before"
+clear eol
+print "after"
+
+print "=== Test 2: Clear bol ==="
+write "before"
+clear bol
+print "after"
+
+print "=== Test 3: Clear line ==="
+write "before"
+clear line
+print "after"
+
+print "=== Test 4: Clear eos ==="
+write "before"
+clear eos
+print "after"
+
+print "=== Test 5: Clear bos ==="
+write "before"
+clear bos
+print "after"
+
+print "=== Test 6: Clear screen ==="
+write "before"
+clear screen
+print "after"
+
+print "=== Test 7: Default clear (redirected mode) ==="
+# When redirected, clear outputs separator
+clear
+print "After first clear"
+# Second clear should not repeat separator
+clear
+print "After second clear (no double separator)"
+
+print "=== All clear tests passed ==="

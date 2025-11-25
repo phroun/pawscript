@@ -1,0 +1,165 @@
+# Terminal Features Demo
+# Demonstrates the io module's terminal control commands: color, clear, cursor
+# Run this script in a terminal that supports ANSI escape codes for best results
+
+print "=========================================="
+print "   PawScript Terminal Features Demo"
+print "=========================================="
+print ""
+
+# Get terminal info from color command
+info: {color}
+fg: {argv ~info, 1}
+bg: {argv ~info, 2}
+termType: {get_val ~info, term}
+ansiSupport: {get_val ~info, ansi}
+colorSupport: {get_val ~info, color}
+
+print "Terminal Information:"
+print "  Type: ~termType"
+print "  ANSI support: ~ansiSupport"
+print "  Color support: ~colorSupport"
+print ""
+
+# Demo: Basic colors
+print "=== Basic Colors ==="
+color red
+print "This is RED text"
+color green
+print "This is GREEN text"
+color blue
+print "This is BLUE text"
+color yellow
+print "This is YELLOW text"
+color cyan
+print "This is CYAN text"
+color magenta
+print "This is MAGENTA text"
+color reset: true
+print "Back to default colors"
+print ""
+
+# Demo: Foreground and background
+print "=== Foreground + Background ==="
+color white, blue
+print "White on Blue"
+color yellow, red
+print "Yellow on Red"
+color black, white
+print "Black on White"
+color "light green", black
+print "Light Green on Black"
+color reset: true
+print ""
+
+# Demo: Text attributes
+print "=== Text Attributes ==="
+color green, bold: true
+print "Bold green text"
+color red, underline: true
+print "Underlined red text"
+color yellow, blink: true
+print "Blinking yellow text (if supported)"
+color white, blue, invert: true
+print "Inverted white on blue"
+color reset: true
+print ""
+
+# Demo: CGA color numbers
+print "=== All 16 CGA Colors ==="
+i: 0
+while {lt ~i, 16} [
+    color ~i
+    write "Color ~i "
+    i: {add ~i, 1}
+]
+color reset: true
+print ""
+print ""
+
+# Demo: Cursor information
+print "=== Cursor Command ==="
+cursorInfo: {cursor}
+screenRows: {get_val ~cursorInfo, screen_rows}
+screenCols: {get_val ~cursorInfo, screen_cols}
+curX: {get_val ~cursorInfo, x}
+curY: {get_val ~cursorInfo, y}
+duplex: {get_val ~cursorInfo, duplex}
+visible: {get_val ~cursorInfo, visible}
+
+print "Screen size: ~screenCols x ~screenRows"
+print "Cursor position: (~curX, ~curY)"
+print "Duplex (echo): ~duplex"
+print "Cursor visible: ~visible"
+print ""
+
+# Demo: Clear modes
+print "=== Clear Command Modes ==="
+print "Available clear modes:"
+print "  clear eol    - Clear to end of line"
+print "  clear bol    - Clear to beginning of line"
+print "  clear line   - Clear entire line"
+print "  clear eos    - Clear to end of screen"
+print "  clear bos    - Clear to beginning of screen"
+print "  clear screen - Clear entire screen"
+print "  clear        - Default clear (screen or separator)"
+print ""
+
+# Demo: Color state persistence
+print "=== Color State Persistence ==="
+color red
+print "Set to red"
+color bold: true
+print "Added bold (still red)"
+color underline: true
+print "Added underline (still red + bold)"
+color reset: true
+print "After reset: all attributes cleared"
+print ""
+
+# Demo: Named color aliases
+print "=== Color Name Aliases ==="
+color brown
+write "brown "
+color orange
+write "orange "
+color amber
+write "amber "
+color "dark yellow"
+write "\"dark yellow\" "
+color reset: true
+print ""
+print "(All the above are color 6 - brown/dark yellow)"
+print ""
+
+color silver
+write "silver "
+color grey
+write "grey "
+color gray
+write "gray "
+color "dark white"
+write "\"dark white\" "
+color reset: true
+print ""
+print "(All the above are color 7 - silver/light gray)"
+print ""
+
+# Interactive demo section
+print "=== Interactive Cursor Demo ==="
+print "The cursor command can control position and visibility."
+print "Use cursor x: N, y: N to position the cursor."
+print "Use cursor visible: false to hide cursor."
+print "Use cursor duplex: false to disable echo (for passwords)."
+print "Use cursor reset: true to reset terminal to defaults."
+print ""
+
+# Show current color state
+finalInfo: {color}
+finalFg: {argv ~finalInfo, 1}
+finalBg: {argv ~finalInfo, 2}
+finalBold: {get_val ~finalInfo, bold}
+finalBlink: {get_val ~finalInfo, blink}
+print "Final color state: fg=~finalFg, bg=~finalBg, bold=~finalBold, blink=~finalBlink"
+print ""
+print "Demo complete!"

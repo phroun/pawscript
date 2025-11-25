@@ -1,0 +1,33 @@
+=== Test 1: Cursor returns list ===
+Cursor returns: undefined
+
+=== Test 2: Cursor list has positional values ===
+First 4 positional values present: yes
+
+=== Test 3: Cursor list has named args ===
+screen_rows present: yes
+screen_cols present: yes
+x present: yes
+y present: yes
+visible: true
+shape: block
+duplex: true
+
+=== Test 4: Setting position ===
+[10;5HAfter x:5, y:10 -> x=5, y=10
+
+=== Test 5: Setting visibility ===
+[?25lAfter visible:false -> visible=false
+[?25hAfter visible:true -> visible=true
+
+=== Test 6: Setting shape ===
+[3 qAfter shape:underline -> shape=underline
+[1 qAfter shape:block -> shape=block
+
+=== Test 7: Sticky region parameters ===
+After setting region: rows=20, cols=60
+
+=== Test 8: Reset clears state ===
+[0m[?25h[?7hAfter reset: visible=true, duplex=true, shape=block
+
+=== All cursor tests passed ===

@@ -99,3 +99,9 @@ echo "test_io_channels:"
 ../paw test_io_channels.paw 2>&1 | diff - test_io_channels.expected
 echo "test_sort:"
 ../paw test_sort.paw 2>&1 | diff - test_sort.expected
+echo "test_terminal_color:"
+../paw test_terminal_color.paw 2>&1 | diff - test_terminal_color.expected
+echo "test_terminal_cursor:"
+../paw test_terminal_cursor.paw 2>&1 | diff - test_terminal_cursor.expected
+echo "test_terminal_clear:"
+../paw test_terminal_clear.paw 2>&1 | diff - test_terminal_clear.expected
