@@ -676,159 +676,9 @@ func (ps *PawScript) RegisterCoreLib() {
 			output.WriteString(fmt.Sprintf("Default Module: %s\n", env.DefaultName))
 		}
 
-		// Library modules
-		output.WriteString(fmt.Sprintf("\n--- Library Modules (%d) ---\n", len(env.LibraryRestricted)))
-		if len(env.LibraryRestricted) == 0 {
-			output.WriteString("  (none)\n")
-		} else {
-			// Get sorted module names
-			modNames := make([]string, 0, len(env.LibraryRestricted))
-			for name := range env.LibraryRestricted {
-				modNames = append(modNames, name)
-			}
-			sort.Strings(modNames)
-
-			for _, modName := range modNames {
-				section := env.LibraryRestricted[modName]
-				itemNames := make([]string, 0, len(section))
-				for itemName := range section {
-					itemNames = append(itemNames, itemName)
-				}
-				sort.Strings(itemNames)
-				output.WriteString(fmt.Sprintf("  %s:: %s\n", modName, strings.Join(itemNames, ", ")))
-			}
-		}
-
-		// Commands in registry
-		effectiveCommands := make(map[string]bool)
-		for name := range env.CommandRegistryInherited {
-			effectiveCommands[name] = true
-		}
-		if env.CommandRegistryModule != nil {
-			for name := range env.CommandRegistryModule {
-				effectiveCommands[name] = true
-			}
-		}
-		output.WriteString(fmt.Sprintf("\n--- Commands (%d) ---\n", len(effectiveCommands)))
-		if len(effectiveCommands) == 0 {
-			output.WriteString("  (none)\n")
-		} else {
-			cmdNames := make([]string, 0, len(effectiveCommands))
-			for name := range effectiveCommands {
-				cmdNames = append(cmdNames, name)
-			}
-			sort.Strings(cmdNames)
-			// Print in rows of reasonable width
-			output.WriteString("  ")
-			lineLen := 2
-			for i, name := range cmdNames {
-				if i > 0 {
-					output.WriteString(", ")
-					lineLen += 2
-				}
-				if lineLen+len(name) > 78 && i > 0 {
-					output.WriteString("\n  ")
-					lineLen = 2
-				}
-				output.WriteString(name)
-				lineLen += len(name)
-			}
-			output.WriteString("\n")
-		}
-
-		// Macros
-		effectiveMacros := make(map[string]bool)
-		for name := range env.MacrosInherited {
-			effectiveMacros[name] = true
-		}
-		if env.MacrosModule != nil {
-			for name := range env.MacrosModule {
-				effectiveMacros[name] = true
-			}
-		}
-		output.WriteString(fmt.Sprintf("\n--- Macros (%d) ---\n", len(effectiveMacros)))
-		if len(effectiveMacros) == 0 {
-			output.WriteString("  (none)\n")
-		} else {
-			macroNames := make([]string, 0, len(effectiveMacros))
-			for name := range effectiveMacros {
-				macroNames = append(macroNames, name)
-			}
-			sort.Strings(macroNames)
-			output.WriteString("  ")
-			lineLen := 2
-			for i, name := range macroNames {
-				if i > 0 {
-					output.WriteString(", ")
-					lineLen += 2
-				}
-				if lineLen+len(name) > 78 && i > 0 {
-					output.WriteString("\n  ")
-					lineLen = 2
-				}
-				output.WriteString(name)
-				lineLen += len(name)
-			}
-			output.WriteString("\n")
-		}
-
-		// Objects (channel-style #names)
-		effectiveObjects := make(map[string]bool)
-		for name := range env.ObjectsInherited {
-			effectiveObjects[name] = true
-		}
-		if env.ObjectsModule != nil {
-			for name := range env.ObjectsModule {
-				effectiveObjects[name] = true
-			}
-		}
-		output.WriteString(fmt.Sprintf("\n--- Objects (%d) ---\n", len(effectiveObjects)))
-		if len(effectiveObjects) == 0 {
-			output.WriteString("  (none)\n")
-		} else {
-			objNames := make([]string, 0, len(effectiveObjects))
-			for name := range effectiveObjects {
-				objNames = append(objNames, name)
-			}
-			sort.Strings(objNames)
-			output.WriteString("  ")
-			lineLen := 2
-			for i, name := range objNames {
-				if i > 0 {
-					output.WriteString(", ")
-					lineLen += 2
-				}
-				if lineLen+len(name) > 78 && i > 0 {
-					output.WriteString("\n  ")
-					lineLen = 2
-				}
-				output.WriteString(name)
-				lineLen += len(name)
-			}
-			output.WriteString("\n")
-		}
-
-		// Module exports
-		output.WriteString(fmt.Sprintf("\n--- Exports (%d) ---\n", len(env.ModuleExports)))
-		if len(env.ModuleExports) == 0 {
-			output.WriteString("  (none)\n")
-		} else {
-			expModNames := make([]string, 0, len(env.ModuleExports))
-			for name := range env.ModuleExports {
-				expModNames = append(expModNames, name)
-			}
-			sort.Strings(expModNames)
-
-			for _, modName := range expModNames {
-				section := env.ModuleExports[modName]
-				itemNames := make([]string, 0, len(section))
-				for itemName := range section {
-					itemNames = append(itemNames, itemName)
-				}
-				sort.Strings(itemNames)
-				output.WriteString(fmt.Sprintf("  %s:: %s\n", modName, strings.Join(itemNames, ", ")))
-			}
-		}
+		// LibraryRestricted (available modules)
+		output.WriteString(fmt.Sprintf("\n--- Library Restricted (%d) ---\n", len(env.LibraryRestricted)))
+		writeLibrarySectionWrapped(&output, env.LibraryRestricted)
 
 		// Imported items
 		output.WriteString(fmt.Sprintf("\n--- Imported (%d) ---\n", len(env.ImportedFrom)))
@@ -850,7 +700,150 @@ func (ps *PawScript) RegisterCoreLib() {
 			}
 		}
 
+		// CommandRegistryModule
+		output.WriteString(fmt.Sprintf("\n--- Commands (%d) ---\n", len(env.CommandRegistryModule)))
+		if len(env.CommandRegistryModule) == 0 {
+			output.WriteString("  (none)\n")
+		} else {
+			cmdNames := make([]string, 0, len(env.CommandRegistryModule))
+			for name, handler := range env.CommandRegistryModule {
+				if handler != nil { // Skip REMOVEd commands
+					cmdNames = append(cmdNames, name)
+				}
+			}
+			sort.Strings(cmdNames)
+			writeWrappedList(&output, cmdNames, 2)
+		}
+
+		// MacrosModule
+		output.WriteString(fmt.Sprintf("\n--- Macros (%d) ---\n", len(env.MacrosModule)))
+		if len(env.MacrosModule) == 0 {
+			output.WriteString("  (none)\n")
+		} else {
+			macroNames := make([]string, 0, len(env.MacrosModule))
+			for name, macro := range env.MacrosModule {
+				if macro != nil { // Skip REMOVEd macros
+					macroNames = append(macroNames, name)
+				}
+			}
+			sort.Strings(macroNames)
+			if len(macroNames) == 0 {
+				output.WriteString("  (none)\n")
+			} else {
+				writeWrappedList(&output, macroNames, 2)
+			}
+		}
+
+		// ObjectsModule
+		output.WriteString(fmt.Sprintf("\n--- Objects (%d) ---\n", len(env.ObjectsModule)))
+		if len(env.ObjectsModule) == 0 {
+			output.WriteString("  (none)\n")
+		} else {
+			objNames := make([]string, 0, len(env.ObjectsModule))
+			for name := range env.ObjectsModule {
+				objNames = append(objNames, name)
+			}
+			sort.Strings(objNames)
+			writeWrappedList(&output, objNames, 2)
+		}
+
+		// Module exports
+		output.WriteString(fmt.Sprintf("\n--- Exports (%d) ---\n", len(env.ModuleExports)))
+		writeLibrarySectionWrapped(&output, env.ModuleExports)
+
 		_ = outCtx.WriteToErr(output.String())
 		return BoolStatus(true)
 	})
+
+	// lib_dump - debug command to show LibraryInherited (the full inherited library)
+	ps.RegisterCommandInModule("debug", "lib_dump", func(ctx *Context) Result {
+		outCtx := NewOutputContext(ctx.state, ctx.executor)
+		var output strings.Builder
+
+		env := ctx.state.moduleEnv
+		env.mu.RLock()
+		defer env.mu.RUnlock()
+
+		output.WriteString("=== Library Inherited ===\n")
+		output.WriteString(fmt.Sprintf("\n--- Modules (%d) ---\n", len(env.LibraryInherited)))
+		writeLibrarySectionWrapped(&output, env.LibraryInherited)
+
+		_ = outCtx.WriteToErr(output.String())
+		return BoolStatus(true)
+	})
+}
+
+// writeWrappedList writes a comma-separated list with word wrapping
+func writeWrappedList(output *strings.Builder, items []string, indent int) {
+	if len(items) == 0 {
+		output.WriteString(strings.Repeat(" ", indent))
+		output.WriteString("(none)\n")
+		return
+	}
+	indentStr := strings.Repeat(" ", indent)
+	output.WriteString(indentStr)
+	lineLen := indent
+	for i, name := range items {
+		if i > 0 {
+			output.WriteString(", ")
+			lineLen += 2
+		}
+		if lineLen+len(name) > 78 && i > 0 {
+			output.WriteString("\n")
+			output.WriteString(indentStr)
+			lineLen = indent
+		}
+		output.WriteString(name)
+		lineLen += len(name)
+	}
+	output.WriteString("\n")
+}
+
+// writeLibrarySectionWrapped writes a Library (map of modules) with word wrapping
+// Format: "  modname:: item1, item2, ..."
+// Continuation lines are indented 2 spaces more than the initial "  "
+func writeLibrarySectionWrapped(output *strings.Builder, lib Library) {
+	if len(lib) == 0 {
+		output.WriteString("  (none)\n")
+		return
+	}
+
+	// Get sorted module names
+	modNames := make([]string, 0, len(lib))
+	for name := range lib {
+		modNames = append(modNames, name)
+	}
+	sort.Strings(modNames)
+
+	for _, modName := range modNames {
+		section := lib[modName]
+		itemNames := make([]string, 0, len(section))
+		for itemName := range section {
+			itemNames = append(itemNames, itemName)
+		}
+		sort.Strings(itemNames)
+
+		// Write "  modname:: " prefix
+		prefix := fmt.Sprintf("  %s:: ", modName)
+		output.WriteString(prefix)
+
+		// Continuation indent is 4 spaces (2 more than the leading "  ")
+		contIndent := "    "
+		lineLen := len(prefix)
+
+		for i, name := range itemNames {
+			if i > 0 {
+				output.WriteString(", ")
+				lineLen += 2
+			}
+			if lineLen+len(name) > 78 && i > 0 {
+				output.WriteString("\n")
+				output.WriteString(contIndent)
+				lineLen = len(contIndent)
+			}
+			output.WriteString(name)
+			lineLen += len(name)
+		}
+		output.WriteString("\n")
+	}
 }
