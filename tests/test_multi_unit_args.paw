@@ -1,0 +1,114 @@
+#!/usr/bin/env paw
+# Test multi-unit argument parsing behaviors
+# Tests concatenation rules for symbols, strings, braces, and tildes
+
+echo "=== Multi-Unit Argument Tests ==="
+echo ""
+
+# Section 1: Symbol + Quoted String Concatenation
+# Symbols retain angle brackets when concatenated
+echo "--- Section 1: Symbol + Quoted String ---"
+echo foo"bar"
+echo hello" world"
+echo prefix"suffix"
+echo ""
+
+# Section 2: Symbol + Brace Expression Concatenation
+echo "--- Section 2: Symbol + Brace Expression ---"
+set_result "VALUE"
+echo prefix{get_result}
+set_result 42
+echo count{get_result}
+echo ""
+
+# Section 3: Quoted String + Symbol/Brace Continuation
+echo "--- Section 3: Quoted String Continuation ---"
+echo "hello"world
+set_result "!"
+echo "hello"{get_result}
+echo "start"middle"end"
+echo ""
+
+# Section 4: String + String Concatenation (no space = concat)
+echo "--- Section 4: String + String ---"
+echo "foo""bar"
+echo "hello"" world"
+echo ""
+
+# Section 5: Tilde Interpolation in Strings
+echo "--- Section 5: Tilde Interpolation ---"
+name: "Alice"
+echo "Hello, ~name!"
+value: 100
+echo "The value is ~value points"
+echo ""
+
+# Section 6: Tilde with Quoted Strings containing Special Characters
+echo "--- Section 6: Tilde with Special Characters ---"
+msg: 'Hello, "World"'
+echo "Message: ~msg"
+quoted: "She said \"hi\""
+echo "Quote: ~quoted"
+echo ""
+
+# Section 7: Multiple Arguments with Commas
+echo "--- Section 7: Multiple Arguments ---"
+# List command takes multiple arguments
+mylist: {list one, two, three}
+echo "List has {len ~mylist} items"
+echo "List item 1: {argv ~mylist, 1}"
+echo "List item 2: {argv ~mylist, 2}"
+echo "List item 3: {argv ~mylist, 3}"
+echo ""
+
+# Section 8: nil Literal Handling
+echo "--- Section 8: nil Literal ---"
+get_inferred_type nil
+echo "nil type: {get_result}"
+x: nil
+get_inferred_type ~x
+echo "Variable set to nil: {get_result}"
+echo ""
+
+# Section 9: Escaped Quotes in Bare Words (creates symbol with quote chars)
+echo "--- Section 9: Escaped Quotes in Bare Words ---"
+get_inferred_type \"text\"
+echo "Type of bare word with escaped quotes: {get_result}"
+echo ""
+
+# Section 10: Brace Expression Results in Concatenation
+echo "--- Section 10: Brace in Concatenation ---"
+inner: "INNER"
+echo "outer-{~inner}-outer"
+set_result "X"
+echo "A"{get_result}"B"
+echo ""
+
+# Section 11: Number Concatenation
+echo "--- Section 11: Numbers ---"
+echo 123"px"
+echo "value: "456
+echo ""
+
+# Section 12: Assignment Sets Result
+echo "--- Section 12: Assignment Result ---"
+testval: "assigned"
+echo "After assignment, result is: {get_result}"
+echo ""
+
+# Section 13: Undefined vs Nil Assignment
+echo "--- Section 13: Undefined vs Nil ---"
+holder: "value"
+set_result ~holder
+echo "Result before nil: {get_result}"
+holder: nil
+echo "Result after nil assignment: {get_result}"
+
+holder2: "value2"
+set_result ~holder2
+echo "Result before undefined: {get_result}"
+holder2: undefined
+echo "Result after undefined assignment: {get_result}"
+echo ""
+
+echo "=== Tests Complete ==="

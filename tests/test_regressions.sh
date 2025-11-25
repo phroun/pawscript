@@ -93,6 +93,8 @@ echo "test_fibers:"
 ../paw test_fibers.paw 2>&1 | diff - test_fibers.expected
 echo "test_msleep:"
 ../paw test_msleep.paw 2>&1 | diff - test_msleep.expected
+echo "test_multi_unit_args:"
+../paw test_multi_unit_args.paw 2>&1 | diff - test_multi_unit_args.expected
 echo "test_include:"
 ../paw test_include.paw 2>&1 | diff - test_include.expected
 echo "test_io_channels:"

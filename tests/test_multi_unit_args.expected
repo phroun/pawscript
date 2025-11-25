@@ -1,0 +1,59 @@
+=== Multi-Unit Argument Tests ===
+
+--- Section 1: Symbol + Quoted String ---
+<foo>bar
+<hello> world
+<prefix>suffix
+
+--- Section 2: Symbol + Brace Expression ---
+<prefix>VALUE
+count42
+
+--- Section 3: Quoted String Continuation ---
+hello<world>
+hello!
+start<middle>end
+
+--- Section 4: String + String ---
+foobar
+hello world
+
+--- Section 5: Tilde Interpolation ---
+Hello, Alice!
+The value is 100 points
+
+--- Section 6: Tilde with Special Characters ---
+Message: Hello, "World"
+Quote: She said "hi"
+
+--- Section 7: Multiple Arguments ---
+List has 3 items
+List item 1: one
+List item 2: two
+List item 3: three
+
+--- Section 8: nil Literal ---
+nil type: nil
+Variable set to nil: nil
+
+--- Section 9: Escaped Quotes in Bare Words ---
+Type of bare word with escaped quotes: symbol
+
+--- Section 10: Brace in Concatenation ---
+outer-INNER-outer
+AXB
+
+--- Section 11: Numbers ---
+123px
+value: 456
+
+--- Section 12: Assignment Result ---
+After assignment, result is: assigned
+
+--- Section 13: Undefined vs Nil ---
+Result before nil: value
+Result after nil assignment: nil
+Result before undefined: value2
+Result after undefined assignment: value2
+
+=== Tests Complete ===
