@@ -85,18 +85,20 @@ Content is stored literally for later execution. Braces inside are NOT evaluated
 
 ```paw
 code: (echo "hello"; echo "world")   # Store commands
-call ~code                            # Execute later
+call {macro ~code}                    # Convert to macro and execute
 ```
+
+Blocks can be used directly as conditions or bodies in `while`, or as the body of a `macro` definition.
 
 ### Braces `{...}` - Evaluate Immediately
 
-Content is executed and the result substituted in place.
+Content is executed as a command and the formal result substituted in place.
 
 ```paw
 x: 5
-echo "x is {~x}"       # Prints: x is 5
-echo {add 2, 3}        # Prints: 5
-y: {mul ~x, 2}         # y becomes 10
+echo "Next is {add ~x, 1}"   # Prints: Next is 6
+y: {mul ~x, 2}               # y becomes 10
+sum: {add 2, 3}              # sum becomes 5
 ```
 
 ---
@@ -122,27 +124,27 @@ eq 1, 2 else echo "not equal"   # Runs on failure
 Prefix `!` or `not` inverts success/failure:
 
 ```paw
-!false              # Returns true
-not eq 1, 2         # Returns true (1 != 2)
+!false              # Returns success (status inverted)
+not eq 1, 2         # Returns success (1 != 2, so eq fails, inverted to success)
 ```
 
 ---
 
 ## Chain Operators
 
-### `~>` - Chain (result as first argument)
+### `~>` - Chain (formal result as first argument)
 
 ```paw
 add 2, 3 ~> mul 10    # mul 5, 10 = 50
 ```
 
-### `~~>` - Chain Append (result as last argument)
+### `~~>` - Chain Append (formal result as last argument)
 
 ```paw
 add 2, 3 ~~> sub 10   # sub 10, 5 = 5
 ```
 
-### `=>` - Capture Result
+### `=>` - Capture Formal Result
 
 ```paw
 add 2, 3 => sum       # sum = 5
@@ -164,30 +166,34 @@ with_named: {list 1, 2, key: "value"}
 ### List Operations
 
 ```paw
-len ~nums              # 3
-slice ~nums, 1, 2      # Items at indices 1-2
-append ~nums, 4        # New list with 4 added
-keys ~with_named       # Get named argument keys
-get_val ~with_named, key  # Get "value"
+len ~nums => size                    # size = 3
+slice ~nums, 1, 2 => middle          # Items at indices 1-2
+append ~nums, 4 => extended          # New list with 4 added
+keys ~with_named => keylist          # Get named argument keys
+get_val ~with_named, key => val      # val = "value"
+sort ~nums, desc: true => descending # Sort descending
 ```
 
 ### Unpacking
 
 ```paw
 (a, b, c): ~nums       # a=1, b=2, c=3
-(first, _, last): ~nums  # Skip middle with _
+(first, , last): ~nums # Skip middle with extra comma
 ```
 
 ---
 
 ## Hash `#` Prefix - Object References
 
-The `#` prefix references module-level objects:
+The `#` prefix usually references module-level objects. These can be temporarily overshadowed in local scope:
 
 ```paw
 #out     # Standard output channel
 #err     # Standard error channel
 #args    # Script arguments list
+
+# Override locally to redirect output
+#out: {channel 10}   # Now print/echo go to this channel
 ```
 
 ---
@@ -204,16 +210,19 @@ eq ~x, 5 then echo "yes" else echo "no"
 eq ~x, 5 then (
     echo "x is five"
     echo "definitely"
+    true   # Ensure else is skipped
 ) else (
     echo "x is not five"
 )
 ```
 
+**Important:** There is no `else if` construct. The `else` (or `|`) reacts to the status of the last command that executed, which may be inside the `then` block. If in doubt, end your `then` block with the `true` command to ensure the `else` is skipped.
+
 ### While Loops
 
 ```paw
 i: 0
-while (lt ~i, 5) (
+while (lt ~i, 5), (
     echo ~i
     i: {add ~i, 1}
 )
@@ -222,7 +231,7 @@ while (lt ~i, 5) (
 ### Early Return
 
 ```paw
-macro check_positive (
+macro check_positive(
     lt $1, 0 then ret false
     ret true
 )
@@ -235,7 +244,7 @@ macro check_positive (
 ### Defining Macros
 
 ```paw
-macro greet (
+macro greet(
     echo "Hello, $1!"
 )
 greet "World"    # Prints: Hello, World!
@@ -251,7 +260,7 @@ greet "World"    # Prints: Hello, World!
 | `$#` | Argument count |
 
 ```paw
-macro show_all (
+macro show_all(
     echo "Count: $#"
     echo "Args: $*"
 )
@@ -274,7 +283,7 @@ Channels enable communication between code paths:
 ```paw
 ch: {channel 10}              # Buffered channel (size 10)
 channel_send ~ch, "message"
-msg: {channel_recv ~ch}
+channel_recv ~ch => msg
 channel_close ~ch
 ```
 
@@ -283,14 +292,14 @@ channel_close ~ch
 ## Fibers (Concurrency)
 
 ```paw
-# Spawn concurrent fiber
-f: {fiber_spawn (
+macro worker(
     msleep 100
     echo "from fiber"
-)}
+)
 
+h: {fiber_spawn worker}
 echo "from main"
-fiber_wait ~f           # Wait for single fiber
+fiber_wait ~h           # Wait for single fiber
 fiber_wait_all          # Wait for all fibers
 ```
 
@@ -302,14 +311,15 @@ fiber_wait_all          # Wait for all fibers
 
 | Command | Description |
 |---------|-------------|
-| `true` | Returns boolean true |
-| `false` | Returns boolean false |
+| `true` | Sets success status |
+| `false` | Sets failure status |
 | `ret [value]` | Early return from block with optional value |
-| `set_result value` | Set the result register |
-| `get_result` | Get the result register value |
-| `if value` | Convert value to boolean (truthiness test) |
-| `eq a, b` | Returns true if a equals b |
-| `macro name, (body)` | Define a named macro |
+| `set_result value` | Set the formal result |
+| `get_result` | Get the formal result value |
+| `if value` | Tests truthiness: sets success if truthy, failure if falsy; also sets formal result to boolean |
+| `eq a, b` | Sets success if a equals b, failure otherwise; also sets formal result to boolean |
+| `macro name(body)` | Define a named macro |
+| `add a, b` | Add numbers; formal result is the sum |
 
 ### Lists and Data (`stdlib`)
 
@@ -317,10 +327,9 @@ fiber_wait_all          # Wait for all fibers
 |---------|-------------|
 | `list items...` | Create immutable list |
 | `len list` | Get length of list or string |
-| `sort list, [comparator], [desc: true]` | Sort list items |
+| `sort list, [cmp], [desc: true]` | Sort list items |
 | `keys list` | Get named argument keys from list |
 | `get_val list, key` | Get named argument value by key |
-| `add a, b` | Add numbers |
 
 ### Strings (`stdlib`)
 
@@ -334,10 +343,8 @@ fiber_wait_all          # Wait for all fibers
 | Command | Description |
 |---------|-------------|
 | `print args...` | Print with spaces and newline |
-| `write args...` | Print without newline |
-| `read [channel]` | Read line from input |
-| `#out` | Standard output channel |
-| `#err` | Standard error channel |
+| `write [#chan], args...` | Print without newline; optionally specify channel like `#err` |
+| `read [#chan]` | Read line from input or specified channel |
 
 ### Channels (`stdlib`)
 
@@ -349,8 +356,8 @@ fiber_wait_all          # Wait for all fibers
 
 | Command | Description |
 |---------|-------------|
-| `fiber_spawn (body)` | Spawn concurrent fiber |
-| `fiber_wait fiber` | Wait for fiber to complete |
+| `fiber_spawn macro` | Spawn concurrent fiber running the macro |
+| `fiber_wait handle` | Wait for fiber to complete |
 | `fiber_wait_all` | Wait for all fibers |
 | `msleep ms` | Sleep for milliseconds |
 
@@ -358,7 +365,7 @@ fiber_wait_all          # Wait for all fibers
 
 | Command | Description |
 |---------|-------------|
-| `while (condition) (body)` | Loop while condition is true |
+| `while (cond), (body)` | Loop while condition is true |
 
 ---
 
@@ -372,11 +379,11 @@ Super commands (UPPERCASE) manage the module system. They enable you to create r
 # mymodule.paw
 MODULE "mymath"
 
-macro double (
+macro double(
     mul $1, 2
 )
 
-macro triple (
+macro triple(
     mul $1, 3
 )
 
@@ -386,16 +393,21 @@ EXPORT double, triple
 
 ### Including with Restrictions
 
-The caller controls what gets imported:
+The caller controls what gets imported. When you `include` a module, it runs in an isolated environment. You then use `IMPORT` to bring specific items into your namespace.
 
 ```paw
 # main.paw
 
-# Import only specific items from the module
+# Include the module (runs it, captures exports)
 include (mymath), "mymodule.paw"
 
-# Now double and triple are available as mymath::double, mymath::triple
-mymath::double 5    # Returns 10
+# Import what you need into your namespace
+IMPORT "mymath::double"
+IMPORT "mymath::triple"
+
+# Now call directly (no namespace prefix)
+double 5 => result    # result = 10
+triple 3 => result    # result = 9
 ```
 
 ### Super Command Reference
@@ -406,13 +418,14 @@ mymath::double 5    # Returns 10
 | `EXPORT items...` | Export macros, commands, or `#objects` to module |
 | `IMPORT "module"` | Import all items from a module |
 | `IMPORT "module::item1,item2"` | Import specific items |
-| `IMPORT "module::orig=alias"` | Import with renaming |
+| `IMPORT "module::newname=origname"` | Import with renaming |
 | `REMOVE items...` | Remove imported items |
 | `REMOVE ALL` | Reset to clean slate |
-| `LIBRARY restrict *` | Restrict all library access |
-| `LIBRARY restrict module` | Restrict specific module |
-| `LIBRARY allow module` | Allow access to module |
-| `LIBRARY allow module::items` | Allow specific items only |
+| `LIBRARY "restrict *"` | Restrict all library access |
+| `LIBRARY "restrict module"` | Restrict specific module |
+| `LIBRARY "allow module"` | Allow access to module |
+| `LIBRARY "allow module::items"` | Allow specific items only |
+| `LIBRARY "allow newname=oldname"` | Allow with renaming |
 
 ### Complete Module Example
 
@@ -420,15 +433,15 @@ mymath::double 5    # Returns 10
 ```paw
 MODULE "math"
 
-macro square (
+macro square(
     mul $1, $1
 )
 
-macro cube (
+macro cube(
     mul $1, {mul $1, $1}
 )
 
-macro is_even (
+macro is_even(
     n: $1
     remainder: {sub ~n, {mul {div ~n, 2}, 2}}
     eq ~remainder, 0
@@ -440,27 +453,35 @@ EXPORT square, cube, is_even
 **Using with restrictions:**
 ```paw
 # Restrict everything first
-LIBRARY restrict *
+LIBRARY "restrict *"
 
 # Only allow our math module
-LIBRARY allow math
+LIBRARY "allow math"
 
 # Include the module - it runs in restricted environment
 include (math), "mathlib.paw"
 
-# Use exported functions
-math::square 4      # 16
-math::cube 3        # 27
-math::is_even 7     # false
+# Import the functions we want
+IMPORT "math::square"
+IMPORT "math::cube"
+IMPORT "math::is_even"
+
+# Use exported functions directly
+square 4 => result      # 16
+cube 3 => result        # 27
+is_even 7 then echo "even" else echo "odd"  # odd
 ```
 
 ### Renaming on Import
 
 ```paw
-include (m=math), "mathlib.paw"
+include (math), "mathlib.paw"
 
-# Now accessible as m::square instead of math::square
-m::square 5    # 25
+# Import with a new name
+IMPORT "math::sq=square"
+
+# Now accessible as sq
+sq 5 => result    # 25
 ```
 
 ---
@@ -480,20 +501,20 @@ cmd1 else cmd2           # If cmd1 fails
 !cmd                     # Invert status
 
 # Chaining
-cmd1 ~> cmd2             # Result as first arg
-cmd1 ~~> cmd2            # Result as last arg
-cmd1 => var              # Capture result
+cmd1 ~> cmd2             # Formal result as first arg
+cmd1 ~~> cmd2            # Formal result as last arg
+cmd1 => var              # Capture formal result
 
 # Blocks
 (code)                   # Store for later
 {code}                   # Execute now
 
 # Macros
-macro name (body)        # Define
-$1 $2 $* $@ $#          # Arguments
+macro name(body)         # Define
+$1 $2 $* $@ $#           # Arguments
 
 # Lists
-{list a, b, c}          # Create
-len ~list               # Length
-(x, y, z): ~list        # Unpack
+{list a, b, c}           # Create
+len ~list => n           # Length
+(x, y, z): ~list         # Unpack
 ```

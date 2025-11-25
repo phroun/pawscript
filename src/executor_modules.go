@@ -62,7 +62,17 @@ func (e *Executor) handleLIBRARY(args []interface{}, state *ExecutionState, posi
 		return BoolStatus(false)
 	}
 
-	pattern := fmt.Sprintf("%v", args[0])
+	// Require a quoted string argument for safety
+	var pattern string
+	switch v := args[0].(type) {
+	case string:
+		pattern = v
+	case QuotedString:
+		pattern = string(v)
+	default:
+		e.logger.CommandError(CatSystem, "LIBRARY", "Argument must be a quoted string (e.g., LIBRARY \"restrict *\")", position)
+		return BoolStatus(false)
+	}
 	parts := strings.Fields(pattern)
 
 	if len(parts) < 2 {
