@@ -182,6 +182,12 @@ func (ms *MacroSystem) executeStoredMacro(
 		state.executor = ms.executor
 	}
 
+	// Set default module name to "exports" so any EXPORT calls in the macro
+	// will export to the "exports" module, which can be merged into caller
+	state.moduleEnv.mu.Lock()
+	state.moduleEnv.DefaultName = "exports"
+	state.moduleEnv.mu.Unlock()
+
 	// Create a LIST from the arguments (both positional and named) and store it as $@
 	argsList := NewStoredListWithRefs(args, namedArgs, state.executor)
 	argsListID := state.executor.storeObject(argsList, "list")
@@ -204,6 +210,28 @@ func (ms *MacroSystem) executeStoredMacro(
 
 	// Execute the macro commands
 	result := executeCallback(macro.Commands, state, substitutionContext)
+
+	// Merge macro exports into parent's LibraryInherited under "exports" module
+	if parentState != nil {
+		state.moduleEnv.mu.RLock()
+		if exportsSection, exists := state.moduleEnv.ModuleExports["exports"]; exists && len(exportsSection) > 0 {
+			parentState.moduleEnv.mu.Lock()
+			// Ensure exports module exists in parent's LibraryInherited
+			if parentState.moduleEnv.LibraryInherited == nil {
+				parentState.moduleEnv.LibraryInherited = make(Library)
+			}
+			if parentState.moduleEnv.LibraryInherited["exports"] == nil {
+				parentState.moduleEnv.LibraryInherited["exports"] = make(ModuleSection)
+			}
+			// Copy all exported items
+			for name, item := range exportsSection {
+				parentState.moduleEnv.LibraryInherited["exports"][name] = item
+			}
+			parentState.moduleEnv.mu.Unlock()
+			ms.logger.Debug("Merged %d exports from macro to parent's exports module", len(exportsSection))
+		}
+		state.moduleEnv.mu.RUnlock()
+	}
 
 	// Transfer result to parent state
 	if parentState != nil && state.HasResult() {

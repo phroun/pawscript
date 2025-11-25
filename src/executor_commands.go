@@ -660,6 +660,12 @@ func (e *Executor) executeMacro(
 		macroState.moduleEnv = NewChildModuleEnvironment(macro.ModuleEnv)
 	}
 
+	// Set default module name to "exports" so any EXPORT calls in the macro
+	// will export to the "exports" module, which can be merged into caller
+	macroState.moduleEnv.mu.Lock()
+	macroState.moduleEnv.DefaultName = "exports"
+	macroState.moduleEnv.mu.Unlock()
+
 	// Ensure macro state has executor reference
 	macroState.executor = e
 
@@ -684,6 +690,26 @@ func (e *Executor) executeMacro(
 	// Execute the macro commands
 	result := e.ExecuteWithState(macro.Commands, macroState, substitutionContext,
 		macro.DefinitionFile, macro.DefinitionLine-1, macro.DefinitionColumn-1)
+
+	// Merge macro exports into parent's LibraryInherited under "exports" module
+	macroState.moduleEnv.mu.RLock()
+	if exportsSection, exists := macroState.moduleEnv.ModuleExports["exports"]; exists && len(exportsSection) > 0 {
+		state.moduleEnv.mu.Lock()
+		// Ensure exports module exists in parent's LibraryInherited
+		if state.moduleEnv.LibraryInherited == nil {
+			state.moduleEnv.LibraryInherited = make(Library)
+		}
+		if state.moduleEnv.LibraryInherited["exports"] == nil {
+			state.moduleEnv.LibraryInherited["exports"] = make(ModuleSection)
+		}
+		// Copy all exported items
+		for name, item := range exportsSection {
+			state.moduleEnv.LibraryInherited["exports"][name] = item
+		}
+		state.moduleEnv.mu.Unlock()
+		e.logger.Debug("Merged %d exports from macro to parent's exports module", len(exportsSection))
+	}
+	macroState.moduleEnv.mu.RUnlock()
 
 	// Transfer result to parent state
 	if macroState.HasResult() {

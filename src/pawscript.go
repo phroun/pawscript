@@ -1,6 +1,7 @@
 package pawscript
 
 import (
+	"sort"
 	"time"
 )
 
@@ -48,11 +49,23 @@ func New(config *Config) *PawScript {
 	if config.AllowMacros {
 		executor.SetFallbackHandler(func(cmdName string, args []interface{}, namedArgs map[string]interface{}, state *ExecutionState, position *SourcePosition) Result {
 			ps.logger.Debug("Fallback handler called for command: %s", cmdName)
-			if macroSystem.HasMacro(cmdName) {
+
+			if state == nil {
+				state = ps.NewExecutionStateFromRoot()
+			}
+
+			// Look up macro in module environment (MacrosModule first, then MacrosInherited)
+			var macro *StoredMacro
+			state.moduleEnv.mu.RLock()
+			if m, exists := state.moduleEnv.MacrosModule[cmdName]; exists && m != nil {
+				macro = m
+			} else if m, exists := state.moduleEnv.MacrosInherited[cmdName]; exists && m != nil {
+				macro = m
+			}
+			state.moduleEnv.mu.RUnlock()
+
+			if macro != nil {
 				ps.logger.Debug("Found macro: %s", cmdName)
-				if state == nil {
-					state = ps.NewExecutionStateFromRoot()
-				}
 
 				// Ensure state has executor reference before creating child
 				if state.executor == nil {
@@ -62,7 +75,7 @@ func New(config *Config) *PawScript {
 				// Create a child state so the macro has its own fresh variable scope
 				macroState := state.CreateChild()
 
-				result := macroSystem.ExecuteMacro(cmdName, func(commands string, macroExecState *ExecutionState, ctx *SubstitutionContext) Result {
+				result := macroSystem.ExecuteStoredMacro(macro, func(commands string, macroExecState *ExecutionState, ctx *SubstitutionContext) Result {
 					// Use filename and offsets from substitution context for proper error reporting
 					filename := ""
 					lineOffset := 0
@@ -208,18 +221,28 @@ func (ps *PawScript) ForceCleanupToken(tokenID string) {
 	ps.executor.ForceCleanupToken(tokenID)
 }
 
-// DefineMacro defines a new macro
+// DefineMacro defines a new macro in the root module environment
 func (ps *PawScript) DefineMacro(name, commandSequence string) bool {
 	if !ps.config.AllowMacros {
 		ps.logger.Warn("Macros are disabled in configuration")
 		return false
 	}
-	// When defining from Go API, use root environment (no restriction)
-	_, ok := ps.macroSystem.DefineMacro(name, commandSequence, nil, nil)
-	return ok
+	if name == "" || commandSequence == "" {
+		ps.logger.Error("Macro name and commands are required")
+		return false
+	}
+
+	// Create macro and store in root module environment's MacrosModule
+	macro := NewStoredMacro(commandSequence, nil)
+	ps.rootModuleEnv.mu.Lock()
+	ps.rootModuleEnv.MacrosModule[name] = &macro
+	ps.rootModuleEnv.mu.Unlock()
+
+	ps.logger.Debug("Defined macro \"%s\" in root environment", name)
+	return true
 }
 
-// ExecuteMacro executes a macro
+// ExecuteMacro executes a macro by name from the root module environment
 func (ps *PawScript) ExecuteMacro(name string) Result {
 	if !ps.config.AllowMacros {
 		ps.logger.Warn("Macros are disabled in configuration")
@@ -228,7 +251,22 @@ func (ps *PawScript) ExecuteMacro(name string) Result {
 
 	state := ps.NewExecutionStateFromRoot()
 
-	return ps.macroSystem.ExecuteMacro(name, func(commands string, macroState *ExecutionState, ctx *SubstitutionContext) Result {
+	// Look up macro in root module environment
+	var macro *StoredMacro
+	ps.rootModuleEnv.mu.RLock()
+	if m, exists := ps.rootModuleEnv.MacrosModule[name]; exists && m != nil {
+		macro = m
+	} else if m, exists := ps.rootModuleEnv.MacrosInherited[name]; exists && m != nil {
+		macro = m
+	}
+	ps.rootModuleEnv.mu.RUnlock()
+
+	if macro == nil {
+		ps.logger.Error("Macro \"%s\" not found", name)
+		return BoolStatus(false)
+	}
+
+	return ps.macroSystem.ExecuteStoredMacro(macro, func(commands string, macroState *ExecutionState, ctx *SubstitutionContext) Result {
 		// Use filename from substitution context for proper error reporting
 		filename := ""
 		if ctx != nil {
@@ -238,29 +276,97 @@ func (ps *PawScript) ExecuteMacro(name string) Result {
 	}, []interface{}{}, nil, state, nil, nil) // No parent for top-level call
 }
 
-// ListMacros returns a list of all macro names
+// ListMacros returns a list of all macro names from the root module environment
 func (ps *PawScript) ListMacros() []string {
-	return ps.macroSystem.ListMacros()
+	macroSet := make(map[string]bool)
+	ps.rootModuleEnv.mu.RLock()
+	for name, macro := range ps.rootModuleEnv.MacrosModule {
+		if macro != nil {
+			macroSet[name] = true
+		}
+	}
+	for name, macro := range ps.rootModuleEnv.MacrosInherited {
+		if macro != nil {
+			macroSet[name] = true
+		}
+	}
+	ps.rootModuleEnv.mu.RUnlock()
+
+	macros := make([]string, 0, len(macroSet))
+	for name := range macroSet {
+		macros = append(macros, name)
+	}
+	sort.Strings(macros)
+	return macros
 }
 
-// GetMacro returns the commands for a macro
+// GetMacro returns the commands for a macro from the root module environment
 func (ps *PawScript) GetMacro(name string) *string {
-	return ps.macroSystem.GetMacro(name)
+	ps.rootModuleEnv.mu.RLock()
+	defer ps.rootModuleEnv.mu.RUnlock()
+
+	if macro, exists := ps.rootModuleEnv.MacrosModule[name]; exists && macro != nil {
+		return &macro.Commands
+	}
+	if macro, exists := ps.rootModuleEnv.MacrosInherited[name]; exists && macro != nil {
+		return &macro.Commands
+	}
+	return nil
 }
 
-// DeleteMacro deletes a macro
+// DeleteMacro deletes a macro from the root module environment
 func (ps *PawScript) DeleteMacro(name string) bool {
-	return ps.macroSystem.DeleteMacro(name)
+	ps.rootModuleEnv.mu.Lock()
+	defer ps.rootModuleEnv.mu.Unlock()
+
+	_, existsModule := ps.rootModuleEnv.MacrosModule[name]
+	_, existsInherited := ps.rootModuleEnv.MacrosInherited[name]
+	if !existsModule && !existsInherited {
+		ps.logger.Error("Macro \"%s\" not found", name)
+		return false
+	}
+	ps.rootModuleEnv.MacrosModule[name] = nil // nil shadows inherited
+	ps.logger.Debug("Deleted macro \"%s\"", name)
+	return true
 }
 
-// ClearMacros clears all macros
+// ClearMacros clears all macros from the root module environment
 func (ps *PawScript) ClearMacros() int {
-	return ps.macroSystem.ClearMacros()
+	ps.rootModuleEnv.mu.Lock()
+	defer ps.rootModuleEnv.mu.Unlock()
+
+	count := 0
+	for _, macro := range ps.rootModuleEnv.MacrosModule {
+		if macro != nil {
+			count++
+		}
+	}
+	ps.rootModuleEnv.MacrosModule = make(map[string]*StoredMacro)
+
+	// Shadow inherited macros
+	for name, macro := range ps.rootModuleEnv.MacrosInherited {
+		if macro != nil {
+			count++
+			ps.rootModuleEnv.MacrosModule[name] = nil
+		}
+	}
+
+	ps.logger.Debug("Cleared %d macros", count)
+	return count
 }
 
-// HasMacro checks if a macro exists
+// HasMacro checks if a macro exists in the root module environment
 func (ps *PawScript) HasMacro(name string) bool {
-	return ps.macroSystem.HasMacro(name)
+	ps.rootModuleEnv.mu.RLock()
+	defer ps.rootModuleEnv.mu.RUnlock()
+
+	if macro, exists := ps.rootModuleEnv.MacrosModule[name]; exists {
+		return macro != nil // nil means deleted/shadowed
+	}
+	if macro, exists := ps.rootModuleEnv.MacrosInherited[name]; exists && macro != nil {
+		return true
+	}
+	return false
 }
 
 // SetFallbackHandler sets a fallback handler for unknown commands

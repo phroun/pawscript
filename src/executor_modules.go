@@ -588,27 +588,7 @@ func (e *Executor) handleEXPORT(args []interface{}, namedArgs map[string]interfa
 			continue
 		}
 
-		// Check for macro in the executor's macroSystem (user-defined macros)
-		if e.macroSystem != nil {
-			e.macroSystem.mu.RLock()
-			objectID, macroExists := e.macroSystem.macros[itemName]
-			e.macroSystem.mu.RUnlock()
-			if macroExists {
-				// Retrieve the actual StoredMacro
-				if obj, exists := e.getObject(objectID); exists {
-					if macro, ok := obj.(StoredMacro); ok {
-						section[itemName] = &ModuleItem{
-							Type:  "macro",
-							Value: &macro,
-						}
-						e.logger.Debug("EXPORT: Exported macro \"%s\" from module \"%s\"", itemName, moduleName)
-						continue
-					}
-				}
-			}
-		}
-
-		// Check for macro in module registries (imported macros)
+		// Check for macro in module registries
 		if state.moduleEnv.MacrosModule != nil {
 			if macro, exists := state.moduleEnv.MacrosModule[itemName]; exists && macro != nil {
 				section[itemName] = &ModuleItem{

@@ -786,9 +786,22 @@ func callComparator(ps *PawScript, ctx *Context, comparator interface{}, a, b in
 				return ps.executor.ExecuteWithState(commands, macroExecState, substCtx, filename, lineOffset, columnOffset)
 			}, callArgs, make(map[string]interface{}), childState, ctx.Position, ctx.state)
 		} else {
-			// Treat as macro name
+			// Treat as macro name - look up in module environment
 			name := string(comp)
-			result = ps.macroSystem.ExecuteMacro(name, func(commands string, macroExecState *ExecutionState, substCtx *SubstitutionContext) Result {
+			var macro *StoredMacro
+			ctx.state.moduleEnv.mu.RLock()
+			if m, exists := ctx.state.moduleEnv.MacrosModule[name]; exists && m != nil {
+				macro = m
+			} else if m, exists := ctx.state.moduleEnv.MacrosInherited[name]; exists && m != nil {
+				macro = m
+			}
+			ctx.state.moduleEnv.mu.RUnlock()
+
+			if macro == nil {
+				return false, fmt.Errorf("macro \"%s\" not found", name)
+			}
+
+			result = ps.macroSystem.ExecuteStoredMacro(macro, func(commands string, macroExecState *ExecutionState, substCtx *SubstitutionContext) Result {
 				filename := ""
 				lineOffset := 0
 				columnOffset := 0
@@ -819,8 +832,21 @@ func callComparator(ps *PawScript, ctx *Context, comparator interface{}, a, b in
 		}, callArgs, make(map[string]interface{}), childState, ctx.Position, ctx.state)
 
 	case string:
-		// Treat as macro name
-		result = ps.macroSystem.ExecuteMacro(comp, func(commands string, macroExecState *ExecutionState, substCtx *SubstitutionContext) Result {
+		// Treat as macro name - look up in module environment
+		var macro *StoredMacro
+		ctx.state.moduleEnv.mu.RLock()
+		if m, exists := ctx.state.moduleEnv.MacrosModule[comp]; exists && m != nil {
+			macro = m
+		} else if m, exists := ctx.state.moduleEnv.MacrosInherited[comp]; exists && m != nil {
+			macro = m
+		}
+		ctx.state.moduleEnv.mu.RUnlock()
+
+		if macro == nil {
+			return false, fmt.Errorf("macro \"%s\" not found", comp)
+		}
+
+		result = ps.macroSystem.ExecuteStoredMacro(macro, func(commands string, macroExecState *ExecutionState, substCtx *SubstitutionContext) Result {
 			filename := ""
 			lineOffset := 0
 			columnOffset := 0
