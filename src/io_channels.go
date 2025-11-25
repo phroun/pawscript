@@ -170,7 +170,7 @@ func (env *ModuleEnvironment) PopulateIOModule(config *IOChannelConfig) {
 	}
 
 	// Also update LibraryRestricted to include the new io objects
-	// (commands were already added by PopulateStdlibModules)
+	// (commands were already added via RegisterCommandInModule)
 	if env.LibraryRestricted["io"] == nil {
 		env.LibraryRestricted["io"] = make(ModuleSection)
 	}

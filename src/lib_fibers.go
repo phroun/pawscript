@@ -9,7 +9,7 @@ import (
 func (ps *PawScript) RegisterFibersLib() {
 
 	// fiber_spawn - spawn a new fiber to execute a macro
-	ps.RegisterCommand("fiber_spawn", func(ctx *Context) Result {
+	ps.RegisterCommandInModule("fibers", "fiber_spawn", func(ctx *Context) Result {
 		if len(ctx.Args) < 1 {
 			ps.logger.Error("Usage: fiber_spawn <macro>, [args...]")
 			return BoolStatus(false)
@@ -71,7 +71,7 @@ func (ps *PawScript) RegisterFibersLib() {
 	})
 
 	// fiber_wait - wait for a fiber to complete and get its result
-	ps.RegisterCommand("fiber_wait", func(ctx *Context) Result {
+	ps.RegisterCommandInModule("fibers", "fiber_wait", func(ctx *Context) Result {
 		if len(ctx.Args) < 1 {
 			ps.logger.Error("Usage: fiber_wait <fiber_handle>")
 			return BoolStatus(false)
@@ -113,21 +113,21 @@ func (ps *PawScript) RegisterFibersLib() {
 	})
 
 	// fiber_count - get the current number of active fibers
-	ps.RegisterCommand("fiber_count", func(ctx *Context) Result {
+	ps.RegisterCommandInModule("fibers", "fiber_count", func(ctx *Context) Result {
 		count := ctx.executor.GetFiberCount()
 		ctx.state.SetResult(count)
 		return BoolStatus(true)
 	})
 
 	// fiber_id - get the current fiber's ID
-	ps.RegisterCommand("fiber_id", func(ctx *Context) Result {
+	ps.RegisterCommandInModule("fibers", "fiber_id", func(ctx *Context) Result {
 		fiberID := ctx.state.fiberID
 		ctx.state.SetResult(fiberID)
 		return BoolStatus(true)
 	})
 
 	// fiber_wait_all - wait for all child fibers to complete
-	ps.RegisterCommand("fiber_wait_all", func(ctx *Context) Result {
+	ps.RegisterCommandInModule("fibers", "fiber_wait_all", func(ctx *Context) Result {
 		ctx.executor.WaitForAllFibers()
 		return BoolStatus(true)
 	})

@@ -10,7 +10,7 @@ import (
 func (ps *PawScript) RegisterChannelsLib() {
 
 	// channel - create a native or custom channel
-	ps.RegisterCommand("channel", func(ctx *Context) Result {
+	ps.RegisterCommandInModule("channels", "channel", func(ctx *Context) Result {
 		bufferSize := 0
 		var customSend, customRecv, customClose *StoredMacro
 
@@ -53,7 +53,7 @@ func (ps *PawScript) RegisterChannelsLib() {
 		return BoolStatus(true)
 	})
 
-	ps.RegisterCommand("channel_subscribe", func(ctx *Context) Result {
+	ps.RegisterCommandInModule("channels", "channel_subscribe", func(ctx *Context) Result {
 		if len(ctx.Args) < 1 {
 			ps.logger.Error("Usage: channel_subscribe <channel>")
 			return BoolStatus(false)
@@ -95,7 +95,7 @@ func (ps *PawScript) RegisterChannelsLib() {
 		return BoolStatus(true)
 	})
 
-	ps.RegisterCommand("channel_send", func(ctx *Context) Result {
+	ps.RegisterCommandInModule("channels", "channel_send", func(ctx *Context) Result {
 		if len(ctx.Args) < 2 {
 			ps.logger.Error("Usage: channel_send <channel>, <value>")
 			return BoolStatus(false)
@@ -168,7 +168,7 @@ func (ps *PawScript) RegisterChannelsLib() {
 		return BoolStatus(true)
 	})
 
-	ps.RegisterCommand("channel_recv", func(ctx *Context) Result {
+	ps.RegisterCommandInModule("channels", "channel_recv", func(ctx *Context) Result {
 		if len(ctx.Args) < 1 {
 			ps.logger.Error("Usage: channel_recv <channel>")
 			return BoolStatus(false)
@@ -246,7 +246,7 @@ func (ps *PawScript) RegisterChannelsLib() {
 		return BoolStatus(true)
 	})
 
-	ps.RegisterCommand("channel_close", func(ctx *Context) Result {
+	ps.RegisterCommandInModule("channels", "channel_close", func(ctx *Context) Result {
 		if len(ctx.Args) < 1 {
 			ps.logger.Error("Usage: channel_close <channel>")
 			return BoolStatus(false)
@@ -283,7 +283,7 @@ func (ps *PawScript) RegisterChannelsLib() {
 		return BoolStatus(true)
 	})
 
-	ps.RegisterCommand("channel_disconnect", func(ctx *Context) Result {
+	ps.RegisterCommandInModule("channels", "channel_disconnect", func(ctx *Context) Result {
 		if len(ctx.Args) < 2 {
 			ps.logger.Error("Usage: channel_disconnect <channel>, <subscriber_id>")
 			return BoolStatus(false)
@@ -327,7 +327,7 @@ func (ps *PawScript) RegisterChannelsLib() {
 		return BoolStatus(true)
 	})
 
-	ps.RegisterCommand("channel_opened", func(ctx *Context) Result {
+	ps.RegisterCommandInModule("channels", "channel_opened", func(ctx *Context) Result {
 		if len(ctx.Args) < 1 {
 			ps.logger.Error("Usage: channel_opened <channel>")
 			return BoolStatus(false)

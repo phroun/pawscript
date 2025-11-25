@@ -10,7 +10,7 @@ func (ps *PawScript) RegisterMathLib() {
 
 	// ==================== math:: module ====================
 
-	ps.RegisterCommand("add", func(ctx *Context) Result {
+	ps.RegisterCommandInModule("math", "add", func(ctx *Context) Result {
 		if len(ctx.Args) < 2 {
 			ctx.LogError(CatCommand, "Usage: add <a>, <b>")
 			return BoolStatus(false)
@@ -28,7 +28,7 @@ func (ps *PawScript) RegisterMathLib() {
 		return BoolStatus(true)
 	})
 
-	ps.RegisterCommand("sub", func(ctx *Context) Result {
+	ps.RegisterCommandInModule("math", "sub", func(ctx *Context) Result {
 		if len(ctx.Args) < 2 {
 			ctx.LogError(CatCommand, "Usage: sub <a>, <b>")
 			return BoolStatus(false)
@@ -46,7 +46,7 @@ func (ps *PawScript) RegisterMathLib() {
 		return BoolStatus(true)
 	})
 
-	ps.RegisterCommand("mul", func(ctx *Context) Result {
+	ps.RegisterCommandInModule("math", "mul", func(ctx *Context) Result {
 		if len(ctx.Args) < 2 {
 			ctx.LogError(CatCommand, "Usage: mul <a>, <b>")
 			return BoolStatus(false)
@@ -64,7 +64,7 @@ func (ps *PawScript) RegisterMathLib() {
 		return BoolStatus(true)
 	})
 
-	ps.RegisterCommand("div", func(ctx *Context) Result {
+	ps.RegisterCommandInModule("math", "div", func(ctx *Context) Result {
 		if len(ctx.Args) < 2 {
 			ctx.LogError(CatCommand, "Usage: div <a>, <b>")
 			return BoolStatus(false)
@@ -88,7 +88,7 @@ func (ps *PawScript) RegisterMathLib() {
 
 	// ==================== cmp:: module ====================
 
-	ps.RegisterCommand("eq", func(ctx *Context) Result {
+	ps.RegisterCommandInModule("cmp", "eq", func(ctx *Context) Result {
 		if len(ctx.Args) < 2 {
 			ctx.LogError(CatCommand, "Usage: eq <a>, <b>")
 			ctx.SetResult(false)
@@ -102,7 +102,7 @@ func (ps *PawScript) RegisterMathLib() {
 		return BoolStatus(result)
 	})
 
-	ps.RegisterCommand("lt", func(ctx *Context) Result {
+	ps.RegisterCommandInModule("cmp", "lt", func(ctx *Context) Result {
 		if len(ctx.Args) < 2 {
 			ctx.LogError(CatCommand, "Usage: lt <a>, <b>")
 			ctx.SetResult(false)
@@ -124,7 +124,7 @@ func (ps *PawScript) RegisterMathLib() {
 		return BoolStatus(result)
 	})
 
-	ps.RegisterCommand("gt", func(ctx *Context) Result {
+	ps.RegisterCommandInModule("cmp", "gt", func(ctx *Context) Result {
 		if len(ctx.Args) < 2 {
 			ctx.LogError(CatCommand, "Usage: gt <a>, <b>")
 			ctx.SetResult(false)
@@ -146,7 +146,7 @@ func (ps *PawScript) RegisterMathLib() {
 		return BoolStatus(result)
 	})
 
-	ps.RegisterCommand("gte", func(ctx *Context) Result {
+	ps.RegisterCommandInModule("cmp", "gte", func(ctx *Context) Result {
 		if len(ctx.Args) < 2 {
 			ctx.LogError(CatCommand, "Usage: gte <a>, <b>")
 			ctx.SetResult(false)
@@ -168,7 +168,7 @@ func (ps *PawScript) RegisterMathLib() {
 		return BoolStatus(result)
 	})
 
-	ps.RegisterCommand("lte", func(ctx *Context) Result {
+	ps.RegisterCommandInModule("cmp", "lte", func(ctx *Context) Result {
 		if len(ctx.Args) < 2 {
 			ctx.LogError(CatCommand, "Usage: lte <a>, <b>")
 			ctx.SetResult(false)
@@ -191,7 +191,7 @@ func (ps *PawScript) RegisterMathLib() {
 	})
 
 	// if - normalize truthy/falsy values to boolean
-	ps.RegisterCommand("if", func(ctx *Context) Result {
+	ps.RegisterCommandInModule("flow", "if", func(ctx *Context) Result {
 		if len(ctx.Args) < 1 {
 			ctx.LogError(CatCommand, "Usage: if <value>")
 			ctx.SetResult(false)

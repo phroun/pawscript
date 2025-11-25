@@ -198,7 +198,7 @@ func (ps *PawScript) RegisterSystemLib(scriptArgs []string) {
 	// ==================== os:: module ====================
 
 	// argc - returns number of arguments
-	ps.RegisterCommand("argc", func(ctx *Context) Result {
+	ps.RegisterCommandInModule("os", "argc", func(ctx *Context) Result {
 		if len(ctx.Args) == 0 {
 			// No arguments - use default #args
 			sourceList, found := resolveHashList(ctx, "#args")
@@ -257,7 +257,7 @@ func (ps *PawScript) RegisterSystemLib(scriptArgs []string) {
 	})
 
 	// argv - returns array of arguments or specific argument by index
-	ps.RegisterCommand("argv", func(ctx *Context) Result {
+	ps.RegisterCommandInModule("os", "argv", func(ctx *Context) Result {
 		var sourceList []interface{}
 		var storedListSource StoredList
 		var hasStoredList bool
@@ -386,7 +386,7 @@ func (ps *PawScript) RegisterSystemLib(scriptArgs []string) {
 	})
 
 	// exec - execute external command and capture output
-	ps.RegisterCommand("exec", func(ctx *Context) Result {
+	ps.RegisterCommandInModule("sys", "exec", func(ctx *Context) Result {
 		if len(ctx.Args) == 0 {
 			ctx.LogError(CatIO, "No command specified for exec.")
 			return BoolStatus(false)
@@ -430,7 +430,7 @@ func (ps *PawScript) RegisterSystemLib(scriptArgs []string) {
 	})
 
 	// include - include another source file
-	ps.RegisterCommand("include", func(ctx *Context) Result {
+	ps.RegisterCommandInModule("stdlib", "include", func(ctx *Context) Result {
 		if len(ctx.Args) == 0 {
 			ctx.LogError(CatIO, "Usage: include \"filename\" or include (imports...), \"filename\"")
 			return BoolStatus(false)
@@ -606,12 +606,12 @@ func (ps *PawScript) RegisterSystemLib(scriptArgs []string) {
 		return BoolStatus(true)
 	}
 
-	ps.RegisterCommand("write", outputCommand)
-	ps.RegisterCommand("echo", outputLineCommand)
-	ps.RegisterCommand("print", outputLineCommand)
+	ps.RegisterCommandInModule("io", "write", outputCommand)
+	ps.RegisterCommandInModule("io", "echo", outputLineCommand)
+	ps.RegisterCommandInModule("io", "print", outputLineCommand)
 
 	// read - read a line from stdin or specified channel
-	ps.RegisterCommand("read", func(ctx *Context) Result {
+	ps.RegisterCommandInModule("io", "read", func(ctx *Context) Result {
 		ch, found := getInputChannel(ctx, "#in")
 		if !found {
 			token := ctx.RequestToken(nil)
@@ -642,7 +642,7 @@ func (ps *PawScript) RegisterSystemLib(scriptArgs []string) {
 	})
 
 	// rune - convert integer to Unicode character
-	ps.RegisterCommand("rune", func(ctx *Context) Result {
+	ps.RegisterCommandInModule("io", "rune", func(ctx *Context) Result {
 		if len(ctx.Args) < 1 {
 			ctx.LogError(CatIO, "rune requires an integer argument")
 			ctx.SetResult("")
@@ -675,7 +675,7 @@ func (ps *PawScript) RegisterSystemLib(scriptArgs []string) {
 	})
 
 	// ord - convert first character of string to Unicode codepoint
-	ps.RegisterCommand("ord", func(ctx *Context) Result {
+	ps.RegisterCommandInModule("io", "ord", func(ctx *Context) Result {
 		if len(ctx.Args) < 1 {
 			ctx.SetResult(int64(0))
 			return BoolStatus(false)
@@ -708,7 +708,7 @@ func (ps *PawScript) RegisterSystemLib(scriptArgs []string) {
 	// clear - clear terminal screen or specific regions
 	// With no args: clear screen (ANSI in terminal, separator if redirected)
 	// With arg: "eol", "bol", "line", "eos", "bos", "screen" for specific ANSI clear modes
-	ps.RegisterCommand("clear", func(ctx *Context) Result {
+	ps.RegisterCommandInModule("io", "clear", func(ctx *Context) Result {
 		ts := ps.terminalState
 		ts.mu.Lock()
 		defer ts.mu.Unlock()
@@ -761,7 +761,7 @@ func (ps *PawScript) RegisterSystemLib(scriptArgs []string) {
 	// color <fg>, <bg>     - set both foreground and background
 	// Named args: bold, blink, underline, invert (boolean), reset (boolean)
 	// Returns: list with (fg, bg, bold:, blink:, underline:, invert:, term:, ansi:, color:)
-	ps.RegisterCommand("color", func(ctx *Context) Result {
+	ps.RegisterCommandInModule("io", "color", func(ctx *Context) Result {
 		ts := ps.terminalState
 		ts.mu.Lock()
 		defer ts.mu.Unlock()
@@ -930,7 +930,7 @@ func (ps *PawScript) RegisterSystemLib(scriptArgs []string) {
 	//             x/col, y/row (position), h/v (relative movement)
 	//             visible, shape, blink, color, free, duplex, reset
 	// Returns: list with screen_rows, screen_cols, x, y, row, col, and settings
-	ps.RegisterCommand("cursor", func(ctx *Context) Result {
+	ps.RegisterCommandInModule("io", "cursor", func(ctx *Context) Result {
 		ts := ps.terminalState
 		ts.mu.Lock()
 		defer ts.mu.Unlock()
@@ -1123,7 +1123,7 @@ func (ps *PawScript) RegisterSystemLib(scriptArgs []string) {
 	// ==================== sys:: module ====================
 
 	// msleep - sleep for specified milliseconds (async)
-	ps.RegisterCommand("msleep", func(ctx *Context) Result {
+	ps.RegisterCommandInModule("sys", "msleep", func(ctx *Context) Result {
 		if len(ctx.Args) < 1 {
 			ps.logger.Error("Usage: msleep <milliseconds>")
 			return BoolStatus(false)
@@ -1165,7 +1165,7 @@ func (ps *PawScript) RegisterSystemLib(scriptArgs []string) {
 	})
 
 	// log_print - output log messages from scripts
-	ps.RegisterCommand("log_print", func(ctx *Context) Result {
+	ps.RegisterCommandInModule("debug", "log_print", func(ctx *Context) Result {
 		if len(ctx.Args) < 2 {
 			ctx.LogError(CatIO, "Usage: log_print <level>, <message>, [category]")
 			return BoolStatus(false)
@@ -1198,7 +1198,7 @@ func (ps *PawScript) RegisterSystemLib(scriptArgs []string) {
 	})
 
 	// microtime - return microseconds since epoch or since interpreter started
-	ps.RegisterCommand("microtime", func(ctx *Context) Result {
+	ps.RegisterCommandInModule("sys", "microtime", func(ctx *Context) Result {
 		// Try to get system time in microseconds
 		now := time.Now()
 		microtime := now.UnixMicro()
@@ -1211,7 +1211,7 @@ func (ps *PawScript) RegisterSystemLib(scriptArgs []string) {
 	// datetime "America/Los_Angeles"  -> Local time as "YYYY-MM-DDTHH:NN:SS-07:00"
 	// datetime "UTC", stamp           -> Convert stamp to UTC
 	// datetime "UTC", stamp, "America/Los_Angeles" -> Interpret stamp as LA time, output UTC
-	ps.RegisterCommand("datetime", func(ctx *Context) Result {
+	ps.RegisterCommandInModule("sys", "datetime", func(ctx *Context) Result {
 		now := time.Now()
 
 		// Helper to format time with optional seconds
