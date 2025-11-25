@@ -433,6 +433,11 @@ func (e *Executor) substituteTildeExpressions(str string, state *ExecutionState,
 			// Resolve any object markers to get display value
 			resolved := e.resolveValue(value)
 			valueStr := fmt.Sprintf("%v", resolved)
+			// Since tildes are only found inside double-quoted strings,
+			// we need to escape any double quotes in the substituted value
+			// to prevent breaking the quote structure
+			valueStr = strings.ReplaceAll(valueStr, `\`, `\\`)
+			valueStr = strings.ReplaceAll(valueStr, `"`, `\"`)
 			result = append(result, []rune(valueStr)...)
 		} else {
 			// Variable not found - log error and leave empty
