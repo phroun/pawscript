@@ -1103,9 +1103,15 @@ func parseNextUnit(runes []rune, i int) (interface{}, argUnitType, int) {
 	}
 
 	// Bare word (symbol, number, nil, true, false)
+	// Handle escape sequences - backslash protects the next character
 	start := i
 	for i < len(runes) {
 		c := runes[i]
+		// Handle escape sequences - skip backslash and the escaped character
+		if c == '\\' && i+1 < len(runes) {
+			i += 2
+			continue
+		}
 		if unicode.IsSpace(c) || c == ',' || c == ':' || c == '(' || c == ')' || c == '{' || c == '}' || c == '"' || c == '\'' {
 			break
 		}
@@ -1117,6 +1123,9 @@ func parseNextUnit(runes []rune, i int) (interface{}, argUnitType, int) {
 	}
 
 	word := string(runes[start:i])
+
+	// Process escape sequences in the word to get the actual value
+	word = processEscapesInBareWord(word)
 
 	// Check for special values
 	if word == "nil" {
@@ -1139,6 +1148,25 @@ func parseNextUnit(runes []rune, i int) (interface{}, argUnitType, int) {
 
 	// It's a symbol
 	return Symbol(word), unitSymbol, i
+}
+
+// processEscapesInBareWord converts escape sequences in bare words
+// e.g., \"text\" becomes "text"
+func processEscapesInBareWord(word string) string {
+	var result strings.Builder
+	runes := []rune(word)
+	i := 0
+	for i < len(runes) {
+		if runes[i] == '\\' && i+1 < len(runes) {
+			// Include the escaped character literally
+			result.WriteRune(runes[i+1])
+			i += 2
+		} else {
+			result.WriteRune(runes[i])
+			i++
+		}
+	}
+	return result.String()
 }
 
 // combineValueUnit applies combination rules for parsing a value (after colon)
