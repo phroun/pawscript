@@ -40,24 +40,30 @@ type TerminalState struct {
 
 	// Clear tracking
 	HasCleared bool // true if clear was last output operation
+
+	// Color tracking (for preserving background when only foreground changes)
+	CurrentFG int // current foreground color (-1 = default)
+	CurrentBG int // current background color (-1 = default)
 }
 
 // NewTerminalState creates a new terminal state with defaults
 func NewTerminalState() *TerminalState {
 	ts := &TerminalState{
-		XBase:   1,
-		YBase:   1,
-		Rows:    24,
-		Cols:    80,
-		Indent:  0,
-		Head:    0,
-		X:       1,
-		Y:       1,
-		Visible: true,
-		Shape:   "block",
-		Blink:   "true",
-		Color:   -1, // -1 means default
-		Free:    false,
+		XBase:     1,
+		YBase:     1,
+		Rows:      24,
+		Cols:      80,
+		Indent:    0,
+		Head:      0,
+		X:         1,
+		Y:         1,
+		Visible:   true,
+		Shape:     "block",
+		Blink:     "true",
+		Color:     -1, // -1 means default
+		Free:      false,
+		CurrentFG: -1, // -1 means default
+		CurrentBG: -1, // -1 means default
 	}
 
 	// Try to detect actual screen size
@@ -224,4 +230,172 @@ func ANSISetCursorShape(shape string, blink string) string {
 		code = 0 // default
 	}
 	return fmt.Sprintf("\x1b[%d q", code)
+}
+
+// ParseColorName converts a color name or number to CGA color index (0-15)
+// Returns -1 for invalid/default
+func ParseColorName(name string) int {
+	// Normalize: lowercase, trim spaces
+	name = strings.ToLower(strings.TrimSpace(name))
+
+	// Try parsing as number first
+	var num int
+	if _, err := fmt.Sscanf(name, "%d", &num); err == nil {
+		if num >= 0 && num <= 15 {
+			return num
+		}
+		return -1
+	}
+
+	// Color name mapping (CGA/EGA/VGA text mode colors)
+	switch name {
+	case "black":
+		return 0
+	case "blue":
+		return 1
+	case "green":
+		return 2
+	case "cyan", "teal":
+		return 3
+	case "red":
+		return 4
+	case "purple", "magenta":
+		return 5
+	case "brown", "orange", "amber", "dark yellow":
+		return 6
+	case "silver", "grey", "gray", "dark white", "default":
+		return 7
+	case "light black", "bright black", "dark gray", "dark grey":
+		return 8
+	case "bright blue", "light blue":
+		return 9
+	case "bright green", "light green":
+		return 10
+	case "aqua", "bright cyan", "light cyan":
+		return 11
+	case "bright red", "light red":
+		return 12
+	case "pink", "light purple", "bright purple", "light magenta", "bright magenta":
+		return 13
+	case "yellow", "bright amber", "light amber", "bright yellow", "light yellow":
+		return 14
+	case "white", "bright white":
+		return 15
+	default:
+		return -1
+	}
+}
+
+// CGAToANSIFG converts CGA color (0-15) to ANSI foreground code
+func CGAToANSIFG(cga int) int {
+	if cga < 0 || cga > 15 {
+		return 39 // default
+	}
+	// CGA to ANSI color mapping
+	// CGA: 0=black, 1=blue, 2=green, 3=cyan, 4=red, 5=magenta, 6=brown, 7=light gray
+	// ANSI: 30=black, 31=red, 32=green, 33=yellow, 34=blue, 35=magenta, 36=cyan, 37=white
+	cgaToANSI := []int{30, 34, 32, 36, 31, 35, 33, 37} // for colors 0-7
+	if cga < 8 {
+		return cgaToANSI[cga]
+	}
+	// Bright colors (8-15) use 90-97
+	return cgaToANSI[cga-8] + 60
+}
+
+// CGAToANSIBG converts CGA color (0-15) to ANSI background code
+func CGAToANSIBG(cga int) int {
+	if cga < 0 || cga > 15 {
+		return 49 // default
+	}
+	cgaToANSI := []int{40, 44, 42, 46, 41, 45, 43, 47} // for colors 0-7
+	if cga < 8 {
+		return cgaToANSI[cga]
+	}
+	// Bright background colors (8-15) use 100-107
+	return cgaToANSI[cga-8] + 60
+}
+
+// ANSIColor generates ANSI escape sequence for colors and attributes
+// fg, bg: CGA color numbers (0-15), -1 for default/unchanged
+// bold, blink, underline, invert: attribute flags
+func ANSIColor(fg, bg int, bold, blink, underline, invert bool) string {
+	var codes []string
+
+	// Start with reset if we have any attributes to ensure clean state
+	// But we'll rebuild colors after reset
+	needsReset := bold || blink || underline || invert
+
+	if needsReset {
+		// We need to set attributes, so we reset first and rebuild
+		codes = append(codes, "0")
+		if bold {
+			codes = append(codes, "1")
+		}
+		if blink {
+			codes = append(codes, "5")
+		}
+		if underline {
+			codes = append(codes, "4")
+		}
+		if invert {
+			codes = append(codes, "7")
+		}
+	}
+
+	// Add foreground color
+	if fg >= 0 && fg <= 15 {
+		codes = append(codes, fmt.Sprintf("%d", CGAToANSIFG(fg)))
+	} else if needsReset && fg == -1 {
+		// After reset, explicitly set default if no color specified
+		codes = append(codes, "39")
+	}
+
+	// Add background color
+	if bg >= 0 && bg <= 15 {
+		codes = append(codes, fmt.Sprintf("%d", CGAToANSIBG(bg)))
+	} else if needsReset && bg == -1 {
+		// After reset, explicitly set default if no color specified
+		codes = append(codes, "49")
+	}
+
+	if len(codes) == 0 {
+		return ""
+	}
+
+	return fmt.Sprintf("\x1b[%sm", strings.Join(codes, ";"))
+}
+
+// ANSIColorPreserving generates ANSI color sequence while preserving existing background
+// This is used when only foreground is specified
+func ANSIColorPreserving(fg, currentBG int, bold, blink, underline, invert bool) string {
+	// If we have attributes, we need to reset and rebuild everything
+	if bold || blink || underline || invert {
+		return ANSIColor(fg, currentBG, bold, blink, underline, invert)
+	}
+
+	// No attributes, just set foreground
+	if fg >= 0 && fg <= 15 {
+		return fmt.Sprintf("\x1b[%dm", CGAToANSIFG(fg))
+	}
+	return ""
+}
+
+// ANSIClearMode returns ANSI clear sequence for different modes
+func ANSIClearMode(mode string) string {
+	switch strings.ToLower(mode) {
+	case "eol": // clear to end of line
+		return "\x1b[K"
+	case "bol": // clear to beginning of line
+		return "\x1b[1K"
+	case "line": // clear entire line
+		return "\x1b[2K"
+	case "eos": // clear to end of screen
+		return "\x1b[J"
+	case "bos": // clear to beginning of screen
+		return "\x1b[1J"
+	case "screen": // clear entire screen
+		return "\x1b[2J"
+	default:
+		return ""
+	}
 }

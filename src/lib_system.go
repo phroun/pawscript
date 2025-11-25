@@ -705,15 +705,39 @@ func (ps *PawScript) RegisterSystemLib(scriptArgs []string) {
 		return BoolStatus(true)
 	})
 
-	// clear - clear terminal screen
-	// In terminal mode: sends ANSI clear sequence
-	// In redirected mode: sends newline + 39 equal signs + newlines (unless last output was clear)
+	// clear - clear terminal screen or specific regions
+	// With no args: clear screen (ANSI in terminal, separator if redirected)
+	// With arg: "eol", "bol", "line", "eos", "bos", "screen" for specific ANSI clear modes
 	ps.RegisterCommand("clear", func(ctx *Context) Result {
 		ts := ps.terminalState
 		ts.mu.Lock()
 		defer ts.mu.Unlock()
 
-		// Check if output is to a terminal
+		// Check for mode argument
+		if len(ctx.Args) > 0 {
+			var mode string
+			switch v := ctx.Args[0].(type) {
+			case string:
+				mode = v
+			case Symbol:
+				mode = string(v)
+			case QuotedString:
+				mode = string(v)
+			default:
+				mode = fmt.Sprintf("%v", v)
+			}
+
+			// Handle specific clear modes - emit ANSI codes
+			ansiCode := ANSIClearMode(mode)
+			if ansiCode != "" {
+				fmt.Print(ansiCode)
+				ts.HasCleared = false // partial clear doesn't count as full clear
+				return BoolStatus(true)
+			}
+			// Unknown mode - fall through to default behavior
+		}
+
+		// Default clear behavior
 		if IsTerminal() {
 			// Terminal mode - send ANSI clear and home cursor
 			fmt.Print(ANSIClearScreen())
@@ -729,6 +753,102 @@ func (ps *PawScript) RegisterSystemLib(scriptArgs []string) {
 			}
 		}
 
+		return BoolStatus(true)
+	})
+
+	// color - set foreground and/or background colors with optional attributes
+	// color <fg>           - set foreground only, preserve background
+	// color <fg>, <bg>     - set both foreground and background
+	// Named args: bold, blink, underline, invert (boolean)
+	ps.RegisterCommand("color", func(ctx *Context) Result {
+		ts := ps.terminalState
+		ts.mu.Lock()
+		defer ts.mu.Unlock()
+
+		// Parse color arguments
+		fg := -1 // -1 means don't change
+		bg := -1
+
+		// Helper to parse a color value
+		parseColor := func(val interface{}) int {
+			switch v := val.(type) {
+			case int64:
+				if v >= 0 && v <= 15 {
+					return int(v)
+				}
+				return -1
+			case int:
+				if v >= 0 && v <= 15 {
+					return v
+				}
+				return -1
+			case float64:
+				iv := int(v)
+				if iv >= 0 && iv <= 15 {
+					return iv
+				}
+				return -1
+			case string:
+				return ParseColorName(v)
+			case Symbol:
+				return ParseColorName(string(v))
+			case QuotedString:
+				return ParseColorName(string(v))
+			default:
+				return -1
+			}
+		}
+
+		// Parse positional arguments
+		if len(ctx.Args) >= 1 {
+			fg = parseColor(ctx.Args[0])
+		}
+		if len(ctx.Args) >= 2 {
+			bg = parseColor(ctx.Args[1])
+		}
+
+		// Parse named arguments for attributes
+		bold := false
+		blink := false
+		underline := false
+		invert := false
+
+		if v, ok := ctx.NamedArgs["bold"]; ok {
+			bold = isTruthy(v)
+		}
+		if v, ok := ctx.NamedArgs["blink"]; ok {
+			blink = isTruthy(v)
+		}
+		if v, ok := ctx.NamedArgs["underline"]; ok {
+			underline = isTruthy(v)
+		}
+		if v, ok := ctx.NamedArgs["invert"]; ok {
+			invert = isTruthy(v)
+		}
+
+		// Generate and emit ANSI sequence
+		var ansiCode string
+		if bg == -1 && len(ctx.Args) == 1 {
+			// Only foreground specified - preserve current background
+			ansiCode = ANSIColorPreserving(fg, ts.CurrentBG, bold, blink, underline, invert)
+		} else {
+			// Both colors or explicit background
+			ansiCode = ANSIColor(fg, bg, bold, blink, underline, invert)
+		}
+
+		if ansiCode != "" {
+			fmt.Print(ansiCode)
+		}
+
+		// Update tracked colors
+		if fg >= 0 {
+			ts.CurrentFG = fg
+		}
+		if bg >= 0 {
+			ts.CurrentBG = bg
+		}
+
+		ts.HasCleared = false
 		return BoolStatus(true)
 	})
 

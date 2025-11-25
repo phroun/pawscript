@@ -423,6 +423,7 @@ func (env *ModuleEnvironment) PopulateStdlibModules() {
 		"ord":    true,
 		"clear":  true,
 		"cursor": true,
+		"color":  true,
 	}
 
 	// Create stdlib module
