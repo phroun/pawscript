@@ -117,20 +117,40 @@ func resolveToString(arg interface{}, executor *Executor) string {
 
 // RegisterStandardLibrary registers all standard library commands
 // This is the main entry point for setting up the PawScript standard library
+// Uses default OS-backed IO channels (stdin, stdout, stderr)
 func (ps *PawScript) RegisterStandardLibrary(scriptArgs []string) {
+	ps.RegisterStandardLibraryWithIO(scriptArgs, nil)
+}
+
+// RegisterStandardLibraryWithIO registers all standard library commands with custom IO channels
+// If ioConfig is nil, uses default OS-backed channels
+// If specific channels in ioConfig are nil, defaults are used for those channels
+//
+// Example usage with custom channels:
+//
+//	config := &pawscript.IOChannelConfig{
+//		Stdout: myCustomStdout,  // Custom stdout handler
+//		// Stdin, Stderr, Stdio will use defaults
+//		CustomChannels: map[string]*pawscript.StoredChannel{
+//			"#mylog": myLogChannel,
+//		},
+//	}
+//	ps.RegisterStandardLibraryWithIO(args, config)
+func (ps *PawScript) RegisterStandardLibraryWithIO(scriptArgs []string, ioConfig *IOChannelConfig) {
 	// Register all library modules
-	ps.RegisterCoreLib()       // core::, macros::, flow::, debug::
-	ps.RegisterMathLib()       // math::, cmp::
-	ps.RegisterTypesLib()      // strlist::, str::
+	ps.RegisterCoreLib()             // core::, macros::, flow::, debug::
+	ps.RegisterMathLib()             // math::, cmp::
+	ps.RegisterTypesLib()            // strlist::, str::
 	ps.RegisterSystemLib(scriptArgs) // os::, io::, sys::
-	ps.RegisterChannelsLib()   // channels::
-	ps.RegisterFibersLib()     // fibers::
+	ps.RegisterChannelsLib()         // channels::
+	ps.RegisterFibersLib()           // fibers::
 
 	// Populate module system with stdlib commands organized into modules
 	ps.rootModuleEnv.PopulateStdlibModules()
 
 	// Populate IO module with native stdin/stdout/stderr/stdio channels
-	ps.rootModuleEnv.PopulateIOModule()
+	// Uses custom channels from ioConfig if provided
+	ps.rootModuleEnv.PopulateIOModule(ioConfig)
 
 	// Populate OS module with script arguments as #args
 	ps.rootModuleEnv.PopulateOSModule(scriptArgs)

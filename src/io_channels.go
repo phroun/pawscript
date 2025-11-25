@@ -7,9 +7,24 @@ import (
 	"time"
 )
 
+// IOChannelConfig allows host applications to provide custom IO channel handlers
+// Any nil channel will use the default OS-backed implementation
+type IOChannelConfig struct {
+	// Standard channels - if nil, defaults will be created
+	Stdin  *StoredChannel // Read-only channel for input
+	Stdout *StoredChannel // Write-only channel for standard output
+	Stderr *StoredChannel // Write-only channel for error output
+	Stdio  *StoredChannel // Bidirectional channel (read from stdin, write to stdout)
+
+	// Additional custom channels - will be registered with their map keys as names
+	// Example: {"#mylog": logChannel} would create io::#mylog
+	CustomChannels map[string]*StoredChannel
+}
+
 // PopulateIOModule creates native IO channels and registers them in the io module
 // Creates: io::#stdin/#in, io::#stdout/#out, io::#stderr/#err, io::#stdio/#io
-func (env *ModuleEnvironment) PopulateIOModule() {
+// If config is provided, uses custom channels; otherwise creates default OS-backed channels
+func (env *ModuleEnvironment) PopulateIOModule(config *IOChannelConfig) {
 	env.mu.Lock()
 	defer env.mu.Unlock()
 
@@ -19,98 +34,117 @@ func (env *ModuleEnvironment) PopulateIOModule() {
 	}
 	ioModule := env.LibraryInherited["io"]
 
-	// Create stdin channel - read-only
-	stdinReader := bufio.NewReader(os.Stdin)
-	stdinCh := &StoredChannel{
-		BufferSize:       0,
-		Messages:         make([]ChannelMessage, 0),
-		Subscribers:      make(map[int]*StoredChannel),
-		NextSubscriberID: 1,
-		IsClosed:         false,
-		Timestamp:        time.Now(),
-		NativeRecv: func() (interface{}, error) {
-			line, err := stdinReader.ReadString('\n')
-			if err != nil {
-				return nil, err
-			}
-			// Trim the newline
-			if len(line) > 0 && line[len(line)-1] == '\n' {
-				line = line[:len(line)-1]
-			}
-			if len(line) > 0 && line[len(line)-1] == '\r' {
-				line = line[:len(line)-1]
-			}
-			return line, nil
-		},
-		NativeSend: func(v interface{}) error {
-			return fmt.Errorf("cannot send to stdin")
-		},
+	var stdinCh, stdoutCh, stderrCh, stdioCh *StoredChannel
+
+	// Use provided channels or create defaults
+	if config != nil && config.Stdin != nil {
+		stdinCh = config.Stdin
+	} else {
+		// Create default stdin channel - read-only
+		stdinReader := bufio.NewReader(os.Stdin)
+		stdinCh = &StoredChannel{
+			BufferSize:       0,
+			Messages:         make([]ChannelMessage, 0),
+			Subscribers:      make(map[int]*StoredChannel),
+			NextSubscriberID: 1,
+			IsClosed:         false,
+			Timestamp:        time.Now(),
+			NativeRecv: func() (interface{}, error) {
+				line, err := stdinReader.ReadString('\n')
+				if err != nil {
+					return nil, err
+				}
+				// Trim the newline
+				if len(line) > 0 && line[len(line)-1] == '\n' {
+					line = line[:len(line)-1]
+				}
+				if len(line) > 0 && line[len(line)-1] == '\r' {
+					line = line[:len(line)-1]
+				}
+				return line, nil
+			},
+			NativeSend: func(v interface{}) error {
+				return fmt.Errorf("cannot send to stdin")
+			},
+		}
 	}
 
-	// Create stdout channel - write-only
-	// Note: NativeSend does NOT add newline - callers add it if needed
-	stdoutCh := &StoredChannel{
-		BufferSize:       0,
-		Messages:         make([]ChannelMessage, 0),
-		Subscribers:      make(map[int]*StoredChannel),
-		NextSubscriberID: 1,
-		IsClosed:         false,
-		Timestamp:        time.Now(),
-		NativeSend: func(v interface{}) error {
-			_, err := fmt.Fprintf(os.Stdout, "%v", v)
-			return err
-		},
-		NativeRecv: func() (interface{}, error) {
-			return nil, fmt.Errorf("cannot receive from stdout")
-		},
+	if config != nil && config.Stdout != nil {
+		stdoutCh = config.Stdout
+	} else {
+		// Create default stdout channel - write-only
+		// Note: NativeSend does NOT add newline - callers add it if needed
+		stdoutCh = &StoredChannel{
+			BufferSize:       0,
+			Messages:         make([]ChannelMessage, 0),
+			Subscribers:      make(map[int]*StoredChannel),
+			NextSubscriberID: 1,
+			IsClosed:         false,
+			Timestamp:        time.Now(),
+			NativeSend: func(v interface{}) error {
+				_, err := fmt.Fprintf(os.Stdout, "%v", v)
+				return err
+			},
+			NativeRecv: func() (interface{}, error) {
+				return nil, fmt.Errorf("cannot receive from stdout")
+			},
+		}
 	}
 
-	// Create stderr channel - write-only
-	// Note: NativeSend does NOT add newline - callers add it if needed
-	stderrCh := &StoredChannel{
-		BufferSize:       0,
-		Messages:         make([]ChannelMessage, 0),
-		Subscribers:      make(map[int]*StoredChannel),
-		NextSubscriberID: 1,
-		IsClosed:         false,
-		Timestamp:        time.Now(),
-		NativeSend: func(v interface{}) error {
-			_, err := fmt.Fprintf(os.Stderr, "%v", v)
-			return err
-		},
-		NativeRecv: func() (interface{}, error) {
-			return nil, fmt.Errorf("cannot receive from stderr")
-		},
+	if config != nil && config.Stderr != nil {
+		stderrCh = config.Stderr
+	} else {
+		// Create default stderr channel - write-only
+		// Note: NativeSend does NOT add newline - callers add it if needed
+		stderrCh = &StoredChannel{
+			BufferSize:       0,
+			Messages:         make([]ChannelMessage, 0),
+			Subscribers:      make(map[int]*StoredChannel),
+			NextSubscriberID: 1,
+			IsClosed:         false,
+			Timestamp:        time.Now(),
+			NativeSend: func(v interface{}) error {
+				_, err := fmt.Fprintf(os.Stderr, "%v", v)
+				return err
+			},
+			NativeRecv: func() (interface{}, error) {
+				return nil, fmt.Errorf("cannot receive from stderr")
+			},
+		}
 	}
 
-	// Create stdio channel - bidirectional (read from stdin, write to stdout)
-	// Note: NativeSend does NOT add newline - callers add it if needed
-	stdioReader := bufio.NewReader(os.Stdin)
-	stdioCh := &StoredChannel{
-		BufferSize:       0,
-		Messages:         make([]ChannelMessage, 0),
-		Subscribers:      make(map[int]*StoredChannel),
-		NextSubscriberID: 1,
-		IsClosed:         false,
-		Timestamp:        time.Now(),
-		NativeSend: func(v interface{}) error {
-			_, err := fmt.Fprintf(os.Stdout, "%v", v)
-			return err
-		},
-		NativeRecv: func() (interface{}, error) {
-			line, err := stdioReader.ReadString('\n')
-			if err != nil {
-				return nil, err
-			}
-			// Trim the newline
-			if len(line) > 0 && line[len(line)-1] == '\n' {
-				line = line[:len(line)-1]
-			}
-			if len(line) > 0 && line[len(line)-1] == '\r' {
-				line = line[:len(line)-1]
-			}
-			return line, nil
-		},
+	if config != nil && config.Stdio != nil {
+		stdioCh = config.Stdio
+	} else {
+		// Create default stdio channel - bidirectional (read from stdin, write to stdout)
+		// Note: NativeSend does NOT add newline - callers add it if needed
+		stdioReader := bufio.NewReader(os.Stdin)
+		stdioCh = &StoredChannel{
+			BufferSize:       0,
+			Messages:         make([]ChannelMessage, 0),
+			Subscribers:      make(map[int]*StoredChannel),
+			NextSubscriberID: 1,
+			IsClosed:         false,
+			Timestamp:        time.Now(),
+			NativeSend: func(v interface{}) error {
+				_, err := fmt.Fprintf(os.Stdout, "%v", v)
+				return err
+			},
+			NativeRecv: func() (interface{}, error) {
+				line, err := stdioReader.ReadString('\n')
+				if err != nil {
+					return nil, err
+				}
+				// Trim the newline
+				if len(line) > 0 && line[len(line)-1] == '\n' {
+					line = line[:len(line)-1]
+				}
+				if len(line) > 0 && line[len(line)-1] == '\r' {
+					line = line[:len(line)-1]
+				}
+				return line, nil
+			},
+		}
 	}
 
 	// Register channels with both full and short names
@@ -125,6 +159,15 @@ func (env *ModuleEnvironment) PopulateIOModule() {
 	ioModule["#out"] = &ModuleItem{Type: "object", Value: stdoutCh}
 	ioModule["#err"] = &ModuleItem{Type: "object", Value: stderrCh}
 	ioModule["#io"] = &ModuleItem{Type: "object", Value: stdioCh}
+
+	// Register any custom channels from config
+	if config != nil && config.CustomChannels != nil {
+		for name, ch := range config.CustomChannels {
+			if ch != nil {
+				ioModule[name] = &ModuleItem{Type: "object", Value: ch}
+			}
+		}
+	}
 
 	// Also update LibraryRestricted to include the new io objects
 	// (commands were already added by PopulateStdlibModules)
@@ -141,6 +184,15 @@ func (env *ModuleEnvironment) PopulateIOModule() {
 	env.LibraryRestricted["io"]["#err"] = ioModule["#err"]
 	env.LibraryRestricted["io"]["#io"] = ioModule["#io"]
 
+	// Add custom channels to LibraryRestricted as well
+	if config != nil && config.CustomChannels != nil {
+		for name, ch := range config.CustomChannels {
+			if ch != nil {
+				env.LibraryRestricted["io"][name] = &ModuleItem{Type: "object", Value: ch}
+			}
+		}
+	}
+
 	// Also add io channel objects to ObjectsInherited so they're accessible
 	// via tilde (~#stdout, ~#out, etc.) without explicit IMPORT
 	if env.ObjectsInherited == nil {
@@ -154,4 +206,13 @@ func (env *ModuleEnvironment) PopulateIOModule() {
 	env.ObjectsInherited["#out"] = stdoutCh
 	env.ObjectsInherited["#err"] = stderrCh
 	env.ObjectsInherited["#io"] = stdioCh
+
+	// Add custom channels to ObjectsInherited as well
+	if config != nil && config.CustomChannels != nil {
+		for name, ch := range config.CustomChannels {
+			if ch != nil {
+				env.ObjectsInherited[name] = ch
+			}
+		}
+	}
 }
