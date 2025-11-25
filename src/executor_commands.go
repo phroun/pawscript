@@ -221,6 +221,34 @@ func (e *Executor) executeSingleCommand(
 
 				e.logger.Debug("Brace coordinator resumed with substituted string: %s", finalString)
 
+				// Check for assignment pattern (target: value)
+				if target, valueStr, isAssign := e.parseAssignment(finalString); isAssign {
+					e.logger.Debug("Detected assignment in async resume: target=%s, value=%s", target, valueStr)
+					result := e.handleAssignment(target, valueStr, capturedState, capturedSubstitutionCtx, capturedPosition)
+					if capturedShouldInvert {
+						return e.invertStatus(result, capturedState, capturedPosition)
+					}
+					return result
+				}
+
+				// Check for tilde expression (pure value expression as command)
+				if strings.HasPrefix(finalString, "~") {
+					e.logger.Debug("Detected tilde expression in async resume: %s", finalString)
+					value, ok := e.resolveTildeExpression(finalString, capturedState, capturedSubstitutionCtx, capturedPosition)
+					if ok {
+						capturedState.SetResult(value)
+						if capturedShouldInvert {
+							return BoolStatus(false)
+						}
+						return BoolStatus(true)
+					}
+					// Tilde resolution failed, error already logged
+					if capturedShouldInvert {
+						return BoolStatus(true)
+					}
+					return BoolStatus(false)
+				}
+
 				// Now parse and execute the command with the substituted string
 				cmdName, args, namedArgs := ParseCommand(finalString)
 
