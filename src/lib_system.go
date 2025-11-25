@@ -106,6 +106,7 @@ func (ps *PawScript) RegisterSystemLib(scriptArgs []string) {
 	}
 
 	// Helper to resolve a channel name (like "#out" or "#err") to a channel
+	// Resolution order: local variables -> ObjectsModule -> ObjectsInherited
 	resolveChannel := func(ctx *Context, channelName string) *StoredChannel {
 		// First, check local macro variables
 		if value, exists := ctx.state.GetVariable(channelName); exists {
@@ -114,13 +115,23 @@ func (ps *PawScript) RegisterSystemLib(scriptArgs []string) {
 			}
 		}
 
-		// Then, check ObjectsModule (which either IS Inherited or is a COW copy)
+		// Then, check ObjectsModule and ObjectsInherited
 		if ctx.state.moduleEnv != nil {
 			ctx.state.moduleEnv.mu.RLock()
 			defer ctx.state.moduleEnv.mu.RUnlock()
 
+			// Check ObjectsModule (copy-on-write layer)
 			if ctx.state.moduleEnv.ObjectsModule != nil {
 				if obj, exists := ctx.state.moduleEnv.ObjectsModule[channelName]; exists {
+					if ch := valueToChannel(ctx, obj); ch != nil {
+						return ch
+					}
+				}
+			}
+
+			// Check ObjectsInherited (root layer where io::#out etc. live)
+			if ctx.state.moduleEnv.ObjectsInherited != nil {
+				if obj, exists := ctx.state.moduleEnv.ObjectsInherited[channelName]; exists {
 					if ch := valueToChannel(ctx, obj); ch != nil {
 						return ch
 					}
@@ -400,7 +411,9 @@ func (ps *PawScript) RegisterSystemLib(scriptArgs []string) {
 		stderr := stderrBuf.String()
 
 		if stderr != "" {
-			fmt.Fprint(os.Stderr, stderr)
+			// Route stderr through channels
+			outCtx := NewOutputContext(ctx.state, ctx.executor)
+			_ = outCtx.WriteToErr(stderr)
 		}
 
 		hasStderrContent := strings.TrimSpace(stderr) != ""
@@ -537,11 +550,13 @@ func (ps *PawScript) RegisterSystemLib(scriptArgs []string) {
 	outputCommand := func(ctx *Context) Result {
 		ch, args, found := getOutputChannel(ctx, "#out")
 		if !found {
+			// Fallback: use OutputContext for consistent channel resolution with system fallback
 			text := ""
 			for _, arg := range ctx.Args {
 				text += formatArgForDisplay(arg, ctx.executor)
 			}
-			fmt.Print(text)
+			outCtx := NewOutputContext(ctx.state, ctx.executor)
+			_ = outCtx.WriteToOut(text)
 			return BoolStatus(true)
 		}
 
@@ -562,6 +577,7 @@ func (ps *PawScript) RegisterSystemLib(scriptArgs []string) {
 	outputLineCommand := func(ctx *Context) Result {
 		ch, args, found := getOutputChannel(ctx, "#out")
 		if !found {
+			// Fallback: use OutputContext for consistent channel resolution with system fallback
 			text := ""
 			for i, arg := range ctx.Args {
 				if i > 0 {
@@ -569,7 +585,8 @@ func (ps *PawScript) RegisterSystemLib(scriptArgs []string) {
 				}
 				text += formatArgForDisplay(arg, ctx.executor)
 			}
-			fmt.Println(text)
+			outCtx := NewOutputContext(ctx.state, ctx.executor)
+			_ = outCtx.WriteToOut(text + "\n")
 			return BoolStatus(true)
 		}
 

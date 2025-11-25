@@ -641,17 +641,21 @@ func (ps *PawScript) RegisterCoreLib() {
 			}
 		}
 
-		fmt.Println("=== Memory Statistics ===")
-		fmt.Printf("Total stored objects: %d\n", len(objects))
-		fmt.Printf("Total estimated size: %d bytes\n\n", totalSize)
+		// Route output through channels
+		outCtx := NewOutputContext(ctx.state, ctx.executor)
+		var output strings.Builder
+		output.WriteString("=== Memory Statistics ===\n")
+		output.WriteString(fmt.Sprintf("Total stored objects: %d\n", len(objects)))
+		output.WriteString(fmt.Sprintf("Total estimated size: %d bytes\n\n", totalSize))
 
 		if len(objects) > 0 {
-			fmt.Println("ID    Type      RefCount  Size(bytes)")
-			fmt.Println("----  --------  --------  -----------")
+			output.WriteString("ID    Type      RefCount  Size(bytes)\n")
+			output.WriteString("----  --------  --------  -----------\n")
 			for _, obj := range objects {
-				fmt.Printf("%-4d  %-8s  %-8d  %d\n", obj.ID, obj.Type, obj.RefCount, obj.Size)
+				output.WriteString(fmt.Sprintf("%-4d  %-8s  %-8d  %d\n", obj.ID, obj.Type, obj.RefCount, obj.Size))
 			}
 		}
+		_ = outCtx.WriteToOut(output.String())
 
 		return BoolStatus(true)
 	})
