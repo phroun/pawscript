@@ -241,9 +241,9 @@ func (e *Executor) handleAssignment(target, valueStr string, state *ExecutionSta
 	}
 
 	// Check for undefined - delete variable instead of setting
+	// Don't set result - "undefined" means no value, so leave previous result intact
 	if sym, ok := value.(Symbol); ok && string(sym) == "undefined" {
 		state.DeleteVariable(varName)
-		state.SetResult(nil)
 		return BoolStatus(true)
 	}
 
