@@ -243,11 +243,13 @@ func (e *Executor) handleAssignment(target, valueStr string, state *ExecutionSta
 	// Check for undefined - delete variable instead of setting
 	if sym, ok := value.(Symbol); ok && string(sym) == "undefined" {
 		state.DeleteVariable(varName)
+		state.SetResult(nil)
 		return BoolStatus(true)
 	}
 
-	// Assign
+	// Assign and set the formal result to the assigned value
 	state.SetVariable(varName, value)
+	state.SetResult(value)
 	return BoolStatus(true)
 }
 
@@ -489,6 +491,8 @@ func (e *Executor) handleUnpackingAssignmentWithNames(unpackTargets []UnpackTarg
 		}
 	}
 
+	// Set the formal result to the unpacked value
+	state.SetResult(resolved)
 	return BoolStatus(true)
 }
 
@@ -496,20 +500,23 @@ func (e *Executor) handleUnpackingAssignmentWithNames(unpackTargets []UnpackTarg
 func (e *Executor) handleDynamicUnpackingAssignment(varNames []interface{}, valueStr string, state *ExecutionState, substitutionCtx *SubstitutionContext, position *SourcePosition) Result {
 	// Parse and resolve the single list value
 	var values []interface{}
+	var resolved interface{} // Track the resolved value for setting the result
 
 	if valueStr == "" {
 		values = nil
+		resolved = nil
 	} else {
 		// Parse as a single argument (the list)
 		args, _ := parseArguments(valueStr)
 		if len(args) == 0 {
 			values = nil
+			resolved = nil
 		} else {
 			// Take the first (and should be only) argument
 			listArg := args[0]
 
 			// Resolve tildes
-			resolved := e.resolveTildesInValue(listArg, state, substitutionCtx, position)
+			resolved = e.resolveTildesInValue(listArg, state, substitutionCtx, position)
 
 			// Resolve any object markers (like \x00LIST:1\x00) to actual values
 			resolved = e.resolveValue(resolved)
@@ -539,5 +546,7 @@ func (e *Executor) handleDynamicUnpackingAssignment(varNames []interface{}, valu
 		}
 	}
 
+	// Set the formal result to the unpacked value
+	state.SetResult(resolved)
 	return BoolStatus(true)
 }
