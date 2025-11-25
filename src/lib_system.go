@@ -865,13 +865,24 @@ func (ps *PawScript) RegisterSystemLib(scriptArgs []string) {
 		}
 
 		// Generate and emit ANSI sequence
+		// When fg or bg is -1 (unchanged), use the current tracked color
+		// so it gets re-applied after any reset needed for attributes
+		effectiveFG := fg
+		if effectiveFG == -1 {
+			effectiveFG = ts.CurrentFG
+		}
+		effectiveBG := bg
+		if effectiveBG == -1 {
+			effectiveBG = ts.CurrentBG
+		}
+
 		var ansiCode string
-		if bg == -1 && len(ctx.Args) == 1 {
-			// Only foreground specified - preserve current background
-			ansiCode = ANSIColorPreserving(fg, ts.CurrentBG, bold, blink, underline, invert)
+		if bg == -1 && len(ctx.Args) == 1 && !bold && !blink && !underline && !invert {
+			// Only foreground specified, no attributes - just change foreground
+			ansiCode = fmt.Sprintf("\x1b[%dm", CGAToANSIFG(fg))
 		} else {
-			// Both colors or explicit background
-			ansiCode = ANSIColor(fg, bg, bold, blink, underline, invert)
+			// Need full color setting (handles reset for attributes)
+			ansiCode = ANSIColor(effectiveFG, effectiveBG, bold, blink, underline, invert)
 		}
 
 		if ansiCode != "" {
