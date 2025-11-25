@@ -133,23 +133,100 @@ func (ps *PawScript) RegisterStandardLibrary(scriptArgs []string) {
 		ctx.state.SetResultWithoutClaim(Symbol(marker))
 	}
 	
+	// Helper to resolve a value to a StoredList (handles markers and direct objects)
+	// Returns the list and a boolean indicating if found
+	valueToList := func(ctx *Context, val interface{}) (StoredList, bool) {
+		switch v := val.(type) {
+		case StoredList:
+			return v, true
+		case Symbol:
+			markerType, objectID := parseObjectMarker(string(v))
+			if markerType == "list" && objectID >= 0 {
+				if obj, exists := ctx.executor.getObject(objectID); exists {
+					if list, ok := obj.(StoredList); ok {
+						return list, true
+					}
+				}
+			}
+		case string:
+			markerType, objectID := parseObjectMarker(v)
+			if markerType == "list" && objectID >= 0 {
+				if obj, exists := ctx.executor.getObject(objectID); exists {
+					if list, ok := obj.(StoredList); ok {
+						return list, true
+					}
+				}
+			}
+		}
+		return StoredList{}, false
+	}
+
+	// Helper to get a list from #-prefixed symbol (local vars -> ObjectsModule)
+	// Returns the list and a boolean indicating if found
+	resolveHashList := func(ctx *Context, name string) (StoredList, bool) {
+		// First check local variables
+		if localVal, exists := ctx.state.GetVariable(name); exists {
+			if list, found := valueToList(ctx, localVal); found {
+				return list, true
+			}
+		}
+		// Then check ObjectsModule
+		if ctx.state.moduleEnv != nil {
+			ctx.state.moduleEnv.mu.RLock()
+			defer ctx.state.moduleEnv.mu.RUnlock()
+			if ctx.state.moduleEnv.ObjectsModule != nil {
+				if obj, exists := ctx.state.moduleEnv.ObjectsModule[name]; exists {
+					if list, found := valueToList(ctx, obj); found {
+						return list, true
+					}
+				}
+			}
+		}
+		return StoredList{}, false
+	}
+
 	// argc - returns number of arguments
-	// Usage: argc           - returns count of script arguments
+	// Usage: argc           - returns count of items in #args
 	//        argc (a, b, c) - returns count of items in list (3)
 	//        argc ~list     - returns count of items in StoredList
+	//        argc #mylist   - returns count from #-prefixed symbol
 	ps.RegisterCommand("argc", func(ctx *Context) Result {
 		if len(ctx.Args) == 0 {
-			// No arguments - return script arg count
-			ctx.SetResult(len(scriptArgs))
+			// No arguments - use default #args
+			sourceList, found := resolveHashList(ctx, "#args")
+			if !found {
+				ctx.LogError(CatVariable, "#args not found - no script arguments available")
+				ctx.SetResult(0)
+				return BoolStatus(false)
+			}
+			ctx.SetResult(sourceList.Len())
 			return BoolStatus(true)
 		}
 
-		// Argument provided - parse it as a list
+		// Argument provided
 		listArg := ctx.Args[0]
+
+		// Check for #-prefixed symbol (auto-resolve)
+		if sym, ok := listArg.(Symbol); ok {
+			symStr := string(sym)
+			if strings.HasPrefix(symStr, "#") {
+				if sourceList, found := resolveHashList(ctx, symStr); found {
+					ctx.SetResult(sourceList.Len())
+					return BoolStatus(true)
+				}
+				// Not found as list, fall through to other handlers
+			}
+		}
 
 		// If it's a StoredList, return its length
 		if storedList, ok := listArg.(StoredList); ok {
 			ctx.SetResult(storedList.Len())
+			return BoolStatus(true)
+		}
+
+		// Try to resolve as list marker
+		if list, found := valueToList(ctx, listArg); found {
+			ctx.SetResult(list.Len())
 			return BoolStatus(true)
 		}
 
@@ -173,37 +250,80 @@ func (ps *PawScript) RegisterStandardLibrary(scriptArgs []string) {
 	})
 
 	// argv - returns array of arguments or specific argument by index
-	// Usage: argv              - returns all script arguments
-	//        argv 1            - returns first script argument (1-indexed)
+	// Usage: argv              - returns all items in #args
+	//        argv 1            - returns first item from #args (1-indexed)
 	//        argv (a, b, c)    - returns all items in list
 	//        argv (a, b, c), 2 - returns second item from list (1-indexed)
 	//        argv ~list, 2     - returns second item from StoredList (1-indexed)
+	//        argv #mylist, 2   - returns item from #-prefixed symbol (1-indexed)
 	ps.RegisterCommand("argv", func(ctx *Context) Result {
+		var sourceList []interface{}
+		var storedListSource StoredList
+		var hasStoredList bool
+		var isListProvided bool
+
+		// Helper to get default #args list
+		getDefaultArgs := func() (StoredList, bool) {
+			list, found := resolveHashList(ctx, "#args")
+			if !found {
+				ctx.LogError(CatVariable, "#args not found - no script arguments available")
+				return StoredList{}, false
+			}
+			return list, true
+		}
+
 		if len(ctx.Args) == 0 {
-			// No arguments - return all script args
-			ctx.SetResult(scriptArgs)
+			// No arguments - return all items from #args
+			list, ok := getDefaultArgs()
+			if !ok {
+				ctx.SetResult(nil)
+				return BoolStatus(false)
+			}
+			setListResult(ctx, list)
 			return BoolStatus(true)
 		}
 
-		// Check if first argument is a list (StoredList, ParenGroup, or string)
+		// Check if first argument is a list source
 		firstArg := ctx.Args[0]
-		var sourceList []interface{}
-		var isListProvided bool
 
-		if storedList, ok := firstArg.(StoredList); ok {
-			// StoredList - get items
-			sourceList = storedList.Items()
-			isListProvided = true
-		} else if parenGroup, ok := firstArg.(ParenGroup); ok {
-			// Parse the parenthetic group as a list
-			sourceList, _ = parseArguments(string(parenGroup))
-			isListProvided = true
-		} else if str, ok := firstArg.(string); ok {
-			// Check if it looks like a comma-separated list
-			// Only treat as list if it contains a comma or if we have 2 args
-			if len(ctx.Args) > 1 || strings.Contains(str, ",") {
-				sourceList, _ = parseArguments(str)
+		// Check for #-prefixed symbol (auto-resolve)
+		if sym, ok := firstArg.(Symbol); ok {
+			symStr := string(sym)
+			if strings.HasPrefix(symStr, "#") {
+				if list, found := resolveHashList(ctx, symStr); found {
+					storedListSource = list
+					sourceList = list.Items()
+					hasStoredList = true
+					isListProvided = true
+				}
+				// If not found, fall through to treat as other types
+			}
+		}
+
+		if !isListProvided {
+			if storedList, ok := firstArg.(StoredList); ok {
+				// StoredList - get items
+				sourceList = storedList.Items()
+				storedListSource = storedList
+				hasStoredList = true
 				isListProvided = true
+			} else if list, found := valueToList(ctx, firstArg); found {
+				// Resolved from marker
+				sourceList = list.Items()
+				storedListSource = list
+				hasStoredList = true
+				isListProvided = true
+			} else if parenGroup, ok := firstArg.(ParenGroup); ok {
+				// Parse the parenthetic group as a list
+				sourceList, _ = parseArguments(string(parenGroup))
+				isListProvided = true
+			} else if str, ok := firstArg.(string); ok {
+				// Check if it looks like a comma-separated list
+				// Only treat as list if it contains a comma or if we have 2 args
+				if len(ctx.Args) > 1 || strings.Contains(str, ",") {
+					sourceList, _ = parseArguments(str)
+					isListProvided = true
+				}
 			}
 		}
 
@@ -211,7 +331,11 @@ func (ps *PawScript) RegisterStandardLibrary(scriptArgs []string) {
 			// First arg is a list
 			if len(ctx.Args) == 1 {
 				// No index - return the whole list
-				ctx.SetResult(sourceList)
+				if hasStoredList {
+					setListResult(ctx, storedListSource)
+				} else {
+					ctx.SetResult(sourceList)
+				}
 				return BoolStatus(true)
 			}
 
@@ -243,7 +367,7 @@ func (ps *PawScript) RegisterStandardLibrary(scriptArgs []string) {
 			return BoolStatus(true)
 		}
 
-		// First arg is not a list - treat as index into script args
+		// First arg is not a list - treat as index into default #args
 		index, ok := firstArg.(int64)
 		if !ok {
 			// Try to convert from float
@@ -256,10 +380,18 @@ func (ps *PawScript) RegisterStandardLibrary(scriptArgs []string) {
 			}
 		}
 
-		// Index into script args (1-indexed)
+		// Get default #args and index into it
+		list, ok := getDefaultArgs()
+		if !ok {
+			ctx.SetResult(nil)
+			return BoolStatus(false)
+		}
+
+		// Index into #args (1-indexed)
 		index-- // Convert to 0-based
-		if index >= 0 && int(index) < len(scriptArgs) {
-			ctx.SetResult(scriptArgs[index])
+		items := list.Items()
+		if index >= 0 && int(index) < len(items) {
+			ctx.SetResult(items[index])
 		} else {
 			ctx.SetResult(nil)
 		}
@@ -2640,6 +2772,9 @@ func (ps *PawScript) RegisterStandardLibrary(scriptArgs []string) {
 
 	// Populate IO module with native stdin/stdout/stderr/stdio channels
 	ps.rootModuleEnv.PopulateIOModule()
+
+	// Populate OS module with script arguments as #args
+	ps.rootModuleEnv.PopulateOSModule(scriptArgs)
 }
 
 // estimateObjectSize provides a rough estimate of object size in bytes
