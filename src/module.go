@@ -72,6 +72,7 @@ type ModuleEnvironment struct {
 	ItemMetadataModule    map[string]*ItemMetadata // Copy-on-write
 
 	// Tracking flags for copy-on-write
+	libraryInheritedCopied  bool
 	libraryRestrictedCopied bool
 	commandsModuleCopied    bool
 	macrosModuleCopied      bool
@@ -228,6 +229,27 @@ func getEffectiveObjectRegistry(env *ModuleEnvironment) map[string]interface{} {
 
 func getEffectiveMetadataRegistry(env *ModuleEnvironment) map[string]*ItemMetadata {
 	return env.ItemMetadataModule
+}
+
+// CopyLibraryInherited performs copy-on-write for LibraryInherited
+// This is used by LIBRARY "forget" to modify Inherited without affecting Restricted
+func (env *ModuleEnvironment) CopyLibraryInherited() {
+	if env.libraryInheritedCopied {
+		return
+	}
+
+	// Deep copy the library structure
+	newLib := make(Library)
+	for moduleName, section := range env.LibraryInherited {
+		newSection := make(ModuleSection)
+		for itemName, item := range section {
+			newSection[itemName] = item // Items themselves are references
+		}
+		newLib[moduleName] = newSection
+	}
+
+	env.LibraryInherited = newLib
+	env.libraryInheritedCopied = true
 }
 
 // CopyLibraryRestricted performs copy-on-write for LibraryRestricted

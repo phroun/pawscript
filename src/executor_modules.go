@@ -52,10 +52,13 @@ func (e *Executor) handleMODULE(args []interface{}, state *ExecutionState, posit
 	return BoolStatus(true)
 }
 
-// handleLIBRARY manipulates LibraryRestricted
+// handleLIBRARY manipulates LibraryRestricted and LibraryInherited
 // Usage: LIBRARY "pattern"
-// Patterns: "restrict *", "allow *", "restrict module", "allow module",
-//           "allow module::item1,item2", "allow dest=source"
+// Patterns for LibraryRestricted:
+//   "restrict *", "allow *", "restrict module", "allow module",
+//   "allow module::item1,item2", "allow dest=source"
+// Patterns for LibraryInherited (using COW so LibraryRestricted is unaffected):
+//   "forget *", "forget module", "forget module::item1,item2"
 func (e *Executor) handleLIBRARY(args []interface{}, state *ExecutionState, position *SourcePosition) Result {
 	if len(args) != 1 {
 		e.logger.CommandError(CatSystem, "LIBRARY", "Expected 1 argument (pattern)", position)
@@ -187,8 +190,66 @@ func (e *Executor) handleLIBRARY(args []interface{}, state *ExecutionState, posi
 			}
 		}
 
+	case "forget":
+		// Forget removes items from LibraryInherited (using COW so LibraryRestricted is unaffected)
+		if target == "*" {
+			// Remove everything from LibraryInherited
+			state.moduleEnv.CopyLibraryInherited()
+			state.moduleEnv.LibraryInherited = make(Library)
+			e.logger.Debug("LIBRARY: Forgot all modules from LibraryInherited")
+		} else if strings.Contains(target, "::") {
+			// Remove specific items: "module::item1,item2"
+			moduleParts := strings.SplitN(target, "::", 2)
+			if len(moduleParts) != 2 {
+				e.logger.CommandError(CatSystem, "LIBRARY", fmt.Sprintf("Invalid module::items pattern: %s", target), position)
+				return BoolStatus(false)
+			}
+			moduleName := moduleParts[0]
+			itemsStr := moduleParts[1]
+			items := strings.Split(itemsStr, ",")
+
+			// Check if module exists in LibraryInherited
+			section, exists := state.moduleEnv.LibraryInherited[moduleName]
+			if !exists {
+				e.logger.CommandError(CatSystem, "LIBRARY", fmt.Sprintf("Module not found in LibraryInherited: %s", moduleName), position)
+				return BoolStatus(false)
+			}
+
+			state.moduleEnv.CopyLibraryInherited()
+			// Get the section again after COW (it's now a copy)
+			section = state.moduleEnv.LibraryInherited[moduleName]
+
+			// Remove specific items
+			for _, itemSpec := range items {
+				itemName := strings.TrimSpace(itemSpec)
+				if itemName == "" {
+					continue
+				}
+				if _, exists := section[itemName]; !exists {
+					e.logger.CommandError(CatSystem, "LIBRARY", fmt.Sprintf("Item not found: %s::%s", moduleName, itemName), position)
+					return BoolStatus(false)
+				}
+				delete(section, itemName)
+				e.logger.Debug("LIBRARY: Forgot %s::%s from LibraryInherited", moduleName, itemName)
+			}
+
+			// If module is now empty, remove it entirely
+			if len(section) == 0 {
+				delete(state.moduleEnv.LibraryInherited, moduleName)
+			}
+		} else {
+			// Remove entire module
+			if _, exists := state.moduleEnv.LibraryInherited[target]; !exists {
+				e.logger.CommandError(CatSystem, "LIBRARY", fmt.Sprintf("Module not found in LibraryInherited: %s", target), position)
+				return BoolStatus(false)
+			}
+			state.moduleEnv.CopyLibraryInherited()
+			delete(state.moduleEnv.LibraryInherited, target)
+			e.logger.Debug("LIBRARY: Forgot module \"%s\" from LibraryInherited", target)
+		}
+
 	default:
-		e.logger.CommandError(CatSystem, "LIBRARY", fmt.Sprintf("Unknown action: %s (expected 'restrict' or 'allow')", action), position)
+		e.logger.CommandError(CatSystem, "LIBRARY", fmt.Sprintf("Unknown action: %s (expected 'restrict', 'allow', or 'forget')", action), position)
 		return BoolStatus(false)
 	}
 
@@ -527,7 +588,11 @@ func (e *Executor) removeItem(state *ExecutionState, itemName, itemType string) 
 
 // handleEXPORT exports items to ModuleExports
 // Usage: EXPORT item1 item2 #obj1 item3...
-// Exports can be: macros (from macroSystem or module registries), commands, objects (#prefix), or variables
+// Exports can be: macros (from module registries), commands, objects (#prefix), or variables
+// Additional quoted forms for re-exporting from LibraryRestricted:
+//   EXPORT "modspec::*"                    - re-exports all items from modspec
+//   EXPORT "modspec::item1,item2"          - re-exports specific items
+//   EXPORT "modspec::new=orig,#obj,item"   - re-exports with optional rename (new=original)
 func (e *Executor) handleEXPORT(args []interface{}, namedArgs map[string]interface{}, state *ExecutionState, position *SourcePosition) Result {
 	if len(args) == 0 {
 		e.logger.CommandError(CatSystem, "EXPORT", "Expected at least 1 argument (item names)", position)
@@ -553,6 +618,81 @@ func (e *Executor) handleEXPORT(args []interface{}, namedArgs map[string]interfa
 	section := state.moduleEnv.ModuleExports[moduleName]
 
 	for _, arg := range args {
+		// Check for quoted re-export form: "module::*" or "module::new=item1,item2"
+		var isQuotedArg bool
+		var quotedSpec string
+		switch v := arg.(type) {
+		case QuotedString:
+			quotedSpec = string(v)
+			isQuotedArg = true
+		case string:
+			// Check if it looks like a module spec (contains ::)
+			if strings.Contains(v, "::") {
+				quotedSpec = v
+				isQuotedArg = true
+			}
+		}
+
+		if isQuotedArg && strings.Contains(quotedSpec, "::") {
+			// Re-export form from LibraryRestricted
+			parts := strings.SplitN(quotedSpec, "::", 2)
+			if len(parts) != 2 {
+				e.logger.CommandError(CatSystem, "EXPORT", fmt.Sprintf("Invalid re-export pattern: %s", quotedSpec), position)
+				return BoolStatus(false)
+			}
+			sourceModule := parts[0]
+			itemsSpec := parts[1]
+
+			// Find source module in LibraryRestricted
+			sourceSection, exists := state.moduleEnv.LibraryRestricted[sourceModule]
+			if !exists {
+				e.logger.CommandError(CatSystem, "EXPORT", fmt.Sprintf("Module not found in LibraryRestricted: %s", sourceModule), position)
+				return BoolStatus(false)
+			}
+
+			if itemsSpec == "*" {
+				// Re-export all items from the module
+				for itemName, item := range sourceSection {
+					section[itemName] = item
+					e.logger.Debug("EXPORT: Re-exported %s::%s to module \"%s\"", sourceModule, itemName, moduleName)
+				}
+			} else {
+				// Re-export specific items, with optional rename (new=original)
+				items := strings.Split(itemsSpec, ",")
+				for _, itemSpec := range items {
+					itemSpec = strings.TrimSpace(itemSpec)
+					if itemSpec == "" {
+						continue
+					}
+
+					var exportName, sourceName string
+					if strings.Contains(itemSpec, "=") {
+						// Rename syntax: "newname=originalname"
+						renameParts := strings.SplitN(itemSpec, "=", 2)
+						exportName = renameParts[0]
+						sourceName = renameParts[1]
+					} else {
+						exportName = itemSpec
+						sourceName = itemSpec
+					}
+
+					item, exists := sourceSection[sourceName]
+					if !exists {
+						e.logger.CommandError(CatSystem, "EXPORT", fmt.Sprintf("Item not found: %s::%s", sourceModule, sourceName), position)
+						return BoolStatus(false)
+					}
+
+					section[exportName] = item
+					if exportName != sourceName {
+						e.logger.Debug("EXPORT: Re-exported %s::%s as \"%s\" to module \"%s\"", sourceModule, sourceName, exportName, moduleName)
+					} else {
+						e.logger.Debug("EXPORT: Re-exported %s::%s to module \"%s\"", sourceModule, sourceName, moduleName)
+					}
+				}
+			}
+			continue
+		}
+
 		itemName := fmt.Sprintf("%v", arg)
 
 		// Check if it's an object export (#-prefixed)
