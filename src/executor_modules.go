@@ -376,35 +376,54 @@ func (e *Executor) handleREMOVE(args []interface{}, state *ExecutionState, posit
 		}
 	}
 
-	// Check for REMOVE MY "localname1,localname2"
-	if len(args) >= 2 {
-		if sym, ok := args[0].(Symbol); ok && string(sym) == "MY" {
-			// Remove by local names (no module:: prefix allowed)
-			for _, arg := range args[1:] {
-				namesStr := fmt.Sprintf("%v", arg)
-				names := strings.Split(namesStr, ",")
-				for _, name := range names {
-					localName := strings.TrimSpace(name)
-					if localName == "" {
-						continue
-					}
-					// Cannot use module:: prefix with MY
-					if strings.Contains(localName, "::") {
-						e.logger.CommandError(CatSystem, "REMOVE", "REMOVE MY does not accept module:: prefix; use local names only", position)
-						return BoolStatus(false)
-					}
-					// Find item type from metadata or by checking registries
-					itemType := e.findItemType(state, localName)
-					if itemType == "" {
-						e.logger.CommandError(CatSystem, "REMOVE", fmt.Sprintf("Item not found: %s", localName), position)
-						return BoolStatus(false)
-					}
-					e.removeItem(state, localName, itemType)
-					e.logger.Debug("REMOVE MY: Removed \"%s\"", localName)
-				}
-			}
-			return BoolStatus(true)
+	// Check for REMOVE MY "localname1,localname2" - now parsed as "<MY>localname1,localname2"
+	// The parser concatenates MY + "string" into "<MY>string"
+	for i, arg := range args {
+		var argStr string
+		switch v := arg.(type) {
+		case QuotedString:
+			argStr = string(v)
+		case string:
+			argStr = v
+		default:
+			continue
 		}
+
+		if strings.HasPrefix(argStr, "<MY>") {
+			// Remove by local names (no module:: prefix allowed)
+			namesStr := strings.TrimPrefix(argStr, "<MY>")
+			names := strings.Split(namesStr, ",")
+			for _, name := range names {
+				localName := strings.TrimSpace(name)
+				if localName == "" {
+					continue
+				}
+				// Cannot use module:: prefix with MY
+				if strings.Contains(localName, "::") {
+					e.logger.CommandError(CatSystem, "REMOVE", "REMOVE MY does not accept module:: prefix; use local names only", position)
+					return BoolStatus(false)
+				}
+				// Find item type from metadata or by checking registries
+				itemType := e.findItemType(state, localName)
+				if itemType == "" {
+					e.logger.CommandError(CatSystem, "REMOVE", fmt.Sprintf("Item not found: %s", localName), position)
+					return BoolStatus(false)
+				}
+				e.removeItem(state, localName, itemType)
+				e.logger.Debug("REMOVE MY: Removed \"%s\"", localName)
+			}
+			// Remove this arg from processing and continue with remaining args
+			args = append(args[:i], args[i+1:]...)
+			if len(args) == 0 {
+				return BoolStatus(true)
+			}
+			break // Restart the loop with remaining args
+		}
+	}
+
+	// If all args were MY-prefixed, we're done
+	if len(args) == 0 {
+		return BoolStatus(true)
 	}
 
 	for _, arg := range args {
