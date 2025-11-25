@@ -408,7 +408,9 @@ func (env *ModuleEnvironment) PopulateStdlibModules() {
 
 	// List of commands that go into the "sys" module
 	sysCommands := map[string]bool{
-		"exec": true,
+		"exec":      true,
+		"microtime": true,
+		"datetime":  true,
 	}
 
 	// List of commands that go into the "io" module
@@ -417,6 +419,8 @@ func (env *ModuleEnvironment) PopulateStdlibModules() {
 		"print": true,
 		"write": true,
 		"read":  true,
+		"rune":  true,
+		"ord":   true,
 	}
 
 	// Create stdlib module

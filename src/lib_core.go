@@ -659,4 +659,198 @@ func (ps *PawScript) RegisterCoreLib() {
 
 		return BoolStatus(true)
 	})
+
+	// env_dump - debug command to show module environment details
+	ps.RegisterCommand("env_dump", func(ctx *Context) Result {
+		outCtx := NewOutputContext(ctx.state, ctx.executor)
+		var output strings.Builder
+
+		env := ctx.state.moduleEnv
+		env.mu.RLock()
+		defer env.mu.RUnlock()
+
+		output.WriteString("=== Module Environment ===\n")
+
+		// Default module name
+		if env.DefaultName != "" {
+			output.WriteString(fmt.Sprintf("Default Module: %s\n", env.DefaultName))
+		}
+
+		// Library modules
+		output.WriteString("\n--- Library Modules ---\n")
+		if len(env.LibraryRestricted) == 0 {
+			output.WriteString("  (none)\n")
+		} else {
+			// Get sorted module names
+			modNames := make([]string, 0, len(env.LibraryRestricted))
+			for name := range env.LibraryRestricted {
+				modNames = append(modNames, name)
+			}
+			sort.Strings(modNames)
+
+			for _, modName := range modNames {
+				section := env.LibraryRestricted[modName]
+				itemNames := make([]string, 0, len(section))
+				for itemName := range section {
+					itemNames = append(itemNames, itemName)
+				}
+				sort.Strings(itemNames)
+				output.WriteString(fmt.Sprintf("  %s: %s\n", modName, strings.Join(itemNames, ", ")))
+			}
+		}
+
+		// Commands in registry
+		effectiveCommands := make(map[string]bool)
+		for name := range env.CommandRegistryInherited {
+			effectiveCommands[name] = true
+		}
+		if env.CommandRegistryModule != nil {
+			for name := range env.CommandRegistryModule {
+				effectiveCommands[name] = true
+			}
+		}
+		output.WriteString("\n--- Commands ---\n")
+		if len(effectiveCommands) == 0 {
+			output.WriteString("  (none)\n")
+		} else {
+			cmdNames := make([]string, 0, len(effectiveCommands))
+			for name := range effectiveCommands {
+				cmdNames = append(cmdNames, name)
+			}
+			sort.Strings(cmdNames)
+			// Print in rows of reasonable width
+			output.WriteString("  ")
+			lineLen := 2
+			for i, name := range cmdNames {
+				if i > 0 {
+					output.WriteString(", ")
+					lineLen += 2
+				}
+				if lineLen+len(name) > 78 && i > 0 {
+					output.WriteString("\n  ")
+					lineLen = 2
+				}
+				output.WriteString(name)
+				lineLen += len(name)
+			}
+			output.WriteString("\n")
+		}
+
+		// Macros
+		effectiveMacros := make(map[string]bool)
+		for name := range env.MacrosInherited {
+			effectiveMacros[name] = true
+		}
+		if env.MacrosModule != nil {
+			for name := range env.MacrosModule {
+				effectiveMacros[name] = true
+			}
+		}
+		output.WriteString("\n--- Macros ---\n")
+		if len(effectiveMacros) == 0 {
+			output.WriteString("  (none)\n")
+		} else {
+			macroNames := make([]string, 0, len(effectiveMacros))
+			for name := range effectiveMacros {
+				macroNames = append(macroNames, name)
+			}
+			sort.Strings(macroNames)
+			output.WriteString("  ")
+			lineLen := 2
+			for i, name := range macroNames {
+				if i > 0 {
+					output.WriteString(", ")
+					lineLen += 2
+				}
+				if lineLen+len(name) > 78 && i > 0 {
+					output.WriteString("\n  ")
+					lineLen = 2
+				}
+				output.WriteString(name)
+				lineLen += len(name)
+			}
+			output.WriteString("\n")
+		}
+
+		// Objects (channel-style #names)
+		effectiveObjects := make(map[string]bool)
+		for name := range env.ObjectsInherited {
+			effectiveObjects[name] = true
+		}
+		if env.ObjectsModule != nil {
+			for name := range env.ObjectsModule {
+				effectiveObjects[name] = true
+			}
+		}
+		output.WriteString("\n--- Objects ---\n")
+		if len(effectiveObjects) == 0 {
+			output.WriteString("  (none)\n")
+		} else {
+			objNames := make([]string, 0, len(effectiveObjects))
+			for name := range effectiveObjects {
+				objNames = append(objNames, name)
+			}
+			sort.Strings(objNames)
+			output.WriteString("  ")
+			lineLen := 2
+			for i, name := range objNames {
+				if i > 0 {
+					output.WriteString(", ")
+					lineLen += 2
+				}
+				if lineLen+len(name) > 78 && i > 0 {
+					output.WriteString("\n  ")
+					lineLen = 2
+				}
+				output.WriteString(name)
+				lineLen += len(name)
+			}
+			output.WriteString("\n")
+		}
+
+		// Module exports
+		output.WriteString("\n--- Exports ---\n")
+		if len(env.ModuleExports) == 0 {
+			output.WriteString("  (none)\n")
+		} else {
+			expModNames := make([]string, 0, len(env.ModuleExports))
+			for name := range env.ModuleExports {
+				expModNames = append(expModNames, name)
+			}
+			sort.Strings(expModNames)
+
+			for _, modName := range expModNames {
+				section := env.ModuleExports[modName]
+				itemNames := make([]string, 0, len(section))
+				for itemName := range section {
+					itemNames = append(itemNames, itemName)
+				}
+				sort.Strings(itemNames)
+				output.WriteString(fmt.Sprintf("  %s: %s\n", modName, strings.Join(itemNames, ", ")))
+			}
+		}
+
+		// Imported items
+		output.WriteString("\n--- Imported ---\n")
+		if len(env.ImportedFrom) == 0 {
+			output.WriteString("  (none)\n")
+		} else {
+			impNames := make([]string, 0, len(env.ImportedFrom))
+			for name := range env.ImportedFrom {
+				impNames = append(impNames, name)
+			}
+			sort.Strings(impNames)
+			for _, name := range impNames {
+				meta := env.ImportedFrom[name]
+				if meta.OriginalName != name {
+					output.WriteString(fmt.Sprintf("  %s <- %s::%s\n", name, meta.ModuleName, meta.OriginalName))
+				} else {
+					output.WriteString(fmt.Sprintf("  %s <- %s\n", name, meta.ModuleName))
+				}
+			}
+		}
+
+		_ = outCtx.WriteToErr(output.String())
+		return BoolStatus(true)
+	})
 }

@@ -11,6 +11,7 @@ type PawScript struct {
 	executor        *Executor
 	macroSystem     *MacroSystem
 	rootModuleEnv   *ModuleEnvironment // Root module environment for all execution states
+	startTime       time.Time          // Time when interpreter was initialized
 }
 
 // New creates a new PawScript interpreter
@@ -35,6 +36,7 @@ func New(config *Config) *PawScript {
 		executor:      executor,
 		macroSystem:   macroSystem,
 		rootModuleEnv: rootModuleEnv,
+		startTime:     time.Now(),
 	}
 
 	// Set up macro fallback handler

@@ -641,6 +641,70 @@ func (ps *PawScript) RegisterSystemLib(scriptArgs []string) {
 		return BoolStatus(true)
 	})
 
+	// rune - convert integer to Unicode character
+	ps.RegisterCommand("rune", func(ctx *Context) Result {
+		if len(ctx.Args) < 1 {
+			ctx.LogError(CatIO, "rune requires an integer argument")
+			ctx.SetResult("")
+			return BoolStatus(false)
+		}
+
+		var codepoint int64
+		switch v := ctx.Args[0].(type) {
+		case int64:
+			codepoint = v
+		case float64:
+			codepoint = int64(v)
+		case int:
+			codepoint = int64(v)
+		default:
+			ctx.LogError(CatIO, fmt.Sprintf("rune requires an integer, got %T", ctx.Args[0]))
+			ctx.SetResult("")
+			return BoolStatus(false)
+		}
+
+		// Check for valid Unicode range
+		if codepoint < 0 || codepoint > 0x10FFFF {
+			ctx.LogError(CatIO, fmt.Sprintf("invalid Unicode codepoint: %d", codepoint))
+			ctx.SetResult("")
+			return BoolStatus(false)
+		}
+
+		ctx.SetResult(string(rune(codepoint)))
+		return BoolStatus(true)
+	})
+
+	// ord - convert first character of string to Unicode codepoint
+	ps.RegisterCommand("ord", func(ctx *Context) Result {
+		if len(ctx.Args) < 1 {
+			ctx.SetResult(int64(0))
+			return BoolStatus(false)
+		}
+
+		var str string
+		switch v := ctx.Args[0].(type) {
+		case string:
+			str = v
+		case QuotedString:
+			str = string(v)
+		case Symbol:
+			str = string(v)
+		default:
+			ctx.SetResult(int64(0))
+			return BoolStatus(false)
+		}
+
+		if str == "" {
+			ctx.SetResult(int64(0))
+			return BoolStatus(false)
+		}
+
+		// Get first rune from string
+		runes := []rune(str)
+		ctx.SetResult(int64(runes[0]))
+		return BoolStatus(true)
+	})
+
 	// ==================== sys:: module ====================
 
 	// msleep - sleep for specified milliseconds (async)
@@ -716,5 +780,210 @@ func (ps *PawScript) RegisterSystemLib(scriptArgs []string) {
 		ctx.logger.Log(level, category, message, ctx.Position, nil)
 
 		return BoolStatus(level != LevelError)
+	})
+
+	// microtime - return microseconds since epoch or since interpreter started
+	ps.RegisterCommand("microtime", func(ctx *Context) Result {
+		// Try to get system time in microseconds
+		now := time.Now()
+		microtime := now.UnixMicro()
+		ctx.SetResult(microtime)
+		return BoolStatus(true)
+	})
+
+	// datetime - format and convert date/time values
+	// datetime                        -> UTC now as "YYYY-MM-DDTHH:NN:SSZ"
+	// datetime "America/Los_Angeles"  -> Local time as "YYYY-MM-DDTHH:NN:SS-07:00"
+	// datetime "UTC", stamp           -> Convert stamp to UTC
+	// datetime "UTC", stamp, "America/Los_Angeles" -> Interpret stamp as LA time, output UTC
+	ps.RegisterCommand("datetime", func(ctx *Context) Result {
+		now := time.Now()
+
+		// Helper to format time with optional seconds
+		formatTime := func(t time.Time, tz *time.Location, includeSeconds bool) string {
+			t = t.In(tz)
+			if tz == time.UTC {
+				if includeSeconds {
+					return t.Format("2006-01-02T15:04:05Z")
+				}
+				return t.Format("2006-01-02T15:04Z")
+			}
+			if includeSeconds {
+				return t.Format("2006-01-02T15:04:05-07:00")
+			}
+			return t.Format("2006-01-02T15:04-07:00")
+		}
+
+		// Helper to parse time string, returns (time, hasSeconds, hasOffset, offsetStr, error)
+		parseTimeStr := func(s string) (time.Time, bool, bool, string, error) {
+			// Try formats with and without seconds, with various offset styles
+			formats := []struct {
+				format     string
+				hasSeconds bool
+				hasOffset  bool
+			}{
+				{"2006-01-02T15:04:05Z", true, true},
+				{"2006-01-02T15:04:05-07:00", true, true},
+				{"2006-01-02T15:04:05+07:00", true, true},
+				{"2006-01-02T15:04Z", false, true},
+				{"2006-01-02T15:04-07:00", false, true},
+				{"2006-01-02T15:04+07:00", false, true},
+				{"2006-01-02T15:04:05", true, false},
+				{"2006-01-02T15:04", false, false},
+			}
+
+			for _, f := range formats {
+				if t, err := time.Parse(f.format, s); err == nil {
+					// Extract offset string if present
+					offsetStr := ""
+					if f.hasOffset {
+						if strings.HasSuffix(s, "Z") {
+							offsetStr = "Z"
+						} else if idx := strings.LastIndexAny(s, "+-"); idx > 10 {
+							offsetStr = s[idx:]
+						}
+					}
+					return t, f.hasSeconds, f.hasOffset, offsetStr, nil
+				}
+			}
+			return time.Time{}, false, false, "", fmt.Errorf("unable to parse time: %s", s)
+		}
+
+		// No arguments - return current UTC time
+		if len(ctx.Args) == 0 {
+			ctx.SetResult(formatTime(now, time.UTC, true))
+			return BoolStatus(true)
+		}
+
+		// Get target timezone from first argument
+		var targetTZ *time.Location
+		var tzArg string
+
+		switch v := ctx.Args[0].(type) {
+		case string:
+			tzArg = v
+		case QuotedString:
+			tzArg = string(v)
+		case Symbol:
+			tzArg = string(v)
+		default:
+			ctx.LogError(CatIO, fmt.Sprintf("datetime: timezone must be a string, got %T", ctx.Args[0]))
+			ctx.SetResult(formatTime(now, time.UTC, true))
+			return BoolStatus(false)
+		}
+
+		if tzArg == "UTC" {
+			targetTZ = time.UTC
+		} else {
+			var err error
+			targetTZ, err = time.LoadLocation(tzArg)
+			if err != nil {
+				ctx.LogError(CatIO, fmt.Sprintf("datetime: invalid timezone %q: %v", tzArg, err))
+				ctx.SetResult(formatTime(now, time.UTC, true))
+				return BoolStatus(false)
+			}
+		}
+
+		// One argument - return current time in target timezone
+		if len(ctx.Args) == 1 {
+			ctx.SetResult(formatTime(now, targetTZ, true))
+			return BoolStatus(true)
+		}
+
+		// Two or three arguments - convert a timestamp
+		var stampStr string
+		switch v := ctx.Args[1].(type) {
+		case string:
+			stampStr = v
+		case QuotedString:
+			stampStr = string(v)
+		case Symbol:
+			stampStr = string(v)
+		default:
+			ctx.LogError(CatIO, fmt.Sprintf("datetime: timestamp must be a string, got %T", ctx.Args[1]))
+			ctx.SetResult(formatTime(now, targetTZ, true))
+			return BoolStatus(false)
+		}
+
+		parsedTime, hasSeconds, hasOffset, offsetStr, err := parseTimeStr(stampStr)
+		if err != nil {
+			ctx.LogError(CatIO, fmt.Sprintf("datetime: %v", err))
+			ctx.SetResult(formatTime(now, targetTZ, hasSeconds))
+			return BoolStatus(false)
+		}
+
+		// Three arguments - source timezone specified
+		if len(ctx.Args) >= 3 {
+			var srcTZArg string
+			switch v := ctx.Args[2].(type) {
+			case string:
+				srcTZArg = v
+			case QuotedString:
+				srcTZArg = string(v)
+			case Symbol:
+				srcTZArg = string(v)
+			default:
+				ctx.LogError(CatIO, fmt.Sprintf("datetime: source timezone must be a string, got %T", ctx.Args[2]))
+				ctx.SetResult(formatTime(parsedTime.In(targetTZ), targetTZ, hasSeconds))
+				return BoolStatus(false)
+			}
+
+			var srcTZ *time.Location
+			if srcTZArg == "UTC" {
+				srcTZ = time.UTC
+			} else {
+				srcTZ, err = time.LoadLocation(srcTZArg)
+				if err != nil {
+					ctx.LogError(CatIO, fmt.Sprintf("datetime: invalid source timezone %q: %v", srcTZArg, err))
+					ctx.SetResult(formatTime(parsedTime.In(targetTZ), targetTZ, hasSeconds))
+					return BoolStatus(false)
+				}
+			}
+
+			// Check for conflicting offset specification
+			conflictError := false
+			if hasOffset {
+				// Verify the offset matches the source timezone
+				srcOffset := ""
+				if srcTZ == time.UTC {
+					srcOffset = "Z"
+				} else {
+					// Get offset for this time in source timezone
+					testTime := time.Date(parsedTime.Year(), parsedTime.Month(), parsedTime.Day(),
+						parsedTime.Hour(), parsedTime.Minute(), parsedTime.Second(), 0, srcTZ)
+					_, offset := testTime.Zone()
+					hours := offset / 3600
+					mins := (offset % 3600) / 60
+					if mins < 0 {
+						mins = -mins
+					}
+					if hours >= 0 {
+						srcOffset = fmt.Sprintf("+%02d:%02d", hours, mins)
+					} else {
+						srcOffset = fmt.Sprintf("%03d:%02d", hours, mins)
+					}
+				}
+
+				// Check if offsets conflict
+				if offsetStr != srcOffset && !(offsetStr == "Z" && srcTZ == time.UTC) {
+					ctx.LogError(CatIO, fmt.Sprintf("datetime: offset %s in timestamp conflicts with timezone %s", offsetStr, srcTZArg))
+					conflictError = true
+				}
+			}
+
+			// Re-interpret the time in the source timezone (ignore the offset from parsing)
+			reinterpretedTime := time.Date(parsedTime.Year(), parsedTime.Month(), parsedTime.Day(),
+				parsedTime.Hour(), parsedTime.Minute(), parsedTime.Second(), 0, srcTZ)
+			ctx.SetResult(formatTime(reinterpretedTime, targetTZ, hasSeconds))
+
+			if conflictError {
+				return BoolStatus(false)
+			}
+			return BoolStatus(true)
+		}
+
+		// Two arguments - timestamp already has offset info (or is UTC)
+		ctx.SetResult(formatTime(parsedTime, targetTZ, hasSeconds))
+		return BoolStatus(true)
 	})
 }
