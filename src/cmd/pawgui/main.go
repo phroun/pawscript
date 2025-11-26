@@ -97,7 +97,9 @@ func registerGuiCommands(ps *pawscript.PawScript) {
 			return pawscript.BoolStatus(false)
 		}
 		title := fmt.Sprintf("%v", ctx.Args[0])
-		guiState.mainWindow.SetTitle(title)
+		fyne.Do(func() {
+			guiState.mainWindow.SetTitle(title)
+		})
 		return pawscript.BoolStatus(true)
 	})
 
@@ -113,7 +115,9 @@ func registerGuiCommands(ps *pawscript.PawScript) {
 			ctx.LogError(pawscript.CatArgument, "Invalid dimensions")
 			return pawscript.BoolStatus(false)
 		}
-		guiState.mainWindow.Resize(fyne.NewSize(float32(width), float32(height)))
+		fyne.Do(func() {
+			guiState.mainWindow.Resize(fyne.NewSize(float32(width), float32(height)))
+		})
 		return pawscript.BoolStatus(true)
 	})
 
@@ -135,11 +139,13 @@ func registerGuiCommands(ps *pawscript.PawScript) {
 			guiState.mu.Unlock()
 		}
 
-		// Add to content
-		guiState.mu.Lock()
-		guiState.content.Add(lbl)
-		guiState.mu.Unlock()
-		guiState.content.Refresh()
+		// Add to content (thread-safe)
+		fyne.Do(func() {
+			guiState.mu.Lock()
+			guiState.content.Add(lbl)
+			guiState.mu.Unlock()
+			guiState.content.Refresh()
+		})
 
 		if id != "" {
 			ctx.SetResult(id)
@@ -183,11 +189,13 @@ func registerGuiCommands(ps *pawscript.PawScript) {
 			guiState.mu.Unlock()
 		}
 
-		// Add to content
-		guiState.mu.Lock()
-		guiState.content.Add(btn)
-		guiState.mu.Unlock()
-		guiState.content.Refresh()
+		// Add to content (thread-safe)
+		fyne.Do(func() {
+			guiState.mu.Lock()
+			guiState.content.Add(btn)
+			guiState.mu.Unlock()
+			guiState.content.Refresh()
+		})
 
 		if id != "" {
 			ctx.SetResult(id)
@@ -214,11 +222,13 @@ func registerGuiCommands(ps *pawscript.PawScript) {
 			guiState.mu.Unlock()
 		}
 
-		// Add to content
-		guiState.mu.Lock()
-		guiState.content.Add(entry)
-		guiState.mu.Unlock()
-		guiState.content.Refresh()
+		// Add to content (thread-safe)
+		fyne.Do(func() {
+			guiState.mu.Lock()
+			guiState.content.Add(entry)
+			guiState.mu.Unlock()
+			guiState.content.Refresh()
+		})
 
 		if id != "" {
 			ctx.SetResult(id)
@@ -273,23 +283,27 @@ func registerGuiCommands(ps *pawscript.PawScript) {
 			return pawscript.BoolStatus(false)
 		}
 
-		// Set value based on widget type
-		switch widget := w.(type) {
-		case *widget.Entry:
-			widget.SetText(value)
-		case *widget.Label:
-			widget.SetText(value)
-		}
+		// Set value based on widget type (thread-safe)
+		fyne.Do(func() {
+			switch widget := w.(type) {
+			case *widget.Entry:
+				widget.SetText(value)
+			case *widget.Label:
+				widget.SetText(value)
+			}
+		})
 		return pawscript.BoolStatus(true)
 	})
 
 	// gui_clear - Clear all widgets from content
 	ps.RegisterCommand("gui_clear", func(ctx *pawscript.Context) pawscript.Result {
-		guiState.mu.Lock()
-		guiState.content.RemoveAll()
-		guiState.widgets = make(map[string]fyne.CanvasObject)
-		guiState.mu.Unlock()
-		guiState.content.Refresh()
+		fyne.Do(func() {
+			guiState.mu.Lock()
+			guiState.content.RemoveAll()
+			guiState.widgets = make(map[string]fyne.CanvasObject)
+			guiState.mu.Unlock()
+			guiState.content.Refresh()
+		})
 		return pawscript.BoolStatus(true)
 	})
 
@@ -305,17 +319,19 @@ func registerGuiCommands(ps *pawscript.PawScript) {
 			title = fmt.Sprintf("%v", t)
 		}
 
-		// Show info dialog
-		dialog := widget.NewLabel(message)
-		popup := widget.NewModalPopUp(
-			container.NewVBox(
-				widget.NewLabel(title),
-				dialog,
-				widget.NewButton("OK", func() {}),
-			),
-			guiState.mainWindow.Canvas(),
-		)
-		popup.Show()
+		// Show info dialog (thread-safe)
+		fyne.Do(func() {
+			dialog := widget.NewLabel(message)
+			popup := widget.NewModalPopUp(
+				container.NewVBox(
+					widget.NewLabel(title),
+					dialog,
+					widget.NewButton("OK", func() {}),
+				),
+				guiState.mainWindow.Canvas(),
+			)
+			popup.Show()
+		})
 		return pawscript.BoolStatus(true)
 	})
 }
