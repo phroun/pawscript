@@ -26,7 +26,13 @@ type GuiState struct {
 	widgets    map[string]fyne.CanvasObject
 	containers map[string]*fyne.Container
 	ps         *pawscript.PawScript
-	content    *fyne.Container
+
+	// Layout containers
+	content      *fyne.Container // Main content (used when no split)
+	leftContent  *fyne.Container // Left panel content
+	rightContent *fyne.Container // Right panel content
+	splitView    *container.Split // HSplit container (created on demand)
+	usingSplit   bool             // Whether we're using split layout
 
 	// Terminal widget (if created)
 	terminal *terminal.Terminal
@@ -51,14 +57,17 @@ func main() {
 	ps := pawscript.New(nil)
 	ps.RegisterStandardLibrary(nil)
 
-	// Initialize GUI state
+	// Initialize GUI state with left/right panel support
 	guiState = &GuiState{
-		app:        fyneApp,
-		mainWindow: mainWindow,
-		widgets:    make(map[string]fyne.CanvasObject),
-		containers: make(map[string]*fyne.Container),
-		ps:         ps,
-		content:    container.NewVBox(),
+		app:          fyneApp,
+		mainWindow:   mainWindow,
+		widgets:      make(map[string]fyne.CanvasObject),
+		containers:   make(map[string]*fyne.Container),
+		ps:           ps,
+		content:      container.NewVBox(),
+		leftContent:  container.NewVBox(),
+		rightContent: container.NewVBox(),
+		usingSplit:   false,
 	}
 
 	// Register GUI commands
@@ -98,8 +107,79 @@ func main() {
 	mainWindow.ShowAndRun()
 }
 
+// addToPanel adds a widget to the appropriate panel based on named args
+// Returns the target container
+func addToPanel(ctx *pawscript.Context, widget fyne.CanvasObject) {
+	panel := "default"
+	if p, ok := ctx.NamedArgs["panel"]; ok {
+		panel = fmt.Sprintf("%v", p)
+	}
+
+	fyne.Do(func() {
+		guiState.mu.Lock()
+		defer guiState.mu.Unlock()
+
+		switch panel {
+		case "left":
+			guiState.leftContent.Add(widget)
+			guiState.leftContent.Refresh()
+			ensureSplitLayout()
+		case "right":
+			guiState.rightContent.Add(widget)
+			guiState.rightContent.Refresh()
+			ensureSplitLayout()
+		default:
+			guiState.content.Add(widget)
+			guiState.content.Refresh()
+		}
+	})
+}
+
+// ensureSplitLayout switches to split layout if not already using it
+// Must be called with guiState.mu held
+func ensureSplitLayout() {
+	if guiState.usingSplit {
+		return
+	}
+
+	// Create the split view with scrollable panels
+	leftScroll := container.NewVScroll(guiState.leftContent)
+	rightScroll := container.NewVScroll(guiState.rightContent)
+	guiState.splitView = container.NewHSplit(leftScroll, rightScroll)
+	guiState.splitView.SetOffset(0.4) // 40% left, 60% right
+
+	guiState.mainWindow.SetContent(guiState.splitView)
+	guiState.usingSplit = true
+}
+
 // registerGuiCommands registers all GUI-related commands with PawScript
 func registerGuiCommands(ps *pawscript.PawScript) {
+	// gui_split - Enable split layout with left/right panels
+	ps.RegisterCommand("gui_split", func(ctx *pawscript.Context) pawscript.Result {
+		// Optional offset (0.0-1.0, default 0.5)
+		offset := 0.5
+		if len(ctx.Args) >= 1 {
+			if o, ok := toFloat(ctx.Args[0]); ok {
+				offset = o
+			}
+		}
+
+		fyne.Do(func() {
+			guiState.mu.Lock()
+			defer guiState.mu.Unlock()
+
+			if !guiState.usingSplit {
+				leftScroll := container.NewVScroll(guiState.leftContent)
+				rightScroll := container.NewVScroll(guiState.rightContent)
+				guiState.splitView = container.NewHSplit(leftScroll, rightScroll)
+				guiState.mainWindow.SetContent(guiState.splitView)
+				guiState.usingSplit = true
+			}
+			guiState.splitView.SetOffset(offset)
+		})
+		return pawscript.BoolStatus(true)
+	})
+
 	// gui_title - Set window title
 	ps.RegisterCommand("gui_title", func(ctx *pawscript.Context) pawscript.Result {
 		if len(ctx.Args) < 1 {
@@ -134,7 +214,7 @@ func registerGuiCommands(ps *pawscript.PawScript) {
 	// gui_label - Create a label widget
 	ps.RegisterCommand("gui_label", func(ctx *pawscript.Context) pawscript.Result {
 		if len(ctx.Args) < 1 {
-			ctx.LogError(pawscript.CatCommand, "Usage: gui_label <text> [id: <name>]")
+			ctx.LogError(pawscript.CatCommand, "Usage: gui_label <text> [id: <name>] [panel: left|right]")
 			return pawscript.BoolStatus(false)
 		}
 		text := fmt.Sprintf("%v", ctx.Args[0])
@@ -149,13 +229,8 @@ func registerGuiCommands(ps *pawscript.PawScript) {
 			guiState.mu.Unlock()
 		}
 
-		// Add to content (thread-safe)
-		fyne.Do(func() {
-			guiState.mu.Lock()
-			guiState.content.Add(lbl)
-			guiState.mu.Unlock()
-			guiState.content.Refresh()
-		})
+		// Add to appropriate panel
+		addToPanel(ctx, lbl)
 
 		if id != "" {
 			ctx.SetResult(id)
@@ -199,13 +274,8 @@ func registerGuiCommands(ps *pawscript.PawScript) {
 			guiState.mu.Unlock()
 		}
 
-		// Add to content (thread-safe)
-		fyne.Do(func() {
-			guiState.mu.Lock()
-			guiState.content.Add(btn)
-			guiState.mu.Unlock()
-			guiState.content.Refresh()
-		})
+		// Add to appropriate panel
+		addToPanel(ctx, btn)
 
 		if id != "" {
 			ctx.SetResult(id)
@@ -232,13 +302,8 @@ func registerGuiCommands(ps *pawscript.PawScript) {
 			guiState.mu.Unlock()
 		}
 
-		// Add to content (thread-safe)
-		fyne.Do(func() {
-			guiState.mu.Lock()
-			guiState.content.Add(entry)
-			guiState.mu.Unlock()
-			guiState.content.Refresh()
-		})
+		// Add to appropriate panel
+		addToPanel(ctx, entry)
 
 		if id != "" {
 			ctx.SetResult(id)
@@ -389,13 +454,8 @@ func registerGuiCommands(ps *pawscript.PawScript) {
 			guiState.mu.Unlock()
 		}
 
-		// Add to content (thread-safe)
-		fyne.Do(func() {
-			guiState.mu.Lock()
-			guiState.content.Add(sizedTerm)
-			guiState.mu.Unlock()
-			guiState.content.Refresh()
-		})
+		// Add to appropriate panel
+		addToPanel(ctx, sizedTerm)
 
 		// Connect the terminal to our pipes
 		// RunWithConnection expects: in = where to write keyboard input, out = what to display
@@ -535,14 +595,20 @@ func toFloat(v interface{}) (float64, bool) {
 
 // demoScript is a built-in demo that shows basic GUI capabilities
 const demoScript = `
-# PawScript GUI Demo
+# PawScript GUI Demo with Split Layout
 
 gui_title "PawScript GUI Demo"
-gui_resize 400, 350
+gui_resize 900, 500
 
-gui_label "Welcome to PawScript GUI!", id: "welcome"
-gui_label "Enter your name:", id: "prompt"
-gui_entry "Type here...", id: "nameEntry"
+# Enable split layout (40% left, 60% right)
+gui_split 0.4
+
+# === LEFT PANEL: GUI Controls ===
+gui_label "=== GUI Controls ===", panel: "left"
+gui_label "", panel: "left"
+
+gui_label "Enter your name:", panel: "left"
+gui_entry "Type here...", id: "nameEntry", panel: "left"
 
 # Greeting handler - reads from entry widget, writes to label
 macro greet_user (
@@ -550,14 +616,17 @@ macro greet_user (
     gui_set welcome, "Hello, ~name;!"
 )
 
-gui_button "Greet Me", id: "greetBtn", onclick: "greet_user"
+gui_button "Greet Me", onclick: "greet_user", panel: "left"
+gui_label "Welcome!", id: "welcome", panel: "left"
+
+gui_label "", panel: "left"
+gui_label "--- Counter ---", panel: "left"
 
 # Counter demo - state stored in hidden widget
-gui_entry "", id: "counterState"
+gui_entry "", id: "counterState", panel: "left"
 gui_set counterState, "0"
-gui_label "Counter: 0", id: "counterLabel"
+gui_label "Counter: 0", id: "counterLabel", panel: "left"
 
-# Increment reads current value from hidden entry, increments, updates both
 macro increment_counter (
     current: {gui_get counterState}
     newval: {add ~current, 1}
@@ -565,14 +634,55 @@ macro increment_counter (
     gui_set counterLabel, "Counter: ~newval"
 )
 
-gui_button "Increment", onclick: "increment_counter"
+gui_button "Increment", onclick: "increment_counter", panel: "left"
 
-gui_label ""
-gui_label "This is a proof of concept for PawScript + Fyne"
+gui_label "", panel: "left"
+gui_label "GUI remains responsive", panel: "left"
+gui_label "while console runs!", panel: "left"
 
-# Export macros so they're available for button callbacks
+# === RIGHT PANEL: Console Terminal ===
+# Create console on right panel, unpack to #out/#in/#err for print/read
+(#out, #in, #err): {gui_console 400, 400, panel: "right"}
+
+# Define console interaction macro
+macro console_loop (
+    # Clear and show welcome
+    send ~#out, "\x1b[2J\x1b[H"
+    print "\x1b[36m=== PawScript Console ===\x1b[0m"
+    print ""
+    print "This console runs in a \x1b[33mfiber\x1b[0m,"
+    print "so it doesn't block the GUI!"
+    print ""
+    print "\x1b[32mColors work:\x1b[0m \x1b[31mred\x1b[0m \x1b[33myellow\x1b[0m \x1b[34mblue\x1b[0m"
+    print ""
+
+    # Interactive loop
+    count: 0
+    while (true), (
+        count: {add ~count, 1}
+        print "\x1b[35m[\x1b[0m~count\x1b[35m]\x1b[0m Enter text (or 'quit'):"
+        input: {read}
+
+        if (eq ~input, "quit"), (
+            print "\x1b[31mGoodbye!\x1b[0m"
+            return
+        )
+
+        print "You said: \x1b[36m~input\x1b[0m"
+        print ""
+    )
+)
+
+# Run console interaction in a fiber so GUI stays responsive
+fiber_spawn {macro (
+    sleep 300
+    IMPORT exports
+    console_loop
+)}
+
+# Export macros for callbacks
 MODULE exports
-EXPORT greet_user, increment_counter
+EXPORT greet_user, increment_counter, console_loop
 `
 
 // consoleDemo is a demo script that shows terminal/console capabilities
