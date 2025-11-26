@@ -92,6 +92,23 @@ See the `examples/` directory for sample scripts and usage patterns.
   - Attributes: bold, blink, underline, invert (persist across calls)
   - Option reset: true emits ANSI reset and clears all tracked state
   - Returns current color state with terminal capability info (term, ansi, color)
+- Macro storage moved from global to module environment with copy-on-write
+- `LIBRARY "forget *"` removes all items from LibraryInherited
+- `LIBRARY "forget modname"` removes an entire module from LibraryInherited
+- `LIBRARY "forget modname::item1,item2"` removes specific items from a module
+- `EXPORT "modspec::*"` re-exports all items from LibraryRestricted
+- `EXPORT "modspec::new=item1,item2"` re-exports specific items with optional rename
+- Tilde interpolation (`~#stdout`, `~#stdin`) now resolves ObjectsModule items
+- Math module extended with variadic and new operations:
+  - `add`, `mul` now accept any number of arguments
+  - `sub` accepts any number of arguments (first minus all others)
+  - `div` renamed to `idiv` for floored integer division
+  - `fdiv` added for floating point division
+  - Division commands support multiple divisors (uses product of all)
+  - `remainder:` and `modulo:` named args return `[quotient, remainder/modulo]`
+  - `iremainder`, `imodulo`, `fremainder`, `fmodulo` return only remainder/modulo
+  - `floor`, `ceil`, `trunc`, `round`, `abs` single-argument functions
+  - `min`, `max` accept any number of arguments
 
 ### 0.2.5 -- November 24, 2025
 - Module environment with copy-on-write semantics for macro/fiber isolation
