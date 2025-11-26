@@ -2,13 +2,30 @@
 
 A proof of concept for running PawScript with GUI capabilities using [Fyne](https://fyne.io/).
 
+## Prerequisites
+
+Fyne requires native graphics libraries. On Linux:
+
+```bash
+# Debian/Ubuntu
+sudo apt-get install libgl1-mesa-dev xorg-dev
+
+# Fedora
+sudo dnf install mesa-libGL-devel libXcursor-devel libXrandr-devel libXinerama-devel libXi-devel libXxf86vm-devel
+```
+
+On macOS, Xcode command line tools are required. On Windows, a C compiler (MinGW or TDM-GCC) is needed.
+
+See https://docs.fyne.io/started/ for detailed setup instructions.
+
 ## Setup
 
-First, install the Fyne dependency:
+Install the Fyne dependency:
 
 ```bash
 cd src
 go get fyne.io/fyne/v2@latest
+go mod tidy
 ```
 
 Then build:
