@@ -17,7 +17,7 @@ else
     BINARY_NAME := paw
 endif
 
-.PHONY: build-all clean-releases build install
+.PHONY: build-all clean-releases build build-gui install
 
 # Build native version for local use
 build:
@@ -29,6 +29,17 @@ build-token-example:
 	@echo "Building paw for native platform ($(NATIVE_OS)/$(NATIVE_ARCH))..."
 	go build -ldflags "-X main.version=$(VERSION)" -o $(INSTALL_DIR)/token_example ./cmd/token_example
 	@echo "Created: $(INSTALL_DIR)/token_example"
+
+# Build GUI version (requires Fyne dependencies: libgl1-mesa-dev xorg-dev on Linux)
+build-gui:
+	@echo "Building pawgui for native platform ($(NATIVE_OS)/$(NATIVE_ARCH))..."
+ifeq ($(NATIVE_OS),windows)
+	go build -ldflags "-X main.version=$(VERSION)" -o $(INSTALL_DIR)/pawgui.exe ./cmd/pawgui
+	@echo "Created: $(INSTALL_DIR)/pawgui.exe"
+else
+	go build -ldflags "-X main.version=$(VERSION)" -o $(INSTALL_DIR)/pawgui ./cmd/pawgui
+	@echo "Created: $(INSTALL_DIR)/pawgui"
+endif
 
 # Alias for build
 install: build
@@ -114,8 +125,11 @@ help:
 	@echo "PawScript Makefile"
 	@echo ""
 	@echo "Targets:"
-	@echo "  build-all      - Build and package for all platforms (default)"
+	@echo "  build          - Build paw for native platform"
+	@echo "  build-gui      - Build pawgui (Fyne GUI) for native platform"
+	@echo "  build-all      - Build and package for all platforms"
 	@echo "  run-example    - Run hello.paw example"
+	@echo "  test           - Run regression tests"
 	@echo "  clean          - Remove build artifacts"
 	@echo "  clean-releases - Clean release artifacts"
 	@echo "  install        - Install paw to GOPATH"
