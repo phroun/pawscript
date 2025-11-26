@@ -93,12 +93,12 @@ See the `examples/` directory for sample scripts and usage patterns.
   - Option reset: true emits ANSI reset and clears all tracked state
   - Returns current color state with terminal capability info (term, ansi, color)
 - Macro storage moved from global to module environment with copy-on-write
-- `LIBRARY "forget *"` removes all items from LibraryInherited
-- `LIBRARY "forget modname"` removes an entire module from LibraryInherited
-- `LIBRARY "forget modname::item1,item2"` removes specific items from a module
-- `EXPORT "modspec::*"` re-exports all items from LibraryRestricted
+- `LIBRARY "forget *"` removes all items from Library
+- `LIBRARY "forget modname"` removes an entire module from Library
+- `LIBRARY "forget modname::item1,item2"` removes specific Library items
+- `EXPORT "modspec::*"` re-exports all items from restricted Library
 - `EXPORT "modspec::new=item1,item2"` re-exports specific items with optional rename
-- Tilde interpolation (`~#stdout`, `~#stdin`) now resolves ObjectsModule items
+- Tilde interpolation (`~#stdout`, `~#stdin`) now resolves IMPORTed items
 - Math module extended with variadic and new operations:
   - `add`, `mul` now accept any number of arguments
   - `sub` accepts any number of arguments (first minus all others)
