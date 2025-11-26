@@ -40,8 +40,8 @@ func main() {
 	mainWindow.Resize(fyne.NewSize(400, 300))
 
 	// Create PawScript instance
-	ps := pawscript.New()
-	ps.RegisterStandardLibrary()
+	ps := pawscript.New(nil)
+	ps.RegisterStandardLibrary(nil)
 
 	// Initialize GUI state
 	guiState = &GuiState{
@@ -77,9 +77,9 @@ func main() {
 
 	// Run the script in a goroutine so the GUI can start
 	go func() {
-		_, err := ps.Execute(script)
-		if err != nil {
-			fmt.Fprintf(os.Stderr, "Script error: %v\n", err)
+		result := ps.Execute(script)
+		if result == pawscript.BoolStatus(false) {
+			fmt.Fprintf(os.Stderr, "Script execution failed\n")
 		}
 	}()
 
@@ -164,9 +164,9 @@ func registerGuiCommands(ps *pawscript.PawScript) {
 			if onclickMacro != "" {
 				// Execute the macro when button is clicked
 				go func() {
-					_, err := guiState.ps.Execute(onclickMacro)
-					if err != nil {
-						fmt.Fprintf(os.Stderr, "Button callback error: %v\n", err)
+					result := guiState.ps.Execute(onclickMacro)
+					if result == pawscript.BoolStatus(false) {
+						fmt.Fprintf(os.Stderr, "Button callback error\n")
 					}
 				}()
 			}
