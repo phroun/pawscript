@@ -645,7 +645,13 @@ gui_label "while console runs!", panel: "left"
 (#out, #in, #err): {gui_console 400, 400, panel: "right"}
 
 # Define console interaction macro
+# Receives channels as $1, $2, $3 from fiber_spawn
 macro console_loop (
+    # Initialize IO channels from arguments
+    #out: $1
+    #in: $2
+    #err: $3
+
     # Clear and show welcome
     send ~#out, "\x1b[2J\x1b[H"
     print "\x1b[36m=== PawScript Console ===\x1b[0m"
@@ -673,12 +679,9 @@ macro console_loop (
     )
 )
 
-# Run console interaction in a fiber so GUI stays responsive
-fiber_spawn {macro (
-    sleep 300
-    IMPORT exports
-    console_loop
-)}
+# Run console interaction in a fiber, passing the channels as arguments
+sleep 300
+fiber_spawn console_loop, ~#out, ~#in, ~#err
 
 # Export macros for callbacks
 MODULE exports
