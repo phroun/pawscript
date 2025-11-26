@@ -80,14 +80,31 @@ gui_resize 400, 300
 gui_label "Enter your name:"
 gui_entry "Type here...", id: "nameInput"
 
-# Define button handler
+# Button handler - macros don't have outer scope access,
+# so read/write state through widgets
 macro say_hello (
     name: {gui_get nameInput}
     gui_msgbox "Hello, ~name;!", title: "Greeting"
 )
 
 gui_button "Say Hello", onclick: "say_hello"
+
+# For stateful values like counters, store in a hidden entry widget
+gui_entry "", id: "counterState"
+gui_set counterState, "0"
+gui_label "Count: 0", id: "countLabel"
+
+macro increment (
+    current: {gui_get counterState}
+    newval: {add ~current, 1}
+    gui_set counterState, "~newval"
+    gui_set countLabel, "Count: ~newval"
+)
+
+gui_button "Increment", onclick: "increment"
 ```
+
+**Note:** PawScript macros are isolated and don't have access to outer scope variables. For GUI callbacks that need persistent state, store values in entry widgets and read/write them with `gui_get`/`gui_set`.
 
 ## Architecture
 

@@ -348,7 +348,7 @@ gui_label "Welcome to PawScript GUI!", id: "welcome"
 gui_label "Enter your name:", id: "prompt"
 gui_entry "Type here...", id: "nameEntry"
 
-# Define a click handler
+# Greeting handler - reads from entry widget, writes to label
 macro greet_user (
     name: {gui_get nameEntry}
     gui_set welcome, "Hello, ~name;!"
@@ -356,13 +356,17 @@ macro greet_user (
 
 gui_button "Greet Me", id: "greetBtn", onclick: "greet_user"
 
-# Counter demo
-counter: 0
+# Counter demo - state stored in hidden widget
+gui_entry "", id: "counterState"
+gui_set counterState, "0"
 gui_label "Counter: 0", id: "counterLabel"
 
+# Increment reads current value from hidden entry, increments, updates both
 macro increment_counter (
-    counter: {add ~counter, 1}
-    gui_set counterLabel, "Counter: ~counter"
+    current: {gui_get counterState}
+    newval: {add ~current, 1}
+    gui_set counterState, "~newval"
+    gui_set counterLabel, "Counter: ~newval"
 )
 
 gui_button "Increment", onclick: "increment_counter"

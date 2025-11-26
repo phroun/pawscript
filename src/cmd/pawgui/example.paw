@@ -14,7 +14,7 @@ gui_label ""
 gui_label "What's your name?"
 gui_entry "Enter your name...", id: "nameEntry"
 
-# Greeting handler
+# Greeting handler - reads from entry, writes to label
 macro greet (
     name: {gui_get nameEntry}
     gui_set greeting, "Hello, ~name;! Welcome to PawScript GUI."
@@ -26,22 +26,27 @@ gui_label "", id: "greeting"
 gui_label ""
 gui_label "--- Counter Demo ---"
 
-# Counter with increment/decrement
-counter: 0
+# Counter state stored in hidden entry widget
+gui_entry "", id: "counterState"
+gui_set counterState, "0"
 gui_label "Count: 0", id: "countLabel"
 
 macro inc (
-    counter: {add ~counter, 1}
-    gui_set countLabel, "Count: ~counter"
+    current: {gui_get counterState}
+    newval: {add ~current, 1}
+    gui_set counterState, "~newval"
+    gui_set countLabel, "Count: ~newval"
 )
 
 macro dec (
-    counter: {sub ~counter, 1}
-    gui_set countLabel, "Count: ~counter"
+    current: {gui_get counterState}
+    newval: {sub ~current, 1}
+    gui_set counterState, "~newval"
+    gui_set countLabel, "Count: ~newval"
 )
 
 macro reset_counter (
-    counter: 0
+    gui_set counterState, "0"
     gui_set countLabel, "Count: 0"
 )
 
