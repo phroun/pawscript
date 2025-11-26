@@ -1,0 +1,74 @@
+#!/usr/bin/env pawgui
+# Example PawScript GUI Application
+# Run with: pawgui example.paw
+
+# Configure the window
+gui::title "PawScript GUI Example"
+gui::resize 450, 400
+
+# Welcome section
+gui::label "=== PawScript GUI Demo ==="
+gui::label ""
+
+# Name input section
+gui::label "What's your name?"
+gui::entry "Enter your name...", id: "nameEntry"
+
+# Greeting handler
+define greet (
+    name: {gui::get nameEntry}
+    gui::set greeting, "Hello, ~name;! Welcome to PawScript GUI."
+)
+
+gui::button "Greet Me", id: "greetBtn", onclick: "greet"
+gui::label "", id: "greeting"
+
+gui::label ""
+gui::label "--- Counter Demo ---"
+
+# Counter with increment/decrement
+counter: 0
+gui::label "Count: 0", id: "countLabel"
+
+define inc (
+    counter: {add ~counter, 1}
+    gui::set countLabel, "Count: ~counter"
+)
+
+define dec (
+    counter: {sub ~counter, 1}
+    gui::set countLabel, "Count: ~counter"
+)
+
+define reset_counter (
+    counter: 0
+    gui::set countLabel, "Count: 0"
+)
+
+gui::button "[ + ]", onclick: "inc"
+gui::button "[ - ]", onclick: "dec"
+gui::button "Reset", onclick: "reset_counter"
+
+gui::label ""
+gui::label "--- Calculator Demo ---"
+
+gui::entry "First number", id: "num1"
+gui::entry "Second number", id: "num2"
+gui::label "Result: ", id: "calcResult"
+
+define do_add (
+    a: {gui::get num1}
+    b: {gui::get num2}
+    result: {add ~a, ~b}
+    gui::set calcResult, "Result: ~a + ~b = ~result"
+)
+
+define do_mul (
+    a: {gui::get num1}
+    b: {gui::get num2}
+    result: {mul ~a, ~b}
+    gui::set calcResult, "Result: ~a * ~b = ~result"
+)
+
+gui::button "Add", onclick: "do_add"
+gui::button "Multiply", onclick: "do_mul"
