@@ -185,6 +185,8 @@ macro "define_macros", (
     EXPORT greet_formal, describe_args, safe_greet
 )
 
+macro greet_formal(echo "I am evil and should not get called")
+macro_delete greet_formal
 define_macros
 IMPORT "exports"
 
