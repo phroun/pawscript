@@ -3,14 +3,18 @@
 package main
 
 import (
+	"bufio"
 	"fmt"
+	"io"
 	"os"
 	"sync"
+	"time"
 
 	"fyne.io/fyne/v2"
 	"fyne.io/fyne/v2/app"
 	"fyne.io/fyne/v2/container"
 	"fyne.io/fyne/v2/widget"
+	"github.com/fyne-io/terminal"
 	pawscript "github.com/phroun/pawscript"
 )
 
@@ -23,6 +27,9 @@ type GuiState struct {
 	containers map[string]*fyne.Container
 	ps         *pawscript.PawScript
 	content    *fyne.Container
+
+	// Terminal widget (if created)
+	terminal *terminal.Terminal
 }
 
 var guiState *GuiState
@@ -31,6 +38,7 @@ func main() {
 	if len(os.Args) < 2 {
 		fmt.Println("Usage: pawgui <script.paw>")
 		fmt.Println("       pawgui -demo")
+		fmt.Println("       pawgui -console")
 		os.Exit(1)
 	}
 
@@ -39,7 +47,7 @@ func main() {
 	mainWindow := fyneApp.NewWindow("PawScript GUI")
 	mainWindow.Resize(fyne.NewSize(400, 300))
 
-	// Create PawScript instance
+	// Create PawScript instance with default IO (real stdin/stdout/stderr)
 	ps := pawscript.New(nil)
 	ps.RegisterStandardLibrary(nil)
 
@@ -59,12 +67,14 @@ func main() {
 	// Set initial content
 	mainWindow.SetContent(guiState.content)
 
-	// Handle -demo flag for built-in demo
+	// Handle flags
 	scriptPath := os.Args[1]
 	var script string
 
 	if scriptPath == "-demo" {
 		script = demoScript
+	} else if scriptPath == "-console" {
+		script = consoleDemo
 	} else {
 		// Read the script file
 		data, err := os.ReadFile(scriptPath)
@@ -334,6 +344,127 @@ func registerGuiCommands(ps *pawscript.PawScript) {
 		})
 		return pawscript.BoolStatus(true)
 	})
+
+	// gui_console - Create a terminal console widget
+	// Returns a list: [out_channel, in_channel, err_channel]
+	// - out_channel: send to display text in the terminal
+	// - in_channel: recv to read keyboard input
+	// - err_channel: same as out_channel (for compatibility)
+	// You can have multiple consoles, each with their own channels
+	ps.RegisterCommand("gui_console", func(ctx *pawscript.Context) pawscript.Result {
+		// Default size
+		width := float32(600)
+		height := float32(400)
+
+		// Get optional dimensions
+		if len(ctx.Args) >= 2 {
+			if w, ok := toFloat(ctx.Args[0]); ok {
+				width = float32(w)
+			}
+			if h, ok := toFloat(ctx.Args[1]); ok {
+				height = float32(h)
+			}
+		}
+
+		// Create IO pipes for the console
+		stdinReader, stdinWriter := io.Pipe()
+		stdoutReader, stdoutWriter := io.Pipe()
+
+		// Create console channels backed by pipes
+		consoleOutCh, consoleInCh := createConsoleChannels(stdinReader, stdoutWriter)
+
+		// Create terminal widget
+		term := terminal.New()
+		guiState.terminal = term
+
+		// Get optional ID
+		id := ""
+		if idVal, ok := ctx.NamedArgs["id"]; ok {
+			id = fmt.Sprintf("%v", idVal)
+			guiState.mu.Lock()
+			guiState.widgets[id] = term
+			guiState.mu.Unlock()
+		}
+
+		// Set minimum size for the terminal
+		term.SetMinSize(fyne.NewSize(width, height))
+
+		// Add to content (thread-safe)
+		fyne.Do(func() {
+			guiState.mu.Lock()
+			guiState.content.Add(term)
+			guiState.mu.Unlock()
+			guiState.content.Refresh()
+		})
+
+		// Connect the terminal to our pipes
+		// RunWithConnection expects: in = where to write keyboard input, out = what to display
+		go func() {
+			err := term.RunWithConnection(stdinWriter, stdoutReader)
+			if err != nil {
+				fmt.Fprintf(os.Stderr, "Terminal error: %v\n", err)
+			}
+		}()
+
+		// Return the channels as a list: [out, in, err]
+		// Scripts can use: console: {gui_console 600, 400}
+		// Then: send {argv ~console, 0}, "Hello!\n"
+		// Or:   input: {recv {argv ~console, 1}}
+		ctx.SetResult([]interface{}{consoleOutCh, consoleInCh, consoleOutCh})
+		return pawscript.BoolStatus(true)
+	})
+}
+
+// createConsoleChannels creates StoredChannels for the console terminal
+func createConsoleChannels(stdinReader *io.PipeReader, stdoutWriter *io.PipeWriter) (*pawscript.StoredChannel, *pawscript.StoredChannel) {
+	// Create buffered reader for stdin
+	stdinBufReader := bufio.NewReader(stdinReader)
+
+	// Console output channel - write to terminal display
+	consoleOutCh := &pawscript.StoredChannel{
+		BufferSize:       0,
+		Messages:         make([]pawscript.ChannelMessage, 0),
+		Subscribers:      make(map[int]*pawscript.StoredChannel),
+		NextSubscriberID: 1,
+		IsClosed:         false,
+		Timestamp:        time.Now(),
+		NativeSend: func(v interface{}) error {
+			_, err := fmt.Fprintf(stdoutWriter, "%v", v)
+			return err
+		},
+		NativeRecv: func() (interface{}, error) {
+			return nil, fmt.Errorf("cannot receive from console_out")
+		},
+	}
+
+	// Console input channel - read from terminal keyboard
+	consoleInCh := &pawscript.StoredChannel{
+		BufferSize:       0,
+		Messages:         make([]pawscript.ChannelMessage, 0),
+		Subscribers:      make(map[int]*pawscript.StoredChannel),
+		NextSubscriberID: 1,
+		IsClosed:         false,
+		Timestamp:        time.Now(),
+		NativeRecv: func() (interface{}, error) {
+			line, err := stdinBufReader.ReadString('\n')
+			if err != nil {
+				return nil, err
+			}
+			// Trim the newline
+			if len(line) > 0 && line[len(line)-1] == '\n' {
+				line = line[:len(line)-1]
+			}
+			if len(line) > 0 && line[len(line)-1] == '\r' {
+				line = line[:len(line)-1]
+			}
+			return line, nil
+		},
+		NativeSend: func(v interface{}) error {
+			return fmt.Errorf("cannot send to console_in")
+		},
+	}
+
+	return consoleOutCh, consoleInCh
 }
 
 // toFloat converts an interface{} to float64
@@ -395,4 +526,45 @@ gui_label "This is a proof of concept for PawScript + Fyne"
 # Export macros so they're available for button callbacks
 MODULE exports
 EXPORT greet_user, increment_counter
+`
+
+// consoleDemo is a demo script that shows terminal/console capabilities
+const consoleDemo = `
+# PawScript Console Demo
+# Shows terminal features using gui_console returned channels
+
+gui_title "PawScript Console Demo"
+gui_resize 700, 500
+
+# Create the console widget - returns [out_channel, in_channel, err_channel]
+console: {gui_console 680, 450}
+
+# Extract the output and input channels to #out and #in
+# This makes echo, print, write, read automatically use them!
+#out: {argv ~console, 0}
+#in: {argv ~console, 1}
+
+# Give the terminal a moment to initialize
+sleep 200
+
+# Now we can use standard print and echo commands!
+# Clear screen and show title
+send ~#out, "\x1b[2J\x1b[H"
+print "\x1b[36m=== PawScript Console Demo ===\x1b[0m"
+echo ""
+print "This terminal supports ANSI escape codes!"
+echo ""
+
+# Show some colors using raw ANSI codes
+print "\x1b[31mThis is red text\x1b[0m"
+print "\x1b[32mThis is green text\x1b[0m"
+print "\x1b[33mThis is yellow text\x1b[0m"
+print "\x1b[34mThis is blue text\x1b[0m"
+echo ""
+
+print "Type something and press Enter:"
+
+# Read from console using the standard read command
+input: {read}
+print "You typed: ~input"
 `

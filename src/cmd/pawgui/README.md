@@ -65,6 +65,14 @@ PawGUI provides these commands (prefixed with `gui_` to avoid conflicts):
 - `gui_get <widget_id>` - Get the current value/text of a widget
 - `gui_set <widget_id>, <value>` - Set the value/text of a widget
 
+### Console/Terminal
+
+- `gui_console [width, height] [id: <name>]` - Create a terminal console widget with ANSI escape code support
+  - Returns a list: `[out_channel, in_channel, err_channel]`
+  - `out_channel`: Send text to display in the terminal (supports ANSI codes)
+  - `in_channel`: Receive keyboard input from the terminal
+  - `err_channel`: Same as out_channel (for compatibility)
+
 ### Dialogs
 
 - `gui_msgbox <message> [title: <title>]` - Show a message popup
@@ -111,6 +119,34 @@ EXPORT say_hello, increment
 **Important notes:**
 - PawScript macros are isolated and don't have access to outer scope variables. For GUI callbacks that need persistent state, store values in entry widgets and read/write them with `gui_get`/`gui_set`.
 - **Macros used as button callbacks must be EXPORTed** at the end of your script so they're available when buttons are clicked. Add `MODULE exports` then `EXPORT macro1, macro2, ...` after defining your macros.
+
+## Console Example
+
+The `gui_console` command creates a terminal widget with ANSI escape code support:
+
+```pawscript
+gui_title "Console Example"
+gui_resize 700, 500
+
+# Create console - returns [out, in, err] channels
+console: {gui_console 680, 450}
+
+# Extract to #out and #in - makes print/read use these channels automatically!
+#out: {argv ~console, 0}
+#in: {argv ~console, 1}
+
+# Now standard commands work with the console
+send ~#out, "\x1b[2J\x1b[H"                 # Clear screen (ANSI codes)
+print "\x1b[36mWelcome!\x1b[0m"             # Cyan text
+print "\x1b[31mRed \x1b[32mGreen \x1b[34mBlue\x1b[0m"
+
+# Read input using standard read command
+print "Enter your name:"
+name: {read}
+print "Hello, ~name!"
+```
+
+Run with: `pawgui -console`
 
 ## Architecture
 
