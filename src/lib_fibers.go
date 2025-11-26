@@ -38,16 +38,24 @@ func (ps *PawScript) RegisterFibersLib() {
 					macro = &m
 				}
 			} else {
-				// Try to look up as a named macro
-				if m, found := ps.macroSystem.GetStoredMacro(symStr); found {
+				// Look up macro in module environment (same as call command)
+				ctx.state.moduleEnv.mu.RLock()
+				if m, exists := ctx.state.moduleEnv.MacrosModule[symStr]; exists && m != nil {
+					macro = m
+				} else if m, exists := ctx.state.moduleEnv.MacrosInherited[symStr]; exists && m != nil {
 					macro = m
 				}
+				ctx.state.moduleEnv.mu.RUnlock()
 			}
 		} else if str, ok := firstArg.(string); ok {
-			// Try to look up as a named macro (string form)
-			if m, found := ps.macroSystem.GetStoredMacro(str); found {
+			// Look up macro in module environment (string form)
+			ctx.state.moduleEnv.mu.RLock()
+			if m, exists := ctx.state.moduleEnv.MacrosModule[str]; exists && m != nil {
+				macro = m
+			} else if m, exists := ctx.state.moduleEnv.MacrosInherited[str]; exists && m != nil {
 				macro = m
 			}
+			ctx.state.moduleEnv.mu.RUnlock()
 		}
 
 		if macro == nil {
