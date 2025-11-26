@@ -102,9 +102,14 @@ macro increment (
 )
 
 gui_button "Increment", onclick: "increment"
+
+# Export macros for button callbacks
+EXPORT say_hello, increment
 ```
 
-**Note:** PawScript macros are isolated and don't have access to outer scope variables. For GUI callbacks that need persistent state, store values in entry widgets and read/write them with `gui_get`/`gui_set`.
+**Important notes:**
+- PawScript macros are isolated and don't have access to outer scope variables. For GUI callbacks that need persistent state, store values in entry widgets and read/write them with `gui_get`/`gui_set`.
+- **Macros used as button callbacks must be EXPORTed** at the end of your script so they're available when buttons are clicked. Add `EXPORT macro1, macro2, ...` after defining your macros.
 
 ## Architecture
 

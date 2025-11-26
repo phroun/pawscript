@@ -76,8 +76,9 @@ func main() {
 	}
 
 	// Run the script in a goroutine so the GUI can start
+	// Use ExecuteFile to ensure exports (including macros) persist to root
 	go func() {
-		result := ps.Execute(script)
+		result := ps.ExecuteFile(script, scriptPath)
 		if result == pawscript.BoolStatus(false) {
 			fmt.Fprintf(os.Stderr, "Script execution failed\n")
 		}
@@ -164,7 +165,8 @@ func registerGuiCommands(ps *pawscript.PawScript) {
 			if onclickMacro != "" {
 				// Execute the macro when button is clicked
 				go func() {
-					result := guiState.ps.Execute(onclickMacro)
+					guiState.ps.Execute("IMPORT exports")
+					result := guiState.ps.ExecuteMacro(onclickMacro)
 					if result == pawscript.BoolStatus(false) {
 						fmt.Fprintf(os.Stderr, "Button callback error\n")
 					}
@@ -373,4 +375,7 @@ gui_button "Increment", onclick: "increment_counter"
 
 gui_label ""
 gui_label "This is a proof of concept for PawScript + Fyne"
+
+# Export macros so they're available for button callbacks
+EXPORT greet_user, increment_counter
 `
