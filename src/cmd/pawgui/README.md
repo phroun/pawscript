@@ -52,13 +52,16 @@ PawGUI provides these commands (prefixed with `gui_` to avoid conflicts):
 
 - `gui_title <text>` - Set the window title
 - `gui_resize <width>, <height>` - Resize the window
+- `gui_split [offset]` - Enable split layout (left/right panels), offset 0.0-1.0 (default 0.5)
 - `gui_clear` - Remove all widgets
 
 ### Widget Creation
 
-- `gui_label <text> [id: <name>]` - Create a text label
-- `gui_button <text> [id: <name>] [onclick: <macro>]` - Create a clickable button
-- `gui_entry [placeholder] [id: <name>]` - Create a text input field
+All widget commands support `panel: "left"` or `panel: "right"` to place them in split layout panels.
+
+- `gui_label <text> [id: <name>] [panel: left|right]` - Create a text label
+- `gui_button <text> [id: <name>] [onclick: <macro>] [panel: left|right]` - Create a clickable button
+- `gui_entry [placeholder] [id: <name>] [panel: left|right]` - Create a text input field
 
 ### Widget Interaction
 
@@ -67,11 +70,12 @@ PawGUI provides these commands (prefixed with `gui_` to avoid conflicts):
 
 ### Console/Terminal
 
-- `gui_console [width, height] [id: <name>]` - Create a terminal console widget with ANSI escape code support
+- `gui_console [width, height] [id: <name>] [panel: left|right]` - Create a terminal console widget with ANSI escape code support
   - Returns a list: `[out_channel, in_channel, err_channel]`
   - `out_channel`: Send text to display in the terminal (supports ANSI codes)
   - `in_channel`: Receive keyboard input from the terminal
   - `err_channel`: Same as out_channel (for compatibility)
+  - Use `fiber_spawn` to run console interaction without blocking the GUI
 
 ### Dialogs
 
@@ -145,6 +149,37 @@ print "Hello, ~name!"
 
 Run with: `pawgui -console`
 
+## Split Layout Example
+
+Create a two-panel layout with GUI controls on the left and a console on the right:
+
+```pawscript
+gui_title "Split Demo"
+gui_resize 800, 500
+gui_split 0.4                              # 40% left, 60% right
+
+# Left panel - GUI controls
+gui_label "Controls", panel: "left"
+gui_button "Click me", panel: "left"
+
+# Right panel - Console terminal
+(#out, #in, #err): {gui_console 400, 400, panel: "right"}
+
+# Run console in fiber so GUI stays responsive
+fiber_spawn {macro (
+    print "Console ready!"
+    while (true), (
+        input: {read}
+        print "Got: ~input"
+    )
+)}
+
+MODULE exports
+EXPORT ...
+```
+
+Run with: `pawgui -demo` to see a full example with interactive console.
+
 ## Architecture
 
 - `main.go` - Application entry point, Fyne setup, and GUI command registration
@@ -163,7 +198,7 @@ To add more widgets, follow the pattern in `registerGuiCommands()`:
 5. Call `Refresh()` to update the display
 
 Future improvements could include:
-- Layout containers (HBox, VBox, Grid)
+- More layout containers (VBox, Grid, Border)
 - More widgets (checkbox, radio, select, slider)
 - Event binding beyond onclick
 - Multiple windows
