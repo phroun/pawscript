@@ -377,22 +377,22 @@ func registerGuiCommands(ps *pawscript.PawScript) {
 		term := terminal.New()
 		guiState.terminal = term
 
+		// Wrap terminal in a sizedWidget to enforce minimum size
+		sizedTerm := newSizedWidget(term, fyne.NewSize(width, height))
+
 		// Get optional ID
 		id := ""
 		if idVal, ok := ctx.NamedArgs["id"]; ok {
 			id = fmt.Sprintf("%v", idVal)
 			guiState.mu.Lock()
-			guiState.widgets[id] = term
+			guiState.widgets[id] = sizedTerm
 			guiState.mu.Unlock()
 		}
-
-		// Set minimum size for the terminal
-		term.SetMinSize(fyne.NewSize(width, height))
 
 		// Add to content (thread-safe)
 		fyne.Do(func() {
 			guiState.mu.Lock()
-			guiState.content.Add(term)
+			guiState.content.Add(sizedTerm)
 			guiState.mu.Unlock()
 			guiState.content.Refresh()
 		})
@@ -466,6 +466,53 @@ func createConsoleChannels(stdinReader *io.PipeReader, stdoutWriter *io.PipeWrit
 
 	return consoleOutCh, consoleInCh
 }
+
+// sizedWidget wraps a canvas object and enforces a minimum size
+type sizedWidget struct {
+	widget.BaseWidget
+	wrapped fyne.CanvasObject
+	minSize fyne.Size
+}
+
+func newSizedWidget(wrapped fyne.CanvasObject, minSize fyne.Size) *sizedWidget {
+	s := &sizedWidget{
+		wrapped: wrapped,
+		minSize: minSize,
+	}
+	s.ExtendBaseWidget(s)
+	return s
+}
+
+func (s *sizedWidget) CreateRenderer() fyne.WidgetRenderer {
+	return &sizedWidgetRenderer{widget: s}
+}
+
+func (s *sizedWidget) MinSize() fyne.Size {
+	return s.minSize
+}
+
+type sizedWidgetRenderer struct {
+	widget *sizedWidget
+}
+
+func (r *sizedWidgetRenderer) Layout(size fyne.Size) {
+	r.widget.wrapped.Resize(size)
+	r.widget.wrapped.Move(fyne.NewPos(0, 0))
+}
+
+func (r *sizedWidgetRenderer) MinSize() fyne.Size {
+	return r.widget.minSize
+}
+
+func (r *sizedWidgetRenderer) Refresh() {
+	r.widget.wrapped.Refresh()
+}
+
+func (r *sizedWidgetRenderer) Objects() []fyne.CanvasObject {
+	return []fyne.CanvasObject{r.widget.wrapped}
+}
+
+func (r *sizedWidgetRenderer) Destroy() {}
 
 // toFloat converts an interface{} to float64
 func toFloat(v interface{}) (float64, bool) {
