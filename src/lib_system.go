@@ -948,7 +948,7 @@ func (ps *PawScript) RegisterSystemLib(scriptArgs []string) {
 		if duplex, ok := ctx.NamedArgs["duplex"]; ok {
 			enabled := isTruthy(duplex)
 			ts.mu.Unlock()
-			ts.SetDuplex(enabled)
+			_ = ts.SetDuplex(enabled)
 			ts.mu.Lock()
 		}
 

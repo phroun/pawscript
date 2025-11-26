@@ -209,15 +209,15 @@ func (e *Executor) handleLIBRARY(args []interface{}, state *ExecutionState, posi
 			items := strings.Split(itemsStr, ",")
 
 			// Check if module exists in LibraryInherited
-			section, exists := state.moduleEnv.LibraryInherited[moduleName]
+			_, exists := state.moduleEnv.LibraryInherited[moduleName]
 			if !exists {
 				e.logger.CommandError(CatSystem, "LIBRARY", fmt.Sprintf("Module not found in LibraryInherited: %s", moduleName), position)
 				return BoolStatus(false)
 			}
 
 			state.moduleEnv.CopyLibraryInherited()
-			// Get the section again after COW (it's now a copy)
-			section = state.moduleEnv.LibraryInherited[moduleName]
+			// Get the section after COW (it's now a copy)
+			section := state.moduleEnv.LibraryInherited[moduleName]
 
 			// Remove specific items
 			for _, itemSpec := range items {

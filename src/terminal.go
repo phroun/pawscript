@@ -547,7 +547,7 @@ func (ts *TerminalState) ResetTerminal() {
 	// Restore terminal state if modified
 	if ts.originalTermState != nil {
 		fd := int(os.Stdin.Fd())
-		term.Restore(fd, ts.originalTermState)
+		_ = term.Restore(fd, ts.originalTermState)
 		ts.originalTermState = nil
 	}
 

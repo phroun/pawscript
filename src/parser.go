@@ -1273,50 +1273,6 @@ func combineValueUnit(
 	return current, curType, potentialString, originalItem, lastWasNumber
 }
 
-// parseArgumentValue parses a single argument value
-func parseArgumentValue(argStr string) interface{} {
-	if argStr == "" {
-		return nil
-	}
-
-	// Handle parentheses - return as ParenGroup to preserve form
-	if strings.HasPrefix(argStr, "(") && strings.HasSuffix(argStr, ")") {
-		content := argStr[1 : len(argStr)-1]
-		return ParenGroup(content)
-	}
-
-	// Handle quoted strings - return as QuotedString to preserve form
-	if (strings.HasPrefix(argStr, "\"") && strings.HasSuffix(argStr, "\"")) ||
-		(strings.HasPrefix(argStr, "'") && strings.HasSuffix(argStr, "'")) {
-		content := parseStringLiteral(argStr[1 : len(argStr)-1])
-		return QuotedString(content)
-	}
-
-	// Handle booleans
-	if argStr == "true" {
-		return true
-	}
-	if argStr == "false" {
-		return false
-	}
-
-	// Handle nil
-	if argStr == "nil" {
-		return nil
-	}
-
-	// Handle numbers
-	if num, err := strconv.ParseInt(argStr, 10, 64); err == nil {
-		return num
-	}
-	if num, err := strconv.ParseFloat(argStr, 64); err == nil {
-		return num
-	}
-
-	// Bare identifier - return as Symbol to preserve its nature
-	return Symbol(argStr)
-}
-
 // parseStringLiteral handles escape sequences in strings
 func parseStringLiteral(str string) string {
 	var result strings.Builder
