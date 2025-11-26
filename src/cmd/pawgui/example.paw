@@ -79,4 +79,5 @@ gui_button "Add", onclick: "do_add"
 gui_button "Multiply", onclick: "do_mul"
 
 # Export all callback macros so they're available for button clicks
+MODULE exports
 EXPORT greet, inc, dec, reset_counter, do_add, do_mul

@@ -377,5 +377,6 @@ gui_label ""
 gui_label "This is a proof of concept for PawScript + Fyne"
 
 # Export macros so they're available for button callbacks
+MODULE exports
 EXPORT greet_user, increment_counter
 `
