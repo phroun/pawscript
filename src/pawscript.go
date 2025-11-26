@@ -146,31 +146,6 @@ func (ps *PawScript) RegisterObjectInModule(moduleName, objName string, value in
 	}
 }
 
-// RegisterObjectWithTildeAccess registers an object in a module AND makes it available
-// for tilde substitution (e.g., ~#console_out). This is useful for dynamically created
-// channels that scripts should be able to access via ~#name syntax.
-func (ps *PawScript) RegisterObjectWithTildeAccess(moduleName, objName string, value interface{}) {
-	ps.rootModuleEnv.mu.Lock()
-	defer ps.rootModuleEnv.mu.Unlock()
-
-	// Ensure module section exists
-	if ps.rootModuleEnv.LibraryInherited[moduleName] == nil {
-		ps.rootModuleEnv.LibraryInherited[moduleName] = make(ModuleSection)
-	}
-
-	// Add object to the module
-	ps.rootModuleEnv.LibraryInherited[moduleName][objName] = &ModuleItem{
-		Type:  "object",
-		Value: value,
-	}
-
-	// Also add to ObjectsInherited for tilde access
-	if ps.rootModuleEnv.ObjectsInherited == nil {
-		ps.rootModuleEnv.ObjectsInherited = make(map[string]interface{})
-	}
-	ps.rootModuleEnv.ObjectsInherited[objName] = value
-}
-
 // RegisterCommands registers multiple command handlers
 func (ps *PawScript) RegisterCommands(commands map[string]Handler) {
 	for name, handler := range commands {

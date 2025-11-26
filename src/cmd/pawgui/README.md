@@ -128,12 +128,9 @@ The `gui_console` command creates a terminal widget with ANSI escape code suppor
 gui_title "Console Example"
 gui_resize 700, 500
 
-# Create console - returns [out, in, err] channels
-console: {gui_console 680, 450}
-
-# Extract to #out and #in - makes print/read use these channels automatically!
-#out: {argv ~console, 0}
-#in: {argv ~console, 1}
+# Create console - unpack directly to #out, #in, #err
+# This makes print/read automatically use the console!
+(#out, #in, #err): {gui_console 680, 450}
 
 # Now standard commands work with the console
 send ~#out, "\x1b[2J\x1b[H"                 # Clear screen (ANSI codes)

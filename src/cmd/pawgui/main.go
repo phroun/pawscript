@@ -536,13 +536,9 @@ const consoleDemo = `
 gui_title "PawScript Console Demo"
 gui_resize 700, 500
 
-# Create the console widget - returns [out_channel, in_channel, err_channel]
-console: {gui_console 680, 450}
-
-# Extract the output and input channels to #out and #in
+# Create console and unpack channels directly into #out, #in, #err
 # This makes echo, print, write, read automatically use them!
-#out: {argv ~console, 0}
-#in: {argv ~console, 1}
+(#out, #in, #err): {gui_console 680, 450}
 
 # Give the terminal a moment to initialize
 sleep 200
