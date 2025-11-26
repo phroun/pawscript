@@ -3,72 +3,72 @@
 # Run with: pawgui example.paw
 
 # Configure the window
-gui::title "PawScript GUI Example"
-gui::resize 450, 400
+gui_title "PawScript GUI Example"
+gui_resize 450, 400
 
 # Welcome section
-gui::label "=== PawScript GUI Demo ==="
-gui::label ""
+gui_label "=== PawScript GUI Demo ==="
+gui_label ""
 
 # Name input section
-gui::label "What's your name?"
-gui::entry "Enter your name...", id: "nameEntry"
+gui_label "What's your name?"
+gui_entry "Enter your name...", id: "nameEntry"
 
 # Greeting handler
-define greet (
-    name: {gui::get nameEntry}
-    gui::set greeting, "Hello, ~name;! Welcome to PawScript GUI."
+macro greet (
+    name: {gui_get nameEntry}
+    gui_set greeting, "Hello, ~name;! Welcome to PawScript GUI."
 )
 
-gui::button "Greet Me", id: "greetBtn", onclick: "greet"
-gui::label "", id: "greeting"
+gui_button "Greet Me", id: "greetBtn", onclick: "greet"
+gui_label "", id: "greeting"
 
-gui::label ""
-gui::label "--- Counter Demo ---"
+gui_label ""
+gui_label "--- Counter Demo ---"
 
 # Counter with increment/decrement
 counter: 0
-gui::label "Count: 0", id: "countLabel"
+gui_label "Count: 0", id: "countLabel"
 
-define inc (
+macro inc (
     counter: {add ~counter, 1}
-    gui::set countLabel, "Count: ~counter"
+    gui_set countLabel, "Count: ~counter"
 )
 
-define dec (
+macro dec (
     counter: {sub ~counter, 1}
-    gui::set countLabel, "Count: ~counter"
+    gui_set countLabel, "Count: ~counter"
 )
 
-define reset_counter (
+macro reset_counter (
     counter: 0
-    gui::set countLabel, "Count: 0"
+    gui_set countLabel, "Count: 0"
 )
 
-gui::button "[ + ]", onclick: "inc"
-gui::button "[ - ]", onclick: "dec"
-gui::button "Reset", onclick: "reset_counter"
+gui_button "[ + ]", onclick: "inc"
+gui_button "[ - ]", onclick: "dec"
+gui_button "Reset", onclick: "reset_counter"
 
-gui::label ""
-gui::label "--- Calculator Demo ---"
+gui_label ""
+gui_label "--- Calculator Demo ---"
 
-gui::entry "First number", id: "num1"
-gui::entry "Second number", id: "num2"
-gui::label "Result: ", id: "calcResult"
+gui_entry "First number", id: "num1"
+gui_entry "Second number", id: "num2"
+gui_label "Result: ", id: "calcResult"
 
-define do_add (
-    a: {gui::get num1}
-    b: {gui::get num2}
+macro do_add (
+    a: {gui_get num1}
+    b: {gui_get num2}
     result: {add ~a, ~b}
-    gui::set calcResult, "Result: ~a + ~b = ~result"
+    gui_set calcResult, "Result: ~a + ~b = ~result"
 )
 
-define do_mul (
-    a: {gui::get num1}
-    b: {gui::get num2}
+macro do_mul (
+    a: {gui_get num1}
+    b: {gui_get num2}
     result: {mul ~a, ~b}
-    gui::set calcResult, "Result: ~a * ~b = ~result"
+    gui_set calcResult, "Result: ~a * ~b = ~result"
 )
 
-gui::button "Add", onclick: "do_add"
-gui::button "Multiply", onclick: "do_mul"
+gui_button "Add", onclick: "do_add"
+gui_button "Multiply", onclick: "do_mul"

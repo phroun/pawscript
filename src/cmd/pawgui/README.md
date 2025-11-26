@@ -44,49 +44,49 @@ go build -o pawgui ./cmd/pawgui/
 ./pawgui -demo
 ```
 
-## GUI Module Commands
+## GUI Commands
 
-The `gui::` module provides these commands:
+PawGUI provides these commands (prefixed with `gui_` to avoid conflicts):
 
 ### Window Control
 
-- `gui::title <text>` - Set the window title
-- `gui::resize <width>, <height>` - Resize the window
-- `gui::clear` - Remove all widgets
+- `gui_title <text>` - Set the window title
+- `gui_resize <width>, <height>` - Resize the window
+- `gui_clear` - Remove all widgets
 
 ### Widget Creation
 
-- `gui::label <text> [id: <name>]` - Create a text label
-- `gui::button <text> [id: <name>] [onclick: <macro>]` - Create a clickable button
-- `gui::entry [placeholder] [id: <name>]` - Create a text input field
+- `gui_label <text> [id: <name>]` - Create a text label
+- `gui_button <text> [id: <name>] [onclick: <macro>]` - Create a clickable button
+- `gui_entry [placeholder] [id: <name>]` - Create a text input field
 
 ### Widget Interaction
 
-- `gui::get <widget_id>` - Get the current value/text of a widget
-- `gui::set <widget_id>, <value>` - Set the value/text of a widget
+- `gui_get <widget_id>` - Get the current value/text of a widget
+- `gui_set <widget_id>, <value>` - Set the value/text of a widget
 
 ### Dialogs
 
-- `gui::msgbox <message> [title: <title>]` - Show a message popup
+- `gui_msgbox <message> [title: <title>]` - Show a message popup
 
 ## Example Script
 
 ```pawscript
 # Set up the window
-gui::title "My App"
-gui::resize 400, 300
+gui_title "My App"
+gui_resize 400, 300
 
 # Create widgets
-gui::label "Enter your name:"
-gui::entry "Type here...", id: "nameInput"
+gui_label "Enter your name:"
+gui_entry "Type here...", id: "nameInput"
 
 # Define button handler
-define say_hello (
-    name: {gui::get nameInput}
-    gui::msgbox "Hello, ~name;!", title: "Greeting"
+macro say_hello (
+    name: {gui_get nameInput}
+    gui_msgbox "Hello, ~name;!", title: "Greeting"
 )
 
-gui::button "Say Hello", onclick: "say_hello"
+gui_button "Say Hello", onclick: "say_hello"
 ```
 
 ## Architecture
@@ -100,7 +100,7 @@ gui::button "Say Hello", onclick: "say_hello"
 
 To add more widgets, follow the pattern in `registerGuiCommands()`:
 
-1. Register a command in the `gui` module
+1. Register a command with `ps.RegisterCommand("gui_xxx", ...)`
 2. Create the Fyne widget
 3. Optionally store it by ID in `guiState.widgets`
 4. Add it to `guiState.content`

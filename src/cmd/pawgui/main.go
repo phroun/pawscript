@@ -89,10 +89,10 @@ func main() {
 
 // registerGuiCommands registers all GUI-related commands with PawScript
 func registerGuiCommands(ps *pawscript.PawScript) {
-	// gui::title - Set window title
-	ps.RegisterCommandInModule("gui", "title", func(ctx *pawscript.Context) pawscript.Result {
+	// gui_title - Set window title
+	ps.RegisterCommand("gui_title", func(ctx *pawscript.Context) pawscript.Result {
 		if len(ctx.Args) < 1 {
-			ctx.LogError(pawscript.CatCommand, "Usage: title <window_title>")
+			ctx.LogError(pawscript.CatCommand, "Usage: gui_title <window_title>")
 			return pawscript.BoolStatus(false)
 		}
 		title := fmt.Sprintf("%v", ctx.Args[0])
@@ -100,10 +100,10 @@ func registerGuiCommands(ps *pawscript.PawScript) {
 		return pawscript.BoolStatus(true)
 	})
 
-	// gui::resize - Resize window
-	ps.RegisterCommandInModule("gui", "resize", func(ctx *pawscript.Context) pawscript.Result {
+	// gui_resize - Resize window
+	ps.RegisterCommand("gui_resize", func(ctx *pawscript.Context) pawscript.Result {
 		if len(ctx.Args) < 2 {
-			ctx.LogError(pawscript.CatCommand, "Usage: resize <width>, <height>")
+			ctx.LogError(pawscript.CatCommand, "Usage: gui_resize <width>, <height>")
 			return pawscript.BoolStatus(false)
 		}
 		width, wOk := toFloat(ctx.Args[0])
@@ -116,10 +116,10 @@ func registerGuiCommands(ps *pawscript.PawScript) {
 		return pawscript.BoolStatus(true)
 	})
 
-	// gui::label - Create a label widget
-	ps.RegisterCommandInModule("gui", "label", func(ctx *pawscript.Context) pawscript.Result {
+	// gui_label - Create a label widget
+	ps.RegisterCommand("gui_label", func(ctx *pawscript.Context) pawscript.Result {
 		if len(ctx.Args) < 1 {
-			ctx.LogError(pawscript.CatCommand, "Usage: label <text> [id: <name>]")
+			ctx.LogError(pawscript.CatCommand, "Usage: gui_label <text> [id: <name>]")
 			return pawscript.BoolStatus(false)
 		}
 		text := fmt.Sprintf("%v", ctx.Args[0])
@@ -146,10 +146,10 @@ func registerGuiCommands(ps *pawscript.PawScript) {
 		return pawscript.BoolStatus(true)
 	})
 
-	// gui::button - Create a button widget with callback
-	ps.RegisterCommandInModule("gui", "button", func(ctx *pawscript.Context) pawscript.Result {
+	// gui_button - Create a button widget with callback
+	ps.RegisterCommand("gui_button", func(ctx *pawscript.Context) pawscript.Result {
 		if len(ctx.Args) < 1 {
-			ctx.LogError(pawscript.CatCommand, "Usage: button <text> [id: <name>] [onclick: <macro_name>]")
+			ctx.LogError(pawscript.CatCommand, "Usage: gui_button <text> [id: <name>] [onclick: <macro_name>]")
 			return pawscript.BoolStatus(false)
 		}
 		text := fmt.Sprintf("%v", ctx.Args[0])
@@ -193,8 +193,8 @@ func registerGuiCommands(ps *pawscript.PawScript) {
 		return pawscript.BoolStatus(true)
 	})
 
-	// gui::entry - Create a text entry widget
-	ps.RegisterCommandInModule("gui", "entry", func(ctx *pawscript.Context) pawscript.Result {
+	// gui_entry - Create a text entry widget
+	ps.RegisterCommand("gui_entry", func(ctx *pawscript.Context) pawscript.Result {
 		placeholder := ""
 		if len(ctx.Args) >= 1 {
 			placeholder = fmt.Sprintf("%v", ctx.Args[0])
@@ -224,10 +224,10 @@ func registerGuiCommands(ps *pawscript.PawScript) {
 		return pawscript.BoolStatus(true)
 	})
 
-	// gui::get - Get value from a widget
-	ps.RegisterCommandInModule("gui", "get", func(ctx *pawscript.Context) pawscript.Result {
+	// gui_get - Get value from a widget
+	ps.RegisterCommand("gui_get", func(ctx *pawscript.Context) pawscript.Result {
 		if len(ctx.Args) < 1 {
-			ctx.LogError(pawscript.CatCommand, "Usage: get <widget_id>")
+			ctx.LogError(pawscript.CatCommand, "Usage: gui_get <widget_id>")
 			return pawscript.BoolStatus(false)
 		}
 		id := fmt.Sprintf("%v", ctx.Args[0])
@@ -253,10 +253,10 @@ func registerGuiCommands(ps *pawscript.PawScript) {
 		return pawscript.BoolStatus(true)
 	})
 
-	// gui::set - Set value on a widget
-	ps.RegisterCommandInModule("gui", "set", func(ctx *pawscript.Context) pawscript.Result {
+	// gui_set - Set value on a widget
+	ps.RegisterCommand("gui_set", func(ctx *pawscript.Context) pawscript.Result {
 		if len(ctx.Args) < 2 {
-			ctx.LogError(pawscript.CatCommand, "Usage: set <widget_id>, <value>")
+			ctx.LogError(pawscript.CatCommand, "Usage: gui_set <widget_id>, <value>")
 			return pawscript.BoolStatus(false)
 		}
 		id := fmt.Sprintf("%v", ctx.Args[0])
@@ -281,8 +281,8 @@ func registerGuiCommands(ps *pawscript.PawScript) {
 		return pawscript.BoolStatus(true)
 	})
 
-	// gui::clear - Clear all widgets from content
-	ps.RegisterCommandInModule("gui", "clear", func(ctx *pawscript.Context) pawscript.Result {
+	// gui_clear - Clear all widgets from content
+	ps.RegisterCommand("gui_clear", func(ctx *pawscript.Context) pawscript.Result {
 		guiState.mu.Lock()
 		guiState.content.RemoveAll()
 		guiState.widgets = make(map[string]fyne.CanvasObject)
@@ -291,10 +291,10 @@ func registerGuiCommands(ps *pawscript.PawScript) {
 		return pawscript.BoolStatus(true)
 	})
 
-	// gui::msgbox - Show a message dialog
-	ps.RegisterCommandInModule("gui", "msgbox", func(ctx *pawscript.Context) pawscript.Result {
+	// gui_msgbox - Show a message dialog
+	ps.RegisterCommand("gui_msgbox", func(ctx *pawscript.Context) pawscript.Result {
 		if len(ctx.Args) < 1 {
-			ctx.LogError(pawscript.CatCommand, "Usage: msgbox <message> [title: <title>]")
+			ctx.LogError(pawscript.CatCommand, "Usage: gui_msgbox <message> [title: <title>]")
 			return pawscript.BoolStatus(false)
 		}
 		message := fmt.Sprintf("%v", ctx.Args[0])
@@ -341,32 +341,32 @@ func toFloat(v interface{}) (float64, bool) {
 const demoScript = `
 # PawScript GUI Demo
 
-gui::title "PawScript GUI Demo"
-gui::resize 400, 350
+gui_title "PawScript GUI Demo"
+gui_resize 400, 350
 
-gui::label "Welcome to PawScript GUI!", id: "welcome"
-gui::label "Enter your name:", id: "prompt"
-gui::entry "Type here...", id: "nameEntry"
+gui_label "Welcome to PawScript GUI!", id: "welcome"
+gui_label "Enter your name:", id: "prompt"
+gui_entry "Type here...", id: "nameEntry"
 
 # Define a click handler
-define greet_user (
-    name: {gui::get nameEntry}
-    gui::set welcome, "Hello, ~name;!"
+macro greet_user (
+    name: {gui_get nameEntry}
+    gui_set welcome, "Hello, ~name;!"
 )
 
-gui::button "Greet Me", id: "greetBtn", onclick: "greet_user"
+gui_button "Greet Me", id: "greetBtn", onclick: "greet_user"
 
 # Counter demo
 counter: 0
-gui::label "Counter: 0", id: "counterLabel"
+gui_label "Counter: 0", id: "counterLabel"
 
-define increment_counter (
+macro increment_counter (
     counter: {add ~counter, 1}
-    gui::set counterLabel, "Counter: ~counter"
+    gui_set counterLabel, "Counter: ~counter"
 )
 
-gui::button "Increment", onclick: "increment_counter"
+gui_button "Increment", onclick: "increment_counter"
 
-gui::label ""
-gui::label "This is a proof of concept for PawScript + Fyne"
+gui_label ""
+gui_label "This is a proof of concept for PawScript + Fyne"
 `
