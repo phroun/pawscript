@@ -715,11 +715,9 @@ var _ desktop.Mouseable = (*sizedWidget)(nil)
 
 // MouseDown implements desktop.Mouseable - focus the wrapped widget directly on click
 func (s *sizedWidget) MouseDown(_ *desktop.MouseEvent) {
-	// Focus the wrapped widget directly (not the wrapper)
+	// Focus the wrapped widget directly using same method as fyne-io/terminal
 	if focusable, ok := s.wrapped.(fyne.Focusable); ok {
-		if guiState != nil && guiState.mainWindow != nil {
-			guiState.mainWindow.Canvas().Focus(focusable)
-		}
+		fyne.CurrentApp().Driver().CanvasForObject(s.wrapped).Focus(focusable)
 	}
 }
 
