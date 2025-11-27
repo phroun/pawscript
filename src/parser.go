@@ -997,7 +997,8 @@ func parseNextUnit(runes []rune, i int) (interface{}, argUnitType, int) {
 		if i < len(runes) {
 			i++ // Include closing \x00
 		}
-		return string(runes[start:i]), unitComplex, i
+		// Return as Symbol to preserve marker semantics
+		return Symbol(string(runes[start:i])), unitComplex, i
 	}
 
 	// Quoted string
