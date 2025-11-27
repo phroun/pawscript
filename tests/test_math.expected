@@ -70,23 +70,23 @@ fmodulo 17.5,-3 = -0.5
 (Expected: 2.5, 0.5, -0.5)
 
 Test 10: idiv with remainder: true
-idiv 17,5 remainder:true = [3 2]
-idiv -17,5 remainder:true = [-4 -2]
+idiv 17,5 remainder:true = (3, 2)
+idiv -17,5 remainder:true = (-4, -2)
 (Expected: [3 2], [-4 -2])
 
 Test 11: idiv with modulo: true
-idiv 17,5 modulo:true = [3 2]
-idiv -17,5 modulo:true = [-4 3]
+idiv 17,5 modulo:true = (3, 2)
+idiv -17,5 modulo:true = (-4, 3)
 (Expected: [3 2], [-4 3])
 
 Test 12: fdiv with remainder: true
-fdiv 17,5 remainder:true = [3.4 2]
-fdiv 17.5,3 remainder:true = [5.833333333333333 -0.5]
+fdiv 17,5 remainder:true = (3.4, 2)
+fdiv 17.5,3 remainder:true = (5.833333333333333, -0.5)
 (Expected: [3.4 2], [5.833... -0.5])
 
 Test 13: fdiv with modulo: true
-fdiv 17,5 modulo:true = [3.4 2]
-fdiv -17,5 modulo:true = [-3.4 3]
+fdiv 17,5 modulo:true = (3.4, 2)
+fdiv -17,5 modulo:true = (-3.4, 3)
 (Expected: [3.4 2], [-3.4 3])
 
 Test 14: floor

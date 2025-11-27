@@ -1,6 +1,7 @@
 package pawscript
 
 import (
+	"fmt"
 	"strconv"
 	"strings"
 	"sync"
@@ -94,28 +95,33 @@ func (s *ExecutionState) SetResult(value interface{}) {
 		return
 	}
 
-	// Warn about problematic raw types that should be stored objects with markers
-	if s.executor != nil && s.executor.logger != nil {
+	// Convert raw objects to markers automatically
+	// This handles cases where commands pass resolved objects through the system
+	if s.executor != nil {
 		switch v := value.(type) {
-		case []interface{}:
-			s.executor.logger.Error("SetResult received raw []interface{} slice - should be a StoredList marker. Use StoreObject() to create a proper list marker.")
-		case *StoredChannel:
-			s.executor.logger.Error("SetResult received raw *StoredChannel - should be a channel marker. Use StoreObject() to create a proper channel marker.")
 		case StoredList:
-			s.executor.logger.Error("SetResult received raw StoredList - should be a list marker. Use StoreObject() to create a proper list marker.")
-		case *FiberHandle:
-			s.executor.logger.Error("SetResult received raw *FiberHandle - should be a fiber marker. Use StoreObject() to create a proper fiber marker.")
-		case StoredCommand:
-			s.executor.logger.Error("SetResult received raw StoredCommand - should be a command marker. Use StoreObject() to create a proper command marker.")
-		case StoredMacro:
-			s.executor.logger.Error("SetResult received raw StoredMacro - should be a macro marker. Use StoreObject() to create a proper macro marker.")
-		case *StoredMacro:
-			s.executor.logger.Error("SetResult received raw *StoredMacro - should be a macro marker. Use StoreObject() to create a proper macro marker.")
-		case map[string]interface{}:
-			// Only warn if it's not empty - empty maps might be intentional
-			if len(v) > 0 {
-				s.executor.logger.Error("SetResult received raw map[string]interface{} - should be a StoredList marker with named args. Use StoreObject() to create a proper list marker.")
+			// Find existing ID or store the list
+			if id := s.executor.findStoredListID(v); id >= 0 {
+				value = Symbol(fmt.Sprintf("\x00LIST:%d\x00", id))
+			} else {
+				// Not found, store it
+				id := s.executor.storeObject(v, "list")
+				value = Symbol(fmt.Sprintf("\x00LIST:%d\x00", id))
 			}
+		case *StoredChannel:
+			// Find existing channel ID
+			if id := s.executor.findStoredChannelID(v); id >= 0 {
+				value = Symbol(fmt.Sprintf("\x00CHANNEL:%d\x00", id))
+			} else {
+				// Store the channel
+				id := s.executor.storeObject(v, "channel")
+				value = Symbol(fmt.Sprintf("\x00CHANNEL:%d\x00", id))
+			}
+		case []interface{}:
+			// Convert raw slice to StoredList
+			list := NewStoredList(v)
+			id := s.executor.storeObject(list, "list")
+			value = Symbol(fmt.Sprintf("\x00LIST:%d\x00", id))
 		}
 	}
 
