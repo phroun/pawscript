@@ -9,6 +9,7 @@ import (
 	"strings"
 	"sync"
 	"time"
+	"strconv"
 
 	"fyne.io/fyne/v2"
 	"fyne.io/fyne/v2/app"
@@ -60,6 +61,15 @@ func main() {
 	if len(args) < 1 {
 		fmt.Println("Usage: pawgui [-d] <script.paw>")
 		os.Exit(1)
+	}
+	
+	// Set the FYNE_SCALE environment variable dynamically.
+	// For example, set it to 1.5. You can get this value from
+	// a config file, command-line argument, or some other logic.
+	scaleValue := 1.5
+	err := os.Setenv("FYNE_SCALE", strconv.FormatFloat(scaleValue, 'f', -1, 64))
+	if err != nil {
+		fmt.Println("Error setting FYNE_SCALE:", err)
 	}
 
 	// Create the Fyne application
@@ -869,8 +879,6 @@ gui_label "while console runs!", panel: "left"
 # Create console on right panel, unpack to #out/#in/#err for print/read
 (#out, #in, #err): {gui_console 400, 400, panel: "right"}
 
-msleep 1000
-
 # Define console interaction macro
 # Receives channels as $1, $2, $3 from fiber_spawn
 macro console_loop (
@@ -895,7 +903,7 @@ macro console_loop (
     count: 0
     while (true), (
         count: {add ~count, 1}
-        print "\x1b[35m[\x1b[0m~count\x1b[35m]\x1b[0m Enter text (or 'quit'):"
+        write "\x1b[35m[\x1b[0m~count\x1b[35m]\x1b[0m Enter text (or 'quit'): "
         input: {read}
 
         {eq ~input, "quit"} & (
@@ -935,11 +943,13 @@ msleep 200
 
 # Now we can use standard print and echo commands!
 # Clear screen and show title
-send ~#out, "\x1b[2J\x1b[H"
+write "\x1b[2J\x1b[H"
 print "\x1b[36m=== PawScript Console Demo ===\x1b[0m"
 echo ""
 print "This terminal supports ANSI escape codes!"
 echo ""
+
+echo #stdout, "Regular output"
 
 # Show some colors using raw ANSI codes
 print "\x1b[31mThis is red text\x1b[0m"
@@ -948,9 +958,12 @@ print "\x1b[33mThis is yellow text\x1b[0m"
 print "\x1b[34mThis is blue text\x1b[0m"
 echo ""
 
-print "Type something and press Enter:"
+write "Type something and press Enter: "
 
 # Read from console using the standard read command
 input: {read}
 print "You typed: ~input"
+suppress: true
+MODULE exports
+EXPORT suppress
 `
