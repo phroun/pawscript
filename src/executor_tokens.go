@@ -429,20 +429,14 @@ func (e *Executor) PopAndResumeCommandSequence(tokenID string, status bool) bool
 		}
 	}
 
-	// If this token has a wait channel (synchronous blocking), send to it
-	if waitChan != nil {
-		e.logger.Debug("Sending resume data to wait channel for token %s", tokenID)
-		resumeData := ResumeData{
-			TokenID: tokenID,
-			Status:  success,
-			Result:  state.GetResult(),
-		}
-		// Send to wait channel (blocking is expected here)
-		waitChan <- resumeData
-		e.logger.Debug("Successfully sent resume data to wait channel")
-	}
-
 	if chainedToken != "" {
+		// Propagate waitChan to the chained token so the final token in the chain
+		// will signal completion (not this intermediate token)
+		if waitChan != nil {
+			e.attachWaitChan(chainedToken, waitChan)
+			e.logger.Debug("Propagated wait channel to chained token %s", chainedToken)
+		}
+
 		e.logger.Debug("Triggering chained token %s with result %v", chainedToken, success)
 		result := e.PopAndResumeCommandSequence(chainedToken, success)
 
@@ -452,6 +446,20 @@ func (e *Executor) PopAndResumeCommandSequence(tokenID string, status bool) bool
 		}
 
 		return result
+	}
+
+	// No chained token - this is the final token in the chain
+	// If this token has a wait channel (synchronous blocking), send to it now
+	if waitChan != nil {
+		e.logger.Debug("Sending resume data to wait channel for token %s (final in chain)", tokenID)
+		resumeData := ResumeData{
+			TokenID: tokenID,
+			Status:  success,
+			Result:  state.GetResult(),
+		}
+		// Send to wait channel (blocking is expected here)
+		waitChan <- resumeData
+		e.logger.Debug("Successfully sent resume data to wait channel")
 	}
 
 	// No chain - safe to release now
