@@ -79,6 +79,11 @@ func (c *Context) ResumeToken(tokenID string, status bool) bool {
 	return c.resumeToken(tokenID, status)
 }
 
+// StoreObject stores an object and returns its ID
+func (c *Context) StoreObject(value interface{}, typeName string) int {
+	return c.executor.storeObject(value, typeName)
+}
+
 // Handler is a function that handles a command
 type Handler func(*Context) Result
 

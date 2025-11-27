@@ -467,11 +467,21 @@ func registerGuiCommands(ps *pawscript.PawScript) {
 			}
 		}()
 
-		// Return the channels as a list: [out, in, err]
-		// Scripts can use: console: {gui_console 600, 400}
-		// Then: send {argv ~console, 0}, "Hello!\n"
-		// Or:   input: {recv {argv ~console, 1}}
-		ctx.SetResult([]interface{}{consoleOutCh, consoleInCh, consoleOutCh})
+		// Store channels and create markers
+		outID := ctx.StoreObject(consoleOutCh, "channel")
+		inID := ctx.StoreObject(consoleInCh, "channel")
+		// Use outCh for err as well (same channel)
+		outMarker := pawscript.Symbol(fmt.Sprintf("\x00CHANNEL:%d\x00", outID))
+		inMarker := pawscript.Symbol(fmt.Sprintf("\x00CHANNEL:%d\x00", inID))
+		errMarker := outMarker // err uses same channel as out
+
+		// Create a StoredList with the channel markers
+		channelList := pawscript.NewStoredList([]interface{}{outMarker, inMarker, errMarker})
+		listID := ctx.StoreObject(channelList, "list")
+		listMarker := fmt.Sprintf("\x00LIST:%d\x00", listID)
+
+		// Return the list marker so unpacking works correctly
+		ctx.SetResult(pawscript.Symbol(listMarker))
 		return pawscript.BoolStatus(true)
 	})
 }
