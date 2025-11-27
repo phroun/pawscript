@@ -563,8 +563,18 @@ func (e *Executor) processArguments(args []interface{}, state *ExecutionState, s
 						// The marker will be resolved when needed (execution)
 						result[i] = arg
 						e.logger.Debug("processArguments[%d]: Preserved block marker (pass-by-reference)", i)
+					case "channel":
+						// Keep as marker (pass-by-reference) - channel identity must be preserved
+						result[i] = arg
+						e.logger.Debug("processArguments[%d]: Preserved channel marker (pass-by-reference)", i)
+					case "fiber":
+						// Keep as marker (pass-by-reference) - fiber identity must be preserved
+						result[i] = arg
+						e.logger.Debug("processArguments[%d]: Preserved fiber marker (pass-by-reference)", i)
 					default:
-						result[i] = value
+						// For unknown types, keep the marker to preserve reference semantics
+						result[i] = arg
+						e.logger.Debug("processArguments[%d]: Preserved %s marker (pass-by-reference)", i, objType)
 					}
 					continue
 				} else {
