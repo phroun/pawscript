@@ -26,71 +26,91 @@ func (e *Executor) escapeSpecialCharacters(str string) string {
 // formatArgumentForParenGroup formats an argument for $@ substitution
 // Preserves original forms for creating ParenGroup literals
 // Similar to formatArgumentForList but without escaping quotes (not in string context)
+// IMPORTANT: Escapes tildes to prevent tilde injection (tildes in values should not
+// be interpreted as variable references)
 // nolint:unused // Reserved for future use
 func (e *Executor) formatArgumentForParenGroup(arg interface{}) string {
+	const escapedTildePlaceholder = "\x00TILDE\x00"
+	var result string
+
 	switch v := arg.(type) {
 	case ParenGroup:
 		// Parenthetic group: wrap in parens, escape internal quotes/backslashes
 		escaped := e.escapeQuotesAndBackslashes(string(v))
-		return "(" + escaped + ")"
+		result = "(" + escaped + ")"
 	case QuotedString:
 		// Quoted string: wrap with regular quotes (not escaped - not in string context)
 		escaped := e.escapeQuotesAndBackslashes(string(v))
-		return "\"" + escaped + "\""
+		result = "\"" + escaped + "\""
 	case Symbol:
 		// Symbol: use as bare identifier
-		return string(v)
+		result = string(v)
 	case string:
 		// Bare string: use bare if safe identifier, otherwise wrap with quotes
 		if e.isSafeIdentifier(v) {
-			return v
+			result = v
+		} else {
+			escaped := e.escapeQuotesAndBackslashes(v)
+			result = "\"" + escaped + "\""
 		}
-		escaped := e.escapeQuotesAndBackslashes(v)
-		return "\"" + escaped + "\""
 	case int64, float64, bool:
 		// Numbers and booleans as-is
-		return fmt.Sprintf("%v", v)
+		result = fmt.Sprintf("%v", v)
 	default:
 		// Unknown type: convert to string and wrap with quotes
 		str := fmt.Sprintf("%v", v)
 		escaped := e.escapeQuotesAndBackslashes(str)
-		return "\"" + escaped + "\""
+		result = "\"" + escaped + "\""
 	}
+
+	// Escape tildes to prevent tilde injection
+	result = strings.ReplaceAll(result, "~", escapedTildePlaceholder)
+	return result
 }
 
 // formatArgumentForList formats an argument for $* substitution
 // Preserves original forms but escapes quotes for string contexts
 // This is used when creating comma-separated lists where structure matters
+// IMPORTANT: Escapes tildes to prevent tilde injection (tildes in values should not
+// be interpreted as variable references)
 func (e *Executor) formatArgumentForList(arg interface{}) string {
+	const escapedTildePlaceholder = "\x00TILDE\x00"
+	var result string
+
 	switch v := arg.(type) {
 	case ParenGroup:
 		// Parenthetic group: wrap in parens, escape internal quotes/backslashes
 		escaped := e.escapeQuotesAndBackslashes(string(v))
-		return "(" + escaped + ")"
+		result = "(" + escaped + ")"
 	case QuotedString:
 		// Quoted string: escape and wrap with ESCAPED quotes
 		// This allows it to appear inside outer quotes without breaking them
 		escaped := e.escapeQuotesAndBackslashes(string(v))
-		return "\\\"" + escaped + "\\\""
+		result = "\\\"" + escaped + "\\\""
 	case Symbol:
 		// Symbol: use as bare identifier
-		return string(v)
+		result = string(v)
 	case string:
 		// Bare string: use bare if safe identifier, otherwise wrap with escaped quotes
 		if e.isSafeIdentifier(v) {
-			return v
+			result = v
+		} else {
+			escaped := e.escapeQuotesAndBackslashes(v)
+			result = "\\\"" + escaped + "\\\""
 		}
-		escaped := e.escapeQuotesAndBackslashes(v)
-		return "\\\"" + escaped + "\\\""
 	case int64, float64, bool:
 		// Numbers and booleans as-is
-		return fmt.Sprintf("%v", v)
+		result = fmt.Sprintf("%v", v)
 	default:
 		// Unknown type: convert to string and wrap with escaped quotes
 		str := fmt.Sprintf("%v", v)
 		escaped := e.escapeQuotesAndBackslashes(str)
-		return "\\\"" + escaped + "\\\""
+		result = "\\\"" + escaped + "\\\""
 	}
+
+	// Escape tildes to prevent tilde injection
+	result = strings.ReplaceAll(result, "~", escapedTildePlaceholder)
+	return result
 }
 
 // escapeQuotesAndBackslashes escapes only quotes and backslashes
@@ -104,23 +124,26 @@ func (e *Executor) escapeQuotesAndBackslashes(s string) string {
 // formatArgumentForSubstitution formats an argument for $1, $2, etc. substitution
 // Unwraps quotes and parentheses to get raw content
 // This is used when substituting into string contexts where we don't want nesting
+// IMPORTANT: Escapes tildes as \~ to prevent tilde injection (tildes in values should not
+// be interpreted as variable references)
 func (e *Executor) formatArgumentForSubstitution(arg interface{}) string {
+	var result string
 	switch v := arg.(type) {
 	case ParenGroup:
 		// Unwrap parentheses - just the content
-		return string(v)
+		result = string(v)
 	case QuotedString:
 		// Unwrap quotes - just the content (already unescaped)
-		return string(v)
+		result = string(v)
 	case Symbol:
 		// Symbol as-is (bare identifier)
-		return string(v)
+		result = string(v)
 	case string:
 		// Bare string as-is
-		return v
+		result = v
 	case int64, float64, bool:
 		// Numbers and booleans as-is
-		return fmt.Sprintf("%v", v)
+		result = fmt.Sprintf("%v", v)
 	case *StoredChannel:
 		// Channel object - find or create a marker
 		if id := e.findStoredChannelID(v); id >= 0 {
@@ -151,8 +174,25 @@ func (e *Executor) formatArgumentForSubstitution(arg interface{}) string {
 		return fmt.Sprintf("\x00COMMAND:%d\x00", id)
 	default:
 		// Unknown type: convert to string
-		return fmt.Sprintf("%v", v)
+		result = fmt.Sprintf("%v", v)
 	}
+
+	// Protect tildes using two mechanisms:
+	// 1. Use placeholder \x00TILDE\x00 which survives substituteTildeExpressions
+	//    (for when $1 is inside double quotes in the macro body)
+	// 2. Wrap in single quotes so after placeholder restoration, the result
+	//    parses as a QuotedString which processArguments doesn't tilde-resolve
+	//    (for when $1 is a bare token in the macro body)
+	if strings.Contains(result, "~") {
+		const escapedTildePlaceholder = "\x00TILDE\x00"
+		// First, escape tildes with placeholder
+		result = strings.ReplaceAll(result, "~", escapedTildePlaceholder)
+		// Then wrap in single quotes (escape any existing single quotes first)
+		escaped := strings.ReplaceAll(result, "'", "\\'")
+		return "'" + escaped + "'"
+	}
+
+	return result
 }
 
 // isSafeIdentifier checks if a string can be used as a bare identifier
@@ -180,7 +220,10 @@ func (e *Executor) isSafeIdentifier(s string) bool {
 
 // formatListItems formats the items of a StoredList as comma-separated values
 // without the outer parentheses (for use with unescape operator ${...})
+// IMPORTANT: Escapes tildes to prevent tilde injection (tildes in values should not
+// be interpreted as variable references)
 func (e *Executor) formatListItems(list StoredList) string {
+	const escapedTildePlaceholder = "\x00TILDE\x00"
 	items := list.Items()
 	if len(items) == 0 {
 		return ""
@@ -213,6 +256,8 @@ func (e *Executor) formatListItems(list StoredList) string {
 		default:
 			parts[i] = fmt.Sprintf("%v", v)
 		}
+		// Escape tildes in this item to prevent tilde injection
+		parts[i] = strings.ReplaceAll(parts[i], "~", escapedTildePlaceholder)
 	}
 
 	return strings.Join(parts, ", ")
