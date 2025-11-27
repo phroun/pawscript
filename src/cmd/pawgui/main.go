@@ -507,14 +507,155 @@ func registerGuiCommands(ps *pawscript.PawScript) {
 	})
 }
 
+// consoleInputHandler manages readline input in a background goroutine
+type consoleInputHandler struct {
+	stdinReader  *io.PipeReader
+	stdoutWriter *io.PipeWriter
+	lines        chan string      // Completed lines ready to be read
+	readActive   chan struct{}    // Signals when a read is waiting
+	mu           sync.Mutex
+	waiting      bool             // True if NativeRecv is waiting for input
+}
+
+func newConsoleInputHandler(stdinReader *io.PipeReader, stdoutWriter *io.PipeWriter) *consoleInputHandler {
+	h := &consoleInputHandler{
+		stdinReader:  stdinReader,
+		stdoutWriter: stdoutWriter,
+		lines:        make(chan string, 10), // Buffer up to 10 lines
+		readActive:   make(chan struct{}, 1),
+	}
+	go h.readLoop()
+	return h
+}
+
+func (h *consoleInputHandler) writeToTerminal(text string) {
+	text = strings.ReplaceAll(text, "\r\n", "\n")
+	text = strings.ReplaceAll(text, "\n", "\r\n")
+	fmt.Fprint(h.stdoutWriter, text)
+}
+
+func (h *consoleInputHandler) isWaiting() bool {
+	h.mu.Lock()
+	defer h.mu.Unlock()
+	return h.waiting
+}
+
+func (h *consoleInputHandler) setWaiting(w bool) {
+	h.mu.Lock()
+	defer h.mu.Unlock()
+	h.waiting = w
+}
+
+func (h *consoleInputHandler) readLoop() {
+	var line []byte
+	buf := make([]byte, 1)
+
+	for {
+		n, err := h.stdinReader.Read(buf)
+		if err != nil {
+			// Pipe closed, exit loop
+			close(h.lines)
+			return
+		}
+		if n == 0 {
+			continue
+		}
+
+		b := buf[0]
+
+		// Only echo and process if a read is waiting
+		if !h.isWaiting() {
+			// Discard input when no read is active
+			continue
+		}
+
+		switch {
+		case b == '\r' || b == '\n':
+			// Enter pressed - echo newline and send line
+			h.writeToTerminal("\n")
+			select {
+			case h.lines <- string(line):
+			default:
+				// Buffer full, drop oldest
+				select {
+				case <-h.lines:
+				default:
+				}
+				h.lines <- string(line)
+			}
+			line = line[:0]
+
+		case b == 0x7F || b == 0x08:
+			// Backspace (DEL or BS)
+			if len(line) > 0 {
+				line = line[:len(line)-1]
+				fmt.Fprint(h.stdoutWriter, "\b \b")
+			}
+
+		case b == 0x03:
+			// Ctrl+C - send empty line to unblock
+			h.writeToTerminal("^C\n")
+			select {
+			case h.lines <- "":
+			default:
+			}
+			line = line[:0]
+
+		case b == 0x15:
+			// Ctrl+U - clear line
+			for range line {
+				fmt.Fprint(h.stdoutWriter, "\b \b")
+			}
+			line = line[:0]
+
+		case b >= 32 && b < 127:
+			// Printable ASCII - echo and append
+			line = append(line, b)
+			fmt.Fprint(h.stdoutWriter, string(b))
+
+		case b >= 0xC0:
+			// UTF-8 multi-byte sequence
+			var utf8Bytes []byte
+			utf8Bytes = append(utf8Bytes, b)
+
+			var remaining int
+			if b >= 0xF0 {
+				remaining = 3
+			} else if b >= 0xE0 {
+				remaining = 2
+			} else {
+				remaining = 1
+			}
+
+			for i := 0; i < remaining; i++ {
+				n, err := h.stdinReader.Read(buf)
+				if err != nil || n == 0 {
+					break
+				}
+				utf8Bytes = append(utf8Bytes, buf[0])
+			}
+
+			line = append(line, utf8Bytes...)
+			fmt.Fprint(h.stdoutWriter, string(utf8Bytes))
+		}
+	}
+}
+
+func (h *consoleInputHandler) readLine() (string, error) {
+	h.setWaiting(true)
+	defer h.setWaiting(false)
+
+	line, ok := <-h.lines
+	if !ok {
+		return "", io.EOF
+	}
+	return line, nil
+}
+
 // createConsoleChannels creates StoredChannels for the console terminal
 func createConsoleChannels(stdinReader *io.PipeReader, stdoutWriter *io.PipeWriter) (*pawscript.StoredChannel, *pawscript.StoredChannel) {
-	// Helper to write to terminal with proper CRLF conversion
-	writeToTerminal := func(text string) {
-		text = strings.ReplaceAll(text, "\r\n", "\n")
-		text = strings.ReplaceAll(text, "\n", "\r\n")
-		fmt.Fprint(stdoutWriter, text)
-	}
+	// Create input handler with background goroutine
+	inputHandler := newConsoleInputHandler(stdinReader, stdoutWriter)
 
 	// Console output channel - write to terminal display
 	consoleOutCh := &pawscript.StoredChannel{
@@ -537,7 +678,7 @@ func createConsoleChannels(stdinReader *io.PipeReader, stdoutWriter *io.PipeWrit
 		},
 	}
 
-	// Console input channel - read from terminal keyboard with readline behavior
+	// Console input channel - read from input handler
 	consoleInCh := &pawscript.StoredChannel{
 		BufferSize:       0,
 		Messages:         make([]pawscript.ChannelMessage, 0),
@@ -546,79 +687,7 @@ func createConsoleChannels(stdinReader *io.PipeReader, stdoutWriter *io.PipeWrit
 		IsClosed:         false,
 		Timestamp:        time.Now(),
 		NativeRecv: func() (interface{}, error) {
-			// Readline-like input handling with echo
-			var line []byte
-			buf := make([]byte, 1)
-
-			for {
-				n, err := stdinReader.Read(buf)
-				if err != nil {
-					return string(line), err
-				}
-				if n == 0 {
-					continue
-				}
-
-				b := buf[0]
-				switch {
-				case b == '\r' || b == '\n':
-					// Enter pressed - echo newline and return line
-					writeToTerminal("\n")
-					return string(line), nil
-
-				case b == 0x7F || b == 0x08:
-					// Backspace (DEL or BS)
-					if len(line) > 0 {
-						line = line[:len(line)-1]
-						// Echo: move back, space over, move back
-						fmt.Fprint(stdoutWriter, "\b \b")
-					}
-
-				case b == 0x03:
-					// Ctrl+C - return empty/interrupt
-					writeToTerminal("^C\n")
-					return "", fmt.Errorf("interrupted")
-
-				case b == 0x15:
-					// Ctrl+U - clear line
-					for range line {
-						fmt.Fprint(stdoutWriter, "\b \b")
-					}
-					line = line[:0]
-
-				case b >= 32 && b < 127:
-					// Printable ASCII - echo and append
-					line = append(line, b)
-					fmt.Fprint(stdoutWriter, string(b))
-
-				// Handle UTF-8 multi-byte sequences
-				case b >= 0xC0:
-					// Start of UTF-8 sequence - read remaining bytes
-					var utf8Bytes []byte
-					utf8Bytes = append(utf8Bytes, b)
-
-					// Determine how many more bytes to read
-					var remaining int
-					if b >= 0xF0 {
-						remaining = 3
-					} else if b >= 0xE0 {
-						remaining = 2
-					} else {
-						remaining = 1
-					}
-
-					for i := 0; i < remaining; i++ {
-						n, err := stdinReader.Read(buf)
-						if err != nil || n == 0 {
-							break
-						}
-						utf8Bytes = append(utf8Bytes, buf[0])
-					}
-
-					line = append(line, utf8Bytes...)
-					fmt.Fprint(stdoutWriter, string(utf8Bytes))
-				}
-			}
+			return inputHandler.readLine()
 		},
 		NativeSend: func(v interface{}) error {
 			return fmt.Errorf("cannot send to console_in")
