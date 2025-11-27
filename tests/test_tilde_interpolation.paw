@@ -121,19 +121,33 @@ echo "Test 17: Tilde injection prevention - bare macro body"
 secret: "INJECTED"
 macro show_arg(print $1)
 show_arg '~secret'
-echo 'Expected: \~secret (NOT INJECTED)'
+echo 'Expected: ~secret (NOT INJECTED)'
 echo ""
 
 echo "Test 18: Tilde injection prevention - quoted macro body"
 macro show_arg2(print "Arg: $1")
 show_arg2 '~secret'
-echo "Expected: Arg: '\~secret' (NOT Arg: 'INJECTED')"
+echo 'Expected: Arg: '"'"'~secret'"'"' (NOT INJECTED)'
 echo ""
 
 echo "Test 19: Tilde injection prevention - embedded tilde"
 macro show_arg3(print $1)
 show_arg3 'prefix~secret~suffix'
-echo 'Expected: prefix\~secret\~suffix'
+echo 'Expected: prefix~secret~suffix'
+echo ""
+
+echo "Test 20: Tilde injection through variable interpolation"
+# Simulates external input (e.g., from gui_get or read) containing a tilde
+# The value is assigned via single quotes to avoid interpretation during assignment
+external_input: '~secret'
+echo "Value stored: ~external_input"
+echo 'Expected: Value stored: ~secret (NOT INJECTED)'
+echo ""
+
+echo "Test 21: Embedded tilde through variable interpolation"
+external_input2: 'prefix~secret~suffix'
+echo "Value stored: ~external_input2"
+echo 'Expected: Value stored: prefix~secret~suffix'
 echo ""
 
 echo "=== All Tilde Interpolation Tests Complete ==="

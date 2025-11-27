@@ -408,6 +408,9 @@ func (e *Executor) substituteBraceExpressions(str string, ctx *SubstitutionConte
 
 // substituteTildeExpressions substitutes ~varname patterns in strings with variable values
 func (e *Executor) substituteTildeExpressions(str string, state *ExecutionState, position *SourcePosition) string {
+	// Placeholder for escaped tildes - must match the one used in applySubstitution
+	const escapedTildePlaceholder = "\x00TILDE\x00"
+
 	if state == nil {
 		return str
 	}
@@ -448,6 +451,10 @@ func (e *Executor) substituteTildeExpressions(str string, state *ExecutionState,
 			} else {
 				valueStr = fmt.Sprintf("%v", resolved)
 			}
+			// Escape tildes in the resolved value to prevent tilde injection
+			// This ensures user input containing tildes doesn't get interpreted
+			// as variable references when the result string is re-parsed
+			valueStr = strings.ReplaceAll(valueStr, "~", escapedTildePlaceholder)
 			// Since tildes are only found inside double-quoted strings,
 			// we need to escape any double quotes in the substituted value
 			// to prevent breaking the quote structure
