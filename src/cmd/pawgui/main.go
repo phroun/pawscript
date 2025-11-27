@@ -486,6 +486,11 @@ func registerGuiCommands(ps *pawscript.PawScript) {
 		// Store channels and create markers
 		outID := ctx.StoreObject(consoleOutCh, "channel")
 		inID := ctx.StoreObject(consoleInCh, "channel")
+
+		// Explicitly claim ownership - these channels are long-lived GUI resources
+		ctx.ClaimObjectReference(outID)
+		ctx.ClaimObjectReference(inID)
+
 		// Use outCh for err as well (same channel)
 		outMarker := pawscript.Symbol(fmt.Sprintf("\x00CHANNEL:%d\x00", outID))
 		inMarker := pawscript.Symbol(fmt.Sprintf("\x00CHANNEL:%d\x00", inID))
