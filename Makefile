@@ -1,10 +1,9 @@
 # Version
 VERSION := $(shell git describe --tags --always --dirty)
 
-# Release directory
-RELEASE_DIR := ../releases
-# TEMPLATE_DIR := ../release-template
-INSTALL_DIR := ..
+# Directories
+RELEASE_DIR := releases
+SRC_DIR := src
 
 # Detect native platform
 NATIVE_OS := $(shell go env GOOS)
@@ -17,18 +16,18 @@ else
     BINARY_NAME := paw
 endif
 
-.PHONY: build-all clean-releases build install
+.PHONY: build-all clean-releases build install test test-coverage run-example clean fmt lint help
 
 # Build native version for local use
 build:
 	@echo "Building paw for native platform ($(NATIVE_OS)/$(NATIVE_ARCH))..."
-	go build -ldflags "-X main.version=$(VERSION)" -o $(INSTALL_DIR)/$(BINARY_NAME) ./cmd/paw
-	@echo "Created: $(INSTALL_DIR)/$(BINARY_NAME)"
+	cd $(SRC_DIR) && go build -ldflags "-X main.version=$(VERSION)" -o ../$(BINARY_NAME) ./cmd/paw
+	@echo "Created: $(BINARY_NAME)"
 
 build-token-example:
-	@echo "Building paw for native platform ($(NATIVE_OS)/$(NATIVE_ARCH))..."
-	go build -ldflags "-X main.version=$(VERSION)" -o $(INSTALL_DIR)/token_example ./cmd/token_example
-	@echo "Created: $(INSTALL_DIR)/token_example"
+	@echo "Building token_example for native platform ($(NATIVE_OS)/$(NATIVE_ARCH))..."
+	cd $(SRC_DIR) && go build -ldflags "-X main.version=$(VERSION)" -o ../token_example ./cmd/token_example
+	@echo "Created: token_example"
 
 # Alias for build
 install: build
@@ -43,11 +42,10 @@ clean-releases:
 define build-release
 	@echo "Building and packaging paw $(3) $(4)..."
 	@mkdir -p $(RELEASE_DIR)/paw-$(VERSION)-$(3)-$(4)
-	# @cp -r $(TEMPLATE_DIR)/* $(RELEASE_DIR)/paw-$(VERSION)-$(3)-$(4)/
-	@cp -r ../examples $(RELEASE_DIR)/paw-$(VERSION)-$(3)-$(4)/examples
-	@cp ../README.md $(RELEASE_DIR)/paw-$(VERSION)-$(3)-$(4)/README.md
-	@cp ../LICENSE $(RELEASE_DIR)/paw-$(VERSION)-$(3)-$(4)/LICENSE
-	GOOS=$(1) GOARCH=$(2) go build -ldflags "-X main.version=$(VERSION)" -o $(RELEASE_DIR)/paw-$(VERSION)-$(3)-$(4)/$(5) ./cmd/paw
+	@cp -r examples $(RELEASE_DIR)/paw-$(VERSION)-$(3)-$(4)/examples
+	@cp README.md $(RELEASE_DIR)/paw-$(VERSION)-$(3)-$(4)/README.md
+	@cp LICENSE $(RELEASE_DIR)/paw-$(VERSION)-$(3)-$(4)/LICENSE
+	cd $(SRC_DIR) && GOOS=$(1) GOARCH=$(2) go build -ldflags "-X main.version=$(VERSION)" -o ../$(RELEASE_DIR)/paw-$(VERSION)-$(3)-$(4)/$(5) ./cmd/paw
 	@cd $(RELEASE_DIR) && $(6) paw-$(VERSION)-$(3)-$(4)$(7) paw-$(VERSION)-$(3)-$(4)
 	@rm -rf $(RELEASE_DIR)/paw-$(VERSION)-$(3)-$(4)
 	@echo "Created: $(RELEASE_DIR)/paw-$(VERSION)-$(3)-$(4)$(7)"
@@ -73,52 +71,49 @@ build-linux-x64:
 
 build-wasm:
 	@echo "Building paw WASM..."
-	GOOS=js GOARCH=wasm go build -o ../js/pawscript.wasm ./wasm
+	cd $(SRC_DIR) && GOOS=js GOARCH=wasm go build -o ../js/pawscript.wasm ./wasm
 
 test:
 	@echo "Running tests..."
-	@cd ../tests && ./test_regressions.sh
-#	@go test -v .
+	@cd tests && ./test_regressions.sh
 
 test-coverage:
 	@echo "Running tests with coverage..."
-	@go test -v -coverprofile=coverage.out .
-	@go tool cover -html=coverage.out -o coverage.html
-	@echo "Coverage report: coverage.html"
+	cd $(SRC_DIR) && go test -v -coverprofile=coverage.out .
+	cd $(SRC_DIR) && go tool cover -html=coverage.out -o coverage.html
+	@echo "Coverage report: $(SRC_DIR)/coverage.html"
 
 run-example:
 	@echo "Running hello.paw example..."
-	@../paw ../examples/hello.paw -- arg1 arg2 arg3
+	./paw examples/hello.paw -- arg1 arg2 arg3
 
 clean:
 	@echo "Cleaning..."
-	@rm -f ../paw coverage.out coverage.html
+	@rm -f paw $(SRC_DIR)/coverage.out $(SRC_DIR)/coverage.html
 	@echo "Clean complete"
-
-install:
-	@echo "Installing paw..."
-	@go install ./cmd/paw
-	@echo "Install complete"
 
 fmt:
 	@echo "Formatting code..."
-	@go fmt ./...
+	cd $(SRC_DIR) && go fmt ./...
 	@echo "Format complete"
 
 lint:
 	@echo "Running linter..."
-	@golangci-lint run
+	cd $(SRC_DIR) && golangci-lint run
 	@echo "Lint complete"
 
 help:
 	@echo "PawScript Makefile"
 	@echo ""
 	@echo "Targets:"
-	@echo "  build-all      - Build and package for all platforms (default)"
+	@echo "  build          - Build paw for native platform"
+	@echo "  build-all      - Build and package for all platforms"
 	@echo "  run-example    - Run hello.paw example"
+	@echo "  test           - Run regression tests"
+	@echo "  test-coverage  - Run tests with coverage report"
 	@echo "  clean          - Remove build artifacts"
 	@echo "  clean-releases - Clean release artifacts"
-	@echo "  install        - Install paw to GOPATH"
+	@echo "  install        - Alias for build"
 	@echo "  fmt            - Format code"
 	@echo "  lint           - Run linter"
 	@echo "  help           - Show this help"
