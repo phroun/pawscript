@@ -220,24 +220,70 @@ func (e *Executor) handleAssignment(target, valueStr string, state *ExecutionSta
 
 	// Parse and resolve the value
 	var value interface{}
+	var braceStatus BoolStatus = BoolStatus(true) // Default status
+	isBraceExpr := false
 
 	if valueStr == "" {
 		value = nil
 	} else {
-		// Parse the value string as arguments
-		args, _ := parseArguments(valueStr)
-		if len(args) == 0 {
-			value = nil
-		} else if len(args) == 1 {
-			value = args[0]
-		} else {
-			// Multiple values - create a list? Or use first?
-			// For now, use first value (matching old set behavior)
-			value = args[0]
+		trimmedValue := strings.TrimSpace(valueStr)
+		// Check if the outermost structure is a brace expression
+		if strings.HasPrefix(trimmedValue, "{") && strings.HasSuffix(trimmedValue, "}") {
+			// Verify it's a complete brace expression (not multiple expressions)
+			braceDepth := 0
+			isSingleBrace := true
+			for i, ch := range trimmedValue {
+				if ch == '{' {
+					braceDepth++
+				} else if ch == '}' {
+					braceDepth--
+					if braceDepth == 0 && i < len(trimmedValue)-1 {
+						// Brace closed before end - not a single brace expression
+						isSingleBrace = false
+						break
+					}
+				}
+			}
+
+			if isSingleBrace {
+				// Execute the brace expression and capture its status
+				isBraceExpr = true
+				braceContent := trimmedValue[1 : len(trimmedValue)-1]
+				result := e.ExecuteWithState(braceContent, state, substitutionCtx,
+					position.Filename, position.Line, position.Column)
+
+				// Capture the status from the brace expression
+				if status, ok := result.(BoolStatus); ok {
+					braceStatus = status
+				}
+				// Get the result value
+				value = state.GetResult()
+				// If no result was set but we have a BoolStatus, use the boolean as the value
+				// This handles cases like x: {false} which should set x to false
+				if value == nil {
+					if status, ok := result.(BoolStatus); ok {
+						value = bool(status)
+					}
+				}
+			}
 		}
 
-		// Resolve tildes in the value
-		value = e.resolveTildesInValue(value, state, substitutionCtx, position)
+		if !isBraceExpr {
+			// Parse the value string as arguments
+			args, _ := parseArguments(valueStr)
+			if len(args) == 0 {
+				value = nil
+			} else if len(args) == 1 {
+				value = args[0]
+			} else {
+				// Multiple values - create a list? Or use first?
+				// For now, use first value (matching old set behavior)
+				value = args[0]
+			}
+
+			// Resolve tildes in the value
+			value = e.resolveTildesInValue(value, state, substitutionCtx, position)
+		}
 	}
 
 	// Check for undefined - delete variable instead of setting
@@ -250,6 +296,16 @@ func (e *Executor) handleAssignment(target, valueStr string, state *ExecutionSta
 	// Assign and set the formal result to the assigned value
 	state.SetVariable(varName, value)
 	state.SetResult(value)
+
+	// Propagate status from brace expression if applicable
+	// Check both the direct brace execution (braceStatus) and substituted braces (BraceFailureCount)
+	if !bool(braceStatus) {
+		return braceStatus
+	}
+	if substitutionCtx != nil && substitutionCtx.BraceFailureCount > 0 {
+		e.logger.Debug("Assignment propagating failure from %d substituted brace(s)", substitutionCtx.BraceFailureCount)
+		return BoolStatus(false)
+	}
 	return BoolStatus(true)
 }
 

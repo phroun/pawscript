@@ -301,22 +301,33 @@ func (e *Executor) substituteBraceExpressions(str string, ctx *SubstitutionConte
 			// Synchronous completion
 			evaluations[i].Completed = true
 
-			// Check if it was successful
-			// Note: Only mark as failed if BoolStatus is false AND there's no result
-			// Commands that return false as a value (like lt, token_valid) should NOT
-			// cause the parent command to abort - they returned a valid result
-			if boolStatus, ok := executeResult.(BoolStatus); ok && !bool(boolStatus) && !hasCapturedResult {
-				evaluations[i].Failed = true
-				e.logger.Debug("Brace %d completed synchronously with failure (no result)", i)
-			} else {
-				e.logger.Debug("Brace %d completed synchronously with success", i)
+			// Track brace failures in the substitution context
+			// This allows assignment to propagate the status from brace expressions
+			if boolStatus, ok := executeResult.(BoolStatus); ok && !bool(boolStatus) {
+				ctx.BraceFailureCount++
+				e.logger.Debug("Brace %d returned false status, failure count now: %d", i, ctx.BraceFailureCount)
 			}
-			// Use the captured result - this part used to be in an else
+
+			// Determine the result value first
+			// Commands that return a BoolStatus without calling SetResult should use the
+			// boolean value itself as the result (e.g., {false} returns "false", {true} returns "true")
 			if hasCapturedResult {
 				evaluations[i].Result = capturedResult
 				e.logger.Debug("Brace %d has captured result: %s", i, evaluations[i].Result)
 			} else if boolStatus, ok := executeResult.(BoolStatus); ok {
 				evaluations[i].Result = fmt.Sprintf("%v", bool(boolStatus))
+				e.logger.Debug("Brace %d using boolean status as result: %s", i, evaluations[i].Result)
+			}
+
+			// Only mark as truly failed if we got an error result, not just a false status
+			// Commands like {false}, {eq 1, 2}, {token_valid ~exhausted} return false status
+			// with a valid boolean result - they should NOT abort the parent command
+			hasResult := hasCapturedResult || executeResult != nil
+			if !hasResult {
+				evaluations[i].Failed = true
+				e.logger.Debug("Brace %d completed with no result (failure)", i)
+			} else {
+				e.logger.Debug("Brace %d completed synchronously with success", i)
 			}
 			// end part that used to be in an else
 

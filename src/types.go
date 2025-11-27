@@ -266,6 +266,10 @@ type SubstitutionContext struct {
 	CurrentLineOffset   int
 	CurrentColumnOffset int
 	Filename            string // Filename for error reporting
+	// BraceFailureCount tracks how many brace expressions returned false status during substitution
+	// This is separate from ExecutionState.lastStatus which tracks the main command's status
+	// If > 0, assignment should propagate failure status
+	BraceFailureCount int
 }
 
 // Config holds configuration for PawScript
