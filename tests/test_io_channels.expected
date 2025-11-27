@@ -1,11 +1,11 @@
 === IO CHANNEL TESTS ===
 
 Test 1: Access native IO channels via tilde with # prefix
-stdout channel type: unknown(*pawscript.StoredChannel)
+stdout channel type: channel
 
 Test 2: Access io channel aliases
-out alias type: unknown(*pawscript.StoredChannel)
-err alias type: unknown(*pawscript.StoredChannel)
+out alias type: channel
+err alias type: channel
 
 Test 3: Create custom channel and use with echo (channel arg)
 Sent message to custom channel

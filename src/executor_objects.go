@@ -183,3 +183,25 @@ func (e *Executor) findStoredChannelID(ch *StoredChannel) int {
 
 	return -1
 }
+
+// findStoredFiberID finds the ID of a FiberHandle by searching storedObjects
+// Returns -1 if not found
+func (e *Executor) findStoredFiberID(fh *FiberHandle) int {
+	if fh == nil {
+		return -1
+	}
+
+	e.mu.RLock()
+	defer e.mu.RUnlock()
+
+	for id, obj := range e.storedObjects {
+		if objFh, ok := obj.Value.(*FiberHandle); ok {
+			// Compare by pointer identity
+			if objFh == fh {
+				return id
+			}
+		}
+	}
+
+	return -1
+}
