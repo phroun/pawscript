@@ -458,6 +458,9 @@ func (e *Executor) handleUnpackingAssignmentWithNames(unpackTargets []UnpackTarg
 		if storedList.NamedArgs() != nil {
 			namedItems = storedList.NamedArgs()
 		}
+	} else if slice, ok := resolved.([]interface{}); ok {
+		// Raw slice (e.g., from commands that return []interface{})
+		positionalItems = slice
 	} else if parenGroup, ok := resolved.(ParenGroup); ok {
 		// Parse paren group contents - returns positional and named separately
 		positionalItems, namedItems = parseArguments(string(parenGroup))
@@ -524,6 +527,9 @@ func (e *Executor) handleDynamicUnpackingAssignment(varNames []interface{}, valu
 			// Extract items from the list-like value
 			if storedList, ok := resolved.(StoredList); ok {
 				values = storedList.Items()
+			} else if slice, ok := resolved.([]interface{}); ok {
+				// Raw slice (e.g., from commands that return []interface{})
+				values = slice
 			} else if parenGroup, ok := resolved.(ParenGroup); ok {
 				// Parse paren group contents as values
 				values, _ = parseArguments(string(parenGroup))
