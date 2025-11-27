@@ -922,59 +922,29 @@ macro console_loop (
 
     # Clear and show welcome
     clear
-    color cyan
-    print "=== PawScript Console ==="
-    color reset: true
+    print "{color cyan}=== PawScript Console ==={color reset: true}"
     print ""
-    write "This console runs in a "
-    color yellow
-    write "fiber"
-    color reset: true
-    print ","
+    print "This console runs in a {color yellow}fiber{color reset: true},"
     print "so it doesn't block the GUI!"
     print ""
-    color green
-    write "Colors work:"
-    color reset: true
-    write " "
-    color red
-    write "red"
-    color reset: true
-    write " "
-    color yellow
-    write "yellow"
-    color reset: true
-    write " "
-    color blue
-    print "blue"
-    color reset: true
+
+    # Show color capabilities - inline colors for each word
+    print "{color green}Colors work:{color reset: true} {color red}red{color reset: true} {color yellow}yellow{color reset: true} {color blue}blue{color reset: true}"
     print ""
 
     # Interactive loop
     count: 0
     while (true), (
         count: {add ~count, 1}
-        color magenta
-        write "["
-        color reset: true
-        write "~count"
-        color magenta
-        write "]"
-        color reset: true
-        write " Enter text (or 'quit'): "
+        write "{color magenta}[{color reset: true}~count{color magenta}]{color reset: true} Enter text (or 'quit'): "
         input: {read}
 
         {eq ~input, "quit"} & (
-            color red
-            print "Goodbye!"
-            color reset: true
+            print "{color red}Goodbye!{color reset: true}"
             ret
         )
 
-        write "You said: "
-        color cyan
-        print "~input"
-        color reset: true
+        print "You said: {color cyan}~input{color reset: true}"
         print ""
     )
 )
@@ -1005,34 +975,35 @@ gui_resize 700, 500
 msleep 200
 
 # Now we can use standard print and echo commands!
-# Clear screen and show title
+# Clear screen and show title - use inline color for the header
 clear
-color cyan
-print "=== PawScript Console Demo ==="
-color reset: true
+print "{color cyan}=== PawScript Console Demo ==={color reset: true}"
 echo ""
 print "This terminal supports colors!"
 echo ""
 
 echo #stdout, "Regular output"
 
-# Show some colors using PawScript color commands
+# Show colors - mix of styles for demonstration
+# Standalone color command when multiple lines share the same color
 color red
 print "This is red text"
-color green
-print "This is green text"
-color yellow
-print "This is yellow text"
-color blue
-print "This is blue text"
-color reset: true
+
+# Inline colors for single-line styling
+print "{color green}This is green text{color reset: true}"
+print "{color yellow}This is yellow text{color reset: true}"
+print "{color blue}This is blue text{color reset: true}"
+echo ""
+
+# Mixed inline colors in one line
+print "Rainbow: {color red}R{color yellow}a{color green}i{color cyan}n{color blue}b{color magenta}o{color white}w{color reset: true}"
 echo ""
 
 write "Type something and press Enter: "
 
 # Read from console using the standard read command
 input: {read}
-print "You typed: ~input"
+print "You typed: {color cyan}~input{color reset: true}"
 suppress: true
 MODULE exports
 EXPORT suppress
