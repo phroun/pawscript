@@ -463,22 +463,20 @@ func registerGuiCommands(ps *pawscript.PawScript) {
 		term := terminal.New()
 		guiState.terminal = term
 
-		// DEBUG: Try adding terminal directly without wrapper to test focus delay
-		// If focus is fast without the wrapper, the issue is in sizedWidget
-		// If focus is still slow, the issue is in fyne-io/terminal
-		term.Resize(fyne.NewSize(width, height))
+		// Wrap terminal in a sizedWidget to enforce minimum size
+		sizedTerm := newSizedWidget(term, fyne.NewSize(width, height))
 
 		// Get optional ID
 		id := ""
 		if idVal, ok := ctx.NamedArgs["id"]; ok {
 			id = fmt.Sprintf("%v", idVal)
 			guiState.mu.Lock()
-			guiState.widgets[id] = term
+			guiState.widgets[id] = sizedTerm
 			guiState.mu.Unlock()
 		}
 
-		// Add to appropriate panel - terminal directly without wrapper
-		addToPanel(ctx, term)
+		// Add to appropriate panel
+		addToPanel(ctx, sizedTerm)
 
 		// Connect the terminal to our pipes
 		// RunWithConnection expects: in = where to write keyboard input, out = what to display
@@ -716,9 +714,20 @@ type sizedWidget struct {
 	minSize fyne.Size
 }
 
-// Note: sizedWidget intentionally does NOT implement focus handling.
-// The wrapped terminal widget handles focus via its own Tapped() method.
-// This avoids any potential conflicts between wrapper and terminal focus.
+// Ensure sizedWidget implements Tappable for immediate focus
+var _ fyne.Tappable = (*sizedWidget)(nil)
+
+// Tapped directly calls FocusGained on the terminal to force immediate focus
+func (s *sizedWidget) Tapped(_ *fyne.PointEvent) {
+	// Directly call FocusGained to show cursor immediately
+	if focusable, ok := s.wrapped.(fyne.Focusable); ok {
+		focusable.FocusGained()
+	}
+	// Also request focus through Fyne's system for keyboard input
+	if focusable, ok := s.wrapped.(fyne.Focusable); ok {
+		fyne.CurrentApp().Driver().CanvasForObject(s.wrapped).Focus(focusable)
+	}
+}
 
 func newSizedWidget(wrapped fyne.CanvasObject, minSize fyne.Size) *sizedWidget {
 	s := &sizedWidget{
