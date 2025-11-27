@@ -208,6 +208,13 @@ func (ps *PawScript) ImportModuleToRoot(moduleName string) bool {
 	return true
 }
 
+// ExecuteInRoot executes a command string directly in the root environment.
+// Any IMPORT, macro definitions, or other changes persist directly to root.
+// Use this when you need changes to be visible to all subsequent Execute() calls.
+func (ps *PawScript) ExecuteInRoot(commandString string) Result {
+	return ps.ExecuteWithEnvironment(commandString, ps.rootModuleEnv, "", 0, 0)
+}
+
 // CreateRestrictedSnapshot creates a restricted environment snapshot
 // This captures the current state with copy-on-write isolation, similar to what
 // a macro definition would capture. Use with ExecuteWithEnvironment to run
