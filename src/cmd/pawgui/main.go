@@ -13,6 +13,7 @@ import (
 	"fyne.io/fyne/v2"
 	"fyne.io/fyne/v2/app"
 	"fyne.io/fyne/v2/container"
+	"fyne.io/fyne/v2/driver/desktop"
 	"fyne.io/fyne/v2/widget"
 	"github.com/fyne-io/terminal"
 	pawscript "github.com/phroun/pawscript"
@@ -703,21 +704,61 @@ func createConsoleChannels(stdinReader *io.PipeReader, stdoutWriter *io.PipeWrit
 }
 
 // sizedWidget wraps a canvas object and enforces a minimum size
+// It acts as a focus proxy for focusable widgets like terminal
 type sizedWidget struct {
 	widget.BaseWidget
 	wrapped fyne.CanvasObject
 	minSize fyne.Size
 }
 
-// Ensure sizedWidget implements Tappable for immediate focus handling
+// Ensure sizedWidget implements Tappable, Focusable, and Mouseable for proper focus handling
 var _ fyne.Tappable = (*sizedWidget)(nil)
+var _ fyne.Focusable = (*sizedWidget)(nil)
+var _ desktop.Mouseable = (*sizedWidget)(nil)
 
-// Tapped implements fyne.Tappable - immediately focuses the wrapped widget if it's focusable
+// MouseDown implements desktop.Mouseable - fires before Tappable, ensures immediate focus
+func (s *sizedWidget) MouseDown(_ *desktop.MouseEvent) {
+	if guiState != nil && guiState.mainWindow != nil {
+		guiState.mainWindow.Canvas().Focus(s)
+	}
+}
+
+// MouseUp implements desktop.Mouseable
+func (s *sizedWidget) MouseUp(_ *desktop.MouseEvent) {}
+
+// Tapped implements fyne.Tappable - request focus on this wrapper when tapped
 func (s *sizedWidget) Tapped(_ *fyne.PointEvent) {
+	if guiState != nil && guiState.mainWindow != nil {
+		// Focus the wrapper itself - it will proxy to the terminal
+		guiState.mainWindow.Canvas().Focus(s)
+	}
+}
+
+// FocusGained implements fyne.Focusable - forward to wrapped widget
+func (s *sizedWidget) FocusGained() {
 	if focusable, ok := s.wrapped.(fyne.Focusable); ok {
-		if guiState != nil && guiState.mainWindow != nil {
-			guiState.mainWindow.Canvas().Focus(focusable)
-		}
+		focusable.FocusGained()
+	}
+}
+
+// FocusLost implements fyne.Focusable - forward to wrapped widget
+func (s *sizedWidget) FocusLost() {
+	if focusable, ok := s.wrapped.(fyne.Focusable); ok {
+		focusable.FocusLost()
+	}
+}
+
+// TypedRune implements fyne.Focusable - forward keyboard input to wrapped widget
+func (s *sizedWidget) TypedRune(r rune) {
+	if focusable, ok := s.wrapped.(fyne.Focusable); ok {
+		focusable.TypedRune(r)
+	}
+}
+
+// TypedKey implements fyne.Focusable - forward key events to wrapped widget
+func (s *sizedWidget) TypedKey(e *fyne.KeyEvent) {
+	if focusable, ok := s.wrapped.(fyne.Focusable); ok {
+		focusable.TypedKey(e)
 	}
 }
 
