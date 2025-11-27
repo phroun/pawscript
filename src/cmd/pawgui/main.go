@@ -257,8 +257,8 @@ func registerGuiCommands(ps *pawscript.PawScript) {
 			if onclickMacro != "" {
 				// Execute the macro when button is clicked
 				go func() {
-					callback := fmt.Sprintf("IMPORT exports\n%s", onclickMacro)
-					result := guiState.ps.Execute(callback)
+					callback := onclickMacro
+					result := guiState.ps.Execute(fmt.Sprintf("IMPORT exports;%s"),callback)
 					if result == pawscript.BoolStatus(false) {
 						fmt.Fprintf(os.Stderr, "Button callback error\n")
 					}
@@ -650,6 +650,8 @@ gui_label "while console runs!", panel: "left"
 # Create console on right panel, unpack to #out/#in/#err for print/read
 (#out, #in, #err): {gui_console 400, 400, panel: "right"}
 
+msleep 1000
+
 # Define console interaction macro
 # Receives channels as $1, $2, $3 from fiber_spawn
 macro console_loop (
@@ -657,9 +659,11 @@ macro console_loop (
     #out: $1
     #in: $2
     #err: $3
+    print "out:", ~#out
+    print #out, "To console"
 
     # Clear and show welcome
-    send ~#out, "\x1b[2J\x1b[H"
+    write "\x1b[2J\x1b[H"
     print "\x1b[36m=== PawScript Console ===\x1b[0m"
     print ""
     print "This console runs in a \x1b[33mfiber\x1b[0m,"
@@ -685,13 +689,14 @@ macro console_loop (
     )
 )
 
+# Export macros for callbacks
+MODULE exports
+EXPORT greet_user, increment_counter, console_loop
+
 # Run console interaction in a fiber, passing the channels as arguments
 msleep 300
 fiber_spawn console_loop, ~#out, ~#in, ~#err
 
-# Export macros for callbacks
-MODULE exports
-EXPORT greet_user, increment_counter, console_loop
 `
 
 // consoleDemo is a demo script that shows terminal/console capabilities

@@ -1,5 +1,6 @@
 .DS_Store
 /paw
+/pawgui
 /token_example
 dist
 node_modules
