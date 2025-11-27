@@ -667,7 +667,7 @@ macro console_loop (
 
         {eq ~input, "quit"} & (
             print "\x1b[31mGoodbye!\x1b[0m"
-            return
+            ret
         )
 
         print "You said: \x1b[36m~input\x1b[0m"
