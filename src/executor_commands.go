@@ -41,8 +41,8 @@ func (e *Executor) executeCommandSequence(commands []*ParsedCommand, state *Exec
 			if earlyReturn.HasResult {
 				state.SetResult(earlyReturn.Result)
 			}
-			// Return the status from the early return
-			return earlyReturn.Status
+			// Return the EarlyReturn itself so callers can propagate it
+			return earlyReturn
 		}
 
 		if tokenResult, ok := result.(TokenResult); ok {
