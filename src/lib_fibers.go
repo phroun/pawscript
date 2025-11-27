@@ -46,12 +46,25 @@ func (ps *PawScript) RegisterFibersLib() {
 				ctx.state.moduleEnv.mu.RUnlock()
 			}
 		} else if str, ok := firstArg.(string); ok {
-			// Look up macro in module environment (string form)
-			ctx.state.moduleEnv.mu.RLock()
-			if m, exists := ctx.state.moduleEnv.MacrosModule[str]; exists && m != nil {
-				macro = m
+			// First check if it's an object marker (from $1 substitution, etc.)
+			markerType, objectID := parseObjectMarker(str)
+			if markerType == "macro" && objectID >= 0 {
+				obj, exists := ctx.executor.getObject(objectID)
+				if !exists {
+					ps.logger.Error("Macro object %d not found", objectID)
+					return BoolStatus(false)
+				}
+				if m, ok := obj.(StoredMacro); ok {
+					macro = &m
+				}
+			} else {
+				// Look up macro in module environment (string form)
+				ctx.state.moduleEnv.mu.RLock()
+				if m, exists := ctx.state.moduleEnv.MacrosModule[str]; exists && m != nil {
+					macro = m
+				}
+				ctx.state.moduleEnv.mu.RUnlock()
 			}
-			ctx.state.moduleEnv.mu.RUnlock()
 		}
 
 		if macro == nil {
@@ -86,6 +99,19 @@ func (ps *PawScript) RegisterFibersLib() {
 			handle = h
 		} else if sym, ok := ctx.Args[0].(Symbol); ok {
 			markerType, objectID := parseObjectMarker(string(sym))
+			if markerType == "fiber" && objectID >= 0 {
+				obj, exists := ctx.executor.getObject(objectID)
+				if !exists {
+					ps.logger.Error("Fiber object %d not found", objectID)
+					return BoolStatus(false)
+				}
+				if h, ok := obj.(*FiberHandle); ok {
+					handle = h
+				}
+			}
+		} else if str, ok := ctx.Args[0].(string); ok {
+			// Handle string type markers (from $1 substitution, etc.)
+			markerType, objectID := parseObjectMarker(str)
 			if markerType == "fiber" && objectID >= 0 {
 				obj, exists := ctx.executor.getObject(objectID)
 				if !exists {

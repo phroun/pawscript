@@ -24,7 +24,8 @@ type IOChannelConfig struct {
 // PopulateIOModule creates native IO channels and registers them in the io module
 // Creates: io::#stdin/#in, io::#stdout/#out, io::#stderr/#err, io::#stdio/#io
 // If config is provided, uses custom channels; otherwise creates default OS-backed channels
-func (env *ModuleEnvironment) PopulateIOModule(config *IOChannelConfig) {
+// If executor is provided, channels are stored in storedObjects for proper ID tracking
+func (env *ModuleEnvironment) PopulateIOModule(config *IOChannelConfig, executor *Executor) {
 	env.mu.Lock()
 	defer env.mu.Unlock()
 
@@ -189,6 +190,29 @@ func (env *ModuleEnvironment) PopulateIOModule(config *IOChannelConfig) {
 		for name, ch := range config.CustomChannels {
 			if ch != nil {
 				env.LibraryRestricted["io"][name] = &ModuleItem{Type: "object", Value: ch}
+			}
+		}
+	}
+
+	// Store channels in executor's storedObjects for proper ID tracking
+	// This allows channels to be passed to macros and stored in lists
+	if executor != nil {
+		// Store each unique channel (stdin, stdout, stderr, stdio)
+		// Note: we only store unique channels to avoid duplicate IDs
+		storedChannels := make(map[*StoredChannel]bool)
+		for _, ch := range []*StoredChannel{stdinCh, stdoutCh, stderrCh, stdioCh} {
+			if ch != nil && !storedChannels[ch] {
+				executor.storeObject(ch, "channel")
+				storedChannels[ch] = true
+			}
+		}
+		// Store custom channels as well
+		if config != nil && config.CustomChannels != nil {
+			for _, ch := range config.CustomChannels {
+				if ch != nil && !storedChannels[ch] {
+					executor.storeObject(ch, "channel")
+					storedChannels[ch] = true
+				}
 			}
 		}
 	}

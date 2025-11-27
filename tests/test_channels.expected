@@ -2,103 +2,30 @@
 Channel created
 
 === Test 2: Subscribe to channel ===
-[PawScript ERROR] First argument must be a channel
-[PawScript ERROR] First argument must be a channel
 Created 2 subscribers
 
 === Test 3: Channel broadcasts to subscribers ===
-[PawScript ERROR] First argument must be a channel
-[PawScript ERROR] Variable not found: sub1
-  at line 16, column 8 in test_channels.paw
-[PawScript ERROR] First argument must be a channel
-[PawScript ERROR] Variable not found: sub2
-  at line 17, column 8 in test_channels.paw
-[PawScript ERROR] First argument must be a channel
-[PawScript ERROR] Variable not found: msg1
-  at line 18, column 6 in test_channels.paw
-[PawScript ERROR] Variable not found: msg1
-  at line 19, column 6 in test_channels.paw
-[PawScript ERROR] Variable not found: msg2
-  at line 20, column 6 in test_channels.paw
-[PawScript ERROR] Variable not found: msg2
-  at line 21, column 6 in test_channels.paw
-Sub1: <nil> from <nil>
-Sub2: <nil> from <nil>
+Sub1: broadcast from 0
+Sub2: broadcast from 0
 
 === Test 4: Subscriber sends to channel ===
-[PawScript ERROR] Variable not found: sub1
-  at line 27, column 1 in test_channels.paw
-[PawScript ERROR] First argument must be a channel
-[PawScript ERROR] First argument must be a channel
-[PawScript ERROR] Variable not found: msg
-  at line 29, column 10 in test_channels.paw
-[PawScript ERROR] Variable not found: msg
-  at line 30, column 9 in test_channels.paw
-Channel: <nil> from <nil>
+Channel: from_sub1 from 1
 
 === Test 5: Subscriber doesn't receive own messages ===
-[PawScript ERROR] Variable not found: sub1
-  at line 35, column 1 in test_channels.paw
-[PawScript ERROR] First argument must be a channel
-[PawScript ERROR] First argument must be a channel
-[PawScript ERROR] Variable not found: sub2
-  at line 37, column 9 in test_channels.paw
-[PawScript ERROR] First argument must be a channel
-[PawScript ERROR] Variable not found: msgch
-  at line 38, column 7 in test_channels.paw
-[PawScript ERROR] Variable not found: msgch
-  at line 39, column 7 in test_channels.paw
-[PawScript ERROR] Variable not found: msgs2
-  at line 40, column 7 in test_channels.paw
-[PawScript ERROR] Variable not found: msgs2
-  at line 41, column 7 in test_channels.paw
-Channel got: <nil> from <nil>
-Sub2 got: <nil> from <nil>
+Channel got: self_test from 1
+Sub2 got: from_sub1 from 1
 
 === Test 6: Channel length ===
-[PawScript ERROR] First argument must be a channel
-[PawScript ERROR] First argument must be a channel
-[PawScript ERROR] First argument must be a channel
-[PawScript ERROR] Variable not found: sub1
-  at line 51, column 10 in test_channels.paw
-[PawScript ERROR] Cannot get length of type nil
-
-  at line 51, column 10 in test_channels.paw
-[PawScript ERROR] Variable not found: sub2
-  at line 52, column 10 in test_channels.paw
-[PawScript ERROR] Cannot get length of type nil
-
-  at line 52, column 10 in test_channels.paw
-Channel: 9 unread
-[PawScript ERROR] Variable not found: len_s1
-  at line 54, column 1 in test_channels.paw
-Sub1:  unread
-[PawScript ERROR] Variable not found: len_s2
-  at line 55, column 1 in test_channels.paw
-Sub2:  unread
+Channel: 0 unread
+Sub1: 3 unread
+Sub2: 4 unread
 
 === Test 7: Channel status ===
-[PawScript ERROR] First argument must be a channel
-[PawScript ERROR] Variable not found: sub1
-  at line 60, column 11 in test_channels.paw
-[PawScript ERROR] First argument must be a channel
-[PawScript ERROR] Variable not found: opened1
-  at line 61, column 1 in test_channels.paw
-Channel open: 
-[PawScript ERROR] Variable not found: opened2
-  at line 62, column 1 in test_channels.paw
-Sub1 open: 
+Channel open: true
+Sub1 open: true
 
 === Test 8: Close subscriber ===
-[PawScript ERROR] Variable not found: sub1
-  at line 66, column 1 in test_channels.paw
-[PawScript ERROR] First argument must be a channel
-[PawScript ERROR] Variable not found: sub1
-  at line 67, column 9 in test_channels.paw
-[PawScript ERROR] First argument must be a channel
-[PawScript ERROR] Variable not found: after
-  at line 68, column 1 in test_channels.paw
-Sub1 after close: 
+Sub1 after close: false
 
 === Test 9: System channels ===
 System channels accessed via tilde

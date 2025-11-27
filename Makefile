@@ -16,7 +16,7 @@ else
     BINARY_NAME := paw
 endif
 
-.PHONY: build-all clean-releases build install test test-coverage run-example clean fmt lint help
+.PHONY: build-all clean-releases build build-gui install test test-coverage run-example clean fmt lint help
 
 # Build native version for local use
 build:
@@ -28,6 +28,20 @@ build-token-example:
 	@echo "Building token_example for native platform ($(NATIVE_OS)/$(NATIVE_ARCH))..."
 	cd $(SRC_DIR) && go build -ldflags "-X main.version=$(VERSION)" -o ../token_example ./cmd/token_example
 	@echo "Created: token_example"
+
+# Build GUI version (requires Fyne dependencies: libgl1-mesa-dev xorg-dev on Linux)
+build-gui:
+	@echo "Building pawgui for native platform ($(NATIVE_OS)/$(NATIVE_ARCH))..."
+ifeq ($(NATIVE_OS),windows)
+	cd $(SRC_DIR) && go build -ldflags "-X main.version=$(VERSION)" -o ../pawgui.exe ./cmd/pawgui
+	@echo "Created: pawgui.exe"
+else ifeq ($(NATIVE_OS),darwin)
+	cd $(SRC_DIR) && CGO_LDFLAGS="-Wl,-no_warn_duplicate_libraries" go build -ldflags "-X main.version=$(VERSION)" -o ../pawgui ./cmd/pawgui
+	@echo "Created: pawgui"
+else
+	cd $(SRC_DIR) && go build -ldflags "-X main.version=$(VERSION)" -o ../pawgui ./cmd/pawgui
+	@echo "Created: pawgui"
+endif
 
 # Alias for build
 install: build
@@ -89,7 +103,7 @@ run-example:
 
 clean:
 	@echo "Cleaning..."
-	@rm -f paw $(SRC_DIR)/coverage.out $(SRC_DIR)/coverage.html
+	@rm -f paw pawgui $(SRC_DIR)/coverage.out $(SRC_DIR)/coverage.html
 	@echo "Clean complete"
 
 fmt:
@@ -107,6 +121,7 @@ help:
 	@echo ""
 	@echo "Targets:"
 	@echo "  build          - Build paw for native platform"
+	@echo "  build-gui      - Build pawgui (Fyne GUI) for native platform"
 	@echo "  build-all      - Build and package for all platforms"
 	@echo "  run-example    - Run hello.paw example"
 	@echo "  test           - Run regression tests"

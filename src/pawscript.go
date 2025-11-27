@@ -198,7 +198,54 @@ func (ps *PawScript) ExecuteFile(commandString, filename string) Result {
 func (ps *PawScript) Execute(commandString string, args ...interface{}) Result {
 	state := ps.NewExecutionStateFromRoot()
 	defer state.ReleaseAllReferences()
-	return ps.executor.ExecuteWithState(commandString, state, nil, "", 0, 0)
+	result := ps.executor.ExecuteWithState(commandString, state, nil, "", 0, 0)
+
+	// Merge any module exports into the root environment for persistence
+	state.moduleEnv.MergeExportsInto(ps.rootModuleEnv)
+
+	return result
+}
+
+// ImportModuleToRoot imports all items from a module directly into the root environment.
+// This makes the items available to all subsequent Execute() calls without needing IMPORT.
+func (ps *PawScript) ImportModuleToRoot(moduleName string) bool {
+	ps.rootModuleEnv.mu.Lock()
+	defer ps.rootModuleEnv.mu.Unlock()
+
+	// Find module in LibraryRestricted
+	section, exists := ps.rootModuleEnv.LibraryRestricted[moduleName]
+	if !exists {
+		ps.logger.Error("ImportModuleToRoot: Module not found in library: %s", moduleName)
+		return false
+	}
+
+	// Import all items from the module
+	for itemName, item := range section {
+		switch item.Type {
+		case "macro":
+			if macro, ok := item.Value.(*StoredMacro); ok && macro != nil {
+				ps.rootModuleEnv.MacrosModule[itemName] = macro
+				ps.logger.Debug("ImportModuleToRoot: Imported macro %s from %s", itemName, moduleName)
+			}
+		case "command":
+			if handler, ok := item.Value.(Handler); ok && handler != nil {
+				ps.rootModuleEnv.CommandRegistryModule[itemName] = handler
+				ps.logger.Debug("ImportModuleToRoot: Imported command %s from %s", itemName, moduleName)
+			}
+		case "object":
+			ps.rootModuleEnv.ObjectsModule[itemName] = item.Value
+			ps.logger.Debug("ImportModuleToRoot: Imported object %s from %s", itemName, moduleName)
+		}
+	}
+
+	return true
+}
+
+// ExecuteInRoot executes a command string directly in the root environment.
+// Any IMPORT, macro definitions, or other changes persist directly to root.
+// Use this when you need changes to be visible to all subsequent Execute() calls.
+func (ps *PawScript) ExecuteInRoot(commandString string) Result {
+	return ps.ExecuteWithEnvironment(commandString, ps.rootModuleEnv, "", 0, 0)
 }
 
 // CreateRestrictedSnapshot creates a restricted environment snapshot

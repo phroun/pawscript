@@ -78,6 +78,15 @@ func (e *Executor) SpawnFiber(macro *StoredMacro, args []interface{}, namedArgs 
 	handle.State.fiberID = fiberID
 	handle.State.executor = e
 
+	// CRITICAL: Claim references to fiber arguments BEFORE starting the goroutine
+	// This prevents the parent from releasing them before the fiber can use them
+	for _, arg := range args {
+		claimNestedReferences(arg, e)
+	}
+	for _, arg := range namedArgs {
+		claimNestedReferences(arg, e)
+	}
+
 	e.registerFiber(handle)
 
 	go func() {
@@ -89,6 +98,13 @@ func (e *Executor) SpawnFiber(macro *StoredMacro, args []interface{}, namedArgs 
 			e.unregisterFiber(fiberID)
 			// Release all references owned by this fiber
 			handle.State.ReleaseAllReferences()
+			// Release the pre-claimed references from SpawnFiber
+			for _, arg := range args {
+				releaseNestedReferences(arg, e)
+			}
+			for _, arg := range namedArgs {
+				releaseNestedReferences(arg, e)
+			}
 		}()
 
 		e.logger.Debug("Fiber %d starting execution", fiberID)

@@ -2,55 +2,22 @@
 Main fiber ID: 0
 
 === Test 2: Spawn simple fiber ===
-[PawScript ERROR] First argument must be a macro or macro name
-[PawScript ERROR] Variable not found: handle
-  at line 10, column 1 in test_fibers.paw
-[PawScript ERROR] First argument must be a fiber handle
+Hello from fiber!
 Fiber completed
 
 === Test 3: Fiber with result ===
-[PawScript ERROR] First argument must be a macro or macro name
-[PawScript ERROR] Variable not found: h2
-  at line 16, column 10 in test_fibers.paw
-[PawScript ERROR] First argument must be a fiber handle
-[PawScript ERROR] Variable not found: result
-  at line 17, column 1 in test_fibers.paw
-Result: 
+Result: 42
 
 === Test 4: Fiber with arguments ===
-[PawScript ERROR] First argument must be a macro or macro name
-[PawScript ERROR] Variable not found: h3
-  at line 22, column 11 in test_fibers.paw
-[PawScript ERROR] First argument must be a fiber handle
-[PawScript ERROR] Variable not found: product
-  at line 23, column 1 in test_fibers.paw
-6 * 7 = 
+6 * 7 = 42
 
 === Test 5: Multiple fibers ===
-[PawScript ERROR] First argument must be a macro or macro name
-[PawScript ERROR] First argument must be a macro or macro name
-[PawScript ERROR] First argument must be a macro or macro name
-[PawScript ERROR] Variable not found: f1
-  at line 31, column 6 in test_fibers.paw
-[PawScript ERROR] First argument must be a fiber handle
-[PawScript ERROR] Variable not found: f2
-  at line 32, column 6 in test_fibers.paw
-[PawScript ERROR] First argument must be a fiber handle
-[PawScript ERROR] Variable not found: f3
-  at line 33, column 6 in test_fibers.paw
-[PawScript ERROR] First argument must be a fiber handle
-[PawScript ERROR] Variable not found: r1
-  at line 35, column 1 in test_fibers.paw
-[PawScript ERROR] Variable not found: r2
-  at line 35, column 1 in test_fibers.paw
-[PawScript ERROR] Variable not found: r3
-  at line 35, column 1 in test_fibers.paw
-Results: , , 
+Results: fiber1, fiber2, fiber3
 
 === Test 6: Fiber count ===
 Active fibers: 0
 
 === Test 7: fiber_id inside fiber ===
-[PawScript ERROR] First argument must be a macro or macro name
 Waiting for all fibers...
+Inside fiber, ID: 7
 All fibers completed

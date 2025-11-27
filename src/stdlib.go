@@ -91,6 +91,7 @@ func formatListForDisplay(list StoredList) string {
 
 // formatArgForDisplay formats any argument for display, handling StoredList specially
 // Also resolves any object markers (LIST/STRING/BLOCK) before displaying
+// For object types that shouldn't leak internal representation, displays as <type N>
 func formatArgForDisplay(arg interface{}, executor *Executor) string {
 	// Resolve any markers first (LIST/STRING/BLOCK -> actual values)
 	if executor != nil {
@@ -98,10 +99,49 @@ func formatArgForDisplay(arg interface{}, executor *Executor) string {
 	}
 
 	// Now format the resolved value
-	if list, ok := arg.(StoredList); ok {
-		return formatListForDisplay(list)
+	switch v := arg.(type) {
+	case StoredList:
+		return formatListForDisplay(v)
+	case *StoredChannel:
+		// Display as <channel N> to avoid leaking internal representation
+		if executor != nil {
+			if id := executor.findStoredChannelID(v); id >= 0 {
+				return fmt.Sprintf("<channel %d>", id)
+			}
+		}
+		return "<channel>"
+	case StoredMacro:
+		return "<macro>"
+	case *StoredMacro:
+		return "<macro>"
+	case *StoredCommand:
+		if v.CommandName != "" {
+			return fmt.Sprintf("<command %s>", v.CommandName)
+		}
+		return "<command>"
+	case *FiberHandle:
+		// Try to find the fiber ID
+		if executor != nil {
+			if id := executor.findStoredFiberID(v); id >= 0 {
+				return fmt.Sprintf("<fiber %d>", id)
+			}
+		}
+		return "<fiber>"
+	default:
+		// Check if the original value was an unresolved marker (string or Symbol form)
+		// This handles cases where the object was garbage collected or not found
+		if sym, ok := arg.(Symbol); ok {
+			if objType, objID := parseObjectMarker(string(sym)); objID >= 0 {
+				return fmt.Sprintf("<%s %d>", objType, objID)
+			}
+		}
+		if str, ok := arg.(string); ok {
+			if objType, objID := parseObjectMarker(str); objID >= 0 {
+				return fmt.Sprintf("<%s %d>", objType, objID)
+			}
+		}
+		return fmt.Sprintf("%v", arg)
 	}
-	return fmt.Sprintf("%v", arg)
 }
 
 // resolveToString resolves an argument to a string, handling markers
@@ -150,7 +190,8 @@ func (ps *PawScript) RegisterStandardLibraryWithIO(scriptArgs []string, ioConfig
 
 	// Populate IO module with native stdin/stdout/stderr/stdio channels
 	// Uses custom channels from ioConfig if provided
-	ps.rootModuleEnv.PopulateIOModule(ioConfig)
+	// Pass executor so channels get stored with proper IDs
+	ps.rootModuleEnv.PopulateIOModule(ioConfig, ps.executor)
 
 	// Populate OS module with script arguments as #args
 	ps.rootModuleEnv.PopulateOSModule(scriptArgs)
@@ -354,10 +395,22 @@ func getTypeName(val interface{}) string {
 	switch v := val.(type) {
 	case StoredMacro:
 		return "macro"
+	case *StoredMacro:
+		return "macro"
 	case StoredCommand:
 		return "command"
+	case *StoredCommand:
+		return "command"
+	case *StoredChannel:
+		return "channel"
+	case *FiberHandle:
+		return "fiber"
 	case StoredList:
 		return "list"
+	case StoredString:
+		return "string"
+	case StoredBlock:
+		return "block"
 	case ParenGroup:
 		return "block"
 	case QuotedString:

@@ -58,6 +58,7 @@ func errorPrintf(format string, args ...interface{}) {
 func main() {
 
 	// Define command line flags
+	licenseFlag := flag.Bool("license", false, "Show license")
 	debugFlag := flag.Bool("debug", false, "Enable debug output")
 	verboseFlag := flag.Bool("verbose", false, "Enable verbose output (alias for -debug)")
 	flag.BoolVar(debugFlag, "d", false, "Enable debug output (short)")
@@ -68,6 +69,11 @@ func main() {
 
 	// Parse flags
 	flag.Parse()
+	
+	if (*licenseFlag) {
+		showLicense()
+		os.Exit(0)
+	}
 
 	// Verbose is an alias for debug
 	debug := *debugFlag || *verboseFlag
@@ -220,7 +226,40 @@ func findScriptFile(filename string) string {
 }
 
 func showCopyright() {
-	fmt.Fprintf(os.Stderr, "paw, the pawscript interpreter version %s - Copyright (c) 2025 Jeffrey R. Day\n\n", version)
+	fmt.Fprintf(os.Stderr, "paw, the pawscript interpreter version %s\nCopyright (c) 2025 Jeffrey R. Day\nLicense: MIT\n\n", version)
+}
+
+func showLicense() {
+	fmt.Fprintf(os.Stdout, "paw, the pawscript interpreter version %s", version)
+	license := `
+
+MIT License
+
+Copyright (c) 2025 Jeffrey R. Day
+
+Permission is hereby granted, free of charge, to any person
+obtaining a copy of this software and associated documentation
+files (the "Software"), to deal in the Software without
+restriction, including without limitation the rights to use,
+copy, modify, merge, publish, distribute, sublicense, and/or
+sell copies of the Software, and to permit persons to whom the
+Software is furnished to do so, subject to the following
+conditions:
+
+The above copyright notice and this permission notice
+(including the next paragraph) shall be included in all copies
+or substantial portions of the Software.
+
+THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND,
+EXPRESS OR IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES
+OF MERCHANTABILITY, FITNESS FOR A PARTICULAR PURPOSE AND
+NONINFRINGEMENT. IN NO EVENT SHALL THE AUTHORS OR COPYRIGHT
+HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER LIABILITY,
+WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING
+FROM, OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR
+OTHER DEALINGS IN THE SOFTWARE.
+`
+	fmt.Fprintf(os.Stdout, license)
 }
 
 func showUsage() {
@@ -231,6 +270,7 @@ func showUsage() {
 Execute PawScript commands from a file, stdin, or pipe.
 
 Options:
+  --license           View license and exit
   -d, -debug          Enable debug output
   -v, -verbose        Enable verbose output (same as -debug)
   
