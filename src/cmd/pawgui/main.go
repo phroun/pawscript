@@ -271,8 +271,9 @@ func registerGuiCommands(ps *pawscript.PawScript) {
 		btn := widget.NewButton(text, func() {
 			if onclickMacro != "" {
 				// Execute the macro when button is clicked
+				// First import from exports module, then call the macro
 				go func() {
-					result := guiState.ps.Execute(onclickMacro)
+					result := guiState.ps.Execute(fmt.Sprintf("IMPORT exports\n%s", onclickMacro))
 					if result == pawscript.BoolStatus(false) {
 						fmt.Fprintf(os.Stderr, "Button callback error: %s\n", onclickMacro)
 					}
