@@ -36,6 +36,9 @@ build-gui:
 ifeq ($(NATIVE_OS),windows)
 	go build -ldflags "-X main.version=$(VERSION)" -o $(INSTALL_DIR)/pawgui.exe ./cmd/pawgui
 	@echo "Created: $(INSTALL_DIR)/pawgui.exe"
+else ifeq ($(NATIVE_OS),darwin)
+	CGO_LDFLAGS="-Wl,-no_warn_duplicate_libraries" go build -ldflags "-X main.version=$(VERSION)" -o $(INSTALL_DIR)/pawgui ./cmd/pawgui
+	@echo "Created: $(INSTALL_DIR)/pawgui"
 else
 	go build -ldflags "-X main.version=$(VERSION)" -o $(INSTALL_DIR)/pawgui ./cmd/pawgui
 	@echo "Created: $(INSTALL_DIR)/pawgui"
