@@ -75,6 +75,18 @@ See the `examples/` directory for sample scripts and usage patterns.
 
 ## Changelog
 
+### 0.2.7 -- November 27, 2025
+- Move Makefile into a more standard location
+- Added --license switch to show the MIT License.
+- Fixed bug where object markers would resolve too early when passing
+  parameters to macros.
+- Made channel and fiber fully fledged types with get_type support.
+- Removed outdated MacroSystem now that Environments hold macros.
+- PopulateIOModule now creates StoredChannels for #stdin, #stdout, and #stderr.
+- Better error checking when host environment uses SetResult.
+- Added host helpers: ExecuteInRoot and ImportModuleToRoot.
+- Added a proof of concept project, pawgui, to integrate Fyne with PawScript.
+
 ### 0.2.6 -- November 25, 2025
 - `env_dump` returns all environment variables as a list with named args
 - `rune` converts a character to its Unicode code point (inverse of `chr`)
