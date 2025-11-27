@@ -150,10 +150,34 @@ func (ps *PawScript) NewExecutionStateFromRoot() *ExecutionState {
 	return state
 }
 
-// ExecuteFile executes a script file with proper filename tracking
+// ExecuteFile executes a script file with proper filename tracking.
+// If the script contains async operations (like msleep), this function waits
+// for the entire script to complete before returning and merging exports.
 func (ps *PawScript) ExecuteFile(commandString, filename string) Result {
 	state := ps.NewExecutionStateFromRoot()
 	result := ps.executor.ExecuteWithState(commandString, state, nil, filename, 0, 0)
+
+	// If the result is an async token, we need to wait for the script to complete
+	// before we can merge exports (MODULE/EXPORT may run after async operations)
+	if tokenResult, ok := result.(TokenResult); ok {
+		tokenID := string(tokenResult)
+		ps.logger.Debug("ExecuteFile('%s'): Script returned async token %s, waiting for completion", filename, tokenID)
+
+		// Create a channel to wait for completion
+		waitChan := make(chan ResumeData, 1)
+		ps.executor.attachWaitChan(tokenID, waitChan)
+
+		// Wait for the script to complete
+		resumeData := <-waitChan
+		ps.logger.Debug("ExecuteFile('%s'): Script completed with status %v", filename, resumeData.Status)
+
+		// Update result based on completion
+		if resumeData.Status {
+			result = BoolStatus(true)
+		} else {
+			result = BoolStatus(false)
+		}
+	}
 
 	// Debug: log what's in ModuleExports before merge
 	state.moduleEnv.mu.RLock()
