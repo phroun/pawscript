@@ -13,7 +13,6 @@ import (
 	"fyne.io/fyne/v2"
 	"fyne.io/fyne/v2/app"
 	"fyne.io/fyne/v2/container"
-	"fyne.io/fyne/v2/driver/desktop"
 	"fyne.io/fyne/v2/widget"
 	"github.com/fyne-io/terminal"
 	pawscript "github.com/phroun/pawscript"
@@ -710,19 +709,9 @@ type sizedWidget struct {
 	minSize fyne.Size
 }
 
-// Ensure sizedWidget implements Mouseable for immediate focus on click
-var _ desktop.Mouseable = (*sizedWidget)(nil)
-
-// MouseDown implements desktop.Mouseable - focus the wrapped widget directly on click
-func (s *sizedWidget) MouseDown(_ *desktop.MouseEvent) {
-	// Focus the wrapped widget directly using same method as fyne-io/terminal
-	if focusable, ok := s.wrapped.(fyne.Focusable); ok {
-		fyne.CurrentApp().Driver().CanvasForObject(s.wrapped).Focus(focusable)
-	}
-}
-
-// MouseUp implements desktop.Mouseable
-func (s *sizedWidget) MouseUp(_ *desktop.MouseEvent) {}
+// Note: sizedWidget intentionally does NOT implement focus handling.
+// The wrapped terminal widget handles focus via its own Tapped() method.
+// This avoids any potential conflicts between wrapper and terminal focus.
 
 func newSizedWidget(wrapped fyne.CanvasObject, minSize fyne.Size) *sizedWidget {
 	s := &sizedWidget{
