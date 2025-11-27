@@ -733,7 +733,7 @@ func callComparator(ps *PawScript, ctx *Context, comparator interface{}, a, b in
 		result = comp.Handler(cmdCtx)
 
 	case StoredMacro:
-		result = ps.macroSystem.ExecuteStoredMacro(&comp, func(commands string, macroExecState *ExecutionState, substCtx *SubstitutionContext) Result {
+		result = ps.executor.ExecuteStoredMacro(&comp, func(commands string, macroExecState *ExecutionState, substCtx *SubstitutionContext) Result {
 			filename := ""
 			lineOffset := 0
 			columnOffset := 0
@@ -774,7 +774,7 @@ func callComparator(ps *PawScript, ctx *Context, comparator interface{}, a, b in
 			if !ok {
 				return false, fmt.Errorf("object %d is not a macro", objectID)
 			}
-			result = ps.macroSystem.ExecuteStoredMacro(&macro, func(commands string, macroExecState *ExecutionState, substCtx *SubstitutionContext) Result {
+			result = ps.executor.ExecuteStoredMacro(&macro, func(commands string, macroExecState *ExecutionState, substCtx *SubstitutionContext) Result {
 				filename := ""
 				lineOffset := 0
 				columnOffset := 0
@@ -786,13 +786,11 @@ func callComparator(ps *PawScript, ctx *Context, comparator interface{}, a, b in
 				return ps.executor.ExecuteWithState(commands, macroExecState, substCtx, filename, lineOffset, columnOffset)
 			}, callArgs, make(map[string]interface{}), childState, ctx.Position, ctx.state)
 		} else {
-			// Treat as macro name - look up in module environment
+			// Treat as macro name - look up in module environment (COW - only check MacrosModule)
 			name := string(comp)
 			var macro *StoredMacro
 			ctx.state.moduleEnv.mu.RLock()
 			if m, exists := ctx.state.moduleEnv.MacrosModule[name]; exists && m != nil {
-				macro = m
-			} else if m, exists := ctx.state.moduleEnv.MacrosInherited[name]; exists && m != nil {
 				macro = m
 			}
 			ctx.state.moduleEnv.mu.RUnlock()
@@ -801,7 +799,7 @@ func callComparator(ps *PawScript, ctx *Context, comparator interface{}, a, b in
 				return false, fmt.Errorf("macro \"%s\" not found", name)
 			}
 
-			result = ps.macroSystem.ExecuteStoredMacro(macro, func(commands string, macroExecState *ExecutionState, substCtx *SubstitutionContext) Result {
+			result = ps.executor.ExecuteStoredMacro(macro, func(commands string, macroExecState *ExecutionState, substCtx *SubstitutionContext) Result {
 				filename := ""
 				lineOffset := 0
 				columnOffset := 0
@@ -819,7 +817,7 @@ func callComparator(ps *PawScript, ctx *Context, comparator interface{}, a, b in
 		commands := string(comp)
 		macroEnv := NewMacroModuleEnvironment(ctx.state.moduleEnv)
 		macro := NewStoredMacroWithEnv(commands, ctx.Position, macroEnv)
-		result = ps.macroSystem.ExecuteStoredMacro(&macro, func(cmds string, macroExecState *ExecutionState, substCtx *SubstitutionContext) Result {
+		result = ps.executor.ExecuteStoredMacro(&macro, func(cmds string, macroExecState *ExecutionState, substCtx *SubstitutionContext) Result {
 			filename := ""
 			lineOffset := 0
 			columnOffset := 0
@@ -832,12 +830,10 @@ func callComparator(ps *PawScript, ctx *Context, comparator interface{}, a, b in
 		}, callArgs, make(map[string]interface{}), childState, ctx.Position, ctx.state)
 
 	case string:
-		// Treat as macro name - look up in module environment
+		// Treat as macro name - look up in module environment (COW - only check MacrosModule)
 		var macro *StoredMacro
 		ctx.state.moduleEnv.mu.RLock()
 		if m, exists := ctx.state.moduleEnv.MacrosModule[comp]; exists && m != nil {
-			macro = m
-		} else if m, exists := ctx.state.moduleEnv.MacrosInherited[comp]; exists && m != nil {
 			macro = m
 		}
 		ctx.state.moduleEnv.mu.RUnlock()
@@ -846,7 +842,7 @@ func callComparator(ps *PawScript, ctx *Context, comparator interface{}, a, b in
 			return false, fmt.Errorf("macro \"%s\" not found", comp)
 		}
 
-		result = ps.macroSystem.ExecuteStoredMacro(macro, func(commands string, macroExecState *ExecutionState, substCtx *SubstitutionContext) Result {
+		result = ps.executor.ExecuteStoredMacro(macro, func(commands string, macroExecState *ExecutionState, substCtx *SubstitutionContext) Result {
 			filename := ""
 			lineOffset := 0
 			columnOffset := 0

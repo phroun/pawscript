@@ -42,8 +42,6 @@ func (ps *PawScript) RegisterFibersLib() {
 				ctx.state.moduleEnv.mu.RLock()
 				if m, exists := ctx.state.moduleEnv.MacrosModule[symStr]; exists && m != nil {
 					macro = m
-				} else if m, exists := ctx.state.moduleEnv.MacrosInherited[symStr]; exists && m != nil {
-					macro = m
 				}
 				ctx.state.moduleEnv.mu.RUnlock()
 			}
@@ -51,8 +49,6 @@ func (ps *PawScript) RegisterFibersLib() {
 			// Look up macro in module environment (string form)
 			ctx.state.moduleEnv.mu.RLock()
 			if m, exists := ctx.state.moduleEnv.MacrosModule[str]; exists && m != nil {
-				macro = m
-			} else if m, exists := ctx.state.moduleEnv.MacrosInherited[str]; exists && m != nil {
 				macro = m
 			}
 			ctx.state.moduleEnv.mu.RUnlock()
@@ -68,7 +64,7 @@ func (ps *PawScript) RegisterFibersLib() {
 		if parentModuleEnv == nil {
 			parentModuleEnv = ctx.state.moduleEnv
 		}
-		handle := ctx.executor.SpawnFiber(macro, ps.macroSystem, fiberArgs, namedArgs, parentModuleEnv)
+		handle := ctx.executor.SpawnFiber(macro, fiberArgs, namedArgs, parentModuleEnv)
 
 		objectID := ctx.executor.storeObject(handle, "fiber")
 		fiberMarker := fmt.Sprintf("\x00FIBER:%d\x00", objectID)

@@ -54,7 +54,7 @@ func (e *Executor) GetSuspendedFibers() map[int]string {
 
 // SpawnFiber spawns a new fiber to execute a macro
 // parentModuleEnv allows the fiber to inherit commands from the parent context
-func (e *Executor) SpawnFiber(macro *StoredMacro, macroSystem *MacroSystem, args []interface{}, namedArgs map[string]interface{}, parentModuleEnv *ModuleEnvironment) *FiberHandle {
+func (e *Executor) SpawnFiber(macro *StoredMacro, args []interface{}, namedArgs map[string]interface{}, parentModuleEnv *ModuleEnvironment) *FiberHandle {
 	e.mu.Lock()
 	fiberID := e.nextFiberID
 	e.nextFiberID++
@@ -94,7 +94,7 @@ func (e *Executor) SpawnFiber(macro *StoredMacro, macroSystem *MacroSystem, args
 		e.logger.Debug("Fiber %d starting execution", fiberID)
 
 		// Execute macro (token system handles all async operations and sequencing)
-		result := macroSystem.ExecuteStoredMacro(
+		result := e.ExecuteStoredMacro(
 			macro,
 			func(commands string, macroExecState *ExecutionState, ctx *SubstitutionContext) Result {
 				filename := ""
