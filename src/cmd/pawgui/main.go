@@ -665,7 +665,7 @@ macro console_loop (
         print "\x1b[35m[\x1b[0m~count\x1b[35m]\x1b[0m Enter text (or 'quit'):"
         input: {read}
 
-        if (eq ~input, "quit"), (
+        {eq ~input, "quit"} & (
             print "\x1b[31mGoodbye!\x1b[0m"
             return
         )
