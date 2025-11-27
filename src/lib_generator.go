@@ -824,41 +824,17 @@ func (ps *PawScript) RegisterGeneratorLib() {
 			return BoolStatus(false)
 		}
 
-		// Check if token exists and has remaining items (for iterators)
+		// Check if token exists
 		ctx.executor.mu.RLock()
-		tokenData, exists := ctx.executor.activeTokens[tokenID]
+		_, exists := ctx.executor.activeTokens[tokenID]
 		if !exists {
 			ctx.executor.mu.RUnlock()
 			ctx.SetResult(false)
 			return BoolStatus(false)
 		}
 
-		// For iterators, check if there are remaining items
-		if tokenData.IteratorState != nil {
-			iterState := tokenData.IteratorState
-			switch iterState.Type {
-			case "each":
-				// Check if index is past the end - access storedObjects directly since we hold the lock
-				storedObj, listExists := ctx.executor.storedObjects[iterState.ListID]
-				if !listExists {
-					ctx.executor.mu.RUnlock()
-					ctx.SetResult(false)
-					return BoolStatus(false)
-				}
-				if list, ok := storedObj.Value.(StoredList); ok {
-					hasMore := iterState.Index < len(list.Items())
-					ctx.executor.mu.RUnlock()
-					ctx.SetResult(hasMore)
-					return BoolStatus(hasMore)
-				}
-			case "pair":
-				// Check if key index is past the end
-				hasMore := iterState.KeyIndex < len(iterState.Keys)
-				ctx.executor.mu.RUnlock()
-				ctx.SetResult(hasMore)
-				return BoolStatus(hasMore)
-			}
-		}
+		// token_valid just checks if the token exists - no look-ahead
+		// Use while (v: {resume ~token}) pattern to consume iterators/generators
 		ctx.executor.mu.RUnlock()
 
 		ctx.SetResult(exists)
