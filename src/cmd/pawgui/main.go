@@ -480,7 +480,12 @@ func registerGuiCommands(ps *pawscript.PawScript) {
 
 		// Connect the terminal to our pipes
 		// RunWithConnection expects: in = where to write keyboard input, out = what to display
+		// We need to wait for the terminal to be rendered before starting the connection,
+		// otherwise the terminal's content TextGrid won't be initialized yet.
 		go func() {
+			// Wait for the widget to be rendered (CreateRenderer to be called)
+			// This happens when the widget is added to a visible canvas
+			time.Sleep(time.Millisecond * 100)
 			err := term.RunWithConnection(stdinWriter, stdoutReader)
 			if err != nil {
 				fmt.Fprintf(os.Stderr, "Terminal error: %v\n", err)
