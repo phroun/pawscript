@@ -146,6 +146,7 @@ type WhileContinuation struct {
 	IterationCount      int               // Current iteration number
 	State               *ExecutionState   // Execution state at time of yield
 	SubstitutionCtx     *SubstitutionContext
+	ParentContinuation  *WhileContinuation // For nested while loops - outer loop's state
 }
 
 // IteratorState stores state for Go-backed iterators (each, pair)

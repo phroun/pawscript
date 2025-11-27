@@ -341,8 +341,8 @@ func (ps *PawScript) RegisterGeneratorLib() {
 			}
 		}
 
-		// Handle while continuation if present
-		if whileCont != nil {
+		// Handle while continuation if present (loop to handle parent continuations)
+		for whileCont != nil {
 			ps.logger.Debug("resume: handling while continuation, %d remaining body commands", len(whileCont.RemainingBodyCmds))
 
 			// Clear the continuation from the token (we're handling it now)
@@ -388,13 +388,14 @@ func (ps *PawScript) RegisterGeneratorLib() {
 							remainingCmds = whileCont.RemainingBodyCmds[nextIdx:]
 						}
 						td.WhileContinuation = &WhileContinuation{
-							ConditionBlock:    whileCont.ConditionBlock,
-							BodyBlock:         whileCont.BodyBlock,
-							RemainingBodyCmds: remainingCmds,
-							BodyCmdIndex:      whileCont.BodyCmdIndex + nextIdx,
-							IterationCount:    whileCont.IterationCount,
-							State:             state,
-							SubstitutionCtx:   substCtx,
+							ConditionBlock:     whileCont.ConditionBlock,
+							BodyBlock:          whileCont.BodyBlock,
+							RemainingBodyCmds:  remainingCmds,
+							BodyCmdIndex:       whileCont.BodyCmdIndex + nextIdx,
+							IterationCount:     whileCont.IterationCount,
+							State:              state,
+							SubstitutionCtx:    substCtx,
+							ParentContinuation: whileCont.ParentContinuation, // Preserve parent
 						}
 					}
 					ctx.executor.mu.Unlock()
@@ -470,13 +471,14 @@ func (ps *PawScript) RegisterGeneratorLib() {
 					ctx.executor.mu.Lock()
 					if td, exists := ctx.executor.activeTokens[tokenID]; exists {
 						td.WhileContinuation = &WhileContinuation{
-							ConditionBlock:    whileCont.ConditionBlock,
-							BodyBlock:         whileCont.BodyBlock,
-							RemainingBodyCmds: bodyCommands,
-							BodyCmdIndex:      -1,
-							IterationCount:    iterations,
-							State:             state,
-							SubstitutionCtx:   substCtx,
+							ConditionBlock:     whileCont.ConditionBlock,
+							BodyBlock:          whileCont.BodyBlock,
+							RemainingBodyCmds:  bodyCommands,
+							BodyCmdIndex:       -1,
+							IterationCount:     iterations,
+							State:              state,
+							SubstitutionCtx:    substCtx,
+							ParentContinuation: whileCont.ParentContinuation, // Preserve parent
 						}
 					}
 					ctx.executor.mu.Unlock()
@@ -526,22 +528,32 @@ func (ps *PawScript) RegisterGeneratorLib() {
 					if yieldResult, ok := result.(YieldResult); ok {
 						ps.logger.Debug("resume: yield in while loop continuation, value: %v", yieldResult.Value)
 
+						// Create continuation for the current (outer) while
+						nextIdx := cmdIdx + 1
+						var remainingCmds []*ParsedCommand
+						if nextIdx < len(bodyCommands) {
+							remainingCmds = bodyCommands[nextIdx:]
+						}
+						outerCont := &WhileContinuation{
+							ConditionBlock:     whileCont.ConditionBlock,
+							BodyBlock:          whileCont.BodyBlock,
+							RemainingBodyCmds:  remainingCmds,
+							BodyCmdIndex:       cmdIdx,
+							IterationCount:     iterations,
+							State:              state,
+							SubstitutionCtx:    substCtx,
+							ParentContinuation: whileCont.ParentContinuation,
+						}
+
 						ctx.executor.mu.Lock()
 						if td, exists := ctx.executor.activeTokens[tokenID]; exists {
-							// Calculate remaining commands safely
-							nextIdx := cmdIdx + 1
-							var remainingCmds []*ParsedCommand
-							if nextIdx < len(bodyCommands) {
-								remainingCmds = bodyCommands[nextIdx:]
-							}
-							td.WhileContinuation = &WhileContinuation{
-								ConditionBlock:    whileCont.ConditionBlock,
-								BodyBlock:         whileCont.BodyBlock,
-								RemainingBodyCmds: remainingCmds,
-								BodyCmdIndex:      cmdIdx,
-								IterationCount:    iterations,
-								State:             state,
-								SubstitutionCtx:   substCtx,
+							// Check if yield came from nested while (has its own continuation)
+							if yieldResult.WhileContinuation != nil {
+								// Chain: nested while's continuation gets outer as parent
+								yieldResult.WhileContinuation.ParentContinuation = outerCont
+								td.WhileContinuation = yieldResult.WhileContinuation
+							} else {
+								td.WhileContinuation = outerCont
 							}
 						}
 						ctx.executor.mu.Unlock()
@@ -581,8 +593,15 @@ func (ps *PawScript) RegisterGeneratorLib() {
 				iterations++
 			}
 
-			// While loop finished, continue with remaining generator commands
-			// Fall through to normal command execution
+			// While loop finished - check for parent continuation (nested while loops)
+			if whileCont.ParentContinuation != nil {
+				ps.logger.Debug("resume: inner while finished, resuming parent continuation")
+				whileCont = whileCont.ParentContinuation
+				continue // Continue loop to handle parent
+			}
+
+			// No parent - break out and continue with remaining generator commands
+			break
 		}
 
 		if seq == nil || len(seq.RemainingCommands) == 0 {

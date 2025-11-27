@@ -693,14 +693,18 @@ func (ps *PawScript) RegisterCoreLib() {
 
 			// Check for yield in condition (unusual but possible)
 			if yieldResult, ok := condResult.(YieldResult); ok {
-				// Attach while continuation - we haven't started the body yet
-				yieldResult.WhileContinuation = &WhileContinuation{
+				outerCont := &WhileContinuation{
 					ConditionBlock:    conditionBlock,
 					BodyBlock:         bodyBlock,
 					RemainingBodyCmds: bodyCommands, // Full body since we haven't started
 					BodyCmdIndex:      -1,           // -1 indicates yield was in condition
 					IterationCount:    iterations,
 					State:             ctx.state,
+				}
+				if yieldResult.WhileContinuation == nil {
+					yieldResult.WhileContinuation = outerCont
+				} else {
+					yieldResult.WhileContinuation.ParentContinuation = outerCont
 				}
 				return yieldResult
 			}
@@ -744,14 +748,21 @@ func (ps *PawScript) RegisterCoreLib() {
 				result := ctx.executor.executeParsedCommand(cmd, ctx.state, nil)
 
 				// Check for yield - attach while continuation
+				// For nested while loops, chain as parent continuation
 				if yieldResult, ok := result.(YieldResult); ok {
-					yieldResult.WhileContinuation = &WhileContinuation{
+					outerCont := &WhileContinuation{
 						ConditionBlock:    conditionBlock,
 						BodyBlock:         bodyBlock,
 						RemainingBodyCmds: bodyCommands[cmdIdx+1:],
 						BodyCmdIndex:      cmdIdx,
 						IterationCount:    iterations,
 						State:             ctx.state,
+					}
+					if yieldResult.WhileContinuation == nil {
+						yieldResult.WhileContinuation = outerCont
+					} else {
+						// Chain: inner while's continuation gets outer as parent
+						yieldResult.WhileContinuation.ParentContinuation = outerCont
 					}
 					return yieldResult
 				}
