@@ -13,6 +13,7 @@ import (
 	"fyne.io/fyne/v2"
 	"fyne.io/fyne/v2/app"
 	"fyne.io/fyne/v2/container"
+	"fyne.io/fyne/v2/driver/desktop"
 	"fyne.io/fyne/v2/widget"
 	"github.com/fyne-io/terminal"
 	pawscript "github.com/phroun/pawscript"
@@ -716,14 +717,14 @@ type sizedWidget struct {
 	debugWriter io.Writer // For debugging - write to terminal on tap
 }
 
-// Ensure sizedWidget implements Tappable for immediate focus
-var _ fyne.Tappable = (*sizedWidget)(nil)
+// Ensure sizedWidget implements Mouseable for immediate focus on click
+var _ desktop.Mouseable = (*sizedWidget)(nil)
 
-// Tapped directly calls FocusGained on the terminal to force immediate focus
-func (s *sizedWidget) Tapped(_ *fyne.PointEvent) {
+// MouseDown fires before Tappable events - use this to intercept clicks
+func (s *sizedWidget) MouseDown(_ *desktop.MouseEvent) {
 	// DEBUG: Write text immediately to see if output has the same delay
 	if s.debugWriter != nil {
-		fmt.Fprint(s.debugWriter, "\r\n[TAP DETECTED]\r\n")
+		fmt.Fprint(s.debugWriter, "\r\n[MOUSEDOWN DETECTED]\r\n")
 	}
 
 	// Directly call FocusGained to show cursor immediately
@@ -735,6 +736,9 @@ func (s *sizedWidget) Tapped(_ *fyne.PointEvent) {
 		fyne.CurrentApp().Driver().CanvasForObject(s.wrapped).Focus(focusable)
 	}
 }
+
+// MouseUp implements desktop.Mouseable
+func (s *sizedWidget) MouseUp(_ *desktop.MouseEvent) {}
 
 func newSizedWidget(wrapped fyne.CanvasObject, minSize fyne.Size) *sizedWidget {
 	s := &sizedWidget{
