@@ -451,15 +451,17 @@ func (e *Executor) substituteTildeExpressions(str string, state *ExecutionState,
 			} else {
 				valueStr = fmt.Sprintf("%v", resolved)
 			}
+			// Since tildes are only found inside double-quoted strings,
+			// we need to escape backslashes and quotes in the substituted value
+			// to prevent breaking the quote structure.
+			// IMPORTANT: These must come BEFORE tilde escaping, otherwise the
+			// placeholder's \x00 bytes would get double-escaped to \\x00
+			valueStr = strings.ReplaceAll(valueStr, `\`, `\\`)
+			valueStr = strings.ReplaceAll(valueStr, `"`, `\"`)
 			// Escape tildes in the resolved value to prevent tilde injection
 			// This ensures user input containing tildes doesn't get interpreted
 			// as variable references when the result string is re-parsed
 			valueStr = strings.ReplaceAll(valueStr, "~", escapedTildePlaceholder)
-			// Since tildes are only found inside double-quoted strings,
-			// we need to escape any double quotes in the substituted value
-			// to prevent breaking the quote structure
-			valueStr = strings.ReplaceAll(valueStr, `\`, `\\`)
-			valueStr = strings.ReplaceAll(valueStr, `"`, `\"`)
 			result = append(result, []rune(valueStr)...)
 		} else {
 			// Variable not found - log error and leave empty
@@ -711,11 +713,15 @@ func (e *Executor) substituteAllBraces(originalString string, evaluations []*Bra
 
 	for _, eval := range sortedEvals {
 		// Get the result value
+		// IMPORTANT: Prioritize eval.Result over state.GetResult() because:
+		// 1. For EarlyReturn, the result is explicitly stored in eval.Result
+		// 2. The braceState might inherit parent's result (from NewExecutionStateFromSharedVars)
+		//    which would be the wrong value
 		var rawValue interface{}
-		if eval.State != nil && eval.State.HasResult() {
-			rawValue = eval.State.GetResult()
-		} else if eval.Result != nil {
+		if eval.Result != nil {
 			rawValue = eval.Result
+		} else if eval.State != nil && eval.State.HasResult() {
+			rawValue = eval.State.GetResult()
 		}
 
 		// Format the result based on type
@@ -757,6 +763,9 @@ func (e *Executor) substituteAllBraces(originalString string, evaluations []*Bra
 // This ensures nested structures maintain shared storage via reference passing
 // while still supporting human-readable display in string contexts.
 func (e *Executor) formatBraceResult(value interface{}, originalString string, bracePos int, state *ExecutionState) string {
+	// Placeholder for escaped tildes - must match the one used in applySubstitution
+	const escapedTildePlaceholder = "\x00TILDE\x00"
+
 	// Handle nil specially - output as bare word "nil"
 	if value == nil {
 		return "nil"
@@ -814,17 +823,27 @@ func (e *Executor) formatBraceResult(value interface{}, originalString string, b
 	case ParenGroup:
 		if insideQuotes {
 			// Inside quotes: unwrap and escape only quotes/backslashes
-			return e.escapeQuotesAndBackslashes(string(v))
+			// Also escape tildes to prevent tilde injection
+			result := e.escapeQuotesAndBackslashes(string(v))
+			result = strings.ReplaceAll(result, "~", escapedTildePlaceholder)
+			return result
 		}
 		// Outside quotes: preserve as parentheses
-		return "(" + string(v) + ")"
+		// Also escape tildes to prevent tilde injection
+		content := strings.ReplaceAll(string(v), "~", escapedTildePlaceholder)
+		return "(" + content + ")"
 	case QuotedString:
 		if insideQuotes {
 			// Inside quotes: unwrap and escape only quotes/backslashes
-			return e.escapeQuotesAndBackslashes(string(v))
+			// Also escape tildes to prevent tilde injection
+			result := e.escapeQuotesAndBackslashes(string(v))
+			result = strings.ReplaceAll(result, "~", escapedTildePlaceholder)
+			return result
 		}
 		// Outside quotes: preserve as quoted string, escaping internal quotes
+		// Also escape tildes to prevent tilde injection
 		escaped := e.escapeQuotesAndBackslashes(string(v))
+		escaped = strings.ReplaceAll(escaped, "~", escapedTildePlaceholder)
 		return "\"" + escaped + "\""
 	case Symbol:
 		// If it's a Symbol that might be a marker, resolve it first for proper formatting
@@ -853,11 +872,16 @@ func (e *Executor) formatBraceResult(value interface{}, originalString string, b
 	case string:
 		if insideQuotes {
 			// Inside quotes: escape only quotes/backslashes
-			return e.escapeQuotesAndBackslashes(v)
+			// Also escape tildes to prevent tilde injection
+			result := e.escapeQuotesAndBackslashes(v)
+			result = strings.ReplaceAll(result, "~", escapedTildePlaceholder)
+			return result
 		}
 		// Outside quotes: wrap in quotes to preserve the string value
 		// (don't escape spaces/special chars - that's for bare words only)
+		// Also escape tildes to prevent tilde injection
 		escaped := e.escapeQuotesAndBackslashes(v)
+		escaped = strings.ReplaceAll(escaped, "~", escapedTildePlaceholder)
 		return "\"" + escaped + "\""
 	case StoredList:
 		if insideQuotes {
@@ -879,10 +903,14 @@ func (e *Executor) formatBraceResult(value interface{}, originalString string, b
 		// Unknown type - convert to string and wrap in quotes outside quote context
 		str := fmt.Sprintf("%v", v)
 		if insideQuotes {
-			return e.escapeQuotesAndBackslashes(str)
+			result := e.escapeQuotesAndBackslashes(str)
+			result = strings.ReplaceAll(result, "~", escapedTildePlaceholder)
+			return result
 		}
 		// Wrap in quotes to preserve value
+		// Also escape tildes to prevent tilde injection
 		escaped := e.escapeQuotesAndBackslashes(str)
+		escaped = strings.ReplaceAll(escaped, "~", escapedTildePlaceholder)
 		return "\"" + escaped + "\""
 	}
 }
