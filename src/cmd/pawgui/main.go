@@ -465,6 +465,7 @@ func registerGuiCommands(ps *pawscript.PawScript) {
 
 		// Wrap terminal in a sizedWidget to enforce minimum size
 		sizedTerm := newSizedWidget(term, fyne.NewSize(width, height))
+		sizedTerm.debugWriter = stdoutWriter // DEBUG: for tap detection test
 
 		// Get optional ID
 		id := ""
@@ -710,8 +711,9 @@ func createConsoleChannels(stdinReader *io.PipeReader, stdoutWriter *io.PipeWrit
 // sizedWidget wraps a canvas object and enforces a minimum size
 type sizedWidget struct {
 	widget.BaseWidget
-	wrapped fyne.CanvasObject
-	minSize fyne.Size
+	wrapped     fyne.CanvasObject
+	minSize     fyne.Size
+	debugWriter io.Writer // For debugging - write to terminal on tap
 }
 
 // Ensure sizedWidget implements Tappable for immediate focus
@@ -719,6 +721,11 @@ var _ fyne.Tappable = (*sizedWidget)(nil)
 
 // Tapped directly calls FocusGained on the terminal to force immediate focus
 func (s *sizedWidget) Tapped(_ *fyne.PointEvent) {
+	// DEBUG: Write text immediately to see if output has the same delay
+	if s.debugWriter != nil {
+		fmt.Fprint(s.debugWriter, "\r\n[TAP DETECTED]\r\n")
+	}
+
 	// Directly call FocusGained to show cursor immediately
 	if focusable, ok := s.wrapped.(fyne.Focusable); ok {
 		focusable.FocusGained()
