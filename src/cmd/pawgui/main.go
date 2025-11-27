@@ -890,28 +890,60 @@ macro console_loop (
     print #out, "To console"
 
     # Clear and show welcome
-    write "\x1b[2J\x1b[H"
-    print "\x1b[36m=== PawScript Console ===\x1b[0m"
+    clear
+    color cyan
+    print "=== PawScript Console ==="
+    color reset: true
     print ""
-    print "This console runs in a \x1b[33mfiber\x1b[0m,"
+    write "This console runs in a "
+    color yellow
+    write "fiber"
+    color reset: true
+    print ","
     print "so it doesn't block the GUI!"
     print ""
-    print "\x1b[32mColors work:\x1b[0m \x1b[31mred\x1b[0m \x1b[33myellow\x1b[0m \x1b[34mblue\x1b[0m"
+    color green
+    write "Colors work:"
+    color reset: true
+    write " "
+    color red
+    write "red"
+    color reset: true
+    write " "
+    color yellow
+    write "yellow"
+    color reset: true
+    write " "
+    color blue
+    print "blue"
+    color reset: true
     print ""
 
     # Interactive loop
     count: 0
     while (true), (
         count: {add ~count, 1}
-        write "\x1b[35m[\x1b[0m~count\x1b[35m]\x1b[0m Enter text (or 'quit'): "
+        color magenta
+        write "["
+        color reset: true
+        write "~count"
+        color magenta
+        write "]"
+        color reset: true
+        write " Enter text (or 'quit'): "
         input: {read}
 
         {eq ~input, "quit"} & (
-            print "\x1b[31mGoodbye!\x1b[0m"
+            color red
+            print "Goodbye!"
+            color reset: true
             ret
         )
 
-        print "You said: \x1b[36m~input\x1b[0m"
+        write "You said: "
+        color cyan
+        print "~input"
+        color reset: true
         print ""
     )
 )
@@ -943,19 +975,26 @@ msleep 200
 
 # Now we can use standard print and echo commands!
 # Clear screen and show title
-write "\x1b[2J\x1b[H"
-print "\x1b[36m=== PawScript Console Demo ===\x1b[0m"
+clear
+color cyan
+print "=== PawScript Console Demo ==="
+color reset: true
 echo ""
-print "This terminal supports ANSI escape codes!"
+print "This terminal supports colors!"
 echo ""
 
 echo #stdout, "Regular output"
 
-# Show some colors using raw ANSI codes
-print "\x1b[31mThis is red text\x1b[0m"
-print "\x1b[32mThis is green text\x1b[0m"
-print "\x1b[33mThis is yellow text\x1b[0m"
-print "\x1b[34mThis is blue text\x1b[0m"
+# Show some colors using PawScript color commands
+color red
+print "This is red text"
+color green
+print "This is green text"
+color yellow
+print "This is yellow text"
+color blue
+print "This is blue text"
+color reset: true
 echo ""
 
 write "Type something and press Enter: "
