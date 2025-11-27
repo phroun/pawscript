@@ -748,6 +748,10 @@ func (ps *PawScript) RegisterSystemLib(scriptArgs []string) {
 		ts.mu.Lock()
 		defer ts.mu.Unlock()
 
+		// Get output channel and use its terminal capabilities
+		outCh, _, _ := getOutputChannel(ctx, "#out")
+		outCtx := NewOutputContext(ctx.state, ctx.executor)
+
 		// Check for mode argument
 		if len(ctx.Args) > 0 {
 			var mode string
@@ -762,20 +766,20 @@ func (ps *PawScript) RegisterSystemLib(scriptArgs []string) {
 				mode = fmt.Sprintf("%v", v)
 			}
 
-			// Handle specific clear modes - emit ANSI codes
+			// Handle specific clear modes - emit ANSI codes if supported
 			ansiCode := ANSIClearMode(mode)
-			if ansiCode != "" {
-				fmt.Print(ansiCode)
+			if ansiCode != "" && ChannelSupportsANSI(outCh) {
+				_ = outCtx.WriteToOut(ansiCode)
 				ts.HasCleared = false // partial clear doesn't count as full clear
 				return BoolStatus(true)
 			}
-			// Unknown mode - fall through to default behavior
+			// Unknown mode or no ANSI support - fall through to default behavior
 		}
 
-		// Default clear behavior
-		if IsTerminal() {
+		// Default clear behavior - check channel's terminal capabilities
+		if ChannelIsTerminal(outCh) && ChannelSupportsANSI(outCh) {
 			// Terminal mode - send ANSI clear and home cursor
-			fmt.Print(ANSIClearScreen())
+			_ = outCtx.WriteToOut(ANSIClearScreen())
 			// Reset cursor position in our tracking
 			ts.X = ts.XBase
 			ts.Y = ts.YBase
@@ -783,7 +787,7 @@ func (ps *PawScript) RegisterSystemLib(scriptArgs []string) {
 		} else {
 			// Redirected mode - send separator unless we just cleared
 			if !ts.HasCleared {
-				fmt.Print("\n=======================================\n\n")
+				_ = outCtx.WriteToOut("\n=======================================\n\n")
 				ts.HasCleared = true
 			}
 		}
@@ -801,10 +805,16 @@ func (ps *PawScript) RegisterSystemLib(scriptArgs []string) {
 		ts.mu.Lock()
 		defer ts.mu.Unlock()
 
+		// Get output channel and use its terminal capabilities
+		outCh, _, _ := getOutputChannel(ctx, "#out")
+		outCtx := NewOutputContext(ctx.state, ctx.executor)
+
 		// Check for reset option first
 		if v, ok := ctx.NamedArgs["reset"]; ok && isTruthy(v) {
-			// Emit reset sequence
-			fmt.Print(ANSIReset())
+			// Emit reset sequence if ANSI supported
+			if ChannelSupportsANSI(outCh) {
+				_ = outCtx.WriteToOut(ANSIReset())
+			}
 
 			// Reset all tracked state to defaults
 			ts.CurrentFG = -1
@@ -815,15 +825,15 @@ func (ps *PawScript) RegisterSystemLib(scriptArgs []string) {
 			ts.Invert = false
 			ts.HasCleared = false
 
-			// Build and return result list
+			// Build and return result list with channel's terminal info
 			resultNamedArgs := map[string]interface{}{
 				"bold":      false,
 				"blink":     false,
 				"underline": false,
 				"invert":    false,
-				"term":      GetTerminalType(),
-				"ansi":      SupportsANSI(),
-				"color":     SupportsColor(),
+				"term":      ChannelGetTerminalType(outCh),
+				"ansi":      ChannelSupportsANSI(outCh),
+				"color":     ChannelSupportsColor(outCh),
 			}
 
 			result := NewStoredListWithNamed([]interface{}{
@@ -911,17 +921,20 @@ func (ps *PawScript) RegisterSystemLib(scriptArgs []string) {
 			effectiveBG = ts.CurrentBG
 		}
 
-		var ansiCode string
-		if bg == -1 && len(ctx.Args) == 1 && !bold && !blink && !underline && !invert {
-			// Only foreground specified, no attributes - just change foreground
-			ansiCode = fmt.Sprintf("\x1b[%dm", CGAToANSIFG(fg))
-		} else {
-			// Need full color setting (handles reset for attributes)
-			ansiCode = ANSIColor(effectiveFG, effectiveBG, bold, blink, underline, invert)
-		}
+		// Only emit ANSI codes if the channel's terminal supports them
+		if ChannelSupportsANSI(outCh) {
+			var ansiCode string
+			if bg == -1 && len(ctx.Args) == 1 && !bold && !blink && !underline && !invert {
+				// Only foreground specified, no attributes - just change foreground
+				ansiCode = fmt.Sprintf("\x1b[%dm", CGAToANSIFG(fg))
+			} else {
+				// Need full color setting (handles reset for attributes)
+				ansiCode = ANSIColor(effectiveFG, effectiveBG, bold, blink, underline, invert)
+			}
 
-		if ansiCode != "" {
-			fmt.Print(ansiCode)
+			if ansiCode != "" {
+				_ = outCtx.WriteToOut(ansiCode)
+			}
 		}
 
 		// Update tracked state
@@ -937,15 +950,15 @@ func (ps *PawScript) RegisterSystemLib(scriptArgs []string) {
 		ts.Invert = invert
 		ts.HasCleared = false
 
-		// Build and return result list
+		// Build and return result list with channel's terminal info
 		resultNamedArgs := map[string]interface{}{
 			"bold":      ts.Bold,
 			"blink":     ts.AttrBlink,
 			"underline": ts.Underline,
 			"invert":    ts.Invert,
-			"term":      GetTerminalType(),
-			"ansi":      SupportsANSI(),
-			"color":     SupportsColor(),
+			"term":      ChannelGetTerminalType(outCh),
+			"ansi":      ChannelSupportsANSI(outCh),
+			"color":     ChannelSupportsColor(outCh),
 		}
 
 		result := NewStoredListWithNamed([]interface{}{

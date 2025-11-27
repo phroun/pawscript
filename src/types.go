@@ -395,6 +395,48 @@ type StoredChannel struct {
 	NativeSend      func(interface{}) error         // Native send handler
 	NativeRecv      func() (interface{}, error)     // Native receive handler
 	NativeClose     func() error                    // Native close handler
+	// Terminal capabilities associated with this channel
+	// Allows channels to report their own ANSI/color/size support
+	// If nil, system terminal capabilities are used as fallback
+	Terminal        *TerminalCapabilities
+}
+
+// GetTerminalCapabilities returns terminal capabilities for this channel
+// Falls back through: this channel -> parent channel -> system terminal
+func (ch *StoredChannel) GetTerminalCapabilities() *TerminalCapabilities {
+	if ch == nil {
+		return GetSystemTerminalCapabilities()
+	}
+
+	ch.mu.RLock()
+	defer ch.mu.RUnlock()
+
+	// Check this channel's terminal
+	if ch.Terminal != nil {
+		return ch.Terminal
+	}
+
+	// For subscribers, check parent (without holding our lock)
+	if ch.IsSubscriber && ch.ParentChannel != nil {
+		ch.mu.RUnlock()
+		caps := ch.ParentChannel.GetTerminalCapabilities()
+		ch.mu.RLock()
+		return caps
+	}
+
+	// Fall back to system terminal
+	return GetSystemTerminalCapabilities()
+}
+
+// SetTerminalCapabilities sets terminal capabilities for this channel
+// Multiple channels can share the same capabilities pointer
+func (ch *StoredChannel) SetTerminalCapabilities(caps *TerminalCapabilities) {
+	if ch == nil {
+		return
+	}
+	ch.mu.Lock()
+	defer ch.mu.Unlock()
+	ch.Terminal = caps
 }
 
 // NewStoredChannel creates a new channel with optional buffer size

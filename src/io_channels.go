@@ -148,6 +148,23 @@ func (env *ModuleEnvironment) PopulateIOModule(config *IOChannelConfig, executor
 		}
 	}
 
+	// Set system terminal capabilities on default channels
+	// All four channels share the same system terminal, so they share the same capabilities pointer
+	// This means a resize event only needs to update one TerminalCapabilities instance
+	sysCaps := GetSystemTerminalCapabilities()
+	if stdinCh.Terminal == nil {
+		stdinCh.Terminal = sysCaps
+	}
+	if stdoutCh.Terminal == nil {
+		stdoutCh.Terminal = sysCaps
+	}
+	if stderrCh.Terminal == nil {
+		stderrCh.Terminal = sysCaps
+	}
+	if stdioCh.Terminal == nil {
+		stdioCh.Terminal = sysCaps
+	}
+
 	// Register channels with both full and short names
 	// Full names
 	ioModule["#stdin"] = &ModuleItem{Type: "object", Value: stdinCh}

@@ -466,8 +466,20 @@ func registerGuiCommands(ps *pawscript.PawScript) {
 		stdinReader, stdinWriter := io.Pipe()
 		stdoutReader, stdoutWriter := io.Pipe()
 
-		// Create console channels backed by pipes
-		consoleOutCh, consoleInCh := createConsoleChannels(stdinReader, stdoutWriter)
+		// Estimate character dimensions from pixel dimensions
+		// Typical terminal font: ~8-10px wide, ~16-18px tall
+		charWidth := int(width / 9)  // rough estimate
+		charHeight := int(height / 18) // rough estimate
+		if charWidth < 1 {
+			charWidth = 80
+		}
+		if charHeight < 1 {
+			charHeight = 24
+		}
+
+		// Create console channels backed by pipes, with terminal capabilities
+		consoleOutCh, consoleInCh, termCaps := createConsoleChannels(stdinReader, stdoutWriter, charWidth, charHeight)
+		_ = termCaps // Terminal capabilities can be updated on resize if needed
 
 		// Create terminal widget
 		term := terminal.New()
@@ -681,9 +693,26 @@ func (h *consoleInputHandler) readLine() (string, error) {
 }
 
 // createConsoleChannels creates StoredChannels for the console terminal
-func createConsoleChannels(stdinReader *io.PipeReader, stdoutWriter *io.PipeWriter) (*pawscript.StoredChannel, *pawscript.StoredChannel) {
+// Returns: out channel, in channel, and shared terminal capabilities
+func createConsoleChannels(stdinReader *io.PipeReader, stdoutWriter *io.PipeWriter, width, height int) (*pawscript.StoredChannel, *pawscript.StoredChannel, *pawscript.TerminalCapabilities) {
 	// Create input handler with background goroutine
 	inputHandler := newConsoleInputHandler(stdinReader, stdoutWriter)
+
+	// Create terminal capabilities for this GUI console
+	// All channels from this console share the same capabilities instance
+	termCaps := &pawscript.TerminalCapabilities{
+		TermType:      "gui-console",
+		IsTerminal:    true,
+		SupportsANSI:  true,
+		SupportsColor: true,
+		ColorDepth:    256, // GUI terminal supports 256 colors
+		Width:         width,
+		Height:        height,
+		SupportsInput: true,
+		EchoEnabled:   true,
+		LineMode:      true,
+		Metadata:      make(map[string]interface{}),
+	}
 
 	// Console output channel - write to terminal display
 	consoleOutCh := &pawscript.StoredChannel{
@@ -693,6 +722,7 @@ func createConsoleChannels(stdinReader *io.PipeReader, stdoutWriter *io.PipeWrit
 		NextSubscriberID: 1,
 		IsClosed:         false,
 		Timestamp:        time.Now(),
+		Terminal:         termCaps,
 		NativeSend: func(v interface{}) error {
 			// Convert \n to \r\n for proper terminal line endings
 			text := fmt.Sprintf("%v", v)
@@ -714,6 +744,7 @@ func createConsoleChannels(stdinReader *io.PipeReader, stdoutWriter *io.PipeWrit
 		NextSubscriberID: 1,
 		IsClosed:         false,
 		Timestamp:        time.Now(),
+		Terminal:         termCaps, // Share the same capabilities
 		NativeRecv: func() (interface{}, error) {
 			return inputHandler.readLine()
 		},
@@ -722,7 +753,7 @@ func createConsoleChannels(stdinReader *io.PipeReader, stdoutWriter *io.PipeWrit
 		},
 	}
 
-	return consoleOutCh, consoleInCh
+	return consoleOutCh, consoleInCh, termCaps
 }
 
 // clickInterceptor is a transparent widget that sits on top of the terminal

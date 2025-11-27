@@ -9,6 +9,217 @@ import (
 	"golang.org/x/term"
 )
 
+// TerminalCapabilities holds terminal capabilities that can be associated with a channel
+// This allows different channels (e.g., system stdout vs gui_console) to report
+// their own capabilities independently
+type TerminalCapabilities struct {
+	mu sync.RWMutex
+
+	// Terminal type and detection
+	TermType    string // e.g., "xterm-256color", "gui-console"
+	IsTerminal  bool   // true if this is an interactive terminal
+	SupportsANSI bool  // true if ANSI escape codes are supported
+	SupportsColor bool // true if color output is supported
+	ColorDepth  int    // 0=none, 8=basic, 16=extended, 256=256color, 24=truecolor
+
+	// Screen dimensions
+	Width  int // columns
+	Height int // rows
+
+	// Input capabilities
+	SupportsInput bool // true if this channel can receive input
+	EchoEnabled   bool // true if input should be echoed (duplex mode)
+	LineMode      bool // true if input is line-buffered, false for raw/char mode
+
+	// Custom metadata (for host-provided channels)
+	Metadata map[string]interface{}
+}
+
+// NewTerminalCapabilities creates a new capabilities struct with defaults
+func NewTerminalCapabilities() *TerminalCapabilities {
+	return &TerminalCapabilities{
+		TermType:      "unknown",
+		IsTerminal:    false,
+		SupportsANSI:  false,
+		SupportsColor: false,
+		ColorDepth:    0,
+		Width:         80,
+		Height:        24,
+		SupportsInput: false,
+		EchoEnabled:   true,
+		LineMode:      true,
+		Metadata:      make(map[string]interface{}),
+	}
+}
+
+// DetectSystemTerminalCapabilities creates capabilities by detecting the system terminal
+func DetectSystemTerminalCapabilities() *TerminalCapabilities {
+	caps := NewTerminalCapabilities()
+
+	// Check if stdout is a terminal
+	caps.IsTerminal = term.IsTerminal(int(os.Stdout.Fd()))
+
+	// Get terminal type from environment
+	caps.TermType = os.Getenv("TERM")
+	if caps.TermType == "" {
+		caps.TermType = "unknown"
+	}
+
+	// Detect ANSI support
+	caps.SupportsANSI = detectANSISupport(caps.TermType, caps.IsTerminal)
+
+	// Detect color support and depth
+	caps.SupportsColor, caps.ColorDepth = detectColorSupport(caps.TermType)
+
+	// Detect screen size
+	if caps.IsTerminal {
+		width, height, err := term.GetSize(int(os.Stdout.Fd()))
+		if err == nil && width > 0 && height > 0 {
+			caps.Width = width
+			caps.Height = height
+		}
+	}
+
+	// System terminal supports input on stdin
+	caps.SupportsInput = term.IsTerminal(int(os.Stdin.Fd()))
+	caps.EchoEnabled = true
+	caps.LineMode = true
+
+	return caps
+}
+
+// detectANSISupport checks if the terminal likely supports ANSI escape codes
+func detectANSISupport(termType string, isTerminal bool) bool {
+	if !isTerminal {
+		return false
+	}
+	if termType == "" || termType == "dumb" {
+		return false
+	}
+
+	termLower := strings.ToLower(termType)
+
+	// Check for known ANSI-supporting terminal types
+	ansiTerms := []string{
+		"xterm", "vt100", "vt102", "vt220", "vt320", "ansi", "linux",
+		"screen", "tmux", "rxvt", "konsole", "gnome", "putty",
+		"cygwin", "mintty", "eterm", "alacritty", "kitty", "iterm",
+	}
+
+	for _, t := range ansiTerms {
+		if strings.Contains(termLower, t) {
+			return true
+		}
+	}
+
+	// Check COLORTERM environment variable
+	if os.Getenv("COLORTERM") != "" {
+		return true
+	}
+
+	// If TERM is set and not "dumb", assume ANSI support
+	return true
+}
+
+// detectColorSupport checks if terminal supports color and returns depth
+func detectColorSupport(termType string) (supportsColor bool, depth int) {
+	termLower := strings.ToLower(termType)
+	colorTerm := strings.ToLower(os.Getenv("COLORTERM"))
+
+	// Check for truecolor
+	if colorTerm == "truecolor" || colorTerm == "24bit" {
+		return true, 24
+	}
+	if strings.Contains(termLower, "truecolor") || strings.Contains(termLower, "24bit") {
+		return true, 24
+	}
+
+	// Check for 256 color
+	if strings.Contains(termLower, "256color") {
+		return true, 256
+	}
+
+	// Check COLORTERM
+	if colorTerm != "" {
+		return true, 16
+	}
+
+	// Check for known color terminals
+	colorTerms := []string{
+		"xterm", "linux", "screen", "tmux", "rxvt", "konsole",
+		"gnome", "putty", "cygwin", "mintty", "eterm", "alacritty",
+		"kitty", "iterm",
+	}
+
+	for _, t := range colorTerms {
+		if strings.Contains(termLower, t) {
+			return true, 16
+		}
+	}
+
+	if strings.Contains(termLower, "color") {
+		return true, 8
+	}
+
+	return false, 0
+}
+
+// Clone creates a copy of the terminal capabilities
+func (tc *TerminalCapabilities) Clone() *TerminalCapabilities {
+	if tc == nil {
+		return nil
+	}
+	tc.mu.RLock()
+	defer tc.mu.RUnlock()
+
+	clone := &TerminalCapabilities{
+		TermType:      tc.TermType,
+		IsTerminal:    tc.IsTerminal,
+		SupportsANSI:  tc.SupportsANSI,
+		SupportsColor: tc.SupportsColor,
+		ColorDepth:    tc.ColorDepth,
+		Width:         tc.Width,
+		Height:        tc.Height,
+		SupportsInput: tc.SupportsInput,
+		EchoEnabled:   tc.EchoEnabled,
+		LineMode:      tc.LineMode,
+		Metadata:      make(map[string]interface{}),
+	}
+
+	for k, v := range tc.Metadata {
+		clone.Metadata[k] = v
+	}
+
+	return clone
+}
+
+// SetSize updates the terminal dimensions
+func (tc *TerminalCapabilities) SetSize(width, height int) {
+	tc.mu.Lock()
+	defer tc.mu.Unlock()
+	tc.Width = width
+	tc.Height = height
+}
+
+// GetSize returns the terminal dimensions
+func (tc *TerminalCapabilities) GetSize() (width, height int) {
+	tc.mu.RLock()
+	defer tc.mu.RUnlock()
+	return tc.Width, tc.Height
+}
+
+// systemTerminalCaps is the singleton for system terminal capabilities
+var systemTerminalCaps *TerminalCapabilities
+var systemTerminalCapsOnce sync.Once
+
+// GetSystemTerminalCapabilities returns the detected system terminal capabilities
+func GetSystemTerminalCapabilities() *TerminalCapabilities {
+	systemTerminalCapsOnce.Do(func() {
+		systemTerminalCaps = DetectSystemTerminalCapabilities()
+	})
+	return systemTerminalCaps
+}
+
 // TerminalState holds cursor position and terminal configuration
 type TerminalState struct {
 	mu sync.RWMutex
@@ -496,6 +707,79 @@ func SupportsColor() bool {
 	}
 
 	return false
+}
+
+// ChannelSupportsANSI returns true if the channel's terminal supports ANSI escape codes
+// Falls back to system terminal if channel is nil or has no terminal capabilities
+func ChannelSupportsANSI(ch *StoredChannel) bool {
+	if ch == nil {
+		return SupportsANSI()
+	}
+	caps := ch.GetTerminalCapabilities()
+	if caps == nil {
+		return SupportsANSI()
+	}
+	caps.mu.RLock()
+	defer caps.mu.RUnlock()
+	return caps.SupportsANSI
+}
+
+// ChannelSupportsColor returns true if the channel's terminal supports color
+// Falls back to system terminal if channel is nil or has no terminal capabilities
+func ChannelSupportsColor(ch *StoredChannel) bool {
+	if ch == nil {
+		return SupportsColor()
+	}
+	caps := ch.GetTerminalCapabilities()
+	if caps == nil {
+		return SupportsColor()
+	}
+	caps.mu.RLock()
+	defer caps.mu.RUnlock()
+	return caps.SupportsColor
+}
+
+// ChannelIsTerminal returns true if the channel represents an interactive terminal
+// Falls back to system terminal if channel is nil or has no terminal capabilities
+func ChannelIsTerminal(ch *StoredChannel) bool {
+	if ch == nil {
+		return IsTerminal()
+	}
+	caps := ch.GetTerminalCapabilities()
+	if caps == nil {
+		return IsTerminal()
+	}
+	caps.mu.RLock()
+	defer caps.mu.RUnlock()
+	return caps.IsTerminal
+}
+
+// ChannelGetTerminalType returns the terminal type for the channel
+// Falls back to system terminal if channel is nil or has no terminal capabilities
+func ChannelGetTerminalType(ch *StoredChannel) string {
+	if ch == nil {
+		return GetTerminalType()
+	}
+	caps := ch.GetTerminalCapabilities()
+	if caps == nil {
+		return GetTerminalType()
+	}
+	caps.mu.RLock()
+	defer caps.mu.RUnlock()
+	return caps.TermType
+}
+
+// ChannelGetSize returns the terminal dimensions for the channel
+// Falls back to system terminal if channel is nil or has no terminal capabilities
+func ChannelGetSize(ch *StoredChannel) (width, height int) {
+	if ch == nil {
+		return GetSystemTerminalCapabilities().GetSize()
+	}
+	caps := ch.GetTerminalCapabilities()
+	if caps == nil {
+		return GetSystemTerminalCapabilities().GetSize()
+	}
+	return caps.GetSize()
 }
 
 // SetDuplex enables or disables terminal echo (duplex mode)
