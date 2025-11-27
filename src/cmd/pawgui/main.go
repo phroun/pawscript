@@ -486,13 +486,15 @@ func registerGuiCommands(ps *pawscript.PawScript) {
 		// Store channels and create markers
 		outID := ctx.StoreObject(consoleOutCh, "channel")
 		inID := ctx.StoreObject(consoleInCh, "channel")
+
 		// Use outCh for err as well (same channel)
 		outMarker := pawscript.Symbol(fmt.Sprintf("\x00CHANNEL:%d\x00", outID))
 		inMarker := pawscript.Symbol(fmt.Sprintf("\x00CHANNEL:%d\x00", inID))
 		errMarker := outMarker // err uses same channel as out
 
 		// Create a StoredList with the channel markers
-		channelList := pawscript.NewStoredList([]interface{}{outMarker, inMarker, errMarker})
+		// NewStoredListWithRefs claims references to the channels via their markers
+		channelList := ctx.NewStoredListWithRefs([]interface{}{outMarker, inMarker, errMarker}, nil)
 		listID := ctx.StoreObject(channelList, "list")
 		listMarker := fmt.Sprintf("\x00LIST:%d\x00", listID)
 
