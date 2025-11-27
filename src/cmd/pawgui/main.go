@@ -463,20 +463,22 @@ func registerGuiCommands(ps *pawscript.PawScript) {
 		term := terminal.New()
 		guiState.terminal = term
 
-		// Wrap terminal in a sizedWidget to enforce minimum size
-		sizedTerm := newSizedWidget(term, fyne.NewSize(width, height))
+		// DEBUG: Try adding terminal directly without wrapper to test focus delay
+		// If focus is fast without the wrapper, the issue is in sizedWidget
+		// If focus is still slow, the issue is in fyne-io/terminal
+		term.Resize(fyne.NewSize(width, height))
 
 		// Get optional ID
 		id := ""
 		if idVal, ok := ctx.NamedArgs["id"]; ok {
 			id = fmt.Sprintf("%v", idVal)
 			guiState.mu.Lock()
-			guiState.widgets[id] = sizedTerm
+			guiState.widgets[id] = term
 			guiState.mu.Unlock()
 		}
 
-		// Add to appropriate panel
-		addToPanel(ctx, sizedTerm)
+		// Add to appropriate panel - terminal directly without wrapper
+		addToPanel(ctx, term)
 
 		// Connect the terminal to our pipes
 		// RunWithConnection expects: in = where to write keyboard input, out = what to display
