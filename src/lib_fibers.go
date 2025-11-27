@@ -64,7 +64,7 @@ func (ps *PawScript) RegisterFibersLib() {
 		if parentModuleEnv == nil {
 			parentModuleEnv = ctx.state.moduleEnv
 		}
-		handle := ctx.executor.SpawnFiber(macro, ps.macroSystem, fiberArgs, namedArgs, parentModuleEnv)
+		handle := ctx.executor.SpawnFiber(macro, fiberArgs, namedArgs, parentModuleEnv)
 
 		objectID := ctx.executor.storeObject(handle, "fiber")
 		fiberMarker := fmt.Sprintf("\x00FIBER:%d\x00", objectID)

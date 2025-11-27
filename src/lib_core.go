@@ -368,7 +368,7 @@ func (ps *PawScript) RegisterCoreLib() {
 		if macro, ok := firstArg.(StoredMacro); ok {
 			ps.logger.Debug("Calling resolved StoredMacro object")
 
-			return ps.macroSystem.ExecuteStoredMacro(&macro, func(commands string, macroExecState *ExecutionState, substCtx *SubstitutionContext) Result {
+			return ps.executor.ExecuteStoredMacro(&macro, func(commands string, macroExecState *ExecutionState, substCtx *SubstitutionContext) Result {
 				filename := ""
 				lineOffset := 0
 				columnOffset := 0
@@ -433,7 +433,7 @@ func (ps *PawScript) RegisterCoreLib() {
 					return BoolStatus(false)
 				}
 
-				return ps.macroSystem.ExecuteStoredMacro(&macro, func(commands string, macroExecState *ExecutionState, substCtx *SubstitutionContext) Result {
+				return ps.executor.ExecuteStoredMacro(&macro, func(commands string, macroExecState *ExecutionState, substCtx *SubstitutionContext) Result {
 					filename := ""
 					lineOffset := 0
 					columnOffset := 0
@@ -464,7 +464,7 @@ func (ps *PawScript) RegisterCoreLib() {
 			return BoolStatus(false)
 		}
 
-		return ps.macroSystem.ExecuteStoredMacro(macro, func(commands string, macroExecState *ExecutionState, substCtx *SubstitutionContext) Result {
+		return ps.executor.ExecuteStoredMacro(macro, func(commands string, macroExecState *ExecutionState, substCtx *SubstitutionContext) Result {
 			filename := ""
 			lineOffset := 0
 			columnOffset := 0
