@@ -46,6 +46,20 @@ func main() {
 		fmt.Println("Usage: pawgui <script.paw>")
 		fmt.Println("       pawgui -demo")
 		fmt.Println("       pawgui -console")
+		fmt.Println("       pawgui -d <script.paw>  (debug mode)")
+		fmt.Println("       pawgui -d -demo         (debug mode)")
+		os.Exit(1)
+	}
+
+	// Check for debug flag
+	debugMode := false
+	args := os.Args[1:]
+	if len(args) > 0 && args[0] == "-d" {
+		debugMode = true
+		args = args[1:]
+	}
+	if len(args) < 1 {
+		fmt.Println("Usage: pawgui [-d] <script.paw>")
 		os.Exit(1)
 	}
 
@@ -54,8 +68,10 @@ func main() {
 	mainWindow := fyneApp.NewWindow("PawScript GUI")
 	mainWindow.Resize(fyne.NewSize(400, 300))
 
-	// Create PawScript instance with default IO (real stdin/stdout/stderr)
-	ps := pawscript.New(nil)
+	// Create PawScript instance with debug mode if requested
+	config := pawscript.DefaultConfig()
+	config.Debug = debugMode
+	ps := pawscript.New(config)
 	ps.RegisterStandardLibrary(nil)
 
 	// Initialize GUI state with left/right panel support
@@ -77,8 +93,8 @@ func main() {
 	// Set initial content
 	mainWindow.SetContent(guiState.content)
 
-	// Handle flags
-	scriptPath := os.Args[1]
+	// Handle script path
+	scriptPath := args[0]
 	var script string
 
 	if scriptPath == "-demo" {
