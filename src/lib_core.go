@@ -46,6 +46,14 @@ func (ps *PawScript) RegisterCoreLib() {
 		return BoolStatus(false)
 	})
 
+	// get_status - gets the previous command's status as a formal bool result
+	// Returns true/false as the result, leaves status unchanged (like ret)
+	ps.RegisterCommandInModule("core", "get_status", func(ctx *Context) Result {
+		status := ctx.state.GetLastStatus()
+		ctx.SetResult(status)
+		return BoolStatus(status)
+	})
+
 	// ret - early return from block
 	ps.RegisterCommandInModule("core", "ret", func(ctx *Context) Result {
 		switch len(ctx.Args) {
