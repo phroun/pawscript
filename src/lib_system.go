@@ -748,9 +748,17 @@ func (ps *PawScript) RegisterSystemLib(scriptArgs []string) {
 		ts.mu.Lock()
 		defer ts.mu.Unlock()
 
-		// Get output channel and use its terminal capabilities
-		outCh, _, _ := getOutputChannel(ctx, "#out")
-		outCtx := NewOutputContext(ctx.state, ctx.executor)
+		// Get output channel - use it for both capability checking AND writing
+		outCh, _, found := getOutputChannel(ctx, "#out")
+
+		// Helper to send output to the resolved channel or system stdout
+		sendOutput := func(text string) {
+			if found && outCh != nil {
+				_ = ChannelSend(outCh, text)
+			} else {
+				fmt.Print(text)
+			}
+		}
 
 		// Check for mode argument
 		if len(ctx.Args) > 0 {
@@ -769,7 +777,7 @@ func (ps *PawScript) RegisterSystemLib(scriptArgs []string) {
 			// Handle specific clear modes - emit ANSI codes if supported
 			ansiCode := ANSIClearMode(mode)
 			if ansiCode != "" && ChannelSupportsANSI(outCh) {
-				_ = outCtx.WriteToOut(ansiCode)
+				sendOutput(ansiCode)
 				ts.HasCleared = false // partial clear doesn't count as full clear
 				return BoolStatus(true)
 			}
@@ -779,7 +787,7 @@ func (ps *PawScript) RegisterSystemLib(scriptArgs []string) {
 		// Default clear behavior - check channel's terminal capabilities
 		if ChannelIsTerminal(outCh) && ChannelSupportsANSI(outCh) {
 			// Terminal mode - send ANSI clear and home cursor
-			_ = outCtx.WriteToOut(ANSIClearScreen())
+			sendOutput(ANSIClearScreen())
 			// Reset cursor position in our tracking
 			ts.X = ts.XBase
 			ts.Y = ts.YBase
@@ -787,7 +795,7 @@ func (ps *PawScript) RegisterSystemLib(scriptArgs []string) {
 		} else {
 			// Redirected mode - send separator unless we just cleared
 			if !ts.HasCleared {
-				_ = outCtx.WriteToOut("\n=======================================\n\n")
+				sendOutput("\n=======================================\n\n")
 				ts.HasCleared = true
 			}
 		}
@@ -805,15 +813,23 @@ func (ps *PawScript) RegisterSystemLib(scriptArgs []string) {
 		ts.mu.Lock()
 		defer ts.mu.Unlock()
 
-		// Get output channel and use its terminal capabilities
-		outCh, _, _ := getOutputChannel(ctx, "#out")
-		outCtx := NewOutputContext(ctx.state, ctx.executor)
+		// Get output channel - use it for both capability checking AND writing
+		outCh, _, found := getOutputChannel(ctx, "#out")
+
+		// Helper to send output to the resolved channel or system stdout
+		sendOutput := func(text string) {
+			if found && outCh != nil {
+				_ = ChannelSend(outCh, text)
+			} else {
+				fmt.Print(text)
+			}
+		}
 
 		// Check for reset option first
 		if v, ok := ctx.NamedArgs["reset"]; ok && isTruthy(v) {
 			// Emit reset sequence if ANSI supported
 			if ChannelSupportsANSI(outCh) {
-				_ = outCtx.WriteToOut(ANSIReset())
+				sendOutput(ANSIReset())
 			}
 
 			// Reset all tracked state to defaults
@@ -933,7 +949,7 @@ func (ps *PawScript) RegisterSystemLib(scriptArgs []string) {
 			}
 
 			if ansiCode != "" {
-				_ = outCtx.WriteToOut(ansiCode)
+				sendOutput(ansiCode)
 			}
 		}
 
