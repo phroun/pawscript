@@ -1,8 +1,8 @@
 #!/usr/bin/env bash
 echo "bad-command-in-brace:"
 ../paw bad-command-in-brace.paw 2>&1 | diff - bad-command-in-brace.expected
-echo "brace-edge-cases:"
-../paw brace-edge-cases.paw 2>&1 | diff - brace-edge-cases.expected
+echo "brace-edge-cases-with-intentional-error:"
+../paw brace-edge-cases-with-intentional-error.paw 2>&1 | diff - brace-edge-cases-with-intentional-error.expected
 echo "demo:"
 ../paw demo.paw 2>&1 | diff - demo.expected
 echo "edge-case:"
@@ -75,8 +75,8 @@ echo "test_unpacking:"
 ../paw test_unpacking.paw 2>&1 | diff - test_unpacking.expected
 echo "test_variables_while:"
 ../paw test_variables_while.paw 2>&1 | diff - test_variables_while.expected
-echo "quote-edge-cases:"
-../paw quote-edge-cases.paw 2>&1 | diff - quote-edge-cases.expected
+echo "quote-edge-cases-with-intentional-error:"
+../paw quote-edge-cases-with-intentional-error.paw 2>&1 | diff - quote-edge-cases-with-intentional-error.expected
 echo "scope:"
 ../paw scope.paw 2>&1 | diff - scope.expected
 echo "trailing-operators:"
