@@ -279,14 +279,19 @@ func (ps *PawScript) ExecuteMacro(name string) Result {
 // ListMacros returns a list of all macro names from the root module environment
 func (ps *PawScript) ListMacros() []string {
 	macroSet := make(map[string]bool)
+	shadowedNames := make(map[string]bool)
 	ps.rootModuleEnv.mu.RLock()
+	// First collect from MacrosModule, tracking shadowed names
 	for name, macro := range ps.rootModuleEnv.MacrosModule {
 		if macro != nil {
 			macroSet[name] = true
+		} else {
+			shadowedNames[name] = true // nil means explicitly deleted/shadowed
 		}
 	}
+	// Then add inherited macros that aren't shadowed
 	for name, macro := range ps.rootModuleEnv.MacrosInherited {
-		if macro != nil {
+		if macro != nil && !shadowedNames[name] {
 			macroSet[name] = true
 		}
 	}
@@ -305,9 +310,14 @@ func (ps *PawScript) GetMacro(name string) *string {
 	ps.rootModuleEnv.mu.RLock()
 	defer ps.rootModuleEnv.mu.RUnlock()
 
-	if macro, exists := ps.rootModuleEnv.MacrosModule[name]; exists && macro != nil {
-		return &macro.Commands
+	// Check MacrosModule first - if exists (even nil), it shadows inherited
+	if macro, exists := ps.rootModuleEnv.MacrosModule[name]; exists {
+		if macro != nil {
+			return &macro.Commands
+		}
+		return nil // nil means explicitly shadowed/deleted
 	}
+	// Only check inherited if not in MacrosModule
 	if macro, exists := ps.rootModuleEnv.MacrosInherited[name]; exists && macro != nil {
 		return &macro.Commands
 	}
