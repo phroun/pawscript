@@ -1,6 +1,8 @@
 package pawscript
 
 import (
+	"fmt"
+	"os"
 	"sort"
 	"time"
 )
@@ -157,10 +159,12 @@ func (ps *PawScript) ExecuteFile(commandString, filename string) Result {
 
 	// Debug: log what's in ModuleExports before merge
 	state.moduleEnv.mu.RLock()
+	numExports := len(state.moduleEnv.ModuleExports)
+	fmt.Fprintf(os.Stderr, "[TRACE] ExecuteFile: ModuleExports has %d modules\n", numExports)
 	for modName, section := range state.moduleEnv.ModuleExports {
-		ps.logger.Debug("ExecuteFile: ModuleExports has module '%s' with %d items", modName, len(section))
+		fmt.Fprintf(os.Stderr, "[TRACE] ExecuteFile: ModuleExports['%s'] has %d items\n", modName, len(section))
 		for itemName, item := range section {
-			ps.logger.Debug("ExecuteFile:   - %s (type: %s)", itemName, item.Type)
+			fmt.Fprintf(os.Stderr, "[TRACE] ExecuteFile:   - %s (type: %s)\n", itemName, item.Type)
 		}
 	}
 	state.moduleEnv.mu.RUnlock()
@@ -170,8 +174,9 @@ func (ps *PawScript) ExecuteFile(commandString, filename string) Result {
 
 	// Debug: verify merge worked
 	ps.rootModuleEnv.mu.RLock()
+	fmt.Fprintf(os.Stderr, "[TRACE] ExecuteFile: After merge, LibraryRestricted has %d modules\n", len(ps.rootModuleEnv.LibraryRestricted))
 	for modName, section := range ps.rootModuleEnv.LibraryRestricted {
-		ps.logger.Debug("ExecuteFile: After merge, LibraryRestricted has module '%s' with %d items", modName, len(section))
+		fmt.Fprintf(os.Stderr, "[TRACE] ExecuteFile: LibraryRestricted['%s'] has %d items\n", modName, len(section))
 	}
 	ps.rootModuleEnv.mu.RUnlock()
 
