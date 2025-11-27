@@ -522,7 +522,11 @@ func createConsoleChannels(stdinReader *io.PipeReader, stdoutWriter *io.PipeWrit
 		IsClosed:         false,
 		Timestamp:        time.Now(),
 		NativeSend: func(v interface{}) error {
-			_, err := fmt.Fprintf(stdoutWriter, "%v", v)
+			// Convert \n to \r\n for proper terminal line endings
+			text := fmt.Sprintf("%v", v)
+			text = strings.ReplaceAll(text, "\r\n", "\n") // Normalize first
+			text = strings.ReplaceAll(text, "\n", "\r\n") // Then convert to CRLF
+			_, err := fmt.Fprint(stdoutWriter, text)
 			return err
 		},
 		NativeRecv: func() (interface{}, error) {
