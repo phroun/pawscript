@@ -118,7 +118,12 @@ func main() {
 			fmt.Fprintf(os.Stderr, "Script execution failed\n")
 		}
 		// Import exports module so exported macros are directly callable
-		ps.Execute("IMPORT exports")
+		importResult := ps.Execute("IMPORT exports")
+		if importResult == pawscript.BoolStatus(false) {
+			fmt.Fprintf(os.Stderr, "Failed to import exports module\n")
+		} else {
+			fmt.Fprintf(os.Stderr, "Successfully imported exports module\n")
+		}
 	}()
 
 	// Run the Fyne event loop (blocking)
