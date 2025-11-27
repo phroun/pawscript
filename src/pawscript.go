@@ -154,17 +154,18 @@ func (ps *PawScript) NewExecutionStateFromRoot() *ExecutionState {
 
 // ExecuteFile executes a script file with proper filename tracking
 func (ps *PawScript) ExecuteFile(commandString, filename string) Result {
+	fmt.Fprintf(os.Stderr, "[TRACE] ExecuteFile START: filename='%s'\n", filename)
 	state := ps.NewExecutionStateFromRoot()
 	result := ps.executor.ExecuteWithState(commandString, state, nil, filename, 0, 0)
 
 	// Debug: log what's in ModuleExports before merge
 	state.moduleEnv.mu.RLock()
 	numExports := len(state.moduleEnv.ModuleExports)
-	fmt.Fprintf(os.Stderr, "[TRACE] ExecuteFile: ModuleExports has %d modules\n", numExports)
+	fmt.Fprintf(os.Stderr, "[TRACE] ExecuteFile('%s'): ModuleExports has %d modules\n", filename, numExports)
 	for modName, section := range state.moduleEnv.ModuleExports {
-		fmt.Fprintf(os.Stderr, "[TRACE] ExecuteFile: ModuleExports['%s'] has %d items\n", modName, len(section))
+		fmt.Fprintf(os.Stderr, "[TRACE] ExecuteFile('%s'): ModuleExports['%s'] has %d items\n", filename, modName, len(section))
 		for itemName, item := range section {
-			fmt.Fprintf(os.Stderr, "[TRACE] ExecuteFile:   - %s (type: %s)\n", itemName, item.Type)
+			fmt.Fprintf(os.Stderr, "[TRACE] ExecuteFile('%s'):   - %s (type: %s)\n", filename, itemName, item.Type)
 		}
 	}
 	state.moduleEnv.mu.RUnlock()
@@ -174,12 +175,10 @@ func (ps *PawScript) ExecuteFile(commandString, filename string) Result {
 
 	// Debug: verify merge worked
 	ps.rootModuleEnv.mu.RLock()
-	fmt.Fprintf(os.Stderr, "[TRACE] ExecuteFile: After merge, LibraryRestricted has %d modules\n", len(ps.rootModuleEnv.LibraryRestricted))
-	for modName, section := range ps.rootModuleEnv.LibraryRestricted {
-		fmt.Fprintf(os.Stderr, "[TRACE] ExecuteFile: LibraryRestricted['%s'] has %d items\n", modName, len(section))
-	}
+	fmt.Fprintf(os.Stderr, "[TRACE] ExecuteFile('%s'): After merge, LibraryRestricted has %d modules\n", filename, len(ps.rootModuleEnv.LibraryRestricted))
 	ps.rootModuleEnv.mu.RUnlock()
 
+	fmt.Fprintf(os.Stderr, "[TRACE] ExecuteFile END: filename='%s'\n", filename)
 	return result
 }
 
