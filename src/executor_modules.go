@@ -594,6 +594,7 @@ func (e *Executor) removeItem(state *ExecutionState, itemName, itemType string) 
 //   EXPORT "modspec::item1,item2"          - re-exports specific items
 //   EXPORT "modspec::new=orig,#obj,item"   - re-exports with optional rename (new=original)
 func (e *Executor) handleEXPORT(args []interface{}, namedArgs map[string]interface{}, state *ExecutionState, position *SourcePosition) Result {
+	e.logger.Debug("EXPORT called with %d args", len(args))
 	if len(args) == 0 {
 		e.logger.CommandError(CatSystem, "EXPORT", "Expected at least 1 argument (item names)", position)
 		return BoolStatus(false)
@@ -609,6 +610,7 @@ func (e *Executor) handleEXPORT(args []interface{}, namedArgs map[string]interfa
 	}
 
 	moduleName := state.moduleEnv.DefaultName
+	e.logger.Debug("EXPORT: module name is '%s'", moduleName)
 
 	// Ensure module section exists in ModuleExports
 	if state.moduleEnv.ModuleExports[moduleName] == nil {
@@ -616,6 +618,7 @@ func (e *Executor) handleEXPORT(args []interface{}, namedArgs map[string]interfa
 	}
 
 	section := state.moduleEnv.ModuleExports[moduleName]
+	e.logger.Debug("EXPORT: ModuleExports[%s] section created/exists", moduleName)
 
 	for _, arg := range args {
 		// Check for quoted re-export form: "module::*" or "module::new=item1,item2"
