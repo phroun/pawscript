@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"io"
 	"os"
+	"strings"
 	"sync"
 	"time"
 
@@ -510,13 +511,8 @@ func createConsoleChannels(stdinReader *io.PipeReader, stdoutWriter *io.PipeWrit
 			if err != nil {
 				return nil, err
 			}
-			// Trim the newline
-			if len(line) > 0 && line[len(line)-1] == '\n' {
-				line = line[:len(line)-1]
-			}
-			if len(line) > 0 && line[len(line)-1] == '\r' {
-				line = line[:len(line)-1]
-			}
+			// Trim all trailing CR/LF characters
+			line = strings.TrimRight(line, "\r\n")
 			return line, nil
 		},
 		NativeSend: func(v interface{}) error {
