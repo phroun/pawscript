@@ -464,7 +464,8 @@ func registerGuiCommands(ps *pawscript.PawScript) {
 		guiState.terminal = term
 
 		// Create a click interceptor that sits on top of the terminal
-		clickInterceptor := newClickInterceptor(term, stdoutWriter)
+		// This works around slow focus handling in fyne-io/terminal
+		clickInterceptor := newClickInterceptor(term)
 
 		// Stack the terminal with the click interceptor on top
 		// The interceptor is transparent but catches clicks first
@@ -715,30 +716,23 @@ func createConsoleChannels(stdinReader *io.PipeReader, stdoutWriter *io.PipeWrit
 }
 
 // clickInterceptor is a transparent widget that sits on top of the terminal
-// to intercept clicks and handle focus immediately
+// to intercept clicks and handle focus immediately (works around slow focus in fyne-io/terminal)
 type clickInterceptor struct {
 	widget.BaseWidget
-	terminal    *terminal.Terminal
-	debugWriter io.Writer
+	terminal *terminal.Terminal
 }
 
 var _ fyne.Tappable = (*clickInterceptor)(nil)
 
-func newClickInterceptor(term *terminal.Terminal, debugWriter io.Writer) *clickInterceptor {
+func newClickInterceptor(term *terminal.Terminal) *clickInterceptor {
 	c := &clickInterceptor{
-		terminal:    term,
-		debugWriter: debugWriter,
+		terminal: term,
 	}
 	c.ExtendBaseWidget(c)
 	return c
 }
 
 func (c *clickInterceptor) Tapped(_ *fyne.PointEvent) {
-	// DEBUG: Write text immediately to see if output has the same delay
-	if c.debugWriter != nil {
-		fmt.Fprint(c.debugWriter, "\r\n[CLICK INTERCEPTED]\r\n")
-	}
-
 	// Directly call FocusGained to show cursor immediately
 	c.terminal.FocusGained()
 
