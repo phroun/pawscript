@@ -156,10 +156,12 @@ func (ps *PawScript) NewExecutionStateFromRoot() *ExecutionState {
 func (ps *PawScript) ExecuteFile(commandString, filename string) Result {
 	fmt.Fprintf(os.Stderr, "[TRACE] ExecuteFile START: filename='%s'\n", filename)
 	state := ps.NewExecutionStateFromRoot()
+	fmt.Fprintf(os.Stderr, "[TRACE] ExecuteFile('%s'): state.moduleEnv=%p, ModuleExports=%p\n", filename, state.moduleEnv, state.moduleEnv.ModuleExports)
 	result := ps.executor.ExecuteWithState(commandString, state, nil, filename, 0, 0)
 
 	// Debug: log what's in ModuleExports before merge
 	state.moduleEnv.mu.RLock()
+	fmt.Fprintf(os.Stderr, "[TRACE] ExecuteFile('%s'): AFTER execution, moduleEnv=%p, ModuleExports=%p\n", filename, state.moduleEnv, state.moduleEnv.ModuleExports)
 	numExports := len(state.moduleEnv.ModuleExports)
 	fmt.Fprintf(os.Stderr, "[TRACE] ExecuteFile('%s'): ModuleExports has %d modules\n", filename, numExports)
 	for modName, section := range state.moduleEnv.ModuleExports {

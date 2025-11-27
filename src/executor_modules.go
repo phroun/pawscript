@@ -2,6 +2,7 @@ package pawscript
 
 import (
 	"fmt"
+	"os"
 	"strings"
 )
 
@@ -602,6 +603,9 @@ func (e *Executor) handleEXPORT(args []interface{}, namedArgs map[string]interfa
 	state.moduleEnv.mu.Lock()
 	defer state.moduleEnv.mu.Unlock()
 
+	// TRACE: Log moduleEnv pointer to identify which environment we're using
+	fmt.Fprintf(os.Stderr, "[TRACE] EXPORT: moduleEnv=%p, ModuleExports=%p\n", state.moduleEnv, state.moduleEnv.ModuleExports)
+
 	// Check if MODULE has been called
 	if state.moduleEnv.DefaultName == "" {
 		e.logger.CommandError(CatSystem, "EXPORT", "MODULE must be called before EXPORT", position)
@@ -616,6 +620,7 @@ func (e *Executor) handleEXPORT(args []interface{}, namedArgs map[string]interfa
 	}
 
 	section := state.moduleEnv.ModuleExports[moduleName]
+	fmt.Fprintf(os.Stderr, "[TRACE] EXPORT: storing in ModuleExports['%s'], section=%p, current count=%d\n", moduleName, section, len(section))
 
 	for _, arg := range args {
 		// Check for quoted re-export form: "module::*" or "module::new=item1,item2"
