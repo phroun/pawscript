@@ -403,7 +403,7 @@ func (ps *PawScript) RegisterGeneratorLib() {
 					return BoolStatus(true)
 				}
 
-				// Check for early return
+				// Check for early return (ret command) - generator is done
 				if earlyReturn, ok := result.(EarlyReturn); ok {
 					ctx.executor.mu.Lock()
 					delete(ctx.executor.activeTokens, tokenID)
@@ -412,7 +412,9 @@ func (ps *PawScript) RegisterGeneratorLib() {
 					if earlyReturn.HasResult {
 						ctx.SetResult(earlyReturn.Result)
 					}
-					return earlyReturn.Status
+					// Return false to signal generator completion
+					// This allows while (v: {resume ~gen}) pattern to exit cleanly
+					return BoolStatus(false)
 				}
 
 				// Handle async (TokenResult) - wait synchronously
@@ -548,7 +550,7 @@ func (ps *PawScript) RegisterGeneratorLib() {
 						return BoolStatus(true)
 					}
 
-					// Check for early return
+					// Check for early return (ret command) - generator is done
 					if earlyReturn, ok := result.(EarlyReturn); ok {
 						ctx.executor.mu.Lock()
 						delete(ctx.executor.activeTokens, tokenID)
@@ -557,7 +559,8 @@ func (ps *PawScript) RegisterGeneratorLib() {
 						if earlyReturn.HasResult {
 							ctx.SetResult(earlyReturn.Result)
 						}
-						return earlyReturn.Status
+						// Return false to signal generator completion
+						return BoolStatus(false)
 					}
 
 					// Handle async (TokenResult) - wait synchronously
@@ -588,11 +591,12 @@ func (ps *PawScript) RegisterGeneratorLib() {
 			delete(ctx.executor.activeTokens, tokenID)
 			ctx.executor.mu.Unlock()
 
-			// Return the final result from the generator's state
+			// Return the final result with false to signal completion
+			// This allows while (v: {resume ~gen}) pattern to exit cleanly
 			if state != nil && state.HasResult() {
 				ctx.SetResult(state.GetResult())
 			}
-			return BoolStatus(true)
+			return BoolStatus(false)
 		}
 
 		// Execute commands until yield, suspend, ret, or end
@@ -699,7 +703,7 @@ func (ps *PawScript) RegisterGeneratorLib() {
 				return BoolStatus(true)
 			}
 
-			// Check for early return (ret command)
+			// Check for early return (ret command) - generator is done
 			if earlyReturn, ok := result.(EarlyReturn); ok {
 				ps.logger.Debug("resume: caught early return")
 
@@ -714,7 +718,9 @@ func (ps *PawScript) RegisterGeneratorLib() {
 				} else if state.HasResult() {
 					ctx.SetResult(state.GetResult())
 				}
-				return earlyReturn.Status
+				// Return false to signal generator completion
+				// This allows while (v: {resume ~gen}) pattern to exit cleanly
+				return BoolStatus(false)
 			}
 
 			// Handle async (TokenResult) - wait synchronously like while does
@@ -743,11 +749,12 @@ func (ps *PawScript) RegisterGeneratorLib() {
 		delete(ctx.executor.activeTokens, tokenID)
 		ctx.executor.mu.Unlock()
 
-		// Return final result
+		// Return final result with false to signal completion
+		// This allows while (v: {resume ~gen}) pattern to exit cleanly
 		if state.HasResult() {
 			ctx.SetResult(state.GetResult())
 		}
-		return BoolStatus(lastStatus)
+		return BoolStatus(false)
 	})
 
 	// yield - Yield a value from a generator, pausing execution
