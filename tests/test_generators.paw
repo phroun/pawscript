@@ -303,4 +303,60 @@ while (v: {resume ~ac}), (
 )
 print ""
 
+print "=== Test 21: Empty generator ==="
+macro empty_gen (
+    ret "empty_done"
+)
+
+eg: {generator empty_gen}
+print "Token valid before resume:", {token_valid ~eg}
+result: {resume ~eg}
+print "Result:", ~result
+print "Status:", {get_status}
+print "Token valid after:", {token_valid ~eg}
+print ""
+
+print "=== Test 22: Generator with error ==="
+macro error_gen (
+    yield "first_ok"
+    yield "second_ok"
+    # Simulate an error condition
+    false;ret error_here
+)
+
+errg: {generator error_gen}
+print "Getting values:"
+v1: {resume ~errg}
+print " ", ~v1, "status:", {get_status}
+v2: {resume ~errg}
+print " ", ~v2, "status:", {get_status}
+v3: {resume ~errg}
+print " ", ~v3, "status:", {get_status}
+print "Token valid after error:", {token_valid ~errg}
+print ""
+
+print "=== Test 23: Error generator with while loop ==="
+macro error_gen2 (
+    i: 0
+    while (lt ~i, 5), (
+        if {eq ~i, 3} then (
+            # Error at i=3
+            false;ret error_at_3
+        )
+        yield ~i
+        i: {add ~i, 1}
+    )
+    ret "completed"
+)
+
+errg2: {generator error_gen2}
+print "Consuming until error:"
+while (v: {resume ~errg2}), (
+    print " ", ~v
+)
+# The loop exited - get the error reason
+err: {resume ~errg2}
+print "Error reason:", ~err
+print ""
+
 print "All generator tests passed!"

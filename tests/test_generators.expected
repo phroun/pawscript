@@ -122,4 +122,24 @@ Async count with delays:
   2
   3
 
+=== Test 21: Empty generator ===
+Token valid before resume: true
+Result: empty_done
+Status: true
+Token valid after: false
+
+=== Test 22: Generator with error ===
+Getting values:
+  first_ok status: true
+  second_ok status: true
+  error_here status: false
+Token valid after error: false
+
+=== Test 23: Error generator with while loop ===
+Consuming until error:
+  0
+  1
+  2
+Error reason: error_at_3
+
 All generator tests passed!
