@@ -42,8 +42,6 @@ func (ps *PawScript) RegisterFibersLib() {
 				ctx.state.moduleEnv.mu.RLock()
 				if m, exists := ctx.state.moduleEnv.MacrosModule[symStr]; exists && m != nil {
 					macro = m
-				} else if m, exists := ctx.state.moduleEnv.MacrosInherited[symStr]; exists && m != nil {
-					macro = m
 				}
 				ctx.state.moduleEnv.mu.RUnlock()
 			}
@@ -51,8 +49,6 @@ func (ps *PawScript) RegisterFibersLib() {
 			// Look up macro in module environment (string form)
 			ctx.state.moduleEnv.mu.RLock()
 			if m, exists := ctx.state.moduleEnv.MacrosModule[str]; exists && m != nil {
-				macro = m
-			} else if m, exists := ctx.state.moduleEnv.MacrosInherited[str]; exists && m != nil {
 				macro = m
 			}
 			ctx.state.moduleEnv.mu.RUnlock()

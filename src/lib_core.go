@@ -451,12 +451,10 @@ func (ps *PawScript) RegisterCoreLib() {
 		name := fmt.Sprintf("%v", firstArg)
 		ps.logger.Debug("Calling macro by name: %s", name)
 
-		// Look up macro in module environment
+		// Look up macro in module environment (COW - only check MacrosModule)
 		var macro *StoredMacro
 		ctx.state.moduleEnv.mu.RLock()
 		if m, exists := ctx.state.moduleEnv.MacrosModule[name]; exists && m != nil {
-			macro = m
-		} else if m, exists := ctx.state.moduleEnv.MacrosInherited[name]; exists && m != nil {
 			macro = m
 		}
 		ctx.state.moduleEnv.mu.RUnlock()
@@ -481,26 +479,16 @@ func (ps *PawScript) RegisterCoreLib() {
 
 	// macro_list - list all defined macros in current scope
 	ps.RegisterCommandInModule("macros", "macro_list", func(ctx *Context) Result {
-		// Collect macros from module environment (MacrosModule and MacrosInherited)
-		macroSet := make(map[string]bool)
+		// Collect macros from module environment (COW - only check MacrosModule)
 		ctx.state.moduleEnv.mu.RLock()
+		macros := make([]string, 0, len(ctx.state.moduleEnv.MacrosModule))
 		for name, macro := range ctx.state.moduleEnv.MacrosModule {
 			if macro != nil {
-				macroSet[name] = true
-			}
-		}
-		for name, macro := range ctx.state.moduleEnv.MacrosInherited {
-			if macro != nil {
-				macroSet[name] = true
+				macros = append(macros, name)
 			}
 		}
 		ctx.state.moduleEnv.mu.RUnlock()
 
-		// Convert to sorted slice
-		macros := make([]string, 0, len(macroSet))
-		for name := range macroSet {
-			macros = append(macros, name)
-		}
 		sort.Strings(macros)
 		ctx.SetResult(fmt.Sprintf("%v", macros))
 		return BoolStatus(true)
@@ -515,17 +503,16 @@ func (ps *PawScript) RegisterCoreLib() {
 
 		name := fmt.Sprintf("%v", ctx.Args[0])
 
-		// Delete from MacrosModule (with COW) - sets to nil to shadow inherited
+		// Delete from MacrosModule (COW will trigger on write if needed)
 		ctx.state.moduleEnv.mu.Lock()
-		_, existsModule := ctx.state.moduleEnv.MacrosModule[name]
-		_, existsInherited := ctx.state.moduleEnv.MacrosInherited[name]
-		if !existsModule && !existsInherited {
+		macro, exists := ctx.state.moduleEnv.MacrosModule[name]
+		if !exists || macro == nil {
 			ctx.state.moduleEnv.mu.Unlock()
 			ctx.LogError(CatMacro, fmt.Sprintf("PawScript macro \"%s\" not found or could not be deleted", name))
 			return BoolStatus(false)
 		}
 		ctx.state.moduleEnv.EnsureMacroRegistryCopied()
-		ctx.state.moduleEnv.MacrosModule[name] = nil // nil shadows inherited
+		delete(ctx.state.moduleEnv.MacrosModule, name)
 		ctx.state.moduleEnv.mu.Unlock()
 
 		return BoolStatus(true)
@@ -533,7 +520,7 @@ func (ps *PawScript) RegisterCoreLib() {
 
 	// macro_clear - clear all macros from current scope
 	ps.RegisterCommandInModule("macros", "macro_clear", func(ctx *Context) Result {
-		// Count and clear macros from MacrosModule, shadow MacrosInherited
+		// Count and clear macros from MacrosModule (COW)
 		ctx.state.moduleEnv.mu.Lock()
 		count := 0
 
@@ -544,17 +531,9 @@ func (ps *PawScript) RegisterCoreLib() {
 			}
 		}
 
-		// Reset MacrosModule to empty (clears locally defined)
+		// Reset MacrosModule to empty
 		ctx.state.moduleEnv.MacrosModule = make(map[string]*StoredMacro)
 		ctx.state.moduleEnv.macrosModuleCopied = true
-
-		// Shadow all inherited macros with nil
-		for name, macro := range ctx.state.moduleEnv.MacrosInherited {
-			if macro != nil {
-				count++
-				ctx.state.moduleEnv.MacrosModule[name] = nil
-			}
-		}
 
 		ctx.state.moduleEnv.mu.Unlock()
 

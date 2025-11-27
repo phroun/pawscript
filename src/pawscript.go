@@ -251,12 +251,10 @@ func (ps *PawScript) ExecuteMacro(name string) Result {
 
 	state := ps.NewExecutionStateFromRoot()
 
-	// Look up macro in root module environment
+	// Look up macro in root module environment (COW - only check MacrosModule)
 	var macro *StoredMacro
 	ps.rootModuleEnv.mu.RLock()
 	if m, exists := ps.rootModuleEnv.MacrosModule[name]; exists && m != nil {
-		macro = m
-	} else if m, exists := ps.rootModuleEnv.MacrosInherited[name]; exists && m != nil {
 		macro = m
 	}
 	ps.rootModuleEnv.mu.RUnlock()
@@ -278,29 +276,15 @@ func (ps *PawScript) ExecuteMacro(name string) Result {
 
 // ListMacros returns a list of all macro names from the root module environment
 func (ps *PawScript) ListMacros() []string {
-	macroSet := make(map[string]bool)
-	shadowedNames := make(map[string]bool)
 	ps.rootModuleEnv.mu.RLock()
-	// First collect from MacrosModule, tracking shadowed names
+	macros := make([]string, 0, len(ps.rootModuleEnv.MacrosModule))
 	for name, macro := range ps.rootModuleEnv.MacrosModule {
 		if macro != nil {
-			macroSet[name] = true
-		} else {
-			shadowedNames[name] = true // nil means explicitly deleted/shadowed
-		}
-	}
-	// Then add inherited macros that aren't shadowed
-	for name, macro := range ps.rootModuleEnv.MacrosInherited {
-		if macro != nil && !shadowedNames[name] {
-			macroSet[name] = true
+			macros = append(macros, name)
 		}
 	}
 	ps.rootModuleEnv.mu.RUnlock()
 
-	macros := make([]string, 0, len(macroSet))
-	for name := range macroSet {
-		macros = append(macros, name)
-	}
 	sort.Strings(macros)
 	return macros
 }
@@ -310,15 +294,7 @@ func (ps *PawScript) GetMacro(name string) *string {
 	ps.rootModuleEnv.mu.RLock()
 	defer ps.rootModuleEnv.mu.RUnlock()
 
-	// Check MacrosModule first - if exists (even nil), it shadows inherited
-	if macro, exists := ps.rootModuleEnv.MacrosModule[name]; exists {
-		if macro != nil {
-			return &macro.Commands
-		}
-		return nil // nil means explicitly shadowed/deleted
-	}
-	// Only check inherited if not in MacrosModule
-	if macro, exists := ps.rootModuleEnv.MacrosInherited[name]; exists && macro != nil {
+	if macro, exists := ps.rootModuleEnv.MacrosModule[name]; exists && macro != nil {
 		return &macro.Commands
 	}
 	return nil
@@ -329,13 +305,12 @@ func (ps *PawScript) DeleteMacro(name string) bool {
 	ps.rootModuleEnv.mu.Lock()
 	defer ps.rootModuleEnv.mu.Unlock()
 
-	_, existsModule := ps.rootModuleEnv.MacrosModule[name]
-	_, existsInherited := ps.rootModuleEnv.MacrosInherited[name]
-	if !existsModule && !existsInherited {
+	macro, exists := ps.rootModuleEnv.MacrosModule[name]
+	if !exists || macro == nil {
 		ps.logger.Error("Macro \"%s\" not found", name)
 		return false
 	}
-	ps.rootModuleEnv.MacrosModule[name] = nil // nil shadows inherited
+	delete(ps.rootModuleEnv.MacrosModule, name)
 	ps.logger.Debug("Deleted macro \"%s\"", name)
 	return true
 }
@@ -353,14 +328,6 @@ func (ps *PawScript) ClearMacros() int {
 	}
 	ps.rootModuleEnv.MacrosModule = make(map[string]*StoredMacro)
 
-	// Shadow inherited macros
-	for name, macro := range ps.rootModuleEnv.MacrosInherited {
-		if macro != nil {
-			count++
-			ps.rootModuleEnv.MacrosModule[name] = nil
-		}
-	}
-
 	ps.logger.Debug("Cleared %d macros", count)
 	return count
 }
@@ -370,13 +337,8 @@ func (ps *PawScript) HasMacro(name string) bool {
 	ps.rootModuleEnv.mu.RLock()
 	defer ps.rootModuleEnv.mu.RUnlock()
 
-	if macro, exists := ps.rootModuleEnv.MacrosModule[name]; exists {
-		return macro != nil // nil means deleted/shadowed
-	}
-	if macro, exists := ps.rootModuleEnv.MacrosInherited[name]; exists && macro != nil {
-		return true
-	}
-	return false
+	macro, exists := ps.rootModuleEnv.MacrosModule[name]
+	return exists && macro != nil
 }
 
 // SetFallbackHandler sets a fallback handler for unknown commands
