@@ -161,3 +161,25 @@ func (e *Executor) findStoredListID(list StoredList) int {
 
 	return -1
 }
+
+// findStoredChannelID finds the ID of a StoredChannel by searching storedObjects
+// Returns -1 if not found
+func (e *Executor) findStoredChannelID(ch *StoredChannel) int {
+	if ch == nil {
+		return -1
+	}
+
+	e.mu.RLock()
+	defer e.mu.RUnlock()
+
+	for id, obj := range e.storedObjects {
+		if objCh, ok := obj.Value.(*StoredChannel); ok {
+			// Compare by pointer identity
+			if objCh == ch {
+				return id
+			}
+		}
+	}
+
+	return -1
+}

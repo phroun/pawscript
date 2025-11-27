@@ -327,7 +327,8 @@ func (ps *PawScript) RegisterSystemLib(scriptArgs []string) {
 				if hasStoredList {
 					setListResult(ctx, storedListSource)
 				} else {
-					ctx.SetResult(sourceList)
+					// Convert raw slice to StoredList before setting as result
+					setListResult(ctx, NewStoredList(sourceList))
 				}
 				return BoolStatus(true)
 			}

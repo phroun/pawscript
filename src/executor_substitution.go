@@ -441,7 +441,13 @@ func (e *Executor) substituteTildeExpressions(str string, state *ExecutionState,
 		if exists {
 			// Resolve any object markers to get display value
 			resolved := e.resolveValue(value)
-			valueStr := fmt.Sprintf("%v", resolved)
+			var valueStr string
+			// Handle StoredList specially to format contents
+			if list, ok := resolved.(StoredList); ok {
+				valueStr = formatListForDisplay(list)
+			} else {
+				valueStr = fmt.Sprintf("%v", resolved)
+			}
 			// Since tildes are only found inside double-quoted strings,
 			// we need to escape any double quotes in the substituted value
 			// to prevent breaking the quote structure

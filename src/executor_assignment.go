@@ -445,7 +445,10 @@ func (e *Executor) handleUnpackingAssignmentWithNames(unpackTargets []UnpackTarg
 	// Resolve tildes
 	resolved := e.resolveTildesInValue(listArg, state, substitutionCtx, position)
 
-	// Resolve any object markers (like \x00LIST:1\x00) to actual values
+	// Save the marker/value for setting result later (before resolving to raw object)
+	resultValue := resolved
+
+	// Resolve any object markers (like \x00LIST:1\x00) to actual values for unpacking
 	resolved = e.resolveValue(resolved)
 
 	// Extract items from the list-like value
@@ -494,8 +497,8 @@ func (e *Executor) handleUnpackingAssignmentWithNames(unpackTargets []UnpackTarg
 		}
 	}
 
-	// Set the formal result to the unpacked value
-	state.SetResult(resolved)
+	// Set the formal result to the marker (not the resolved raw object)
+	state.SetResult(resultValue)
 	return BoolStatus(true)
 }
 
@@ -503,25 +506,28 @@ func (e *Executor) handleUnpackingAssignmentWithNames(unpackTargets []UnpackTarg
 func (e *Executor) handleDynamicUnpackingAssignment(varNames []interface{}, valueStr string, state *ExecutionState, substitutionCtx *SubstitutionContext, position *SourcePosition) Result {
 	// Parse and resolve the single list value
 	var values []interface{}
-	var resolved interface{} // Track the resolved value for setting the result
+	var resultValue interface{} // Track the marker/value for setting the result (before raw object resolution)
 
 	if valueStr == "" {
 		values = nil
-		resolved = nil
+		resultValue = nil
 	} else {
 		// Parse as a single argument (the list)
 		args, _ := parseArguments(valueStr)
 		if len(args) == 0 {
 			values = nil
-			resolved = nil
+			resultValue = nil
 		} else {
 			// Take the first (and should be only) argument
 			listArg := args[0]
 
 			// Resolve tildes
-			resolved = e.resolveTildesInValue(listArg, state, substitutionCtx, position)
+			resolved := e.resolveTildesInValue(listArg, state, substitutionCtx, position)
 
-			// Resolve any object markers (like \x00LIST:1\x00) to actual values
+			// Save the marker/value for setting result later (before resolving to raw object)
+			resultValue = resolved
+
+			// Resolve any object markers (like \x00LIST:1\x00) to actual values for unpacking
 			resolved = e.resolveValue(resolved)
 
 			// Extract items from the list-like value
@@ -552,7 +558,7 @@ func (e *Executor) handleDynamicUnpackingAssignment(varNames []interface{}, valu
 		}
 	}
 
-	// Set the formal result to the unpacked value
-	state.SetResult(resolved)
+	// Set the formal result to the marker (not the resolved raw object)
+	state.SetResult(resultValue)
 	return BoolStatus(true)
 }
