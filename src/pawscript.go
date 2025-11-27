@@ -155,6 +155,15 @@ func (ps *PawScript) ExecuteFile(commandString, filename string) Result {
 	state := ps.NewExecutionStateFromRoot()
 	result := ps.executor.ExecuteWithState(commandString, state, nil, filename, 0, 0)
 
+	// Debug: log what's in ModuleExports before merge
+	state.moduleEnv.mu.RLock()
+	numExports := len(state.moduleEnv.ModuleExports)
+	ps.logger.Debug("ExecuteFile('%s'): ModuleExports has %d modules", filename, numExports)
+	for modName, section := range state.moduleEnv.ModuleExports {
+		ps.logger.Debug("ExecuteFile('%s'): ModuleExports['%s'] has %d items", filename, modName, len(section))
+	}
+	state.moduleEnv.mu.RUnlock()
+
 	// Merge any module exports into the root environment for persistence
 	state.moduleEnv.MergeExportsInto(ps.rootModuleEnv)
 
