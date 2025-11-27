@@ -121,6 +121,33 @@ type EarlyReturn struct {
 
 func (EarlyReturn) isResult() {}
 
+// YieldResult represents yielding a value from a generator
+// The executor catches this and updates the token's remaining commands
+type YieldResult struct {
+	Value             interface{}
+	TokenID           string              // Token to update (empty = use #token from state)
+	WhileContinuation *WhileContinuation  // Optional - set when yielding from inside while loop
+}
+
+func (YieldResult) isResult() {}
+
+// SuspendResult signals that a new suspension token should be created
+// with the remaining commands in the current sequence
+type SuspendResult struct{}
+
+func (SuspendResult) isResult() {}
+
+// WhileContinuation stores state for resuming a while loop after yield
+type WhileContinuation struct {
+	ConditionBlock      string            // The while condition (re-evaluated each iteration)
+	BodyBlock           string            // The full while body
+	RemainingBodyCmds   []*ParsedCommand  // Commands remaining in current iteration after yield
+	BodyCmdIndex        int               // Which command in body yielded
+	IterationCount      int               // Current iteration number
+	State               *ExecutionState   // Execution state at time of yield
+	SubstitutionCtx     *SubstitutionContext
+}
+
 // ParsedCommand represents a parsed command with metadata
 type ParsedCommand struct {
 	Command      string
@@ -202,10 +229,12 @@ type TokenData struct {
 	SuspendedResult    interface{}
 	HasSuspendedResult bool
 	Position           *SourcePosition
-	BraceCoordinator   *BraceCoordinator // For coordinating parallel brace evaluation
-	InvertStatus       bool              // If true, invert the success status when this token completes
-	FiberID            int               // ID of the fiber that created this token
-	WaitChan           chan ResumeData   // For synchronous blocking (e.g., in while loops)
+	BraceCoordinator   *BraceCoordinator  // For coordinating parallel brace evaluation
+	InvertStatus       bool               // If true, invert the success status when this token completes
+	FiberID            int                // ID of the fiber that created this token
+	WaitChan           chan ResumeData    // For synchronous blocking (e.g., in while loops)
+	SubstitutionCtx    *SubstitutionContext // For generator macro argument substitution
+	WhileContinuation  *WhileContinuation // For resuming while loops after yield
 }
 
 // MacroDefinition stores a macro definition

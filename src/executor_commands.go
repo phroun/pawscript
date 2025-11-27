@@ -45,6 +45,59 @@ func (e *Executor) executeCommandSequence(commands []*ParsedCommand, state *Exec
 			return earlyReturn
 		}
 
+		// Check for yield (from generator) - bubble up as EarlyReturn
+		if yieldResult, ok := result.(YieldResult); ok {
+			e.logger.Debug("Command returned yield, bubbling up with value: %v", yieldResult.Value)
+			// Return the yield result so the resume handler can catch it
+			return yieldResult
+		}
+
+		// Check for suspend - create token with remaining commands and return it
+		if _, ok := result.(SuspendResult); ok {
+			e.logger.Debug("Command returned suspend, creating token for remaining commands")
+
+			remainingCommands := commands[i+1:]
+
+			// Create a token for the suspension
+			suspendToken := e.RequestCompletionToken(
+				nil,
+				"",
+				30*time.Minute,
+				state,
+				cmd.Position,
+			)
+
+			// Store remaining commands in the token
+			if len(remainingCommands) > 0 {
+				e.mu.Lock()
+				if tokenData, exists := e.activeTokens[suspendToken]; exists {
+					tokenData.CommandSequence = &CommandSequence{
+						Type:              "generator",
+						RemainingCommands: remainingCommands,
+						CurrentIndex:      i + 1,
+						TotalCommands:     len(commands),
+						OriginalCommand:   "suspend",
+						Timestamp:         time.Now(),
+						Position:          cmd.Position,
+					}
+					tokenData.SubstitutionCtx = substitutionCtx
+				}
+				e.mu.Unlock()
+			}
+
+			// Create token marker and store in state's #token
+			tokenMarker := fmt.Sprintf("\x00TOKEN:%s\x00", suspendToken)
+			state.SetVariable("#token", Symbol(tokenMarker))
+
+			// Return as EarlyReturn with the token marker
+			state.SetResult(Symbol(tokenMarker))
+			return EarlyReturn{
+				Status:    BoolStatus(true),
+				Result:    Symbol(tokenMarker),
+				HasResult: true,
+			}
+		}
+
 		if tokenResult, ok := result.(TokenResult); ok {
 			e.logger.Debug("Command returned token %s, setting up sequence continuation", string(tokenResult))
 

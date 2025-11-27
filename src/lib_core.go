@@ -652,6 +652,7 @@ func (ps *PawScript) RegisterCoreLib() {
 	// ==================== flow:: module ====================
 
 	// while - loop while condition is true
+	// Generator-aware: catches YieldResult and attaches WhileContinuation
 	ps.RegisterCommandInModule("flow", "while", func(ctx *Context) Result {
 		if len(ctx.Args) < 2 {
 			ctx.LogError(CatCommand, "Usage: while (condition), (body)")
@@ -660,6 +661,16 @@ func (ps *PawScript) RegisterCoreLib() {
 
 		conditionBlock := fmt.Sprintf("%v", ctx.Args[0])
 		bodyBlock := fmt.Sprintf("%v", ctx.Args[1])
+
+		// Parse body into commands once so we can track position for yields
+		parser := NewParser(bodyBlock, "")
+		cleanedBody := parser.RemoveComments(bodyBlock)
+		normalizedBody := parser.NormalizeKeywords(cleanedBody)
+		bodyCommands, err := parser.ParseCommandSequence(normalizedBody)
+		if err != nil {
+			ctx.LogError(CatCommand, fmt.Sprintf("while: failed to parse body: %v", err))
+			return BoolStatus(false)
+		}
 
 		maxIterations := 10000
 		iterations := 0
@@ -680,6 +691,20 @@ func (ps *PawScript) RegisterCoreLib() {
 				return earlyReturn.Status
 			}
 
+			// Check for yield in condition (unusual but possible)
+			if yieldResult, ok := condResult.(YieldResult); ok {
+				// Attach while continuation - we haven't started the body yet
+				yieldResult.WhileContinuation = &WhileContinuation{
+					ConditionBlock:    conditionBlock,
+					BodyBlock:         bodyBlock,
+					RemainingBodyCmds: bodyCommands, // Full body since we haven't started
+					BodyCmdIndex:      -1,           // -1 indicates yield was in condition
+					IterationCount:    iterations,
+					State:             ctx.state,
+				}
+				return yieldResult
+			}
+
 			// Handle async in condition
 			shouldContinue := false
 			if condToken, isToken := condResult.(TokenResult); isToken {
@@ -696,34 +721,67 @@ func (ps *PawScript) RegisterCoreLib() {
 				break
 			}
 
-			bodyResult := ctx.executor.ExecuteWithState(
-				bodyBlock,
-				ctx.state,
-				nil,
-				"",
-				0, 0,
-			)
-
-			if earlyReturn, ok := bodyResult.(EarlyReturn); ok {
-				if earlyReturn.HasResult {
-					ctx.SetResult(earlyReturn.Result)
-				}
-				return earlyReturn.Status
-			}
-
-			if bodyToken, isToken := bodyResult.(TokenResult); isToken {
-				tokenID := string(bodyToken)
-				waitChan := make(chan ResumeData, 1)
-				ctx.executor.attachWaitChan(tokenID, waitChan)
-				resumeData := <-waitChan
-
-				if !resumeData.Status {
-					ctx.LogError(CatFlow, "Async operation in while loop failed")
-					return BoolStatus(false)
+			// Execute body commands one at a time to track position for yields
+			lastStatus := true
+			for cmdIdx, cmd := range bodyCommands {
+				if strings.TrimSpace(cmd.Command) == "" {
+					continue
 				}
 
-				iterations++
-				continue
+				// Apply flow control
+				shouldExecute := true
+				switch cmd.Separator {
+				case "&":
+					shouldExecute = lastStatus
+				case "|":
+					shouldExecute = !lastStatus
+				}
+
+				if !shouldExecute {
+					continue
+				}
+
+				result := ctx.executor.executeParsedCommand(cmd, ctx.state, nil)
+
+				// Check for yield - attach while continuation
+				if yieldResult, ok := result.(YieldResult); ok {
+					yieldResult.WhileContinuation = &WhileContinuation{
+						ConditionBlock:    conditionBlock,
+						BodyBlock:         bodyBlock,
+						RemainingBodyCmds: bodyCommands[cmdIdx+1:],
+						BodyCmdIndex:      cmdIdx,
+						IterationCount:    iterations,
+						State:             ctx.state,
+					}
+					return yieldResult
+				}
+
+				// Check for early return
+				if earlyReturn, ok := result.(EarlyReturn); ok {
+					if earlyReturn.HasResult {
+						ctx.SetResult(earlyReturn.Result)
+					}
+					return earlyReturn.Status
+				}
+
+				// Handle async in body
+				if bodyToken, isToken := result.(TokenResult); isToken {
+					tokenID := string(bodyToken)
+					waitChan := make(chan ResumeData, 1)
+					ctx.executor.attachWaitChan(tokenID, waitChan)
+					resumeData := <-waitChan
+
+					if !resumeData.Status {
+						ctx.LogError(CatFlow, "Async operation in while loop failed")
+						return BoolStatus(false)
+					}
+					lastStatus = resumeData.Status
+					continue
+				}
+
+				if boolRes, ok := result.(BoolStatus); ok {
+					lastStatus = bool(boolRes)
+				}
 			}
 
 			iterations++

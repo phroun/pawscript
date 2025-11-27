@@ -184,6 +184,7 @@ func (ps *PawScript) RegisterStandardLibraryWithIO(scriptArgs []string, ioConfig
 	ps.RegisterSystemLib(scriptArgs) // os::, io::, sys::
 	ps.RegisterChannelsLib()         // channels::
 	ps.RegisterFibersLib()           // fibers::
+	ps.RegisterGeneratorLib()        // coroutines::
 
 	// Copy commands from LibraryInherited to CommandRegistryInherited for direct access
 	ps.rootModuleEnv.PopulateDefaultImports()
@@ -417,8 +418,13 @@ func getTypeName(val interface{}) string {
 		// QuotedString is still a string type, just with different formatting
 		return "string"
 	case Symbol:
+		// Check for token marker (special case - token IDs are strings, not ints)
+		str := string(v)
+		if strings.HasPrefix(str, "\x00TOKEN:") && strings.HasSuffix(str, "\x00") {
+			return "token"
+		}
 		// Check if it's an object marker - if so, return the stored type
-		if objType, objID := parseObjectMarker(string(v)); objID >= 0 {
+		if objType, objID := parseObjectMarker(str); objID >= 0 {
 			// Return the marker type directly (list, string, block)
 			return objType
 		}
@@ -435,6 +441,10 @@ func getTypeName(val interface{}) string {
 	case float32:
 		return "float"
 	case string:
+		// Check for token marker (special case - token IDs are strings, not ints)
+		if strings.HasPrefix(v, "\x00TOKEN:") && strings.HasSuffix(v, "\x00") {
+			return "token"
+		}
 		// Check if it's an object marker
 		if objType, objID := parseObjectMarker(v); objID >= 0 {
 			return objType
