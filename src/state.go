@@ -87,11 +87,36 @@ func (s *ExecutionState) SetResult(value interface{}) {
 			}
 			s.mu.Lock()
 		}
-		
+
 		s.currentResult = nil
 		s.hasResult = false
 		s.mu.Unlock()
 		return
+	}
+
+	// Warn about problematic raw types that should be stored objects with markers
+	if s.executor != nil && s.executor.logger != nil {
+		switch v := value.(type) {
+		case []interface{}:
+			s.executor.logger.Error("SetResult received raw []interface{} slice - should be a StoredList marker. Use StoreObject() to create a proper list marker.")
+		case *StoredChannel:
+			s.executor.logger.Error("SetResult received raw *StoredChannel - should be a channel marker. Use StoreObject() to create a proper channel marker.")
+		case StoredList:
+			s.executor.logger.Error("SetResult received raw StoredList - should be a list marker. Use StoreObject() to create a proper list marker.")
+		case *FiberHandle:
+			s.executor.logger.Error("SetResult received raw *FiberHandle - should be a fiber marker. Use StoreObject() to create a proper fiber marker.")
+		case StoredCommand:
+			s.executor.logger.Error("SetResult received raw StoredCommand - should be a command marker. Use StoreObject() to create a proper command marker.")
+		case StoredMacro:
+			s.executor.logger.Error("SetResult received raw StoredMacro - should be a macro marker. Use StoreObject() to create a proper macro marker.")
+		case *StoredMacro:
+			s.executor.logger.Error("SetResult received raw *StoredMacro - should be a macro marker. Use StoreObject() to create a proper macro marker.")
+		case map[string]interface{}:
+			// Only warn if it's not empty - empty maps might be intentional
+			if len(v) > 0 {
+				s.executor.logger.Error("SetResult received raw map[string]interface{} - should be a StoredList marker with named args. Use StoreObject() to create a proper list marker.")
+			}
+		}
 	}
 
 	// Check if large strings/blocks should be stored
