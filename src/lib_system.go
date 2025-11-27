@@ -80,27 +80,39 @@ func (ps *PawScript) RegisterSystemLib(scriptArgs []string) {
 
 	// Helper to resolve a value to a channel (handles markers and direct objects)
 	valueToChannel := func(ctx *Context, val interface{}) *StoredChannel {
+		ps.logger.Debug("valueToChannel: input type=%T, value=%v", val, val)
 		switch v := val.(type) {
 		case *StoredChannel:
+			ps.logger.Debug("valueToChannel: direct *StoredChannel")
 			return v
 		case Symbol:
 			markerType, objectID := parseObjectMarker(string(v))
+			ps.logger.Debug("valueToChannel: Symbol, markerType=%s, objectID=%d", markerType, objectID)
 			if markerType == "channel" && objectID >= 0 {
 				if obj, exists := ctx.executor.getObject(objectID); exists {
+					ps.logger.Debug("valueToChannel: got object from storage, type=%T", obj)
 					if ch, ok := obj.(*StoredChannel); ok {
 						return ch
 					}
+				} else {
+					ps.logger.Debug("valueToChannel: object %d not found in storage", objectID)
 				}
 			}
 		case string:
 			markerType, objectID := parseObjectMarker(v)
+			ps.logger.Debug("valueToChannel: string, markerType=%s, objectID=%d", markerType, objectID)
 			if markerType == "channel" && objectID >= 0 {
 				if obj, exists := ctx.executor.getObject(objectID); exists {
+					ps.logger.Debug("valueToChannel: got object from storage, type=%T", obj)
 					if ch, ok := obj.(*StoredChannel); ok {
 						return ch
 					}
+				} else {
+					ps.logger.Debug("valueToChannel: object %d not found in storage", objectID)
 				}
 			}
+		default:
+			ps.logger.Debug("valueToChannel: unhandled type %T", val)
 		}
 		return nil
 	}
@@ -110,9 +122,14 @@ func (ps *PawScript) RegisterSystemLib(scriptArgs []string) {
 	resolveChannel := func(ctx *Context, channelName string) *StoredChannel {
 		// First, check local macro variables
 		if value, exists := ctx.state.GetVariable(channelName); exists {
+			ps.logger.Debug("resolveChannel(%s): found in local vars, value type=%T, value=%v", channelName, value, value)
 			if ch := valueToChannel(ctx, value); ch != nil {
+				ps.logger.Debug("resolveChannel(%s): valueToChannel returned channel", channelName)
 				return ch
 			}
+			ps.logger.Debug("resolveChannel(%s): valueToChannel returned nil", channelName)
+		} else {
+			ps.logger.Debug("resolveChannel(%s): NOT found in local vars", channelName)
 		}
 
 		// Then, check ObjectsModule and ObjectsInherited
