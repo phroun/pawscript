@@ -72,10 +72,18 @@ Expected: ~secret (NOT INJECTED)
 
 Test 18: Tilde injection prevention - quoted macro body
 Arg: '~secret'
-Expected: Arg: '~secret' (NOT Arg: 'INJECTED')
+Expected: Arg: '~secret' (NOT INJECTED)
 
 Test 19: Tilde injection prevention - embedded tilde
 prefix~secret~suffix
 Expected: prefix~secret~suffix
+
+Test 20: Tilde injection through variable interpolation
+Value stored: ~secret
+Expected: Value stored: ~secret (NOT INJECTED)
+
+Test 21: Embedded tilde through variable interpolation
+Value stored: prefix~secret~suffix
+Expected: Value stored: prefix~secret~suffix
 
 === All Tilde Interpolation Tests Complete ===
