@@ -460,6 +460,17 @@ func (env *ModuleEnvironment) MergeExportsInto(target *ModuleEnvironment) {
 		}
 		exportsToMerge[modName] = newSection
 	}
+
+	// Collect newly-defined/imported macros (those in MacrosModule but not in MacrosInherited)
+	macrosToMerge := make(map[string]*StoredMacro)
+	for name, macro := range env.MacrosModule {
+		if macro != nil {
+			// Only merge if this macro wasn't inherited (i.e., was newly defined or imported)
+			if _, inherited := env.MacrosInherited[name]; !inherited {
+				macrosToMerge[name] = macro
+			}
+		}
+	}
 	env.mu.RUnlock()
 
 	// Merge into target's LibraryInherited
@@ -493,5 +504,10 @@ func (env *ModuleEnvironment) MergeExportsInto(target *ModuleEnvironment) {
 				target.LibraryRestricted[modName][itemName] = item
 			}
 		}
+	}
+
+	// Merge newly-defined/imported macros into target's MacrosModule
+	for name, macro := range macrosToMerge {
+		target.MacrosModule[name] = macro
 	}
 }
