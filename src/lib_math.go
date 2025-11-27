@@ -374,10 +374,16 @@ func (ps *PawScript) RegisterMathLib() {
 
 	// if - normalize truthy/falsy values to boolean
 	ps.RegisterCommandInModule("flow", "if", func(ctx *Context) Result {
-		if len(ctx.Args) < 1 {
+		if len(ctx.Args) < 1 || len(ctx.Args) > 1 {
 			ctx.LogError(CatCommand, "Usage: if <value>")
 			ctx.SetResult(false)
 			return BoolStatus(false)
+		}
+
+		// Warn if the argument is a ParenGroup - likely a mistake
+		// User probably meant {command} (execute) not (command) (block literal)
+		if _, ok := ctx.Args[0].(ParenGroup); ok {
+			ctx.LogWarning(CatCommand, "if received a block literal (parentheses) which is always truthy; did you mean to use braces {command} instead?")
 		}
 
 		// Normalize the first argument to boolean

@@ -49,6 +49,14 @@ func (c *Context) LogError(cat LogCategory, message string) {
 	c.logger.CommandError(cat, "", message, c.Position)
 }
 
+// LogWarning logs a command warning with position, routing through execution state channels
+func (c *Context) LogWarning(cat LogCategory, message string) {
+	// Set output context for channel routing
+	c.logger.SetOutputContext(NewOutputContext(c.state, c.executor))
+	defer c.logger.ClearOutputContext()
+	c.logger.CommandWarning(cat, "", message, c.Position)
+}
+
 // SetResult sets the formal result value
 func (c *Context) SetResult(value interface{}) {
 	c.state.SetResult(value)

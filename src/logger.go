@@ -290,10 +290,8 @@ func (l *Logger) IsCategoryEnabled(cat LogCategory) bool {
 // shouldLog determines if a message should be logged based on level and category
 func (l *Logger) shouldLog(level LogLevel, cat LogCategory) bool {
 	switch level {
-	case LevelFatal, LevelError:
+	case LevelFatal, LevelError, LevelWarn:
 		return true // Always shown
-	case LevelWarn:
-		return l.enabled || l.enabledCategories[cat]
 	case LevelDebug:
 		return l.enabled && (cat == CatNone || l.enabledCategories[cat])
 	default:
@@ -391,6 +389,15 @@ func (l *Logger) CommandError(cat LogCategory, cmdName, message string, position
 		fullMessage = fmt.Sprintf("%s: %s", strings.ToUpper(cmdName), message)
 	}
 	l.Log(LevelError, cat, fullMessage, position, nil)
+}
+
+// CommandWarning logs a command warning with category
+func (l *Logger) CommandWarning(cat LogCategory, cmdName, message string, position *SourcePosition) {
+	fullMessage := message
+	if cmdName != "" {
+		fullMessage = fmt.Sprintf("%s: %s", strings.ToUpper(cmdName), message)
+	}
+	l.Log(LevelWarn, cat, fullMessage, position, nil)
 }
 
 // LogWithState logs a message using the given execution state for channel resolution
