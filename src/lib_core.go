@@ -132,6 +132,10 @@ func (ps *PawScript) RegisterCoreLib() {
 							if list, ok := obj.(StoredList); ok {
 								return list
 							}
+						case "string":
+							if str, ok := obj.(StoredString); ok {
+								return str
+							}
 						}
 						return obj
 					}
@@ -148,6 +152,10 @@ func (ps *PawScript) RegisterCoreLib() {
 						case "list":
 							if list, ok := obj.(StoredList); ok {
 								return list
+							}
+						case "string":
+							if str, ok := obj.(StoredString); ok {
+								return str
 							}
 						}
 						return obj
@@ -172,7 +180,13 @@ func (ps *PawScript) RegisterCoreLib() {
 					}
 					ctx.state.moduleEnv.mu.RUnlock()
 				}
+			} else {
+				// Regular Symbol might be a marker
+				value = resolveValue(value)
 			}
+		} else if _, ok := value.(string); ok {
+			// String might be a marker
+			value = resolveValue(value)
 		}
 
 		switch v := value.(type) {
@@ -181,6 +195,9 @@ func (ps *PawScript) RegisterCoreLib() {
 			return BoolStatus(true)
 		case *StoredChannel:
 			ctx.SetResult(ChannelLen(v))
+			return BoolStatus(true)
+		case StoredString:
+			ctx.SetResult(len(string(v)))
 			return BoolStatus(true)
 		case string, QuotedString, Symbol:
 			resolved := ctx.executor.resolveValue(v)
@@ -447,7 +464,73 @@ func (ps *PawScript) RegisterCoreLib() {
 			}
 		}
 
-		// Otherwise, treat it as a macro name - look up in module environment
+	// Check if the first argument is a marker (string type, from $1 substitution etc.)
+	if str, ok := firstArg.(string); ok {
+		markerType, objectID := parseObjectMarker(str)
+
+		if markerType == "command" && objectID >= 0 {
+			ps.logger.Debug("Calling StoredCommand via string marker (object %d)", objectID)
+
+			obj, exists := ctx.executor.getObject(objectID)
+			if !exists {
+				ps.logger.Error("Command object %d not found", objectID)
+				return BoolStatus(false)
+			}
+
+			cmd, ok := obj.(StoredCommand)
+			if !ok {
+				ps.logger.Error("Object %d is not a StoredCommand", objectID)
+				return BoolStatus(false)
+			}
+
+			cmdCtx := &Context{
+				Args:      callArgs,
+				NamedArgs: ctx.NamedArgs,
+				Position:  ctx.Position,
+				state:     childState,
+				executor:  ctx.executor,
+				logger:    ctx.logger,
+			}
+
+			result := cmd.Handler(cmdCtx)
+
+			if childState.HasResult() {
+				ctx.state.SetResult(childState.GetResult())
+			}
+
+			return result
+		}
+
+		if markerType == "macro" && objectID >= 0 {
+			ps.logger.Debug("Calling StoredMacro via string marker (object %d)", objectID)
+
+			obj, exists := ctx.executor.getObject(objectID)
+			if !exists {
+				ps.logger.Error("Macro object %d not found", objectID)
+				return BoolStatus(false)
+			}
+
+			macro, ok := obj.(StoredMacro)
+			if !ok {
+				ps.logger.Error("Object %d is not a StoredMacro", objectID)
+				return BoolStatus(false)
+			}
+
+			return ps.executor.ExecuteStoredMacro(&macro, func(commands string, macroExecState *ExecutionState, substCtx *SubstitutionContext) Result {
+				filename := ""
+				lineOffset := 0
+				columnOffset := 0
+				if substCtx != nil {
+					filename = substCtx.Filename
+					lineOffset = substCtx.CurrentLineOffset
+					columnOffset = substCtx.CurrentColumnOffset
+				}
+				return ps.executor.ExecuteWithState(commands, macroExecState, substCtx, filename, lineOffset, columnOffset)
+			}, callArgs, ctx.NamedArgs, childState, ctx.Position, ctx.state)
+		}
+	}
+
+	// Otherwise, treat it as a macro name - look up in module environment
 		name := fmt.Sprintf("%v", firstArg)
 		ps.logger.Debug("Calling macro by name: %s", name)
 

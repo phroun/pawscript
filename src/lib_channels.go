@@ -5,6 +5,36 @@ import (
 	"strings"
 )
 
+// getChannelFromArg extracts a *StoredChannel from an argument
+// Handles both raw *StoredChannel and marker strings (Symbol or string)
+func getChannelFromArg(arg interface{}, executor *Executor) *StoredChannel {
+	// Direct *StoredChannel
+	if ch, ok := arg.(*StoredChannel); ok {
+		return ch
+	}
+
+	// Try to parse as marker (could be Symbol or string)
+	var markerStr string
+	if sym, ok := arg.(Symbol); ok {
+		markerStr = string(sym)
+	} else if str, ok := arg.(string); ok {
+		markerStr = str
+	}
+
+	if markerStr != "" {
+		markerType, objectID := parseObjectMarker(markerStr)
+		if markerType == "channel" && objectID >= 0 {
+			if obj, exists := executor.getObject(objectID); exists {
+				if ch, ok := obj.(*StoredChannel); ok {
+					return ch
+				}
+			}
+		}
+	}
+
+	return nil
+}
+
 // RegisterChannelsLib registers channel-related commands
 // Module: channels
 func (ps *PawScript) RegisterChannelsLib() {
@@ -59,23 +89,7 @@ func (ps *PawScript) RegisterChannelsLib() {
 			return BoolStatus(false)
 		}
 
-		var ch *StoredChannel
-		if channelObj, ok := ctx.Args[0].(*StoredChannel); ok {
-			ch = channelObj
-		} else if sym, ok := ctx.Args[0].(Symbol); ok {
-			markerType, objectID := parseObjectMarker(string(sym))
-			if markerType == "channel" && objectID >= 0 {
-				obj, exists := ctx.executor.getObject(objectID)
-				if !exists {
-					ps.logger.Error("Channel object %d not found", objectID)
-					return BoolStatus(false)
-				}
-				if channelObj, ok := obj.(*StoredChannel); ok {
-					ch = channelObj
-				}
-			}
-		}
-
+		ch := getChannelFromArg(ctx.Args[0], ctx.executor)
 		if ch == nil {
 			ps.logger.Error("First argument must be a channel")
 			return BoolStatus(false)
@@ -152,6 +166,26 @@ func (ps *PawScript) RegisterChannelsLib() {
 			} else {
 				ch = resolveToChannel(sym)
 			}
+		} else if str, ok := ctx.Args[0].(string); ok {
+			// Handle string type markers (from $1 substitution, etc.)
+			if strings.HasPrefix(str, "#") {
+				// First check local variables
+				if localVal, exists := ctx.state.GetVariable(str); exists {
+					ch = resolveToChannel(localVal)
+				}
+				// Then check ObjectsModule
+				if ch == nil && ctx.state.moduleEnv != nil {
+					ctx.state.moduleEnv.mu.RLock()
+					if ctx.state.moduleEnv.ObjectsModule != nil {
+						if obj, exists := ctx.state.moduleEnv.ObjectsModule[str]; exists {
+							ch = resolveToChannel(obj)
+						}
+					}
+					ctx.state.moduleEnv.mu.RUnlock()
+				}
+			} else {
+				ch = resolveToChannel(str)
+			}
 		}
 
 		if ch == nil {
@@ -225,6 +259,26 @@ func (ps *PawScript) RegisterChannelsLib() {
 			} else {
 				ch = resolveToChannel(sym)
 			}
+		} else if str, ok := ctx.Args[0].(string); ok {
+			// Handle string type markers (from $1 substitution, etc.)
+			if strings.HasPrefix(str, "#") {
+				// First check local variables
+				if localVal, exists := ctx.state.GetVariable(str); exists {
+					ch = resolveToChannel(localVal)
+				}
+				// Then check ObjectsModule
+				if ch == nil && ctx.state.moduleEnv != nil {
+					ctx.state.moduleEnv.mu.RLock()
+					if ctx.state.moduleEnv.ObjectsModule != nil {
+						if obj, exists := ctx.state.moduleEnv.ObjectsModule[str]; exists {
+							ch = resolveToChannel(obj)
+						}
+					}
+					ctx.state.moduleEnv.mu.RUnlock()
+				}
+			} else {
+				ch = resolveToChannel(str)
+			}
 		}
 
 		if ch == nil {
@@ -252,23 +306,7 @@ func (ps *PawScript) RegisterChannelsLib() {
 			return BoolStatus(false)
 		}
 
-		var ch *StoredChannel
-		if channelObj, ok := ctx.Args[0].(*StoredChannel); ok {
-			ch = channelObj
-		} else if sym, ok := ctx.Args[0].(Symbol); ok {
-			markerType, objectID := parseObjectMarker(string(sym))
-			if markerType == "channel" && objectID >= 0 {
-				obj, exists := ctx.executor.getObject(objectID)
-				if !exists {
-					ps.logger.Error("Channel object %d not found", objectID)
-					return BoolStatus(false)
-				}
-				if channelObj, ok := obj.(*StoredChannel); ok {
-					ch = channelObj
-				}
-			}
-		}
-
+		ch := getChannelFromArg(ctx.Args[0], ctx.executor)
 		if ch == nil {
 			ps.logger.Error("First argument must be a channel")
 			return BoolStatus(false)
@@ -289,23 +327,7 @@ func (ps *PawScript) RegisterChannelsLib() {
 			return BoolStatus(false)
 		}
 
-		var ch *StoredChannel
-		if channelObj, ok := ctx.Args[0].(*StoredChannel); ok {
-			ch = channelObj
-		} else if sym, ok := ctx.Args[0].(Symbol); ok {
-			markerType, objectID := parseObjectMarker(string(sym))
-			if markerType == "channel" && objectID >= 0 {
-				obj, exists := ctx.executor.getObject(objectID)
-				if !exists {
-					ps.logger.Error("Channel object %d not found", objectID)
-					return BoolStatus(false)
-				}
-				if channelObj, ok := obj.(*StoredChannel); ok {
-					ch = channelObj
-				}
-			}
-		}
-
+		ch := getChannelFromArg(ctx.Args[0], ctx.executor)
 		if ch == nil {
 			ps.logger.Error("First argument must be a channel")
 			return BoolStatus(false)
@@ -333,23 +355,7 @@ func (ps *PawScript) RegisterChannelsLib() {
 			return BoolStatus(false)
 		}
 
-		var ch *StoredChannel
-		if channelObj, ok := ctx.Args[0].(*StoredChannel); ok {
-			ch = channelObj
-		} else if sym, ok := ctx.Args[0].(Symbol); ok {
-			markerType, objectID := parseObjectMarker(string(sym))
-			if markerType == "channel" && objectID >= 0 {
-				obj, exists := ctx.executor.getObject(objectID)
-				if !exists {
-					ps.logger.Error("Channel object %d not found", objectID)
-					return BoolStatus(false)
-				}
-				if channelObj, ok := obj.(*StoredChannel); ok {
-					ch = channelObj
-				}
-			}
-		}
-
+		ch := getChannelFromArg(ctx.Args[0], ctx.executor)
 		if ch == nil {
 			ps.logger.Error("First argument must be a channel")
 			return BoolStatus(false)
