@@ -121,19 +121,19 @@ echo "Test 17: Tilde injection prevention - bare macro body"
 secret: "INJECTED"
 macro show_arg(print $1)
 show_arg '~secret'
-echo 'Expected: ~secret (NOT INJECTED)'
+echo 'Expected: \~secret (NOT INJECTED)'
 echo ""
 
 echo "Test 18: Tilde injection prevention - quoted macro body"
 macro show_arg2(print "Arg: $1")
 show_arg2 '~secret'
-echo "Expected: Arg: '~secret' (NOT Arg: 'INJECTED')"
+echo "Expected: Arg: '\~secret' (NOT Arg: 'INJECTED')"
 echo ""
 
 echo "Test 19: Tilde injection prevention - embedded tilde"
 macro show_arg3(print $1)
 show_arg3 'prefix~secret~suffix'
-echo 'Expected: prefix~secret~suffix'
+echo 'Expected: prefix\~secret\~suffix'
 echo ""
 
 echo "=== All Tilde Interpolation Tests Complete ==="

@@ -66,4 +66,16 @@ Test 16: Single quotes no interpolation
 This ~name should not interpolate
 Expected: This ~name should not interpolate
 
+Test 17: Tilde injection prevention - bare macro body
+~secret
+Expected: ~secret (NOT INJECTED)
+
+Test 18: Tilde injection prevention - quoted macro body
+Arg: '~secret'
+Expected: Arg: '~secret' (NOT Arg: 'INJECTED')
+
+Test 19: Tilde injection prevention - embedded tilde
+prefix~secret~suffix
+Expected: prefix~secret~suffix
+
 === All Tilde Interpolation Tests Complete ===
