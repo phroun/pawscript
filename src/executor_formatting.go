@@ -121,6 +121,34 @@ func (e *Executor) formatArgumentForSubstitution(arg interface{}) string {
 	case int64, float64, bool:
 		// Numbers and booleans as-is
 		return fmt.Sprintf("%v", v)
+	case *StoredChannel:
+		// Channel object - find or create a marker
+		if id := e.findStoredChannelID(v); id >= 0 {
+			return fmt.Sprintf("\x00CHANNEL:%d\x00", id)
+		}
+		// Not in storage yet (e.g., system IO channel) - store it now
+		id := e.storeObject(v, "channel")
+		return fmt.Sprintf("\x00CHANNEL:%d\x00", id)
+	case *FiberHandle:
+		// Fiber handle - find or create a marker
+		if id := e.findStoredFiberID(v); id >= 0 {
+			return fmt.Sprintf("\x00FIBER:%d\x00", id)
+		}
+		// Not in storage yet - store it now
+		id := e.storeObject(v, "fiber")
+		return fmt.Sprintf("\x00FIBER:%d\x00", id)
+	case StoredMacro:
+		// Macro - store and create marker
+		id := e.storeObject(v, "macro")
+		return fmt.Sprintf("\x00MACRO:%d\x00", id)
+	case *StoredMacro:
+		// Macro pointer - store and create marker
+		id := e.storeObject(*v, "macro")
+		return fmt.Sprintf("\x00MACRO:%d\x00", id)
+	case *StoredCommand:
+		// Command - store and create marker
+		id := e.storeObject(v, "command")
+		return fmt.Sprintf("\x00COMMAND:%d\x00", id)
 	default:
 		// Unknown type: convert to string
 		return fmt.Sprintf("%v", v)

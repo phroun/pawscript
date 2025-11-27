@@ -190,7 +190,8 @@ func (ps *PawScript) RegisterStandardLibraryWithIO(scriptArgs []string, ioConfig
 
 	// Populate IO module with native stdin/stdout/stderr/stdio channels
 	// Uses custom channels from ioConfig if provided
-	ps.rootModuleEnv.PopulateIOModule(ioConfig)
+	// Pass executor so channels get stored with proper IDs
+	ps.rootModuleEnv.PopulateIOModule(ioConfig, ps.executor)
 
 	// Populate OS module with script arguments as #args
 	ps.rootModuleEnv.PopulateOSModule(scriptArgs)
