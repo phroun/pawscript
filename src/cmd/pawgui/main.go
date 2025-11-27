@@ -676,7 +676,7 @@ macro console_loop (
 )
 
 # Run console interaction in a fiber, passing the channels as arguments
-sleep 300
+msleep 300
 fiber_spawn console_loop, ~#out, ~#in, ~#err
 
 # Export macros for callbacks
@@ -697,7 +697,7 @@ gui_resize 700, 500
 (#out, #in, #err): {gui_console 680, 450}
 
 # Give the terminal a moment to initialize
-sleep 200
+msleep 200
 
 # Now we can use standard print and echo commands!
 # Clear screen and show title
