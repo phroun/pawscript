@@ -92,6 +92,7 @@ func (ps *PawScript) RegisterSystemLib(scriptArgs []string) {
 				if obj, exists := ctx.executor.getObject(objectID); exists {
 					ps.logger.Debug("valueToChannel: got object from storage, type=%T", obj)
 					if ch, ok := obj.(*StoredChannel); ok {
+						ps.logger.Debug("valueToChannel: channel hasNativeSend=%v, isClosed=%v", ch.NativeSend != nil, ch.IsClosed)
 						return ch
 					}
 				} else {
@@ -105,6 +106,7 @@ func (ps *PawScript) RegisterSystemLib(scriptArgs []string) {
 				if obj, exists := ctx.executor.getObject(objectID); exists {
 					ps.logger.Debug("valueToChannel: got object from storage, type=%T", obj)
 					if ch, ok := obj.(*StoredChannel); ok {
+						ps.logger.Debug("valueToChannel: channel hasNativeSend=%v, isClosed=%v", ch.NativeSend != nil, ch.IsClosed)
 						return ch
 					}
 				} else {
