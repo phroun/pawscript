@@ -18,6 +18,9 @@ type ExecutionState struct {
 	executor      *Executor            // Reference to executor for object management
 	fiberID       int                  // ID of the fiber this state belongs to (0 for main)
 	moduleEnv     *ModuleEnvironment   // Module environment for this state
+	// InBraceExpression is true when executing inside a brace expression {...}
+	// Commands can check this to return values instead of emitting side effects to #out
+	InBraceExpression bool
 }
 
 // NewExecutionState creates a new execution state

@@ -175,6 +175,9 @@ func (e *Executor) substituteBraceExpressions(str string, ctx *SubstitutionConte
 			return str // nil, fmt.Errorf("context cannot be nil")
 		}
 		braceState := NewExecutionStateFromSharedVars(ctx.ExecutionState)
+		// Mark this state as being inside a brace expression
+		// Commands can check this to return values instead of emitting side effects to #out
+		braceState.InBraceExpression = true
 
 		// Calculate accumulated offsets for this brace
 		/*currentLineOffset := 0

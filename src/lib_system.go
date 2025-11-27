@@ -777,15 +777,30 @@ func (ps *PawScript) RegisterSystemLib(scriptArgs []string) {
 			// Handle specific clear modes - emit ANSI codes if supported
 			ansiCode := ANSIClearMode(mode)
 			if ansiCode != "" && ChannelSupportsANSI(outCh) {
+				// In brace expression: return ANSI code as string for substitution
+				// Otherwise: emit to output channel
+				if ctx.state.InBraceExpression {
+					ctx.SetResult(QuotedString(ansiCode))
+					return BoolStatus(true)
+				}
 				sendOutput(ansiCode)
 				ts.HasCleared = false // partial clear doesn't count as full clear
 				return BoolStatus(true)
 			}
-			// Unknown mode or no ANSI support - fall through to default behavior
+			// Unknown mode or no ANSI support - return empty string in brace, fall through otherwise
+			if ctx.state.InBraceExpression {
+				ctx.SetResult(QuotedString(""))
+				return BoolStatus(true)
+			}
 		}
 
 		// Default clear behavior - check channel's terminal capabilities
 		if ChannelIsTerminal(outCh) && ChannelSupportsANSI(outCh) {
+			// In brace expression: return ANSI code as string for substitution
+			if ctx.state.InBraceExpression {
+				ctx.SetResult(QuotedString(ANSIClearScreen()))
+				return BoolStatus(true)
+			}
 			// Terminal mode - send ANSI clear and home cursor
 			sendOutput(ANSIClearScreen())
 			// Reset cursor position in our tracking
@@ -793,6 +808,11 @@ func (ps *PawScript) RegisterSystemLib(scriptArgs []string) {
 			ts.Y = ts.YBase
 			ts.HasCleared = true
 		} else {
+			// In brace expression without ANSI: return empty string (no side effects)
+			if ctx.state.InBraceExpression {
+				ctx.SetResult(QuotedString(""))
+				return BoolStatus(true)
+			}
 			// Redirected mode - send separator unless we just cleared
 			if !ts.HasCleared {
 				sendOutput("\n=======================================\n\n")
@@ -827,6 +847,17 @@ func (ps *PawScript) RegisterSystemLib(scriptArgs []string) {
 
 		// Check for reset option first
 		if v, ok := ctx.NamedArgs["reset"]; ok && isTruthy(v) {
+			// In brace expression: return ANSI code as string for substitution
+			// Otherwise: emit to output channel
+			if ctx.state.InBraceExpression {
+				if ChannelSupportsANSI(outCh) {
+					ctx.SetResult(QuotedString(ANSIReset()))
+				} else {
+					ctx.SetResult(QuotedString(""))
+				}
+				return BoolStatus(true)
+			}
+
 			// Emit reset sequence if ANSI supported
 			if ChannelSupportsANSI(outCh) {
 				sendOutput(ANSIReset())
@@ -937,9 +968,9 @@ func (ps *PawScript) RegisterSystemLib(scriptArgs []string) {
 			effectiveBG = ts.CurrentBG
 		}
 
-		// Only emit ANSI codes if the channel's terminal supports them
+		// Generate ANSI code if supported
+		var ansiCode string
 		if ChannelSupportsANSI(outCh) {
-			var ansiCode string
 			if bg == -1 && len(ctx.Args) == 1 && !bold && !blink && !underline && !invert {
 				// Only foreground specified, no attributes - just change foreground
 				ansiCode = fmt.Sprintf("\x1b[%dm", CGAToANSIFG(fg))
@@ -947,10 +978,18 @@ func (ps *PawScript) RegisterSystemLib(scriptArgs []string) {
 				// Need full color setting (handles reset for attributes)
 				ansiCode = ANSIColor(effectiveFG, effectiveBG, bold, blink, underline, invert)
 			}
+		}
 
-			if ansiCode != "" {
-				sendOutput(ansiCode)
-			}
+		// In brace expression: return ANSI code as string for substitution
+		// Otherwise: emit to output channel
+		if ctx.state.InBraceExpression {
+			ctx.SetResult(QuotedString(ansiCode))
+			return BoolStatus(true)
+		}
+
+		// Emit ANSI code to output
+		if ansiCode != "" {
+			sendOutput(ansiCode)
 		}
 
 		// Update tracked state
