@@ -387,10 +387,18 @@ func (e *Executor) PopAndResumeCommandSequence(tokenID string, status bool) bool
 		e.mu.Lock()
 	}
 
-	// If resume created a new chained token, use it; otherwise use the existing one
-	chainedToken := newChainedToken
-	if chainedToken == "" {
-		chainedToken = tokenData.ChainedToken
+	// If resume created a new chained token, it means an async operation was encountered.
+	// That new token is chained FROM the async operation's token, and will be triggered
+	// when the async completes. We should NOT immediately resume it - just propagate
+	// the waitChan so the final result signals correctly.
+	//
+	// If no new chain was created, use the existing ChainedToken (set by chainTokens earlier).
+	chainedToken := tokenData.ChainedToken
+	asyncPending := newChainedToken != ""
+	if asyncPending {
+		// newChainedToken will be triggered by its parent async token when it completes.
+		// Just propagate the waitChan to it.
+		chainedToken = newChainedToken
 	}
 	parentToken := tokenData.ParentToken
 	fiberID := tokenData.FiberID
@@ -435,6 +443,18 @@ func (e *Executor) PopAndResumeCommandSequence(tokenID string, status bool) bool
 		if waitChan != nil {
 			e.attachWaitChan(chainedToken, waitChan)
 			e.logger.Debug("Propagated wait channel to chained token %s", chainedToken)
+		}
+
+		// If asyncPending is true, the chainedToken is waiting for an async operation
+		// to complete (e.g., msleep). Don't resume it now - it will be triggered
+		// automatically when the async operation's token completes.
+		if asyncPending {
+			e.logger.Debug("Async operation pending, not immediately triggering chained token %s", chainedToken)
+			// Release our state references since we're done with this token
+			if tokenData.ExecutionState != nil {
+				tokenData.ExecutionState.ReleaseAllReferences()
+			}
+			return success
 		}
 
 		e.logger.Debug("Triggering chained token %s with result %v", chainedToken, success)

@@ -272,8 +272,8 @@ macro conditional_gen (
     i: 0
     while (lt ~i, ~n), (
         # Only yield even numbers
-        remainder: {imodulo ~i, 2}
-        if (eq ~remainder, 0), (
+        isEven: {eq {imodulo ~i, 2}, 0}
+        if ~isEven then (
             yield ~i
         )
         i: {add ~i, 1}

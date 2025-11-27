@@ -381,11 +381,17 @@ func (ps *PawScript) RegisterGeneratorLib() {
 					// Store new continuation for next resume
 					ctx.executor.mu.Lock()
 					if td, exists := ctx.executor.activeTokens[tokenID]; exists {
+						// Calculate remaining commands safely
+						nextIdx := cmdIdx + 1
+						var remainingCmds []*ParsedCommand
+						if nextIdx < len(whileCont.RemainingBodyCmds) {
+							remainingCmds = whileCont.RemainingBodyCmds[nextIdx:]
+						}
 						td.WhileContinuation = &WhileContinuation{
 							ConditionBlock:    whileCont.ConditionBlock,
 							BodyBlock:         whileCont.BodyBlock,
-							RemainingBodyCmds: whileCont.RemainingBodyCmds[cmdIdx+1:],
-							BodyCmdIndex:      whileCont.BodyCmdIndex + cmdIdx + 1,
+							RemainingBodyCmds: remainingCmds,
+							BodyCmdIndex:      whileCont.BodyCmdIndex + nextIdx,
 							IterationCount:    whileCont.IterationCount,
 							State:             state,
 							SubstitutionCtx:   substCtx,
@@ -407,6 +413,16 @@ func (ps *PawScript) RegisterGeneratorLib() {
 						ctx.SetResult(earlyReturn.Result)
 					}
 					return earlyReturn.Status
+				}
+
+				// Handle async (TokenResult) - wait synchronously
+				if asyncToken, isToken := result.(TokenResult); isToken {
+					asyncTokenID := string(asyncToken)
+					waitChan := make(chan ResumeData, 1)
+					ctx.executor.attachWaitChan(asyncTokenID, waitChan)
+					resumeData := <-waitChan
+					lastStatus = resumeData.Status
+					continue
 				}
 
 				if boolRes, ok := result.(BoolStatus); ok {
@@ -467,8 +483,15 @@ func (ps *PawScript) RegisterGeneratorLib() {
 					return BoolStatus(true)
 				}
 
+				// Handle async in condition - wait synchronously
 				shouldContinue := false
-				if boolRes, ok := condResult.(BoolStatus); ok {
+				if condToken, isToken := condResult.(TokenResult); isToken {
+					condTokenID := string(condToken)
+					waitChan := make(chan ResumeData, 1)
+					ctx.executor.attachWaitChan(condTokenID, waitChan)
+					resumeData := <-waitChan
+					shouldContinue = resumeData.Status
+				} else if boolRes, ok := condResult.(BoolStatus); ok {
 					shouldContinue = bool(boolRes)
 				}
 
@@ -503,10 +526,16 @@ func (ps *PawScript) RegisterGeneratorLib() {
 
 						ctx.executor.mu.Lock()
 						if td, exists := ctx.executor.activeTokens[tokenID]; exists {
+							// Calculate remaining commands safely
+							nextIdx := cmdIdx + 1
+							var remainingCmds []*ParsedCommand
+							if nextIdx < len(bodyCommands) {
+								remainingCmds = bodyCommands[nextIdx:]
+							}
 							td.WhileContinuation = &WhileContinuation{
 								ConditionBlock:    whileCont.ConditionBlock,
 								BodyBlock:         whileCont.BodyBlock,
-								RemainingBodyCmds: bodyCommands[cmdIdx+1:],
+								RemainingBodyCmds: remainingCmds,
 								BodyCmdIndex:      cmdIdx,
 								IterationCount:    iterations,
 								State:             state,
@@ -529,6 +558,16 @@ func (ps *PawScript) RegisterGeneratorLib() {
 							ctx.SetResult(earlyReturn.Result)
 						}
 						return earlyReturn.Status
+					}
+
+					// Handle async (TokenResult) - wait synchronously
+					if asyncToken, isToken := result.(TokenResult); isToken {
+						asyncTokenID := string(asyncToken)
+						waitChan := make(chan ResumeData, 1)
+						ctx.executor.attachWaitChan(asyncTokenID, waitChan)
+						resumeData := <-waitChan
+						lastStatus = resumeData.Status
+						continue
 					}
 
 					if boolRes, ok := result.(BoolStatus); ok {
@@ -587,17 +626,26 @@ func (ps *PawScript) RegisterGeneratorLib() {
 				// Update token's remaining commands to after this yield
 				ctx.executor.mu.Lock()
 				if tokenData, exists := ctx.executor.activeTokens[tokenID]; exists {
+					// Calculate remaining commands safely
+					nextIndex := i + 1
+					var remaining []*ParsedCommand
+					if nextIndex < len(seq.RemainingCommands) {
+						remaining = seq.RemainingCommands[nextIndex:]
+					} else {
+						remaining = nil
+					}
+
 					// If this yield came from a while loop, store the continuation
 					if yieldResult.WhileContinuation != nil {
 						tokenData.WhileContinuation = yieldResult.WhileContinuation
 						tokenData.WhileContinuation.SubstitutionCtx = substCtx
 						// Keep the while command in remaining (don't advance past it)
 						// so that when continuation finishes, we continue after the while
-						tokenData.CommandSequence.RemainingCommands = seq.RemainingCommands[i+1:]
-						tokenData.CommandSequence.CurrentIndex += i + 1
+						tokenData.CommandSequence.RemainingCommands = remaining
+						tokenData.CommandSequence.CurrentIndex += nextIndex
 					} else {
-						tokenData.CommandSequence.RemainingCommands = seq.RemainingCommands[i+1:]
-						tokenData.CommandSequence.CurrentIndex += i + 1
+						tokenData.CommandSequence.RemainingCommands = remaining
+						tokenData.CommandSequence.CurrentIndex += nextIndex
 					}
 				}
 				ctx.executor.mu.Unlock()
@@ -623,10 +671,16 @@ func (ps *PawScript) RegisterGeneratorLib() {
 				// Store remaining commands in new token
 				ctx.executor.mu.Lock()
 				if newTokenData, exists := ctx.executor.activeTokens[newTokenID]; exists {
+					// Calculate remaining commands safely
+					nextIndex := i + 1
+					var remaining []*ParsedCommand
+					if nextIndex < len(seq.RemainingCommands) {
+						remaining = seq.RemainingCommands[nextIndex:]
+					}
 					newTokenData.CommandSequence = &CommandSequence{
 						Type:              "generator",
-						RemainingCommands: seq.RemainingCommands[i+1:],
-						CurrentIndex:      seq.CurrentIndex + i + 1,
+						RemainingCommands: remaining,
+						CurrentIndex:      seq.CurrentIndex + nextIndex,
 						TotalCommands:     seq.TotalCommands,
 						OriginalCommand:   seq.OriginalCommand,
 						Timestamp:         time.Now(),
@@ -663,13 +717,24 @@ func (ps *PawScript) RegisterGeneratorLib() {
 				return earlyReturn.Status
 			}
 
-			// Check for async (TokenResult) - not fully supported yet
-			if _, ok := result.(TokenResult); ok {
-				ctx.LogError(CatCommand, "resume: async operations inside generators not yet supported")
-				return BoolStatus(false)
+			// Handle async (TokenResult) - wait synchronously like while does
+			if asyncToken, isToken := result.(TokenResult); isToken {
+				asyncTokenID := string(asyncToken)
+				waitChan := make(chan ResumeData, 1)
+				ctx.executor.attachWaitChan(asyncTokenID, waitChan)
+				resumeData := <-waitChan
+
+				if !resumeData.Status {
+					ps.logger.Debug("resume: async operation failed in generator")
+				}
+				lastStatus = resumeData.Status
+				state.SetLastStatus(lastStatus)
+				continue
 			}
 
-			lastStatus = bool(result.(BoolStatus))
+			if boolRes, ok := result.(BoolStatus); ok {
+				lastStatus = bool(boolRes)
+			}
 			state.SetLastStatus(lastStatus)
 		}
 
@@ -733,7 +798,7 @@ func (ps *PawScript) RegisterGeneratorLib() {
 
 	// token_valid - Check if a token is still valid (not exhausted)
 	// token_valid <token>
-	// Returns BoolStatus(true/false) based on whether the token exists
+	// Returns BoolStatus(true/false) based on whether the token exists and has remaining items
 	ps.RegisterCommandInModule("core", "token_valid", func(ctx *Context) Result {
 		if len(ctx.Args) < 1 {
 			ctx.SetResult(false)
@@ -752,9 +817,41 @@ func (ps *PawScript) RegisterGeneratorLib() {
 			return BoolStatus(false)
 		}
 
-		// Check if token exists
+		// Check if token exists and has remaining items (for iterators)
 		ctx.executor.mu.RLock()
-		_, exists := ctx.executor.activeTokens[tokenID]
+		tokenData, exists := ctx.executor.activeTokens[tokenID]
+		if !exists {
+			ctx.executor.mu.RUnlock()
+			ctx.SetResult(false)
+			return BoolStatus(false)
+		}
+
+		// For iterators, check if there are remaining items
+		if tokenData.IteratorState != nil {
+			iterState := tokenData.IteratorState
+			switch iterState.Type {
+			case "each":
+				// Check if index is past the end - access storedObjects directly since we hold the lock
+				storedObj, listExists := ctx.executor.storedObjects[iterState.ListID]
+				if !listExists {
+					ctx.executor.mu.RUnlock()
+					ctx.SetResult(false)
+					return BoolStatus(false)
+				}
+				if list, ok := storedObj.Value.(StoredList); ok {
+					hasMore := iterState.Index < len(list.Items())
+					ctx.executor.mu.RUnlock()
+					ctx.SetResult(hasMore)
+					return BoolStatus(hasMore)
+				}
+			case "pair":
+				// Check if key index is past the end
+				hasMore := iterState.KeyIndex < len(iterState.Keys)
+				ctx.executor.mu.RUnlock()
+				ctx.SetResult(hasMore)
+				return BoolStatus(hasMore)
+			}
+		}
 		ctx.executor.mu.RUnlock()
 
 		ctx.SetResult(exists)
