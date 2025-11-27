@@ -270,7 +270,8 @@ func (ps *PawScript) RegisterGeneratorLib() {
 					delete(ctx.executor.activeTokens, tokenID)
 					ctx.executor.mu.Unlock()
 
-					// Return nil and false to indicate exhaustion (allows while loop exit)
+					// Return nil with BoolStatus(false) to indicate exhaustion
+					// This allows while (x: {resume ~iter}) pattern to exit cleanly
 					ctx.SetResult(nil)
 					return BoolStatus(false)
 				}
@@ -313,7 +314,8 @@ func (ps *PawScript) RegisterGeneratorLib() {
 					delete(ctx.executor.activeTokens, tokenID)
 					ctx.executor.mu.Unlock()
 
-					// Return nil and false to indicate exhaustion (allows while loop exit)
+					// Return nil with BoolStatus(false) to indicate exhaustion
+					// This allows while (p: {resume ~iter}) pattern to exit cleanly
 					ctx.SetResult(nil)
 					return BoolStatus(false)
 				}

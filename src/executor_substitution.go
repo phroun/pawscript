@@ -302,10 +302,12 @@ func (e *Executor) substituteBraceExpressions(str string, ctx *SubstitutionConte
 			evaluations[i].Completed = true
 
 			// Check if it was successful
-			if boolStatus, ok := executeResult.(BoolStatus); ok && !bool(boolStatus) {
+			// Note: Only mark as failed if BoolStatus is false AND there's no result
+			// Commands that return false as a value (like lt, token_valid) should NOT
+			// cause the parent command to abort - they returned a valid result
+			if boolStatus, ok := executeResult.(BoolStatus); ok && !bool(boolStatus) && !hasCapturedResult {
 				evaluations[i].Failed = true
-				//evaluations[i].Error = "Command returned false"
-				e.logger.Debug("Brace %d completed synchronously with failure", i)
+				e.logger.Debug("Brace %d completed synchronously with failure (no result)", i)
 			} else {
 				e.logger.Debug("Brace %d completed synchronously with success", i)
 			}
