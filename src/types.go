@@ -148,6 +148,15 @@ type WhileContinuation struct {
 	SubstitutionCtx     *SubstitutionContext
 }
 
+// IteratorState stores state for Go-backed iterators (each, pair)
+type IteratorState struct {
+	Type       string        // "each" or "pair"
+	ListID     int           // Object ID of the list being iterated
+	Index      int           // Current position (for "each")
+	Keys       []string      // Keys to iterate (for "pair")
+	KeyIndex   int           // Current key position (for "pair")
+}
+
 // ParsedCommand represents a parsed command with metadata
 type ParsedCommand struct {
 	Command      string
@@ -235,6 +244,7 @@ type TokenData struct {
 	WaitChan           chan ResumeData    // For synchronous blocking (e.g., in while loops)
 	SubstitutionCtx    *SubstitutionContext // For generator macro argument substitution
 	WhileContinuation  *WhileContinuation // For resuming while loops after yield
+	IteratorState      *IteratorState     // For Go-backed iterators (each, pair)
 }
 
 // MacroDefinition stores a macro definition

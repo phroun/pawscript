@@ -2,6 +2,7 @@ package pawscript
 
 import (
 	"fmt"
+	"sort"
 	"strings"
 	"time"
 )
@@ -234,7 +235,109 @@ func (ps *PawScript) RegisterGeneratorLib() {
 		state := tokenData.ExecutionState
 		substCtx := tokenData.SubstitutionCtx
 		whileCont := tokenData.WhileContinuation
+		iterState := tokenData.IteratorState
 		ctx.executor.mu.Unlock()
+
+		// Handle iterator tokens (each, pair) - optimized Go-backed iterators
+		if iterState != nil {
+			switch iterState.Type {
+			case "each":
+				// Get the list
+				listObj, exists := ctx.executor.getObject(iterState.ListID)
+				if !exists {
+					ctx.LogError(CatCommand, "resume: iterator list no longer exists")
+					// Clean up token
+					ctx.executor.mu.Lock()
+					delete(ctx.executor.activeTokens, tokenID)
+					ctx.executor.mu.Unlock()
+					return BoolStatus(false)
+				}
+
+				list, ok := listObj.(StoredList)
+				if !ok {
+					ctx.LogError(CatCommand, "resume: iterator target is not a list")
+					ctx.executor.mu.Lock()
+					delete(ctx.executor.activeTokens, tokenID)
+					ctx.executor.mu.Unlock()
+					return BoolStatus(false)
+				}
+
+				items := list.Items()
+				if iterState.Index >= len(items) {
+					// Iterator exhausted - release list reference and delete token
+					ctx.executor.decrementObjectRefCount(iterState.ListID)
+					ctx.executor.mu.Lock()
+					delete(ctx.executor.activeTokens, tokenID)
+					ctx.executor.mu.Unlock()
+
+					// Return nil and false to indicate exhaustion (allows while loop exit)
+					ctx.SetResult(nil)
+					return BoolStatus(false)
+				}
+
+				// Get current item and advance index
+				item := items[iterState.Index]
+				ctx.executor.mu.Lock()
+				if td, exists := ctx.executor.activeTokens[tokenID]; exists {
+					td.IteratorState.Index++
+				}
+				ctx.executor.mu.Unlock()
+
+				ctx.SetResult(item)
+				return BoolStatus(true)
+
+			case "pair":
+				// Get the list
+				listObj, exists := ctx.executor.getObject(iterState.ListID)
+				if !exists {
+					ctx.LogError(CatCommand, "resume: iterator list no longer exists")
+					ctx.executor.mu.Lock()
+					delete(ctx.executor.activeTokens, tokenID)
+					ctx.executor.mu.Unlock()
+					return BoolStatus(false)
+				}
+
+				list, ok := listObj.(StoredList)
+				if !ok {
+					ctx.LogError(CatCommand, "resume: iterator target is not a list")
+					ctx.executor.mu.Lock()
+					delete(ctx.executor.activeTokens, tokenID)
+					ctx.executor.mu.Unlock()
+					return BoolStatus(false)
+				}
+
+				if iterState.KeyIndex >= len(iterState.Keys) {
+					// Iterator exhausted - release list reference and delete token
+					ctx.executor.decrementObjectRefCount(iterState.ListID)
+					ctx.executor.mu.Lock()
+					delete(ctx.executor.activeTokens, tokenID)
+					ctx.executor.mu.Unlock()
+
+					// Return nil and false to indicate exhaustion (allows while loop exit)
+					ctx.SetResult(nil)
+					return BoolStatus(false)
+				}
+
+				// Get current key/value pair
+				key := iterState.Keys[iterState.KeyIndex]
+				value := list.NamedArgs()[key]
+
+				// Create a list with [key, value]
+				pairList := NewStoredList([]interface{}{key, value})
+				pairID := ctx.executor.storeObject(pairList, "list")
+				pairMarker := fmt.Sprintf("\x00LIST:%d\x00", pairID)
+
+				// Advance index
+				ctx.executor.mu.Lock()
+				if td, exists := ctx.executor.activeTokens[tokenID]; exists {
+					td.IteratorState.KeyIndex++
+				}
+				ctx.executor.mu.Unlock()
+
+				ctx.SetResult(Symbol(pairMarker))
+				return BoolStatus(true)
+			}
+		}
 
 		// Handle while continuation if present
 		if whileCont != nil {
@@ -628,6 +731,7 @@ func (ps *PawScript) RegisterGeneratorLib() {
 
 	// token_valid - Check if a token is still valid (not exhausted)
 	// token_valid <token>
+	// Returns BoolStatus(true/false) based on whether the token exists
 	ps.RegisterCommandInModule("core", "token_valid", func(ctx *Context) Result {
 		if len(ctx.Args) < 1 {
 			ctx.SetResult(false)
@@ -637,13 +741,13 @@ func (ps *PawScript) RegisterGeneratorLib() {
 		tokenMarker, ok := resolveToken(ctx, ctx.Args[0])
 		if !ok {
 			ctx.SetResult(false)
-			return BoolStatus(true)
+			return BoolStatus(false)
 		}
 
 		tokenID := getTokenIDFromMarker(tokenMarker)
 		if tokenID == "" {
 			ctx.SetResult(false)
-			return BoolStatus(true)
+			return BoolStatus(false)
 		}
 
 		// Check if token exists
@@ -652,6 +756,145 @@ func (ps *PawScript) RegisterGeneratorLib() {
 		ctx.executor.mu.RUnlock()
 
 		ctx.SetResult(exists)
+		return BoolStatus(exists)
+	})
+
+	// Helper to resolve a value to a list and get its object ID
+	resolveListWithID := func(ctx *Context, val interface{}) (StoredList, int, bool) {
+		switch v := val.(type) {
+		case StoredList:
+			// Direct list - need to store it first
+			id := ctx.executor.storeObject(v, "list")
+			return v, id, true
+		case Symbol:
+			markerType, objectID := parseObjectMarker(string(v))
+			if markerType == "list" && objectID >= 0 {
+				if obj, exists := ctx.executor.getObject(objectID); exists {
+					if list, ok := obj.(StoredList); ok {
+						return list, objectID, true
+					}
+				}
+			}
+		case string:
+			markerType, objectID := parseObjectMarker(v)
+			if markerType == "list" && objectID >= 0 {
+				if obj, exists := ctx.executor.getObject(objectID); exists {
+					if list, ok := obj.(StoredList); ok {
+						return list, objectID, true
+					}
+				}
+			}
+		}
+		return StoredList{}, -1, false
+	}
+
+	// each - Create an iterator that yields each positional item from a list
+	// each <list>
+	ps.RegisterCommandInModule("core", "each", func(ctx *Context) Result {
+		if len(ctx.Args) < 1 {
+			ctx.LogError(CatCommand, "Usage: each <list>")
+			return BoolStatus(false)
+		}
+
+		// Resolve the list
+		list, listID, ok := resolveListWithID(ctx, ctx.Args[0])
+		if !ok {
+			ctx.LogError(CatCommand, "each: argument must be a list")
+			return BoolStatus(false)
+		}
+
+		// Check if list has any items
+		if len(list.Items()) == 0 {
+			// Empty list - return a marker for "no items"
+			ctx.SetResult(nil)
+			return BoolStatus(true)
+		}
+
+		// Claim reference to the list so it's not GC'd while iterating
+		ctx.executor.incrementObjectRefCount(listID)
+
+		// Create a token for the iterator
+		tokenID := ctx.executor.RequestCompletionToken(
+			nil,
+			"",
+			30*time.Minute,
+			ctx.state,
+			ctx.Position,
+		)
+
+		// Store iterator state in the token
+		ctx.executor.mu.Lock()
+		if tokenData, exists := ctx.executor.activeTokens[tokenID]; exists {
+			tokenData.IteratorState = &IteratorState{
+				Type:   "each",
+				ListID: listID,
+				Index:  0,
+			}
+		}
+		ctx.executor.mu.Unlock()
+
+		// Return the token marker
+		tokenMarker := fmt.Sprintf("\x00TOKEN:%s\x00", tokenID)
+		ctx.SetResult(Symbol(tokenMarker))
+		return BoolStatus(true)
+	})
+
+	// pair - Create an iterator that yields key/value pairs from a list's named arguments
+	// pair <list>
+	ps.RegisterCommandInModule("core", "pair", func(ctx *Context) Result {
+		if len(ctx.Args) < 1 {
+			ctx.LogError(CatCommand, "Usage: pair <list>")
+			return BoolStatus(false)
+		}
+
+		// Resolve the list
+		list, listID, ok := resolveListWithID(ctx, ctx.Args[0])
+		if !ok {
+			ctx.LogError(CatCommand, "pair: argument must be a list")
+			return BoolStatus(false)
+		}
+
+		namedArgs := list.NamedArgs()
+		if len(namedArgs) == 0 {
+			// No named args - return nil
+			ctx.SetResult(nil)
+			return BoolStatus(true)
+		}
+
+		// Get sorted keys for deterministic iteration
+		keys := make([]string, 0, len(namedArgs))
+		for k := range namedArgs {
+			keys = append(keys, k)
+		}
+		sort.Strings(keys)
+
+		// Claim reference to the list so it's not GC'd while iterating
+		ctx.executor.incrementObjectRefCount(listID)
+
+		// Create a token for the iterator
+		tokenID := ctx.executor.RequestCompletionToken(
+			nil,
+			"",
+			30*time.Minute,
+			ctx.state,
+			ctx.Position,
+		)
+
+		// Store iterator state in the token
+		ctx.executor.mu.Lock()
+		if tokenData, exists := ctx.executor.activeTokens[tokenID]; exists {
+			tokenData.IteratorState = &IteratorState{
+				Type:     "pair",
+				ListID:   listID,
+				Keys:     keys,
+				KeyIndex: 0,
+			}
+		}
+		ctx.executor.mu.Unlock()
+
+		// Return the token marker
+		tokenMarker := fmt.Sprintf("\x00TOKEN:%s\x00", tokenID)
+		ctx.SetResult(Symbol(tokenMarker))
 		return BoolStatus(true)
 	})
 }
