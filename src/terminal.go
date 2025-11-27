@@ -16,11 +16,12 @@ type TerminalCapabilities struct {
 	mu sync.RWMutex
 
 	// Terminal type and detection
-	TermType    string // e.g., "xterm-256color", "gui-console"
-	IsTerminal  bool   // true if this is an interactive terminal
-	SupportsANSI bool  // true if ANSI escape codes are supported
-	SupportsColor bool // true if color output is supported
-	ColorDepth  int    // 0=none, 8=basic, 16=extended, 256=256color, 24=truecolor
+	TermType     string // e.g., "xterm-256color", "gui-console"
+	IsTerminal   bool   // true if this is an interactive terminal
+	IsRedirected bool   // true if output is being redirected (piped/file)
+	SupportsANSI bool   // true if ANSI escape codes are supported
+	SupportsColor bool  // true if color output is supported
+	ColorDepth   int    // 0=none, 8=basic, 16=extended, 256=256color, 24=truecolor
 
 	// Screen dimensions
 	Width  int // columns
@@ -40,6 +41,7 @@ func NewTerminalCapabilities() *TerminalCapabilities {
 	return &TerminalCapabilities{
 		TermType:      "unknown",
 		IsTerminal:    false,
+		IsRedirected:  false,
 		SupportsANSI:  false,
 		SupportsColor: false,
 		ColorDepth:    0,
@@ -59,20 +61,30 @@ func DetectSystemTerminalCapabilities() *TerminalCapabilities {
 	// Check if stdout is a terminal
 	caps.IsTerminal = term.IsTerminal(int(os.Stdout.Fd()))
 
+	// Set IsRedirected when stdout is not a terminal (piped or file)
+	caps.IsRedirected = !caps.IsTerminal
+
 	// Get terminal type from environment
 	caps.TermType = os.Getenv("TERM")
 	if caps.TermType == "" {
 		caps.TermType = "unknown"
 	}
 
-	// Detect ANSI support
-	caps.SupportsANSI = detectANSISupport(caps.TermType, caps.IsTerminal)
+	// When redirected, use special rules:
+	// - Act as 80x24 screen with color support
+	// - Emit ANSI codes to output stream (for test comparison, etc.)
+	if caps.IsRedirected {
+		caps.Width = 80
+		caps.Height = 24
+		// Enable ANSI/color if TERM suggests the original terminal would support it
+		caps.SupportsANSI = detectANSISupportForRedirect(caps.TermType)
+		caps.SupportsColor, caps.ColorDepth = detectColorSupport(caps.TermType)
+	} else {
+		// Normal terminal detection
+		caps.SupportsANSI = detectANSISupport(caps.TermType, caps.IsTerminal)
+		caps.SupportsColor, caps.ColorDepth = detectColorSupport(caps.TermType)
 
-	// Detect color support and depth
-	caps.SupportsColor, caps.ColorDepth = detectColorSupport(caps.TermType)
-
-	// Detect screen size
-	if caps.IsTerminal {
+		// Detect screen size
 		width, height, err := term.GetSize(int(os.Stdout.Fd()))
 		if err == nil && width > 0 && height > 0 {
 			caps.Width = width
@@ -93,6 +105,38 @@ func detectANSISupport(termType string, isTerminal bool) bool {
 	if !isTerminal {
 		return false
 	}
+	if termType == "" || termType == "dumb" {
+		return false
+	}
+
+	termLower := strings.ToLower(termType)
+
+	// Check for known ANSI-supporting terminal types
+	ansiTerms := []string{
+		"xterm", "vt100", "vt102", "vt220", "vt320", "ansi", "linux",
+		"screen", "tmux", "rxvt", "konsole", "gnome", "putty",
+		"cygwin", "mintty", "eterm", "alacritty", "kitty", "iterm",
+	}
+
+	for _, t := range ansiTerms {
+		if strings.Contains(termLower, t) {
+			return true
+		}
+	}
+
+	// Check COLORTERM environment variable
+	if os.Getenv("COLORTERM") != "" {
+		return true
+	}
+
+	// If TERM is set and not "dumb", assume ANSI support
+	return true
+}
+
+// detectANSISupportForRedirect checks if ANSI is supported when output is redirected.
+// When redirected, we check TERM type to determine if the original terminal would
+// support ANSI, and if so, we emit codes to the redirected output.
+func detectANSISupportForRedirect(termType string) bool {
 	if termType == "" || termType == "dumb" {
 		return false
 	}
@@ -310,6 +354,11 @@ func (ts *TerminalState) detectScreenSize() {
 // IsTerminal checks if stdout is a terminal
 func IsTerminal() bool {
 	return term.IsTerminal(int(os.Stdout.Fd()))
+}
+
+// IsRedirected checks if stdout is being redirected (piped or file)
+func IsRedirected() bool {
+	return !term.IsTerminal(int(os.Stdout.Fd()))
 }
 
 // GetPhysicalX returns the physical column on screen
@@ -752,6 +801,21 @@ func ChannelIsTerminal(ch *StoredChannel) bool {
 	caps.mu.RLock()
 	defer caps.mu.RUnlock()
 	return caps.IsTerminal
+}
+
+// ChannelIsRedirected returns true if the channel's output is being redirected
+// Falls back to system terminal if channel is nil or has no terminal capabilities
+func ChannelIsRedirected(ch *StoredChannel) bool {
+	if ch == nil {
+		return IsRedirected()
+	}
+	caps := ch.GetTerminalCapabilities()
+	if caps == nil {
+		return IsRedirected()
+	}
+	caps.mu.RLock()
+	defer caps.mu.RUnlock()
+	return caps.IsRedirected
 }
 
 // ChannelGetTerminalType returns the terminal type for the channel

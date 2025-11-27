@@ -928,9 +928,13 @@ func (ps *PawScript) RegisterSystemLib(scriptArgs []string) {
 			}
 		}
 
+		// Track whether we're actually setting anything (vs just querying)
+		isSettingColor := false
+
 		// Parse positional arguments
 		if len(ctx.Args) >= 1 {
 			fg = parseColor(ctx.Args[0])
+			isSettingColor = true
 		}
 		if len(ctx.Args) >= 2 {
 			bg = parseColor(ctx.Args[1])
@@ -945,15 +949,19 @@ func (ps *PawScript) RegisterSystemLib(scriptArgs []string) {
 
 		if v, ok := ctx.NamedArgs["bold"]; ok {
 			bold = isTruthy(v)
+			isSettingColor = true
 		}
 		if v, ok := ctx.NamedArgs["blink"]; ok {
 			blink = isTruthy(v)
+			isSettingColor = true
 		}
 		if v, ok := ctx.NamedArgs["underline"]; ok {
 			underline = isTruthy(v)
+			isSettingColor = true
 		}
 		if v, ok := ctx.NamedArgs["invert"]; ok {
 			invert = isTruthy(v)
+			isSettingColor = true
 		}
 
 		// Generate and emit ANSI sequence
@@ -980,9 +988,9 @@ func (ps *PawScript) RegisterSystemLib(scriptArgs []string) {
 			}
 		}
 
-		// In brace expression: return ANSI code as string for substitution
-		// Otherwise: emit to output channel
-		if ctx.state.InBraceExpression {
+		// In brace expression with color setting: return ANSI code as string for substitution
+		// When just querying (no args), fall through to return info list
+		if ctx.state.InBraceExpression && isSettingColor {
 			ctx.SetResult(QuotedString(ansiCode))
 			return BoolStatus(true)
 		}
