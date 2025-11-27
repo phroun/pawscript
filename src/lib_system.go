@@ -162,28 +162,37 @@ func (ps *PawScript) RegisterSystemLib(scriptArgs []string) {
 	// Helper to get a channel from first argument or default
 	getOutputChannel := func(ctx *Context, defaultName string) (*StoredChannel, []interface{}, bool) {
 		args := ctx.Args
+		ps.logger.Debug("getOutputChannel: defaultName=%s, numArgs=%d", defaultName, len(args))
 
 		// Check if first arg is already a channel (from tilde resolution)
 		if len(args) > 0 {
+			ps.logger.Debug("getOutputChannel: first arg type=%T, value=%v", args[0], args[0])
 			if ch, ok := args[0].(*StoredChannel); ok {
+				ps.logger.Debug("getOutputChannel: first arg is *StoredChannel, hasNativeSend=%v", ch.NativeSend != nil)
 				return ch, args[1:], true
 			}
 			// Or if first arg is a symbol starting with #
 			if sym, ok := args[0].(Symbol); ok {
 				symStr := string(sym)
 				if strings.HasPrefix(symStr, "#") {
+					ps.logger.Debug("getOutputChannel: first arg is #-prefixed Symbol: %s", symStr)
 					if ch := resolveChannel(ctx, symStr); ch != nil {
+						ps.logger.Debug("getOutputChannel: resolved to channel, hasNativeSend=%v", ch.NativeSend != nil)
 						return ch, args[1:], true
 					}
+					ps.logger.Debug("getOutputChannel: resolveChannel returned nil for %s", symStr)
 				}
 			}
 		}
 
 		// Use default channel (also resolved through local vars first)
+		ps.logger.Debug("getOutputChannel: trying default channel %s", defaultName)
 		if ch := resolveChannel(ctx, defaultName); ch != nil {
+			ps.logger.Debug("getOutputChannel: default channel resolved, hasNativeSend=%v", ch.NativeSend != nil)
 			return ch, args, true
 		}
 
+		ps.logger.Debug("getOutputChannel: NO channel found, returning false")
 		return nil, args, false
 	}
 
@@ -593,9 +602,11 @@ func (ps *PawScript) RegisterSystemLib(scriptArgs []string) {
 
 	// echo/print - output with automatic newline and spaces between args
 	outputLineCommand := func(ctx *Context) Result {
+		ps.logger.Debug("outputLineCommand (print/echo): starting")
 		ch, args, found := getOutputChannel(ctx, "#out")
 		if !found {
 			// Fallback: use OutputContext for consistent channel resolution with system fallback
+			ps.logger.Debug("outputLineCommand: NO channel found, using OutputContext fallback")
 			text := ""
 			for i, arg := range ctx.Args {
 				if i > 0 {
@@ -608,6 +619,7 @@ func (ps *PawScript) RegisterSystemLib(scriptArgs []string) {
 			return BoolStatus(true)
 		}
 
+		ps.logger.Debug("outputLineCommand: channel found, hasNativeSend=%v", ch.NativeSend != nil)
 		text := ""
 		for i, arg := range args {
 			if i > 0 {
@@ -616,11 +628,14 @@ func (ps *PawScript) RegisterSystemLib(scriptArgs []string) {
 			text += formatArgForDisplay(arg, ctx.executor)
 		}
 
+		ps.logger.Debug("outputLineCommand: calling ChannelSend with text=%q", text)
 		err := ChannelSend(ch, text+"\n")
 		if err != nil {
+			ps.logger.Debug("outputLineCommand: ChannelSend returned error: %v", err)
 			ctx.LogError(CatIO, fmt.Sprintf("Failed to write: %v", err))
 			return BoolStatus(false)
 		}
+		ps.logger.Debug("outputLineCommand: ChannelSend succeeded")
 		return BoolStatus(true)
 	}
 
