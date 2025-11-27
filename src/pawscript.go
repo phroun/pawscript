@@ -173,6 +173,41 @@ func (ps *PawScript) Execute(commandString string, args ...interface{}) Result {
 	return result
 }
 
+// ImportModuleToRoot imports all items from a module directly into the root environment.
+// This makes the items available to all subsequent Execute() calls without needing IMPORT.
+func (ps *PawScript) ImportModuleToRoot(moduleName string) bool {
+	ps.rootModuleEnv.mu.Lock()
+	defer ps.rootModuleEnv.mu.Unlock()
+
+	// Find module in LibraryRestricted
+	section, exists := ps.rootModuleEnv.LibraryRestricted[moduleName]
+	if !exists {
+		ps.logger.Error("ImportModuleToRoot: Module not found in library: %s", moduleName)
+		return false
+	}
+
+	// Import all items from the module
+	for itemName, item := range section {
+		switch item.Type {
+		case "macro":
+			if macro, ok := item.Value.(*StoredMacro); ok && macro != nil {
+				ps.rootModuleEnv.MacrosModule[itemName] = macro
+				ps.logger.Debug("ImportModuleToRoot: Imported macro %s from %s", itemName, moduleName)
+			}
+		case "command":
+			if handler, ok := item.Value.(Handler); ok && handler != nil {
+				ps.rootModuleEnv.CommandRegistryModule[itemName] = handler
+				ps.logger.Debug("ImportModuleToRoot: Imported command %s from %s", itemName, moduleName)
+			}
+		case "object":
+			ps.rootModuleEnv.ObjectsModule[itemName] = item.Value
+			ps.logger.Debug("ImportModuleToRoot: Imported object %s from %s", itemName, moduleName)
+		}
+	}
+
+	return true
+}
+
 // CreateRestrictedSnapshot creates a restricted environment snapshot
 // This captures the current state with copy-on-write isolation, similar to what
 // a macro definition would capture. Use with ExecuteWithEnvironment to run

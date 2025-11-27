@@ -117,12 +117,11 @@ func main() {
 		if result == pawscript.BoolStatus(false) {
 			fmt.Fprintf(os.Stderr, "Script execution failed\n")
 		}
-		// Import exports module so exported macros are directly callable
-		importResult := ps.Execute("IMPORT exports")
-		if importResult == pawscript.BoolStatus(false) {
-			fmt.Fprintf(os.Stderr, "Failed to import exports module\n")
+		// Import exports module directly into root so macros are callable
+		if ps.ImportModuleToRoot("exports") {
+			fmt.Fprintf(os.Stderr, "Successfully imported exports module to root\n")
 		} else {
-			fmt.Fprintf(os.Stderr, "Successfully imported exports module\n")
+			fmt.Fprintf(os.Stderr, "Failed to import exports module (may not exist)\n")
 		}
 	}()
 
