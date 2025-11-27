@@ -165,7 +165,12 @@ func (ps *PawScript) ExecuteFile(commandString, filename string) Result {
 func (ps *PawScript) Execute(commandString string, args ...interface{}) Result {
 	state := ps.NewExecutionStateFromRoot()
 	defer state.ReleaseAllReferences()
-	return ps.executor.ExecuteWithState(commandString, state, nil, "", 0, 0)
+	result := ps.executor.ExecuteWithState(commandString, state, nil, "", 0, 0)
+
+	// Merge any module exports into the root environment for persistence
+	state.moduleEnv.MergeExportsInto(ps.rootModuleEnv)
+
+	return result
 }
 
 // CreateRestrictedSnapshot creates a restricted environment snapshot
