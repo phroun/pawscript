@@ -464,9 +464,15 @@ func registerGuiCommands(ps *pawscript.PawScript) {
 		term := terminal.New()
 		guiState.terminal = term
 
-		// Wrap terminal in a sizedWidget to enforce minimum size
-		sizedTerm := newSizedWidget(term, fyne.NewSize(width, height))
-		sizedTerm.debugWriter = stdoutWriter // DEBUG: for tap detection test
+		// Create a click interceptor that sits on top of the terminal
+		clickInterceptor := newClickInterceptor(term, stdoutWriter)
+
+		// Stack the terminal with the click interceptor on top
+		// The interceptor is transparent but catches clicks first
+		termWithInterceptor := container.NewStack(term, clickInterceptor)
+
+		// Wrap in sizedWidget to enforce minimum size
+		sizedTerm := newSizedWidget(termWithInterceptor, fyne.NewSize(width, height))
 
 		// Get optional ID
 		id := ""
@@ -709,36 +715,56 @@ func createConsoleChannels(stdinReader *io.PipeReader, stdoutWriter *io.PipeWrit
 	return consoleOutCh, consoleInCh
 }
 
-// sizedWidget wraps a canvas object and enforces a minimum size
-type sizedWidget struct {
+// clickInterceptor is a transparent widget that sits on top of the terminal
+// to intercept clicks and handle focus immediately
+type clickInterceptor struct {
 	widget.BaseWidget
-	wrapped     fyne.CanvasObject
-	minSize     fyne.Size
-	debugWriter io.Writer // For debugging - write to terminal on tap
+	terminal    *terminal.Terminal
+	debugWriter io.Writer
 }
 
-// Ensure sizedWidget implements Mouseable for immediate focus on click
-var _ desktop.Mouseable = (*sizedWidget)(nil)
+var _ fyne.Tappable = (*clickInterceptor)(nil)
 
-// MouseDown fires before Tappable events - use this to intercept clicks
-func (s *sizedWidget) MouseDown(_ *desktop.MouseEvent) {
+func newClickInterceptor(term *terminal.Terminal, debugWriter io.Writer) *clickInterceptor {
+	c := &clickInterceptor{
+		terminal:    term,
+		debugWriter: debugWriter,
+	}
+	c.ExtendBaseWidget(c)
+	return c
+}
+
+func (c *clickInterceptor) Tapped(_ *fyne.PointEvent) {
 	// DEBUG: Write text immediately to see if output has the same delay
-	if s.debugWriter != nil {
-		fmt.Fprint(s.debugWriter, "\r\n[MOUSEDOWN DETECTED]\r\n")
+	if c.debugWriter != nil {
+		fmt.Fprint(c.debugWriter, "\r\n[CLICK INTERCEPTED]\r\n")
 	}
 
 	// Directly call FocusGained to show cursor immediately
-	if focusable, ok := s.wrapped.(fyne.Focusable); ok {
-		focusable.FocusGained()
-	}
+	c.terminal.FocusGained()
+
 	// Also request focus through Fyne's system for keyboard input
-	if focusable, ok := s.wrapped.(fyne.Focusable); ok {
-		fyne.CurrentApp().Driver().CanvasForObject(s.wrapped).Focus(focusable)
-	}
+	fyne.CurrentApp().Driver().CanvasForObject(c.terminal).Focus(c.terminal)
 }
 
-// MouseUp implements desktop.Mouseable
-func (s *sizedWidget) MouseUp(_ *desktop.MouseEvent) {}
+func (c *clickInterceptor) CreateRenderer() fyne.WidgetRenderer {
+	return &clickInterceptorRenderer{}
+}
+
+type clickInterceptorRenderer struct{}
+
+func (r *clickInterceptorRenderer) Layout(size fyne.Size)        {}
+func (r *clickInterceptorRenderer) MinSize() fyne.Size           { return fyne.NewSize(0, 0) }
+func (r *clickInterceptorRenderer) Refresh()                     {}
+func (r *clickInterceptorRenderer) Objects() []fyne.CanvasObject { return nil }
+func (r *clickInterceptorRenderer) Destroy()                     {}
+
+// sizedWidget wraps a canvas object and enforces a minimum size
+type sizedWidget struct {
+	widget.BaseWidget
+	wrapped fyne.CanvasObject
+	minSize fyne.Size
+}
 
 func newSizedWidget(wrapped fyne.CanvasObject, minSize fyne.Size) *sizedWidget {
 	s := &sizedWidget{
