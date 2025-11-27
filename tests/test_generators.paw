@@ -146,8 +146,7 @@ macro range_gen (
 
 rg: {generator range_gen, 0, 5}
 print "Range 0-4:"
-while (token_valid ~rg), (
-    v: {resume ~rg}
+while (v: {resume ~rg}), (
     print " ", ~v
 )
 print ""
@@ -195,8 +194,7 @@ macro nested_while_gen (
 
 nested: {generator nested_while_gen}
 print "Nested pairs:"
-while (token_valid ~nested), (
-    p: {resume ~nested}
+while (p: {resume ~nested}), (
     print " ", ~p
 )
 print ""
@@ -206,7 +204,7 @@ macro double_gen (
     src: $1
     while (token_valid ~src), (
         v: {resume ~src}
-        yield {mul ~v, 2}
+        & yield {mul ~v, 2}
     )
     ret "double_done"
 )
@@ -225,8 +223,7 @@ items: {list "red", "green", "blue"}
 it: {each ~items}
 print "Colors with delay:"
 msleep 5
-while (token_valid ~it), (
-    c: {resume ~it}
+while (c: {resume ~it}), (
     print " -", ~c
     msleep 3
 )
@@ -260,8 +257,7 @@ mixed: {list "positional1", "positional2", alpha: 1, beta: 2, gamma: 3}
 print "Positional count:", {len ~mixed}
 pi: {pair ~mixed}
 print "Named pairs:"
-while (token_valid ~pi), (
-    kv: {resume ~pi}
+while (kv: {resume ~pi}), (
     print " ", {argv ~kv, 1}, "->", {argv ~kv, 2}
 )
 print ""
@@ -283,8 +279,7 @@ macro conditional_gen (
 
 cond: {generator conditional_gen, 8}
 print "Even numbers 0-7:"
-while (token_valid ~cond), (
-    v: {resume ~cond}
+while (v: {resume ~cond}), (
     print " ", ~v
 )
 print ""
@@ -302,9 +297,8 @@ macro basic_counter (
 
 ac: {generator basic_counter, 4}
 print "Async count with delays:"
-while (token_valid ~ac), (
+while (v: {resume ~ac}), (
     msleep 5
-    v: {resume ~ac}
     print " ", ~v
 )
 print ""
