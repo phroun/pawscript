@@ -109,3 +109,5 @@ echo "test_terminal_clear:"
 ../paw test_terminal_clear.paw 2>&1 | diff - test_terminal_clear.expected
 echo "test_math:"
 ../paw test_math.paw 2>&1 | diff - test_math.expected
+echo "test_generators:"
+../paw test_generators.paw 2>&1 | diff - test_generators.expected
