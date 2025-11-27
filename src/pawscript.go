@@ -1,8 +1,6 @@
 package pawscript
 
 import (
-	"fmt"
-	"os"
 	"sort"
 	"time"
 )
@@ -154,33 +152,12 @@ func (ps *PawScript) NewExecutionStateFromRoot() *ExecutionState {
 
 // ExecuteFile executes a script file with proper filename tracking
 func (ps *PawScript) ExecuteFile(commandString, filename string) Result {
-	fmt.Fprintf(os.Stderr, "[TRACE] ExecuteFile START: filename='%s'\n", filename)
 	state := ps.NewExecutionStateFromRoot()
-	fmt.Fprintf(os.Stderr, "[TRACE] ExecuteFile('%s'): state.moduleEnv=%p, ModuleExports=%p\n", filename, state.moduleEnv, state.moduleEnv.ModuleExports)
 	result := ps.executor.ExecuteWithState(commandString, state, nil, filename, 0, 0)
-
-	// Debug: log what's in ModuleExports before merge
-	state.moduleEnv.mu.RLock()
-	fmt.Fprintf(os.Stderr, "[TRACE] ExecuteFile('%s'): AFTER execution, moduleEnv=%p, ModuleExports=%p\n", filename, state.moduleEnv, state.moduleEnv.ModuleExports)
-	numExports := len(state.moduleEnv.ModuleExports)
-	fmt.Fprintf(os.Stderr, "[TRACE] ExecuteFile('%s'): ModuleExports has %d modules\n", filename, numExports)
-	for modName, section := range state.moduleEnv.ModuleExports {
-		fmt.Fprintf(os.Stderr, "[TRACE] ExecuteFile('%s'): ModuleExports['%s'] has %d items\n", filename, modName, len(section))
-		for itemName, item := range section {
-			fmt.Fprintf(os.Stderr, "[TRACE] ExecuteFile('%s'):   - %s (type: %s)\n", filename, itemName, item.Type)
-		}
-	}
-	state.moduleEnv.mu.RUnlock()
 
 	// Merge any module exports into the root environment for persistence
 	state.moduleEnv.MergeExportsInto(ps.rootModuleEnv)
 
-	// Debug: verify merge worked
-	ps.rootModuleEnv.mu.RLock()
-	fmt.Fprintf(os.Stderr, "[TRACE] ExecuteFile('%s'): After merge, LibraryRestricted has %d modules\n", filename, len(ps.rootModuleEnv.LibraryRestricted))
-	ps.rootModuleEnv.mu.RUnlock()
-
-	fmt.Fprintf(os.Stderr, "[TRACE] ExecuteFile END: filename='%s'\n", filename)
 	return result
 }
 
