@@ -28,9 +28,9 @@ type GuiState struct {
 	ps         *pawscript.PawScript
 
 	// Layout containers
-	content      *fyne.Container // Main content (used when no split)
-	leftContent  *fyne.Container // Left panel content
-	rightContent *fyne.Container // Right panel content
+	content      *fyne.Container  // Main content (used when no split)
+	leftContent  *fyne.Container  // Left panel content
+	rightContent *fyne.Container  // Right panel content
 	splitView    *container.Split // HSplit container (created on demand)
 	usingSplit   bool             // Whether we're using split layout
 
@@ -516,10 +516,10 @@ func registerGuiCommands(ps *pawscript.PawScript) {
 type consoleInputHandler struct {
 	stdinReader  *io.PipeReader
 	stdoutWriter *io.PipeWriter
-	lines        chan string      // Completed lines ready to be read
-	readActive   chan struct{}    // Signals when a read is waiting
+	lines        chan string   // Completed lines ready to be read
+	readActive   chan struct{} // Signals when a read is waiting
 	mu           sync.Mutex
-	waiting      bool             // True if NativeRecv is waiting for input
+	waiting      bool // True if NativeRecv is waiting for input
 }
 
 func newConsoleInputHandler(stdinReader *io.PipeReader, stdoutWriter *io.PipeWriter) *consoleInputHandler {
@@ -707,6 +707,18 @@ type sizedWidget struct {
 	widget.BaseWidget
 	wrapped fyne.CanvasObject
 	minSize fyne.Size
+}
+
+// Ensure sizedWidget implements Tappable for immediate focus handling
+var _ fyne.Tappable = (*sizedWidget)(nil)
+
+// Tapped implements fyne.Tappable - immediately focuses the wrapped widget if it's focusable
+func (s *sizedWidget) Tapped(_ *fyne.PointEvent) {
+	if focusable, ok := s.wrapped.(fyne.Focusable); ok {
+		if guiState != nil && guiState.mainWindow != nil {
+			guiState.mainWindow.Canvas().Focus(focusable)
+		}
+	}
 }
 
 func newSizedWidget(wrapped fyne.CanvasObject, minSize fyne.Size) *sizedWidget {
