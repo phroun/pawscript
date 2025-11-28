@@ -1,0 +1,41 @@
+#!/usr/bin/env pawscript
+
+echo "=== Test 1: Direct scoped call (LibraryRestricted) ==="
+IMPORT math
+math::sin 0
+echo "math::sin(0) =", {get_result}
+
+echo ""
+echo "=== Test 2: Scoped call in brace expression ==="
+result: {math::sin 0}
+echo "result =", ~result
+
+echo ""
+echo "=== Test 3: Multiple scoped calls ==="
+sinVal: {math::sin 0}
+cosVal: {math::cos 0}
+echo "sin(0) =", ~sinVal
+echo "cos(0) =", ~cosVal
+
+echo ""
+echo "=== Test 4: Scoped call with named argument ==="
+logResult: {math::log 8, base: 2}
+echo "log(8, base: 2) =", ~logResult
+
+echo ""
+echo "=== Test 5: LibraryInherited lookup (::module::item) ==="
+::io::echo "Hello from ::io::echo"
+
+echo ""
+echo "=== Test 6: Scoped core commands ==="
+x: {::core::ret 42}
+echo "::core::ret 42 =", ~x
+
+echo ""
+echo "=== Test 7: Scoped io commands ==="
+::io::echo "Direct ::io::echo call"
+
+echo ""
+echo "=== Test 8: Scoped strlist command ==="
+parts: {::strlist::split "a,b,c", ","}
+echo "split result:", ~parts
