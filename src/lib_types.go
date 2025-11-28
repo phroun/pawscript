@@ -5,6 +5,141 @@ import (
 	"strings"
 )
 
+// deepEqual performs a deep comparison of two values with efficiency shortcuts.
+// If both values are the same object marker (same ID), they're equal.
+// Otherwise, resolve and compare recursively, bailing on first difference.
+func deepEqual(a, b interface{}, executor *Executor) bool {
+	// Quick shortcut: if both are symbols and identical (same object marker), they're equal
+	if symA, okA := a.(Symbol); okA {
+		if symB, okB := b.(Symbol); okB {
+			if string(symA) == string(symB) {
+				return true
+			}
+		}
+	}
+
+	// Resolve both values
+	resolvedA := a
+	resolvedB := b
+	if executor != nil {
+		resolvedA = executor.resolveValue(a)
+		resolvedB = executor.resolveValue(b)
+	}
+
+	// Handle nil
+	if resolvedA == nil && resolvedB == nil {
+		return true
+	}
+	if resolvedA == nil || resolvedB == nil {
+		return false
+	}
+
+	// Compare by type
+	switch va := resolvedA.(type) {
+	case bool:
+		if vb, ok := resolvedB.(bool); ok {
+			return va == vb
+		}
+		return false
+	case int64:
+		switch vb := resolvedB.(type) {
+		case int64:
+			return va == vb
+		case int:
+			return va == int64(vb)
+		case float64:
+			return float64(va) == vb
+		}
+		return false
+	case int:
+		switch vb := resolvedB.(type) {
+		case int:
+			return va == vb
+		case int64:
+			return int64(va) == vb
+		case float64:
+			return float64(va) == vb
+		}
+		return false
+	case float64:
+		switch vb := resolvedB.(type) {
+		case float64:
+			return va == vb
+		case int64:
+			return va == float64(vb)
+		case int:
+			return va == float64(vb)
+		}
+		return false
+	case string:
+		if vb, ok := resolvedB.(string); ok {
+			return va == vb
+		}
+		// Compare with Symbol/QuotedString
+		return fmt.Sprintf("%v", va) == fmt.Sprintf("%v", resolvedB)
+	case Symbol:
+		// Check for undefined
+		if string(va) == "undefined" {
+			if vb, ok := resolvedB.(Symbol); ok && string(vb) == "undefined" {
+				return true
+			}
+			return false
+		}
+		return fmt.Sprintf("%v", va) == fmt.Sprintf("%v", resolvedB)
+	case QuotedString:
+		return fmt.Sprintf("%v", va) == fmt.Sprintf("%v", resolvedB)
+	case StoredList:
+		// Compare lists element by element
+		var listB StoredList
+		switch vb := resolvedB.(type) {
+		case StoredList:
+			listB = vb
+		case ParenGroup:
+			// Parse ParenGroup to list
+			items, _ := parseArguments(string(vb))
+			listB = NewStoredList(items)
+		default:
+			return false
+		}
+		itemsA := va.Items()
+		itemsB := listB.Items()
+		if len(itemsA) != len(itemsB) {
+			return false
+		}
+		// Bail on first difference
+		for i := range itemsA {
+			if !deepEqual(itemsA[i], itemsB[i], executor) {
+				return false
+			}
+		}
+		return true
+	case ParenGroup:
+		// Parse and compare as list
+		itemsA, _ := parseArguments(string(va))
+		var itemsB []interface{}
+		switch vb := resolvedB.(type) {
+		case StoredList:
+			itemsB = vb.Items()
+		case ParenGroup:
+			itemsB, _ = parseArguments(string(vb))
+		default:
+			return false
+		}
+		if len(itemsA) != len(itemsB) {
+			return false
+		}
+		for i := range itemsA {
+			if !deepEqual(itemsA[i], itemsB[i], executor) {
+				return false
+			}
+		}
+		return true
+	}
+
+	// Fallback: string comparison
+	return fmt.Sprintf("%v", resolvedA) == fmt.Sprintf("%v", resolvedB)
+}
+
 // RegisterTypesLib registers string and list manipulation commands
 // Modules: strlist, str
 func (ps *PawScript) RegisterTypesLib() {
@@ -330,20 +465,23 @@ func (ps *PawScript) RegisterTypesLib() {
 		return BoolStatus(true)
 	})
 
-	// trim - trim characters from both ends
-	// Usage: trim "  hello  "              -> "hello" (default whitespace)
-	//        trim "xxhelloxx", "x"         -> "hello" (override: trim only "x")
-	//        trim "xxhello  ",, "x"        -> "hello" (extend: whitespace + "x")
-	//        trim "xxhello##",, "x", "#"   -> "hello" (extend: whitespace + "x" + "#")
+	// trim - trim values from both ends (polymorphic: strings or lists)
+	// String Usage:
+	//   trim "  hello  "              -> "hello" (default whitespace)
+	//   trim "xxhelloxx", "x"         -> "hello" (override: trim only "x")
+	//   trim "xxhello  ",, "x"        -> "hello" (extend: whitespace + "x")
+	//   trim "xxhello##",, "x", "#"   -> "hello" (extend: whitespace + "x" + "#")
+	// List Usage:
+	//   trim ~mylist                  -> removes nil/undefined from both ends
+	//   trim ~mylist, "x"             -> removes "x" from both ends (override)
+	//   trim ~mylist,, "x"            -> removes nil/undefined and "x" from both ends (extend)
+	//   trim ~mylist, (1, 2)          -> removes lists matching (1, 2) by value
 	ps.RegisterCommandInModule("stdlib", "trim", func(ctx *Context) Result {
 		if len(ctx.Args) < 1 {
-			ctx.LogError(CatCommand, "Usage: trim <string>, [chars], [extend_chars...]")
-			ctx.SetResult("")
+			ctx.LogError(CatCommand, "Usage: trim <string|list>, [values], [extend_values...]")
+			ctx.SetResult(nil)
 			return BoolStatus(false)
 		}
-
-		str := resolveToString(ctx.Args[0], ctx.executor)
-		cutset := " \t\n\r" // default whitespace
 
 		// Helper to check if arg is undefined/skipped
 		isUndefined := func(arg interface{}) bool {
@@ -355,6 +493,68 @@ func (ps *PawScript) RegisterTypesLib() {
 			}
 			return false
 		}
+
+		// Check if first argument is a list
+		if list, ok := ctx.Args[0].(StoredList); ok {
+			// List mode: trim matching values from both ends
+			items := list.Items()
+
+			// Build list of values to trim
+			var trimValues []interface{}
+
+			if len(ctx.Args) >= 2 && !isUndefined(ctx.Args[1]) {
+				// Override mode: use only the specified values
+				trimValues = append(trimValues, ctx.Args[1])
+				// Also add any additional args (arg 3+) in override mode
+				for i := 2; i < len(ctx.Args); i++ {
+					if !isUndefined(ctx.Args[i]) {
+						trimValues = append(trimValues, ctx.Args[i])
+					}
+				}
+			} else {
+				// Default: trim nil/undefined
+				trimValues = []interface{}{nil, Symbol("undefined")}
+				// Extend mode: add args from position 3 onward
+				if len(ctx.Args) >= 3 {
+					for i := 2; i < len(ctx.Args); i++ {
+						if !isUndefined(ctx.Args[i]) {
+							trimValues = append(trimValues, ctx.Args[i])
+						}
+					}
+				}
+			}
+
+			// Helper to check if item should be trimmed
+			shouldTrim := func(item interface{}) bool {
+				for _, trimVal := range trimValues {
+					if deepEqual(item, trimVal, ctx.executor) {
+						return true
+					}
+				}
+				return false
+			}
+
+			// Find start index (skip items that should be trimmed)
+			start := 0
+			for start < len(items) && shouldTrim(items[start]) {
+				start++
+			}
+
+			// Find end index (skip items that should be trimmed from end)
+			end := len(items)
+			for end > start && shouldTrim(items[end-1]) {
+				end--
+			}
+
+			// Create result list
+			resultItems := items[start:end]
+			setListResult(ctx, NewStoredList(resultItems))
+			return BoolStatus(true)
+		}
+
+		// String mode: original behavior
+		str := resolveToString(ctx.Args[0], ctx.executor)
+		cutset := " \t\n\r" // default whitespace
 
 		// Check for override (arg 2) or extend (arg 3+)
 		if len(ctx.Args) >= 2 && !isUndefined(ctx.Args[1]) {
@@ -379,20 +579,22 @@ func (ps *PawScript) RegisterTypesLib() {
 		return BoolStatus(true)
 	})
 
-	// trim_start - trim characters from start
-	// Usage: trim_start "  hello  "              -> "hello  " (default whitespace)
-	//        trim_start "xxhello", "x"           -> "hello" (override: trim only "x")
-	//        trim_start "xxhello",, "x"          -> "hello" (extend: whitespace + "x")
-	//        trim_start "##xxhello",, "x", "#"   -> "hello" (extend: whitespace + "x" + "#")
+	// trim_start - trim values from start (polymorphic: strings or lists)
+	// String Usage:
+	//   trim_start "  hello  "              -> "hello  " (default whitespace)
+	//   trim_start "xxhello", "x"           -> "hello" (override: trim only "x")
+	//   trim_start "xxhello",, "x"          -> "hello" (extend: whitespace + "x")
+	//   trim_start "##xxhello",, "x", "#"   -> "hello" (extend: whitespace + "x" + "#")
+	// List Usage:
+	//   trim_start ~mylist                  -> removes nil/undefined from start
+	//   trim_start ~mylist, "x"             -> removes "x" from start (override)
+	//   trim_start ~mylist,, "x"            -> removes nil/undefined and "x" from start (extend)
 	ps.RegisterCommandInModule("stdlib", "trim_start", func(ctx *Context) Result {
 		if len(ctx.Args) < 1 {
-			ctx.LogError(CatCommand, "Usage: trim_start <string>, [chars], [extend_chars...]")
-			ctx.SetResult("")
+			ctx.LogError(CatCommand, "Usage: trim_start <string|list>, [values], [extend_values...]")
+			ctx.SetResult(nil)
 			return BoolStatus(false)
 		}
-
-		str := resolveToString(ctx.Args[0], ctx.executor)
-		cutset := " \t\n\r" // default whitespace
 
 		// Helper to check if arg is undefined/skipped
 		isUndefined := func(arg interface{}) bool {
@@ -404,6 +606,61 @@ func (ps *PawScript) RegisterTypesLib() {
 			}
 			return false
 		}
+
+		// Check if first argument is a list
+		if list, ok := ctx.Args[0].(StoredList); ok {
+			// List mode: trim matching values from start
+			items := list.Items()
+
+			// Build list of values to trim
+			var trimValues []interface{}
+
+			if len(ctx.Args) >= 2 && !isUndefined(ctx.Args[1]) {
+				// Override mode: use only the specified values
+				trimValues = append(trimValues, ctx.Args[1])
+				for i := 2; i < len(ctx.Args); i++ {
+					if !isUndefined(ctx.Args[i]) {
+						trimValues = append(trimValues, ctx.Args[i])
+					}
+				}
+			} else {
+				// Default: trim nil/undefined
+				trimValues = []interface{}{nil, Symbol("undefined")}
+				// Extend mode: add args from position 3 onward
+				if len(ctx.Args) >= 3 {
+					for i := 2; i < len(ctx.Args); i++ {
+						if !isUndefined(ctx.Args[i]) {
+							trimValues = append(trimValues, ctx.Args[i])
+						}
+					}
+				}
+			}
+
+			// Helper to check if item should be trimmed
+			shouldTrim := func(item interface{}) bool {
+				for _, trimVal := range trimValues {
+					if deepEqual(item, trimVal, ctx.executor) {
+						return true
+					}
+				}
+				return false
+			}
+
+			// Find start index (skip items that should be trimmed)
+			start := 0
+			for start < len(items) && shouldTrim(items[start]) {
+				start++
+			}
+
+			// Create result list (keep from start to end)
+			resultItems := items[start:]
+			setListResult(ctx, NewStoredList(resultItems))
+			return BoolStatus(true)
+		}
+
+		// String mode: original behavior
+		str := resolveToString(ctx.Args[0], ctx.executor)
+		cutset := " \t\n\r" // default whitespace
 
 		// Check for override (arg 2) or extend (arg 3+)
 		if len(ctx.Args) >= 2 && !isUndefined(ctx.Args[1]) {
@@ -428,20 +685,22 @@ func (ps *PawScript) RegisterTypesLib() {
 		return BoolStatus(true)
 	})
 
-	// trim_end - trim characters from end
-	// Usage: trim_end "  hello  "              -> "  hello" (default whitespace)
-	//        trim_end "helloxx", "x"           -> "hello" (override: trim only "x")
-	//        trim_end "helloxx  ",, "x"        -> "hello" (extend: whitespace + "x")
-	//        trim_end "helloxx##",, "x", "#"   -> "hello" (extend: whitespace + "x" + "#")
+	// trim_end - trim values from end (polymorphic: strings or lists)
+	// String Usage:
+	//   trim_end "  hello  "              -> "  hello" (default whitespace)
+	//   trim_end "helloxx", "x"           -> "hello" (override: trim only "x")
+	//   trim_end "helloxx  ",, "x"        -> "hello" (extend: whitespace + "x")
+	//   trim_end "helloxx##",, "x", "#"   -> "hello" (extend: whitespace + "x" + "#")
+	// List Usage:
+	//   trim_end ~mylist                  -> removes nil/undefined from end
+	//   trim_end ~mylist, "x"             -> removes "x" from end (override)
+	//   trim_end ~mylist,, "x"            -> removes nil/undefined and "x" from end (extend)
 	ps.RegisterCommandInModule("stdlib", "trim_end", func(ctx *Context) Result {
 		if len(ctx.Args) < 1 {
-			ctx.LogError(CatCommand, "Usage: trim_end <string>, [chars], [extend_chars...]")
-			ctx.SetResult("")
+			ctx.LogError(CatCommand, "Usage: trim_end <string|list>, [values], [extend_values...]")
+			ctx.SetResult(nil)
 			return BoolStatus(false)
 		}
-
-		str := resolveToString(ctx.Args[0], ctx.executor)
-		cutset := " \t\n\r" // default whitespace
 
 		// Helper to check if arg is undefined/skipped
 		isUndefined := func(arg interface{}) bool {
@@ -453,6 +712,61 @@ func (ps *PawScript) RegisterTypesLib() {
 			}
 			return false
 		}
+
+		// Check if first argument is a list
+		if list, ok := ctx.Args[0].(StoredList); ok {
+			// List mode: trim matching values from end
+			items := list.Items()
+
+			// Build list of values to trim
+			var trimValues []interface{}
+
+			if len(ctx.Args) >= 2 && !isUndefined(ctx.Args[1]) {
+				// Override mode: use only the specified values
+				trimValues = append(trimValues, ctx.Args[1])
+				for i := 2; i < len(ctx.Args); i++ {
+					if !isUndefined(ctx.Args[i]) {
+						trimValues = append(trimValues, ctx.Args[i])
+					}
+				}
+			} else {
+				// Default: trim nil/undefined
+				trimValues = []interface{}{nil, Symbol("undefined")}
+				// Extend mode: add args from position 3 onward
+				if len(ctx.Args) >= 3 {
+					for i := 2; i < len(ctx.Args); i++ {
+						if !isUndefined(ctx.Args[i]) {
+							trimValues = append(trimValues, ctx.Args[i])
+						}
+					}
+				}
+			}
+
+			// Helper to check if item should be trimmed
+			shouldTrim := func(item interface{}) bool {
+				for _, trimVal := range trimValues {
+					if deepEqual(item, trimVal, ctx.executor) {
+						return true
+					}
+				}
+				return false
+			}
+
+			// Find end index (skip items that should be trimmed from end)
+			end := len(items)
+			for end > 0 && shouldTrim(items[end-1]) {
+				end--
+			}
+
+			// Create result list (keep from 0 to end)
+			resultItems := items[:end]
+			setListResult(ctx, NewStoredList(resultItems))
+			return BoolStatus(true)
+		}
+
+		// String mode: original behavior
+		str := resolveToString(ctx.Args[0], ctx.executor)
+		cutset := " \t\n\r" // default whitespace
 
 		// Check for override (arg 2) or extend (arg 3+)
 		if len(ctx.Args) >= 2 && !isUndefined(ctx.Args[1]) {
