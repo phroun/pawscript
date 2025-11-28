@@ -115,6 +115,17 @@ func (oc *OutputContext) WriteToErr(message string) error {
 	return err
 }
 
+// WriteToDebug writes a message to the resolved #debug channel or falls back to system stdout
+// #debug is separate from #out to allow independent redirection of debug/log output
+func (oc *OutputContext) WriteToDebug(message string) error {
+	if ch := oc.ResolveChannel("#debug"); ch != nil {
+		return ChannelSend(ch, message)
+	}
+	// Fallback to system stdout
+	_, err := fmt.Fprint(os.Stdout, message)
+	return err
+}
+
 // LogLevel represents the severity of a log message (higher value = higher severity)
 type LogLevel int
 
@@ -251,11 +262,11 @@ func (f *LogFilter) Copy() *LogFilter {
 }
 
 // LogConfig holds the two log filter systems (error_logging and debug_logging)
-// ErrorLog controls what goes to #err; DebugLog controls what goes to #out
+// ErrorLog controls what goes to #err; DebugLog controls what goes to #debug
 // A message can pass both filters and appear in both outputs
 type LogConfig struct {
 	ErrorLog *LogFilter // Filter for #err output
-	DebugLog *LogFilter // Filter for #out output
+	DebugLog *LogFilter // Filter for #debug output
 }
 
 // LevelNone represents "off" - threshold higher than any level, so nothing passes
@@ -265,7 +276,7 @@ const LevelNone LogLevel = LevelFatal + 1
 // ErrorLog defaults to showing Warn and above; DebugLog defaults to showing nothing
 func NewLogConfig() *LogConfig {
 	errorFilter := NewLogFilter(LevelWarn) // Default: show Warn and above on #err
-	debugFilter := NewLogFilter(LevelNone) // Default: show nothing on #out
+	debugFilter := NewLogFilter(LevelNone) // Default: show nothing on #debug
 
 	return &LogConfig{
 		ErrorLog: errorFilter,
@@ -578,7 +589,7 @@ func (l *Logger) Log(level LogLevel, cat LogCategory, message string, position *
 		l.writeOutputToErr(output)
 	}
 	if sendToOut {
-		l.writeOutputToOut(output)
+		l.writeOutputToDebug(output)
 	}
 }
 
@@ -682,7 +693,7 @@ func (l *Logger) LogMulti(level LogLevel, cats []LogCategory, message string, po
 		l.writeOutputToErr(output)
 	}
 	if sendToOut {
-		l.writeOutputToOut(output)
+		l.writeOutputToDebug(output)
 	}
 }
 
@@ -703,10 +714,11 @@ func (l *Logger) writeOutputToErr(output string) {
 	}
 }
 
-// writeOutputToOut writes to #out channel or stdout
-func (l *Logger) writeOutputToOut(output string) {
+// writeOutputToDebug writes to #debug channel or stdout (for debug logging output)
+// Uses #debug instead of #out to allow independent redirection of debug output
+func (l *Logger) writeOutputToDebug(output string) {
 	if l.outputContext != nil {
-		if err := l.outputContext.WriteToOut(output + "\n"); err == nil {
+		if err := l.outputContext.WriteToDebug(output + "\n"); err == nil {
 			return // Successfully wrote to channel
 		}
 		// Fall through to direct writer on channel error

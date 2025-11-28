@@ -178,6 +178,9 @@ func (env *ModuleEnvironment) PopulateIOModule(config *IOChannelConfig, executor
 	ioModule["#err"] = &ModuleItem{Type: "object", Value: stderrCh}
 	ioModule["#io"] = &ModuleItem{Type: "object", Value: stdioCh}
 
+	// Debug output channel (alias to stdout, allows separate redirection of debug output)
+	ioModule["#debug"] = &ModuleItem{Type: "object", Value: stdoutCh}
+
 	// Register any custom channels from config
 	if config != nil && config.CustomChannels != nil {
 		for name, ch := range config.CustomChannels {
@@ -201,6 +204,7 @@ func (env *ModuleEnvironment) PopulateIOModule(config *IOChannelConfig, executor
 	env.LibraryRestricted["io"]["#out"] = ioModule["#out"]
 	env.LibraryRestricted["io"]["#err"] = ioModule["#err"]
 	env.LibraryRestricted["io"]["#io"] = ioModule["#io"]
+	env.LibraryRestricted["io"]["#debug"] = ioModule["#debug"]
 
 	// Add custom channels to LibraryRestricted as well
 	if config != nil && config.CustomChannels != nil {
@@ -247,6 +251,7 @@ func (env *ModuleEnvironment) PopulateIOModule(config *IOChannelConfig, executor
 	env.ObjectsInherited["#out"] = stdoutCh
 	env.ObjectsInherited["#err"] = stderrCh
 	env.ObjectsInherited["#io"] = stdioCh
+	env.ObjectsInherited["#debug"] = stdoutCh
 
 	// Add custom channels to ObjectsInherited as well
 	if config != nil && config.CustomChannels != nil {
