@@ -49,7 +49,8 @@ log(8, base: 2) = 3
 log(27, base: 3) = 3
 log(100, base: 10) = 2
 log(16, base: 4) = 2
-(Expected: 3, 3, 2, 2)
+log(e^2, base: 2.718281828459045) = 2
+(Expected: 3, 3, 2, 2, 2)
 
 Test 8: Mathematical constants
 tau = 6.283185307179586

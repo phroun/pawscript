@@ -72,7 +72,11 @@ echo "log(8, base: 2) =", {log 8, base: 2}
 echo "log(27, base: 3) =", {round {log 27, base: 3}}
 echo "log(100, base: 10) =", {log 100, base: 10}
 echo "log(16, base: 4) =", {log 16, base: 4}
-echo "(Expected: 3, 3, 2, 2)"
+# Test tilde reference in named argument
+eVal: ~#e
+e_squared: {mul ~eVal, ~eVal}
+echo "log(e^2, base: ~eVal) =", {round {log ~e_squared, base: ~eVal}}
+echo "(Expected: 3, 3, 2, 2, 2)"
 echo ""
 
 # Test 8: Mathematical constants
