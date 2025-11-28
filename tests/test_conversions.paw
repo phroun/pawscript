@@ -146,4 +146,9 @@ macro dynMacro, ~b5
 dynMacro
 
 echo ""
+echo "-- block (direct execution) --"
+b6: {block "echo directly_executed"}
+~b6
+
+echo ""
 echo "=== ALL TESTS COMPLETE ==="

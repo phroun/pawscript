@@ -108,4 +108,7 @@ iteration
 -- block (used with macro) --
 Hello from dynamic macro
 
+-- block (direct execution) --
+directly_executed
+
 === ALL TESTS COMPLETE ===

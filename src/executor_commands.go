@@ -410,6 +410,29 @@ func (e *Executor) executeSingleCommand(
 		e.logger.DebugCat(CatCommand,"Detected tilde expression: %s", commandStr)
 		value, ok := e.resolveTildeExpression(commandStr, state, substitutionCtx, position)
 		if ok {
+			// Check if the resolved value is a block marker - if so, execute it
+			if sym, isSym := value.(Symbol); isSym {
+				markerType, objectID := parseObjectMarker(string(sym))
+				if markerType == "block" && objectID >= 0 {
+					if obj, exists := e.getObject(objectID); exists {
+						if storedBlock, ok := obj.(StoredBlock); ok {
+							e.logger.DebugCat(CatCommand,"Executing block in command position: %s", string(storedBlock))
+							// Execute block content in current scope
+							result := e.ExecuteWithState(
+								string(storedBlock),
+								state,
+								substitutionCtx,
+								position.Filename,
+								0, 0,
+							)
+							if shouldInvert {
+								return e.invertStatus(result, state, position)
+							}
+							return result
+						}
+					}
+				}
+			}
 			state.SetResult(value)
 			if shouldInvert {
 				return BoolStatus(false)
