@@ -1368,10 +1368,28 @@ func (ps *PawScript) RegisterTypesLib() {
 
 		value := ctx.Args[0]
 
-		// Check for block mode first (ParenGroup)
-		if block, isBlock := value.(ParenGroup); isBlock {
+		// Check for block mode first (ParenGroup or StoredBlock marker)
+		var bodyBlock string
+		isBlock := false
+
+		if block, ok := value.(ParenGroup); ok {
+			bodyBlock = string(block)
+			isBlock = true
+		} else if sym, ok := value.(Symbol); ok {
+			// Check if it's a block marker
+			markerType, objectID := parseObjectMarker(string(sym))
+			if markerType == "block" && objectID >= 0 {
+				if obj, exists := ctx.executor.getObject(objectID); exists {
+					if storedBlock, ok := obj.(StoredBlock); ok {
+						bodyBlock = string(storedBlock)
+						isBlock = true
+					}
+				}
+			}
+		}
+
+		if isBlock {
 			// Block mode - execute block count times, collect results
-			bodyBlock := string(block)
 
 			// Get optional counter variable name
 			var counterVar string

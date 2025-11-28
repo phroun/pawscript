@@ -328,9 +328,30 @@ func (ps *PawScript) RegisterCoreLib() {
 		// Capture the current module environment for lexical scoping
 		macroEnv := NewMacroModuleEnvironment(ctx.state.moduleEnv)
 
+		// Helper to extract code from a block argument (ParenGroup, StoredBlock marker, or string)
+		extractCode := func(arg interface{}) string {
+			switch v := arg.(type) {
+			case ParenGroup:
+				return string(v)
+			case Symbol:
+				// Check if it's a block marker
+				markerType, objectID := parseObjectMarker(string(v))
+				if markerType == "block" && objectID >= 0 {
+					if obj, exists := ctx.executor.getObject(objectID); exists {
+						if storedBlock, ok := obj.(StoredBlock); ok {
+							return string(storedBlock)
+						}
+					}
+				}
+				return string(v)
+			default:
+				return fmt.Sprintf("%v", arg)
+			}
+		}
+
 		// Check for anonymous macro: macro (body)
 		if len(ctx.Args) == 1 {
-			commands := fmt.Sprintf("%v", ctx.Args[0])
+			commands := extractCode(ctx.Args[0])
 			ps.logger.DebugCat(CatMacro,"Creating anonymous macro with commands: %s", commands)
 
 			macro := NewStoredMacroWithEnv(commands, ctx.Position, macroEnv)
@@ -349,7 +370,7 @@ func (ps *PawScript) RegisterCoreLib() {
 		}
 
 		name := fmt.Sprintf("%v", ctx.Args[0])
-		commands := fmt.Sprintf("%v", ctx.Args[1])
+		commands := extractCode(ctx.Args[1])
 
 		ps.logger.DebugCat(CatMacro,"Defining macro '%s' with commands: %s", name, commands)
 
@@ -481,37 +502,6 @@ func (ps *PawScript) RegisterCoreLib() {
 				}, callArgs, ctx.NamedArgs, childState, ctx.Position, ctx.state)
 			}
 
-			if markerType == "block" && objectID >= 0 {
-				ps.logger.DebugCat(CatMacro,"Calling StoredBlock via marker (object %d)", objectID)
-
-				obj, exists := ctx.executor.getObject(objectID)
-				if !exists {
-					ps.logger.ErrorCat(CatArgument, "Block object %d not found", objectID)
-					return BoolStatus(false)
-				}
-
-				block, ok := obj.(StoredBlock)
-				if !ok {
-					ps.logger.ErrorCat(CatArgument, "Object %d is not a StoredBlock", objectID)
-					return BoolStatus(false)
-				}
-
-				// Execute block as code - create a temporary macro from it
-				macroEnv := NewMacroModuleEnvironment(ctx.state.moduleEnv)
-				macro := NewStoredMacroWithEnv(string(block), ctx.Position, macroEnv)
-
-				return ps.executor.ExecuteStoredMacro(&macro, func(commands string, macroExecState *ExecutionState, substCtx *SubstitutionContext) Result {
-					filename := ""
-					lineOffset := 0
-					columnOffset := 0
-					if substCtx != nil {
-						filename = substCtx.Filename
-						lineOffset = substCtx.CurrentLineOffset
-						columnOffset = substCtx.CurrentColumnOffset
-					}
-					return ps.executor.ExecuteWithState(commands, macroExecState, substCtx, filename, lineOffset, columnOffset)
-				}, callArgs, ctx.NamedArgs, childState, ctx.Position, ctx.state)
-			}
 		}
 
 	// Check if the first argument is a marker (string type, from $1 substitution etc.)
@@ -579,37 +569,6 @@ func (ps *PawScript) RegisterCoreLib() {
 			}, callArgs, ctx.NamedArgs, childState, ctx.Position, ctx.state)
 		}
 
-		if markerType == "block" && objectID >= 0 {
-			ps.logger.DebugCat(CatMacro,"Calling StoredBlock via string marker (object %d)", objectID)
-
-			obj, exists := ctx.executor.getObject(objectID)
-			if !exists {
-				ps.logger.ErrorCat(CatArgument, "Block object %d not found", objectID)
-				return BoolStatus(false)
-			}
-
-			block, ok := obj.(StoredBlock)
-			if !ok {
-				ps.logger.ErrorCat(CatArgument, "Object %d is not a StoredBlock", objectID)
-				return BoolStatus(false)
-			}
-
-			// Execute block as code - create a temporary macro from it
-			macroEnv := NewMacroModuleEnvironment(ctx.state.moduleEnv)
-			macro := NewStoredMacroWithEnv(string(block), ctx.Position, macroEnv)
-
-			return ps.executor.ExecuteStoredMacro(&macro, func(commands string, macroExecState *ExecutionState, substCtx *SubstitutionContext) Result {
-				filename := ""
-				lineOffset := 0
-				columnOffset := 0
-				if substCtx != nil {
-					filename = substCtx.Filename
-					lineOffset = substCtx.CurrentLineOffset
-					columnOffset = substCtx.CurrentColumnOffset
-				}
-				return ps.executor.ExecuteWithState(commands, macroExecState, substCtx, filename, lineOffset, columnOffset)
-			}, callArgs, ctx.NamedArgs, childState, ctx.Position, ctx.state)
-		}
 	}
 
 	// Otherwise, treat it as a macro name - look up in module environment

@@ -120,27 +120,30 @@ echo ""
 
 echo "-- block (from string) --"
 b1: {block "echo \"block executed\""}
-echo "block from string:"
-call ~b1
+echo "block created:", {string ~b1}
 
 echo ""
 echo "-- block (from ParenGroup) --"
 b2: {block (echo "from paren")}
-echo "block from ParenGroup:"
-call ~b2
+echo "block created:", {string ~b2}
 
 echo ""
 echo "-- block (from list) --"
 lines: {list "echo line1", "echo line2"}
 b3: {block ~lines}
-echo "block from list:"
-call ~b3
+echo "block created:", {string ~b3}
 
 echo ""
-echo "-- block (with arguments) --"
-b4: {block "echo \"arg: $1\""}
-echo "block with arg:"
-call ~b4, "test-value"
+echo "-- block (used with repeat) --"
+b4: {block "echo iteration"}
+echo "repeat output:"
+repeat ~b4, 3
+
+echo ""
+echo "-- block (used with macro) --"
+b5: {block "echo \"Hello from dynamic macro\""}
+macro dynMacro, ~b5
+dynMacro
 
 echo ""
 echo "=== ALL TESTS COMPLETE ==="

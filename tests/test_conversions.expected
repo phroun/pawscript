@@ -91,20 +91,21 @@ symbol (a, b, c): a, b, c
 === BLOCK COMMAND ===
 
 -- block (from string) --
-block from string:
-block executed
+block created: <block>
 
 -- block (from ParenGroup) --
-block from ParenGroup:
-from paren
+block created: <block>
 
 -- block (from list) --
-block from list:
-line1
-line2
+block created: <block>
 
--- block (with arguments) --
-block with arg:
-arg: test-value
+-- block (used with repeat) --
+repeat output:
+iteration
+iteration
+iteration
+
+-- block (used with macro) --
+Hello from dynamic macro
 
 === ALL TESTS COMPLETE ===
