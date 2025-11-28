@@ -209,22 +209,22 @@ func (ps *PawScript) RegisterCoreLib() {
 
 		switch v := value.(type) {
 		case StoredList:
-			ctx.SetResult(v.Len())
+			ctx.SetResult(int64(v.Len()))
 			return BoolStatus(true)
 		case *StoredChannel:
-			ctx.SetResult(ChannelLen(v))
+			ctx.SetResult(int64(ChannelLen(v)))
 			return BoolStatus(true)
 		case StoredString:
-			ctx.SetResult(len(string(v)))
+			ctx.SetResult(int64(len(string(v))))
 			return BoolStatus(true)
 		case string, QuotedString, Symbol:
 			resolved := ctx.executor.resolveValue(v)
 			str := fmt.Sprintf("%v", resolved)
-			ctx.SetResult(len(str))
+			ctx.SetResult(int64(len(str)))
 			return BoolStatus(true)
 		case ParenGroup:
 			items, _ := parseArguments(string(v))
-			ctx.SetResult(len(items))
+			ctx.SetResult(int64(len(items)))
 			return BoolStatus(true)
 		default:
 			ctx.LogError(CatType, fmt.Sprintf("Cannot get length of type %s\n", getTypeName(v)))

@@ -36,6 +36,28 @@ float "abc", 0: 0
 float "abc", -1: -1
 float "abc", default: default
 
+=== NUMBER COMMAND ===
+
+-- number (integer results) --
+number 42: 42
+number "123": 123
+number 3.0: 3
+number "100.0": 100
+
+-- number (float results) --
+number 3.14: 3.14
+number "2.5": 2.5
+number 0.001: 0.001
+
+-- number (invalid with default) --
+number "abc", 0: 0
+number hello, -1: -1
+number "invalid", default: default
+
+-- number (invalid with nil) --
+number "abc": <nil>
+number hello: <nil>
+
 === BOOL COMMAND ===
 
 -- bool (truthy values) --
