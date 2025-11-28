@@ -334,9 +334,10 @@ func (ps *PawScript) RegisterTypesLib() {
 	// Usage: trim "  hello  "              -> "hello" (default whitespace)
 	//        trim "xxhelloxx", "x"         -> "hello" (override: trim only "x")
 	//        trim "xxhello  ",, "x"        -> "hello" (extend: whitespace + "x")
+	//        trim "xxhello##",, "x", "#"   -> "hello" (extend: whitespace + "x" + "#")
 	ps.RegisterCommandInModule("stdlib", "trim", func(ctx *Context) Result {
 		if len(ctx.Args) < 1 {
-			ctx.LogError(CatCommand, "Usage: trim <string>, [chars], [extend_chars]")
+			ctx.LogError(CatCommand, "Usage: trim <string>, [chars], [extend_chars...]")
 			ctx.SetResult("")
 			return BoolStatus(false)
 		}
@@ -355,13 +356,17 @@ func (ps *PawScript) RegisterTypesLib() {
 			return false
 		}
 
-		// Check for override (arg 2) or extend (arg 3)
+		// Check for override (arg 2) or extend (arg 3+)
 		if len(ctx.Args) >= 2 && !isUndefined(ctx.Args[1]) {
 			// Override mode: use only the specified chars
 			cutset = resolveToString(ctx.Args[1], ctx.executor)
-		} else if len(ctx.Args) >= 3 && !isUndefined(ctx.Args[2]) {
-			// Extend mode: add to default whitespace
-			cutset += resolveToString(ctx.Args[2], ctx.executor)
+		} else if len(ctx.Args) >= 3 {
+			// Extend mode: add all non-undefined args from position 3 onward
+			for i := 2; i < len(ctx.Args); i++ {
+				if !isUndefined(ctx.Args[i]) {
+					cutset += resolveToString(ctx.Args[i], ctx.executor)
+				}
+			}
 		}
 
 		result := strings.Trim(str, cutset)
@@ -378,9 +383,10 @@ func (ps *PawScript) RegisterTypesLib() {
 	// Usage: trim_start "  hello  "              -> "hello  " (default whitespace)
 	//        trim_start "xxhello", "x"           -> "hello" (override: trim only "x")
 	//        trim_start "xxhello",, "x"          -> "hello" (extend: whitespace + "x")
+	//        trim_start "##xxhello",, "x", "#"   -> "hello" (extend: whitespace + "x" + "#")
 	ps.RegisterCommandInModule("stdlib", "trim_start", func(ctx *Context) Result {
 		if len(ctx.Args) < 1 {
-			ctx.LogError(CatCommand, "Usage: trim_start <string>, [chars], [extend_chars]")
+			ctx.LogError(CatCommand, "Usage: trim_start <string>, [chars], [extend_chars...]")
 			ctx.SetResult("")
 			return BoolStatus(false)
 		}
@@ -399,13 +405,17 @@ func (ps *PawScript) RegisterTypesLib() {
 			return false
 		}
 
-		// Check for override (arg 2) or extend (arg 3)
+		// Check for override (arg 2) or extend (arg 3+)
 		if len(ctx.Args) >= 2 && !isUndefined(ctx.Args[1]) {
 			// Override mode: use only the specified chars
 			cutset = resolveToString(ctx.Args[1], ctx.executor)
-		} else if len(ctx.Args) >= 3 && !isUndefined(ctx.Args[2]) {
-			// Extend mode: add to default whitespace
-			cutset += resolveToString(ctx.Args[2], ctx.executor)
+		} else if len(ctx.Args) >= 3 {
+			// Extend mode: add all non-undefined args from position 3 onward
+			for i := 2; i < len(ctx.Args); i++ {
+				if !isUndefined(ctx.Args[i]) {
+					cutset += resolveToString(ctx.Args[i], ctx.executor)
+				}
+			}
 		}
 
 		result := strings.TrimLeft(str, cutset)
@@ -422,9 +432,10 @@ func (ps *PawScript) RegisterTypesLib() {
 	// Usage: trim_end "  hello  "              -> "  hello" (default whitespace)
 	//        trim_end "helloxx", "x"           -> "hello" (override: trim only "x")
 	//        trim_end "helloxx  ",, "x"        -> "hello" (extend: whitespace + "x")
+	//        trim_end "helloxx##",, "x", "#"   -> "hello" (extend: whitespace + "x" + "#")
 	ps.RegisterCommandInModule("stdlib", "trim_end", func(ctx *Context) Result {
 		if len(ctx.Args) < 1 {
-			ctx.LogError(CatCommand, "Usage: trim_end <string>, [chars], [extend_chars]")
+			ctx.LogError(CatCommand, "Usage: trim_end <string>, [chars], [extend_chars...]")
 			ctx.SetResult("")
 			return BoolStatus(false)
 		}
@@ -443,13 +454,17 @@ func (ps *PawScript) RegisterTypesLib() {
 			return false
 		}
 
-		// Check for override (arg 2) or extend (arg 3)
+		// Check for override (arg 2) or extend (arg 3+)
 		if len(ctx.Args) >= 2 && !isUndefined(ctx.Args[1]) {
 			// Override mode: use only the specified chars
 			cutset = resolveToString(ctx.Args[1], ctx.executor)
-		} else if len(ctx.Args) >= 3 && !isUndefined(ctx.Args[2]) {
-			// Extend mode: add to default whitespace
-			cutset += resolveToString(ctx.Args[2], ctx.executor)
+		} else if len(ctx.Args) >= 3 {
+			// Extend mode: add all non-undefined args from position 3 onward
+			for i := 2; i < len(ctx.Args); i++ {
+				if !isUndefined(ctx.Args[i]) {
+					cutset += resolveToString(ctx.Args[i], ctx.executor)
+				}
+			}
 		}
 
 		result := strings.TrimRight(str, cutset)
