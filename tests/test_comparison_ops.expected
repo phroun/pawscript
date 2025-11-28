@@ -31,6 +31,8 @@ lt (5, 4, 3, 2, 1): false
 lt (2, 2, 2): false
 lt a, b, c: true
 lt c, b, a: false
+lt "10", "9": true
+lt "apple", "banana": true
 
 === gt (strictly descending) ===
 gt 2, 1: true

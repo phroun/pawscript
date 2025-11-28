@@ -369,6 +369,123 @@ func (ps *PawScript) RegisterMathLib() {
 		return false
 	}
 
+	// compareOrdering compares two values for ordering (lt, gt, lte, gte)
+	// Returns: -1 if a < b, 0 if a == b, 1 if a > b, and ok=true
+	// Returns ok=false if comparison not possible (e.g., list types)
+	// For strings, uses Go's lexicographic comparison which has early exit built-in
+	// Explicit string types (QuotedString, StoredString) are always compared alphabetically
+	compareOrdering := func(a, b interface{}, ctx *Context) (int, bool) {
+		resolvedA := ctx.executor.resolveValue(a)
+		resolvedB := ctx.executor.resolveValue(b)
+
+		// Check for list types - can't compare ordering
+		if isListType(resolvedA) || isListType(resolvedB) {
+			ctx.LogError(CatMath, "Cannot compare ordering of list types")
+			return 0, false
+		}
+
+		// Check if either value is an explicit string type (QuotedString or StoredString)
+		// These should always compare alphabetically, not numerically
+		var strA, strB string
+		var aIsExplicitStr, bIsExplicitStr bool
+
+		switch va := resolvedA.(type) {
+		case StoredString:
+			strA, aIsExplicitStr = string(va), true
+		case QuotedString:
+			strA, aIsExplicitStr = string(va), true
+		}
+
+		switch vb := resolvedB.(type) {
+		case StoredString:
+			strB, bIsExplicitStr = string(vb), true
+		case QuotedString:
+			strB, bIsExplicitStr = string(vb), true
+		}
+
+		// If both are explicit strings, compare alphabetically
+		if aIsExplicitStr && bIsExplicitStr {
+			if strA < strB {
+				return -1, true
+			} else if strA > strB {
+				return 1, true
+			}
+			return 0, true
+		}
+
+		// If neither is an explicit string, try numeric comparison
+		if !aIsExplicitStr && !bIsExplicitStr {
+			numA, aIsNum := toNumber(resolvedA)
+			numB, bIsNum := toNumber(resolvedB)
+
+			if aIsNum && bIsNum {
+				// Both are numbers - numeric comparison
+				if numA < numB {
+					return -1, true
+				} else if numA > numB {
+					return 1, true
+				}
+				return 0, true
+			}
+		}
+
+		// String comparison for mixed cases or non-numeric values
+		// Go's string comparison is lexicographic with early exit
+		var aIsStr, bIsStr bool
+
+		// Extract string value without unnecessary copies
+		if !aIsExplicitStr {
+			switch va := resolvedA.(type) {
+			case string:
+				strA, aIsStr = va, true
+			case Symbol:
+				if markerType, _ := parseObjectMarker(string(va)); markerType == "" {
+					strA, aIsStr = string(va), true
+				}
+			}
+		} else {
+			aIsStr = true
+		}
+
+		if !bIsExplicitStr {
+			switch vb := resolvedB.(type) {
+			case string:
+				strB, bIsStr = vb, true
+			case Symbol:
+				if markerType, _ := parseObjectMarker(string(vb)); markerType == "" {
+					strB, bIsStr = string(vb), true
+				}
+			}
+		} else {
+			bIsStr = true
+		}
+
+		if aIsStr && bIsStr {
+			// Both are strings - alphabetical comparison
+			if strA < strB {
+				return -1, true
+			} else if strA > strB {
+				return 1, true
+			}
+			return 0, true
+		}
+
+		// Fallback: convert to string representation and compare
+		// This handles mixed types or unknown types
+		if !aIsStr {
+			strA = fmt.Sprintf("%v", resolvedA)
+		}
+		if !bIsStr {
+			strB = fmt.Sprintf("%v", resolvedB)
+		}
+		if strA < strB {
+			return -1, true
+		} else if strA > strB {
+			return 1, true
+		}
+		return 0, true
+	}
+
 	// eq - all arguments are equal (uses deep equality)
 	// With 2+ args: eq a, b, c -> all equal
 	// With single list: eq ~mylist -> all items in list are equal
@@ -418,6 +535,7 @@ func (ps *PawScript) RegisterMathLib() {
 	// lt - all arguments are in strictly ascending order
 	// With 2+ args: lt a, b, c -> a < b < c
 	// With single list: lt ~mylist -> all items in ascending order
+	// Works with numbers (numeric) and strings (alphabetical)
 	ps.RegisterCommandInModule("cmp", "lt", func(ctx *Context) Result {
 		items := getComparisonItems(ctx)
 		if len(items) < 2 {
@@ -427,29 +545,14 @@ func (ps *PawScript) RegisterMathLib() {
 		}
 
 		for i := 0; i < len(items)-1; i++ {
-			resolved0 := ctx.executor.resolveValue(items[i])
-			resolved1 := ctx.executor.resolveValue(items[i+1])
-
-			// Check for list types - can't compare ordering
-			if isListType(resolved0) || isListType(resolved1) {
-				ctx.LogError(CatMath, "Cannot compare ordering of list types")
+			cmp, ok := compareOrdering(items[i], items[i+1], ctx)
+			if !ok {
 				ctx.SetResult(false)
 				return BoolStatus(false)
 			}
-
-			a, aOk := toNumber(resolved0)
-			b, bOk := toNumber(resolved1)
-			if aOk && bOk {
-				if !(a < b) {
-					ctx.SetResult(false)
-					return BoolStatus(false)
-				}
-			} else {
-				// String comparison as fallback
-				if !(fmt.Sprintf("%v", resolved0) < fmt.Sprintf("%v", resolved1)) {
-					ctx.SetResult(false)
-					return BoolStatus(false)
-				}
+			if cmp >= 0 { // Not strictly less than
+				ctx.SetResult(false)
+				return BoolStatus(false)
 			}
 		}
 		ctx.SetResult(true)
@@ -459,6 +562,7 @@ func (ps *PawScript) RegisterMathLib() {
 	// gt - all arguments are in strictly descending order
 	// With 2+ args: gt a, b, c -> a > b > c
 	// With single list: gt ~mylist -> all items in descending order
+	// Works with numbers (numeric) and strings (alphabetical)
 	ps.RegisterCommandInModule("cmp", "gt", func(ctx *Context) Result {
 		items := getComparisonItems(ctx)
 		if len(items) < 2 {
@@ -468,29 +572,14 @@ func (ps *PawScript) RegisterMathLib() {
 		}
 
 		for i := 0; i < len(items)-1; i++ {
-			resolved0 := ctx.executor.resolveValue(items[i])
-			resolved1 := ctx.executor.resolveValue(items[i+1])
-
-			// Check for list types - can't compare ordering
-			if isListType(resolved0) || isListType(resolved1) {
-				ctx.LogError(CatMath, "Cannot compare ordering of list types")
+			cmp, ok := compareOrdering(items[i], items[i+1], ctx)
+			if !ok {
 				ctx.SetResult(false)
 				return BoolStatus(false)
 			}
-
-			a, aOk := toNumber(resolved0)
-			b, bOk := toNumber(resolved1)
-			if aOk && bOk {
-				if !(a > b) {
-					ctx.SetResult(false)
-					return BoolStatus(false)
-				}
-			} else {
-				// String comparison as fallback
-				if !(fmt.Sprintf("%v", resolved0) > fmt.Sprintf("%v", resolved1)) {
-					ctx.SetResult(false)
-					return BoolStatus(false)
-				}
+			if cmp <= 0 { // Not strictly greater than
+				ctx.SetResult(false)
+				return BoolStatus(false)
 			}
 		}
 		ctx.SetResult(true)
@@ -500,6 +589,7 @@ func (ps *PawScript) RegisterMathLib() {
 	// gte - all arguments are in descending or equal order
 	// With 2+ args: gte a, b, c -> a >= b >= c
 	// With single list: gte ~mylist -> all items in descending or equal order
+	// Works with numbers (numeric) and strings (alphabetical)
 	ps.RegisterCommandInModule("cmp", "gte", func(ctx *Context) Result {
 		items := getComparisonItems(ctx)
 		if len(items) < 2 {
@@ -509,29 +599,14 @@ func (ps *PawScript) RegisterMathLib() {
 		}
 
 		for i := 0; i < len(items)-1; i++ {
-			resolved0 := ctx.executor.resolveValue(items[i])
-			resolved1 := ctx.executor.resolveValue(items[i+1])
-
-			// Check for list types - can't compare ordering
-			if isListType(resolved0) || isListType(resolved1) {
-				ctx.LogError(CatMath, "Cannot compare ordering of list types")
+			cmp, ok := compareOrdering(items[i], items[i+1], ctx)
+			if !ok {
 				ctx.SetResult(false)
 				return BoolStatus(false)
 			}
-
-			a, aOk := toNumber(resolved0)
-			b, bOk := toNumber(resolved1)
-			if aOk && bOk {
-				if !(a >= b) {
-					ctx.SetResult(false)
-					return BoolStatus(false)
-				}
-			} else {
-				// String comparison as fallback
-				if !(fmt.Sprintf("%v", resolved0) >= fmt.Sprintf("%v", resolved1)) {
-					ctx.SetResult(false)
-					return BoolStatus(false)
-				}
+			if cmp < 0 { // Less than (not >=)
+				ctx.SetResult(false)
+				return BoolStatus(false)
 			}
 		}
 		ctx.SetResult(true)
@@ -541,6 +616,7 @@ func (ps *PawScript) RegisterMathLib() {
 	// lte - all arguments are in ascending or equal order
 	// With 2+ args: lte a, b, c -> a <= b <= c
 	// With single list: lte ~mylist -> all items in ascending or equal order
+	// Works with numbers (numeric) and strings (alphabetical)
 	ps.RegisterCommandInModule("cmp", "lte", func(ctx *Context) Result {
 		items := getComparisonItems(ctx)
 		if len(items) < 2 {
@@ -550,29 +626,14 @@ func (ps *PawScript) RegisterMathLib() {
 		}
 
 		for i := 0; i < len(items)-1; i++ {
-			resolved0 := ctx.executor.resolveValue(items[i])
-			resolved1 := ctx.executor.resolveValue(items[i+1])
-
-			// Check for list types - can't compare ordering
-			if isListType(resolved0) || isListType(resolved1) {
-				ctx.LogError(CatMath, "Cannot compare ordering of list types")
+			cmp, ok := compareOrdering(items[i], items[i+1], ctx)
+			if !ok {
 				ctx.SetResult(false)
 				return BoolStatus(false)
 			}
-
-			a, aOk := toNumber(resolved0)
-			b, bOk := toNumber(resolved1)
-			if aOk && bOk {
-				if !(a <= b) {
-					ctx.SetResult(false)
-					return BoolStatus(false)
-				}
-			} else {
-				// String comparison as fallback
-				if !(fmt.Sprintf("%v", resolved0) <= fmt.Sprintf("%v", resolved1)) {
-					ctx.SetResult(false)
-					return BoolStatus(false)
-				}
+			if cmp > 0 { // Greater than (not <=)
+				ctx.SetResult(false)
+				return BoolStatus(false)
 			}
 		}
 		ctx.SetResult(true)

@@ -57,9 +57,13 @@ echo "lt ~asc:", {lt ~asc}
 echo "lt ~desc:", {lt ~desc}
 echo "lt ~flat:", {lt ~flat}
 
-# String comparison
+# Symbol comparison (alphabetical)
 echo "lt a, b, c:", {lt a, b, c}
 echo "lt c, b, a:", {lt c, b, a}
+
+# Quoted string comparison (always alphabetical, even if numeric)
+echo "lt \"10\", \"9\":", {lt "10", "9"}
+echo "lt \"apple\", \"banana\":", {lt "apple", "banana"}
 
 echo ""
 echo "=== gt (strictly descending) ==="
