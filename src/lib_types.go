@@ -2026,6 +2026,44 @@ func (ps *PawScript) RegisterTypesLib() {
 		ctx.state.SetResultWithoutClaim(Symbol(marker))
 		return BoolStatus(true)
 	})
+
+	// keys - returns a list of all keys from a list's named arguments
+	ps.RegisterCommandInModule("strlist", "keys", func(ctx *Context) Result {
+		if len(ctx.Args) < 1 {
+			ctx.LogError(CatCommand, "Usage: keys <list>")
+			ctx.SetResult(nil)
+			return BoolStatus(false)
+		}
+
+		value := ctx.Args[0]
+
+		switch v := value.(type) {
+		case StoredList:
+			namedArgs := v.NamedArgs()
+			if len(namedArgs) == 0 {
+				setListResult(ctx, NewStoredList([]interface{}{}))
+				return BoolStatus(true)
+			}
+
+			keys := make([]string, 0, len(namedArgs))
+			for key := range namedArgs {
+				keys = append(keys, key)
+			}
+			sort.Strings(keys)
+
+			items := make([]interface{}, len(keys))
+			for i, key := range keys {
+				items[i] = key
+			}
+
+			setListResult(ctx, NewStoredList(items))
+			return BoolStatus(true)
+		default:
+			ctx.LogError(CatType, fmt.Sprintf("Cannot get keys from type %s", getTypeName(v)))
+			ctx.SetResult(nil)
+			return BoolStatus(false)
+		}
+	})
 }
 
 // sortItemsDefault sorts items using the default PawScript ordering:
