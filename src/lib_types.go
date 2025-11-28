@@ -1650,7 +1650,7 @@ func (ps *PawScript) RegisterTypesLib() {
 	//        string true     -> "true"
 	//        string nil      -> "nil"
 	//        string ~mylist  -> "(1, 2, 3)"
-	//        string ~myblock -> "<block>"
+	//        string ~myblock -> block content as string
 	ps.RegisterCommandInModule("types", "string", func(ctx *Context) Result {
 		if len(ctx.Args) < 1 {
 			ctx.LogError(CatCommand, "Usage: string <value>")
@@ -1702,8 +1702,11 @@ func (ps *PawScript) RegisterTypesLib() {
 			// Use formatListForDisplay for lists
 			result = formatListForDisplay(v)
 		case ParenGroup:
-			// Block/code - show as <block>
-			result = "<block>"
+			// Block/code - return the block content
+			result = string(v)
+		case StoredBlock:
+			// Stored block - return the block content
+			result = string(v)
 		case StoredMacro, *StoredMacro:
 			result = "<macro>"
 		case *StoredCommand:
@@ -1908,8 +1911,11 @@ func (ps *PawScript) RegisterTypesLib() {
 			// Use formatListForDisplay for lists
 			result = formatListForDisplay(v)
 		case ParenGroup:
-			// Block/code - show as <block>
-			result = "<block>"
+			// Block/code - return the block content
+			result = string(v)
+		case StoredBlock:
+			// Stored block - return the block content
+			result = string(v)
 		case StoredMacro, *StoredMacro:
 			result = "<macro>"
 		case *StoredCommand:

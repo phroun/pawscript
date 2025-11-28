@@ -641,7 +641,7 @@ func (ps *PawScript) RegisterMathLib() {
 	})
 
 	// if - normalize truthy/falsy values to boolean
-	ps.RegisterCommandInModule("flow", "if", func(ctx *Context) Result {
+	ps.RegisterCommandInModule("core", "if", func(ctx *Context) Result {
 		if len(ctx.Args) < 1 || len(ctx.Args) > 1 {
 			ctx.LogError(CatCommand, "Usage: if <value>")
 			ctx.SetResult(false)

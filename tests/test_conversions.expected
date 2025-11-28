@@ -16,7 +16,7 @@ string (1, 2, 3): (1, 2, 3)
 string nested: (a, (1, 2), b)
 
 -- string (special types) --
-string block: <block>
+string block: echo "hi"
 
 === FLOAT COMMAND ===
 
@@ -87,13 +87,14 @@ symbol (a, b, c): a, b, c
 === BLOCK COMMAND ===
 
 -- block (from string) --
-block created: <block>
+block created: echo "block executed"
 
 -- block (from ParenGroup) --
-block created: <block>
+block created: echo "from paren"
 
 -- block (from list) --
-block created: <block>
+block created: echo line1
+echo line2
 
 -- block (used with repeat) --
 repeat output:
