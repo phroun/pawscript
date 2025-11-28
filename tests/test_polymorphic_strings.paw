@@ -1,0 +1,281 @@
+# Comprehensive tests for polymorphic string/list commands
+# Tests: trim, trim_start, trim_end, contains, index, starts_with, ends_with, split, join, replace
+
+echo "=== TRIM COMMANDS ==="
+
+# --- trim on strings ---
+echo ""
+echo "-- trim (strings) --"
+echo {trim "  hello  "}
+echo {trim "xxhelloxx", "x"}
+echo {trim "  hello  ", " h"}
+
+# --- trim on lists ---
+echo ""
+echo "-- trim (lists) --"
+# Default: removes nil/undefined from ends
+list1: {list nil, undefined, 1, 2, 3, nil, undefined}
+echo {trim ~list1}
+
+# Override: replaces default (only removes specified value)
+list2: {list 0, 0, 1, 2, 3, 0, 0}
+echo {trim ~list2, 0}
+
+# Extend: adds to default (removes nil/undefined AND specified)
+list3: {list nil, 0, 1, 2, 3, 0, nil}
+echo {trim ~list3,, 0}
+
+# Multiple extend values
+list4: {list nil, 0, x, 1, 2, 3, x, 0, nil}
+echo {trim ~list4,, 0, x}
+
+# Deep comparison with nested lists
+inner: {list 1, 2}
+list5: {list ~inner, a, b, c, ~inner}
+echo {trim ~list5, {list 1, 2}}
+
+# --- trim_start on strings ---
+echo ""
+echo "-- trim_start (strings) --"
+echo {trim_start "  hello"}
+echo {trim_start "xxhello", "x"}
+
+# --- trim_start on lists ---
+echo ""
+echo "-- trim_start (lists) --"
+list6: {list nil, undefined, 1, 2, 3}
+echo {trim_start ~list6}
+
+list7: {list 0, 0, 1, 2, 3}
+echo {trim_start ~list7, 0}
+
+# --- trim_end on strings ---
+echo ""
+echo "-- trim_end (strings) --"
+echo {trim_end "hello  "}
+echo {trim_end "helloxx", "x"}
+
+# --- trim_end on lists ---
+echo ""
+echo "-- trim_end (lists) --"
+list8: {list 1, 2, 3, nil, undefined}
+echo {trim_end ~list8}
+
+list9: {list 1, 2, 3, 0, 0}
+echo {trim_end ~list9, 0}
+
+echo ""
+echo "=== CONTAINS COMMAND ==="
+
+# --- contains on strings ---
+echo ""
+echo "-- contains (strings) --"
+echo {contains "hello world", "world"}
+echo {contains "hello world", "xyz"}
+
+# --- contains on lists ---
+echo ""
+echo "-- contains (lists) --"
+fruits: {list apple, banana, cherry}
+echo {contains ~fruits, banana}
+echo {contains ~fruits, grape}
+
+# Deep comparison
+inner: {list 1, 2}
+nested: {list a, ~inner, b}
+echo {contains ~nested, {list 1, 2}}
+
+echo ""
+echo "=== INDEX COMMAND ==="
+
+# --- index on strings ---
+echo ""
+echo "-- index (strings) --"
+echo {index "hello world", "world"}
+echo {index "hello world", "xyz"}
+echo {index "hello world", "o"}
+
+# --- index on lists ---
+echo ""
+echo "-- index (lists) --"
+items: {list a, b, c, b, d}
+echo {index ~items, b}
+echo {index ~items, z}
+
+# Deep comparison
+inner: {list 1, 2}
+nested: {list a, ~inner, b}
+echo {index ~nested, {list 1, 2}}
+
+echo ""
+echo "=== STARTS_WITH COMMAND ==="
+
+# --- starts_with on strings ---
+echo ""
+echo "-- starts_with (strings) --"
+echo {starts_with "hello world", "hello"}
+echo {starts_with "hello world", "world"}
+
+# --- starts_with on lists ---
+echo ""
+echo "-- starts_with (lists) --"
+items: {list a, b, c, d, e}
+# Single value
+echo {starts_with ~items, a}
+echo {starts_with ~items, b}
+# Sequence
+echo {starts_with ~items, {list a, b}}
+echo {starts_with ~items, {list a, c}}
+
+# Sequence at start (list arg = check if sequence at start)
+nested: {list 1, 2, a, b}
+echo {starts_with ~nested, {list 1, 2}}
+
+echo ""
+echo "=== ENDS_WITH COMMAND ==="
+
+# --- ends_with on strings ---
+echo ""
+echo "-- ends_with (strings) --"
+echo {ends_with "hello world", "world"}
+echo {ends_with "hello world", "hello"}
+
+# --- ends_with on lists ---
+echo ""
+echo "-- ends_with (lists) --"
+items: {list a, b, c, d, e}
+# Single value
+echo {ends_with ~items, e}
+echo {ends_with ~items, d}
+# Sequence
+echo {ends_with ~items, {list d, e}}
+echo {ends_with ~items, {list c, e}}
+
+# Sequence at end (list arg = check if sequence at end)
+nested: {list a, b, 1, 2}
+echo {ends_with ~nested, {list 1, 2}}
+
+echo ""
+echo "=== SPLIT COMMAND ==="
+
+# --- split on strings ---
+echo ""
+echo "-- split (strings) --"
+echo {split "a,b,c", ","}
+echo {split "hello", ""}
+
+# --- split on lists ---
+echo ""
+echo "-- split (lists) --"
+# Single value delimiter
+items: {list a, X, b, X, c}
+result: {split ~items, X}
+echo ~result
+echo ~result 0
+echo ~result 1
+echo ~result 2
+
+# Sequence delimiter
+items2: {list 1, 2, 3, 4, 2, 3, 5}
+result2: {split ~items2, {list 2, 3}}
+echo ~result2
+echo ~result2 0
+echo ~result2 1
+echo ~result2 2
+
+echo ""
+echo "=== JOIN COMMAND ==="
+
+# --- join with string delimiter ---
+echo ""
+echo "-- join (string delimiter) --"
+parts: {list a, b, c}
+echo {join ~parts, ","}
+echo {join ~parts, " - "}
+
+# --- join with list delimiter ---
+echo ""
+echo "-- join (list delimiter) --"
+parts: {list 1, 2, 3}
+delim: {list X, Y}
+echo {join ~parts, ~delim}
+
+# Single item list
+single: {list only}
+echo {join ~single, ","}
+
+# Empty list
+empty: {list}
+echo {join ~empty, ","}
+
+echo ""
+echo "=== REPLACE COMMAND ==="
+
+# --- replace on strings ---
+echo ""
+echo "-- replace (strings) --"
+# Replace all (default)
+echo {replace "hello world world", "world", "there"}
+# Replace first N
+echo {replace "a-b-c-d", "-", "_", 1}
+echo {replace "a-b-c-d", "-", "_", 2}
+# Replace last N
+echo {replace "a-b-c-d", "-", "_", -1}
+echo {replace "a-b-c-d", "-", "_", -2}
+
+# --- replace on lists (single-value mode) ---
+echo ""
+echo "-- replace (lists, single-value mode) --"
+# When old is a single value, new replaces exactly (even if new is a list)
+items: {list a, X, b, X, c}
+echo {replace ~items, X, Y}
+# Replace first/last
+echo {replace ~items, X, Y, 1}
+echo {replace ~items, X, Y, -1}
+# Single value replaced with list becomes single element
+echo {replace ~items, X, {list 1, 2}}
+
+# --- replace on lists (sequence mode) ---
+echo ""
+echo "-- replace (lists, sequence mode) --"
+# When old is a list, it's a sequence to find; new items are spliced in
+items: {list 1, 2, 3, 4, 2, 3, 5}
+echo {replace ~items, {list 2, 3}, {list X}}
+echo {replace ~items, {list 2, 3}, {list X, Y, Z}}
+# Replace first/last sequence
+echo {replace ~items, {list 2, 3}, {list X}, 1}
+echo {replace ~items, {list 2, 3}, {list X}, -1}
+# Sequence replaced with single value
+echo {replace ~items, {list 2, 3}, W}
+
+# --- replace edge cases ---
+echo ""
+echo "-- replace (edge cases) --"
+# No matches
+echo {replace "hello", "xyz", "abc"}
+# Empty replacement (delete)
+echo {replace "hello world", " world", ""}
+# Deep comparison in lists
+inner: {list 1, 2}
+nested: {list a, 1, 2, b, 1, 2, c}
+echo {replace ~nested, {list 1, 2}, X}
+
+echo ""
+echo "=== APPEND/PREPEND ==="
+
+# --- append ---
+echo ""
+echo "-- append --"
+echo {append "hello", " world"}
+items: {list 1, 2, 3}
+echo {append ~items, 4}
+
+# --- prepend ---
+echo ""
+echo "-- prepend --"
+echo {prepend "world", "hello "}
+items: {list 2, 3, 4}
+echo {prepend ~items, 1}
+
+echo ""
+echo "=== ALL TESTS COMPLETE ==="
