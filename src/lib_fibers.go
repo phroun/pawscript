@@ -2,6 +2,7 @@ package pawscript
 
 import (
 	"fmt"
+	"sync"
 )
 
 // RegisterFibersLib registers fiber-related commands
@@ -135,6 +136,32 @@ func (ps *PawScript) RegisterFibersLib() {
 			return BoolStatus(false)
 		}
 
+		// Merge bubbles from fiber to caller's state
+		handle.mu.RLock()
+		if len(handle.FinalBubbleMap) > 0 {
+			ctx.state.mu.Lock()
+			if ctx.state.bubbleMap == nil {
+				ctx.state.bubbleMap = make(map[string][]*BubbleEntry)
+			}
+			for flavor, entries := range handle.FinalBubbleMap {
+				ctx.state.bubbleMap[flavor] = append(ctx.state.bubbleMap[flavor], entries...)
+				// Transfer ownership: caller claims refs, release the extra refs we held
+				for _, entry := range entries {
+					if sym, ok := entry.Content.(Symbol); ok {
+						_, objectID := parseObjectMarker(string(sym))
+						if objectID >= 0 {
+							// Caller claims the reference
+							ctx.state.ownedObjects[objectID]++
+							// Release the extra ref we added in fiber completion
+							ctx.executor.decrementObjectRefCount(objectID)
+						}
+					}
+				}
+			}
+			ctx.state.mu.Unlock()
+		}
+		handle.mu.RUnlock()
+
 		if result != nil {
 			ctx.state.SetResult(result)
 		}
@@ -158,7 +185,55 @@ func (ps *PawScript) RegisterFibersLib() {
 
 	// fiber_wait_all - wait for all child fibers to complete
 	ps.RegisterCommandInModule("fibers", "fiber_wait_all", func(ctx *Context) Result {
-		ctx.executor.WaitForAllFibers()
+		// Collect all active fibers (except main fiber)
+		ctx.executor.mu.RLock()
+		fibers := make([]*FiberHandle, 0, len(ctx.executor.activeFibers))
+		for _, fiber := range ctx.executor.activeFibers {
+			if fiber.ID != 0 {
+				fibers = append(fibers, fiber)
+			}
+		}
+		ctx.executor.mu.RUnlock()
+
+		// Wait for all fibers to complete
+		var wg sync.WaitGroup
+		for _, fiber := range fibers {
+			wg.Add(1)
+			go func(f *FiberHandle) {
+				defer wg.Done()
+				<-f.CompleteChan
+			}(fiber)
+		}
+		wg.Wait()
+
+		// Merge bubbles from all fibers to caller's state
+		for _, fiber := range fibers {
+			fiber.mu.RLock()
+			if len(fiber.FinalBubbleMap) > 0 {
+				ctx.state.mu.Lock()
+				if ctx.state.bubbleMap == nil {
+					ctx.state.bubbleMap = make(map[string][]*BubbleEntry)
+				}
+				for flavor, entries := range fiber.FinalBubbleMap {
+					ctx.state.bubbleMap[flavor] = append(ctx.state.bubbleMap[flavor], entries...)
+					// Transfer ownership: caller claims refs, release the extra refs we held
+					for _, entry := range entries {
+						if sym, ok := entry.Content.(Symbol); ok {
+							_, objectID := parseObjectMarker(string(sym))
+							if objectID >= 0 {
+								// Caller claims the reference
+								ctx.state.ownedObjects[objectID]++
+								// Release the extra ref we added in fiber completion
+								ctx.executor.decrementObjectRefCount(objectID)
+							}
+						}
+					}
+				}
+				ctx.state.mu.Unlock()
+			}
+			fiber.mu.RUnlock()
+		}
+
 		return BoolStatus(true)
 	})
 }

@@ -102,6 +102,26 @@ func (e *Executor) decrementObjectRefCount(objectID int) {
 				e.mu.Lock() // Re-lock for deletion
 			}
 
+			// Release FinalBubbleMap references if it's a fiber handle
+			if fiberHandle, ok := obj.Value.(*FiberHandle); ok {
+				fiberHandle.mu.Lock()
+				if len(fiberHandle.FinalBubbleMap) > 0 {
+					e.mu.Unlock() // Unlock before recursive calls
+					for _, entries := range fiberHandle.FinalBubbleMap {
+						for _, entry := range entries {
+							if sym, ok := entry.Content.(Symbol); ok {
+								_, contentID := parseObjectMarker(string(sym))
+								if contentID >= 0 {
+									e.decrementObjectRefCount(contentID)
+								}
+							}
+						}
+					}
+					e.mu.Lock() // Re-lock for deletion
+				}
+				fiberHandle.mu.Unlock()
+			}
+
 			delete(e.storedObjects, objectID)
 			e.logger.DebugCat(CatMemory,"Object %d freed (refcount reached 0)", objectID)
 		}

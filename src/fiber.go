@@ -93,6 +93,27 @@ func (e *Executor) SpawnFiber(macro *StoredMacro, args []interface{}, namedArgs 
 		defer func() {
 			handle.mu.Lock()
 			handle.Completed = true
+
+			// Preserve bubbleMap before releasing references
+			// Transfer ownership by claiming refs for bubble content
+			handle.State.mu.Lock()
+			if len(handle.State.bubbleMap) > 0 {
+				handle.FinalBubbleMap = make(map[string][]*BubbleEntry)
+				for flavor, entries := range handle.State.bubbleMap {
+					handle.FinalBubbleMap[flavor] = entries
+					// Claim reference for each bubble's content to keep it alive
+					for _, entry := range entries {
+						if sym, ok := entry.Content.(Symbol); ok {
+							_, objectID := parseObjectMarker(string(sym))
+							if objectID >= 0 {
+								e.incrementObjectRefCount(objectID)
+							}
+						}
+					}
+				}
+			}
+			handle.State.mu.Unlock()
+
 			handle.mu.Unlock()
 			close(handle.CompleteChan)
 			e.unregisterFiber(fiberID)

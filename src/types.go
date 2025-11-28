@@ -562,15 +562,16 @@ type ResumeData struct {
 
 // FiberHandle represents a running fiber (lightweight thread)
 type FiberHandle struct {
-	mu           sync.RWMutex
-	ID           int
-	State        *ExecutionState
-	SuspendedOn  string          // tokenID if suspended, "" if running
-	ResumeChan   chan ResumeData // Channel for resuming suspended fiber
-	Result       interface{}     // Final result when fiber completes
-	Error        error           // Error if fiber failed
-	CompleteChan chan struct{}   // Closed when fiber completes
-	Completed    bool            // True when fiber has finished
+	mu             sync.RWMutex
+	ID             int
+	State          *ExecutionState
+	SuspendedOn    string                    // tokenID if suspended, "" if running
+	ResumeChan     chan ResumeData           // Channel for resuming suspended fiber
+	Result         interface{}               // Final result when fiber completes
+	Error          error                     // Error if fiber failed
+	CompleteChan   chan struct{}             // Closed when fiber completes
+	Completed      bool                      // True when fiber has finished
+	FinalBubbleMap map[string][]*BubbleEntry // Preserved bubbleMap after fiber completion
 }
 
 // StoredList represents an immutable list of values with optional named arguments
