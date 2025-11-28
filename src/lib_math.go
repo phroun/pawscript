@@ -3,203 +3,38 @@ package pawscript
 import (
 	"fmt"
 	"math"
-	"strings"
 )
 
-// getNumericArgs extracts numeric arguments from either multiple args or a single list.
-// If there's exactly 1 argument that resolves to a StoredList, returns the list items.
-// Otherwise returns ctx.Args directly. This allows math operations like:
-//   add 1, 2, 3      (multiple args)
-//   add ~mylist      (single list containing [1, 2, 3])
-// Returns the items to iterate over and whether a list was unwrapped.
-func getNumericArgs(ctx *Context) ([]interface{}, bool) {
-	if len(ctx.Args) == 1 {
-		resolved := ctx.executor.resolveValue(ctx.Args[0])
-		if list, ok := resolved.(StoredList); ok {
-			return list.Items(), true
-		}
-	}
-	return ctx.Args, false
-}
+// Mathematical constants - using Go's float64 precision
+const (
+	// Tau is the circle constant (2*pi) - the superior circle constant
+	Tau = 6.283185307179586476925286766559005768394338798750211641949889184615632812572417997256069650684234
+	// E is Euler's number
+	E = math.E // 2.718281828459045235360287471352662497757247093699959574966...
+	// Root2 is the square root of 2
+	Root2 = math.Sqrt2 // 1.41421356237309504880168872420969807856967187537694...
+	// Root3 is the square root of 3
+	Root3 = 1.7320508075688772935274463415058723669428052538103806280558
+	// Root5 is the square root of 5
+	Root5 = 2.2360679774997896964091736687747632440588203494105043021130
+	// Phi is the golden ratio (1 + sqrt(5)) / 2
+	Phi = math.Phi // 1.61803398874989484820458683436563811772030917980576...
+	// Ln2 is the natural logarithm of 2
+	Ln2 = math.Ln2 // 0.693147180559945309417232121458176568075500134360255254120...
+)
 
-// RegisterMathLib registers math and comparison commands
-// Modules: math, cmp
+// RegisterMathLib registers the auxiliary math library with trigonometric functions
+// and mathematical constants. This library is NOT auto-imported - users must
+// explicitly use IMPORT math to access these functions.
+// Module: math
 func (ps *PawScript) RegisterMathLib() {
 
 	// ==================== math:: module ====================
 
-	// add - sums any number of arguments, or all elements of a single list
-	ps.RegisterCommandInModule("math", "add", func(ctx *Context) Result {
-		args, fromList := getNumericArgs(ctx)
-		if len(args) < 2 {
-			if fromList {
-				ctx.LogError(CatCommand, "add: list must contain at least 2 elements")
-			} else {
-				ctx.LogError(CatCommand, "Usage: add <a>, <b>, ... or add <list>")
-			}
-			return BoolStatus(false)
-		}
-		sum := float64(0)
-		for i, arg := range args {
-			resolved := ctx.executor.resolveValue(arg)
-			n, ok := toNumber(resolved)
-			if !ok {
-				ctx.LogError(CatArgument, fmt.Sprintf("Invalid numeric argument at position %d: %v", i+1, arg))
-				return BoolStatus(false)
-			}
-			sum += n
-		}
-		ctx.SetResult(sum)
-		return BoolStatus(true)
-	})
-
-	// sub - subtracts all remaining arguments from the first, or from first element of a list
-	ps.RegisterCommandInModule("math", "sub", func(ctx *Context) Result {
-		args, fromList := getNumericArgs(ctx)
-		if len(args) < 2 {
-			if fromList {
-				ctx.LogError(CatCommand, "sub: list must contain at least 2 elements")
-			} else {
-				ctx.LogError(CatCommand, "Usage: sub <start>, <a>, ... or sub <list>")
-			}
-			return BoolStatus(false)
-		}
-		resolved0 := ctx.executor.resolveValue(args[0])
-		result, ok := toNumber(resolved0)
-		if !ok {
-			ctx.LogError(CatArgument, fmt.Sprintf("Invalid numeric argument at position 1: %v", args[0]))
-			return BoolStatus(false)
-		}
-		for i := 1; i < len(args); i++ {
-			resolved := ctx.executor.resolveValue(args[i])
-			n, ok := toNumber(resolved)
-			if !ok {
-				ctx.LogError(CatArgument, fmt.Sprintf("Invalid numeric argument at position %d: %v", i+1, args[i]))
-				return BoolStatus(false)
-			}
-			result -= n
-		}
-		ctx.SetResult(result)
-		return BoolStatus(true)
-	})
-
-	// mul - multiplies any number of arguments, or all elements of a single list
-	ps.RegisterCommandInModule("math", "mul", func(ctx *Context) Result {
-		args, fromList := getNumericArgs(ctx)
-		if len(args) < 2 {
-			if fromList {
-				ctx.LogError(CatCommand, "mul: list must contain at least 2 elements")
-			} else {
-				ctx.LogError(CatCommand, "Usage: mul <a>, <b>, ... or mul <list>")
-			}
-			return BoolStatus(false)
-		}
-		product := float64(1)
-		for i, arg := range args {
-			resolved := ctx.executor.resolveValue(arg)
-			n, ok := toNumber(resolved)
-			if !ok {
-				ctx.LogError(CatArgument, fmt.Sprintf("Invalid numeric argument at position %d: %v", i+1, arg))
-				return BoolStatus(false)
-			}
-			product *= n
-		}
-		ctx.SetResult(product)
-		return BoolStatus(true)
-	})
-
-	// idiv - floored integer division
-	// With >2 args: first / product(rest)
-	// Named args: remainder:true or modulo:true returns [result, remainder/modulo]
-	ps.RegisterCommandInModule("math", "idiv", func(ctx *Context) Result {
-		args, fromList := getNumericArgs(ctx)
-		if len(args) < 2 {
-			if fromList {
-				ctx.LogError(CatCommand, "idiv: list must contain at least 2 elements")
-			} else {
-				ctx.LogError(CatCommand, "Usage: idiv <dividend>, <divisor>, ... or idiv <list>")
-			}
-			return BoolStatus(false)
-		}
-		return performDivision(ctx, args, true, false, false)
-	})
-
-	// fdiv - floating point division
-	// With >2 args: first / product(rest)
-	// Named args: remainder:true or modulo:true returns [result, remainder/modulo]
-	ps.RegisterCommandInModule("math", "fdiv", func(ctx *Context) Result {
-		args, fromList := getNumericArgs(ctx)
-		if len(args) < 2 {
-			if fromList {
-				ctx.LogError(CatCommand, "fdiv: list must contain at least 2 elements")
-			} else {
-				ctx.LogError(CatCommand, "Usage: fdiv <dividend>, <divisor>, ... or fdiv <list>")
-			}
-			return BoolStatus(false)
-		}
-		return performDivision(ctx, args, false, false, false)
-	})
-
-	// iremainder - integer division remainder only (sign from dividend)
-	ps.RegisterCommandInModule("math", "iremainder", func(ctx *Context) Result {
-		args, fromList := getNumericArgs(ctx)
-		if len(args) < 2 {
-			if fromList {
-				ctx.LogError(CatCommand, "iremainder: list must contain at least 2 elements")
-			} else {
-				ctx.LogError(CatCommand, "Usage: iremainder <dividend>, <divisor>, ... or iremainder <list>")
-			}
-			return BoolStatus(false)
-		}
-		return performDivision(ctx, args, true, true, false)
-	})
-
-	// imodulo - integer division modulo only (sign from divisor)
-	ps.RegisterCommandInModule("math", "imodulo", func(ctx *Context) Result {
-		args, fromList := getNumericArgs(ctx)
-		if len(args) < 2 {
-			if fromList {
-				ctx.LogError(CatCommand, "imodulo: list must contain at least 2 elements")
-			} else {
-				ctx.LogError(CatCommand, "Usage: imodulo <dividend>, <divisor>, ... or imodulo <list>")
-			}
-			return BoolStatus(false)
-		}
-		return performDivision(ctx, args, true, false, true)
-	})
-
-	// fremainder - floating point division remainder only (sign from dividend)
-	ps.RegisterCommandInModule("math", "fremainder", func(ctx *Context) Result {
-		args, fromList := getNumericArgs(ctx)
-		if len(args) < 2 {
-			if fromList {
-				ctx.LogError(CatCommand, "fremainder: list must contain at least 2 elements")
-			} else {
-				ctx.LogError(CatCommand, "Usage: fremainder <dividend>, <divisor>, ... or fremainder <list>")
-			}
-			return BoolStatus(false)
-		}
-		return performDivision(ctx, args, false, true, false)
-	})
-
-	// fmodulo - floating point division modulo only (sign from divisor)
-	ps.RegisterCommandInModule("math", "fmodulo", func(ctx *Context) Result {
-		args, fromList := getNumericArgs(ctx)
-		if len(args) < 2 {
-			if fromList {
-				ctx.LogError(CatCommand, "fmodulo: list must contain at least 2 elements")
-			} else {
-				ctx.LogError(CatCommand, "Usage: fmodulo <dividend>, <divisor>, ... or fmodulo <list>")
-			}
-			return BoolStatus(false)
-		}
-		return performDivision(ctx, args, false, false, true)
-	})
-
-	// floor - rounds down to nearest integer
-	ps.RegisterCommandInModule("math", "floor", func(ctx *Context) Result {
+	// sin - sine of angle in radians
+	ps.RegisterCommandInModule("math", "sin", func(ctx *Context) Result {
 		if len(ctx.Args) < 1 {
-			ctx.LogError(CatCommand, "Usage: floor <value>")
+			ctx.LogError(CatCommand, "Usage: sin <radians>")
 			return BoolStatus(false)
 		}
 		resolved := ctx.executor.resolveValue(ctx.Args[0])
@@ -208,14 +43,14 @@ func (ps *PawScript) RegisterMathLib() {
 			ctx.LogError(CatArgument, fmt.Sprintf("Invalid numeric argument: %v", ctx.Args[0]))
 			return BoolStatus(false)
 		}
-		ctx.SetResult(math.Floor(n))
+		ctx.SetResult(math.Sin(n))
 		return BoolStatus(true)
 	})
 
-	// ceil - rounds up to nearest integer
-	ps.RegisterCommandInModule("math", "ceil", func(ctx *Context) Result {
+	// cos - cosine of angle in radians
+	ps.RegisterCommandInModule("math", "cos", func(ctx *Context) Result {
 		if len(ctx.Args) < 1 {
-			ctx.LogError(CatCommand, "Usage: ceil <value>")
+			ctx.LogError(CatCommand, "Usage: cos <radians>")
 			return BoolStatus(false)
 		}
 		resolved := ctx.executor.resolveValue(ctx.Args[0])
@@ -224,14 +59,14 @@ func (ps *PawScript) RegisterMathLib() {
 			ctx.LogError(CatArgument, fmt.Sprintf("Invalid numeric argument: %v", ctx.Args[0]))
 			return BoolStatus(false)
 		}
-		ctx.SetResult(math.Ceil(n))
+		ctx.SetResult(math.Cos(n))
 		return BoolStatus(true)
 	})
 
-	// trunc - truncates towards zero
-	ps.RegisterCommandInModule("math", "trunc", func(ctx *Context) Result {
+	// tan - tangent of angle in radians
+	ps.RegisterCommandInModule("math", "tan", func(ctx *Context) Result {
 		if len(ctx.Args) < 1 {
-			ctx.LogError(CatCommand, "Usage: trunc <value>")
+			ctx.LogError(CatCommand, "Usage: tan <radians>")
 			return BoolStatus(false)
 		}
 		resolved := ctx.executor.resolveValue(ctx.Args[0])
@@ -240,14 +75,36 @@ func (ps *PawScript) RegisterMathLib() {
 			ctx.LogError(CatArgument, fmt.Sprintf("Invalid numeric argument: %v", ctx.Args[0]))
 			return BoolStatus(false)
 		}
-		ctx.SetResult(math.Trunc(n))
+		ctx.SetResult(math.Tan(n))
 		return BoolStatus(true)
 	})
 
-	// round - rounds to nearest integer (half away from zero)
-	ps.RegisterCommandInModule("math", "round", func(ctx *Context) Result {
+	// atan2 - arc tangent of y/x, using signs to determine quadrant
+	ps.RegisterCommandInModule("math", "atan2", func(ctx *Context) Result {
+		if len(ctx.Args) < 2 {
+			ctx.LogError(CatCommand, "Usage: atan2 <y>, <x>")
+			return BoolStatus(false)
+		}
+		resolvedY := ctx.executor.resolveValue(ctx.Args[0])
+		y, ok := toNumber(resolvedY)
+		if !ok {
+			ctx.LogError(CatArgument, fmt.Sprintf("Invalid numeric argument for y: %v", ctx.Args[0]))
+			return BoolStatus(false)
+		}
+		resolvedX := ctx.executor.resolveValue(ctx.Args[1])
+		x, ok := toNumber(resolvedX)
+		if !ok {
+			ctx.LogError(CatArgument, fmt.Sprintf("Invalid numeric argument for x: %v", ctx.Args[1]))
+			return BoolStatus(false)
+		}
+		ctx.SetResult(math.Atan2(y, x))
+		return BoolStatus(true)
+	})
+
+	// deg - convert radians to degrees
+	ps.RegisterCommandInModule("math", "deg", func(ctx *Context) Result {
 		if len(ctx.Args) < 1 {
-			ctx.LogError(CatCommand, "Usage: round <value>")
+			ctx.LogError(CatCommand, "Usage: deg <radians>")
 			return BoolStatus(false)
 		}
 		resolved := ctx.executor.resolveValue(ctx.Args[0])
@@ -256,14 +113,15 @@ func (ps *PawScript) RegisterMathLib() {
 			ctx.LogError(CatArgument, fmt.Sprintf("Invalid numeric argument: %v", ctx.Args[0]))
 			return BoolStatus(false)
 		}
-		ctx.SetResult(math.Round(n))
+		// degrees = radians * (180 / pi) = radians * (360 / tau)
+		ctx.SetResult(n * 360.0 / Tau)
 		return BoolStatus(true)
 	})
 
-	// abs - absolute value
-	ps.RegisterCommandInModule("math", "abs", func(ctx *Context) Result {
+	// rad - convert degrees to radians
+	ps.RegisterCommandInModule("math", "rad", func(ctx *Context) Result {
 		if len(ctx.Args) < 1 {
-			ctx.LogError(CatCommand, "Usage: abs <value>")
+			ctx.LogError(CatCommand, "Usage: rad <degrees>")
 			return BoolStatus(false)
 		}
 		resolved := ctx.executor.resolveValue(ctx.Args[0])
@@ -272,485 +130,90 @@ func (ps *PawScript) RegisterMathLib() {
 			ctx.LogError(CatArgument, fmt.Sprintf("Invalid numeric argument: %v", ctx.Args[0]))
 			return BoolStatus(false)
 		}
-		ctx.SetResult(math.Abs(n))
+		// radians = degrees * (pi / 180) = degrees * (tau / 360)
+		ctx.SetResult(n * Tau / 360.0)
 		return BoolStatus(true)
 	})
 
-	// min - returns minimum of any number of arguments, or minimum element of a list
-	ps.RegisterCommandInModule("math", "min", func(ctx *Context) Result {
-		args, fromList := getNumericArgs(ctx)
-		if len(args) < 1 {
-			if fromList {
-				ctx.LogError(CatCommand, "min: list must contain at least 1 element")
-			} else {
-				ctx.LogError(CatCommand, "Usage: min <a>, <b>, ... or min <list>")
-			}
+	// log - logarithm with optional base (default base 10)
+	ps.RegisterCommandInModule("math", "log", func(ctx *Context) Result {
+		if len(ctx.Args) < 1 {
+			ctx.LogError(CatCommand, "Usage: log <value> [, base:<base>]")
 			return BoolStatus(false)
 		}
-		resolved0 := ctx.executor.resolveValue(args[0])
-		minVal, ok := toNumber(resolved0)
-		if !ok {
-			ctx.LogError(CatArgument, fmt.Sprintf("Invalid numeric argument at position 1: %v", args[0]))
-			return BoolStatus(false)
-		}
-		for i := 1; i < len(args); i++ {
-			resolved := ctx.executor.resolveValue(args[i])
-			n, ok := toNumber(resolved)
-			if !ok {
-				ctx.LogError(CatArgument, fmt.Sprintf("Invalid numeric argument at position %d: %v", i+1, args[i]))
-				return BoolStatus(false)
-			}
-			if n < minVal {
-				minVal = n
-			}
-		}
-		ctx.SetResult(minVal)
-		return BoolStatus(true)
-	})
-
-	// max - returns maximum of any number of arguments, or maximum element of a list
-	ps.RegisterCommandInModule("math", "max", func(ctx *Context) Result {
-		args, fromList := getNumericArgs(ctx)
-		if len(args) < 1 {
-			if fromList {
-				ctx.LogError(CatCommand, "max: list must contain at least 1 element")
-			} else {
-				ctx.LogError(CatCommand, "Usage: max <a>, <b>, ... or max <list>")
-			}
-			return BoolStatus(false)
-		}
-		resolved0 := ctx.executor.resolveValue(args[0])
-		maxVal, ok := toNumber(resolved0)
-		if !ok {
-			ctx.LogError(CatArgument, fmt.Sprintf("Invalid numeric argument at position 1: %v", args[0]))
-			return BoolStatus(false)
-		}
-		for i := 1; i < len(args); i++ {
-			resolved := ctx.executor.resolveValue(args[i])
-			n, ok := toNumber(resolved)
-			if !ok {
-				ctx.LogError(CatArgument, fmt.Sprintf("Invalid numeric argument at position %d: %v", i+1, args[i]))
-				return BoolStatus(false)
-			}
-			if n > maxVal {
-				maxVal = n
-			}
-		}
-		ctx.SetResult(maxVal)
-		return BoolStatus(true)
-	})
-
-	// ==================== cmp:: module ====================
-
-	// Helper to get comparison items - either from args directly or from single list arg
-	getComparisonItems := func(ctx *Context) []interface{} {
-		if len(ctx.Args) == 1 {
-			// Single argument - if it's a list, use its items
-			if list, ok := ctx.Args[0].(StoredList); ok {
-				return list.Items()
-			}
-			// Single non-list argument - return as-is
-			return ctx.Args
-		}
-		return ctx.Args
-	}
-
-	// Helper to check if a value is a list type (for ordering comparison errors)
-	isListType := func(v interface{}) bool {
-		switch v := v.(type) {
-		case StoredList:
-			return true
-		case Symbol:
-			// Check if it's a list marker
-			if markerType, _ := parseObjectMarker(string(v)); markerType == "list" {
-				return true
-			}
-		}
-		return false
-	}
-
-	// compareOrdering compares two values for ordering (lt, gt, lte, gte)
-	// Returns: -1 if a < b, 0 if a == b, 1 if a > b, and ok=true
-	// Returns ok=false if comparison not possible (e.g., list types)
-	// For strings, uses Go's lexicographic comparison which has early exit built-in
-	// Explicit string types (QuotedString, StoredString) are always compared alphabetically
-	compareOrdering := func(a, b interface{}, ctx *Context) (int, bool) {
-		resolvedA := ctx.executor.resolveValue(a)
-		resolvedB := ctx.executor.resolveValue(b)
-
-		// Check for list types - can't compare ordering
-		if isListType(resolvedA) || isListType(resolvedB) {
-			ctx.LogError(CatMath, "Cannot compare ordering of list types")
-			return 0, false
-		}
-
-		// Check if either value is an explicit string type (QuotedString or StoredString)
-		// These should always compare alphabetically, not numerically
-		var strA, strB string
-		var aIsExplicitStr, bIsExplicitStr bool
-
-		switch va := resolvedA.(type) {
-		case StoredString:
-			strA, aIsExplicitStr = string(va), true
-		case QuotedString:
-			strA, aIsExplicitStr = string(va), true
-		}
-
-		switch vb := resolvedB.(type) {
-		case StoredString:
-			strB, bIsExplicitStr = string(vb), true
-		case QuotedString:
-			strB, bIsExplicitStr = string(vb), true
-		}
-
-		// If both are explicit strings, compare alphabetically
-		if aIsExplicitStr && bIsExplicitStr {
-			if strA < strB {
-				return -1, true
-			} else if strA > strB {
-				return 1, true
-			}
-			return 0, true
-		}
-
-		// If neither is an explicit string, try numeric comparison
-		if !aIsExplicitStr && !bIsExplicitStr {
-			numA, aIsNum := toNumber(resolvedA)
-			numB, bIsNum := toNumber(resolvedB)
-
-			if aIsNum && bIsNum {
-				// Both are numbers - numeric comparison
-				if numA < numB {
-					return -1, true
-				} else if numA > numB {
-					return 1, true
-				}
-				return 0, true
-			}
-		}
-
-		// String comparison for mixed cases or non-numeric values
-		// Go's string comparison is lexicographic with early exit
-		var aIsStr, bIsStr bool
-
-		// Extract string value without unnecessary copies
-		if !aIsExplicitStr {
-			switch va := resolvedA.(type) {
-			case string:
-				strA, aIsStr = va, true
-			case Symbol:
-				if markerType, _ := parseObjectMarker(string(va)); markerType == "" {
-					strA, aIsStr = string(va), true
-				}
-			}
-		} else {
-			aIsStr = true
-		}
-
-		if !bIsExplicitStr {
-			switch vb := resolvedB.(type) {
-			case string:
-				strB, bIsStr = vb, true
-			case Symbol:
-				if markerType, _ := parseObjectMarker(string(vb)); markerType == "" {
-					strB, bIsStr = string(vb), true
-				}
-			}
-		} else {
-			bIsStr = true
-		}
-
-		if aIsStr && bIsStr {
-			// Both are strings - alphabetical comparison
-			if strA < strB {
-				return -1, true
-			} else if strA > strB {
-				return 1, true
-			}
-			return 0, true
-		}
-
-		// Fallback: convert to string representation and compare
-		// This handles mixed types or unknown types
-		if !aIsStr {
-			strA = fmt.Sprintf("%v", resolvedA)
-		}
-		if !bIsStr {
-			strB = fmt.Sprintf("%v", resolvedB)
-		}
-		if strA < strB {
-			return -1, true
-		} else if strA > strB {
-			return 1, true
-		}
-		return 0, true
-	}
-
-	// eq - all arguments are equal (uses deep equality)
-	// With 2+ args: eq a, b, c -> all equal
-	// With single list: eq ~mylist -> all items in list are equal
-	ps.RegisterCommandInModule("cmp", "eq", func(ctx *Context) Result {
-		items := getComparisonItems(ctx)
-		if len(items) < 2 {
-			ctx.LogError(CatCommand, "Usage: eq <a>, <b> [, ...] or eq <list>")
-			ctx.SetResult(false)
-			return BoolStatus(false)
-		}
-
-		// Compare all items with deep equality
-		first := items[0]
-		for i := 1; i < len(items); i++ {
-			if !deepEqual(first, items[i], ctx.executor) {
-				ctx.SetResult(false)
-				return BoolStatus(false)
-			}
-		}
-		ctx.SetResult(true)
-		return BoolStatus(true)
-	})
-
-	// neq - at least one argument is not equal to another (uses deep equality)
-	// With 2+ args: neq a, b, c -> at least one differs
-	// With single list: neq ~mylist -> at least one item differs from another
-	ps.RegisterCommandInModule("cmp", "neq", func(ctx *Context) Result {
-		items := getComparisonItems(ctx)
-		if len(items) < 2 {
-			ctx.LogError(CatCommand, "Usage: neq <a>, <b> [, ...] or neq <list>")
-			ctx.SetResult(false)
-			return BoolStatus(false)
-		}
-
-		// Check if at least one pair is not equal
-		first := items[0]
-		for i := 1; i < len(items); i++ {
-			if !deepEqual(first, items[i], ctx.executor) {
-				ctx.SetResult(true)
-				return BoolStatus(true)
-			}
-		}
-		ctx.SetResult(false)
-		return BoolStatus(false)
-	})
-
-	// lt - all arguments are in strictly ascending order
-	// With 2+ args: lt a, b, c -> a < b < c
-	// With single list: lt ~mylist -> all items in ascending order
-	// Works with numbers (numeric) and strings (alphabetical)
-	ps.RegisterCommandInModule("cmp", "lt", func(ctx *Context) Result {
-		items := getComparisonItems(ctx)
-		if len(items) < 2 {
-			ctx.LogError(CatCommand, "Usage: lt <a>, <b> [, ...] or lt <list>")
-			ctx.SetResult(false)
-			return BoolStatus(false)
-		}
-
-		for i := 0; i < len(items)-1; i++ {
-			cmp, ok := compareOrdering(items[i], items[i+1], ctx)
-			if !ok {
-				ctx.SetResult(false)
-				return BoolStatus(false)
-			}
-			if cmp >= 0 { // Not strictly less than
-				ctx.SetResult(false)
-				return BoolStatus(false)
-			}
-		}
-		ctx.SetResult(true)
-		return BoolStatus(true)
-	})
-
-	// gt - all arguments are in strictly descending order
-	// With 2+ args: gt a, b, c -> a > b > c
-	// With single list: gt ~mylist -> all items in descending order
-	// Works with numbers (numeric) and strings (alphabetical)
-	ps.RegisterCommandInModule("cmp", "gt", func(ctx *Context) Result {
-		items := getComparisonItems(ctx)
-		if len(items) < 2 {
-			ctx.LogError(CatCommand, "Usage: gt <a>, <b> [, ...] or gt <list>")
-			ctx.SetResult(false)
-			return BoolStatus(false)
-		}
-
-		for i := 0; i < len(items)-1; i++ {
-			cmp, ok := compareOrdering(items[i], items[i+1], ctx)
-			if !ok {
-				ctx.SetResult(false)
-				return BoolStatus(false)
-			}
-			if cmp <= 0 { // Not strictly greater than
-				ctx.SetResult(false)
-				return BoolStatus(false)
-			}
-		}
-		ctx.SetResult(true)
-		return BoolStatus(true)
-	})
-
-	// gte - all arguments are in descending or equal order
-	// With 2+ args: gte a, b, c -> a >= b >= c
-	// With single list: gte ~mylist -> all items in descending or equal order
-	// Works with numbers (numeric) and strings (alphabetical)
-	ps.RegisterCommandInModule("cmp", "gte", func(ctx *Context) Result {
-		items := getComparisonItems(ctx)
-		if len(items) < 2 {
-			ctx.LogError(CatCommand, "Usage: gte <a>, <b> [, ...] or gte <list>")
-			ctx.SetResult(false)
-			return BoolStatus(false)
-		}
-
-		for i := 0; i < len(items)-1; i++ {
-			cmp, ok := compareOrdering(items[i], items[i+1], ctx)
-			if !ok {
-				ctx.SetResult(false)
-				return BoolStatus(false)
-			}
-			if cmp < 0 { // Less than (not >=)
-				ctx.SetResult(false)
-				return BoolStatus(false)
-			}
-		}
-		ctx.SetResult(true)
-		return BoolStatus(true)
-	})
-
-	// lte - all arguments are in ascending or equal order
-	// With 2+ args: lte a, b, c -> a <= b <= c
-	// With single list: lte ~mylist -> all items in ascending or equal order
-	// Works with numbers (numeric) and strings (alphabetical)
-	ps.RegisterCommandInModule("cmp", "lte", func(ctx *Context) Result {
-		items := getComparisonItems(ctx)
-		if len(items) < 2 {
-			ctx.LogError(CatCommand, "Usage: lte <a>, <b> [, ...] or lte <list>")
-			ctx.SetResult(false)
-			return BoolStatus(false)
-		}
-
-		for i := 0; i < len(items)-1; i++ {
-			cmp, ok := compareOrdering(items[i], items[i+1], ctx)
-			if !ok {
-				ctx.SetResult(false)
-				return BoolStatus(false)
-			}
-			if cmp > 0 { // Greater than (not <=)
-				ctx.SetResult(false)
-				return BoolStatus(false)
-			}
-		}
-		ctx.SetResult(true)
-		return BoolStatus(true)
-	})
-
-	// if - normalize truthy/falsy values to boolean
-	ps.RegisterCommandInModule("core", "if", func(ctx *Context) Result {
-		if len(ctx.Args) < 1 || len(ctx.Args) > 1 {
-			ctx.LogError(CatCommand, "Usage: if <value>")
-			ctx.SetResult(false)
-			return BoolStatus(false)
-		}
-
-		// Warn if the argument is a literal ParenGroup - likely a mistake
-		// User probably meant {command} (execute) not (command) (block literal)
-		// Only warn if the raw argument started with '(' (literal), not if it came from a variable
-		if _, ok := ctx.Args[0].(ParenGroup); ok {
-			if len(ctx.RawArgs) > 0 && strings.HasPrefix(ctx.RawArgs[0], "(") {
-				ctx.LogWarning(CatCommand, "if received a block literal (parentheses) which is always truthy; did you mean to use braces {command} instead?")
-			}
-		}
-
-		// Normalize the first argument to boolean
-		result := toBool(ctx.Args[0])
-		ctx.SetResult(result)
-		return BoolStatus(result)
-	})
-}
-
-// performDivision is a helper that handles all division variants
-// args: the numeric arguments (either from ctx.Args or expanded from a list)
-// isInteger: true for floored integer division, false for floating point
-// remainderOnly: if true, only return the remainder (sign from dividend)
-// moduloOnly: if true, only return the modulo (sign from divisor)
-func performDivision(ctx *Context, args []interface{}, isInteger bool, remainderOnly bool, moduloOnly bool) Result {
-	// Get dividend (first argument)
-	resolved0 := ctx.executor.resolveValue(args[0])
-	dividend, ok := toNumber(resolved0)
-	if !ok {
-		ctx.LogError(CatArgument, fmt.Sprintf("Invalid numeric argument at position 1: %v", args[0]))
-		return BoolStatus(false)
-	}
-
-	// Calculate divisor as product of remaining arguments
-	divisor := float64(1)
-	for i := 1; i < len(args); i++ {
-		resolved := ctx.executor.resolveValue(args[i])
+		resolved := ctx.executor.resolveValue(ctx.Args[0])
 		n, ok := toNumber(resolved)
 		if !ok {
-			ctx.LogError(CatArgument, fmt.Sprintf("Invalid numeric argument at position %d: %v", i+1, args[i]))
+			ctx.LogError(CatArgument, fmt.Sprintf("Invalid numeric argument: %v", ctx.Args[0]))
 			return BoolStatus(false)
 		}
-		divisor *= n
-	}
-
-	if divisor == 0 {
-		ctx.LogError(CatMath, "Division by zero")
-		return BoolStatus(false)
-	}
-
-	var quotient, remainder, modulo float64
-
-	if isInteger {
-		// Floored integer division
-		quotient = math.Floor(dividend / divisor)
-		// Remainder: sign follows dividend (truncated division remainder)
-		remainder = dividend - math.Trunc(dividend/divisor)*divisor
-		// Modulo: sign follows divisor (floored division remainder)
-		modulo = dividend - quotient*divisor
-	} else {
-		// Floating point division
-		quotient = dividend / divisor
-		// For floating point, remainder uses math.Remainder (sign from dividend)
-		remainder = math.Remainder(dividend, divisor)
-		// Modulo: sign follows divisor
-		modulo = math.Mod(dividend, divisor)
-		if modulo != 0 && (divisor < 0) != (modulo < 0) {
-			modulo += divisor
+		if n <= 0 {
+			ctx.LogError(CatMath, "Logarithm requires positive argument")
+			return BoolStatus(false)
 		}
-	}
 
-	// If only returning remainder or modulo
-	if remainderOnly {
-		ctx.SetResult(remainder)
-		return BoolStatus(true)
-	}
-	if moduloOnly {
-		ctx.SetResult(modulo)
-		return BoolStatus(true)
-	}
+		// Check for base: named argument, default to 10
+		base := 10.0
+		if baseVal, exists := ctx.NamedArgs["base"]; exists {
+			b, ok := toNumber(baseVal)
+			if !ok || b <= 0 || b == 1 {
+				ctx.LogError(CatArgument, "base must be a positive number not equal to 1")
+				return BoolStatus(false)
+			}
+			base = b
+		}
 
-	// Check for remainder: or modulo: named arguments
-	wantRemainder := false
-	wantModulo := false
-	if val, exists := ctx.NamedArgs["remainder"]; exists {
-		wantRemainder = toBool(val)
-	}
-	if val, exists := ctx.NamedArgs["modulo"]; exists {
-		wantModulo = toBool(val)
-	}
-
-	if wantRemainder {
-		list := NewStoredList([]interface{}{quotient, remainder})
-		id := ctx.executor.storeObject(list, "list")
-		marker := fmt.Sprintf("\x00LIST:%d\x00", id)
-		ctx.state.SetResultWithoutClaim(Symbol(marker))
+		// log_b(x) = ln(x) / ln(b)
+		ctx.SetResult(math.Log(n) / math.Log(base))
 		return BoolStatus(true)
-	}
-	if wantModulo {
-		list := NewStoredList([]interface{}{quotient, modulo})
-		id := ctx.executor.storeObject(list, "list")
-		marker := fmt.Sprintf("\x00LIST:%d\x00", id)
-		ctx.state.SetResultWithoutClaim(Symbol(marker))
-		return BoolStatus(true)
-	}
+	})
 
-	ctx.SetResult(quotient)
-	return BoolStatus(true)
+	// log10 - base-10 logarithm
+	ps.RegisterCommandInModule("math", "log10", func(ctx *Context) Result {
+		if len(ctx.Args) < 1 {
+			ctx.LogError(CatCommand, "Usage: log10 <value>")
+			return BoolStatus(false)
+		}
+		resolved := ctx.executor.resolveValue(ctx.Args[0])
+		n, ok := toNumber(resolved)
+		if !ok {
+			ctx.LogError(CatArgument, fmt.Sprintf("Invalid numeric argument: %v", ctx.Args[0]))
+			return BoolStatus(false)
+		}
+		if n <= 0 {
+			ctx.LogError(CatMath, "Logarithm requires positive argument")
+			return BoolStatus(false)
+		}
+		ctx.SetResult(math.Log10(n))
+		return BoolStatus(true)
+	})
+
+	// ln - natural logarithm (base e)
+	ps.RegisterCommandInModule("math", "ln", func(ctx *Context) Result {
+		if len(ctx.Args) < 1 {
+			ctx.LogError(CatCommand, "Usage: ln <value>")
+			return BoolStatus(false)
+		}
+		resolved := ctx.executor.resolveValue(ctx.Args[0])
+		n, ok := toNumber(resolved)
+		if !ok {
+			ctx.LogError(CatArgument, fmt.Sprintf("Invalid numeric argument: %v", ctx.Args[0]))
+			return BoolStatus(false)
+		}
+		if n <= 0 {
+			ctx.LogError(CatMath, "Natural logarithm requires positive argument")
+			return BoolStatus(false)
+		}
+		ctx.SetResult(math.Log(n))
+		return BoolStatus(true)
+	})
+
+	// Register mathematical constants as objects
+	ps.RegisterObjectInModule("math", "#tau", Tau)
+	ps.RegisterObjectInModule("math", "#e", E)
+	ps.RegisterObjectInModule("math", "#root2", Root2)
+	ps.RegisterObjectInModule("math", "#root3", Root3)
+	ps.RegisterObjectInModule("math", "#root5", Root5)
+	ps.RegisterObjectInModule("math", "#phi", Phi)
+	ps.RegisterObjectInModule("math", "#ln2", Ln2)
 }

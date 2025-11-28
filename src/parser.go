@@ -751,9 +751,13 @@ func parseArguments(argsStr string) ([]interface{}, map[string]interface{}) {
 				currentValue = QuotedString(s)
 				lastWasNumber = true
 			case unitSymbol, unitNil, unitBool:
-				// Concatenate with angle brackets
+				// Concatenate - use rawString for tilde expressions to preserve for resolution
 				s := valueToString(currentValue)
-				s += valueToString(newValue) // valueToString already adds <>
+				if isTildeExpr(newValue) {
+					s += rawString(newValue) // Keep tilde expressions resolvable
+				} else {
+					s += valueToString(newValue) // Wrap others in <>
+				}
 				currentValue = QuotedString(s)
 				lastWasNumber = false
 			case unitParen:

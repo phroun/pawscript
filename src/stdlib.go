@@ -188,7 +188,7 @@ func (ps *PawScript) RegisterStandardLibrary(scriptArgs []string) {
 func (ps *PawScript) RegisterStandardLibraryWithIO(scriptArgs []string, ioConfig *IOChannelConfig) {
 	// Register all library modules
 	ps.RegisterCoreLib()             // core::, macros::, flow::, debug::
-	ps.RegisterMathLib()             // math::, cmp::
+	ps.RegisterBasicMathLib()        // basicmath::, cmp::
 	ps.RegisterTypesLib()            // strlist::, str::
 	ps.RegisterSystemLib(scriptArgs) // os::, io::, sys::
 	ps.RegisterChannelsLib()         // channels::
@@ -197,6 +197,10 @@ func (ps *PawScript) RegisterStandardLibraryWithIO(scriptArgs []string, ioConfig
 
 	// Copy commands from LibraryInherited to CommandRegistryInherited for direct access
 	ps.rootModuleEnv.PopulateDefaultImports()
+
+	// Register auxiliary libraries AFTER PopulateDefaultImports
+	// These are available via IMPORT but not auto-imported
+	ps.RegisterMathLib() // math:: (trig functions, constants)
 
 	// Populate IO module with native stdin/stdout/stderr/stdio channels
 	// Uses custom channels from ioConfig if provided

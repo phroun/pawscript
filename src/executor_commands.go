@@ -624,6 +624,9 @@ func (e *Executor) executeSingleCommand(
 	// Process arguments to resolve any LIST markers and tilde expressions
 	args = e.processArguments(args, state, substitutionCtx, position)
 
+	// Process named argument values the same way
+	namedArgs = e.processNamedArguments(namedArgs, state, substitutionCtx, position)
+
 	e.logger.DebugCat(CatCommand,"Parsed as - Command: \"%s\", Args: %v", cmdName, args)
 
 	// Check for super commands first (MODULE, LIBRARY, IMPORT, REMOVE, EXPORT)
@@ -1180,6 +1183,37 @@ func (e *Executor) processArguments(args []interface{}, state *ExecutionState, s
 
 		// Not a marker or tilde, keep the original argument
 		result[i] = arg
+	}
+
+	return result
+}
+
+// processNamedArguments processes named argument keys and values to resolve tilde expressions and object markers
+// This ensures named args like "~dynKey: ~dynValue" get resolved the same way positional args do
+func (e *Executor) processNamedArguments(namedArgs map[string]interface{}, state *ExecutionState, substitutionCtx *SubstitutionContext, position *SourcePosition) map[string]interface{} {
+	if len(namedArgs) == 0 {
+		return namedArgs
+	}
+
+	result := make(map[string]interface{}, len(namedArgs))
+	for key, value := range namedArgs {
+		// Process the key if it starts with ~ (tilde expression)
+		finalKey := key
+		if strings.HasPrefix(key, "~") {
+			processedKey := e.processArguments([]interface{}{Symbol(key)}, state, substitutionCtx, position)
+			if len(processedKey) > 0 {
+				// Convert resolved key back to string
+				finalKey = fmt.Sprintf("%v", processedKey[0])
+			}
+		}
+
+		// Process the value as a single-element slice and extract the result
+		processed := e.processArguments([]interface{}{value}, state, substitutionCtx, position)
+		if len(processed) > 0 {
+			result[finalKey] = processed[0]
+		} else {
+			result[finalKey] = value
+		}
 	}
 
 	return result
