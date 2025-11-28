@@ -27,11 +27,12 @@ needs to be duplicated if a more restrictive Child Environment is being prepared
 Each `ModuleEnvironment` contains paired registries for three types of imported library items
 that follow the COW pattern:
 
-| Inherited (unchanged original) | Module (reference or COW working copy) | Purpose of working Copy |
-| `CommandRegistryInherited` | `CommandRegistryModule` |  |
-| `MacrosInherited` | `MacrosModule` | Managed by IMPORT and REMOVE super commands. |
-| `ObjectsInherited` | `ObjectsModule` | Managed by IMPORT and REMOVE super commands. |
-| `ItemMetadataInherited` | `ItemMetadataModule` | Managed by IMPORT and REMOVE super commands. |
+| Inherited (unchanged original) | Module (reference or COW working copy) |
+| --------------------------- | ---------------------- |
+| `CommandRegistryInherited` | `CommandRegistryModule` |
+| `MacrosInherited` | `MacrosModule` |
+| `ObjectsInherited` | `ObjectsModule` |
+| `ItemMetadataInherited` | `ItemMetadataModule` |
 
 For each of these, the Module version is managed by the IMPORT and REMOVE super commands.
 The items brought in from an IMPORT command are sourced from `LibraryRestricted`.
