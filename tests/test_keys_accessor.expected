@@ -10,7 +10,7 @@ List:
 Keys:
 ()
 
-=== Test 3: get_val command ===
+=== Test 3: accessor notation ===
 List:
 (age: 30, city: "NYC", name: "John", pos1, pos2)
 Get 'name':
@@ -20,8 +20,8 @@ Get 'age':
 Get 'city':
 NYC
 
-=== Test 4: get_val with quoted key ===
-Get 'name' with quoted key:
+=== Test 4: accessor in brace expression ===
+Get 'name' in braces:
 John
 
 === Test 5: keys sorted order ===

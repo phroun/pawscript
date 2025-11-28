@@ -180,7 +180,7 @@ See the `examples/` directory for sample scripts and usage patterns.
 - Commands/macros now support named arguments, separated by colon.
 - Lists can now function as a key:value store (map/dictionary/hash-table)
 - `keys` returns a list of keys from a list
-- `get_val` given a list and a key, extracts the corresponding value
+- Accessor notation `~list.key` extracts a named value from a list
 
 ### 0.2.3 -- November 22, 2025
 - New concise syntax for get ~x and set x:

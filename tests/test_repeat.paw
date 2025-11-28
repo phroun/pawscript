@@ -51,7 +51,7 @@ results: {repeat (
     {if {neq ~i, 1}} & ({if {neq ~i, 3}} & (true))
 ), 5, i}
 echo "results:", ~results
-failures: {get_val ~results, failures}
+failures: {ret ~results.failures}
 echo "failures:", ~failures
 echo ""
 

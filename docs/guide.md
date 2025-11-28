@@ -170,7 +170,7 @@ len ~nums => size                    # size = 3
 slice ~nums, 1, 2 => middle          # Items at indices 1-2
 append ~nums, 4 => extended          # New list with 4 added
 keys ~with_named => keylist          # Get named argument keys
-get_val ~with_named, key => val      # val = "value"
+val: {ret ~with_named.key}           # Accessor notation for named values
 sort ~nums, desc: true => descending # Sort descending
 ```
 
@@ -329,7 +329,7 @@ fiber_wait_all          # Wait for all fibers
 | `len list` | Get length of list or string |
 | `sort list, [cmp], [desc: true]` | Sort list items |
 | `keys list` | Get named argument keys from list |
-| `get_val list, key` | Get named argument value by key |
+| `~list.key` | Accessor notation for named values |
 
 ### Strings (`stdlib`)
 

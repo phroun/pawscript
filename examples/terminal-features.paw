@@ -11,9 +11,9 @@ print ""
 info: {color}
 fg: {argv ~info, 1}
 bg: {argv ~info, 2}
-termType: {get_val ~info, term}
-ansiSupport: {get_val ~info, ansi}
-colorSupport: {get_val ~info, color}
+termType: {ret ~info.term}
+ansiSupport: {ret ~info.ansi}
+colorSupport: {ret ~info.color}
 
 print "Terminal Information:"
 print "  Type: ~termType"
@@ -80,12 +80,12 @@ print ""
 # Demo: Cursor information
 print "=== Cursor Command ==="
 cursorInfo: {cursor}
-screenRows: {get_val ~cursorInfo, screen_rows}
-screenCols: {get_val ~cursorInfo, screen_cols}
-curX: {get_val ~cursorInfo, x}
-curY: {get_val ~cursorInfo, y}
-duplex: {get_val ~cursorInfo, duplex}
-visible: {get_val ~cursorInfo, visible}
+screenRows: {ret ~cursorInfo.screen_rows}
+screenCols: {ret ~cursorInfo.screen_cols}
+curX: {ret ~cursorInfo.x}
+curY: {ret ~cursorInfo.y}
+duplex: {ret ~cursorInfo.duplex}
+visible: {ret ~cursorInfo.visible}
 
 print "Screen size: ~screenCols x ~screenRows"
 print "Cursor position: (~curX, ~curY)"
@@ -158,8 +158,8 @@ print ""
 finalInfo: {color}
 finalFg: {argv ~finalInfo, 1}
 finalBg: {argv ~finalInfo, 2}
-finalBold: {get_val ~finalInfo, bold}
-finalBlink: {get_val ~finalInfo, blink}
+finalBold: {ret ~finalInfo.bold}
+finalBlink: {ret ~finalInfo.blink}
 print "Final color state: fg=~finalFg, bg=~finalBg, bold=~finalBold, blink=~finalBlink"
 print ""
 print "Demo complete!"

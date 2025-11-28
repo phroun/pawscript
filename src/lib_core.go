@@ -271,54 +271,6 @@ func (ps *PawScript) RegisterCoreLib() {
 		}
 	})
 
-	// get_val - returns the value for a key from a list's named arguments
-	ps.RegisterCommandInModule("core", "get_val", func(ctx *Context) Result {
-		if len(ctx.Args) < 2 {
-			ctx.LogError(CatCommand, "Usage: get_val <list>, <key>")
-			ctx.SetResult(nil)
-			return BoolStatus(false)
-		}
-
-		listValue := ctx.Args[0]
-		keyValue := ctx.Args[1]
-
-		var keyStr string
-		switch k := keyValue.(type) {
-		case string:
-			keyStr = k
-		case Symbol:
-			keyStr = string(k)
-		case QuotedString:
-			keyStr = string(k)
-		default:
-			keyStr = fmt.Sprint(k)
-		}
-
-		switch v := listValue.(type) {
-		case StoredList:
-			namedArgs := v.NamedArgs()
-			if namedArgs == nil {
-				ctx.LogError(CatCommand, "List has no named arguments")
-				ctx.SetResult(nil)
-				return BoolStatus(false)
-			}
-
-			value, exists := namedArgs[keyStr]
-			if !exists {
-				ctx.LogError(CatCommand, fmt.Sprintf("Key '%s' not found in list", keyStr))
-				ctx.SetResult(nil)
-				return BoolStatus(false)
-			}
-
-			ctx.SetResult(value)
-			return BoolStatus(true)
-		default:
-			ctx.LogError(CatType, fmt.Sprintf("Cannot get value from type %s", getTypeName(v)))
-			ctx.SetResult(nil)
-			return BoolStatus(false)
-		}
-	})
-
 	// ==================== macros:: module ====================
 
 	// macro - define a macro
