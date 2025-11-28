@@ -343,6 +343,58 @@ func (ps *PawScript) RegisterCoreLib() {
 		return BoolStatus(true)
 	})
 
+	// bubble_orphans - retrieve orphaned bubbles from abandoned fibers
+	// Merges orphaned bubbles into the current context's bubbleMap and clears the orphaned map
+	ps.RegisterCommandInModule("core", "bubble_orphans", func(ctx *Context) Result {
+		orphaned := ctx.executor.GetOrphanedBubbles()
+		if len(orphaned) == 0 {
+			return BoolStatus(true)
+		}
+
+		// Merge orphaned bubbles into current context's bubbleMap
+		ctx.state.mu.Lock()
+		if ctx.state.bubbleMap == nil {
+			ctx.state.bubbleMap = make(map[string][]*BubbleEntry)
+		}
+		for flavor, entries := range orphaned {
+			ctx.state.bubbleMap[flavor] = append(ctx.state.bubbleMap[flavor], entries...)
+		}
+		ctx.state.mu.Unlock()
+
+		// Clear the orphaned bubbles now that they've been transferred
+		ctx.executor.ClearOrphanedBubbles()
+
+		return BoolStatus(true)
+	})
+
+	// bubble_orphans_dump - debug command to dump orphaned bubbles without retrieving them
+	ps.RegisterCommandInModule("debug", "bubble_orphans_dump", func(ctx *Context) Result {
+		orphaned := ctx.executor.GetOrphanedBubbles()
+		if len(orphaned) == 0 {
+			fmt.Fprintln(os.Stderr, "[bubble_orphans_dump] No orphaned bubbles")
+			return BoolStatus(true)
+		}
+
+		fmt.Fprintln(os.Stderr, "[bubble_orphans_dump] Orphaned bubble map contents:")
+		for flavor, entries := range orphaned {
+			fmt.Fprintf(os.Stderr, "  Flavor: %s (%d entries)\n", flavor, len(entries))
+			for i, entry := range entries {
+				fmt.Fprintf(os.Stderr, "    [%d] content=%v, microtime=%d, memo=%q\n",
+					i, entry.Content, entry.Microtime, entry.Memo)
+				if len(entry.StackTrace) > 0 {
+					fmt.Fprintf(os.Stderr, "        stack trace (%d frames):\n", len(entry.StackTrace))
+					for j, frame := range entry.StackTrace {
+						if frameMap, ok := frame.(map[string]interface{}); ok {
+							fmt.Fprintf(os.Stderr, "          [%d] %v at %v:%v\n",
+								j, frameMap["macro"], frameMap["file"], frameMap["line"])
+						}
+					}
+				}
+			}
+		}
+		return BoolStatus(true)
+	})
+
 	// ==================== macros:: module ====================
 
 	// macro - define a macro

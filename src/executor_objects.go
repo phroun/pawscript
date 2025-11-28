@@ -102,46 +102,31 @@ func (e *Executor) decrementObjectRefCount(objectID int) {
 				e.mu.Lock() // Re-lock for deletion
 			}
 
-			// Release FinalBubbleMap and BubbleUpMap references if it's a fiber handle
+			// Transfer FinalBubbleMap and BubbleUpMap to orphanedBubbles if it's a fiber handle
+			// This preserves bubbles from abandoned fibers for later retrieval
 			if fiberHandle, ok := obj.Value.(*FiberHandle); ok {
 				fiberHandle.mu.Lock()
-				needsUnlock := false
-				if len(fiberHandle.FinalBubbleMap) > 0 {
-					if !needsUnlock {
-						e.mu.Unlock() // Unlock before recursive calls
-						needsUnlock = true
+				hasBubbles := len(fiberHandle.FinalBubbleMap) > 0 || len(fiberHandle.BubbleUpMap) > 0
+				if hasBubbles {
+					// Merge both maps into a combined map for orphaning
+					combined := make(map[string][]*BubbleEntry)
+					for flavor, entries := range fiberHandle.FinalBubbleMap {
+						combined[flavor] = append(combined[flavor], entries...)
 					}
-					for _, entries := range fiberHandle.FinalBubbleMap {
-						for _, entry := range entries {
-							if sym, ok := entry.Content.(Symbol); ok {
-								_, contentID := parseObjectMarker(string(sym))
-								if contentID >= 0 {
-									e.decrementObjectRefCount(contentID)
-								}
-							}
-						}
+					for flavor, entries := range fiberHandle.BubbleUpMap {
+						combined[flavor] = append(combined[flavor], entries...)
 					}
+					// Clear the maps so we don't double-process
+					fiberHandle.FinalBubbleMap = nil
+					fiberHandle.BubbleUpMap = nil
+					fiberHandle.mu.Unlock()
+					// Add to orphaned bubbles (transfers ownership of references)
+					e.mu.Unlock()
+					e.AddOrphanedBubbles(combined)
+					e.mu.Lock()
+				} else {
+					fiberHandle.mu.Unlock()
 				}
-				if len(fiberHandle.BubbleUpMap) > 0 {
-					if !needsUnlock {
-						e.mu.Unlock() // Unlock before recursive calls
-						needsUnlock = true
-					}
-					for _, entries := range fiberHandle.BubbleUpMap {
-						for _, entry := range entries {
-							if sym, ok := entry.Content.(Symbol); ok {
-								_, contentID := parseObjectMarker(string(sym))
-								if contentID >= 0 {
-									e.decrementObjectRefCount(contentID)
-								}
-							}
-						}
-					}
-				}
-				if needsUnlock {
-					e.mu.Lock() // Re-lock for deletion
-				}
-				fiberHandle.mu.Unlock()
 			}
 
 			delete(e.storedObjects, objectID)

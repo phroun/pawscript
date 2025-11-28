@@ -125,6 +125,17 @@ func (e *Executor) SpawnFiber(macro *StoredMacro, args []interface{}, namedArgs 
 			}
 			handle.State.mu.Unlock()
 
+			// Check if the fiber handle is still being tracked (storedObjects)
+			// If not, it was abandoned and we should orphan the bubbles directly
+			if len(handle.FinalBubbleMap) > 0 {
+				storedID := e.findStoredFiberID(handle)
+				if storedID < 0 {
+					// Handle was abandoned - orphan the bubbles directly
+					e.AddOrphanedBubbles(handle.FinalBubbleMap)
+					handle.FinalBubbleMap = nil
+				}
+			}
+
 			handle.mu.Unlock()
 			close(handle.CompleteChan)
 			e.unregisterFiber(fiberID)

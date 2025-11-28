@@ -15,30 +15,67 @@ type StoredObject struct {
 
 // Executor handles command execution
 type Executor struct {
-	mu              sync.RWMutex
-	commands        map[string]Handler
-	activeTokens    map[string]*TokenData
-	storedObjects   map[int]*StoredObject // Global reference-counted object store
-	activeFibers    map[int]*FiberHandle  // Currently running fibers
-	nextTokenID     int
-	nextObjectID    int
-	nextFiberID     int
-	logger          *Logger
-	fallbackHandler func(cmdName string, args []interface{}, namedArgs map[string]interface{}, state *ExecutionState, position *SourcePosition) Result
+	mu               sync.RWMutex
+	commands         map[string]Handler
+	activeTokens     map[string]*TokenData
+	storedObjects    map[int]*StoredObject // Global reference-counted object store
+	activeFibers     map[int]*FiberHandle  // Currently running fibers
+	orphanedBubbles  map[string][]*BubbleEntry // Bubbles from abandoned fibers
+	nextTokenID      int
+	nextObjectID     int
+	nextFiberID      int
+	logger           *Logger
+	fallbackHandler  func(cmdName string, args []interface{}, namedArgs map[string]interface{}, state *ExecutionState, position *SourcePosition) Result
 }
 
 // NewExecutor creates a new command executor
 func NewExecutor(logger *Logger) *Executor {
 	return &Executor{
-		commands:      make(map[string]Handler),
-		activeTokens:  make(map[string]*TokenData),
-		storedObjects: make(map[int]*StoredObject),
-		activeFibers:  make(map[int]*FiberHandle),
-		nextTokenID:   1,
-		nextObjectID:  1,
-		nextFiberID:   1, // 0 is reserved for main fiber
-		logger:        logger,
+		commands:        make(map[string]Handler),
+		activeTokens:    make(map[string]*TokenData),
+		storedObjects:   make(map[int]*StoredObject),
+		activeFibers:    make(map[int]*FiberHandle),
+		orphanedBubbles: make(map[string][]*BubbleEntry),
+		nextTokenID:     1,
+		nextObjectID:    1,
+		nextFiberID:     1, // 0 is reserved for main fiber
+		logger:          logger,
 	}
+}
+
+// AddOrphanedBubbles merges bubbles from an abandoned fiber into orphanedBubbles
+// The references are transferred (not released) - caller must NOT release them after this call
+func (e *Executor) AddOrphanedBubbles(bubbleMap map[string][]*BubbleEntry) {
+	if len(bubbleMap) == 0 {
+		return
+	}
+	e.mu.Lock()
+	defer e.mu.Unlock()
+	for flavor, entries := range bubbleMap {
+		e.orphanedBubbles[flavor] = append(e.orphanedBubbles[flavor], entries...)
+	}
+	e.logger.DebugCat(CatMemory, "Added orphaned bubbles from abandoned fiber")
+}
+
+// GetOrphanedBubbles returns the current orphaned bubbles map
+// Does NOT clear the map - caller should call ClearOrphanedBubbles after processing
+func (e *Executor) GetOrphanedBubbles() map[string][]*BubbleEntry {
+	e.mu.RLock()
+	defer e.mu.RUnlock()
+	// Return a copy to avoid race conditions
+	result := make(map[string][]*BubbleEntry)
+	for flavor, entries := range e.orphanedBubbles {
+		result[flavor] = entries
+	}
+	return result
+}
+
+// ClearOrphanedBubbles clears the orphaned bubbles map
+// Should be called after retrieving and processing orphaned bubbles
+func (e *Executor) ClearOrphanedBubbles() {
+	e.mu.Lock()
+	defer e.mu.Unlock()
+	e.orphanedBubbles = make(map[string][]*BubbleEntry)
 }
 
 // RegisterCommand registers a command handler
