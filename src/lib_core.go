@@ -2,6 +2,7 @@ package pawscript
 
 import (
 	"fmt"
+	"os"
 	"sort"
 	"strings"
 )
@@ -229,44 +230,6 @@ func (ps *PawScript) RegisterCoreLib() {
 		default:
 			ctx.LogError(CatType, fmt.Sprintf("Cannot get length of type %s\n", getTypeName(v)))
 			ctx.SetResult(0)
-			return BoolStatus(false)
-		}
-	})
-
-	// keys - returns a list of all keys from a list's named arguments
-	ps.RegisterCommandInModule("strlist", "keys", func(ctx *Context) Result {
-		if len(ctx.Args) < 1 {
-			ctx.LogError(CatCommand, "Usage: keys <list>")
-			ctx.SetResult(nil)
-			return BoolStatus(false)
-		}
-
-		value := ctx.Args[0]
-
-		switch v := value.(type) {
-		case StoredList:
-			namedArgs := v.NamedArgs()
-			if len(namedArgs) == 0 {
-				setListResult(ctx, NewStoredList([]interface{}{}))
-				return BoolStatus(true)
-			}
-
-			keys := make([]string, 0, len(namedArgs))
-			for key := range namedArgs {
-				keys = append(keys, key)
-			}
-			sort.Strings(keys)
-
-			items := make([]interface{}, len(keys))
-			for i, key := range keys {
-				items[i] = key
-			}
-
-			setListResult(ctx, NewStoredList(items))
-			return BoolStatus(true)
-		default:
-			ctx.LogError(CatType, fmt.Sprintf("Cannot get keys from type %s", getTypeName(v)))
-			ctx.SetResult(nil)
 			return BoolStatus(false)
 		}
 	})
@@ -822,266 +785,118 @@ func (ps *PawScript) RegisterCoreLib() {
 		return BoolStatus(true)
 	})
 
-	// ==================== debug:: module ====================
-
-	// mem_stats - debug command to show stored objects
-	ps.RegisterCommandInModule("debug", "mem_stats", func(ctx *Context) Result {
-		type objectInfo struct {
-			ID       int
-			Type     string
-			RefCount int
-			Size     int
+	// include - include another source file
+	ps.RegisterCommandInModule("core", "include", func(ctx *Context) Result {
+		if len(ctx.Args) == 0 {
+			ctx.LogError(CatIO, "Usage: include \"filename\" or include (imports...), \"filename\"")
+			return BoolStatus(false)
 		}
 
-		var objects []objectInfo
-		totalSize := 0
+		var filename string
+		var importSpec []interface{}
+		var importNamedSpec map[string]interface{}
+		isAdvancedForm := false
 
-		ctx.executor.mu.RLock()
-		for id, obj := range ctx.executor.storedObjects {
-			size := estimateObjectSize(obj.Value)
-			objects = append(objects, objectInfo{
-				ID:       id,
-				Type:     obj.Type,
-				RefCount: obj.RefCount,
-				Size:     size,
-			})
-			totalSize += size
+		firstArg := ctx.Args[0]
+		if ctx.executor != nil {
+			firstArg = ctx.executor.resolveValue(firstArg)
 		}
-		ctx.executor.mu.RUnlock()
 
-		// Sort by ID
-		for i := 0; i < len(objects)-1; i++ {
-			for j := i + 1; j < len(objects); j++ {
-				if objects[i].ID > objects[j].ID {
-					objects[i], objects[j] = objects[j], objects[i]
-				}
+		switch v := firstArg.(type) {
+		case ParenGroup:
+			isAdvancedForm = true
+			importSpec, importNamedSpec = parseArguments(string(v))
+			if len(ctx.Args) < 2 {
+				ctx.LogError(CatIO, "include: filename required after import specification")
+				return BoolStatus(false)
 			}
-		}
-
-		// Route output through channels
-		outCtx := NewOutputContext(ctx.state, ctx.executor)
-		var output strings.Builder
-		output.WriteString("=== Memory Statistics ===\n")
-		output.WriteString(fmt.Sprintf("Total stored objects: %d\n", len(objects)))
-		output.WriteString(fmt.Sprintf("Total estimated size: %d bytes\n\n", totalSize))
-
-		if len(objects) > 0 {
-			output.WriteString("ID    Type      RefCount  Size(bytes)\n")
-			output.WriteString("----  --------  --------  -----------\n")
-			for _, obj := range objects {
-				output.WriteString(fmt.Sprintf("%-4d  %-8s  %-8d  %d\n", obj.ID, obj.Type, obj.RefCount, obj.Size))
+			filename = fmt.Sprintf("%v", ctx.Args[1])
+		case StoredList:
+			isAdvancedForm = true
+			importSpec = v.Items()
+			importNamedSpec = make(map[string]interface{})
+			if len(ctx.Args) < 2 {
+				ctx.LogError(CatIO, "include: filename required after import specification")
+				return BoolStatus(false)
 			}
-		}
-		_ = outCtx.WriteToOut(output.String())
-
-		return BoolStatus(true)
-	})
-
-	// env_dump - debug command to show module environment details
-	ps.RegisterCommandInModule("debug", "env_dump", func(ctx *Context) Result {
-		outCtx := NewOutputContext(ctx.state, ctx.executor)
-		var output strings.Builder
-
-		env := ctx.state.moduleEnv
-		env.mu.RLock()
-		defer env.mu.RUnlock()
-
-		output.WriteString("=== Module Environment ===\n")
-
-		// Default module name
-		if env.DefaultName != "" {
-			output.WriteString(fmt.Sprintf("Default Module: %s\n", env.DefaultName))
+			filename = fmt.Sprintf("%v", ctx.Args[1])
+		default:
+			filename = fmt.Sprintf("%v", ctx.Args[0])
 		}
 
-		// LibraryRestricted (available modules)
-		output.WriteString(fmt.Sprintf("\n--- Library Restricted (%d) ---\n", len(env.LibraryRestricted)))
-		writeLibrarySectionWrapped(&output, env.LibraryRestricted)
+		// Remove quotes if present
+		if strings.HasPrefix(filename, "\"") && strings.HasSuffix(filename, "\"") {
+			filename = filename[1 : len(filename)-1]
+		} else if strings.HasPrefix(filename, "'") && strings.HasSuffix(filename, "'") {
+			filename = filename[1 : len(filename)-1]
+		}
 
-		// Item metadata (shows import info) - grouped by source module
-		output.WriteString(fmt.Sprintf("\n--- Imported (%d) ---\n", len(env.ItemMetadataModule)))
-		if len(env.ItemMetadataModule) == 0 {
-			output.WriteString("  (none)\n")
-		} else {
-			// Group items by their source module
-			byModule := make(map[string][]string)
-			for name, meta := range env.ItemMetadataModule {
-				// Format: name(original) if renamed, else just name
-				displayName := name
-				if meta.OriginalName != name {
-					displayName = fmt.Sprintf("%s(%s)", name, meta.OriginalName)
-				}
-				byModule[meta.ImportedFromModule] = append(byModule[meta.ImportedFromModule], displayName)
+		content, err := os.ReadFile(filename)
+		if err != nil {
+			ctx.LogError(CatIO, fmt.Sprintf("include: failed to read file %s: %v", filename, err))
+			return BoolStatus(false)
+		}
+
+		if isAdvancedForm {
+			restrictedEnv := NewMacroModuleEnvironment(ctx.state.moduleEnv)
+
+			execState := NewExecutionState()
+			execState.moduleEnv = restrictedEnv
+			execState.executor = ctx.executor
+			defer execState.ReleaseAllReferences()
+
+			result := ctx.executor.ExecuteWithState(string(content), execState, nil, filename, 0, 0)
+
+			if boolStatus, ok := result.(BoolStatus); ok && !bool(boolStatus) {
+				return BoolStatus(false)
 			}
 
-			// Get sorted module names
-			modNames := make([]string, 0, len(byModule))
-			for modName := range byModule {
-				modNames = append(modNames, modName)
-			}
-			sort.Strings(modNames)
+			ctx.state.moduleEnv.mu.Lock()
+			defer ctx.state.moduleEnv.mu.Unlock()
 
-			// Output in same format as Library Restricted
-			for _, modName := range modNames {
-				items := byModule[modName]
-				sort.Strings(items)
+			ctx.state.moduleEnv.CopyLibraryRestricted()
 
-				// Write "  modname:: " prefix
-				prefix := fmt.Sprintf("  %s:: ", modName)
-				output.WriteString(prefix)
-
-				// Continuation indent is 4 spaces
-				contIndent := "    "
-				lineLen := len(prefix)
-
-				for i, name := range items {
-					if i > 0 {
-						output.WriteString(", ")
-						lineLen += 2
+			for _, arg := range importSpec {
+				moduleName := fmt.Sprintf("%v", arg)
+				if section, exists := restrictedEnv.ModuleExports[moduleName]; exists {
+					if ctx.state.moduleEnv.LibraryRestricted[moduleName] == nil {
+						ctx.state.moduleEnv.LibraryRestricted[moduleName] = make(ModuleSection)
 					}
-					if lineLen+len(name) > 78 && i > 0 {
-						output.WriteString("\n")
-						output.WriteString(contIndent)
-						lineLen = len(contIndent)
+					if ctx.state.moduleEnv.LibraryInherited[moduleName] == nil {
+						ctx.state.moduleEnv.LibraryInherited[moduleName] = make(ModuleSection)
 					}
-					output.WriteString(name)
-					lineLen += len(name)
+					for itemName, item := range section {
+						ctx.state.moduleEnv.LibraryRestricted[moduleName][itemName] = item
+						ctx.state.moduleEnv.LibraryInherited[moduleName][itemName] = item
+					}
 				}
-				output.WriteString("\n")
 			}
-		}
 
-		// CommandRegistryModule - count only non-nil (non-REMOVEd) commands
-		cmdNames := make([]string, 0, len(env.CommandRegistryModule))
-		for name, handler := range env.CommandRegistryModule {
-			if handler != nil { // Skip REMOVEd commands
-				cmdNames = append(cmdNames, name)
+			for targetName, sourceArg := range importNamedSpec {
+				sourceName := fmt.Sprintf("%v", sourceArg)
+				if section, exists := restrictedEnv.ModuleExports[sourceName]; exists {
+					if ctx.state.moduleEnv.LibraryRestricted[targetName] == nil {
+						ctx.state.moduleEnv.LibraryRestricted[targetName] = make(ModuleSection)
+					}
+					if ctx.state.moduleEnv.LibraryInherited[targetName] == nil {
+						ctx.state.moduleEnv.LibraryInherited[targetName] = make(ModuleSection)
+					}
+					for itemName, item := range section {
+						ctx.state.moduleEnv.LibraryRestricted[targetName][itemName] = item
+						ctx.state.moduleEnv.LibraryInherited[targetName][itemName] = item
+					}
+				}
 			}
-		}
-		sort.Strings(cmdNames)
-		output.WriteString(fmt.Sprintf("\n--- Commands (%d) ---\n", len(cmdNames)))
-		writeWrappedList(&output, cmdNames, 2)
 
-		// MacrosModule - count only non-nil (non-REMOVEd) macros
-		macroNames := make([]string, 0, len(env.MacrosModule))
-		for name, macro := range env.MacrosModule {
-			if macro != nil { // Skip REMOVEd macros
-				macroNames = append(macroNames, name)
-			}
-		}
-		sort.Strings(macroNames)
-		output.WriteString(fmt.Sprintf("\n--- Macros (%d) ---\n", len(macroNames)))
-		writeWrappedList(&output, macroNames, 2)
-
-		// ObjectsModule
-		output.WriteString(fmt.Sprintf("\n--- Objects (%d) ---\n", len(env.ObjectsModule)))
-		if len(env.ObjectsModule) == 0 {
-			output.WriteString("  (none)\n")
+			return BoolStatus(true)
 		} else {
-			objNames := make([]string, 0, len(env.ObjectsModule))
-			for name := range env.ObjectsModule {
-				objNames = append(objNames, name)
+			result := ctx.executor.ExecuteWithState(string(content), ctx.state, nil, filename, 0, 0)
+
+			if boolStatus, ok := result.(BoolStatus); ok && !bool(boolStatus) {
+				return BoolStatus(false)
 			}
-			sort.Strings(objNames)
-			writeWrappedList(&output, objNames, 2)
+
+			return BoolStatus(true)
 		}
-
-		// Module exports
-		output.WriteString(fmt.Sprintf("\n--- Exports (%d) ---\n", len(env.ModuleExports)))
-		writeLibrarySectionWrapped(&output, env.ModuleExports)
-
-		_ = outCtx.WriteToErr(output.String())
-		return BoolStatus(true)
 	})
-
-	// lib_dump - debug command to show LibraryInherited (the full inherited library)
-	ps.RegisterCommandInModule("debug", "lib_dump", func(ctx *Context) Result {
-		outCtx := NewOutputContext(ctx.state, ctx.executor)
-		var output strings.Builder
-
-		env := ctx.state.moduleEnv
-		env.mu.RLock()
-		defer env.mu.RUnlock()
-
-		output.WriteString("=== Library Inherited ===\n")
-		output.WriteString(fmt.Sprintf("\n--- Modules (%d) ---\n", len(env.LibraryInherited)))
-		writeLibrarySectionWrapped(&output, env.LibraryInherited)
-
-		_ = outCtx.WriteToErr(output.String())
-		return BoolStatus(true)
-	})
-}
-
-// writeWrappedList writes a comma-separated list with word wrapping
-func writeWrappedList(output *strings.Builder, items []string, indent int) {
-	if len(items) == 0 {
-		output.WriteString(strings.Repeat(" ", indent))
-		output.WriteString("(none)\n")
-		return
-	}
-	indentStr := strings.Repeat(" ", indent)
-	output.WriteString(indentStr)
-	lineLen := indent
-	for i, name := range items {
-		if i > 0 {
-			output.WriteString(", ")
-			lineLen += 2
-		}
-		if lineLen+len(name) > 78 && i > 0 {
-			output.WriteString("\n")
-			output.WriteString(indentStr)
-			lineLen = indent
-		}
-		output.WriteString(name)
-		lineLen += len(name)
-	}
-	output.WriteString("\n")
-}
-
-// writeLibrarySectionWrapped writes a Library (map of modules) with word wrapping
-// Format: "  modname:: item1, item2, ..."
-// Continuation lines are indented 2 spaces more than the initial "  "
-func writeLibrarySectionWrapped(output *strings.Builder, lib Library) {
-	if len(lib) == 0 {
-		output.WriteString("  (none)\n")
-		return
-	}
-
-	// Get sorted module names
-	modNames := make([]string, 0, len(lib))
-	for name := range lib {
-		modNames = append(modNames, name)
-	}
-	sort.Strings(modNames)
-
-	for _, modName := range modNames {
-		section := lib[modName]
-		itemNames := make([]string, 0, len(section))
-		for itemName := range section {
-			itemNames = append(itemNames, itemName)
-		}
-		sort.Strings(itemNames)
-
-		// Write "  modname:: " prefix
-		prefix := fmt.Sprintf("  %s:: ", modName)
-		output.WriteString(prefix)
-
-		// Continuation indent is 4 spaces (2 more than the leading "  ")
-		contIndent := "    "
-		lineLen := len(prefix)
-
-		for i, name := range itemNames {
-			if i > 0 {
-				output.WriteString(", ")
-				lineLen += 2
-			}
-			if lineLen+len(name) > 78 && i > 0 {
-				output.WriteString("\n")
-				output.WriteString(contIndent)
-				lineLen = len(contIndent)
-			}
-			output.WriteString(name)
-			lineLen += len(name)
-		}
-		output.WriteString("\n")
-	}
 }
