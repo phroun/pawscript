@@ -76,28 +76,38 @@ See the `examples/` directory for sample scripts and usage patterns.
 ## Changelog
 
 ### 0.2.8 -- November 28, 2025
-- Polymorphic commands: `append`, `prepend`, `contains`, `index` now work on both strings and lists
-- `trim`, `trim_left`, `trim_right` accept optional character sets and work on lists with deep comparison
-- `replace` command is polymorphic with `count:` parameter for controlling replacements
+- Polymorphic commands: `append`, `prepend`, `contains`, `index` now work on
+  both strings and lists
+- `trim`, `trim_left`, `trim_right` accept optional character sets and work
+  on lists with deep comparison
+- `replace` command is polymorphic with `count:` parameter for controlling
+  replacements
 - `starts_with`, `ends_with`, `split`, `join` are now polymorphic for lists
 - Deep equality comparison for list operations (`contains`, `index`, `eq`)
-- Comparison operators (`gt`, `lt`, `eq`, `gte`, `lte`) support multiple arguments and proper string comparison
-- `repeat` command (renamed from `str_repeat`) is polymorphic: repeats strings, lists, or repeatedly executes a block accumulating results
-- Type conversion commands: `string`, `number`, `block` for explicit type coercion
+- Comparison operators (`gt`, `lt`, `eq`, `gte`, `lte`) support multiple
+  arguments and proper string comparison
+- `repeat` command (renamed from `str_repeat`) is polymorphic: repeats strings,
+  lists, or repeatedly executes a block accumulating results
+- Type conversion commands: `string`, `number`, `block` for explicit type
+  coercion
 - Renamed `fiber_spawn` to `fiber` for brevity
 - Renamed `get_type` to `type` and `get_inferred_type` to `infer`
 - Renamed `str_upper`/`str_lower` to `upper`/`lower`
 - Removed `get_val` command, replaced by accessor notation `~list.key`
 - `len` now returns int64 for consistency
-- Direct block execution in command position: `{~block}` or `{~block}, args` syntax
+- Direct block execution in command position: `{~block}` or
+  `{~block} args` syntax
 - `?` operator for existence checking (undefined/defined testing)
 - `stack_trace` command for runtime call stack introspection
 - Tilde in command position (`~x`) is now implicit `set_result ~x`
-- Bubble system for out-of-band value accumulation (`bubble_up`, `bubble_pop`, `bubble_dump`)
+- Bubble system for out-of-band value accumulation (`bubble_up`, `bubble_pop`,
+  `bubble_dump`)
 - `fiber_bubble` command for early bubble transfer from running fibers
-- Orphaned bubble system: abandoned fiber bubbles automatically transfer to parent
+- Orphaned bubble system: abandoned fiber bubbles automatically transfer to
+  parent
 - Auto-dump remaining bubbles when script execution ends
-- Host application I/O stream configuration via `config.Stdin`, `config.Stdout`, `config.Stderr`
+- Host application I/O stream configuration via `config.Stdin`,
+  `config.Stdout`, `config.Stderr`
 - Moved `if` command to core module
 - `string` command returns block content when given a block
 - Added documentation for COW (copy-on-write) inheritance system
