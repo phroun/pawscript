@@ -1205,6 +1205,15 @@ func parseNextUnit(runes []rune, i int) (interface{}, argUnitType, int) {
 		if isTildeExpr && c == '.' {
 			break
 		}
+		// Dot is only part of a number if preceded by digit AND followed by digit
+		if c == '.' {
+			prevIsDigit := i > start && runes[i-1] >= '0' && runes[i-1] <= '9'
+			nextIsDigit := i+1 < len(runes) && runes[i+1] >= '0' && runes[i+1] <= '9'
+			if !(prevIsDigit && nextIsDigit) {
+				// Not a valid float decimal point, stop here
+				break
+			}
+		}
 		i++
 	}
 

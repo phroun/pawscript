@@ -22,6 +22,10 @@ data.items 1 = banana
 data.items 2 = cherry
 data.count = 3
 
+=== Testing index then dot accessor ===
+students 0.firstName = Alice
+students 1.lastName = Jones
+
 === Testing undefined access ===
 x.nonexistent = undefined
 y 99 = undefined

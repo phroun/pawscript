@@ -35,6 +35,12 @@ echo "data.items 2 =", ~data.items 2
 echo "data.count =", ~data.count
 
 echo ""
+echo "=== Testing index then dot accessor ==="
+students: {list {list firstName: "Alice", lastName: "Smith"}, {list firstName: "Bob", lastName: "Jones"}}
+echo "students 0.firstName =", ~students 0.firstName
+echo "students 1.lastName =", ~students 1.lastName
+
+echo ""
 echo "=== Testing undefined access ==="
 echo "x.nonexistent =", ~x.nonexistent
 echo "y 99 =", ~y 99
