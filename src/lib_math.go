@@ -357,12 +357,12 @@ func (ps *PawScript) RegisterMathLib() {
 
 	// Helper to check if a value is a list type (for ordering comparison errors)
 	isListType := func(v interface{}) bool {
-		switch v.(type) {
+		switch v := v.(type) {
 		case StoredList:
 			return true
 		case Symbol:
 			// Check if it's a list marker
-			if markerType, _ := parseObjectMarker(string(v.(Symbol))); markerType == "list" {
+			if markerType, _ := parseObjectMarker(string(v)); markerType == "list" {
 				return true
 			}
 		}
