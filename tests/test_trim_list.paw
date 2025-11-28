@@ -1,0 +1,125 @@
+# Test trim commands with lists (polymorphic)
+
+echo "=== Testing trim on lists ==="
+echo ""
+
+# Default: trim nil/undefined from both ends
+echo "Default (trim nil/undefined):"
+mylist: {list nil, undefined, 1, 2, 3, nil, undefined}
+result: {trim ~mylist}
+echo "  trim (nil, undefined, 1, 2, 3, nil, undefined) =", ~result
+# Expected: (1, 2, 3)
+
+# Override: trim specific value
+echo ""
+echo "Override (trim specific value):"
+mylist: {list 0, 0, 1, 2, 3, 0, 0}
+result: {trim ~mylist, 0}
+echo "  trim (0, 0, 1, 2, 3, 0, 0), 0 =", ~result
+# Expected: (1, 2, 3)
+
+# Extend: trim nil/undefined plus additional value
+echo ""
+echo "Extend (trim nil/undefined + extra):"
+mylist: {list nil, 0, 1, 2, 3, 0, nil}
+result: {trim ~mylist,, 0}
+echo "  trim (nil, 0, 1, 2, 3, 0, nil),, 0 =", ~result
+# Expected: (1, 2, 3)
+
+# Multiple trim values in extend mode
+echo ""
+echo "Multiple extend values:"
+mylist: {list nil, 0, x, 1, 2, 3, x, 0, nil}
+result: {trim ~mylist,, 0, x}
+echo "  trim (nil, 0, x, 1, 2, 3, x, 0, nil),, 0, x =", ~result
+# Expected: (1, 2, 3)
+
+echo ""
+echo "=== Testing trim_start on lists ==="
+
+# Default: trim nil/undefined from start
+echo ""
+echo "Default (trim nil/undefined from start):"
+mylist: {list nil, undefined, 1, 2, 3}
+result: {trim_start ~mylist}
+echo "  trim_start (nil, undefined, 1, 2, 3) =", ~result
+# Expected: (1, 2, 3)
+
+# Override: trim specific value from start
+echo ""
+echo "Override (trim specific value from start):"
+mylist: {list 0, 0, 1, 2, 3}
+result: {trim_start ~mylist, 0}
+echo "  trim_start (0, 0, 1, 2, 3), 0 =", ~result
+# Expected: (1, 2, 3)
+
+echo ""
+echo "=== Testing trim_end on lists ==="
+
+# Default: trim nil/undefined from end
+echo ""
+echo "Default (trim nil/undefined from end):"
+mylist: {list 1, 2, 3, nil, undefined}
+result: {trim_end ~mylist}
+echo "  trim_end (1, 2, 3, nil, undefined) =", ~result
+# Expected: (1, 2, 3)
+
+# Override: trim specific value from end
+echo ""
+echo "Override (trim specific value from end):"
+mylist: {list 1, 2, 3, 0, 0}
+result: {trim_end ~mylist, 0}
+echo "  trim_end (1, 2, 3, 0, 0), 0 =", ~result
+# Expected: (1, 2, 3)
+
+echo ""
+echo "=== Testing deep comparison ==="
+
+# Test with nested lists
+echo ""
+echo "Deep comparison with nested lists:"
+innerlist: {list 1, 2}
+mylist: {list ~innerlist, a, b, c, ~innerlist}
+result: {trim ~mylist, ~innerlist}
+echo "  trim ((1,2), a, b, c, (1,2)), (1,2) =", ~result
+# Expected: (a, b, c)
+
+# Test trimming by value (not by reference)
+echo ""
+echo "Trim by value (different list objects with same content):"
+list1: {list 1, 2}
+list2: {list 1, 2}
+mylist: {list ~list1, a, b, c, ~list2}
+result: {trim ~mylist, {list 1, 2}}
+echo "  trim ((1,2), a, b, c, (1,2)), (1,2) =", ~result
+# Expected: (a, b, c)
+
+echo ""
+echo "=== Edge cases ==="
+
+# Empty list result
+echo ""
+echo "All items trimmed:"
+mylist: {list nil, nil, nil}
+result: {trim ~mylist}
+echo "  trim (nil, nil, nil) =", ~result
+# Expected: ()
+
+# Nothing to trim
+echo ""
+echo "No items to trim:"
+mylist: {list 1, 2, 3}
+result: {trim ~mylist}
+echo "  trim (1, 2, 3) =", ~result
+# Expected: (1, 2, 3)
+
+# Mixed types
+echo ""
+echo "Mixed types:"
+mylist: {list nil, hello, 42, true, nil}
+result: {trim ~mylist}
+echo "  trim (nil, hello, 42, true, nil) =", ~result
+# Expected: (hello, 42, true)
+
+echo ""
+echo "=== All list trim tests complete ==="

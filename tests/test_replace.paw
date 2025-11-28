@@ -1,0 +1,168 @@
+# Test replace command (polymorphic for strings and lists)
+
+echo "=== Testing replace on strings ==="
+echo ""
+
+# Default: replace all occurrences
+echo "Replace all (default):"
+result: {replace "hello world world world", "world", "gopher"}
+echo "  replace 'hello world world world', 'world', 'gopher' =", ~result
+# Expected: "hello gopher gopher gopher"
+
+# Replace first N (positive count)
+echo ""
+echo "Replace first N:"
+result: {replace "hello world world world", "world", "gopher", 1}
+echo "  replace ..., 1 =", ~result
+# Expected: "hello gopher world world"
+
+result: {replace "hello world world world", "world", "gopher", 2}
+echo "  replace ..., 2 =", ~result
+# Expected: "hello gopher gopher world"
+
+# Replace last N (negative count)
+echo ""
+echo "Replace last N:"
+result: {replace "hello world world world", "world", "gopher", -1}
+echo "  replace ..., -1 =", ~result
+# Expected: "hello world world gopher"
+
+result: {replace "hello world world world", "world", "gopher", -2}
+echo "  replace ..., -2 =", ~result
+# Expected: "hello world gopher gopher"
+
+# Replace with count 0 (same as all)
+echo ""
+echo "Replace with count 0 (all):"
+result: {replace "a-b-c-d", "-", "_", 0}
+echo "  replace 'a-b-c-d', '-', '_', 0 =", ~result
+# Expected: "a_b_c_d"
+
+echo ""
+echo "=== Testing replace on lists ==="
+echo ""
+
+# Replace all occurrences of single value
+echo "Replace all single values:"
+mylist: {list a, x, b, x, c, x}
+result: {replace ~mylist, x, Y}
+echo "  replace (a, x, b, x, c, x), x, Y =", ~result
+# Expected: (a, Y, b, Y, c, Y)
+
+# Replace first N
+echo ""
+echo "Replace first N in list:"
+mylist: {list a, x, b, x, c, x}
+result: {replace ~mylist, x, Y, 1}
+echo "  replace ..., 1 =", ~result
+# Expected: (a, Y, b, x, c, x)
+
+result: {replace ~mylist, x, Y, 2}
+echo "  replace ..., 2 =", ~result
+# Expected: (a, Y, b, Y, c, x)
+
+# Replace last N
+echo ""
+echo "Replace last N in list:"
+mylist: {list a, x, b, x, c, x}
+result: {replace ~mylist, x, Y, -1}
+echo "  replace ..., -1 =", ~result
+# Expected: (a, x, b, x, c, Y)
+
+result: {replace ~mylist, x, Y, -2}
+echo "  replace ..., -2 =", ~result
+# Expected: (a, x, b, Y, c, Y)
+
+echo ""
+echo "=== Testing sequence replacement in lists ==="
+echo ""
+
+# Replace sequence with another sequence
+echo "Replace sequence with sequence:"
+mylist: {list 1, 2, 3, 4, 5, 3, 4, 6}
+old_seq: {list 3, 4}
+new_seq: {list X, Y, Z}
+result: {replace ~mylist, ~old_seq, ~new_seq}
+echo "  replace (1,2,3,4,5,3,4,6), (3,4), (X,Y,Z) =", ~result
+# Expected: (1, 2, X, Y, Z, 5, X, Y, Z, 6)
+
+# Replace sequence - first occurrence only
+echo ""
+echo "Replace sequence - first only:"
+mylist: {list 1, 2, 3, 4, 5, 3, 4, 6}
+result: {replace ~mylist, {list 3, 4}, {list X}, 1}
+echo "  replace ..., 1 =", ~result
+# Expected: (1, 2, X, 5, 3, 4, 6)
+
+# Replace sequence - last occurrence only
+echo ""
+echo "Replace sequence - last only:"
+mylist: {list 1, 2, 3, 4, 5, 3, 4, 6}
+result: {replace ~mylist, {list 3, 4}, {list X}, -1}
+echo "  replace ..., -1 =", ~result
+# Expected: (1, 2, 3, 4, 5, X, 6)
+
+echo ""
+echo "=== Testing replace with single value for sequence ==="
+echo ""
+
+# Replace sequence with single value
+echo "Replace sequence with single value:"
+mylist: {list a, b, c, b, c, d}
+result: {replace ~mylist, {list b, c}, X}
+echo "  replace (a,b,c,b,c,d), (b,c), X =", ~result
+# Expected: (a, X, X, d)
+
+# Replace single value with list (new is exact replacement, not spliced)
+echo ""
+echo "Replace single value with list (exact replacement):"
+mylist: {list 1, X, 2, X, 3}
+result: {replace ~mylist, X, {list A, B}}
+echo "  replace (1,X,2,X,3), X, (A,B) =", ~result
+# Expected: (1, (A, B), 2, (A, B), 3) - list becomes single element
+
+echo ""
+echo "=== Sequence mode vs single-value mode ==="
+echo ""
+
+# Sequence mode: old is list, new is spliced in
+echo "Sequence mode (old=list): new items spliced in:"
+mylist: {list 1, 2, 3, 4, 5}
+result: {replace ~mylist, {list 2, 3}, {list X, Y, Z}}
+echo "  replace (1,2,3,4,5), (2,3), (X,Y,Z) =", ~result
+# Expected: (1, X, Y, Z, 4, 5)
+
+# Single-value mode: old is single, new replaces exactly
+echo ""
+echo "Single-value mode (old=single): new replaces exactly:"
+mylist: {list 1, 2, 3, 2, 5}
+result: {replace ~mylist, 2, {list A, B}}
+echo "  replace (1,2,3,2,5), 2, (A,B) =", ~result
+# Expected: (1, (A, B), 3, (A, B), 5) - list becomes single element
+
+echo ""
+echo "=== Edge cases ==="
+echo ""
+
+# No matches
+echo "No matches:"
+result: {replace "hello world", "foo", "bar"}
+echo "  replace 'hello world', 'foo', 'bar' =", ~result
+# Expected: "hello world" (unchanged)
+
+# Empty replacement
+echo ""
+echo "Empty replacement (delete):"
+result: {replace "hello world world", "world ", ""}
+echo "  replace 'hello world world', 'world ', '' =", ~result
+# Expected: "hello world"
+
+# Count larger than occurrences
+echo ""
+echo "Count larger than occurrences:"
+result: {replace "a-b-c", "-", "_", 10}
+echo "  replace 'a-b-c', '-', '_', 10 =", ~result
+# Expected: "a_b_c" (replaces all 2 occurrences)
+
+echo ""
+echo "=== All replace tests complete ==="

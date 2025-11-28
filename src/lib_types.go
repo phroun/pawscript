@@ -2,8 +2,162 @@ package pawscript
 
 import (
 	"fmt"
+	"strconv"
 	"strings"
 )
+
+// deepEqual performs a deep comparison of two values with efficiency shortcuts.
+// If both values are the same object marker (same ID), they're equal.
+// Otherwise, resolve and compare recursively, bailing on first difference.
+func deepEqual(a, b interface{}, executor *Executor) bool {
+	// Quick shortcut: if both are symbols and identical (same object marker), they're equal
+	if symA, okA := a.(Symbol); okA {
+		if symB, okB := b.(Symbol); okB {
+			if string(symA) == string(symB) {
+				return true
+			}
+		}
+	}
+
+	// Resolve both values
+	resolvedA := a
+	resolvedB := b
+	if executor != nil {
+		resolvedA = executor.resolveValue(a)
+		resolvedB = executor.resolveValue(b)
+	}
+
+	// Handle nil
+	if resolvedA == nil && resolvedB == nil {
+		return true
+	}
+	if resolvedA == nil || resolvedB == nil {
+		return false
+	}
+
+	// Compare by type
+	switch va := resolvedA.(type) {
+	case bool:
+		if vb, ok := resolvedB.(bool); ok {
+			return va == vb
+		}
+		return false
+	case int64:
+		switch vb := resolvedB.(type) {
+		case int64:
+			return va == vb
+		case int:
+			return va == int64(vb)
+		case float64:
+			return float64(va) == vb
+		}
+		return false
+	case int:
+		switch vb := resolvedB.(type) {
+		case int:
+			return va == vb
+		case int64:
+			return int64(va) == vb
+		case float64:
+			return float64(va) == vb
+		}
+		return false
+	case float64:
+		switch vb := resolvedB.(type) {
+		case float64:
+			return va == vb
+		case int64:
+			return va == float64(vb)
+		case int:
+			return va == float64(vb)
+		}
+		return false
+	case string:
+		if vb, ok := resolvedB.(string); ok {
+			return va == vb
+		}
+		// Compare with Symbol/QuotedString
+		return fmt.Sprintf("%v", va) == fmt.Sprintf("%v", resolvedB)
+	case Symbol:
+		// Check for undefined
+		if string(va) == "undefined" {
+			if vb, ok := resolvedB.(Symbol); ok && string(vb) == "undefined" {
+				return true
+			}
+			return false
+		}
+		return fmt.Sprintf("%v", va) == fmt.Sprintf("%v", resolvedB)
+	case QuotedString:
+		return fmt.Sprintf("%v", va) == fmt.Sprintf("%v", resolvedB)
+	case StoredList:
+		// Compare lists element by element
+		var listB StoredList
+		switch vb := resolvedB.(type) {
+		case StoredList:
+			listB = vb
+		case ParenGroup:
+			// Parse ParenGroup to list
+			items, _ := parseArguments(string(vb))
+			listB = NewStoredList(items)
+		default:
+			return false
+		}
+		itemsA := va.Items()
+		itemsB := listB.Items()
+		if len(itemsA) != len(itemsB) {
+			return false
+		}
+		// Bail on first difference
+		for i := range itemsA {
+			if !deepEqual(itemsA[i], itemsB[i], executor) {
+				return false
+			}
+		}
+		return true
+	case ParenGroup:
+		// Parse and compare as list
+		itemsA, _ := parseArguments(string(va))
+		var itemsB []interface{}
+		switch vb := resolvedB.(type) {
+		case StoredList:
+			itemsB = vb.Items()
+		case ParenGroup:
+			itemsB, _ = parseArguments(string(vb))
+		default:
+			return false
+		}
+		if len(itemsA) != len(itemsB) {
+			return false
+		}
+		for i := range itemsA {
+			if !deepEqual(itemsA[i], itemsB[i], executor) {
+				return false
+			}
+		}
+		return true
+	}
+
+	// Fallback: string comparison
+	return fmt.Sprintf("%v", resolvedA) == fmt.Sprintf("%v", resolvedB)
+}
+
+// findAllStringPositions finds all non-overlapping positions of substr in str
+func findAllStringPositions(str, substr string) []int {
+	var positions []int
+	if substr == "" {
+		return positions
+	}
+	start := 0
+	for {
+		idx := strings.Index(str[start:], substr)
+		if idx == -1 {
+			break
+		}
+		positions = append(positions, start+idx)
+		start += idx + len(substr)
+	}
+	return positions
+}
 
 // RegisterTypesLib registers string and list manipulation commands
 // Modules: strlist, str
@@ -87,11 +241,12 @@ func (ps *PawScript) RegisterTypesLib() {
 		}
 	})
 
-	// append - returns a new list with item appended
+	// append - returns a new list with item appended, or string with suffix appended
 	// Usage: append ~mylist, newitem
+	//        append "hello", " world"  -> "hello world"
 	ps.RegisterCommandInModule("stdlib", "append", func(ctx *Context) Result {
 		if len(ctx.Args) < 2 {
-			ctx.LogError(CatCommand, "Usage: append <list>, <item>")
+			ctx.LogError(CatCommand, "Usage: append <list|string>, <item|suffix>")
 			ctx.SetResult(nil)
 			return BoolStatus(false)
 		}
@@ -103,6 +258,19 @@ func (ps *PawScript) RegisterTypesLib() {
 		case StoredList:
 			setListResult(ctx, v.Append(item))
 			return BoolStatus(true)
+		case string, QuotedString, Symbol, StoredString:
+			// String mode: concatenate suffix
+			resolved := ctx.executor.resolveValue(v)
+			str := fmt.Sprintf("%v", resolved)
+			suffix := resolveToString(item, ctx.executor)
+			result := str + suffix
+			if ctx.executor != nil {
+				result := ctx.executor.maybeStoreValue(result, ctx.state)
+				ctx.state.SetResultWithoutClaim(result)
+			} else {
+				ctx.state.SetResultWithoutClaim(result)
+			}
+			return BoolStatus(true)
 		default:
 			ctx.LogError(CatType, fmt.Sprintf("Cannot append to type %s\n", getTypeName(v)))
 			ctx.SetResult(nil)
@@ -110,11 +278,12 @@ func (ps *PawScript) RegisterTypesLib() {
 		}
 	})
 
-	// prepend - returns a new list with item prepended
+	// prepend - returns a new list with item prepended, or string with prefix prepended
 	// Usage: prepend ~mylist, newitem
+	//        prepend "world", "hello "  -> "hello world"
 	ps.RegisterCommandInModule("stdlib", "prepend", func(ctx *Context) Result {
 		if len(ctx.Args) < 2 {
-			ctx.LogError(CatCommand, "Usage: prepend <list>, <item>")
+			ctx.LogError(CatCommand, "Usage: prepend <list|string>, <item|prefix>")
 			ctx.SetResult(nil)
 			return BoolStatus(false)
 		}
@@ -125,6 +294,19 @@ func (ps *PawScript) RegisterTypesLib() {
 		switch v := value.(type) {
 		case StoredList:
 			setListResult(ctx, v.Prepend(item))
+			return BoolStatus(true)
+		case string, QuotedString, Symbol, StoredString:
+			// String mode: prepend prefix
+			resolved := ctx.executor.resolveValue(v)
+			str := fmt.Sprintf("%v", resolved)
+			prefix := resolveToString(item, ctx.executor)
+			result := prefix + str
+			if ctx.executor != nil {
+				result := ctx.executor.maybeStoreValue(result, ctx.state)
+				ctx.state.SetResultWithoutClaim(result)
+			} else {
+				ctx.state.SetResultWithoutClaim(result)
+			}
 			return BoolStatus(true)
 		default:
 			ctx.LogError(CatType, fmt.Sprintf("Cannot prepend to type %s\n", getTypeName(v)))
@@ -201,16 +383,103 @@ func (ps *PawScript) RegisterTypesLib() {
 		return BoolStatus(true)
 	})
 
-	// split - split string into list by delimiter
-	// Usage: split "a,b,c", ","  -> list of ["a", "b", "c"]
+	// split - split string or list by delimiter
+	// String Usage: split "a,b,c", ","  -> list of ["a", "b", "c"]
+	// List Usage:
+	//   split ~mylist, "x"       -> split list on occurrences of "x"
+	//   split ~mylist, ~delim    -> split list on sequence matching all items in delim
 	// Inverse of join
 	ps.RegisterCommandInModule("stdlib", "split", func(ctx *Context) Result {
 		if len(ctx.Args) < 2 {
-			ctx.LogError(CatCommand, "Usage: split <string>, <delimiter>")
+			ctx.LogError(CatCommand, "Usage: split <string|list>, <delimiter>")
 			ctx.SetResult(nil)
 			return BoolStatus(false)
 		}
 
+		// Check if first argument is a list
+		if list, ok := ctx.Args[0].(StoredList); ok {
+			items := list.Items()
+			delimiter := ctx.Args[1]
+
+			// Check if delimiter is a list (sequence match) or single value
+			if delimList, ok := delimiter.(StoredList); ok {
+				// Sequence match: split on occurrences of the full sequence
+				delimItems := delimList.Items()
+				delimLen := len(delimItems)
+
+				if delimLen == 0 {
+					// Empty delimiter - return original list
+					setListResult(ctx, list)
+					return BoolStatus(true)
+				}
+
+				var result [][]interface{}
+				var current []interface{}
+
+				i := 0
+				for i < len(items) {
+					// Check if sequence matches at current position
+					if i+delimLen <= len(items) {
+						match := true
+						for j := 0; j < delimLen; j++ {
+							if !deepEqual(items[i+j], delimItems[j], ctx.executor) {
+								match = false
+								break
+							}
+						}
+						if match {
+							// Found delimiter sequence - save current segment
+							result = append(result, current)
+							current = nil
+							i += delimLen
+							continue
+						}
+					}
+					current = append(current, items[i])
+					i++
+				}
+				// Add final segment
+				result = append(result, current)
+
+				// Convert to list of lists
+				resultItems := make([]interface{}, len(result))
+				for i, segment := range result {
+					segList := NewStoredList(segment)
+					id := ctx.executor.storeObject(segList, "list")
+					resultItems[i] = Symbol(fmt.Sprintf("\x00LIST:%d\x00", id))
+				}
+				setListResult(ctx, NewStoredListWithRefs(resultItems, nil, ctx.executor))
+				return BoolStatus(true)
+			}
+
+			// Single value match: split on occurrences of this value
+			var result [][]interface{}
+			var current []interface{}
+
+			for _, item := range items {
+				if deepEqual(item, delimiter, ctx.executor) {
+					// Found delimiter - save current segment
+					result = append(result, current)
+					current = nil
+				} else {
+					current = append(current, item)
+				}
+			}
+			// Add final segment
+			result = append(result, current)
+
+			// Convert to list of lists
+			resultItems := make([]interface{}, len(result))
+			for i, segment := range result {
+				segList := NewStoredList(segment)
+				id := ctx.executor.storeObject(segList, "list")
+				resultItems[i] = Symbol(fmt.Sprintf("\x00LIST:%d\x00", id))
+			}
+			setListResult(ctx, NewStoredListWithRefs(resultItems, nil, ctx.executor))
+			return BoolStatus(true)
+		}
+
+		// String mode: original behavior
 		str := resolveToString(ctx.Args[0], ctx.executor)
 		delimiter := resolveToString(ctx.Args[1], ctx.executor)
 
@@ -224,28 +493,53 @@ func (ps *PawScript) RegisterTypesLib() {
 		return BoolStatus(true)
 	})
 
-	// join - join list into string with delimiter
-	// Usage: join ~mylist, ","  -> "a,b,c"
+	// join - join list with delimiter (string or list)
+	// String delimiter: join ~mylist, ","  -> "a,b,c"
+	// List delimiter: join ~mylist, ~delim -> inserts all delim items between each original item
 	// Inverse of split
 	ps.RegisterCommandInModule("stdlib", "join", func(ctx *Context) Result {
 		if len(ctx.Args) < 2 {
 			ctx.LogError(CatCommand, "Usage: join <list>, <delimiter>")
-			ctx.SetResult("")
+			ctx.SetResult(nil)
 			return BoolStatus(false)
 		}
 
-		delimiter := resolveToString(ctx.Args[1], ctx.executor)
-
-		// Handle StoredList
+		// Handle StoredList as first argument
 		if storedList, ok := ctx.Args[0].(StoredList); ok {
 			items := storedList.Items()
+			delimiter := ctx.Args[1]
+
+			// Check if delimiter is a list
+			if delimList, ok := delimiter.(StoredList); ok {
+				// List delimiter: insert all delimiter items between each original item
+				delimItems := delimList.Items()
+
+				if len(items) == 0 {
+					setListResult(ctx, NewStoredList(nil))
+					return BoolStatus(true)
+				}
+
+				var resultItems []interface{}
+				for i, item := range items {
+					resultItems = append(resultItems, item)
+					if i < len(items)-1 {
+						// Insert delimiter items between original items
+						resultItems = append(resultItems, delimItems...)
+					}
+				}
+				setListResult(ctx, NewStoredListWithRefs(resultItems, nil, ctx.executor))
+				return BoolStatus(true)
+			}
+
+			// String delimiter: join into string (original behavior)
+			delimStr := resolveToString(delimiter, ctx.executor)
 			strItems := make([]string, len(items))
 			for i, item := range items {
 				// Resolve each item in case it's a marker
 				resolved := ctx.executor.resolveValue(item)
 				strItems[i] = fmt.Sprintf("%v", resolved)
 			}
-			result := strings.Join(strItems, delimiter)
+			result := strings.Join(strItems, delimStr)
 			if ctx.executor != nil {
 				result := ctx.executor.maybeStoreValue(result, ctx.state)
 				ctx.state.SetResultWithoutClaim(result)
@@ -256,7 +550,7 @@ func (ps *PawScript) RegisterTypesLib() {
 		}
 
 		ctx.LogError(CatType, fmt.Sprintf("First argument must be a list, got %s\n", getTypeName(ctx.Args[0])))
-		ctx.SetResult("")
+		ctx.SetResult(nil)
 		return BoolStatus(false)
 	})
 
@@ -302,17 +596,111 @@ func (ps *PawScript) RegisterTypesLib() {
 		return BoolStatus(true)
 	})
 
-	// trim - trim whitespace from both ends
-	// Usage: trim "  hello  "  -> "hello"
+	// trim - trim values from both ends (polymorphic: strings or lists)
+	// String Usage:
+	//   trim "  hello  "              -> "hello" (default whitespace)
+	//   trim "xxhelloxx", "x"         -> "hello" (override: trim only "x")
+	//   trim "xxhello  ",, "x"        -> "hello" (extend: whitespace + "x")
+	//   trim "xxhello##",, "x", "#"   -> "hello" (extend: whitespace + "x" + "#")
+	// List Usage:
+	//   trim ~mylist                  -> removes nil/undefined from both ends
+	//   trim ~mylist, "x"             -> removes "x" from both ends (override)
+	//   trim ~mylist,, "x"            -> removes nil/undefined and "x" from both ends (extend)
+	//   trim ~mylist, (1, 2)          -> removes lists matching (1, 2) by value
 	ps.RegisterCommandInModule("stdlib", "trim", func(ctx *Context) Result {
 		if len(ctx.Args) < 1 {
-			ctx.LogError(CatCommand, "Usage: trim <string>")
-			ctx.SetResult("")
+			ctx.LogError(CatCommand, "Usage: trim <string|list>, [values], [extend_values...]")
+			ctx.SetResult(nil)
 			return BoolStatus(false)
 		}
 
+		// Helper to check if arg is undefined/skipped
+		isUndefined := func(arg interface{}) bool {
+			if arg == nil {
+				return true
+			}
+			if sym, ok := arg.(Symbol); ok && string(sym) == "undefined" {
+				return true
+			}
+			return false
+		}
+
+		// Check if first argument is a list
+		if list, ok := ctx.Args[0].(StoredList); ok {
+			// List mode: trim matching values from both ends
+			items := list.Items()
+
+			// Build list of values to trim
+			var trimValues []interface{}
+
+			if len(ctx.Args) >= 2 && !isUndefined(ctx.Args[1]) {
+				// Override mode: use only the specified values
+				trimValues = append(trimValues, ctx.Args[1])
+				// Also add any additional args (arg 3+) in override mode
+				for i := 2; i < len(ctx.Args); i++ {
+					if !isUndefined(ctx.Args[i]) {
+						trimValues = append(trimValues, ctx.Args[i])
+					}
+				}
+			} else {
+				// Default: trim nil/undefined
+				trimValues = []interface{}{nil, Symbol("undefined")}
+				// Extend mode: add args from position 3 onward
+				if len(ctx.Args) >= 3 {
+					for i := 2; i < len(ctx.Args); i++ {
+						if !isUndefined(ctx.Args[i]) {
+							trimValues = append(trimValues, ctx.Args[i])
+						}
+					}
+				}
+			}
+
+			// Helper to check if item should be trimmed
+			shouldTrim := func(item interface{}) bool {
+				for _, trimVal := range trimValues {
+					if deepEqual(item, trimVal, ctx.executor) {
+						return true
+					}
+				}
+				return false
+			}
+
+			// Find start index (skip items that should be trimmed)
+			start := 0
+			for start < len(items) && shouldTrim(items[start]) {
+				start++
+			}
+
+			// Find end index (skip items that should be trimmed from end)
+			end := len(items)
+			for end > start && shouldTrim(items[end-1]) {
+				end--
+			}
+
+			// Create result list
+			resultItems := items[start:end]
+			setListResult(ctx, NewStoredList(resultItems))
+			return BoolStatus(true)
+		}
+
+		// String mode: original behavior
 		str := resolveToString(ctx.Args[0], ctx.executor)
-		result := strings.TrimSpace(str)
+		cutset := " \t\n\r" // default whitespace
+
+		// Check for override (arg 2) or extend (arg 3+)
+		if len(ctx.Args) >= 2 && !isUndefined(ctx.Args[1]) {
+			// Override mode: use only the specified chars
+			cutset = resolveToString(ctx.Args[1], ctx.executor)
+		} else if len(ctx.Args) >= 3 {
+			// Extend mode: add all non-undefined args from position 3 onward
+			for i := 2; i < len(ctx.Args); i++ {
+				if !isUndefined(ctx.Args[i]) {
+					cutset += resolveToString(ctx.Args[i], ctx.executor)
+				}
+			}
+		}
+
+		result := strings.Trim(str, cutset)
 		if ctx.executor != nil {
 			result := ctx.executor.maybeStoreValue(result, ctx.state)
 			ctx.state.SetResultWithoutClaim(result)
@@ -322,17 +710,103 @@ func (ps *PawScript) RegisterTypesLib() {
 		return BoolStatus(true)
 	})
 
-	// trim_start - trim whitespace from start
-	// Usage: trim_start "  hello  "  -> "hello  "
+	// trim_start - trim values from start (polymorphic: strings or lists)
+	// String Usage:
+	//   trim_start "  hello  "              -> "hello  " (default whitespace)
+	//   trim_start "xxhello", "x"           -> "hello" (override: trim only "x")
+	//   trim_start "xxhello",, "x"          -> "hello" (extend: whitespace + "x")
+	//   trim_start "##xxhello",, "x", "#"   -> "hello" (extend: whitespace + "x" + "#")
+	// List Usage:
+	//   trim_start ~mylist                  -> removes nil/undefined from start
+	//   trim_start ~mylist, "x"             -> removes "x" from start (override)
+	//   trim_start ~mylist,, "x"            -> removes nil/undefined and "x" from start (extend)
 	ps.RegisterCommandInModule("stdlib", "trim_start", func(ctx *Context) Result {
 		if len(ctx.Args) < 1 {
-			ctx.LogError(CatCommand, "Usage: trim_start <string>")
-			ctx.SetResult("")
+			ctx.LogError(CatCommand, "Usage: trim_start <string|list>, [values], [extend_values...]")
+			ctx.SetResult(nil)
 			return BoolStatus(false)
 		}
 
+		// Helper to check if arg is undefined/skipped
+		isUndefined := func(arg interface{}) bool {
+			if arg == nil {
+				return true
+			}
+			if sym, ok := arg.(Symbol); ok && string(sym) == "undefined" {
+				return true
+			}
+			return false
+		}
+
+		// Check if first argument is a list
+		if list, ok := ctx.Args[0].(StoredList); ok {
+			// List mode: trim matching values from start
+			items := list.Items()
+
+			// Build list of values to trim
+			var trimValues []interface{}
+
+			if len(ctx.Args) >= 2 && !isUndefined(ctx.Args[1]) {
+				// Override mode: use only the specified values
+				trimValues = append(trimValues, ctx.Args[1])
+				for i := 2; i < len(ctx.Args); i++ {
+					if !isUndefined(ctx.Args[i]) {
+						trimValues = append(trimValues, ctx.Args[i])
+					}
+				}
+			} else {
+				// Default: trim nil/undefined
+				trimValues = []interface{}{nil, Symbol("undefined")}
+				// Extend mode: add args from position 3 onward
+				if len(ctx.Args) >= 3 {
+					for i := 2; i < len(ctx.Args); i++ {
+						if !isUndefined(ctx.Args[i]) {
+							trimValues = append(trimValues, ctx.Args[i])
+						}
+					}
+				}
+			}
+
+			// Helper to check if item should be trimmed
+			shouldTrim := func(item interface{}) bool {
+				for _, trimVal := range trimValues {
+					if deepEqual(item, trimVal, ctx.executor) {
+						return true
+					}
+				}
+				return false
+			}
+
+			// Find start index (skip items that should be trimmed)
+			start := 0
+			for start < len(items) && shouldTrim(items[start]) {
+				start++
+			}
+
+			// Create result list (keep from start to end)
+			resultItems := items[start:]
+			setListResult(ctx, NewStoredList(resultItems))
+			return BoolStatus(true)
+		}
+
+		// String mode: original behavior
 		str := resolveToString(ctx.Args[0], ctx.executor)
-		result := strings.TrimLeft(str, " \t\n\r")
+		cutset := " \t\n\r" // default whitespace
+
+		// Check for override (arg 2) or extend (arg 3+)
+		if len(ctx.Args) >= 2 && !isUndefined(ctx.Args[1]) {
+			// Override mode: use only the specified chars
+			cutset = resolveToString(ctx.Args[1], ctx.executor)
+		} else if len(ctx.Args) >= 3 {
+			// Extend mode: add all non-undefined args from position 3 onward
+			for i := 2; i < len(ctx.Args); i++ {
+				if !isUndefined(ctx.Args[i]) {
+					cutset += resolveToString(ctx.Args[i], ctx.executor)
+				}
+			}
+		}
+
+		result := strings.TrimLeft(str, cutset)
 		if ctx.executor != nil {
 			result := ctx.executor.maybeStoreValue(result, ctx.state)
 			ctx.state.SetResultWithoutClaim(result)
@@ -342,17 +816,103 @@ func (ps *PawScript) RegisterTypesLib() {
 		return BoolStatus(true)
 	})
 
-	// trim_end - trim whitespace from end
-	// Usage: trim_end "  hello  "  -> "  hello"
+	// trim_end - trim values from end (polymorphic: strings or lists)
+	// String Usage:
+	//   trim_end "  hello  "              -> "  hello" (default whitespace)
+	//   trim_end "helloxx", "x"           -> "hello" (override: trim only "x")
+	//   trim_end "helloxx  ",, "x"        -> "hello" (extend: whitespace + "x")
+	//   trim_end "helloxx##",, "x", "#"   -> "hello" (extend: whitespace + "x" + "#")
+	// List Usage:
+	//   trim_end ~mylist                  -> removes nil/undefined from end
+	//   trim_end ~mylist, "x"             -> removes "x" from end (override)
+	//   trim_end ~mylist,, "x"            -> removes nil/undefined and "x" from end (extend)
 	ps.RegisterCommandInModule("stdlib", "trim_end", func(ctx *Context) Result {
 		if len(ctx.Args) < 1 {
-			ctx.LogError(CatCommand, "Usage: trim_end <string>")
-			ctx.SetResult("")
+			ctx.LogError(CatCommand, "Usage: trim_end <string|list>, [values], [extend_values...]")
+			ctx.SetResult(nil)
 			return BoolStatus(false)
 		}
 
+		// Helper to check if arg is undefined/skipped
+		isUndefined := func(arg interface{}) bool {
+			if arg == nil {
+				return true
+			}
+			if sym, ok := arg.(Symbol); ok && string(sym) == "undefined" {
+				return true
+			}
+			return false
+		}
+
+		// Check if first argument is a list
+		if list, ok := ctx.Args[0].(StoredList); ok {
+			// List mode: trim matching values from end
+			items := list.Items()
+
+			// Build list of values to trim
+			var trimValues []interface{}
+
+			if len(ctx.Args) >= 2 && !isUndefined(ctx.Args[1]) {
+				// Override mode: use only the specified values
+				trimValues = append(trimValues, ctx.Args[1])
+				for i := 2; i < len(ctx.Args); i++ {
+					if !isUndefined(ctx.Args[i]) {
+						trimValues = append(trimValues, ctx.Args[i])
+					}
+				}
+			} else {
+				// Default: trim nil/undefined
+				trimValues = []interface{}{nil, Symbol("undefined")}
+				// Extend mode: add args from position 3 onward
+				if len(ctx.Args) >= 3 {
+					for i := 2; i < len(ctx.Args); i++ {
+						if !isUndefined(ctx.Args[i]) {
+							trimValues = append(trimValues, ctx.Args[i])
+						}
+					}
+				}
+			}
+
+			// Helper to check if item should be trimmed
+			shouldTrim := func(item interface{}) bool {
+				for _, trimVal := range trimValues {
+					if deepEqual(item, trimVal, ctx.executor) {
+						return true
+					}
+				}
+				return false
+			}
+
+			// Find end index (skip items that should be trimmed from end)
+			end := len(items)
+			for end > 0 && shouldTrim(items[end-1]) {
+				end--
+			}
+
+			// Create result list (keep from 0 to end)
+			resultItems := items[:end]
+			setListResult(ctx, NewStoredList(resultItems))
+			return BoolStatus(true)
+		}
+
+		// String mode: original behavior
 		str := resolveToString(ctx.Args[0], ctx.executor)
-		result := strings.TrimRight(str, " \t\n\r")
+		cutset := " \t\n\r" // default whitespace
+
+		// Check for override (arg 2) or extend (arg 3+)
+		if len(ctx.Args) >= 2 && !isUndefined(ctx.Args[1]) {
+			// Override mode: use only the specified chars
+			cutset = resolveToString(ctx.Args[1], ctx.executor)
+		} else if len(ctx.Args) >= 3 {
+			// Extend mode: add all non-undefined args from position 3 onward
+			for i := 2; i < len(ctx.Args); i++ {
+				if !isUndefined(ctx.Args[i]) {
+					cutset += resolveToString(ctx.Args[i], ctx.executor)
+				}
+			}
+		}
+
+		result := strings.TrimRight(str, cutset)
 		if ctx.executor != nil {
 			result := ctx.executor.maybeStoreValue(result, ctx.state)
 			ctx.state.SetResultWithoutClaim(result)
@@ -362,36 +922,74 @@ func (ps *PawScript) RegisterTypesLib() {
 		return BoolStatus(true)
 	})
 
-	// contains - check if string contains substring
+	// contains - check if string contains substring, or if list contains item
 	// Usage: contains "hello world", "world"  -> true
+	//        contains ~mylist, "item"         -> true if item in list
+	//        contains ~mylist, ~sublist       -> true if sublist in list (deep comparison)
 	ps.RegisterCommandInModule("stdlib", "contains", func(ctx *Context) Result {
 		if len(ctx.Args) < 2 {
-			ctx.LogError(CatCommand, "Usage: contains <string>, <substring>")
+			ctx.LogError(CatCommand, "Usage: contains <string|list>, <substring|item>")
 			ctx.SetResult(false)
 			return BoolStatus(false)
 		}
 
-		str := resolveToString(ctx.Args[0], ctx.executor)
-		substr := resolveToString(ctx.Args[1], ctx.executor)
+		value := ctx.Args[0]
+		search := ctx.Args[1]
+
+		// Check if first argument is a list
+		if list, ok := value.(StoredList); ok {
+			// List mode: check if item exists using deep comparison
+			for _, item := range list.Items() {
+				if deepEqual(item, search, ctx.executor) {
+					ctx.SetResult(true)
+					return BoolStatus(true)
+				}
+			}
+			ctx.SetResult(false)
+			return BoolStatus(false)
+		}
+
+		// String mode: check if substring exists
+		str := resolveToString(value, ctx.executor)
+		substr := resolveToString(search, ctx.executor)
 
 		result := strings.Contains(str, substr)
 		ctx.SetResult(result)
 		return BoolStatus(result)
 	})
 
-	// index - find first index of substring (-1 if not found)
+	// index - find first index of substring or item (-1 if not found)
 	// Usage: index "hello world", "world"  -> 6
+	//        index ~mylist, "item"          -> position of item in list
+	//        index ~mylist, ~sublist        -> position of sublist in list (deep comparison)
 	// Returns -1 if not found (like many languages)
 	// Always succeeds and sets result (use result to check if found)
 	ps.RegisterCommandInModule("stdlib", "index", func(ctx *Context) Result {
 		if len(ctx.Args) < 2 {
-			ctx.LogError(CatCommand, "Usage: index <string>, <substring>")
+			ctx.LogError(CatCommand, "Usage: index <string|list>, <substring|item>")
 			ctx.SetResult(int64(-1))
 			return BoolStatus(false)
 		}
 
-		str := resolveToString(ctx.Args[0], ctx.executor)
-		substr := resolveToString(ctx.Args[1], ctx.executor)
+		value := ctx.Args[0]
+		search := ctx.Args[1]
+
+		// Check if first argument is a list
+		if list, ok := value.(StoredList); ok {
+			// List mode: find index of item using deep comparison
+			for i, item := range list.Items() {
+				if deepEqual(item, search, ctx.executor) {
+					ctx.SetResult(int64(i))
+					return BoolStatus(true)
+				}
+			}
+			ctx.SetResult(int64(-1))
+			return BoolStatus(true)
+		}
+
+		// String mode: find index of substring
+		str := resolveToString(value, ctx.executor)
+		substr := resolveToString(search, ctx.executor)
 
 		index := strings.Index(str, substr)
 		ctx.SetResult(int64(index))
@@ -399,39 +997,282 @@ func (ps *PawScript) RegisterTypesLib() {
 		return BoolStatus(true)
 	})
 
-	// replace - replace all occurrences of substring
-	// Usage: replace "hello world", "world", "gopher"  -> "hello gopher"
-	// Replaces ALL occurrences (like strings.ReplaceAll)
+	// replace - replace occurrences in string or list
+	// String Usage: replace "hello world world", "world", "gopher"  -> "hello gopher gopher" (all)
+	//               replace "hello world world", "world", "gopher", 1  -> "hello gopher world" (first 1)
+	//               replace "hello world world", "world", "gopher", -1 -> "hello world gopher" (last 1)
+	// List Usage:   replace ~list, old, new       -> replace all occurrences (single value or sequence)
+	//               replace ~list, old, new, N    -> replace first N (positive) or last N (negative)
+	// Count: omitted or 0 = all, positive N = first N, negative N = last N
 	ps.RegisterCommandInModule("stdlib", "replace", func(ctx *Context) Result {
 		if len(ctx.Args) < 3 {
-			ctx.LogError(CatCommand, "Usage: replace <string>, <old>, <new>")
+			ctx.LogError(CatCommand, "Usage: replace <string|list>, <old>, <new> [, count]")
 			ctx.SetResult("")
 			return BoolStatus(false)
 		}
 
+		// Parse optional count argument (4th arg)
+		count := int64(0) // 0 means replace all
+		if len(ctx.Args) >= 4 {
+			countArg := ctx.Args[3]
+			switch v := countArg.(type) {
+			case int64:
+				count = v
+			case float64:
+				count = int64(v)
+			default:
+				countStr := resolveToString(countArg, ctx.executor)
+				if parsed, err := strconv.ParseInt(countStr, 10, 64); err == nil {
+					count = parsed
+				}
+			}
+		}
+
+		// Check if first argument is a list
+		if list, ok := ctx.Args[0].(StoredList); ok {
+			items := list.Items()
+			oldVal := ctx.Args[1]
+			newVal := ctx.Args[2]
+
+			// Check if old value is a list (sequence match mode)
+			// List old = sequence to find, new = sequence to splice in
+			if oldList, ok := oldVal.(StoredList); ok {
+				oldItems := oldList.Items()
+				oldLen := len(oldItems)
+
+				if oldLen == 0 {
+					// Empty old sequence - return original list
+					setListResult(ctx, list)
+					return BoolStatus(true)
+				}
+
+				// Find all sequence match positions
+				var matchPositions []int
+				for i := 0; i+oldLen <= len(items); i++ {
+					match := true
+					for j := 0; j < oldLen; j++ {
+						if !deepEqual(items[i+j], oldItems[j], ctx.executor) {
+							match = false
+							break
+						}
+					}
+					if match {
+						matchPositions = append(matchPositions, i)
+						i += oldLen - 1 // Skip to end of this match (loop will add 1)
+					}
+				}
+
+				// Determine which matches to replace based on count
+				replaceSet := make(map[int]bool)
+				if count == 0 || len(matchPositions) == 0 {
+					// Replace all
+					for _, pos := range matchPositions {
+						replaceSet[pos] = true
+					}
+				} else if count > 0 {
+					// Replace first N
+					n := int(count)
+					if n > len(matchPositions) {
+						n = len(matchPositions)
+					}
+					for i := 0; i < n; i++ {
+						replaceSet[matchPositions[i]] = true
+					}
+				} else {
+					// Replace last N (count is negative)
+					n := int(-count)
+					if n > len(matchPositions) {
+						n = len(matchPositions)
+					}
+					for i := len(matchPositions) - n; i < len(matchPositions); i++ {
+						replaceSet[matchPositions[i]] = true
+					}
+				}
+
+				// Build result by iterating through items
+				// For sequence mode: new is spliced in as items
+				var result []interface{}
+				i := 0
+				for i < len(items) {
+					if replaceSet[i] {
+						// Replace this sequence with newVal items
+						if newList, ok := newVal.(StoredList); ok {
+							result = append(result, newList.Items()...)
+						} else {
+							result = append(result, newVal)
+						}
+						i += oldLen
+					} else {
+						result = append(result, items[i])
+						i++
+					}
+				}
+
+				setListResult(ctx, NewStoredListWithRefs(result, nil, ctx.executor))
+				return BoolStatus(true)
+			}
+
+			// Single value match mode
+			// Single old = find that item, new replaces exactly as one element
+			// Find all match positions first
+			var matchPositions []int
+			for i, item := range items {
+				if deepEqual(item, oldVal, ctx.executor) {
+					matchPositions = append(matchPositions, i)
+				}
+			}
+
+			// Determine which matches to replace based on count
+			replaceSet := make(map[int]bool)
+			if count == 0 || len(matchPositions) == 0 {
+				// Replace all
+				for _, pos := range matchPositions {
+					replaceSet[pos] = true
+				}
+			} else if count > 0 {
+				// Replace first N
+				n := int(count)
+				if n > len(matchPositions) {
+					n = len(matchPositions)
+				}
+				for i := 0; i < n; i++ {
+					replaceSet[matchPositions[i]] = true
+				}
+			} else {
+				// Replace last N (count is negative)
+				n := int(-count)
+				if n > len(matchPositions) {
+					n = len(matchPositions)
+				}
+				for i := len(matchPositions) - n; i < len(matchPositions); i++ {
+					replaceSet[matchPositions[i]] = true
+				}
+			}
+
+			// Build result
+			// For single-value mode: new replaces exactly as one element (even if it's a list)
+			var result []interface{}
+			for i, item := range items {
+				if replaceSet[i] {
+					// Replace this item with newVal exactly (as single element)
+					result = append(result, newVal)
+				} else {
+					result = append(result, item)
+				}
+			}
+
+			setListResult(ctx, NewStoredListWithRefs(result, nil, ctx.executor))
+			return BoolStatus(true)
+		}
+
+		// String mode
 		str := resolveToString(ctx.Args[0], ctx.executor)
 		old := resolveToString(ctx.Args[1], ctx.executor)
-		new := resolveToString(ctx.Args[2], ctx.executor)
+		newStr := resolveToString(ctx.Args[2], ctx.executor)
 
-		result := strings.ReplaceAll(str, old, new)
+		var result string
+		if count == 0 {
+			// Replace all
+			result = strings.ReplaceAll(str, old, newStr)
+		} else if count > 0 {
+			// Replace first N occurrences
+			result = strings.Replace(str, old, newStr, int(count))
+		} else {
+			// Replace last N occurrences
+			// Need to find positions and replace from the end
+			n := int(-count)
+			positions := findAllStringPositions(str, old)
+			if len(positions) == 0 {
+				result = str
+			} else {
+				// Determine which positions to replace (last N)
+				startIdx := len(positions) - n
+				if startIdx < 0 {
+					startIdx = 0
+				}
+				replacePositions := positions[startIdx:]
+
+				// Build result by replacing only those positions
+				var sb strings.Builder
+				lastEnd := 0
+				posSet := make(map[int]bool)
+				for _, pos := range replacePositions {
+					posSet[pos] = true
+				}
+				for _, pos := range positions {
+					sb.WriteString(str[lastEnd:pos])
+					if posSet[pos] {
+						sb.WriteString(newStr)
+					} else {
+						sb.WriteString(old)
+					}
+					lastEnd = pos + len(old)
+				}
+				sb.WriteString(str[lastEnd:])
+				result = sb.String()
+			}
+		}
+
 		if ctx.executor != nil {
-			result := ctx.executor.maybeStoreValue(result, ctx.state)
-			ctx.state.SetResultWithoutClaim(result)
+			storedResult := ctx.executor.maybeStoreValue(result, ctx.state)
+			ctx.state.SetResultWithoutClaim(storedResult)
 		} else {
 			ctx.state.SetResultWithoutClaim(result)
 		}
 		return BoolStatus(true)
 	})
 
-	// starts_with - check if string starts with prefix
-	// Usage: starts_with "hello world", "hello"  -> true
+	// starts_with - check if string starts with prefix, or list starts with value(s)
+	// String Usage: starts_with "hello world", "hello"  -> true
+	// List Usage:
+	//   starts_with ~mylist, "x"       -> true if list starts with "x"
+	//   starts_with ~mylist, ~prefix   -> true if list starts with all items in prefix (in sequence)
 	ps.RegisterCommandInModule("stdlib", "starts_with", func(ctx *Context) Result {
 		if len(ctx.Args) < 2 {
-			ctx.LogError(CatCommand, "Usage: starts_with <string>, <prefix>")
+			ctx.LogError(CatCommand, "Usage: starts_with <string|list>, <prefix|value>")
+			ctx.SetResult(false)
+			return BoolStatus(false)
+		}
+		if len(ctx.Args) > 2 {
+			ctx.LogError(CatCommand, "starts_with takes exactly 2 arguments")
 			ctx.SetResult(false)
 			return BoolStatus(false)
 		}
 
+		// Check if first argument is a list
+		if list, ok := ctx.Args[0].(StoredList); ok {
+			items := list.Items()
+			prefix := ctx.Args[1]
+
+			// Check if prefix is a list (sequence match) or single value
+			if prefixList, ok := prefix.(StoredList); ok {
+				// Sequence match: check if list starts with all items in prefixList
+				prefixItems := prefixList.Items()
+				if len(prefixItems) > len(items) {
+					ctx.SetResult(false)
+					return BoolStatus(false)
+				}
+				for i, prefixItem := range prefixItems {
+					if !deepEqual(items[i], prefixItem, ctx.executor) {
+						ctx.SetResult(false)
+						return BoolStatus(false)
+					}
+				}
+				ctx.SetResult(true)
+				return BoolStatus(true)
+			}
+
+			// Single value match: check if list starts with this value
+			if len(items) == 0 {
+				ctx.SetResult(false)
+				return BoolStatus(false)
+			}
+			result := deepEqual(items[0], prefix, ctx.executor)
+			ctx.SetResult(result)
+			return BoolStatus(result)
+		}
+
+		// String mode: original behavior
 		str := resolveToString(ctx.Args[0], ctx.executor)
 		prefix := resolveToString(ctx.Args[1], ctx.executor)
 
@@ -440,15 +1281,58 @@ func (ps *PawScript) RegisterTypesLib() {
 		return BoolStatus(result)
 	})
 
-	// ends_with - check if string ends with suffix
-	// Usage: ends_with "hello world", "world"  -> true
+	// ends_with - check if string ends with suffix, or list ends with value(s)
+	// String Usage: ends_with "hello world", "world"  -> true
+	// List Usage:
+	//   ends_with ~mylist, "x"       -> true if list ends with "x"
+	//   ends_with ~mylist, ~suffix   -> true if list ends with all items in suffix (in sequence)
 	ps.RegisterCommandInModule("stdlib", "ends_with", func(ctx *Context) Result {
 		if len(ctx.Args) < 2 {
-			ctx.LogError(CatCommand, "Usage: ends_with <string>, <suffix>")
+			ctx.LogError(CatCommand, "Usage: ends_with <string|list>, <suffix|value>")
+			ctx.SetResult(false)
+			return BoolStatus(false)
+		}
+		if len(ctx.Args) > 2 {
+			ctx.LogError(CatCommand, "ends_with takes exactly 2 arguments")
 			ctx.SetResult(false)
 			return BoolStatus(false)
 		}
 
+		// Check if first argument is a list
+		if list, ok := ctx.Args[0].(StoredList); ok {
+			items := list.Items()
+			suffix := ctx.Args[1]
+
+			// Check if suffix is a list (sequence match) or single value
+			if suffixList, ok := suffix.(StoredList); ok {
+				// Sequence match: check if list ends with all items in suffixList
+				suffixItems := suffixList.Items()
+				if len(suffixItems) > len(items) {
+					ctx.SetResult(false)
+					return BoolStatus(false)
+				}
+				startIdx := len(items) - len(suffixItems)
+				for i, suffixItem := range suffixItems {
+					if !deepEqual(items[startIdx+i], suffixItem, ctx.executor) {
+						ctx.SetResult(false)
+						return BoolStatus(false)
+					}
+				}
+				ctx.SetResult(true)
+				return BoolStatus(true)
+			}
+
+			// Single value match: check if list ends with this value
+			if len(items) == 0 {
+				ctx.SetResult(false)
+				return BoolStatus(false)
+			}
+			result := deepEqual(items[len(items)-1], suffix, ctx.executor)
+			ctx.SetResult(result)
+			return BoolStatus(result)
+		}
+
+		// String mode: original behavior
 		str := resolveToString(ctx.Args[0], ctx.executor)
 		suffix := resolveToString(ctx.Args[1], ctx.executor)
 

@@ -1,0 +1,48 @@
+# Fibonacci Benchmark (Iterative)
+# Tests loop and arithmetic overhead
+
+echo "=== Fibonacci Benchmark ==="
+
+# Benchmark fib(30)
+echo "Computing fib(30)..."
+start: {microtime}
+
+a: 0
+b: 1
+i: 0
+while (lt ~i, 30), (
+    temp: ~b
+    b: {add ~a, ~b}
+    a: ~temp
+    i: {add ~i, 1}
+)
+
+end: {microtime}
+elapsed: {idiv {sub ~end, ~start}, 1000}
+echo "fib(30) =", ~a, "in", ~elapsed, "ms"
+
+# Benchmark fib(40)
+echo ""
+echo "Computing fib(40)..."
+start: {microtime}
+
+a: 0
+b: 1
+i: 0
+while (lt ~i, 40), (
+    temp: ~b
+    b: {add ~a, ~b}
+    a: ~temp
+    i: {add ~i, 1}
+)
+
+end: {microtime}
+elapsed: {idiv {sub ~end, ~start}, 1000}
+echo "fib(40) =", ~a, "in", ~elapsed, "ms"
+
+echo ""
+echo "=== Benchmark Complete ==="
+
+# Reference values:
+# fib(30) = 832040
+# fib(40) = 102334155
