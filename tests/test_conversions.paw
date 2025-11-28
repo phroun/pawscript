@@ -143,12 +143,12 @@ dynMacro
 echo ""
 echo "-- block (direct execution) --"
 b6: {block "echo directly_executed"}
-~b6
+{~b6}
 
 echo ""
 echo "-- block (with arguments) --"
 b7: {block "echo \"Hello, $1!\""}
-~b7 World
+{~b7} World
 (echo "Sum: $1 + $2 = 3") 1, 2
 
 echo ""

@@ -344,21 +344,71 @@ func (e *Executor) executeSingleCommand(
 				}
 
 				// Check for tilde expression (pure value expression as command)
+				// Implicit set_result
 				if strings.HasPrefix(finalString, "~") {
 					e.logger.DebugCat(CatCommand,"Detected tilde expression in async resume: %s", finalString)
-					value, ok := e.resolveTildeExpression(finalString, capturedState, capturedSubstitutionCtx, capturedPosition)
-					if ok {
-						capturedState.SetResult(value)
-						if capturedShouldInvert {
-							return BoolStatus(false)
-						}
-						return BoolStatus(true)
+					_, args, _ := ParseCommand("set_result " + finalString)
+					args = e.processArguments(args, capturedState, capturedSubstitutionCtx, capturedPosition)
+					if len(args) > 0 {
+						capturedState.SetResult(args[0])
 					}
-					// Tilde resolution failed, error already logged
 					if capturedShouldInvert {
-						return BoolStatus(true)
+						return BoolStatus(false)
 					}
-					return BoolStatus(false)
+					return BoolStatus(true)
+				}
+
+				// Check for block marker in command position
+				if strings.HasPrefix(finalString, "\x00BLOCK:") {
+					endIdx := strings.Index(finalString[1:], "\x00")
+					if endIdx >= 0 {
+						blockMarker := finalString[:endIdx+2]
+						argsStr := strings.TrimSpace(finalString[endIdx+2:])
+						if strings.HasPrefix(argsStr, ",") {
+							argsStr = strings.TrimSpace(argsStr[1:])
+						}
+						_, objectID := parseObjectMarker(blockMarker)
+						if objectID >= 0 {
+							if obj, exists := e.getObject(objectID); exists {
+								if storedBlock, ok := obj.(StoredBlock); ok {
+									blockSubstCtx := capturedSubstitutionCtx
+									if argsStr != "" {
+										_, args, _ := ParseCommand("dummy " + argsStr)
+										args = e.processArguments(args, capturedState, capturedSubstitutionCtx, capturedPosition)
+										argsList := NewStoredList(args)
+										argsListID := e.storeObject(argsList, "list")
+										argsMarker := fmt.Sprintf("\x00LIST:%d\x00", argsListID)
+										blockMacroCtx := &MacroContext{
+											MacroName:      "(block)",
+											InvocationFile: capturedPosition.Filename,
+											InvocationLine: capturedPosition.Line,
+										}
+										blockSubstCtx = &SubstitutionContext{
+											Args:                args,
+											ExecutionState:      capturedState,
+											ParentContext:       capturedSubstitutionCtx,
+											MacroContext:        blockMacroCtx,
+											CurrentLineOffset:   0,
+											CurrentColumnOffset: 0,
+											Filename:            capturedPosition.Filename,
+										}
+										capturedState.SetVariable("$@", Symbol(argsMarker))
+									}
+									result := e.ExecuteWithState(
+										string(storedBlock),
+										capturedState,
+										blockSubstCtx,
+										capturedPosition.Filename,
+										0, 0,
+									)
+									if capturedShouldInvert {
+										return e.invertStatus(result, capturedState, capturedPosition)
+									}
+									return result
+								}
+							}
+						}
+					}
 				}
 
 				// Now parse and execute the command with the substituted string
@@ -469,109 +519,92 @@ func (e *Executor) executeSingleCommand(
 	}
 
 	// Check for tilde expression (pure value expression as command)
-	// Supports: ~var or ~var arg1, arg2 (for block execution with args)
+	// This is an implicit "set_result" - the tilde expression is parsed as an argument
+	// with full accessor and unit combination support.
+	// For block execution with args, use: {~block}, args
 	if strings.HasPrefix(commandStr, "~") {
-		// Split into tilde part and potential arguments
-		tildeExpr := commandStr
-		argsStr := ""
-
-		// Find where the tilde expression ends (at first space or comma not inside quotes/parens)
-		for i := 1; i < len(commandStr); i++ {
-			ch := commandStr[i]
-			if ch == ' ' || ch == ',' {
-				tildeExpr = commandStr[:i]
-				argsStr = strings.TrimSpace(commandStr[i:])
-				if strings.HasPrefix(argsStr, ",") {
-					argsStr = strings.TrimSpace(argsStr[1:])
-				}
-				break
-			}
-			// Skip over brace expressions
-			if ch == '{' {
-				depth := 1
-				for j := i + 1; j < len(commandStr) && depth > 0; j++ {
-					if commandStr[j] == '{' {
-						depth++
-					} else if commandStr[j] == '}' {
-						depth--
-					}
-					i = j
-				}
-			}
+		e.logger.DebugCat(CatCommand, "Detected tilde expression (implicit set_result): %s", commandStr)
+		// Treat as "set_result <expr>" - parse and process as argument
+		_, args, _ := ParseCommand("set_result " + commandStr)
+		args = e.processArguments(args, state, substitutionCtx, position)
+		if len(args) > 0 {
+			state.SetResult(args[0])
 		}
-
-		e.logger.DebugCat(CatCommand, "Detected tilde expression: %s with args: %s", tildeExpr, argsStr)
-		value, ok := e.resolveTildeExpression(tildeExpr, state, substitutionCtx, position)
-		if ok {
-			// Check if the resolved value is a block marker - if so, execute it
-			if sym, isSym := value.(Symbol); isSym {
-				markerType, objectID := parseObjectMarker(string(sym))
-				if markerType == "block" && objectID >= 0 {
-					if obj, exists := e.getObject(objectID); exists {
-						if storedBlock, ok := obj.(StoredBlock); ok {
-							e.logger.DebugCat(CatCommand, "Executing block in command position: %s", string(storedBlock))
-
-							// Create substitution context for block arguments
-							blockSubstCtx := substitutionCtx
-							if argsStr != "" {
-								// Parse the arguments
-								_, args, _ := ParseCommand("dummy " + argsStr)
-								args = e.processArguments(args, state, substitutionCtx, position)
-
-								// Create args list for $@ and store it
-								argsList := NewStoredList(args)
-								argsListID := e.storeObject(argsList, "list")
-								argsMarker := fmt.Sprintf("\x00LIST:%d\x00", argsListID)
-
-								// Create a minimal MacroContext to enable $1, $2 substitution
-								blockMacroCtx := &MacroContext{
-									MacroName:      "(block)",
-									InvocationFile: position.Filename,
-									InvocationLine: position.Line,
-								}
-
-								// Create new substitution context with args
-								blockSubstCtx = &SubstitutionContext{
-									Args:                args,
-									ExecutionState:      state,
-									ParentContext:       substitutionCtx,
-									MacroContext:        blockMacroCtx,
-									CurrentLineOffset:   0,
-									CurrentColumnOffset: 0,
-									Filename:            position.Filename,
-								}
-
-								// Set $@ in state for dollar substitution
-								state.SetVariable("$@", Symbol(argsMarker))
-							}
-
-							// Execute block content in current scope
-							result := e.ExecuteWithState(
-								string(storedBlock),
-								state,
-								blockSubstCtx,
-								position.Filename,
-								0, 0,
-							)
-							if shouldInvert {
-								return e.invertStatus(result, state, position)
-							}
-							return result
-						}
-					}
-				}
-			}
-			state.SetResult(value)
-			if shouldInvert {
-				return BoolStatus(false)
-			}
-			return BoolStatus(true)
-		}
-		// Tilde resolution failed, error already logged
 		if shouldInvert {
-			return BoolStatus(true)
+			return BoolStatus(false)
 		}
-		return BoolStatus(false)
+		return BoolStatus(true)
+	}
+
+	// Check for block marker in command position (e.g., from {~block}, args)
+	// This allows block execution via: {~block}, arg1, arg2
+	if strings.HasPrefix(commandStr, "\x00BLOCK:") {
+		// Find the end of the block marker
+		endIdx := strings.Index(commandStr[1:], "\x00")
+		if endIdx >= 0 {
+			blockMarker := commandStr[:endIdx+2]
+			argsStr := strings.TrimSpace(commandStr[endIdx+2:])
+			// Remove leading comma if present
+			if strings.HasPrefix(argsStr, ",") {
+				argsStr = strings.TrimSpace(argsStr[1:])
+			}
+
+			_, objectID := parseObjectMarker(blockMarker)
+			if objectID >= 0 {
+				if obj, exists := e.getObject(objectID); exists {
+					if storedBlock, ok := obj.(StoredBlock); ok {
+						e.logger.DebugCat(CatCommand, "Executing block from marker with args: %s", argsStr)
+
+						// Create substitution context for block arguments
+						blockSubstCtx := substitutionCtx
+						if argsStr != "" {
+							// Parse the arguments
+							_, args, _ := ParseCommand("dummy " + argsStr)
+							args = e.processArguments(args, state, substitutionCtx, position)
+
+							// Create args list for $@ and store it
+							argsList := NewStoredList(args)
+							argsListID := e.storeObject(argsList, "list")
+							argsMarker := fmt.Sprintf("\x00LIST:%d\x00", argsListID)
+
+							// Create a minimal MacroContext to enable $1, $2 substitution
+							blockMacroCtx := &MacroContext{
+								MacroName:      "(block)",
+								InvocationFile: position.Filename,
+								InvocationLine: position.Line,
+							}
+
+							// Create new substitution context with args
+							blockSubstCtx = &SubstitutionContext{
+								Args:                args,
+								ExecutionState:      state,
+								ParentContext:       substitutionCtx,
+								MacroContext:        blockMacroCtx,
+								CurrentLineOffset:   0,
+								CurrentColumnOffset: 0,
+								Filename:            position.Filename,
+							}
+
+							// Set $@ in state for dollar substitution
+							state.SetVariable("$@", Symbol(argsMarker))
+						}
+
+						// Execute block content in current scope
+						result := e.ExecuteWithState(
+							string(storedBlock),
+							state,
+							blockSubstCtx,
+							position.Filename,
+							0, 0,
+						)
+						if shouldInvert {
+							return e.invertStatus(result, state, position)
+						}
+						return result
+					}
+				}
+			}
+		}
 	}
 
 	// Parse command
@@ -1214,8 +1247,9 @@ func (e *Executor) executeMacro(
 		macroContext.InvocationFile = position.Filename
 		macroContext.InvocationLine = position.Line
 		macroContext.InvocationColumn = position.Column
-		macroContext.ParentMacro = position.MacroContext
 	}
+	// Parent macro context comes from the current execution state, not the position
+	macroContext.ParentMacro = state.macroContext
 
 	e.logger.DebugCat(CatCommand,"Executing macro defined at %s:%d, called from %s:%d",
 		macro.DefinitionFile, macro.DefinitionLine,
@@ -1238,6 +1272,9 @@ func (e *Executor) executeMacro(
 
 	// Ensure macro state has executor reference
 	macroState.executor = e
+
+	// Set macro context for stack traces
+	macroState.macroContext = macroContext
 
 	// Create a LIST from the arguments (both positional and named) and store it as $@
 	argsList := NewStoredListWithRefs(args, namedArgs, e)
@@ -1286,6 +1323,9 @@ func (e *Executor) executeMacro(
 		state.SetResult(macroState.GetResult())
 		e.logger.DebugCat(CatCommand,"Transferred macro result to parent state: %v", macroState.GetResult())
 	}
+
+	// Merge bubbles from macro state to parent state
+	state.MergeBubbles(macroState)
 
 	// Clean up macro state
 	macroState.ReleaseAllReferences()

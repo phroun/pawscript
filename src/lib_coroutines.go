@@ -400,6 +400,13 @@ func (ps *PawScript) RegisterGeneratorLib() {
 					}
 					ctx.executor.mu.Unlock()
 
+					// Merge bubbles from generator state to caller state
+					ctx.state.MergeBubbles(state)
+					// Clear generator's bubbleMap to avoid duplicate merges
+					state.mu.Lock()
+					state.bubbleMap = make(map[string][]*BubbleEntry)
+					state.mu.Unlock()
+
 					ctx.SetResult(yieldResult.Value)
 					return BoolStatus(true)
 				}
@@ -409,6 +416,13 @@ func (ps *PawScript) RegisterGeneratorLib() {
 					ctx.executor.mu.Lock()
 					delete(ctx.executor.activeTokens, tokenID)
 					ctx.executor.mu.Unlock()
+
+					// Merge bubbles from generator state to caller state
+					ctx.state.MergeBubbles(state)
+					// Clear generator's bubbleMap after merge
+					state.mu.Lock()
+					state.bubbleMap = make(map[string][]*BubbleEntry)
+					state.mu.Unlock()
 
 					if earlyReturn.HasResult {
 						ctx.SetResult(earlyReturn.Result)
@@ -459,6 +473,13 @@ func (ps *PawScript) RegisterGeneratorLib() {
 
 				if earlyReturn, ok := condResult.(EarlyReturn); ok {
 					// Condition returned early - propagate
+					// Merge bubbles from generator state to caller state
+					ctx.state.MergeBubbles(state)
+					// Clear generator's bubbleMap after merge
+					state.mu.Lock()
+					state.bubbleMap = make(map[string][]*BubbleEntry)
+					state.mu.Unlock()
+
 					if earlyReturn.HasResult {
 						ctx.SetResult(earlyReturn.Result)
 					}
@@ -482,6 +503,13 @@ func (ps *PawScript) RegisterGeneratorLib() {
 						}
 					}
 					ctx.executor.mu.Unlock()
+
+					// Merge bubbles from generator state to caller state
+					ctx.state.MergeBubbles(state)
+					// Clear generator's bubbleMap after merge
+					state.mu.Lock()
+					state.bubbleMap = make(map[string][]*BubbleEntry)
+					state.mu.Unlock()
 
 					ctx.SetResult(yieldResult.Value)
 					return BoolStatus(true)
@@ -558,6 +586,13 @@ func (ps *PawScript) RegisterGeneratorLib() {
 						}
 						ctx.executor.mu.Unlock()
 
+						// Merge bubbles from generator state to caller state
+						ctx.state.MergeBubbles(state)
+						// Clear generator's bubbleMap after merge
+						state.mu.Lock()
+						state.bubbleMap = make(map[string][]*BubbleEntry)
+						state.mu.Unlock()
+
 						ctx.SetResult(yieldResult.Value)
 						return BoolStatus(true)
 					}
@@ -567,6 +602,13 @@ func (ps *PawScript) RegisterGeneratorLib() {
 						ctx.executor.mu.Lock()
 						delete(ctx.executor.activeTokens, tokenID)
 						ctx.executor.mu.Unlock()
+
+						// Merge bubbles from generator state to caller state
+						ctx.state.MergeBubbles(state)
+						// Clear generator's bubbleMap after merge
+						state.mu.Lock()
+						state.bubbleMap = make(map[string][]*BubbleEntry)
+						state.mu.Unlock()
 
 						if earlyReturn.HasResult {
 							ctx.SetResult(earlyReturn.Result)
@@ -673,6 +715,13 @@ func (ps *PawScript) RegisterGeneratorLib() {
 				}
 				ctx.executor.mu.Unlock()
 
+				// Merge bubbles from generator state to caller state
+				ctx.state.MergeBubbles(state)
+				// Clear generator's bubbleMap to avoid duplicate merges on next yield
+				state.mu.Lock()
+				state.bubbleMap = make(map[string][]*BubbleEntry)
+				state.mu.Unlock()
+
 				// Return the yielded value
 				ctx.SetResult(yieldResult.Value)
 				return BoolStatus(true)
@@ -731,6 +780,13 @@ func (ps *PawScript) RegisterGeneratorLib() {
 				delete(ctx.executor.activeTokens, tokenID)
 				ctx.executor.mu.Unlock()
 
+				// Merge bubbles from generator state to caller state
+				ctx.state.MergeBubbles(state)
+				// Clear generator's bubbleMap after merge
+				state.mu.Lock()
+				state.bubbleMap = make(map[string][]*BubbleEntry)
+				state.mu.Unlock()
+
 				// Return the result
 				if earlyReturn.HasResult {
 					ctx.SetResult(earlyReturn.Result)
@@ -767,6 +823,13 @@ func (ps *PawScript) RegisterGeneratorLib() {
 		ctx.executor.mu.Lock()
 		delete(ctx.executor.activeTokens, tokenID)
 		ctx.executor.mu.Unlock()
+
+		// Merge any remaining bubbles from generator state to caller state
+		ctx.state.MergeBubbles(state)
+		// Clear generator's bubbleMap after merge
+		state.mu.Lock()
+		state.bubbleMap = make(map[string][]*BubbleEntry)
+		state.mu.Unlock()
 
 		// Return final result with false to signal completion
 		// This allows while (v: {resume ~gen}) pattern to exit cleanly
