@@ -49,3 +49,11 @@ count should be 42
 === Test 14: Dynamic key names ===
 (dynamic: 99)
 Keys: ("dynamic")
+
+=== Test 15: Dot accessor as key ===
+(John: "test")
+Key should be John
+
+=== Test 16: Space index accessor as key ===
+(Bob: "test")
+Key should be Bob

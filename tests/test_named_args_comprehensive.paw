@@ -91,3 +91,19 @@ keyVal: 99
 result4: {list ~keyName: ~keyVal}
 echo ~result4
 echo "Keys:", {keys ~result4}
+
+echo ""
+echo "=== Test 15: Dot accessor as key ==="
+# Dot accessor on left side of named argument
+students: {list firstName: "John", lastName: "Doe"}
+result5: {list ~students.firstName: "test"}
+echo ~result5
+echo "Key should be John"
+
+echo ""
+echo "=== Test 16: Space index accessor as key ==="
+# Space indexing accessor on left side of named argument
+studentNames: {list "Alice", "Bob", "Charlie"}
+result6: {list ~studentNames 1: "test"}
+echo ~result6
+echo "Key should be Bob"
