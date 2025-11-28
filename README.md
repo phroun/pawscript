@@ -113,6 +113,13 @@ See the `examples/` directory for sample scripts and usage patterns.
 - Added documentation for COW (copy-on-write) inheritance system
 - Added documentation for result passing system (result-flow.md)
 - Added Fibonacci benchmark examples
+- Auxiliary math library (math::) with trig functions (sin, cos, tan, atan2, deg, rad, log, log10, ln) and constants (#tau, #e, #phi, #root2, #root3, #root5, #ln2) - requires `IMPORT math`
+- Renamed basic math module from math:: to basicmath:: (auto-imported)
+- Named argument tilde resolution: both keys (`~dynKey:`) and values (`: ~dynVal`) now resolve
+- Accessor syntax support in named argument keys (`~obj.field:`, `~list 0:`)
+- Scope operator `::` for explicit module access
+  - `module::item` searches LibraryRestricted (requires IMPORT first)
+  - `::module::item` searches LibraryInherited (always available, bypasses restrictions)
 
 ### 0.2.7 -- November 27, 2025
 - Move Makefile into a more standard location
