@@ -1765,6 +1765,50 @@ func (ps *PawScript) RegisterTypesLib() {
 		return BoolStatus(true)
 	})
 
+	// number - convert value to number (int64 if exact, float64 otherwise)
+	// Usage: number "42"             -> 42 (int64)
+	//        number "3.14"           -> 3.14 (float64)
+	//        number "abc"            -> nil + failure
+	//        number "abc", 0         -> 0 (default on failure)
+	//        number 42.0             -> 42 (int64, exact)
+	//        number 42.5             -> 42.5 (float64, not exact)
+	ps.RegisterCommandInModule("stdlib", "number", func(ctx *Context) Result {
+		if len(ctx.Args) < 1 {
+			ctx.LogError(CatCommand, "Usage: number <value>, [default]")
+			ctx.SetResult(nil)
+			return BoolStatus(false)
+		}
+
+		value := ctx.Args[0]
+
+		// Resolve any markers
+		resolved := value
+		if ctx.executor != nil {
+			resolved = ctx.executor.resolveValue(value)
+		}
+
+		// Try to convert to number
+		if num, ok := toNumber(resolved); ok {
+			// Check if it can be represented as an integer
+			intVal := int64(num)
+			if float64(intVal) == num {
+				ctx.SetResult(intVal)
+			} else {
+				ctx.SetResult(num)
+			}
+			return BoolStatus(true)
+		}
+
+		// Conversion failed - return default or nil with failure
+		if len(ctx.Args) >= 2 {
+			ctx.SetResult(ctx.Args[1])
+			return BoolStatus(true) // Default provided, success
+		}
+		ctx.LogError(CatType, "Cannot convert to number")
+		ctx.SetResult(nil)
+		return BoolStatus(false)
+	})
+
 	// bool - check truthiness and return true/false symbol
 	// Usage: bool 1         -> true
 	//        bool 0         -> false
