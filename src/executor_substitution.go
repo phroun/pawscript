@@ -223,6 +223,9 @@ func (e *Executor) substituteBraceExpressions(str string, ctx *SubstitutionConte
 			newColumnOffset,
 		)
 
+		// Track that a brace was evaluated (for get_substatus)
+		ctx.BracesEvaluated++
+
 		// Capture the result IMMEDIATELY after execution, before the next brace can overwrite it
 		var capturedResult interface{}
 		var hasCapturedResult bool

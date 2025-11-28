@@ -222,6 +222,13 @@ func (e *Executor) executeSingleCommand(
 	// Apply substitution (which includes brace expressions)
 	commandStr = e.applySubstitution(commandStr, substitutionCtx)
 
+	// Store the brace failure count for get_substatus, but only if:
+	// 1. Braces were evaluated in this command
+	// 2. We're not inside a brace expression (avoid inner commands overwriting outer count)
+	if substitutionCtx.BracesEvaluated > 0 && !state.InBraceExpression {
+		state.SetLastBraceFailureCount(substitutionCtx.BraceFailureCount)
+	}
+
 	// Check if brace evaluation failed
 	if commandStr == "\x00PAWS_FAILED\x00" {
 		// Error already logged by ExecuteWithState with correct position

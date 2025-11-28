@@ -279,6 +279,9 @@ type SubstitutionContext struct {
 	// This is separate from ExecutionState.lastStatus which tracks the main command's status
 	// If > 0, assignment should propagate failure status
 	BraceFailureCount int
+	// BracesEvaluated tracks how many brace expressions were evaluated during substitution
+	// Used to know whether to update lastBraceFailureCount (only if braces were present)
+	BracesEvaluated int
 }
 
 // Config holds configuration for PawScript

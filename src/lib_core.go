@@ -54,6 +54,16 @@ func (ps *PawScript) RegisterCoreLib() {
 		return BoolStatus(status)
 	})
 
+	// get_substatus - gets whether the previous command's brace expressions all succeeded
+	// Returns true (result and status) if no brace expressions returned false status
+	// Returns false (result and status) if any brace expression returned false status
+	ps.RegisterCommandInModule("core", "get_substatus", func(ctx *Context) Result {
+		braceFailures := ctx.state.GetLastBraceFailureCount()
+		success := braceFailures == 0
+		ctx.SetResult(success)
+		return BoolStatus(success)
+	})
+
 	// ret - early return from block
 	ps.RegisterCommandInModule("core", "ret", func(ctx *Context) Result {
 		switch len(ctx.Args) {

@@ -9,15 +9,16 @@ import (
 
 // ExecutionState manages the result state during command execution
 type ExecutionState struct {
-	mu            sync.RWMutex
-	currentResult interface{}
-	hasResult     bool
-	lastStatus    bool // Tracks the status (success/failure) of the last command
-	variables     map[string]interface{}
-	ownedObjects  map[int]int          // Count of references this state owns for each object ID
-	executor      *Executor            // Reference to executor for object management
-	fiberID       int                  // ID of the fiber this state belongs to (0 for main)
-	moduleEnv     *ModuleEnvironment   // Module environment for this state
+	mu                    sync.RWMutex
+	currentResult         interface{}
+	hasResult             bool
+	lastStatus            bool // Tracks the status (success/failure) of the last command
+	lastBraceFailureCount int  // Tracks how many brace expressions returned false in last command
+	variables             map[string]interface{}
+	ownedObjects          map[int]int          // Count of references this state owns for each object ID
+	executor              *Executor            // Reference to executor for object management
+	fiberID               int                  // ID of the fiber this state belongs to (0 for main)
+	moduleEnv             *ModuleEnvironment   // Module environment for this state
 	// InBraceExpression is true when executing inside a brace expression {...}
 	// Commands can check this to return values instead of emitting side effects to #out
 	InBraceExpression bool
@@ -65,14 +66,15 @@ func NewExecutionStateFromSharedVars(parent *ExecutionState) *ExecutionState {
 	defer parent.mu.RUnlock()
 
 	return &ExecutionState{
-		currentResult: parent.currentResult, // Inherit parent's result for get_result
-		hasResult:     parent.hasResult,     // Inherit parent's result state
-		lastStatus:    parent.lastStatus,    // Inherit parent's last status
-		variables:     parent.variables,     // Share the variables map with parent
-		ownedObjects:  make(map[int]int),    // Fresh owned objects counter (will clean up separately)
-		executor:      parent.executor,      // Share executor reference
-		fiberID:       parent.fiberID,       // Inherit fiber ID
-		moduleEnv:     parent.moduleEnv,     // Share module environment with parent
+		currentResult:         parent.currentResult,         // Inherit parent's result for get_result
+		hasResult:             parent.hasResult,             // Inherit parent's result state
+		lastStatus:            parent.lastStatus,            // Inherit parent's last status
+		lastBraceFailureCount: parent.lastBraceFailureCount, // Inherit parent's brace failure count for get_substatus
+		variables:             parent.variables,             // Share the variables map with parent
+		ownedObjects:          make(map[int]int),            // Fresh owned objects counter (will clean up separately)
+		executor:              parent.executor,              // Share executor reference
+		fiberID:               parent.fiberID,               // Inherit fiber ID
+		moduleEnv:             parent.moduleEnv,             // Share module environment with parent
 	}
 }
 
@@ -244,6 +246,20 @@ func (s *ExecutionState) SetLastStatus(status bool) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	s.lastStatus = status
+}
+
+// GetLastBraceFailureCount returns the count of brace expressions that returned false in the last command
+func (s *ExecutionState) GetLastBraceFailureCount() int {
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+	return s.lastBraceFailureCount
+}
+
+// SetLastBraceFailureCount sets the count of brace expressions that returned false
+func (s *ExecutionState) SetLastBraceFailureCount(count int) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	s.lastBraceFailureCount = count
 }
 
 // CreateChild creates a child state that inherits current result
