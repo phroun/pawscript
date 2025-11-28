@@ -19,6 +19,22 @@ z: {list inner: {list val: 42}}
 echo "z.inner.val =", ~z.inner.val
 
 echo ""
+echo "=== Testing multidimensional arrays ==="
+# A 2x3 matrix: [[1,2,3], [4,5,6]]
+matrix: {list {list 1, 2, 3}, {list 4, 5, 6}}
+echo "matrix 0 0 =", ~matrix 0 0
+echo "matrix 0 2 =", ~matrix 0 2
+echo "matrix 1 1 =", ~matrix 1 1
+
+echo ""
+echo "=== Testing positional arrays within named elements ==="
+data: {list items: {list apple, banana, cherry}, count: 3}
+echo "data.items 0 =", ~data.items 0
+echo "data.items 1 =", ~data.items 1
+echo "data.items 2 =", ~data.items 2
+echo "data.count =", ~data.count
+
+echo ""
 echo "=== Testing undefined access ==="
 echo "x.nonexistent =", ~x.nonexistent
 echo "y 99 =", ~y 99

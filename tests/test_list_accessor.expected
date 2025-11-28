@@ -11,6 +11,17 @@ y 2 = third
 === Testing chained accessors ===
 z.inner.val = 42
 
+=== Testing multidimensional arrays ===
+matrix 0 0 = 1
+matrix 0 2 = 3
+matrix 1 1 = 5
+
+=== Testing positional arrays within named elements ===
+data.items 0 = apple
+data.items 1 = banana
+data.items 2 = cherry
+data.count = 3
+
 === Testing undefined access ===
 x.nonexistent = undefined
 y 99 = undefined
