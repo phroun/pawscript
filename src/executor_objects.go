@@ -102,11 +102,15 @@ func (e *Executor) decrementObjectRefCount(objectID int) {
 				e.mu.Lock() // Re-lock for deletion
 			}
 
-			// Release FinalBubbleMap references if it's a fiber handle
+			// Release FinalBubbleMap and BubbleUpMap references if it's a fiber handle
 			if fiberHandle, ok := obj.Value.(*FiberHandle); ok {
 				fiberHandle.mu.Lock()
+				needsUnlock := false
 				if len(fiberHandle.FinalBubbleMap) > 0 {
-					e.mu.Unlock() // Unlock before recursive calls
+					if !needsUnlock {
+						e.mu.Unlock() // Unlock before recursive calls
+						needsUnlock = true
+					}
 					for _, entries := range fiberHandle.FinalBubbleMap {
 						for _, entry := range entries {
 							if sym, ok := entry.Content.(Symbol); ok {
@@ -117,6 +121,24 @@ func (e *Executor) decrementObjectRefCount(objectID int) {
 							}
 						}
 					}
+				}
+				if len(fiberHandle.BubbleUpMap) > 0 {
+					if !needsUnlock {
+						e.mu.Unlock() // Unlock before recursive calls
+						needsUnlock = true
+					}
+					for _, entries := range fiberHandle.BubbleUpMap {
+						for _, entry := range entries {
+							if sym, ok := entry.Content.(Symbol); ok {
+								_, contentID := parseObjectMarker(string(sym))
+								if contentID >= 0 {
+									e.decrementObjectRefCount(contentID)
+								}
+							}
+						}
+					}
+				}
+				if needsUnlock {
 					e.mu.Lock() // Re-lock for deletion
 				}
 				fiberHandle.mu.Unlock()

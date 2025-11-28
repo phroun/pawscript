@@ -94,13 +94,24 @@ func (e *Executor) SpawnFiber(macro *StoredMacro, args []interface{}, namedArgs 
 			handle.mu.Lock()
 			handle.Completed = true
 
-			// Preserve bubbleMap before releasing references
-			// Transfer ownership by claiming refs for bubble content
+			// Preserve bubbles before releasing references
+			// First merge any unretrieved bubbleUpMap, then bubbleMap
 			handle.State.mu.Lock()
-			if len(handle.State.bubbleMap) > 0 {
-				handle.FinalBubbleMap = make(map[string][]*BubbleEntry)
+			hasBubbleUp := len(handle.BubbleUpMap) > 0
+			hasBubbles := len(handle.State.bubbleMap) > 0
+			if hasBubbleUp || hasBubbles {
+				if handle.FinalBubbleMap == nil {
+					handle.FinalBubbleMap = make(map[string][]*BubbleEntry)
+				}
+				// First, merge unretrieved BubbleUpMap entries (already have refs claimed)
+				for flavor, entries := range handle.BubbleUpMap {
+					handle.FinalBubbleMap[flavor] = append(handle.FinalBubbleMap[flavor], entries...)
+				}
+				// Clear BubbleUpMap now that it's merged
+				handle.BubbleUpMap = nil
+				// Then merge bubbleMap entries, claiming refs for each
 				for flavor, entries := range handle.State.bubbleMap {
-					handle.FinalBubbleMap[flavor] = entries
+					handle.FinalBubbleMap[flavor] = append(handle.FinalBubbleMap[flavor], entries...)
 					// Claim reference for each bubble's content to keep it alive
 					for _, entry := range entries {
 						if sym, ok := entry.Content.(Symbol); ok {

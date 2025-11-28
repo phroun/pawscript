@@ -236,4 +236,126 @@ func (ps *PawScript) RegisterFibersLib() {
 
 		return BoolStatus(true)
 	})
+
+	// fiber_bubble - early bubble transfer between fiber and parent
+	// fiber_bubble up - from within fiber, moves bubbleMap to bubbleUpMap (available to parent)
+	// fiber_bubble <handle> - from parent, retrieves bubbleUpMap from fiber into caller's bubbleMap
+	ps.RegisterCommandInModule("fibers", "fiber_bubble", func(ctx *Context) Result {
+		if len(ctx.Args) < 1 {
+			ps.logger.ErrorCat(CatCommand, "Usage: fiber_bubble up | fiber_bubble <fiber_handle>")
+			return BoolStatus(false)
+		}
+
+		// Check for "up" mode (called from within a fiber)
+		if sym, ok := ctx.Args[0].(Symbol); ok && string(sym) == "up" {
+			// Get current fiber ID
+			fiberID := ctx.state.fiberID
+			if fiberID == 0 {
+				ps.logger.ErrorCat(CatCommand, "fiber_bubble up: not running in a fiber")
+				return BoolStatus(false)
+			}
+
+			// Find our fiber handle
+			ctx.executor.mu.RLock()
+			handle, exists := ctx.executor.activeFibers[fiberID]
+			ctx.executor.mu.RUnlock()
+
+			if !exists {
+				ps.logger.ErrorCat(CatCommand, "fiber_bubble up: fiber handle not found")
+				return BoolStatus(false)
+			}
+
+			// Move bubbleMap entries to bubbleUpMap
+			ctx.state.mu.Lock()
+			if len(ctx.state.bubbleMap) > 0 {
+				handle.mu.Lock()
+				if handle.BubbleUpMap == nil {
+					handle.BubbleUpMap = make(map[string][]*BubbleEntry)
+				}
+				for flavor, entries := range ctx.state.bubbleMap {
+					// Claim refs for each entry's content (will be released when retrieved)
+					for _, entry := range entries {
+						if sym, ok := entry.Content.(Symbol); ok {
+							_, objectID := parseObjectMarker(string(sym))
+							if objectID >= 0 {
+								ctx.executor.incrementObjectRefCount(objectID)
+							}
+						}
+					}
+					handle.BubbleUpMap[flavor] = append(handle.BubbleUpMap[flavor], entries...)
+				}
+				handle.mu.Unlock()
+				// Clear the fiber's bubbleMap
+				ctx.state.bubbleMap = make(map[string][]*BubbleEntry)
+			}
+			ctx.state.mu.Unlock()
+
+			return BoolStatus(true)
+		}
+
+		// Handle mode: retrieve bubbleUpMap from a fiber handle
+		var handle *FiberHandle
+		if h, ok := ctx.Args[0].(*FiberHandle); ok {
+			handle = h
+		} else if sym, ok := ctx.Args[0].(Symbol); ok {
+			markerType, objectID := parseObjectMarker(string(sym))
+			if markerType == "fiber" && objectID >= 0 {
+				obj, exists := ctx.executor.getObject(objectID)
+				if !exists {
+					ps.logger.ErrorCat(CatArgument, "Fiber object %d not found", objectID)
+					return BoolStatus(false)
+				}
+				if h, ok := obj.(*FiberHandle); ok {
+					handle = h
+				}
+			}
+		} else if str, ok := ctx.Args[0].(string); ok {
+			markerType, objectID := parseObjectMarker(str)
+			if markerType == "fiber" && objectID >= 0 {
+				obj, exists := ctx.executor.getObject(objectID)
+				if !exists {
+					ps.logger.ErrorCat(CatArgument, "Fiber object %d not found", objectID)
+					return BoolStatus(false)
+				}
+				if h, ok := obj.(*FiberHandle); ok {
+					handle = h
+				}
+			}
+		}
+
+		if handle == nil {
+			ps.logger.ErrorCat(CatArgument, "fiber_bubble: argument must be 'up' or a fiber handle")
+			return BoolStatus(false)
+		}
+
+		// Retrieve bubbleUpMap from fiber and merge into caller's bubbleMap
+		handle.mu.Lock()
+		if len(handle.BubbleUpMap) > 0 {
+			ctx.state.mu.Lock()
+			if ctx.state.bubbleMap == nil {
+				ctx.state.bubbleMap = make(map[string][]*BubbleEntry)
+			}
+			for flavor, entries := range handle.BubbleUpMap {
+				ctx.state.bubbleMap[flavor] = append(ctx.state.bubbleMap[flavor], entries...)
+				// Transfer ownership: caller claims refs, release the staging refs
+				for _, entry := range entries {
+					if sym, ok := entry.Content.(Symbol); ok {
+						_, objectID := parseObjectMarker(string(sym))
+						if objectID >= 0 {
+							// Caller claims the reference
+							ctx.state.ownedObjects[objectID]++
+							// Release the staging ref we added in "up" mode
+							ctx.executor.decrementObjectRefCount(objectID)
+						}
+					}
+				}
+			}
+			ctx.state.mu.Unlock()
+			// Clear the fiber's bubbleUpMap after retrieval
+			handle.BubbleUpMap = make(map[string][]*BubbleEntry)
+		}
+		handle.mu.Unlock()
+
+		return BoolStatus(true)
+	})
 }

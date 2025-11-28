@@ -572,6 +572,7 @@ type FiberHandle struct {
 	CompleteChan   chan struct{}             // Closed when fiber completes
 	Completed      bool                      // True when fiber has finished
 	FinalBubbleMap map[string][]*BubbleEntry // Preserved bubbleMap after fiber completion
+	BubbleUpMap    map[string][]*BubbleEntry // Early bubble staging area (for fiber_bubble)
 }
 
 // StoredList represents an immutable list of values with optional named arguments
