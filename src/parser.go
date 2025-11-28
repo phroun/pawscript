@@ -7,6 +7,10 @@ import (
 	"unicode"
 )
 
+// ScopeMarker is the special marker for scope operator ::
+// Used to distinguish module::item from named argument syntax
+const ScopeMarker = "\x00SCOPE\x00"
+
 // SourceMap maps transformed positions to original positions
 type SourceMap struct {
 	Filename              string
@@ -1593,6 +1597,19 @@ func (p *Parser) NormalizeKeywords(source string) string {
 			}
 			resultPosition++
 			i++
+			continue
+		}
+
+		// Check for scope operator '::' (2 characters) - convert to marker
+		if char == ':' && i+1 < len(runes) && runes[i+1] == ':' {
+			// Write scope marker
+			result.WriteString(ScopeMarker)
+			// Map to original position
+			if origPos := p.sourceMap.GetOriginalPosition(i); origPos != nil {
+				newMappings[resultPosition] = origPos
+			}
+			resultPosition += len(ScopeMarker)
+			i += 2 // Skip both colons
 			continue
 		}
 
