@@ -1939,6 +1939,69 @@ func (ps *PawScript) RegisterTypesLib() {
 		ctx.SetResult(Symbol(result))
 		return BoolStatus(true)
 	})
+
+	// block - convert string or list to a StoredBlock (executable code block)
+	// Usage: block "echo hello"           -> block that echoes hello
+	//        block ~mylist                 -> joins list items with newlines into block
+	//        block ~myStringVar            -> creates block from string variable
+	// This is the inverse of getting a block's code content
+	ps.RegisterCommandInModule("stdlib", "block", func(ctx *Context) Result {
+		if len(ctx.Args) < 1 {
+			ctx.LogError(CatCommand, "Usage: block <string|list>")
+			ctx.SetResult(nil)
+			return BoolStatus(false)
+		}
+
+		value := ctx.Args[0]
+
+		// Resolve any markers
+		resolved := value
+		if ctx.executor != nil {
+			resolved = ctx.executor.resolveValue(value)
+		}
+
+		var code string
+
+		switch v := resolved.(type) {
+		case string:
+			code = v
+		case QuotedString:
+			code = string(v)
+		case StoredString:
+			code = string(v)
+		case Symbol:
+			code = string(v)
+		case StoredList:
+			// Join list items with newlines to form code
+			items := v.Items()
+			lines := make([]string, len(items))
+			for i, item := range items {
+				itemResolved := item
+				if ctx.executor != nil {
+					itemResolved = ctx.executor.resolveValue(item)
+				}
+				lines[i] = fmt.Sprintf("%v", itemResolved)
+			}
+			code = strings.Join(lines, "\n")
+		case ParenGroup:
+			// Already a block-like thing, just use its content
+			code = string(v)
+		case StoredBlock:
+			// Already a block, return as-is
+			code = string(v)
+		default:
+			ctx.LogError(CatType, fmt.Sprintf("Cannot convert %s to block", getTypeName(resolved)))
+			ctx.SetResult(nil)
+			return BoolStatus(false)
+		}
+
+		// Store as StoredBlock and return marker
+		block := StoredBlock(code)
+		id := ctx.executor.storeObject(block, "block")
+		marker := fmt.Sprintf("\x00BLOCK:%d\x00", id)
+		ctx.state.SetResultWithoutClaim(Symbol(marker))
+		return BoolStatus(true)
+	})
 }
 
 // sortItemsDefault sorts items using the default PawScript ordering:

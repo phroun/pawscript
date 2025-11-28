@@ -480,6 +480,38 @@ func (ps *PawScript) RegisterCoreLib() {
 					return ps.executor.ExecuteWithState(commands, macroExecState, substCtx, filename, lineOffset, columnOffset)
 				}, callArgs, ctx.NamedArgs, childState, ctx.Position, ctx.state)
 			}
+
+			if markerType == "block" && objectID >= 0 {
+				ps.logger.DebugCat(CatMacro,"Calling StoredBlock via marker (object %d)", objectID)
+
+				obj, exists := ctx.executor.getObject(objectID)
+				if !exists {
+					ps.logger.ErrorCat(CatArgument, "Block object %d not found", objectID)
+					return BoolStatus(false)
+				}
+
+				block, ok := obj.(StoredBlock)
+				if !ok {
+					ps.logger.ErrorCat(CatArgument, "Object %d is not a StoredBlock", objectID)
+					return BoolStatus(false)
+				}
+
+				// Execute block as code - create a temporary macro from it
+				macroEnv := NewMacroModuleEnvironment(ctx.state.moduleEnv)
+				macro := NewStoredMacroWithEnv(string(block), ctx.Position, macroEnv)
+
+				return ps.executor.ExecuteStoredMacro(&macro, func(commands string, macroExecState *ExecutionState, substCtx *SubstitutionContext) Result {
+					filename := ""
+					lineOffset := 0
+					columnOffset := 0
+					if substCtx != nil {
+						filename = substCtx.Filename
+						lineOffset = substCtx.CurrentLineOffset
+						columnOffset = substCtx.CurrentColumnOffset
+					}
+					return ps.executor.ExecuteWithState(commands, macroExecState, substCtx, filename, lineOffset, columnOffset)
+				}, callArgs, ctx.NamedArgs, childState, ctx.Position, ctx.state)
+			}
 		}
 
 	// Check if the first argument is a marker (string type, from $1 substitution etc.)
@@ -533,6 +565,38 @@ func (ps *PawScript) RegisterCoreLib() {
 				ps.logger.ErrorCat(CatArgument, "Object %d is not a StoredMacro", objectID)
 				return BoolStatus(false)
 			}
+
+			return ps.executor.ExecuteStoredMacro(&macro, func(commands string, macroExecState *ExecutionState, substCtx *SubstitutionContext) Result {
+				filename := ""
+				lineOffset := 0
+				columnOffset := 0
+				if substCtx != nil {
+					filename = substCtx.Filename
+					lineOffset = substCtx.CurrentLineOffset
+					columnOffset = substCtx.CurrentColumnOffset
+				}
+				return ps.executor.ExecuteWithState(commands, macroExecState, substCtx, filename, lineOffset, columnOffset)
+			}, callArgs, ctx.NamedArgs, childState, ctx.Position, ctx.state)
+		}
+
+		if markerType == "block" && objectID >= 0 {
+			ps.logger.DebugCat(CatMacro,"Calling StoredBlock via string marker (object %d)", objectID)
+
+			obj, exists := ctx.executor.getObject(objectID)
+			if !exists {
+				ps.logger.ErrorCat(CatArgument, "Block object %d not found", objectID)
+				return BoolStatus(false)
+			}
+
+			block, ok := obj.(StoredBlock)
+			if !ok {
+				ps.logger.ErrorCat(CatArgument, "Object %d is not a StoredBlock", objectID)
+				return BoolStatus(false)
+			}
+
+			// Execute block as code - create a temporary macro from it
+			macroEnv := NewMacroModuleEnvironment(ctx.state.moduleEnv)
+			macro := NewStoredMacroWithEnv(string(block), ctx.Position, macroEnv)
 
 			return ps.executor.ExecuteStoredMacro(&macro, func(commands string, macroExecState *ExecutionState, substCtx *SubstitutionContext) Result {
 				filename := ""

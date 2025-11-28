@@ -88,4 +88,23 @@ symbol nil: <nil>
 -- symbol (lists) --
 symbol (a, b, c): a, b, c
 
+=== BLOCK COMMAND ===
+
+-- block (from string) --
+block from string:
+block executed
+
+-- block (from ParenGroup) --
+block from ParenGroup:
+from paren
+
+-- block (from list) --
+block from list:
+line1
+line2
+
+-- block (with arguments) --
+block with arg:
+arg: test-value
+
 === ALL TESTS COMPLETE ===
