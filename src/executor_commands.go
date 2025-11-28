@@ -483,13 +483,15 @@ func (e *Executor) executeSingleCommand(
 		}
 	}
 
-	// Command not found
+	// Command not found - set result to undefined marker and return false status
+	// Note: Using UndefinedMarker not Symbol("undefined") because the bare
+	// symbol has special handling in SetResult that clears the result
 	e.logger.UnknownCommandError(cmdName, position, nil)
-	result := BoolStatus(false)
+	state.SetResult(Symbol(UndefinedMarker))
 	if shouldInvert {
-		return BoolStatus(!bool(result))
+		return BoolStatus(true)
 	}
-	return result
+	return BoolStatus(false)
 }
 
 // applySyntacticSugar applies syntactic sugar transformations

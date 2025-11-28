@@ -795,6 +795,13 @@ func (e *Executor) formatBraceResult(value interface{}, originalString string, b
 
 	// If it's a Symbol that might be a marker, return it unchanged to preserve the reference
 	if sym, ok := value.(Symbol); ok {
+		// Handle undefined marker specially
+		if string(sym) == UndefinedMarker {
+			if insideQuotes {
+				return "<undefined>"
+			}
+			return "undefined"
+		}
 		if objType, objID := parseObjectMarker(string(sym)); objID >= 0 {
 			// It's an object marker - pass it through unchanged
 			// Don't resolve and re-store, that would create duplicate storage entries!

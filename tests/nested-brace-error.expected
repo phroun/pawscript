@@ -1,2 +1,4 @@
 [PawScript ERROR] Unknown command: another_undefined_command
   at line 2, column 33 in nested-brace-error.paw
+
+Outermagoo: true

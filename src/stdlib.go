@@ -418,8 +418,12 @@ func getTypeName(val interface{}) string {
 		// QuotedString is still a string type, just with different formatting
 		return "string"
 	case Symbol:
-		// Check for token marker (special case - token IDs are strings, not ints)
 		str := string(v)
+		// Check for undefined marker
+		if str == UndefinedMarker {
+			return "undefined"
+		}
+		// Check for token marker (special case - token IDs are strings, not ints)
 		if strings.HasPrefix(str, "\x00TOKEN:") && strings.HasSuffix(str, "\x00") {
 			return "token"
 		}
