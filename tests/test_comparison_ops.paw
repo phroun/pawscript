@@ -1,0 +1,93 @@
+# Test comparison operators (eq, neq, lt, gt, lte, gte)
+# Multi-argument support, single-list mode, deep equality for eq/neq
+
+echo "=== eq (all equal) ==="
+echo "eq 1, 1:", {eq 1, 1}
+echo "eq 1, 2:", {eq 1, 2}
+echo "eq 1, 1, 1:", {eq 1, 1, 1}
+echo "eq 1, 1, 2:", {eq 1, 1, 2}
+echo "eq 1, 1, 1, 1, 1:", {eq 1, 1, 1, 1, 1}
+
+# Deep equality for lists
+list1: {list 1, 2, 3}
+list2: {list 1, 2, 3}
+list3: {list 1, 2, 4}
+echo "eq ~list1, ~list2 (deep):", {eq ~list1, ~list2}
+echo "eq ~list1, ~list3 (deep):", {eq ~list1, ~list3}
+
+# Nested list deep equality
+inner1: {list a, b}
+inner2: {list a, b}
+outer1: {list 1, ~inner1, 2}
+outer2: {list 1, ~inner2, 2}
+echo "eq nested lists:", {eq ~outer1, ~outer2}
+
+# Single list mode - compare items within list
+allsame: {list 5, 5, 5, 5}
+echo "eq ~allsame (single list):", {eq ~allsame}
+mixed: {list 5, 5, 6}
+echo "eq ~mixed:", {eq ~mixed}
+
+echo ""
+echo "=== neq (at least one different) ==="
+echo "neq 1, 1:", {neq 1, 1}
+echo "neq 1, 2:", {neq 1, 2}
+echo "neq 1, 1, 2:", {neq 1, 1, 2}
+echo "neq 1, 2, 3:", {neq 1, 2, 3}
+echo "neq ~allsame:", {neq ~allsame}
+echo "neq ~mixed:", {neq ~mixed}
+
+# Deep equality in neq
+echo "neq ~list1, ~list2:", {neq ~list1, ~list2}
+echo "neq ~list1, ~list3:", {neq ~list1, ~list3}
+
+echo ""
+echo "=== lt (strictly ascending) ==="
+echo "lt 1, 2:", {lt 1, 2}
+echo "lt 2, 1:", {lt 2, 1}
+echo "lt 1, 2, 3:", {lt 1, 2, 3}
+echo "lt 1, 2, 2:", {lt 1, 2, 2}
+echo "lt 1, 3, 2:", {lt 1, 3, 2}
+
+# Single list mode
+asc: {list 1, 2, 3, 4, 5}
+desc: {list 5, 4, 3, 2, 1}
+flat: {list 2, 2, 2}
+echo "lt ~asc:", {lt ~asc}
+echo "lt ~desc:", {lt ~desc}
+echo "lt ~flat:", {lt ~flat}
+
+# String comparison
+echo "lt a, b, c:", {lt a, b, c}
+echo "lt c, b, a:", {lt c, b, a}
+
+echo ""
+echo "=== gt (strictly descending) ==="
+echo "gt 2, 1:", {gt 2, 1}
+echo "gt 1, 2:", {gt 1, 2}
+echo "gt 3, 2, 1:", {gt 3, 2, 1}
+echo "gt 3, 2, 2:", {gt 3, 2, 2}
+echo "gt ~desc:", {gt ~desc}
+echo "gt ~asc:", {gt ~asc}
+echo "gt ~flat:", {gt ~flat}
+
+echo ""
+echo "=== lte (ascending or equal) ==="
+echo "lte 1, 2:", {lte 1, 2}
+echo "lte 1, 1:", {lte 1, 1}
+echo "lte 2, 1:", {lte 2, 1}
+echo "lte 1, 1, 2, 2, 3:", {lte 1, 1, 2, 2, 3}
+echo "lte 1, 2, 1:", {lte 1, 2, 1}
+echo "lte ~flat:", {lte ~flat}
+
+echo ""
+echo "=== gte (descending or equal) ==="
+echo "gte 2, 1:", {gte 2, 1}
+echo "gte 2, 2:", {gte 2, 2}
+echo "gte 1, 2:", {gte 1, 2}
+echo "gte 3, 2, 2, 1:", {gte 3, 2, 2, 1}
+echo "gte 3, 2, 3:", {gte 3, 2, 3}
+echo "gte ~flat:", {gte ~flat}
+
+echo ""
+echo "=== ALL TESTS COMPLETE ==="

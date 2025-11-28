@@ -342,106 +342,241 @@ func (ps *PawScript) RegisterMathLib() {
 
 	// ==================== cmp:: module ====================
 
+	// Helper to get comparison items - either from args directly or from single list arg
+	getComparisonItems := func(ctx *Context) []interface{} {
+		if len(ctx.Args) == 1 {
+			// Single argument - if it's a list, use its items
+			if list, ok := ctx.Args[0].(StoredList); ok {
+				return list.Items()
+			}
+			// Single non-list argument - return as-is
+			return ctx.Args
+		}
+		return ctx.Args
+	}
+
+	// Helper to check if a value is a list type (for ordering comparison errors)
+	isListType := func(v interface{}) bool {
+		switch v.(type) {
+		case StoredList:
+			return true
+		case Symbol:
+			// Check if it's a list marker
+			if markerType, _ := parseObjectMarker(string(v.(Symbol))); markerType == "list" {
+				return true
+			}
+		}
+		return false
+	}
+
+	// eq - all arguments are equal (uses deep equality)
+	// With 2+ args: eq a, b, c -> all equal
+	// With single list: eq ~mylist -> all items in list are equal
 	ps.RegisterCommandInModule("cmp", "eq", func(ctx *Context) Result {
-		if len(ctx.Args) < 2 {
-			ctx.LogError(CatCommand, "Usage: eq <a>, <b>")
+		items := getComparisonItems(ctx)
+		if len(items) < 2 {
+			ctx.LogError(CatCommand, "Usage: eq <a>, <b> [, ...] or eq <list>")
 			ctx.SetResult(false)
 			return BoolStatus(false)
 		}
-		// Resolve markers before comparing
-		resolved0 := ctx.executor.resolveValue(ctx.Args[0])
-		resolved1 := ctx.executor.resolveValue(ctx.Args[1])
-		result := fmt.Sprintf("%v", resolved0) == fmt.Sprintf("%v", resolved1)
-		ctx.SetResult(result)
-		return BoolStatus(result)
+
+		// Compare all items with deep equality
+		first := items[0]
+		for i := 1; i < len(items); i++ {
+			if !deepEqual(first, items[i], ctx.executor) {
+				ctx.SetResult(false)
+				return BoolStatus(false)
+			}
+		}
+		ctx.SetResult(true)
+		return BoolStatus(true)
 	})
 
+	// neq - at least one argument is not equal to another (uses deep equality)
+	// With 2+ args: neq a, b, c -> at least one differs
+	// With single list: neq ~mylist -> at least one item differs from another
+	ps.RegisterCommandInModule("cmp", "neq", func(ctx *Context) Result {
+		items := getComparisonItems(ctx)
+		if len(items) < 2 {
+			ctx.LogError(CatCommand, "Usage: neq <a>, <b> [, ...] or neq <list>")
+			ctx.SetResult(false)
+			return BoolStatus(false)
+		}
+
+		// Check if at least one pair is not equal
+		first := items[0]
+		for i := 1; i < len(items); i++ {
+			if !deepEqual(first, items[i], ctx.executor) {
+				ctx.SetResult(true)
+				return BoolStatus(true)
+			}
+		}
+		ctx.SetResult(false)
+		return BoolStatus(false)
+	})
+
+	// lt - all arguments are in strictly ascending order
+	// With 2+ args: lt a, b, c -> a < b < c
+	// With single list: lt ~mylist -> all items in ascending order
 	ps.RegisterCommandInModule("cmp", "lt", func(ctx *Context) Result {
-		if len(ctx.Args) < 2 {
-			ctx.LogError(CatCommand, "Usage: lt <a>, <b>")
+		items := getComparisonItems(ctx)
+		if len(items) < 2 {
+			ctx.LogError(CatCommand, "Usage: lt <a>, <b> [, ...] or lt <list>")
 			ctx.SetResult(false)
 			return BoolStatus(false)
 		}
-		// Resolve markers first
-		resolved0 := ctx.executor.resolveValue(ctx.Args[0])
-		resolved1 := ctx.executor.resolveValue(ctx.Args[1])
-		a, aOk := toNumber(resolved0)
-		b, bOk := toNumber(resolved1)
-		if aOk && bOk {
-			result := a < b
-			ctx.SetResult(result)
-			return BoolStatus(result)
+
+		for i := 0; i < len(items)-1; i++ {
+			resolved0 := ctx.executor.resolveValue(items[i])
+			resolved1 := ctx.executor.resolveValue(items[i+1])
+
+			// Check for list types - can't compare ordering
+			if isListType(resolved0) || isListType(resolved1) {
+				ctx.LogError(CatMath, "Cannot compare ordering of list types")
+				ctx.SetResult(false)
+				return BoolStatus(false)
+			}
+
+			a, aOk := toNumber(resolved0)
+			b, bOk := toNumber(resolved1)
+			if aOk && bOk {
+				if !(a < b) {
+					ctx.SetResult(false)
+					return BoolStatus(false)
+				}
+			} else {
+				// String comparison as fallback
+				if !(fmt.Sprintf("%v", resolved0) < fmt.Sprintf("%v", resolved1)) {
+					ctx.SetResult(false)
+					return BoolStatus(false)
+				}
+			}
 		}
-		// String comparison as fallback
-		result := fmt.Sprintf("%v", resolved0) < fmt.Sprintf("%v", resolved1)
-		ctx.SetResult(result)
-		return BoolStatus(result)
+		ctx.SetResult(true)
+		return BoolStatus(true)
 	})
 
+	// gt - all arguments are in strictly descending order
+	// With 2+ args: gt a, b, c -> a > b > c
+	// With single list: gt ~mylist -> all items in descending order
 	ps.RegisterCommandInModule("cmp", "gt", func(ctx *Context) Result {
-		if len(ctx.Args) < 2 {
-			ctx.LogError(CatCommand, "Usage: gt <a>, <b>")
+		items := getComparisonItems(ctx)
+		if len(items) < 2 {
+			ctx.LogError(CatCommand, "Usage: gt <a>, <b> [, ...] or gt <list>")
 			ctx.SetResult(false)
 			return BoolStatus(false)
 		}
-		// Resolve markers first
-		resolved0 := ctx.executor.resolveValue(ctx.Args[0])
-		resolved1 := ctx.executor.resolveValue(ctx.Args[1])
-		a, aOk := toNumber(resolved0)
-		b, bOk := toNumber(resolved1)
-		if aOk && bOk {
-			result := a > b
-			ctx.SetResult(result)
-			return BoolStatus(result)
+
+		for i := 0; i < len(items)-1; i++ {
+			resolved0 := ctx.executor.resolveValue(items[i])
+			resolved1 := ctx.executor.resolveValue(items[i+1])
+
+			// Check for list types - can't compare ordering
+			if isListType(resolved0) || isListType(resolved1) {
+				ctx.LogError(CatMath, "Cannot compare ordering of list types")
+				ctx.SetResult(false)
+				return BoolStatus(false)
+			}
+
+			a, aOk := toNumber(resolved0)
+			b, bOk := toNumber(resolved1)
+			if aOk && bOk {
+				if !(a > b) {
+					ctx.SetResult(false)
+					return BoolStatus(false)
+				}
+			} else {
+				// String comparison as fallback
+				if !(fmt.Sprintf("%v", resolved0) > fmt.Sprintf("%v", resolved1)) {
+					ctx.SetResult(false)
+					return BoolStatus(false)
+				}
+			}
 		}
-		// String comparison as fallback
-		result := fmt.Sprintf("%v", resolved0) > fmt.Sprintf("%v", resolved1)
-		ctx.SetResult(result)
-		return BoolStatus(result)
+		ctx.SetResult(true)
+		return BoolStatus(true)
 	})
 
+	// gte - all arguments are in descending or equal order
+	// With 2+ args: gte a, b, c -> a >= b >= c
+	// With single list: gte ~mylist -> all items in descending or equal order
 	ps.RegisterCommandInModule("cmp", "gte", func(ctx *Context) Result {
-		if len(ctx.Args) < 2 {
-			ctx.LogError(CatCommand, "Usage: gte <a>, <b>")
+		items := getComparisonItems(ctx)
+		if len(items) < 2 {
+			ctx.LogError(CatCommand, "Usage: gte <a>, <b> [, ...] or gte <list>")
 			ctx.SetResult(false)
 			return BoolStatus(false)
 		}
-		// Resolve markers first
-		resolved0 := ctx.executor.resolveValue(ctx.Args[0])
-		resolved1 := ctx.executor.resolveValue(ctx.Args[1])
-		a, aOk := toNumber(resolved0)
-		b, bOk := toNumber(resolved1)
-		if aOk && bOk {
-			result := a >= b
-			ctx.SetResult(result)
-			return BoolStatus(result)
+
+		for i := 0; i < len(items)-1; i++ {
+			resolved0 := ctx.executor.resolveValue(items[i])
+			resolved1 := ctx.executor.resolveValue(items[i+1])
+
+			// Check for list types - can't compare ordering
+			if isListType(resolved0) || isListType(resolved1) {
+				ctx.LogError(CatMath, "Cannot compare ordering of list types")
+				ctx.SetResult(false)
+				return BoolStatus(false)
+			}
+
+			a, aOk := toNumber(resolved0)
+			b, bOk := toNumber(resolved1)
+			if aOk && bOk {
+				if !(a >= b) {
+					ctx.SetResult(false)
+					return BoolStatus(false)
+				}
+			} else {
+				// String comparison as fallback
+				if !(fmt.Sprintf("%v", resolved0) >= fmt.Sprintf("%v", resolved1)) {
+					ctx.SetResult(false)
+					return BoolStatus(false)
+				}
+			}
 		}
-		// String comparison as fallback
-		result := fmt.Sprintf("%v", resolved0) >= fmt.Sprintf("%v", resolved1)
-		ctx.SetResult(result)
-		return BoolStatus(result)
+		ctx.SetResult(true)
+		return BoolStatus(true)
 	})
 
+	// lte - all arguments are in ascending or equal order
+	// With 2+ args: lte a, b, c -> a <= b <= c
+	// With single list: lte ~mylist -> all items in ascending or equal order
 	ps.RegisterCommandInModule("cmp", "lte", func(ctx *Context) Result {
-		if len(ctx.Args) < 2 {
-			ctx.LogError(CatCommand, "Usage: lte <a>, <b>")
+		items := getComparisonItems(ctx)
+		if len(items) < 2 {
+			ctx.LogError(CatCommand, "Usage: lte <a>, <b> [, ...] or lte <list>")
 			ctx.SetResult(false)
 			return BoolStatus(false)
 		}
-		// Resolve markers first
-		resolved0 := ctx.executor.resolveValue(ctx.Args[0])
-		resolved1 := ctx.executor.resolveValue(ctx.Args[1])
-		a, aOk := toNumber(resolved0)
-		b, bOk := toNumber(resolved1)
-		if aOk && bOk {
-			result := a <= b
-			ctx.SetResult(result)
-			return BoolStatus(result)
+
+		for i := 0; i < len(items)-1; i++ {
+			resolved0 := ctx.executor.resolveValue(items[i])
+			resolved1 := ctx.executor.resolveValue(items[i+1])
+
+			// Check for list types - can't compare ordering
+			if isListType(resolved0) || isListType(resolved1) {
+				ctx.LogError(CatMath, "Cannot compare ordering of list types")
+				ctx.SetResult(false)
+				return BoolStatus(false)
+			}
+
+			a, aOk := toNumber(resolved0)
+			b, bOk := toNumber(resolved1)
+			if aOk && bOk {
+				if !(a <= b) {
+					ctx.SetResult(false)
+					return BoolStatus(false)
+				}
+			} else {
+				// String comparison as fallback
+				if !(fmt.Sprintf("%v", resolved0) <= fmt.Sprintf("%v", resolved1)) {
+					ctx.SetResult(false)
+					return BoolStatus(false)
+				}
+			}
 		}
-		// String comparison as fallback
-		result := fmt.Sprintf("%v", resolved0) <= fmt.Sprintf("%v", resolved1)
-		ctx.SetResult(result)
-		return BoolStatus(result)
+		ctx.SetResult(true)
+		return BoolStatus(true)
 	})
 
 	// if - normalize truthy/falsy values to boolean
