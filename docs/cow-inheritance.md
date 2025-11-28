@@ -4,18 +4,39 @@ PawScript uses a copy-on-write (COW) pattern for its module environment system. 
 
 ## Core Concept
 
-Each `ModuleEnvironment` contains paired registries that follow the COW pattern:
+### LibraryInherited
 
-| Inherited (read-only base) | Module (working copy) |
-|---------------------------|----------------------|
-| `CommandRegistryInherited` | `CommandRegistryModule` |
-| `MacrosInherited` | `MacrosModule` |
-| `ObjectsInherited` | `ObjectsModule` |
-| `ItemMetadataInherited` | `ItemMetadataModule` |
-| `LogConfigInherited` | `LogConfigModule` |
-| `LibraryInherited` | `LibraryRestricted` |
+`LibraryInherited` holds all items available for the current Environment to IMPORT.
 
-## The Key Insight: Shared References
+They may be removed by using the `LIBRARY "forget ..."` supercommand.
+
+### LibraryRestricted
+
+`LibraryRestricted` holds all items which will be available to child Environments,
+such as Macros or included modules.
+
+The items in LibraryRestricted are essentially a subset of the items in LibraryInherited, and
+are managed by LIBRARY "restrict ..." and LIBRARY "allow..."
+
+Up until the first change, however, LibraryRestricted is just a reference that points to the
+very same underlying map as LibraryInherited.  This is to save time and memory so that it only
+needs to be duplicated if a more restrictive Child Environment is being prepared.
+
+###  Commands, Macros, Objects, and their MetaData
+
+Each `ModuleEnvironment` contains paired registries for three types of imported library items
+that follow the COW pattern:
+
+| Inherited (unchanged original) | Module (reference or COW working copy) | Purpose of working Copy |
+| `CommandRegistryInherited` | `CommandRegistryModule` |  |
+| `MacrosInherited` | `MacrosModule` | Managed by IMPORT and REMOVE super commands. |
+| `ObjectsInherited` | `ObjectsModule` | Managed by IMPORT and REMOVE super commands. |
+| `ItemMetadataInherited` | `ItemMetadataModule` | Managed by IMPORT and REMOVE super commands. |
+
+For each of these, the Module version is managed by the IMPORT and REMOVE super commands.
+The items brought in from an IMPORT command are sourced from `LibraryRestricted`.
+
+## Critical: Shared References
 
 **Initially, both the Inherited and Module fields point to the exact same underlying map.**
 
@@ -34,6 +55,7 @@ This means:
 - Reading from either field returns the same data
 - Adding to `ObjectsInherited` is immediately visible via `ObjectsModule`
 - No memory is duplicated until a modification triggers COW
+- You should be reading from the Module version to find out the current state from the Child's point of view
 
 ## When COW Triggers
 
@@ -137,7 +159,7 @@ The COW pattern is memory-efficient because:
 
 ## Registry Lookup Order
 
-When looking up an item (e.g., a command), the Module layer is checked:
+When looking up an item (e.g., a command), only the Module layer needs to be checked:
 
 ```go
 func (env *ModuleEnvironment) GetCommand(name string) (Handler, bool) {
