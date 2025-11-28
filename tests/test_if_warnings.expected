@@ -1,0 +1,23 @@
+=== Testing if Command Warnings ===
+
+Test 1: Literal ParenGroup warning
+(Expecting WARN about block literal)
+[PawScript WARN] if received a block literal (parentheses) which is always truthy; did you mean to use braces {command} instead?
+  at line 10, column 1 in test_if_warnings.paw
+Block was truthy (as expected)
+
+Test 2: Variable ParenGroup (no warning expected)
+Variable block was truthy (no warning)
+
+Test 3: Extra arguments error
+(Expecting ERROR about usage)
+[PawScript ERROR] Usage: if <value>
+  at line 26, column 1 in test_if_warnings.paw
+
+Test 4: Normal boolean (no warning expected)
+Boolean true works correctly
+
+Test 5: Brace expression (no warning expected)
+Brace expression works correctly
+
+=== if Warning Tests Complete ===

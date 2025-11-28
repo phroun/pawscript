@@ -1,0 +1,45 @@
+#!/usr/bin/env paw
+# Test that 'if' command generates appropriate warnings and errors
+
+echo "=== Testing if Command Warnings ==="
+echo ""
+
+# Test 1: Literal ParenGroup should generate a warning
+echo "Test 1: Literal ParenGroup warning"
+echo "(Expecting WARN about block literal)"
+if (this is a literal block) then (
+    echo "Block was truthy (as expected)"
+)
+echo ""
+
+# Test 2: Variable containing ParenGroup should NOT warn
+echo "Test 2: Variable ParenGroup (no warning expected)"
+code_block: (some code)
+if ~code_block then (
+    echo "Variable block was truthy (no warning)"
+)
+echo ""
+
+# Test 3: Extra arguments should generate an error
+echo "Test 3: Extra arguments error"
+echo "(Expecting ERROR about usage)"
+if true, extra_argument then (
+    echo "This should not run"
+)
+echo ""
+
+# Test 4: Normal boolean usage (no warning)
+echo "Test 4: Normal boolean (no warning expected)"
+if true then (
+    echo "Boolean true works correctly"
+)
+echo ""
+
+# Test 5: Brace expression result (no warning)
+echo "Test 5: Brace expression (no warning expected)"
+if {eq 1, 1} then (
+    echo "Brace expression works correctly"
+)
+echo ""
+
+echo "=== if Warning Tests Complete ==="
