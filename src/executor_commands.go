@@ -157,28 +157,68 @@ func (e *Executor) executeSingleCommand(
 	}
 
 	// Check for parenthesis block - execute in same scope
+	// Supports: (code) or (code) arg1, arg2
 	// BUT first check if this is an unpacking assignment like (a, b, c): values
-	if strings.HasPrefix(commandStr, "(") && strings.HasSuffix(commandStr, ")") {
-		// Check if this is actually an unpacking assignment pattern
-		if _, _, isAssign := e.parseAssignment(commandStr); !isAssign {
-			blockContent := commandStr[1 : len(commandStr)-1]
+	if strings.HasPrefix(commandStr, "(") {
+		// Find matching closing paren
+		closeIdx := e.findMatchingParen(commandStr, 0)
+		if closeIdx > 0 {
+			// Check if this is actually an unpacking assignment pattern
+			if _, _, isAssign := e.parseAssignment(commandStr); !isAssign {
+				blockContent := commandStr[1:closeIdx]
+				argsStr := strings.TrimSpace(commandStr[closeIdx+1:])
 
-			e.logger.DebugCat(CatCommand,"Executing parenthesis block in same scope: (%s)", blockContent)
+				e.logger.DebugCat(CatCommand, "Executing parenthesis block in same scope: (%s) with args: %s", blockContent, argsStr)
 
-			// Execute block content in the SAME state (no child scope)
-			result := e.ExecuteWithState(
-				blockContent,
-				state, // Same state, not a child
-				substitutionCtx,
-				position.Filename,
-				0, 0,
-			)
+				// Create substitution context for block arguments
+				blockSubstCtx := substitutionCtx
+				if argsStr != "" {
+					// Parse the arguments
+					_, args, _ := ParseCommand("dummy " + argsStr)
+					args = e.processArguments(args, state, substitutionCtx, position)
 
-			// Apply inversion if needed
-			if shouldInvert {
-				return e.invertStatus(result, state, position)
+					// Create args list for $@ and store it
+					argsList := NewStoredList(args)
+					argsListID := e.storeObject(argsList, "list")
+					argsMarker := fmt.Sprintf("\x00LIST:%d\x00", argsListID)
+
+					// Create a minimal MacroContext to enable $1, $2 substitution
+					blockMacroCtx := &MacroContext{
+						MacroName:      "(block)",
+						InvocationFile: position.Filename,
+						InvocationLine: position.Line,
+					}
+
+					// Create new substitution context with args
+					blockSubstCtx = &SubstitutionContext{
+						Args:                args,
+						ExecutionState:      state,
+						ParentContext:       substitutionCtx,
+						MacroContext:        blockMacroCtx,
+						CurrentLineOffset:   0,
+						CurrentColumnOffset: 0,
+						Filename:            position.Filename,
+					}
+
+					// Set $@ in state for dollar substitution
+					state.SetVariable("$@", Symbol(argsMarker))
+				}
+
+				// Execute block content in the SAME state (no child scope)
+				result := e.ExecuteWithState(
+					blockContent,
+					state, // Same state, not a child
+					blockSubstCtx,
+					position.Filename,
+					0, 0,
+				)
+
+				// Apply inversion if needed
+				if shouldInvert {
+					return e.invertStatus(result, state, position)
+				}
+				return result
 			}
-			return result
 		}
 		// Fall through to handle as assignment later
 	}
@@ -406,9 +446,39 @@ func (e *Executor) executeSingleCommand(
 	}
 
 	// Check for tilde expression (pure value expression as command)
+	// Supports: ~var or ~var arg1, arg2 (for block execution with args)
 	if strings.HasPrefix(commandStr, "~") {
-		e.logger.DebugCat(CatCommand,"Detected tilde expression: %s", commandStr)
-		value, ok := e.resolveTildeExpression(commandStr, state, substitutionCtx, position)
+		// Split into tilde part and potential arguments
+		tildeExpr := commandStr
+		argsStr := ""
+
+		// Find where the tilde expression ends (at first space or comma not inside quotes/parens)
+		for i := 1; i < len(commandStr); i++ {
+			ch := commandStr[i]
+			if ch == ' ' || ch == ',' {
+				tildeExpr = commandStr[:i]
+				argsStr = strings.TrimSpace(commandStr[i:])
+				if strings.HasPrefix(argsStr, ",") {
+					argsStr = strings.TrimSpace(argsStr[1:])
+				}
+				break
+			}
+			// Skip over brace expressions
+			if ch == '{' {
+				depth := 1
+				for j := i + 1; j < len(commandStr) && depth > 0; j++ {
+					if commandStr[j] == '{' {
+						depth++
+					} else if commandStr[j] == '}' {
+						depth--
+					}
+					i = j
+				}
+			}
+		}
+
+		e.logger.DebugCat(CatCommand, "Detected tilde expression: %s with args: %s", tildeExpr, argsStr)
+		value, ok := e.resolveTildeExpression(tildeExpr, state, substitutionCtx, position)
 		if ok {
 			// Check if the resolved value is a block marker - if so, execute it
 			if sym, isSym := value.(Symbol); isSym {
@@ -416,12 +486,47 @@ func (e *Executor) executeSingleCommand(
 				if markerType == "block" && objectID >= 0 {
 					if obj, exists := e.getObject(objectID); exists {
 						if storedBlock, ok := obj.(StoredBlock); ok {
-							e.logger.DebugCat(CatCommand,"Executing block in command position: %s", string(storedBlock))
+							e.logger.DebugCat(CatCommand, "Executing block in command position: %s", string(storedBlock))
+
+							// Create substitution context for block arguments
+							blockSubstCtx := substitutionCtx
+							if argsStr != "" {
+								// Parse the arguments
+								_, args, _ := ParseCommand("dummy " + argsStr)
+								args = e.processArguments(args, state, substitutionCtx, position)
+
+								// Create args list for $@ and store it
+								argsList := NewStoredList(args)
+								argsListID := e.storeObject(argsList, "list")
+								argsMarker := fmt.Sprintf("\x00LIST:%d\x00", argsListID)
+
+								// Create a minimal MacroContext to enable $1, $2 substitution
+								blockMacroCtx := &MacroContext{
+									MacroName:      "(block)",
+									InvocationFile: position.Filename,
+									InvocationLine: position.Line,
+								}
+
+								// Create new substitution context with args
+								blockSubstCtx = &SubstitutionContext{
+									Args:                args,
+									ExecutionState:      state,
+									ParentContext:       substitutionCtx,
+									MacroContext:        blockMacroCtx,
+									CurrentLineOffset:   0,
+									CurrentColumnOffset: 0,
+									Filename:            position.Filename,
+								}
+
+								// Set $@ in state for dollar substitution
+								state.SetVariable("$@", Symbol(argsMarker))
+							}
+
 							// Execute block content in current scope
 							result := e.ExecuteWithState(
 								string(storedBlock),
 								state,
-								substitutionCtx,
+								blockSubstCtx,
 								position.Filename,
 								0, 0,
 							)
@@ -632,6 +737,53 @@ func splitAccessors(s string) (base string, accessors string) {
 		}
 	}
 	return s, ""
+}
+
+// findMatchingParen finds the index of the closing paren that matches the opening paren at startIdx
+// Returns -1 if no matching paren found
+func (e *Executor) findMatchingParen(s string, startIdx int) int {
+	if startIdx >= len(s) || s[startIdx] != '(' {
+		return -1
+	}
+
+	depth := 0
+	inQuote := false
+	var quoteChar byte
+
+	for i := startIdx; i < len(s); i++ {
+		char := s[i]
+
+		// Handle escape sequences
+		if char == '\\' && i+1 < len(s) {
+			i++ // Skip next character
+			continue
+		}
+
+		// Handle quotes
+		if !inQuote && (char == '"' || char == '\'') {
+			inQuote = true
+			quoteChar = char
+			continue
+		}
+		if inQuote && char == quoteChar {
+			inQuote = false
+			continue
+		}
+		if inQuote {
+			continue
+		}
+
+		// Track paren nesting
+		if char == '(' {
+			depth++
+		} else if char == ')' {
+			depth--
+			if depth == 0 {
+				return i
+			}
+		}
+	}
+	return -1
 }
 
 // applyAccessorChain applies a chain of accessors to a value

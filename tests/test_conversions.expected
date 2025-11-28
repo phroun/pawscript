@@ -111,4 +111,8 @@ Hello from dynamic macro
 -- block (direct execution) --
 directly_executed
 
+-- block (with arguments) --
+Hello, World!
+Sum: 1 + 2 = 3
+
 === ALL TESTS COMPLETE ===
