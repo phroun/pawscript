@@ -115,4 +115,46 @@ mylist: {list a, b, c}
 echo "symbol ~mylist:", {symbol ~mylist}
 
 echo ""
+echo "=== BLOCK COMMAND ==="
+echo ""
+
+echo "-- block (from string) --"
+b1: {block "echo \"block executed\""}
+echo "block created:", {string ~b1}
+
+echo ""
+echo "-- block (from ParenGroup) --"
+b2: {block (echo "from paren")}
+echo "block created:", {string ~b2}
+
+echo ""
+echo "-- block (from list) --"
+lines: {list "echo line1", "echo line2"}
+b3: {block ~lines}
+echo "block created:", {string ~b3}
+
+echo ""
+echo "-- block (used with repeat) --"
+b4: {block "echo iteration"}
+echo "repeat output:"
+repeat ~b4, 3
+
+echo ""
+echo "-- block (used with macro) --"
+b5: {block "echo \"Hello from dynamic macro\""}
+macro dynMacro, ~b5
+dynMacro
+
+echo ""
+echo "-- block (direct execution) --"
+b6: {block "echo directly_executed"}
+~b6
+
+echo ""
+echo "-- block (with arguments) --"
+b7: {block "echo \"Hello, $1!\""}
+~b7 World
+(echo "Sum: $1 + $2 = 3") 1, 2
+
+echo ""
 echo "=== ALL TESTS COMPLETE ==="

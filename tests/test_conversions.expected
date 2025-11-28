@@ -88,4 +88,31 @@ symbol nil: <nil>
 -- symbol (lists) --
 symbol (a, b, c): a, b, c
 
+=== BLOCK COMMAND ===
+
+-- block (from string) --
+block created: <block>
+
+-- block (from ParenGroup) --
+block created: <block>
+
+-- block (from list) --
+block created: <block>
+
+-- block (used with repeat) --
+repeat output:
+iteration
+iteration
+iteration
+
+-- block (used with macro) --
+Hello from dynamic macro
+
+-- block (direct execution) --
+directly_executed
+
+-- block (with arguments) --
+Hello, World!
+Sum: 1 + 2 = 3
+
 === ALL TESTS COMPLETE ===
