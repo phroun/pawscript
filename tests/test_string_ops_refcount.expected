@@ -244,7 +244,7 @@ ID    Type      RefCount  Size(bytes)
 5     string    1         232
 Expected: 1 object (only large_base)
 
-Test 18: str_repeat small result
+Test 18: repeat small result
 === Memory Statistics ===
 Total stored objects: 5
 Total estimated size: 360 bytes
@@ -258,7 +258,7 @@ ID    Type      RefCount  Size(bytes)
 5     string    1         232
 Expected: 1 object (large_base)
 
-Test 19: str_repeat large result
+Test 19: repeat large result
 === Memory Statistics ===
 Total stored objects: 6
 Total estimated size: 626 bytes
@@ -273,7 +273,7 @@ ID    Type      RefCount  Size(bytes)
 13    string    2         266
 Expected: 2 objects (large_base + large_repeat of 250 chars)
 
-Test 20: Clear str_repeat results
+Test 20: Clear repeat results
 === Memory Statistics ===
 Total stored objects: 5
 Total estimated size: 360 bytes

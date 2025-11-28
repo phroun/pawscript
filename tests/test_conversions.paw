@@ -1,0 +1,91 @@
+# Test type conversion commands: string, float, bool, symbol
+
+echo "=== STRING COMMAND ==="
+echo ""
+
+echo "-- string (primitives) --"
+echo "string 123:", {string 123}
+echo "string 3.14:", {string 3.14}
+echo "string true:", {string true}
+echo "string false:", {string false}
+echo "string nil:", {string nil}
+
+echo ""
+echo "-- string (symbols and strings) --"
+echo "string hello:", {string hello}
+echo "string \"quoted\":", {string "quoted"}
+
+echo ""
+echo "-- string (lists) --"
+mylist: {list 1, 2, 3}
+echo "string ~mylist:", {string ~mylist}
+nested: {list a, {list 1, 2}, b}
+echo "string nested:", {string ~nested}
+
+echo ""
+echo "-- string (special types) --"
+myblock: (echo "hi")
+echo "string block:", {string ~myblock}
+
+echo ""
+echo "=== FLOAT COMMAND ==="
+echo ""
+
+echo "-- float (valid conversions) --"
+echo "float 42:", {float 42}
+echo "float 3.14:", {float 3.14}
+echo "float \"123\":", {float "123"}
+echo "float \"3.14\":", {float "3.14"}
+echo "float 0:", {float 0}
+
+echo ""
+echo "-- float (invalid with nil) --"
+echo "float \"abc\":", {float "abc"}
+echo "float hello:", {float hello}
+
+echo ""
+echo "-- float (invalid with default) --"
+echo "float \"abc\", 0:", {float "abc", 0}
+echo "float \"abc\", -1:", {float "abc", -1}
+echo "float \"abc\", default:", {float "abc", default}
+
+echo ""
+echo "=== BOOL COMMAND ==="
+echo ""
+
+echo "-- bool (truthy values) --"
+echo "bool 1:", {bool 1}
+echo "bool 42:", {bool 42}
+echo "bool \"hello\":", {bool "hello"}
+echo "bool true:", {bool true}
+mylist: {list 1, 2}
+echo "bool ~mylist:", {bool ~mylist}
+
+echo ""
+echo "-- bool (falsy values) --"
+echo "bool 0:", {bool 0}
+echo "bool \"\":", {bool ""}
+echo "bool \"0\":", {bool "0"}
+echo "bool \"false\":", {bool "false"}
+echo "bool false:", {bool false}
+echo "bool nil:", {bool nil}
+
+echo ""
+echo "=== SYMBOL COMMAND ==="
+echo ""
+
+echo "-- symbol (valid conversions) --"
+echo "symbol 123:", {symbol 123}
+echo "symbol 3.14:", {symbol 3.14}
+echo "symbol hello:", {symbol hello}
+echo "symbol \"quoted\":", {symbol "quoted"}
+echo "symbol true:", {symbol true}
+echo "symbol nil:", {symbol nil}
+
+echo ""
+echo "-- symbol (lists) --"
+mylist: {list a, b, c}
+echo "symbol ~mylist:", {symbol ~mylist}
+
+echo ""
+echo "=== ALL TESTS COMPLETE ==="

@@ -166,18 +166,18 @@ echo "Expected: false"
 print
 
 # ==========================================
-# str_repeat - repeating strings
+# repeat - repeating strings
 # ==========================================
-echo "Testing str_repeat..."
-repeated: {str_repeat "ab", 3}
+echo "Testing repeat..."
+repeated: {repeat "ab", 3}
 echo "Repeated: ~repeated"
 echo "Expected: ababab"
 
-single: {str_repeat "x", 1}
+single: {repeat "x", 1}
 echo "Single repeat: ~single"
 echo "Expected: x"
 
-none: {str_repeat "y", 0}
+none: {repeat "y", 0}
 none_len: {len ~none}
 echo "Zero repeat length: ~none_len"
 echo "Expected: 0"

@@ -133,9 +133,10 @@ func (EarlyReturn) isResult() {}
 // YieldResult represents yielding a value from a generator
 // The executor catches this and updates the token's remaining commands
 type YieldResult struct {
-	Value             interface{}
-	TokenID           string              // Token to update (empty = use #token from state)
-	WhileContinuation *WhileContinuation  // Optional - set when yielding from inside while loop
+	Value              interface{}
+	TokenID            string               // Token to update (empty = use #token from state)
+	WhileContinuation  *WhileContinuation   // Optional - set when yielding from inside while loop
+	RepeatContinuation *RepeatContinuation  // Optional - set when yielding from inside repeat loop
 }
 
 func (YieldResult) isResult() {}
@@ -156,6 +157,20 @@ type WhileContinuation struct {
 	State               *ExecutionState   // Execution state at time of yield
 	SubstitutionCtx     *SubstitutionContext
 	ParentContinuation  *WhileContinuation // For nested while loops - outer loop's state
+}
+
+// RepeatContinuation stores state for resuming a repeat loop after yield
+type RepeatContinuation struct {
+	BodyBlock           string               // The repeat body
+	RemainingBodyCmds   []*ParsedCommand     // Commands remaining in current iteration after yield
+	BodyCmdIndex        int                  // Which command in body yielded
+	CurrentIteration    int                  // Current iteration number (0-based)
+	TotalIterations     int                  // Total number of iterations
+	CounterVar          string               // Optional variable name for iteration counter
+	Results             []interface{}        // Results collected so far
+	Failures            []interface{}        // Failed iteration numbers so far
+	State               *ExecutionState      // Execution state at time of yield
+	ParentContinuation  *RepeatContinuation  // For nested repeat loops
 }
 
 // IteratorState stores state for Go-backed iterators (each, pair)

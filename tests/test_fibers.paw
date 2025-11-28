@@ -6,27 +6,27 @@ print "Main fiber ID: ~main_id"
 print ""
 
 print "=== Test 2: Spawn simple fiber ==="
-handle: {fiber_spawn {macro (print "Hello from fiber!")}}
+handle: {fiber {macro (print "Hello from fiber!")}}
 fiber_wait ~handle
 print "Fiber completed"
 print ""
 
 print "=== Test 3: Fiber with result ==="
-h2: {fiber_spawn {macro (set_result 42)}}
+h2: {fiber {macro (set_result 42)}}
 result: {fiber_wait ~h2}
 print "Result: ~result"
 print ""
 
 print "=== Test 4: Fiber with arguments ==="
-h3: {fiber_spawn {macro (set_result {mul $1, $2})}, 6, 7}
+h3: {fiber {macro (set_result {mul $1, $2})}, 6, 7}
 product: {fiber_wait ~h3}
 print "6 * 7 = ~product"
 print ""
 
 print "=== Test 5: Multiple fibers ==="
-f1: {fiber_spawn {macro (set_result "fiber1")}}
-f2: {fiber_spawn {macro (set_result "fiber2")}}
-f3: {fiber_spawn {macro (set_result "fiber3")}}
+f1: {fiber {macro (set_result "fiber1")}}
+f2: {fiber {macro (set_result "fiber2")}}
+f3: {fiber {macro (set_result "fiber3")}}
 
 r1: {fiber_wait ~f1}
 r2: {fiber_wait ~f2}
@@ -41,7 +41,7 @@ print "Active fibers: ~count"
 print ""
 
 print "=== Test 7: fiber_id inside fiber ==="
-fiber_spawn {macro (
+fiber {macro (
   id: {fiber_id}
   print "Inside fiber, ID: ~id"
 )}

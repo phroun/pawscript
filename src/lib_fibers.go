@@ -8,10 +8,10 @@ import (
 // Module: fibers
 func (ps *PawScript) RegisterFibersLib() {
 
-	// fiber_spawn - spawn a new fiber to execute a macro
-	ps.RegisterCommandInModule("fibers", "fiber_spawn", func(ctx *Context) Result {
+	// fiber - spawn a new fiber to execute a macro
+	ps.RegisterCommandInModule("fibers", "fiber", func(ctx *Context) Result {
 		if len(ctx.Args) < 1 {
-			ps.logger.ErrorCat(CatCommand, "Usage: fiber_spawn <macro>, [args...]")
+			ps.logger.ErrorCat(CatCommand, "Usage: fiber <macro>, [args...]")
 			return BoolStatus(false)
 		}
 

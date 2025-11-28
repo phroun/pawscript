@@ -1,0 +1,79 @@
+# Test polymorphic repeat command
+
+echo "=== STRING MODE ==="
+echo "repeat \"ab\", 3:", {repeat "ab", 3}
+echo "repeat \"x\", 5:", {repeat "x", 5}
+echo "repeat \"hello\", 0:", {repeat "hello", 0}
+echo "repeat symbol, 2:", {repeat abc, 2}
+echo ""
+
+echo "=== LIST MODE ==="
+mylist: {list 1, 2, 3}
+echo "repeat (1,2,3), 2:", {repeat ~mylist, 2}
+echo "repeat (1,2,3), 3:", {repeat ~mylist, 3}
+echo "repeat (1,2,3), 0:", {repeat ~mylist, 0}
+single: {list a}
+echo "repeat (a), 4:", {repeat ~single, 4}
+echo ""
+
+echo "=== BLOCK MODE (basic) ==="
+results: {repeat (set_result "hi"), 3}
+echo "3 iterations returning 'hi':", ~results
+echo ""
+
+echo "=== BLOCK MODE (with counter) ==="
+results: {repeat (set_result {mul ~i, ~i}), 5, i}
+echo "squares 0-4:", ~results
+echo ""
+
+echo "=== BLOCK MODE (no result set) ==="
+results: {repeat (echo "tick"), 3}
+echo "no results set:", ~results
+echo ""
+
+echo "=== BLOCK MODE (mixed results) ==="
+results: {repeat (
+    {gt ~i, 1} & (set_result "big")
+    {lte ~i, 1} & (set_result "small")
+    true
+), 4, i}
+echo "mixed:", ~results
+echo ""
+
+echo "=== BLOCK MODE (with failures) ==="
+# Iterations 1 and 3 will fail (final status false)
+results: {repeat (
+    set_result ~i
+    # Return false for iterations 1 and 3, true otherwise
+    {if {eq ~i, 1}} & (false)
+    {if {eq ~i, 3}} & (false)
+    # For other iterations, ensure true status at end
+    {if {neq ~i, 1}} & ({if {neq ~i, 3}} & (true))
+), 5, i}
+echo "results:", ~results
+failures: {get_val ~results, failures}
+echo "failures:", ~failures
+echo ""
+
+echo "=== BLOCK MODE (async with msleep) ==="
+results: {repeat (
+    msleep 10
+    set_result {add ~i, 100}
+), 3, i}
+echo "async results:", ~results
+
+echo ""
+echo "=== BLOCK MODE (while loop inside) ==="
+results: {repeat (
+    sum: 0
+    j: 0
+    while (lt ~j, ~i), (
+        sum: {add ~sum, ~j}
+        j: {add ~j, 1}
+    )
+    set_result ~sum
+), 5, i}
+echo "triangle numbers:", ~results
+
+echo ""
+echo "=== ALL REPEAT TESTS COMPLETE ==="
