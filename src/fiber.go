@@ -10,7 +10,7 @@ func (e *Executor) registerFiber(fiber *FiberHandle) {
 	e.mu.Lock()
 	defer e.mu.Unlock()
 	e.activeFibers[fiber.ID] = fiber
-	e.logger.Debug("Registered fiber %d", fiber.ID)
+	e.logger.DebugCat(CatAsync,"Registered fiber %d", fiber.ID)
 }
 
 // unregisterFiber removes a fiber from the active fibers map
@@ -18,7 +18,7 @@ func (e *Executor) unregisterFiber(fiberID int) {
 	e.mu.Lock()
 	defer e.mu.Unlock()
 	delete(e.activeFibers, fiberID)
-	e.logger.Debug("Unregistered fiber %d", fiberID)
+	e.logger.DebugCat(CatAsync,"Unregistered fiber %d", fiberID)
 }
 
 // getFiber retrieves a fiber by ID
@@ -107,7 +107,7 @@ func (e *Executor) SpawnFiber(macro *StoredMacro, args []interface{}, namedArgs 
 			}
 		}()
 
-		e.logger.Debug("Fiber %d starting execution", fiberID)
+		e.logger.DebugCat(CatAsync,"Fiber %d starting execution", fiberID)
 
 		// Execute macro (token system handles all async operations and sequencing)
 		result := e.ExecuteStoredMacro(
@@ -138,13 +138,13 @@ func (e *Executor) SpawnFiber(macro *StoredMacro, args []interface{}, namedArgs 
 			handle.SuspendedOn = tokenID
 			handle.mu.Unlock()
 
-			e.logger.Debug("Fiber %d suspended on token %s, waiting for completion", fiberID, tokenID)
+			e.logger.DebugCat(CatAsync,"Fiber %d suspended on token %s, waiting for completion", fiberID, tokenID)
 
 			// Wait for the token chain to complete
 			// The token system will send resume data when all chained tokens finish
 			resumeData := <-handle.ResumeChan
 
-			e.logger.Debug("Fiber %d token %s completed with status %v", fiberID, resumeData.TokenID, resumeData.Status)
+			e.logger.DebugCat(CatAsync,"Fiber %d token %s completed with status %v", fiberID, resumeData.TokenID, resumeData.Status)
 
 			handle.mu.Lock()
 			handle.SuspendedOn = ""
@@ -165,7 +165,7 @@ func (e *Executor) SpawnFiber(macro *StoredMacro, args []interface{}, namedArgs 
 			}
 			handle.mu.Unlock()
 
-			e.logger.Debug("Fiber %d completed with result: %v", fiberID, handle.Result)
+			e.logger.DebugCat(CatAsync,"Fiber %d completed with result: %v", fiberID, handle.Result)
 		}
 	}()
 

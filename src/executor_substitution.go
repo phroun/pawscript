@@ -157,15 +157,15 @@ func (e *Executor) substituteBraceExpressions(str string, ctx *SubstitutionConte
 		return str // No braces to process
 	}
 
-	e.logger.Debug("Found %d top-level braces to evaluate", len(braces))
+	e.logger.DebugCat(CatCommand,"Found %d top-level braces to evaluate", len(braces))
 
 	// Execute all braces and collect their results
 	evaluations := make([]*BraceEvaluation, len(braces))
 	hasAsync := false
 
 	for i, brace := range braces {
-		e.logger.Debug("Evaluating brace %d: line=%d, column=%d", i, brace.StartLine, brace.StartColumn)
-		e.logger.Debug("Brace content: \"{%s}\"", brace.Content)
+		e.logger.DebugCat(CatCommand,"Evaluating brace %d: line=%d, column=%d", i, brace.StartLine, brace.StartColumn)
+		e.logger.DebugCat(CatCommand,"Brace content: \"{%s}\"", brace.Content)
 
 		// Create a child state with shared variables but isolated result storage
 		// This prevents async braces from racing on result storage while still sharing variables
@@ -200,7 +200,7 @@ func (e *Executor) substituteBraceExpressions(str string, ctx *SubstitutionConte
 			newColumnOffset = brace.StartColumn - 1
 		}
 
-		e.logger.Debug("Brace offsets: line=%d, column=%d", newLineOffset, newColumnOffset)
+		e.logger.DebugCat(CatCommand,"Brace offsets: line=%d, column=%d", newLineOffset, newColumnOffset)
 
 		// Create substitution context using the child state
 		braceSubstitutionCtx := &SubstitutionContext{
@@ -256,7 +256,7 @@ func (e *Executor) substituteBraceExpressions(str string, ctx *SubstitutionConte
 			evaluations[i].IsAsync = true
 			evaluations[i].TokenID = string(tokenResult)
 			hasAsync = true
-			e.logger.Debug("Brace %d returned async token: %s", i, evaluations[i].TokenID)
+			e.logger.DebugCat(CatCommand,"Brace %d returned async token: %s", i, evaluations[i].TokenID)
 		} else if earlyReturn, ok := executeResult.(EarlyReturn); ok {
 			// Handle early return (ret command) - treat as successful completion
 			// Use the formal result from the EarlyReturn
@@ -265,15 +265,15 @@ func (e *Executor) substituteBraceExpressions(str string, ctx *SubstitutionConte
 			// Check the status to determine success/failure
 			if !bool(earlyReturn.Status) {
 				evaluations[i].Failed = true
-				e.logger.Debug("Brace %d completed with early return (failure)", i)
+				e.logger.DebugCat(CatCommand,"Brace %d completed with early return (failure)", i)
 			} else {
-				e.logger.Debug("Brace %d completed with early return (success)", i)
+				e.logger.DebugCat(CatCommand,"Brace %d completed with early return (success)", i)
 			}
 
 			// Use the result from EarlyReturn if present
 			if earlyReturn.HasResult {
 				evaluations[i].Result = earlyReturn.Result
-				e.logger.Debug("Early return has result: %v", earlyReturn.Result)
+				e.logger.DebugCat(CatCommand,"Early return has result: %v", earlyReturn.Result)
 			} else if hasCapturedResult {
 				evaluations[i].Result = capturedResult
 			}
@@ -295,7 +295,7 @@ func (e *Executor) substituteBraceExpressions(str string, ctx *SubstitutionConte
 						if !parentOwns {
 							// Parent doesn't own it yet - claim ownership
 							ctx.ExecutionState.ClaimObjectReference(refID)
-							e.logger.Debug("Parent claimed ownership of object %d from brace result", refID)
+							e.logger.DebugCat(CatCommand,"Parent claimed ownership of object %d from brace result", refID)
 						}
 					}
 				}
@@ -308,7 +308,7 @@ func (e *Executor) substituteBraceExpressions(str string, ctx *SubstitutionConte
 			// This allows assignment to propagate the status from brace expressions
 			if boolStatus, ok := executeResult.(BoolStatus); ok && !bool(boolStatus) {
 				ctx.BraceFailureCount++
-				e.logger.Debug("Brace %d returned false status, failure count now: %d", i, ctx.BraceFailureCount)
+				e.logger.DebugCat(CatCommand,"Brace %d returned false status, failure count now: %d", i, ctx.BraceFailureCount)
 			}
 
 			// Determine the result value first
@@ -316,10 +316,10 @@ func (e *Executor) substituteBraceExpressions(str string, ctx *SubstitutionConte
 			// boolean value itself as the result (e.g., {false} returns "false", {true} returns "true")
 			if hasCapturedResult {
 				evaluations[i].Result = capturedResult
-				e.logger.Debug("Brace %d has captured result: %s", i, evaluations[i].Result)
+				e.logger.DebugCat(CatCommand,"Brace %d has captured result: %s", i, evaluations[i].Result)
 			} else if boolStatus, ok := executeResult.(BoolStatus); ok {
 				evaluations[i].Result = fmt.Sprintf("%v", bool(boolStatus))
-				e.logger.Debug("Brace %d using boolean status as result: %s", i, evaluations[i].Result)
+				e.logger.DebugCat(CatCommand,"Brace %d using boolean status as result: %s", i, evaluations[i].Result)
 			}
 
 			// Only mark as truly failed if we got an error result, not just a false status
@@ -328,9 +328,9 @@ func (e *Executor) substituteBraceExpressions(str string, ctx *SubstitutionConte
 			hasResult := hasCapturedResult || executeResult != nil
 			if !hasResult {
 				evaluations[i].Failed = true
-				e.logger.Debug("Brace %d completed with no result (failure)", i)
+				e.logger.DebugCat(CatCommand,"Brace %d completed with no result (failure)", i)
 			} else {
-				e.logger.Debug("Brace %d completed synchronously with success", i)
+				e.logger.DebugCat(CatCommand,"Brace %d completed synchronously with success", i)
 			}
 			// end part that used to be in an else
 
@@ -369,7 +369,7 @@ func (e *Executor) substituteBraceExpressions(str string, ctx *SubstitutionConte
 
 	// If any evaluation is async, we need to coordinate
 	if hasAsync {
-		e.logger.Debug("At least one brace is async, creating coordinator token")
+		e.logger.DebugCat(CatCommand,"At least one brace is async, creating coordinator token")
 
 		// We need to return a special marker that tells the caller we're suspending
 		// The caller (executeSingleCommand) will need to handle this
@@ -380,7 +380,7 @@ func (e *Executor) substituteBraceExpressions(str string, ctx *SubstitutionConte
 			func(finalString string, success bool) Result {
 				// This callback will be invoked when all braces complete
 				// For now, we need to signal back through the token system
-				e.logger.Debug("Brace coordinator completed: success=%v, string=%s", success, finalString)
+				e.logger.DebugCat(CatCommand,"Brace coordinator completed: success=%v, string=%s", success, finalString)
 				// Store the result in a way that can be retrieved
 				return BoolStatus(success)
 			},
@@ -411,8 +411,8 @@ func (e *Executor) substituteBraceExpressions(str string, ctx *SubstitutionConte
 				sourceContext = nil // We'll add this later if needed
 			}
 
-			e.logger.Warn(errorMsg, eval.Position, sourceContext)
-			e.logger.Debug("Synchronous brace evaluation %d failed, aborting command", i)
+			e.logger.WarnCat(CatCommand,errorMsg, eval.Position, sourceContext)
+			e.logger.DebugCat(CatCommand,"Synchronous brace evaluation %d failed, aborting command", i)
 			// Return special marker to indicate brace failure
 			return "\x00PAWS_FAILED\x00"
 		}
@@ -420,7 +420,7 @@ func (e *Executor) substituteBraceExpressions(str string, ctx *SubstitutionConte
 
 	// Substitute all results immediately
 	result := e.substituteAllBraces(str, evaluations, ctx.ExecutionState)
-	e.logger.Debug("All braces synchronous, substituted result: %s", result)
+	e.logger.DebugCat(CatCommand,"All braces synchronous, substituted result: %s", result)
 
 	return result
 }

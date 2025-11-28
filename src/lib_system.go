@@ -80,41 +80,41 @@ func (ps *PawScript) RegisterSystemLib(scriptArgs []string) {
 
 	// Helper to resolve a value to a channel (handles markers and direct objects)
 	valueToChannel := func(ctx *Context, val interface{}) *StoredChannel {
-		ps.logger.Debug("valueToChannel: input type=%T, value=%v", val, val)
+		ps.logger.DebugCat(CatIO,"valueToChannel: input type=%T, value=%v", val, val)
 		switch v := val.(type) {
 		case *StoredChannel:
-			ps.logger.Debug("valueToChannel: direct *StoredChannel")
+			ps.logger.DebugCat(CatIO,"valueToChannel: direct *StoredChannel")
 			return v
 		case Symbol:
 			markerType, objectID := parseObjectMarker(string(v))
-			ps.logger.Debug("valueToChannel: Symbol, markerType=%s, objectID=%d", markerType, objectID)
+			ps.logger.DebugCat(CatIO,"valueToChannel: Symbol, markerType=%s, objectID=%d", markerType, objectID)
 			if markerType == "channel" && objectID >= 0 {
 				if obj, exists := ctx.executor.getObject(objectID); exists {
-					ps.logger.Debug("valueToChannel: got object from storage, type=%T", obj)
+					ps.logger.DebugCat(CatIO,"valueToChannel: got object from storage, type=%T", obj)
 					if ch, ok := obj.(*StoredChannel); ok {
-						ps.logger.Debug("valueToChannel: channel hasNativeSend=%v, isClosed=%v", ch.NativeSend != nil, ch.IsClosed)
+						ps.logger.DebugCat(CatIO,"valueToChannel: channel hasNativeSend=%v, isClosed=%v", ch.NativeSend != nil, ch.IsClosed)
 						return ch
 					}
 				} else {
-					ps.logger.Debug("valueToChannel: object %d not found in storage", objectID)
+					ps.logger.DebugCat(CatIO,"valueToChannel: object %d not found in storage", objectID)
 				}
 			}
 		case string:
 			markerType, objectID := parseObjectMarker(v)
-			ps.logger.Debug("valueToChannel: string, markerType=%s, objectID=%d", markerType, objectID)
+			ps.logger.DebugCat(CatIO,"valueToChannel: string, markerType=%s, objectID=%d", markerType, objectID)
 			if markerType == "channel" && objectID >= 0 {
 				if obj, exists := ctx.executor.getObject(objectID); exists {
-					ps.logger.Debug("valueToChannel: got object from storage, type=%T", obj)
+					ps.logger.DebugCat(CatIO,"valueToChannel: got object from storage, type=%T", obj)
 					if ch, ok := obj.(*StoredChannel); ok {
-						ps.logger.Debug("valueToChannel: channel hasNativeSend=%v, isClosed=%v", ch.NativeSend != nil, ch.IsClosed)
+						ps.logger.DebugCat(CatIO,"valueToChannel: channel hasNativeSend=%v, isClosed=%v", ch.NativeSend != nil, ch.IsClosed)
 						return ch
 					}
 				} else {
-					ps.logger.Debug("valueToChannel: object %d not found in storage", objectID)
+					ps.logger.DebugCat(CatIO,"valueToChannel: object %d not found in storage", objectID)
 				}
 			}
 		default:
-			ps.logger.Debug("valueToChannel: unhandled type %T", val)
+			ps.logger.DebugCat(CatIO,"valueToChannel: unhandled type %T", val)
 		}
 		return nil
 	}
@@ -124,14 +124,14 @@ func (ps *PawScript) RegisterSystemLib(scriptArgs []string) {
 	resolveChannel := func(ctx *Context, channelName string) *StoredChannel {
 		// First, check local macro variables
 		if value, exists := ctx.state.GetVariable(channelName); exists {
-			ps.logger.Debug("resolveChannel(%s): found in local vars, value type=%T, value=%v", channelName, value, value)
+			ps.logger.DebugCat(CatIO,"resolveChannel(%s): found in local vars, value type=%T, value=%v", channelName, value, value)
 			if ch := valueToChannel(ctx, value); ch != nil {
-				ps.logger.Debug("resolveChannel(%s): valueToChannel returned channel", channelName)
+				ps.logger.DebugCat(CatIO,"resolveChannel(%s): valueToChannel returned channel", channelName)
 				return ch
 			}
-			ps.logger.Debug("resolveChannel(%s): valueToChannel returned nil", channelName)
+			ps.logger.DebugCat(CatIO,"resolveChannel(%s): valueToChannel returned nil", channelName)
 		} else {
-			ps.logger.Debug("resolveChannel(%s): NOT found in local vars", channelName)
+			ps.logger.DebugCat(CatIO,"resolveChannel(%s): NOT found in local vars", channelName)
 		}
 
 		// Then, check ObjectsModule and ObjectsInherited
@@ -164,37 +164,37 @@ func (ps *PawScript) RegisterSystemLib(scriptArgs []string) {
 	// Helper to get a channel from first argument or default
 	getOutputChannel := func(ctx *Context, defaultName string) (*StoredChannel, []interface{}, bool) {
 		args := ctx.Args
-		ps.logger.Debug("getOutputChannel: defaultName=%s, numArgs=%d", defaultName, len(args))
+		ps.logger.DebugCat(CatIO,"getOutputChannel: defaultName=%s, numArgs=%d", defaultName, len(args))
 
 		// Check if first arg is already a channel (from tilde resolution)
 		if len(args) > 0 {
-			ps.logger.Debug("getOutputChannel: first arg type=%T, value=%v", args[0], args[0])
+			ps.logger.DebugCat(CatIO,"getOutputChannel: first arg type=%T, value=%v", args[0], args[0])
 			if ch, ok := args[0].(*StoredChannel); ok {
-				ps.logger.Debug("getOutputChannel: first arg is *StoredChannel, hasNativeSend=%v", ch.NativeSend != nil)
+				ps.logger.DebugCat(CatIO,"getOutputChannel: first arg is *StoredChannel, hasNativeSend=%v", ch.NativeSend != nil)
 				return ch, args[1:], true
 			}
 			// Or if first arg is a symbol starting with #
 			if sym, ok := args[0].(Symbol); ok {
 				symStr := string(sym)
 				if strings.HasPrefix(symStr, "#") {
-					ps.logger.Debug("getOutputChannel: first arg is #-prefixed Symbol: %s", symStr)
+					ps.logger.DebugCat(CatIO,"getOutputChannel: first arg is #-prefixed Symbol: %s", symStr)
 					if ch := resolveChannel(ctx, symStr); ch != nil {
-						ps.logger.Debug("getOutputChannel: resolved to channel, hasNativeSend=%v", ch.NativeSend != nil)
+						ps.logger.DebugCat(CatIO,"getOutputChannel: resolved to channel, hasNativeSend=%v", ch.NativeSend != nil)
 						return ch, args[1:], true
 					}
-					ps.logger.Debug("getOutputChannel: resolveChannel returned nil for %s", symStr)
+					ps.logger.DebugCat(CatIO,"getOutputChannel: resolveChannel returned nil for %s", symStr)
 				}
 			}
 		}
 
 		// Use default channel (also resolved through local vars first)
-		ps.logger.Debug("getOutputChannel: trying default channel %s", defaultName)
+		ps.logger.DebugCat(CatIO,"getOutputChannel: trying default channel %s", defaultName)
 		if ch := resolveChannel(ctx, defaultName); ch != nil {
-			ps.logger.Debug("getOutputChannel: default channel resolved, hasNativeSend=%v", ch.NativeSend != nil)
+			ps.logger.DebugCat(CatIO,"getOutputChannel: default channel resolved, hasNativeSend=%v", ch.NativeSend != nil)
 			return ch, args, true
 		}
 
-		ps.logger.Debug("getOutputChannel: NO channel found, returning false")
+		ps.logger.DebugCat(CatIO,"getOutputChannel: NO channel found, returning false")
 		return nil, args, false
 	}
 
@@ -604,11 +604,11 @@ func (ps *PawScript) RegisterSystemLib(scriptArgs []string) {
 
 	// echo/print - output with automatic newline and spaces between args
 	outputLineCommand := func(ctx *Context) Result {
-		ps.logger.Debug("outputLineCommand (print/echo): starting")
+		ps.logger.DebugCat(CatIO,"outputLineCommand (print/echo): starting")
 		ch, args, found := getOutputChannel(ctx, "#out")
 		if !found {
 			// Fallback: use OutputContext for consistent channel resolution with system fallback
-			ps.logger.Debug("outputLineCommand: NO channel found, using OutputContext fallback")
+			ps.logger.DebugCat(CatIO,"outputLineCommand: NO channel found, using OutputContext fallback")
 			text := ""
 			for i, arg := range ctx.Args {
 				if i > 0 {
@@ -621,7 +621,7 @@ func (ps *PawScript) RegisterSystemLib(scriptArgs []string) {
 			return BoolStatus(true)
 		}
 
-		ps.logger.Debug("outputLineCommand: channel found, hasNativeSend=%v", ch.NativeSend != nil)
+		ps.logger.DebugCat(CatIO,"outputLineCommand: channel found, hasNativeSend=%v", ch.NativeSend != nil)
 		text := ""
 		for i, arg := range args {
 			if i > 0 {
@@ -630,14 +630,14 @@ func (ps *PawScript) RegisterSystemLib(scriptArgs []string) {
 			text += formatArgForDisplay(arg, ctx.executor)
 		}
 
-		ps.logger.Debug("outputLineCommand: calling ChannelSend with text=%q", text)
+		ps.logger.DebugCat(CatIO,"outputLineCommand: calling ChannelSend with text=%q", text)
 		err := ChannelSend(ch, text+"\n")
 		if err != nil {
-			ps.logger.Debug("outputLineCommand: ChannelSend returned error: %v", err)
+			ps.logger.DebugCat(CatIO,"outputLineCommand: ChannelSend returned error: %v", err)
 			ctx.LogError(CatIO, fmt.Sprintf("Failed to write: %v", err))
 			return BoolStatus(false)
 		}
-		ps.logger.Debug("outputLineCommand: ChannelSend succeeded")
+		ps.logger.DebugCat(CatIO,"outputLineCommand: ChannelSend succeeded")
 		return BoolStatus(true)
 	}
 
@@ -1236,7 +1236,7 @@ func (ps *PawScript) RegisterSystemLib(scriptArgs []string) {
 	// msleep - sleep for specified milliseconds (async)
 	ps.RegisterCommandInModule("sys", "msleep", func(ctx *Context) Result {
 		if len(ctx.Args) < 1 {
-			ps.logger.Error("Usage: msleep <milliseconds>")
+			ps.logger.ErrorCat(CatCommand, "Usage: msleep <milliseconds>")
 			return BoolStatus(false)
 		}
 
@@ -1251,17 +1251,17 @@ func (ps *PawScript) RegisterSystemLib(scriptArgs []string) {
 		case string:
 			parsed, err := strconv.ParseInt(v, 10, 64)
 			if err != nil {
-				ps.logger.Error("msleep: invalid milliseconds value: %v", v)
+				ps.logger.ErrorCat(CatArgument, "msleep: invalid milliseconds value: %v", v)
 				return BoolStatus(false)
 			}
 			ms = parsed
 		default:
-			ps.logger.Error("msleep: milliseconds must be a number, got %T", v)
+			ps.logger.ErrorCat(CatArgument, "msleep: milliseconds must be a number, got %T", v)
 			return BoolStatus(false)
 		}
 
 		if ms < 0 {
-			ps.logger.Error("msleep: milliseconds cannot be negative")
+			ps.logger.ErrorCat(CatArgument, "msleep: milliseconds cannot be negative")
 			return BoolStatus(false)
 		}
 

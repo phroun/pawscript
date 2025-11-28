@@ -48,7 +48,7 @@ func (e *Executor) handleMODULE(args []interface{}, state *ExecutionState, posit
 	state.moduleEnv.DefaultName = moduleName
 	state.moduleEnv.mu.Unlock()
 
-	e.logger.Debug("MODULE: Set default module name to \"%s\"", moduleName)
+	e.logger.DebugCat(CatSystem,"MODULE: Set default module name to \"%s\"", moduleName)
 	return BoolStatus(true)
 }
 
@@ -95,12 +95,12 @@ func (e *Executor) handleLIBRARY(args []interface{}, state *ExecutionState, posi
 			// Empty LibraryRestricted
 			state.moduleEnv.CopyLibraryRestricted()
 			state.moduleEnv.LibraryRestricted = make(Library)
-			e.logger.Debug("LIBRARY: Restricted all modules")
+			e.logger.DebugCat(CatSystem,"LIBRARY: Restricted all modules")
 		} else {
 			// Remove specific module
 			state.moduleEnv.CopyLibraryRestricted()
 			delete(state.moduleEnv.LibraryRestricted, target)
-			e.logger.Debug("LIBRARY: Restricted module \"%s\"", target)
+			e.logger.DebugCat(CatSystem,"LIBRARY: Restricted module \"%s\"", target)
 		}
 
 	case "allow":
@@ -114,7 +114,7 @@ func (e *Executor) handleLIBRARY(args []interface{}, state *ExecutionState, posi
 				}
 				state.moduleEnv.LibraryRestricted[modName] = newSection
 			}
-			e.logger.Debug("LIBRARY: Allowed all modules")
+			e.logger.DebugCat(CatSystem,"LIBRARY: Allowed all modules")
 		} else if strings.Contains(target, "=") {
 			// Rename: "dest=source"
 			renameParts := strings.SplitN(target, "=", 2)
@@ -133,7 +133,7 @@ func (e *Executor) handleLIBRARY(args []interface{}, state *ExecutionState, posi
 					newSection[itemName] = item
 				}
 				state.moduleEnv.LibraryRestricted[destName] = newSection
-				e.logger.Debug("LIBRARY: Renamed module \"%s\" to \"%s\"", sourceName, destName)
+				e.logger.DebugCat(CatSystem,"LIBRARY: Renamed module \"%s\" to \"%s\"", sourceName, destName)
 			} else {
 				e.logger.CommandError(CatSystem, "LIBRARY", fmt.Sprintf("Source module not found: %s", sourceName), position)
 				return BoolStatus(false)
@@ -168,7 +168,7 @@ func (e *Executor) handleLIBRARY(args []interface{}, state *ExecutionState, posi
 				itemName = strings.TrimSpace(itemName)
 				if item, exists := sourceSection[itemName]; exists {
 					state.moduleEnv.LibraryRestricted[moduleName][itemName] = item
-					e.logger.Debug("LIBRARY: Allowed %s::%s", moduleName, itemName)
+					e.logger.DebugCat(CatSystem,"LIBRARY: Allowed %s::%s", moduleName, itemName)
 				} else {
 					e.logger.CommandError(CatSystem, "LIBRARY", fmt.Sprintf("Item not found: %s::%s", moduleName, itemName), position)
 					return BoolStatus(false)
@@ -183,7 +183,7 @@ func (e *Executor) handleLIBRARY(args []interface{}, state *ExecutionState, posi
 					newSection[itemName] = item
 				}
 				state.moduleEnv.LibraryRestricted[target] = newSection
-				e.logger.Debug("LIBRARY: Allowed module \"%s\"", target)
+				e.logger.DebugCat(CatSystem,"LIBRARY: Allowed module \"%s\"", target)
 			} else {
 				e.logger.CommandError(CatSystem, "LIBRARY", fmt.Sprintf("Module not found: %s", target), position)
 				return BoolStatus(false)
@@ -196,7 +196,7 @@ func (e *Executor) handleLIBRARY(args []interface{}, state *ExecutionState, posi
 			// Remove everything from LibraryInherited
 			state.moduleEnv.CopyLibraryInherited()
 			state.moduleEnv.LibraryInherited = make(Library)
-			e.logger.Debug("LIBRARY: Forgot all modules from LibraryInherited")
+			e.logger.DebugCat(CatSystem,"LIBRARY: Forgot all modules from LibraryInherited")
 		} else if strings.Contains(target, "::") {
 			// Remove specific items: "module::item1,item2"
 			moduleParts := strings.SplitN(target, "::", 2)
@@ -230,7 +230,7 @@ func (e *Executor) handleLIBRARY(args []interface{}, state *ExecutionState, posi
 					return BoolStatus(false)
 				}
 				delete(section, itemName)
-				e.logger.Debug("LIBRARY: Forgot %s::%s from LibraryInherited", moduleName, itemName)
+				e.logger.DebugCat(CatSystem,"LIBRARY: Forgot %s::%s from LibraryInherited", moduleName, itemName)
 			}
 
 			// If module is now empty, remove it entirely
@@ -245,7 +245,7 @@ func (e *Executor) handleLIBRARY(args []interface{}, state *ExecutionState, posi
 			}
 			state.moduleEnv.CopyLibraryInherited()
 			delete(state.moduleEnv.LibraryInherited, target)
-			e.logger.Debug("LIBRARY: Forgot module \"%s\" from LibraryInherited", target)
+			e.logger.DebugCat(CatSystem,"LIBRARY: Forgot module \"%s\" from LibraryInherited", target)
 		}
 
 	default:
@@ -310,7 +310,7 @@ func (e *Executor) handleIMPORT(args []interface{}, state *ExecutionState, posit
 				e.logger.CommandError(CatSystem, "IMPORT", fmt.Sprintf("Name collisions: %s", strings.Join(collisions, "; ")), position)
 				return BoolStatus(false)
 			}
-			e.logger.Debug("IMPORT: Imported all items from module \"%s\"", moduleName)
+			e.logger.DebugCat(CatSystem,"IMPORT: Imported all items from module \"%s\"", moduleName)
 		} else {
 			// Import specific items
 			for _, itemSpec := range itemsToImport {
@@ -341,7 +341,7 @@ func (e *Executor) handleIMPORT(args []interface{}, state *ExecutionState, posit
 					e.logger.CommandError(CatSystem, "IMPORT", errMsg, position)
 					return BoolStatus(false)
 				}
-				e.logger.Debug("IMPORT: Imported %s::%s as \"%s\"", moduleName, originalName, localName)
+				e.logger.DebugCat(CatSystem,"IMPORT: Imported %s::%s as \"%s\"", moduleName, originalName, localName)
 			}
 		}
 	}
@@ -438,7 +438,7 @@ func (e *Executor) handleREMOVE(args []interface{}, state *ExecutionState, posit
 			state.moduleEnv.objectsModuleCopied = true
 			state.moduleEnv.ItemMetadataModule = make(map[string]*ItemMetadata)
 			state.moduleEnv.metadataModuleCopied = true
-			e.logger.Debug("REMOVE ALL: Reset all module registries to clean slate")
+			e.logger.DebugCat(CatSystem,"REMOVE ALL: Reset all module registries to clean slate")
 			return BoolStatus(true)
 		}
 	}
@@ -480,7 +480,7 @@ func (e *Executor) handleREMOVE(args []interface{}, state *ExecutionState, posit
 					return BoolStatus(false)
 				}
 				e.removeItem(state, localName, itemType)
-				e.logger.Debug("REMOVE MY: Removed \"%s\"", localName)
+				e.logger.DebugCat(CatSystem,"REMOVE MY: Removed \"%s\"", localName)
 			}
 			continue // Move to next argument
 		}
@@ -514,7 +514,7 @@ func (e *Executor) handleREMOVE(args []interface{}, state *ExecutionState, posit
 				}
 
 				e.removeItem(state, itemName, item.Type)
-				e.logger.Debug("REMOVE: Removed %s::%s", moduleName, itemName)
+				e.logger.DebugCat(CatSystem,"REMOVE: Removed %s::%s", moduleName, itemName)
 			}
 			continue // Move to next argument
 		}
@@ -533,7 +533,7 @@ func (e *Executor) handleREMOVE(args []interface{}, state *ExecutionState, posit
 		for itemName, item := range section {
 			e.removeItem(state, itemName, item.Type)
 		}
-		e.logger.Debug("REMOVE: Removed all items from module \"%s\"", moduleName)
+		e.logger.DebugCat(CatSystem,"REMOVE: Removed all items from module \"%s\"", moduleName)
 	}
 
 	return BoolStatus(true)
@@ -594,7 +594,7 @@ func (e *Executor) removeItem(state *ExecutionState, itemName, itemType string) 
 //   EXPORT "modspec::item1,item2"          - re-exports specific items
 //   EXPORT "modspec::new=orig,#obj,item"   - re-exports with optional rename (new=original)
 func (e *Executor) handleEXPORT(args []interface{}, namedArgs map[string]interface{}, state *ExecutionState, position *SourcePosition) Result {
-	e.logger.Debug("EXPORT called with %d args", len(args))
+	e.logger.DebugCat(CatSystem,"EXPORT called with %d args", len(args))
 	if len(args) == 0 {
 		e.logger.CommandError(CatSystem, "EXPORT", "Expected at least 1 argument (item names)", position)
 		return BoolStatus(false)
@@ -610,7 +610,7 @@ func (e *Executor) handleEXPORT(args []interface{}, namedArgs map[string]interfa
 	}
 
 	moduleName := state.moduleEnv.DefaultName
-	e.logger.Debug("EXPORT: module name is '%s'", moduleName)
+	e.logger.DebugCat(CatSystem,"EXPORT: module name is '%s'", moduleName)
 
 	// Ensure module section exists in ModuleExports
 	if state.moduleEnv.ModuleExports[moduleName] == nil {
@@ -618,7 +618,7 @@ func (e *Executor) handleEXPORT(args []interface{}, namedArgs map[string]interfa
 	}
 
 	section := state.moduleEnv.ModuleExports[moduleName]
-	e.logger.Debug("EXPORT: ModuleExports[%s] section created/exists", moduleName)
+	e.logger.DebugCat(CatSystem,"EXPORT: ModuleExports[%s] section created/exists", moduleName)
 
 	for _, arg := range args {
 		// Check for quoted re-export form: "module::*" or "module::new=item1,item2"
@@ -657,7 +657,7 @@ func (e *Executor) handleEXPORT(args []interface{}, namedArgs map[string]interfa
 				// Re-export all items from the module
 				for itemName, item := range sourceSection {
 					section[itemName] = item
-					e.logger.Debug("EXPORT: Re-exported %s::%s to module \"%s\"", sourceModule, itemName, moduleName)
+					e.logger.DebugCat(CatSystem,"EXPORT: Re-exported %s::%s to module \"%s\"", sourceModule, itemName, moduleName)
 				}
 			} else {
 				// Re-export specific items, with optional rename (new=original)
@@ -687,9 +687,9 @@ func (e *Executor) handleEXPORT(args []interface{}, namedArgs map[string]interfa
 
 					section[exportName] = item
 					if exportName != sourceName {
-						e.logger.Debug("EXPORT: Re-exported %s::%s as \"%s\" to module \"%s\"", sourceModule, sourceName, exportName, moduleName)
+						e.logger.DebugCat(CatSystem,"EXPORT: Re-exported %s::%s as \"%s\" to module \"%s\"", sourceModule, sourceName, exportName, moduleName)
 					} else {
-						e.logger.Debug("EXPORT: Re-exported %s::%s to module \"%s\"", sourceModule, sourceName, moduleName)
+						e.logger.DebugCat(CatSystem,"EXPORT: Re-exported %s::%s to module \"%s\"", sourceModule, sourceName, moduleName)
 					}
 				}
 			}
@@ -727,7 +727,7 @@ func (e *Executor) handleEXPORT(args []interface{}, namedArgs map[string]interfa
 				Type:  "object",
 				Value: objValue,
 			}
-			e.logger.Debug("EXPORT: Exported object \"%s\" from module \"%s\"", objName, moduleName)
+			e.logger.DebugCat(CatSystem,"EXPORT: Exported object \"%s\" from module \"%s\"", objName, moduleName)
 			continue
 		}
 
@@ -738,7 +738,7 @@ func (e *Executor) handleEXPORT(args []interface{}, namedArgs map[string]interfa
 					Type:  "macro",
 					Value: macro,
 				}
-				e.logger.Debug("EXPORT: Exported macro \"%s\" from module \"%s\"", itemName, moduleName)
+				e.logger.DebugCat(CatSystem,"EXPORT: Exported macro \"%s\" from module \"%s\"", itemName, moduleName)
 				continue
 			}
 		}
@@ -747,7 +747,7 @@ func (e *Executor) handleEXPORT(args []interface{}, namedArgs map[string]interfa
 				Type:  "macro",
 				Value: macro,
 			}
-			e.logger.Debug("EXPORT: Exported macro \"%s\" from module \"%s\"", itemName, moduleName)
+			e.logger.DebugCat(CatSystem,"EXPORT: Exported macro \"%s\" from module \"%s\"", itemName, moduleName)
 			continue
 		}
 
@@ -758,7 +758,7 @@ func (e *Executor) handleEXPORT(args []interface{}, namedArgs map[string]interfa
 					Type:  "command",
 					Value: handler,
 				}
-				e.logger.Debug("EXPORT: Exported command \"%s\" from module \"%s\"", itemName, moduleName)
+				e.logger.DebugCat(CatSystem,"EXPORT: Exported command \"%s\" from module \"%s\"", itemName, moduleName)
 				continue
 			}
 		}
@@ -767,7 +767,7 @@ func (e *Executor) handleEXPORT(args []interface{}, namedArgs map[string]interfa
 				Type:  "command",
 				Value: handler,
 			}
-			e.logger.Debug("EXPORT: Exported command \"%s\" from module \"%s\"", itemName, moduleName)
+			e.logger.DebugCat(CatSystem,"EXPORT: Exported command \"%s\" from module \"%s\"", itemName, moduleName)
 			continue
 		}
 
@@ -777,7 +777,7 @@ func (e *Executor) handleEXPORT(args []interface{}, namedArgs map[string]interfa
 				Type:  "object",
 				Value: val,
 			}
-			e.logger.Debug("EXPORT: Exported variable \"%s\" as object from module \"%s\"", itemName, moduleName)
+			e.logger.DebugCat(CatSystem,"EXPORT: Exported variable \"%s\" as object from module \"%s\"", itemName, moduleName)
 			continue
 		}
 

@@ -46,7 +46,7 @@ func (e *Executor) RegisterCommand(name string, handler Handler) {
 	e.mu.Lock()
 	e.commands[name] = handler
 	e.mu.Unlock()
-	e.logger.Debug("Registered command: %s", name)
+	e.logger.DebugCat(CatCommand, "Registered command: %s", name)
 }
 
 // UnregisterCommand unregisters a command
@@ -56,11 +56,11 @@ func (e *Executor) UnregisterCommand(name string) bool {
 
 	if _, exists := e.commands[name]; exists {
 		delete(e.commands, name)
-		e.logger.Debug("Unregistered command: %s", name)
+		e.logger.DebugCat(CatCommand, "Unregistered command: %s", name)
 		return true
 	}
 
-	e.logger.Warn("Attempted to unregister unknown command: %s", name)
+	e.logger.WarnCat(CatCommand, "Attempted to unregister unknown command: %s", name)
 	return false
 }
 
@@ -82,7 +82,7 @@ func (e *Executor) SetFallbackHandler(handler func(string, []interface{}, map[st
 
 // Execute executes a command string
 func (e *Executor) Execute(commandStr string, args ...interface{}) Result {
-	e.logger.Debug("Execute called with command: %s", commandStr)
+	e.logger.DebugCat(CatCommand, "Execute called with command: %s", commandStr)
 
 	state := NewExecutionState()
 	// Ensure cleanup happens when execution completes
@@ -241,7 +241,7 @@ func (e *Executor) executeStoredMacro(
 		debugInfo += fmt.Sprintf(", called from %s:%d",
 			invocationPosition.Filename, invocationPosition.Line)
 	}
-	e.logger.Debug("%s", debugInfo)
+	e.logger.DebugCat(CatMacro, "%s", debugInfo)
 
 	// Create execution state if not provided
 	if state == nil {
@@ -299,7 +299,7 @@ func (e *Executor) executeStoredMacro(
 				parentState.moduleEnv.LibraryInherited["exports"][name] = item
 			}
 			parentState.moduleEnv.mu.Unlock()
-			e.logger.Debug("Merged %d exports from macro to parent's exports module", len(exportsSection))
+			e.logger.DebugCat(CatMacro, "Merged %d exports from macro to parent's exports module", len(exportsSection))
 		}
 		state.moduleEnv.mu.RUnlock()
 	}
@@ -316,7 +316,7 @@ func (e *Executor) executeStoredMacro(
 
 		// Don't clear macro result here - ReleaseAllReferences will handle it
 
-		e.logger.Debug("Transferred macro result to parent state: %v", state.GetResult())
+		e.logger.DebugCat(CatMacro, "Transferred macro result to parent state: %v", state.GetResult())
 	}
 
 	// Clear all variables (including $@) to release their references
@@ -339,9 +339,9 @@ func (e *Executor) executeStoredMacro(
 	state.ReleaseAllReferences()
 
 	if name != "" {
-		e.logger.Debug("Macro \"%s\" execution completed with result: %v", name, result)
+		e.logger.DebugCat(CatMacro, "Macro \"%s\" execution completed with result: %v", name, result)
 	} else {
-		e.logger.Debug("Anonymous macro execution completed with result: %v", result)
+		e.logger.DebugCat(CatMacro, "Anonymous macro execution completed with result: %v", result)
 	}
 	return result
 }

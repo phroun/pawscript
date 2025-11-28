@@ -1,4 +1,4 @@
-[PawScript ERROR] Parse error: Unclosed quote: missing closing "
+[PawScript:parse ERROR] Parse error: Unclosed quote: missing closing "
   at line 17, column 1 in macro-parse-error.paw
 
      16 | call quote_error

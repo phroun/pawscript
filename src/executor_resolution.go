@@ -21,7 +21,7 @@ func (e *Executor) resolveValue(value interface{}) interface{} {
 		}
 		if objType, objID := parseObjectMarker(str); objID >= 0 {
 			if actualValue, exists := e.getObject(objID); exists {
-				e.logger.Debug("Resolved %s marker %d to actual value", objType, objID)
+				e.logger.DebugCat(CatVariable,"Resolved %s marker %d to actual value", objType, objID)
 				// Convert stored types back to their original forms
 				switch v := actualValue.(type) {
 				case StoredString:
@@ -43,7 +43,7 @@ func (e *Executor) resolveValue(value interface{}) interface{} {
 		}
 		if objType, objID := parseObjectMarker(str); objID >= 0 {
 			if actualValue, exists := e.getObject(objID); exists {
-				e.logger.Debug("Resolved %s marker %d to actual value", objType, objID)
+				e.logger.DebugCat(CatVariable,"Resolved %s marker %d to actual value", objType, objID)
 				// Convert stored types back to their original forms
 				switch v := actualValue.(type) {
 				case StoredString:

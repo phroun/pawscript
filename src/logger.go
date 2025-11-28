@@ -306,18 +306,18 @@ func (l *Logger) Log(level LogLevel, cat LogCategory, message string, position *
 	}
 
 	var prefix string
-	switch level {
-	case LevelDebug:
-		prefix = "[DEBUG]"
-	case LevelWarn:
-		prefix = "[PawScript WARN]"
-	case LevelError, LevelFatal:
-		prefix = "[PawScript ERROR]"
+	catSuffix := ""
+	if cat != CatNone {
+		catSuffix = fmt.Sprintf(":%s", cat)
 	}
 
-	// Add category to debug messages
-	if level == LevelDebug && cat != CatNone {
-		prefix = fmt.Sprintf("[DEBUG:%s]", cat)
+	switch level {
+	case LevelDebug:
+		prefix = fmt.Sprintf("[DEBUG%s]", catSuffix)
+	case LevelWarn:
+		prefix = fmt.Sprintf("[PawScript%s WARN]", catSuffix)
+	case LevelError, LevelFatal:
+		prefix = fmt.Sprintf("[PawScript%s ERROR]", catSuffix)
 	}
 
 	output := fmt.Sprintf("%s %s", prefix, message)
@@ -362,14 +362,24 @@ func (l *Logger) Warn(format string, args ...interface{}) {
 	l.Log(LevelWarn, CatNone, fmt.Sprintf(format, args...), nil, nil)
 }
 
+// WarnCat logs a categorized warning message
+func (l *Logger) WarnCat(cat LogCategory, format string, args ...interface{}) {
+	l.Log(LevelWarn, cat, fmt.Sprintf(format, args...), nil, nil)
+}
+
 // Error logs an error message (no position)
 func (l *Logger) Error(format string, args ...interface{}) {
 	l.Log(LevelError, CatNone, fmt.Sprintf(format, args...), nil, nil)
 }
 
+// ErrorCat logs a categorized error message
+func (l *Logger) ErrorCat(cat LogCategory, format string, args ...interface{}) {
+	l.Log(LevelError, cat, fmt.Sprintf(format, args...), nil, nil)
+}
+
 // ErrorWithPosition logs an error with position information
-func (l *Logger) ErrorWithPosition(message string, position *SourcePosition, context []string) {
-	l.Log(LevelError, CatNone, message, position, context)
+func (l *Logger) ErrorWithPosition(cat LogCategory, message string, position *SourcePosition, context []string) {
+	l.Log(LevelError, cat, message, position, context)
 }
 
 // ParseError logs a parse error (always visible)
@@ -416,13 +426,13 @@ func (l *Logger) LogWithState(level LogLevel, cat LogCategory, message string, p
 }
 
 // ErrorWithState logs an error message using the given execution state for channel resolution
-func (l *Logger) ErrorWithState(message string, state *ExecutionState, executor *Executor) {
-	l.LogWithState(LevelError, CatNone, message, nil, nil, state, executor)
+func (l *Logger) ErrorWithState(cat LogCategory, message string, state *ExecutionState, executor *Executor) {
+	l.LogWithState(LevelError, cat, message, nil, nil, state, executor)
 }
 
 // WarnWithState logs a warning message using the given execution state for channel resolution
-func (l *Logger) WarnWithState(message string, state *ExecutionState, executor *Executor) {
-	l.LogWithState(LevelWarn, CatNone, message, nil, nil, state, executor)
+func (l *Logger) WarnWithState(cat LogCategory, message string, state *ExecutionState, executor *Executor) {
+	l.LogWithState(LevelWarn, cat, message, nil, nil, state, executor)
 }
 
 // formatMacroContext formats the macro call chain

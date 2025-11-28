@@ -59,7 +59,7 @@ func (e *Executor) storeObject(value interface{}, typeName string) int {
 		RefCount: 0, // Start at 0 - creator must claim ownership
 	}
 
-	e.logger.Debug("Stored object %d (type: %s, refcount: 0)", id, typeName)
+	e.logger.DebugCat(CatMemory,"Stored object %d (type: %s, refcount: 0)", id, typeName)
 
 	return id
 }
@@ -71,9 +71,9 @@ func (e *Executor) incrementObjectRefCount(objectID int) {
 
 	if obj, exists := e.storedObjects[objectID]; exists {
 		obj.RefCount++
-		e.logger.Debug("Object %d refcount incremented to %d (type: %s)", objectID, obj.RefCount, obj.Type)
+		e.logger.DebugCat(CatMemory,"Object %d refcount incremented to %d (type: %s)", objectID, obj.RefCount, obj.Type)
 	} else {
-		e.logger.Warn("Attempted to increment refcount for non-existent object %d", objectID)
+		e.logger.WarnCat(CatMemory,"Attempted to increment refcount for non-existent object %d", objectID)
 	}
 }
 
@@ -84,7 +84,7 @@ func (e *Executor) decrementObjectRefCount(objectID int) {
 
 	if obj, exists := e.storedObjects[objectID]; exists {
 		obj.RefCount--
-		e.logger.Debug("Object %d refcount decremented to %d (type: %s)", objectID, obj.RefCount, obj.Type)
+		e.logger.DebugCat(CatMemory,"Object %d refcount decremented to %d (type: %s)", objectID, obj.RefCount, obj.Type)
 
 		if obj.RefCount <= 0 {
 			// Before deleting, release nested references if it's a list
@@ -103,10 +103,10 @@ func (e *Executor) decrementObjectRefCount(objectID int) {
 			}
 
 			delete(e.storedObjects, objectID)
-			e.logger.Debug("Object %d freed (refcount reached 0)", objectID)
+			e.logger.DebugCat(CatMemory,"Object %d freed (refcount reached 0)", objectID)
 		}
 	} else {
-		e.logger.Warn("Attempted to decrement refcount for non-existent object %d", objectID)
+		e.logger.WarnCat(CatMemory,"Attempted to decrement refcount for non-existent object %d", objectID)
 	}
 }
 

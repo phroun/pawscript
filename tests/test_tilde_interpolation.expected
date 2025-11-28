@@ -53,7 +53,7 @@ x is 5 and x+1 is 6
 Expected: x is 5 and x+1 is 6
 
 Test 14: Undefined variable
-[PawScript ERROR] Variable not found: undefined_var
+[PawScript:variable ERROR] Variable not found: undefined_var
   at line 99, column 1 in test_tilde_interpolation.paw
 This  should be empty
 Expected: Error logged, empty substitution

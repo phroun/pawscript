@@ -34,7 +34,7 @@ func (e *Executor) RequestCompletionToken(
 	go func() {
 		<-ctx.Done()
 		if ctx.Err() == context.DeadlineExceeded {
-			e.logger.Warn("Token %s timed out, forcing cleanup", tokenID)
+			e.logger.WarnCat(CatAsync,"Token %s timed out, forcing cleanup", tokenID)
 			e.ForceCleanupToken(tokenID)
 		}
 	}()
@@ -69,7 +69,7 @@ func (e *Executor) RequestCompletionToken(
 		}
 	}
 
-	e.logger.Debug("Created completion token: %s (fiber %d), parent: %s, hasResult: %v",
+	e.logger.DebugCat(CatAsync,"Created completion token: %s (fiber %d), parent: %s, hasResult: %v",
 		tokenID, fiberID, parentTokenID, hasSuspendedResult)
 
 	return tokenID
@@ -96,7 +96,7 @@ func (e *Executor) RequestBraceCoordinatorToken(
 	go func() {
 		<-ctx.Done()
 		if ctx.Err() == context.DeadlineExceeded {
-			e.logger.Warn("Brace coordinator token %s timed out, forcing cleanup", tokenID)
+			e.logger.WarnCat(CatAsync,"Brace coordinator token %s timed out, forcing cleanup", tokenID)
 			e.ForceCleanupToken(tokenID)
 		}
 	}()
@@ -141,7 +141,7 @@ func (e *Executor) RequestBraceCoordinatorToken(
 		}
 	}
 
-	e.logger.Debug("Created brace coordinator token: %s with %d evaluations (%d async)",
+	e.logger.DebugCat(CatAsync,"Created brace coordinator token: %s with %d evaluations (%d async)",
 		tokenID, len(evaluations), len(tokenData.Children))
 
 	return tokenID
@@ -154,13 +154,13 @@ func (e *Executor) ResumeBraceEvaluation(coordinatorToken, childToken string, re
 	coordData, exists := e.activeTokens[coordinatorToken]
 	if !exists {
 		e.mu.Unlock()
-		e.logger.Warn("Coordinator token %s not found for child %s", coordinatorToken, childToken)
+		e.logger.WarnCat(CatAsync,"Coordinator token %s not found for child %s", coordinatorToken, childToken)
 		return
 	}
 
 	if coordData.BraceCoordinator == nil {
 		e.mu.Unlock()
-		e.logger.Error("Token %s is not a brace coordinator", coordinatorToken)
+		e.logger.ErrorCat(CatAsync,"Token %s is not a brace coordinator", coordinatorToken)
 		return
 	}
 
@@ -177,7 +177,7 @@ func (e *Executor) ResumeBraceEvaluation(coordinatorToken, childToken string, re
 
 	if targetEval == nil {
 		e.mu.Unlock()
-		e.logger.Warn("Child token %s not found in coordinator %s", childToken, coordinatorToken)
+		e.logger.WarnCat(CatAsync,"Child token %s not found in coordinator %s", childToken, coordinatorToken)
 		return
 	}
 
@@ -196,10 +196,10 @@ func (e *Executor) ResumeBraceEvaluation(coordinatorToken, childToken string, re
 		if !coord.HasFailure {
 			coord.HasFailure = true
 			coord.FirstFailureError = fmt.Sprintf("Brace evaluation failed: %s", childToken)
-			e.logger.Debug("Brace evaluation failed in coordinator %s: child %s", coordinatorToken, childToken)
+			e.logger.DebugCat(CatAsync,"Brace evaluation failed in coordinator %s: child %s", coordinatorToken, childToken)
 		}
 	} else {
-		e.logger.Debug("Brace evaluation completed in coordinator %s: child %s (%d/%d)",
+		e.logger.DebugCat(CatAsync,"Brace evaluation completed in coordinator %s: child %s (%d/%d)",
 			coordinatorToken, childToken, coord.CompletedCount, coord.TotalCount)
 	}
 
@@ -210,7 +210,7 @@ func (e *Executor) ResumeBraceEvaluation(coordinatorToken, childToken string, re
 	e.mu.Unlock()
 
 	if allDone {
-		e.logger.Debug("All brace evaluations complete for coordinator %s (failure: %v)",
+		e.logger.DebugCat(CatAsync,"All brace evaluations complete for coordinator %s (failure: %v)",
 			coordinatorToken, hasFailure)
 		e.finalizeBraceCoordinator(coordinatorToken)
 	}
@@ -251,12 +251,12 @@ func (e *Executor) finalizeBraceCoordinator(coordinatorToken string) {
 	// Now perform the final substitution and resume callback
 	var callbackResult Result
 	if hasFailure {
-		e.logger.Debug("Brace coordinator %s failed, calling resume with failure", coordinatorToken)
+		e.logger.DebugCat(CatAsync,"Brace coordinator %s failed, calling resume with failure", coordinatorToken)
 		callbackResult = coord.ResumeCallback("", false)
 	} else {
 		// Substitute all results into the original string
 		finalString := e.substituteAllBraces(coord.OriginalString, coord.Evaluations, coord.SubstitutionCtx.ExecutionState)
-		e.logger.Debug("Brace coordinator %s succeeded, substituted string: %s", coordinatorToken, finalString)
+		e.logger.DebugCat(CatAsync,"Brace coordinator %s succeeded, substituted string: %s", coordinatorToken, finalString)
 		callbackResult = coord.ResumeCallback(finalString, true)
 	}
 
@@ -264,21 +264,21 @@ func (e *Executor) finalizeBraceCoordinator(coordinatorToken string) {
 	if boolStatus, ok := callbackResult.(BoolStatus); ok {
 		// Command completed synchronously
 		success := bool(boolStatus)
-		e.logger.Debug("Brace coordinator callback returned bool: %v", success)
+		e.logger.DebugCat(CatAsync,"Brace coordinator callback returned bool: %v", success)
 
 		// If there's a chained token, resume it with this result
 		if chainedToken != "" {
-			e.logger.Debug("Resuming chained token %s with result %v", chainedToken, success)
+			e.logger.DebugCat(CatAsync,"Resuming chained token %s with result %v", chainedToken, success)
 			e.PopAndResumeCommandSequence(chainedToken, success)
 		}
 	} else if tokenResult, ok := callbackResult.(TokenResult); ok {
 		// Command returned another token (nested async)
 		newToken := string(tokenResult)
-		e.logger.Debug("Brace coordinator callback returned new token: %s", newToken)
+		e.logger.DebugCat(CatAsync,"Brace coordinator callback returned new token: %s", newToken)
 
 		// If there's a chained token, chain the new token to it
 		if chainedToken != "" {
-			e.logger.Debug("Chaining new token %s to %s", newToken, chainedToken)
+			e.logger.DebugCat(CatAsync,"Chaining new token %s to %s", newToken, chainedToken)
 			e.chainTokens(newToken, chainedToken)
 		}
 	}
@@ -320,7 +320,7 @@ func (e *Executor) PushCommandSequence(
 		Position:           position,
 	}
 
-	e.logger.Debug("Pushed command sequence onto token %s. Type: %s, Remaining: %d, hasResult: %v",
+	e.logger.DebugCat(CatAsync,"Pushed command sequence onto token %s. Type: %s, Remaining: %d, hasResult: %v",
 		tokenID, seqType, len(remainingCommands), hasResult)
 
 	return nil
@@ -333,7 +333,7 @@ func (e *Executor) PopAndResumeCommandSequence(tokenID string, status bool) bool
 	tokenData, exists := e.activeTokens[tokenID]
 	if !exists {
 		e.mu.Unlock()
-		e.logger.Warn("Attempted to resume with invalid token: %s", tokenID)
+		e.logger.WarnCat(CatAsync,"Attempted to resume with invalid token: %s", tokenID)
 		return false
 	}
 
@@ -341,7 +341,7 @@ func (e *Executor) PopAndResumeCommandSequence(tokenID string, status bool) bool
 	effectiveStatus := status
 	if tokenData.InvertStatus {
 		effectiveStatus = !status
-		e.logger.Debug("Inverting async result for token %s: %v -> %v", tokenID, status, effectiveStatus)
+		e.logger.DebugCat(CatAsync,"Inverting async result for token %s: %v -> %v", tokenID, status, effectiveStatus)
 	}
 
 	// Check if this token's parent is a brace coordinator
@@ -356,14 +356,14 @@ func (e *Executor) PopAndResumeCommandSequence(tokenID string, status bool) bool
 				}
 				e.mu.Unlock()
 
-				e.logger.Debug("Token %s is child of brace coordinator %s, forwarding result", tokenID, coordinatorToken)
+				e.logger.DebugCat(CatAsync,"Token %s is child of brace coordinator %s, forwarding result", tokenID, coordinatorToken)
 				e.ResumeBraceEvaluation(coordinatorToken, tokenID, resultValue, effectiveStatus)
 				return effectiveStatus
 			}
 		}
 	}
 
-	e.logger.Debug("Popping command sequence from token %s. Result: %v", tokenID, effectiveStatus)
+	e.logger.DebugCat(CatAsync,"Popping command sequence from token %s. Result: %v", tokenID, effectiveStatus)
 
 	// Cleanup children
 	e.cleanupTokenChildrenLocked(tokenID)
@@ -422,7 +422,7 @@ func (e *Executor) PopAndResumeCommandSequence(tokenID string, status bool) bool
 
 	// If this token belongs to a fiber, send resume data to the fiber
 	if fiberHandle != nil {
-		e.logger.Debug("Sending resume data to fiber %d for token %s", fiberID, tokenID)
+		e.logger.DebugCat(CatAsync,"Sending resume data to fiber %d for token %s", fiberID, tokenID)
 		resumeData := ResumeData{
 			TokenID: tokenID,
 			Status:  success,
@@ -431,9 +431,9 @@ func (e *Executor) PopAndResumeCommandSequence(tokenID string, status bool) bool
 		// Non-blocking send since fiber might not be waiting yet
 		select {
 		case fiberHandle.ResumeChan <- resumeData:
-			e.logger.Debug("Successfully sent resume data to fiber %d", fiberID)
+			e.logger.DebugCat(CatAsync,"Successfully sent resume data to fiber %d", fiberID)
 		default:
-			e.logger.Warn("Fiber %d resume channel full or not ready", fiberID)
+			e.logger.WarnCat(CatAsync,"Fiber %d resume channel full or not ready", fiberID)
 		}
 	}
 
@@ -442,14 +442,14 @@ func (e *Executor) PopAndResumeCommandSequence(tokenID string, status bool) bool
 		// will signal completion (not this intermediate token)
 		if waitChan != nil {
 			e.attachWaitChan(chainedToken, waitChan)
-			e.logger.Debug("Propagated wait channel to chained token %s", chainedToken)
+			e.logger.DebugCat(CatAsync,"Propagated wait channel to chained token %s", chainedToken)
 		}
 
 		// If asyncPending is true, the chainedToken is waiting for an async operation
 		// to complete (e.g., msleep). Don't resume it now - it will be triggered
 		// automatically when the async operation's token completes.
 		if asyncPending {
-			e.logger.Debug("Async operation pending, not immediately triggering chained token %s", chainedToken)
+			e.logger.DebugCat(CatAsync,"Async operation pending, not immediately triggering chained token %s", chainedToken)
 			// Release our state references since we're done with this token
 			if tokenData.ExecutionState != nil {
 				tokenData.ExecutionState.ReleaseAllReferences()
@@ -457,7 +457,7 @@ func (e *Executor) PopAndResumeCommandSequence(tokenID string, status bool) bool
 			return success
 		}
 
-		e.logger.Debug("Triggering chained token %s with result %v", chainedToken, success)
+		e.logger.DebugCat(CatAsync,"Triggering chained token %s with result %v", chainedToken, success)
 		result := e.PopAndResumeCommandSequence(chainedToken, success)
 
 		// Release all object references held by this token's state
@@ -471,7 +471,7 @@ func (e *Executor) PopAndResumeCommandSequence(tokenID string, status bool) bool
 	// No chained token - this is the final token in the chain
 	// If this token has a wait channel (synchronous blocking), send to it now
 	if waitChan != nil {
-		e.logger.Debug("Sending resume data to wait channel for token %s (final in chain)", tokenID)
+		e.logger.DebugCat(CatAsync,"Sending resume data to wait channel for token %s (final in chain)", tokenID)
 		resumeData := ResumeData{
 			TokenID: tokenID,
 			Status:  success,
@@ -479,7 +479,7 @@ func (e *Executor) PopAndResumeCommandSequence(tokenID string, status bool) bool
 		}
 		// Send to wait channel (blocking is expected here)
 		waitChan <- resumeData
-		e.logger.Debug("Successfully sent resume data to wait channel")
+		e.logger.DebugCat(CatAsync,"Successfully sent resume data to wait channel")
 	}
 
 	// No chain - safe to release now
@@ -516,7 +516,7 @@ func (e *Executor) forceCleanupTokenLocked(tokenID string) {
 		return
 	}
 
-	e.logger.Debug("Force cleaning up token: %s", tokenID)
+	e.logger.DebugCat(CatAsync,"Force cleaning up token: %s", tokenID)
 
 	if tokenData.CleanupCallback != nil {
 		tokenData.CleanupCallback(tokenID)
@@ -547,7 +547,7 @@ func (e *Executor) resumeCommandSequence(seq *CommandSequence, status bool, stat
 	case "or":
 		return e.resumeOr(seq, status, state)
 	default:
-		e.logger.Error("Unknown command sequence type: %s", seq.Type)
+		e.logger.ErrorCat(CatAsync,"Unknown command sequence type: %s", seq.Type)
 		return false, ""
 	}
 }
@@ -566,7 +566,7 @@ func (e *Executor) resumeSequence(seq *CommandSequence, status bool, state *Exec
 
 		// Check for early return
 		if earlyReturn, ok := cmdResult.(EarlyReturn); ok {
-			e.logger.Debug("Command returned early return during resume, terminating sequence")
+			e.logger.DebugCat(CatAsync,"Command returned early return during resume, terminating sequence")
 			if earlyReturn.HasResult {
 				state.SetResult(earlyReturn.Result)
 			}
@@ -574,7 +574,7 @@ func (e *Executor) resumeSequence(seq *CommandSequence, status bool, state *Exec
 		}
 
 		if tokenResult, ok := cmdResult.(TokenResult); ok {
-			e.logger.Debug("Command returned token during resume: %s, chaining remaining commands", string(tokenResult))
+			e.logger.DebugCat(CatAsync,"Command returned token during resume: %s, chaining remaining commands", string(tokenResult))
 
 			// Handle remaining commands after this token
 			remainingCommands := seq.RemainingCommands[i+1:]
@@ -582,7 +582,7 @@ func (e *Executor) resumeSequence(seq *CommandSequence, status bool, state *Exec
 				// Create a new sequence token for the remaining commands
 				sequenceToken := e.RequestCompletionToken(
 					func(tokenID string) {
-						e.logger.Debug("Cleaning up suspended sequence for token %s", tokenID)
+						e.logger.DebugCat(CatAsync,"Cleaning up suspended sequence for token %s", tokenID)
 					},
 					"",
 					5*time.Minute,
@@ -592,7 +592,7 @@ func (e *Executor) resumeSequence(seq *CommandSequence, status bool, state *Exec
 
 				err := e.PushCommandSequence(sequenceToken, "sequence", remainingCommands, 0, "sequence", state, parsedCmd.Position)
 				if err != nil {
-					e.logger.Error("Failed to push command sequence: %v", err)
+					e.logger.ErrorCat(CatAsync,"Failed to push command sequence: %v", err)
 					return false, ""
 				}
 
@@ -632,7 +632,7 @@ func (e *Executor) resumeConditional(seq *CommandSequence, status bool, state *E
 
 		// Check for early return
 		if earlyReturn, ok := cmdResult.(EarlyReturn); ok {
-			e.logger.Debug("Command returned early return during resume, terminating sequence")
+			e.logger.DebugCat(CatAsync,"Command returned early return during resume, terminating sequence")
 			if earlyReturn.HasResult {
 				state.SetResult(earlyReturn.Result)
 			}
@@ -640,7 +640,7 @@ func (e *Executor) resumeConditional(seq *CommandSequence, status bool, state *E
 		}
 
 		if tokenResult, ok := cmdResult.(TokenResult); ok {
-			e.logger.Debug("Command returned token during conditional resume: %s, chaining remaining commands", string(tokenResult))
+			e.logger.DebugCat(CatAsync,"Command returned token during conditional resume: %s, chaining remaining commands", string(tokenResult))
 
 			// Handle remaining commands after this token
 			remainingCommands := seq.RemainingCommands[i+1:]
@@ -648,7 +648,7 @@ func (e *Executor) resumeConditional(seq *CommandSequence, status bool, state *E
 				// Create a new sequence token for the remaining commands
 				sequenceToken := e.RequestCompletionToken(
 					func(tokenID string) {
-						e.logger.Debug("Cleaning up suspended conditional sequence for token %s", tokenID)
+						e.logger.DebugCat(CatAsync,"Cleaning up suspended conditional sequence for token %s", tokenID)
 					},
 					"",
 					5*time.Minute,
@@ -658,7 +658,7 @@ func (e *Executor) resumeConditional(seq *CommandSequence, status bool, state *E
 
 				err := e.PushCommandSequence(sequenceToken, "conditional", remainingCommands, 0, "conditional", state, parsedCmd.Position)
 				if err != nil {
-					e.logger.Error("Failed to push command sequence: %v", err)
+					e.logger.ErrorCat(CatAsync,"Failed to push command sequence: %v", err)
 					return false, ""
 				}
 
@@ -701,7 +701,7 @@ func (e *Executor) resumeOr(seq *CommandSequence, status bool, state *ExecutionS
 
 		// Check for early return
 		if earlyReturn, ok := cmdResult.(EarlyReturn); ok {
-			e.logger.Debug("Command returned early return during resume, terminating sequence")
+			e.logger.DebugCat(CatAsync,"Command returned early return during resume, terminating sequence")
 			if earlyReturn.HasResult {
 				state.SetResult(earlyReturn.Result)
 			}
@@ -709,7 +709,7 @@ func (e *Executor) resumeOr(seq *CommandSequence, status bool, state *ExecutionS
 		}
 
 		if tokenResult, ok := cmdResult.(TokenResult); ok {
-			e.logger.Debug("Command returned token during OR resume: %s, chaining remaining commands", string(tokenResult))
+			e.logger.DebugCat(CatAsync,"Command returned token during OR resume: %s, chaining remaining commands", string(tokenResult))
 
 			// Handle remaining commands after this token
 			remainingCommands := seq.RemainingCommands[i+1:]
@@ -717,7 +717,7 @@ func (e *Executor) resumeOr(seq *CommandSequence, status bool, state *ExecutionS
 				// Create a new sequence token for the remaining commands
 				sequenceToken := e.RequestCompletionToken(
 					func(tokenID string) {
-						e.logger.Debug("Cleaning up suspended OR sequence for token %s", tokenID)
+						e.logger.DebugCat(CatAsync,"Cleaning up suspended OR sequence for token %s", tokenID)
 					},
 					"",
 					5*time.Minute,
@@ -727,7 +727,7 @@ func (e *Executor) resumeOr(seq *CommandSequence, status bool, state *ExecutionS
 
 				err := e.PushCommandSequence(sequenceToken, "or", remainingCommands, 0, "or", state, parsedCmd.Position)
 				if err != nil {
-					e.logger.Error("Failed to push command sequence: %v", err)
+					e.logger.ErrorCat(CatAsync,"Failed to push command sequence: %v", err)
 					return false, ""
 				}
 
@@ -761,14 +761,14 @@ func (e *Executor) chainTokens(firstToken, secondToken string) {
 	secondTokenData, exists2 := e.activeTokens[secondToken]
 
 	if !exists1 || !exists2 {
-		e.logger.Error("Cannot chain tokens: %s or %s not found", firstToken, secondToken)
+		e.logger.ErrorCat(CatAsync,"Cannot chain tokens: %s or %s not found", firstToken, secondToken)
 		return
 	}
 
 	firstTokenData.ChainedToken = secondToken
 	secondTokenData.ParentToken = firstToken
 
-	e.logger.Debug("Chained token %s to complete after %s", secondToken, firstToken)
+	e.logger.DebugCat(CatAsync,"Chained token %s to complete after %s", secondToken, firstToken)
 }
 
 // attachWaitChan attaches a wait channel to a token for synchronous blocking
@@ -778,9 +778,9 @@ func (e *Executor) attachWaitChan(tokenID string, waitChan chan ResumeData) {
 
 	if tokenData, exists := e.activeTokens[tokenID]; exists {
 		tokenData.WaitChan = waitChan
-		e.logger.Debug("Attached wait channel to token %s", tokenID)
+		e.logger.DebugCat(CatAsync,"Attached wait channel to token %s", tokenID)
 	} else {
-		e.logger.Warn("Attempted to attach wait channel to non-existent token: %s", tokenID)
+		e.logger.WarnCat(CatAsync,"Attempted to attach wait channel to non-existent token: %s", tokenID)
 	}
 }
 

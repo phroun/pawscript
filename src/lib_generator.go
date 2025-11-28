@@ -343,7 +343,7 @@ func (ps *PawScript) RegisterGeneratorLib() {
 
 		// Handle while continuation if present (loop to handle parent continuations)
 		for whileCont != nil {
-			ps.logger.Debug("resume: handling while continuation, %d remaining body commands", len(whileCont.RemainingBodyCmds))
+			ps.logger.DebugCat(CatAsync,"resume: handling while continuation, %d remaining body commands", len(whileCont.RemainingBodyCmds))
 
 			// Clear the continuation from the token (we're handling it now)
 			ctx.executor.mu.Lock()
@@ -376,7 +376,7 @@ func (ps *PawScript) RegisterGeneratorLib() {
 
 				// Check for yield within remaining body
 				if yieldResult, ok := result.(YieldResult); ok {
-					ps.logger.Debug("resume: yield in while continuation body, value: %v", yieldResult.Value)
+					ps.logger.DebugCat(CatAsync,"resume: yield in while continuation body, value: %v", yieldResult.Value)
 
 					// Store new continuation for next resume
 					ctx.executor.mu.Lock()
@@ -526,7 +526,7 @@ func (ps *PawScript) RegisterGeneratorLib() {
 
 					// Check for yield
 					if yieldResult, ok := result.(YieldResult); ok {
-						ps.logger.Debug("resume: yield in while loop continuation, value: %v", yieldResult.Value)
+						ps.logger.DebugCat(CatAsync,"resume: yield in while loop continuation, value: %v", yieldResult.Value)
 
 						// Create continuation for the current (outer) while
 						nextIdx := cmdIdx + 1
@@ -595,7 +595,7 @@ func (ps *PawScript) RegisterGeneratorLib() {
 
 			// While loop finished - check for parent continuation (nested while loops)
 			if whileCont.ParentContinuation != nil {
-				ps.logger.Debug("resume: inner while finished, resuming parent continuation")
+				ps.logger.DebugCat(CatAsync,"resume: inner while finished, resuming parent continuation")
 				whileCont = whileCont.ParentContinuation
 				continue // Continue loop to handle parent
 			}
@@ -619,7 +619,7 @@ func (ps *PawScript) RegisterGeneratorLib() {
 		}
 
 		// Execute commands until yield, suspend, ret, or end
-		ps.logger.Debug("resume: executing generator with %d remaining commands", len(seq.RemainingCommands))
+		ps.logger.DebugCat(CatAsync,"resume: executing generator with %d remaining commands", len(seq.RemainingCommands))
 
 		lastStatus := true
 		for i, cmd := range seq.RemainingCommands {
@@ -644,7 +644,7 @@ func (ps *PawScript) RegisterGeneratorLib() {
 
 			// Check for yield
 			if yieldResult, ok := result.(YieldResult); ok {
-				ps.logger.Debug("resume: caught yield with value: %v", yieldResult.Value)
+				ps.logger.DebugCat(CatAsync,"resume: caught yield with value: %v", yieldResult.Value)
 
 				// Update token's remaining commands to after this yield
 				ctx.executor.mu.Lock()
@@ -680,7 +680,7 @@ func (ps *PawScript) RegisterGeneratorLib() {
 
 			// Check for suspend (returns new token)
 			if _, ok := result.(SuspendResult); ok {
-				ps.logger.Debug("resume: caught suspend")
+				ps.logger.DebugCat(CatAsync,"resume: caught suspend")
 
 				// Create a new token for the remaining commands
 				newTokenID := ctx.executor.RequestCompletionToken(
@@ -724,7 +724,7 @@ func (ps *PawScript) RegisterGeneratorLib() {
 
 			// Check for early return (ret command) - generator is done
 			if earlyReturn, ok := result.(EarlyReturn); ok {
-				ps.logger.Debug("resume: caught early return")
+				ps.logger.DebugCat(CatAsync,"resume: caught early return")
 
 				// Generator is done - remove token
 				ctx.executor.mu.Lock()
@@ -750,7 +750,7 @@ func (ps *PawScript) RegisterGeneratorLib() {
 				resumeData := <-waitChan
 
 				if !resumeData.Status {
-					ps.logger.Debug("resume: async operation failed in generator")
+					ps.logger.DebugCat(CatAsync,"resume: async operation failed in generator")
 				}
 				lastStatus = resumeData.Status
 				state.SetLastStatus(lastStatus)

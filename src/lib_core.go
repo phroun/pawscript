@@ -323,7 +323,7 @@ func (ps *PawScript) RegisterCoreLib() {
 
 	// macro - define a macro
 	ps.RegisterCommandInModule("macros", "macro", func(ctx *Context) Result {
-		ps.logger.Debug("macro command called with %d args", len(ctx.Args))
+		ps.logger.DebugCat(CatMacro,"macro command called with %d args", len(ctx.Args))
 
 		// Capture the current module environment for lexical scoping
 		macroEnv := NewMacroModuleEnvironment(ctx.state.moduleEnv)
@@ -331,27 +331,27 @@ func (ps *PawScript) RegisterCoreLib() {
 		// Check for anonymous macro: macro (body)
 		if len(ctx.Args) == 1 {
 			commands := fmt.Sprintf("%v", ctx.Args[0])
-			ps.logger.Debug("Creating anonymous macro with commands: %s", commands)
+			ps.logger.DebugCat(CatMacro,"Creating anonymous macro with commands: %s", commands)
 
 			macro := NewStoredMacroWithEnv(commands, ctx.Position, macroEnv)
 			objectID := ctx.executor.storeObject(macro, "macro")
 			macroMarker := fmt.Sprintf("\x00MACRO:%d\x00", objectID)
 			ctx.state.SetResult(Symbol(macroMarker))
 
-			ps.logger.Debug("Created anonymous macro (object %d)", objectID)
+			ps.logger.DebugCat(CatMacro,"Created anonymous macro (object %d)", objectID)
 			return BoolStatus(true)
 		}
 
 		// Named macro: macro name, (body)
 		if len(ctx.Args) < 2 {
-			ps.logger.Error("Usage: macro <name>, <commands> OR macro <commands>")
+			ps.logger.ErrorCat(CatCommand, "Usage: macro <name>, <commands> OR macro <commands>")
 			return BoolStatus(false)
 		}
 
 		name := fmt.Sprintf("%v", ctx.Args[0])
 		commands := fmt.Sprintf("%v", ctx.Args[1])
 
-		ps.logger.Debug("Defining macro '%s' with commands: %s", name, commands)
+		ps.logger.DebugCat(CatMacro,"Defining macro '%s' with commands: %s", name, commands)
 
 		// Create the StoredMacro
 		macro := NewStoredMacroWithEnv(commands, ctx.Position, macroEnv)
@@ -362,14 +362,14 @@ func (ps *PawScript) RegisterCoreLib() {
 		ctx.state.moduleEnv.MacrosModule[name] = &macro
 		ctx.state.moduleEnv.mu.Unlock()
 
-		ps.logger.Debug("Successfully defined named macro '%s' in MacrosModule", name)
+		ps.logger.DebugCat(CatMacro,"Successfully defined named macro '%s' in MacrosModule", name)
 		return BoolStatus(true)
 	})
 
 	// call - call a macro or command
 	ps.RegisterCommandInModule("macros", "call", func(ctx *Context) Result {
 		if len(ctx.Args) < 1 {
-			ps.logger.Error("Usage: call <macro_name_or_object>, [args...]")
+			ps.logger.ErrorCat(CatCommand, "Usage: call <macro_name_or_object>, [args...]")
 			return BoolStatus(false)
 		}
 
@@ -379,7 +379,7 @@ func (ps *PawScript) RegisterCoreLib() {
 
 		// Check if the first argument is already a resolved StoredCommand object
 		if cmd, ok := firstArg.(StoredCommand); ok {
-			ps.logger.Debug("Calling resolved StoredCommand object: %s", cmd.CommandName)
+			ps.logger.DebugCat(CatMacro,"Calling resolved StoredCommand object: %s", cmd.CommandName)
 
 			cmdCtx := &Context{
 				Args:      callArgs,
@@ -401,7 +401,7 @@ func (ps *PawScript) RegisterCoreLib() {
 
 		// Check if the first argument is already a resolved StoredMacro object
 		if macro, ok := firstArg.(StoredMacro); ok {
-			ps.logger.Debug("Calling resolved StoredMacro object")
+			ps.logger.DebugCat(CatMacro,"Calling resolved StoredMacro object")
 
 			return ps.executor.ExecuteStoredMacro(&macro, func(commands string, macroExecState *ExecutionState, substCtx *SubstitutionContext) Result {
 				filename := ""
@@ -421,17 +421,17 @@ func (ps *PawScript) RegisterCoreLib() {
 			markerType, objectID := parseObjectMarker(string(sym))
 
 			if markerType == "command" && objectID >= 0 {
-				ps.logger.Debug("Calling StoredCommand via marker (object %d)", objectID)
+				ps.logger.DebugCat(CatMacro,"Calling StoredCommand via marker (object %d)", objectID)
 
 				obj, exists := ctx.executor.getObject(objectID)
 				if !exists {
-					ps.logger.Error("Command object %d not found", objectID)
+					ps.logger.ErrorCat(CatArgument, "Command object %d not found", objectID)
 					return BoolStatus(false)
 				}
 
 				cmd, ok := obj.(StoredCommand)
 				if !ok {
-					ps.logger.Error("Object %d is not a StoredCommand", objectID)
+					ps.logger.ErrorCat(CatArgument, "Object %d is not a StoredCommand", objectID)
 					return BoolStatus(false)
 				}
 
@@ -454,17 +454,17 @@ func (ps *PawScript) RegisterCoreLib() {
 			}
 
 			if markerType == "macro" && objectID >= 0 {
-				ps.logger.Debug("Calling StoredMacro via marker (object %d)", objectID)
+				ps.logger.DebugCat(CatMacro,"Calling StoredMacro via marker (object %d)", objectID)
 
 				obj, exists := ctx.executor.getObject(objectID)
 				if !exists {
-					ps.logger.Error("Macro object %d not found", objectID)
+					ps.logger.ErrorCat(CatArgument, "Macro object %d not found", objectID)
 					return BoolStatus(false)
 				}
 
 				macro, ok := obj.(StoredMacro)
 				if !ok {
-					ps.logger.Error("Object %d is not a StoredMacro", objectID)
+					ps.logger.ErrorCat(CatArgument, "Object %d is not a StoredMacro", objectID)
 					return BoolStatus(false)
 				}
 
@@ -487,17 +487,17 @@ func (ps *PawScript) RegisterCoreLib() {
 		markerType, objectID := parseObjectMarker(str)
 
 		if markerType == "command" && objectID >= 0 {
-			ps.logger.Debug("Calling StoredCommand via string marker (object %d)", objectID)
+			ps.logger.DebugCat(CatMacro,"Calling StoredCommand via string marker (object %d)", objectID)
 
 			obj, exists := ctx.executor.getObject(objectID)
 			if !exists {
-				ps.logger.Error("Command object %d not found", objectID)
+				ps.logger.ErrorCat(CatArgument, "Command object %d not found", objectID)
 				return BoolStatus(false)
 			}
 
 			cmd, ok := obj.(StoredCommand)
 			if !ok {
-				ps.logger.Error("Object %d is not a StoredCommand", objectID)
+				ps.logger.ErrorCat(CatArgument, "Object %d is not a StoredCommand", objectID)
 				return BoolStatus(false)
 			}
 
@@ -520,17 +520,17 @@ func (ps *PawScript) RegisterCoreLib() {
 		}
 
 		if markerType == "macro" && objectID >= 0 {
-			ps.logger.Debug("Calling StoredMacro via string marker (object %d)", objectID)
+			ps.logger.DebugCat(CatMacro,"Calling StoredMacro via string marker (object %d)", objectID)
 
 			obj, exists := ctx.executor.getObject(objectID)
 			if !exists {
-				ps.logger.Error("Macro object %d not found", objectID)
+				ps.logger.ErrorCat(CatArgument, "Macro object %d not found", objectID)
 				return BoolStatus(false)
 			}
 
 			macro, ok := obj.(StoredMacro)
 			if !ok {
-				ps.logger.Error("Object %d is not a StoredMacro", objectID)
+				ps.logger.ErrorCat(CatArgument, "Object %d is not a StoredMacro", objectID)
 				return BoolStatus(false)
 			}
 
@@ -550,7 +550,7 @@ func (ps *PawScript) RegisterCoreLib() {
 
 	// Otherwise, treat it as a macro name - look up in module environment
 		name := fmt.Sprintf("%v", firstArg)
-		ps.logger.Debug("Calling macro by name: %s", name)
+		ps.logger.DebugCat(CatMacro,"Calling macro by name: %s", name)
 
 		// Look up macro in module environment (COW - only check MacrosModule)
 		var macro *StoredMacro
@@ -561,7 +561,7 @@ func (ps *PawScript) RegisterCoreLib() {
 		ctx.state.moduleEnv.mu.RUnlock()
 
 		if macro == nil {
-			ps.logger.Error("Macro \"%s\" not found", name)
+			ps.logger.ErrorCat(CatMacro, "Macro \"%s\" not found", name)
 			return BoolStatus(false)
 		}
 
@@ -645,16 +645,16 @@ func (ps *PawScript) RegisterCoreLib() {
 	// command_ref - get a reference to a built-in or registered command
 	ps.RegisterCommandInModule("macros", "command_ref", func(ctx *Context) Result {
 		if len(ctx.Args) < 1 {
-			ps.logger.Error("Usage: command_ref <command_name>")
+			ps.logger.ErrorCat(CatCommand, "Usage: command_ref <command_name>")
 			return BoolStatus(false)
 		}
 
 		commandName := fmt.Sprintf("%v", ctx.Args[0])
-		ps.logger.Debug("Getting command reference for: %s", commandName)
+		ps.logger.DebugCat(CatMacro, "Getting command reference for: %s", commandName)
 
 		handler, exists := ctx.state.moduleEnv.GetCommand(commandName)
 		if !exists {
-			ps.logger.Error("Command \"%s\" not found", commandName)
+			ps.logger.ErrorCat(CatMacro, "Command \"%s\" not found", commandName)
 			return BoolStatus(false)
 		}
 
@@ -663,7 +663,7 @@ func (ps *PawScript) RegisterCoreLib() {
 		commandMarker := fmt.Sprintf("\x00COMMAND:%d\x00", objectID)
 		ctx.state.SetResult(Symbol(commandMarker))
 
-		ps.logger.Debug("Created command reference for '%s' (object %d)", commandName, objectID)
+		ps.logger.DebugCat(CatMacro,"Created command reference for '%s' (object %d)", commandName, objectID)
 		return BoolStatus(true)
 	})
 

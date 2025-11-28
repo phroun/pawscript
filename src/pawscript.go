@@ -39,7 +39,7 @@ func New(config *Config) *PawScript {
 	// Set up macro fallback handler
 	if config.AllowMacros {
 		executor.SetFallbackHandler(func(cmdName string, args []interface{}, namedArgs map[string]interface{}, state *ExecutionState, position *SourcePosition) Result {
-			ps.logger.Debug("Fallback handler called for command: %s", cmdName)
+			ps.logger.DebugCat(CatCommand, "Fallback handler called for command: %s", cmdName)
 
 			if state == nil {
 				state = ps.NewExecutionStateFromRoot()
@@ -54,7 +54,7 @@ func New(config *Config) *PawScript {
 			state.moduleEnv.mu.RUnlock()
 
 			if macro != nil {
-				ps.logger.Debug("Found macro: %s", cmdName)
+				ps.logger.DebugCat(CatMacro, "Found macro: %s", cmdName)
 
 				// Ensure state has executor reference before creating child
 				if state.executor == nil {
@@ -79,7 +79,7 @@ func New(config *Config) *PawScript {
 
 				return result
 			}
-			ps.logger.Debug("Macro not found: %s", cmdName)
+			ps.logger.DebugCat(CatMacro, "Macro not found: %s", cmdName)
 			return nil
 		})
 	}
@@ -161,7 +161,7 @@ func (ps *PawScript) ExecuteFile(commandString, filename string) Result {
 	// before we can merge exports (MODULE/EXPORT may run after async operations)
 	if tokenResult, ok := result.(TokenResult); ok {
 		tokenID := string(tokenResult)
-		ps.logger.Debug("ExecuteFile('%s'): Script returned async token %s, waiting for completion", filename, tokenID)
+		ps.logger.DebugCat(CatAsync, "ExecuteFile('%s'): Script returned async token %s, waiting for completion", filename, tokenID)
 
 		// Create a channel to wait for completion
 		waitChan := make(chan ResumeData, 1)
@@ -169,7 +169,7 @@ func (ps *PawScript) ExecuteFile(commandString, filename string) Result {
 
 		// Wait for the script to complete
 		resumeData := <-waitChan
-		ps.logger.Debug("ExecuteFile('%s'): Script completed with status %v", filename, resumeData.Status)
+		ps.logger.DebugCat(CatAsync, "ExecuteFile('%s'): Script completed with status %v", filename, resumeData.Status)
 
 		// Update result based on completion
 		if resumeData.Status {
@@ -182,9 +182,9 @@ func (ps *PawScript) ExecuteFile(commandString, filename string) Result {
 	// Debug: log what's in ModuleExports before merge
 	state.moduleEnv.mu.RLock()
 	numExports := len(state.moduleEnv.ModuleExports)
-	ps.logger.Debug("ExecuteFile('%s'): ModuleExports has %d modules", filename, numExports)
+	ps.logger.DebugCat(CatSystem, "ExecuteFile('%s'): ModuleExports has %d modules", filename, numExports)
 	for modName, section := range state.moduleEnv.ModuleExports {
-		ps.logger.Debug("ExecuteFile('%s'): ModuleExports['%s'] has %d items", filename, modName, len(section))
+		ps.logger.DebugCat(CatSystem, "ExecuteFile('%s'): ModuleExports['%s'] has %d items", filename, modName, len(section))
 	}
 	state.moduleEnv.mu.RUnlock()
 
@@ -215,7 +215,7 @@ func (ps *PawScript) ImportModuleToRoot(moduleName string) bool {
 	// Find module in LibraryRestricted
 	section, exists := ps.rootModuleEnv.LibraryRestricted[moduleName]
 	if !exists {
-		ps.logger.Error("ImportModuleToRoot: Module not found in library: %s", moduleName)
+		ps.logger.ErrorCat(CatSystem, "ImportModuleToRoot: Module not found in library: %s", moduleName)
 		return false
 	}
 
@@ -225,16 +225,16 @@ func (ps *PawScript) ImportModuleToRoot(moduleName string) bool {
 		case "macro":
 			if macro, ok := item.Value.(*StoredMacro); ok && macro != nil {
 				ps.rootModuleEnv.MacrosModule[itemName] = macro
-				ps.logger.Debug("ImportModuleToRoot: Imported macro %s from %s", itemName, moduleName)
+				ps.logger.DebugCat(CatSystem, "ImportModuleToRoot: Imported macro %s from %s", itemName, moduleName)
 			}
 		case "command":
 			if handler, ok := item.Value.(Handler); ok && handler != nil {
 				ps.rootModuleEnv.CommandRegistryModule[itemName] = handler
-				ps.logger.Debug("ImportModuleToRoot: Imported command %s from %s", itemName, moduleName)
+				ps.logger.DebugCat(CatSystem, "ImportModuleToRoot: Imported command %s from %s", itemName, moduleName)
 			}
 		case "object":
 			ps.rootModuleEnv.ObjectsModule[itemName] = item.Value
-			ps.logger.Debug("ImportModuleToRoot: Imported object %s from %s", itemName, moduleName)
+			ps.logger.DebugCat(CatSystem, "ImportModuleToRoot: Imported object %s from %s", itemName, moduleName)
 		}
 	}
 
@@ -293,11 +293,11 @@ func (ps *PawScript) ForceCleanupToken(tokenID string) {
 // DefineMacro defines a new macro in the root module environment
 func (ps *PawScript) DefineMacro(name, commandSequence string) bool {
 	if !ps.config.AllowMacros {
-		ps.logger.Warn("Macros are disabled in configuration")
+		ps.logger.WarnCat(CatMacro, "Macros are disabled in configuration")
 		return false
 	}
 	if name == "" || commandSequence == "" {
-		ps.logger.Error("Macro name and commands are required")
+		ps.logger.ErrorCat(CatMacro, "Macro name and commands are required")
 		return false
 	}
 
@@ -307,14 +307,14 @@ func (ps *PawScript) DefineMacro(name, commandSequence string) bool {
 	ps.rootModuleEnv.MacrosModule[name] = &macro
 	ps.rootModuleEnv.mu.Unlock()
 
-	ps.logger.Debug("Defined macro \"%s\" in root environment", name)
+	ps.logger.DebugCat(CatMacro, "Defined macro \"%s\" in root environment", name)
 	return true
 }
 
 // ExecuteMacro executes a macro by name from the root module environment
 func (ps *PawScript) ExecuteMacro(name string) Result {
 	if !ps.config.AllowMacros {
-		ps.logger.Warn("Macros are disabled in configuration")
+		ps.logger.WarnCat(CatMacro, "Macros are disabled in configuration")
 		return BoolStatus(false)
 	}
 
@@ -329,7 +329,7 @@ func (ps *PawScript) ExecuteMacro(name string) Result {
 	ps.rootModuleEnv.mu.RUnlock()
 
 	if macro == nil {
-		ps.logger.Error("Macro \"%s\" not found", name)
+		ps.logger.ErrorCat(CatMacro, "Macro \"%s\" not found", name)
 		return BoolStatus(false)
 	}
 
@@ -376,11 +376,11 @@ func (ps *PawScript) DeleteMacro(name string) bool {
 
 	macro, exists := ps.rootModuleEnv.MacrosModule[name]
 	if !exists || macro == nil {
-		ps.logger.Error("Macro \"%s\" not found", name)
+		ps.logger.ErrorCat(CatMacro, "Macro \"%s\" not found", name)
 		return false
 	}
 	delete(ps.rootModuleEnv.MacrosModule, name)
-	ps.logger.Debug("Deleted macro \"%s\"", name)
+	ps.logger.DebugCat(CatMacro, "Deleted macro \"%s\"", name)
 	return true
 }
 
@@ -397,7 +397,7 @@ func (ps *PawScript) ClearMacros() int {
 	}
 	ps.rootModuleEnv.MacrosModule = make(map[string]*StoredMacro)
 
-	ps.logger.Debug("Cleared %d macros", count)
+	ps.logger.DebugCat(CatMacro, "Cleared %d macros", count)
 	return count
 }
 

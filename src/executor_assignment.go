@@ -303,7 +303,7 @@ func (e *Executor) handleAssignment(target, valueStr string, state *ExecutionSta
 		return braceStatus
 	}
 	if substitutionCtx != nil && substitutionCtx.BraceFailureCount > 0 {
-		e.logger.Debug("Assignment propagating failure from %d substituted brace(s)", substitutionCtx.BraceFailureCount)
+		e.logger.DebugCat(CatVariable, "Assignment propagating failure from %d substituted brace(s)", substitutionCtx.BraceFailureCount)
 		return BoolStatus(false)
 	}
 	return BoolStatus(true)

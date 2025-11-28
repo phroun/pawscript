@@ -79,25 +79,25 @@ func (ps *PawScript) RegisterChannelsLib() {
 		channelMarker := fmt.Sprintf("\x00CHANNEL:%d\x00", objectID)
 		ctx.state.SetResult(Symbol(channelMarker))
 
-		ps.logger.Debug("Created channel (object %d) with buffer size %d", objectID, bufferSize)
+		ps.logger.DebugCat(CatAsync, "Created channel (object %d) with buffer size %d", objectID, bufferSize)
 		return BoolStatus(true)
 	})
 
 	ps.RegisterCommandInModule("channels", "channel_subscribe", func(ctx *Context) Result {
 		if len(ctx.Args) < 1 {
-			ps.logger.Error("Usage: channel_subscribe <channel>")
+			ps.logger.ErrorCat(CatCommand, "Usage: channel_subscribe <channel>")
 			return BoolStatus(false)
 		}
 
 		ch := getChannelFromArg(ctx.Args[0], ctx.executor)
 		if ch == nil {
-			ps.logger.Error("First argument must be a channel")
+			ps.logger.ErrorCat(CatArgument, "First argument must be a channel")
 			return BoolStatus(false)
 		}
 
 		subscriber, err := ChannelSubscribe(ch)
 		if err != nil {
-			ps.logger.Error("Failed to subscribe: %v", err)
+			ps.logger.ErrorCat(CatAsync, "Failed to subscribe: %v", err)
 			return BoolStatus(false)
 		}
 
@@ -105,13 +105,13 @@ func (ps *PawScript) RegisterChannelsLib() {
 		subscriberMarker := fmt.Sprintf("\x00CHANNEL:%d\x00", objectID)
 		ctx.state.SetResult(Symbol(subscriberMarker))
 
-		ps.logger.Debug("Created subscriber %d for channel (object %d)", subscriber.SubscriberID, objectID)
+		ps.logger.DebugCat(CatAsync, "Created subscriber %d for channel (object %d)", subscriber.SubscriberID, objectID)
 		return BoolStatus(true)
 	})
 
 	ps.RegisterCommandInModule("channels", "channel_send", func(ctx *Context) Result {
 		if len(ctx.Args) < 2 {
-			ps.logger.Error("Usage: channel_send <channel>, <value>")
+			ps.logger.ErrorCat(CatCommand, "Usage: channel_send <channel>, <value>")
 			return BoolStatus(false)
 		}
 
@@ -189,13 +189,13 @@ func (ps *PawScript) RegisterChannelsLib() {
 		}
 
 		if ch == nil {
-			ps.logger.Error("First argument must be a channel")
+			ps.logger.ErrorCat(CatArgument, "First argument must be a channel")
 			return BoolStatus(false)
 		}
 
 		err := ChannelSend(ch, ctx.Args[1])
 		if err != nil {
-			ps.logger.Error("Failed to send: %v", err)
+			ps.logger.ErrorCat(CatAsync, "Failed to send: %v", err)
 			return BoolStatus(false)
 		}
 
@@ -204,7 +204,7 @@ func (ps *PawScript) RegisterChannelsLib() {
 
 	ps.RegisterCommandInModule("channels", "channel_recv", func(ctx *Context) Result {
 		if len(ctx.Args) < 1 {
-			ps.logger.Error("Usage: channel_recv <channel>")
+			ps.logger.ErrorCat(CatCommand, "Usage: channel_recv <channel>")
 			return BoolStatus(false)
 		}
 
@@ -282,13 +282,13 @@ func (ps *PawScript) RegisterChannelsLib() {
 		}
 
 		if ch == nil {
-			ps.logger.Error("First argument must be a channel")
+			ps.logger.ErrorCat(CatArgument, "First argument must be a channel")
 			return BoolStatus(false)
 		}
 
 		senderID, value, err := ChannelRecv(ch)
 		if err != nil {
-			ps.logger.Error("Failed to receive: %v", err)
+			ps.logger.ErrorCat(CatAsync, "Failed to receive: %v", err)
 			return BoolStatus(false)
 		}
 
@@ -302,19 +302,19 @@ func (ps *PawScript) RegisterChannelsLib() {
 
 	ps.RegisterCommandInModule("channels", "channel_close", func(ctx *Context) Result {
 		if len(ctx.Args) < 1 {
-			ps.logger.Error("Usage: channel_close <channel>")
+			ps.logger.ErrorCat(CatCommand, "Usage: channel_close <channel>")
 			return BoolStatus(false)
 		}
 
 		ch := getChannelFromArg(ctx.Args[0], ctx.executor)
 		if ch == nil {
-			ps.logger.Error("First argument must be a channel")
+			ps.logger.ErrorCat(CatArgument, "First argument must be a channel")
 			return BoolStatus(false)
 		}
 
 		err := ChannelClose(ch)
 		if err != nil {
-			ps.logger.Error("Failed to close: %v", err)
+			ps.logger.ErrorCat(CatAsync, "Failed to close: %v", err)
 			return BoolStatus(false)
 		}
 
@@ -323,13 +323,13 @@ func (ps *PawScript) RegisterChannelsLib() {
 
 	ps.RegisterCommandInModule("channels", "channel_disconnect", func(ctx *Context) Result {
 		if len(ctx.Args) < 2 {
-			ps.logger.Error("Usage: channel_disconnect <channel>, <subscriber_id>")
+			ps.logger.ErrorCat(CatCommand, "Usage: channel_disconnect <channel>, <subscriber_id>")
 			return BoolStatus(false)
 		}
 
 		ch := getChannelFromArg(ctx.Args[0], ctx.executor)
 		if ch == nil {
-			ps.logger.Error("First argument must be a channel")
+			ps.logger.ErrorCat(CatArgument, "First argument must be a channel")
 			return BoolStatus(false)
 		}
 
@@ -342,7 +342,7 @@ func (ps *PawScript) RegisterChannelsLib() {
 
 		err := ChannelDisconnect(ch, subscriberID)
 		if err != nil {
-			ps.logger.Error("Failed to disconnect: %v", err)
+			ps.logger.ErrorCat(CatAsync, "Failed to disconnect: %v", err)
 			return BoolStatus(false)
 		}
 
@@ -351,13 +351,13 @@ func (ps *PawScript) RegisterChannelsLib() {
 
 	ps.RegisterCommandInModule("channels", "channel_opened", func(ctx *Context) Result {
 		if len(ctx.Args) < 1 {
-			ps.logger.Error("Usage: channel_opened <channel>")
+			ps.logger.ErrorCat(CatCommand, "Usage: channel_opened <channel>")
 			return BoolStatus(false)
 		}
 
 		ch := getChannelFromArg(ctx.Args[0], ctx.executor)
 		if ch == nil {
-			ps.logger.Error("First argument must be a channel")
+			ps.logger.ErrorCat(CatArgument, "First argument must be a channel")
 			return BoolStatus(false)
 		}
 

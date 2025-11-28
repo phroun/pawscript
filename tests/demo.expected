@@ -157,5 +157,5 @@ End edge cases.
 Macro list after clear:
 []
 === PawScript Syntax Demo Complete ===
-[PawScript ERROR] Unknown command: check_line_and_col_of_error_409_4
+[PawScript:command ERROR] Unknown command: check_line_and_col_of_error_409_4
   at line 418, column 4 in demo.paw
