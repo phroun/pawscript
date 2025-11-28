@@ -19,6 +19,7 @@ type ExecutionState struct {
 	executor              *Executor            // Reference to executor for object management
 	fiberID               int                  // ID of the fiber this state belongs to (0 for main)
 	moduleEnv             *ModuleEnvironment   // Module environment for this state
+	macroContext          *MacroContext        // Current macro context for stack traces
 	// InBraceExpression is true when executing inside a brace expression {...}
 	// Commands can check this to return values instead of emitting side effects to #out
 	InBraceExpression bool
@@ -75,6 +76,7 @@ func NewExecutionStateFromSharedVars(parent *ExecutionState) *ExecutionState {
 		executor:              parent.executor,              // Share executor reference
 		fiberID:               parent.fiberID,               // Inherit fiber ID
 		moduleEnv:             parent.moduleEnv,             // Share module environment with parent
+		macroContext:          parent.macroContext,          // Inherit macro context for stack traces
 	}
 }
 

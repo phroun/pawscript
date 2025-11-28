@@ -103,6 +103,11 @@ func (c *Context) NewStoredListWithRefs(items []interface{}, namedArgs map[strin
 	return NewStoredListWithRefs(items, namedArgs, c.executor)
 }
 
+// GetMacroContext returns the current macro context for stack traces
+func (c *Context) GetMacroContext() *MacroContext {
+	return c.state.macroContext
+}
+
 // Handler is a function that handles a command
 type Handler func(*Context) Result
 

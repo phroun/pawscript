@@ -234,6 +234,36 @@ func (ps *PawScript) RegisterCoreLib() {
 		}
 	})
 
+	// stack_trace - returns the current macro call stack as a list
+	ps.RegisterCommandInModule("core", "stack_trace", func(ctx *Context) Result {
+		macroCtx := ctx.GetMacroContext()
+		if macroCtx == nil {
+			// At top level, return empty list
+			setListResult(ctx, NewStoredList(nil))
+			return BoolStatus(true)
+		}
+
+		var frames []interface{}
+		for mc := macroCtx; mc != nil; mc = mc.ParentMacro {
+			// Create a list for each frame with named args
+			frame := NewStoredListWithNamed(nil, map[string]interface{}{
+				"macro":    mc.MacroName,
+				"file":     mc.InvocationFile,
+				"line":     int64(mc.InvocationLine),
+				"column":   int64(mc.InvocationColumn),
+				"def_file": mc.DefinitionFile,
+				"def_line": int64(mc.DefinitionLine),
+			})
+			// Store frame and create marker
+			frameID := ctx.executor.storeObject(frame, "list")
+			frameMarker := Symbol(fmt.Sprintf("\x00LIST:%d\x00", frameID))
+			frames = append(frames, frameMarker)
+		}
+
+		setListResult(ctx, NewStoredList(frames))
+		return BoolStatus(true)
+	})
+
 	// ==================== macros:: module ====================
 
 	// macro - define a macro

@@ -226,7 +226,10 @@ func (e *Executor) executeStoredMacro(
 		macroContext.InvocationFile = invocationPosition.Filename
 		macroContext.InvocationLine = invocationPosition.Line
 		macroContext.InvocationColumn = invocationPosition.Column
-		macroContext.ParentMacro = invocationPosition.MacroContext
+	}
+	// Parent macro context comes from the parent state, not the position
+	if parentState != nil {
+		macroContext.ParentMacro = parentState.macroContext
 	}
 
 	debugInfo := ""
@@ -252,6 +255,9 @@ func (e *Executor) executeStoredMacro(
 	if state.executor == nil {
 		state.executor = e
 	}
+
+	// Set macro context for stack traces
+	state.macroContext = macroContext
 
 	// Set default module name to "exports" so any EXPORT calls in the macro
 	// will export to the "exports" module, which can be merged into caller

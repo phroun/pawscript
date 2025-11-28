@@ -1214,8 +1214,9 @@ func (e *Executor) executeMacro(
 		macroContext.InvocationFile = position.Filename
 		macroContext.InvocationLine = position.Line
 		macroContext.InvocationColumn = position.Column
-		macroContext.ParentMacro = position.MacroContext
 	}
+	// Parent macro context comes from the current execution state, not the position
+	macroContext.ParentMacro = state.macroContext
 
 	e.logger.DebugCat(CatCommand,"Executing macro defined at %s:%d, called from %s:%d",
 		macro.DefinitionFile, macro.DefinitionLine,
@@ -1238,6 +1239,9 @@ func (e *Executor) executeMacro(
 
 	// Ensure macro state has executor reference
 	macroState.executor = e
+
+	// Set macro context for stack traces
+	macroState.macroContext = macroContext
 
 	// Create a LIST from the arguments (both positional and named) and store it as $@
 	argsList := NewStoredListWithRefs(args, namedArgs, e)
