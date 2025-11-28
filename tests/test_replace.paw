@@ -113,26 +113,32 @@ result: {replace ~mylist, {list b, c}, X}
 echo "  replace (a,b,c,b,c,d), (b,c), X =", ~result
 # Expected: (a, X, X, d)
 
-# Replace single value with list (splice)
+# Replace single value with list (new is exact replacement, not spliced)
 echo ""
-echo "Replace single value with list (splice in):"
+echo "Replace single value with list (exact replacement):"
 mylist: {list 1, X, 2, X, 3}
 result: {replace ~mylist, X, {list A, B}}
 echo "  replace (1,X,2,X,3), X, (A,B) =", ~result
-# Expected: (1, A, B, 2, A, B, 3)
+# Expected: (1, (A, B), 2, (A, B), 3) - list becomes single element
 
 echo ""
-echo "=== Deep comparison in lists ==="
+echo "=== Sequence mode vs single-value mode ==="
 echo ""
 
-# Replace nested list by reference (use variable to trigger single-value deep match)
-echo "Replace nested list by value (using variable reference):"
-inner: {list 1, 2}
-searchval: {list 1, 2}
-mylist: {list a, ~inner, b, ~inner, c}
-result: {replace ~mylist, ~searchval, Z}
-echo "  replace (a,(1,2),b,(1,2),c), ~searchval, Z =", ~result
-# Expected: (a, Z, b, Z, c)
+# Sequence mode: old is list, new is spliced in
+echo "Sequence mode (old=list): new items spliced in:"
+mylist: {list 1, 2, 3, 4, 5}
+result: {replace ~mylist, {list 2, 3}, {list X, Y, Z}}
+echo "  replace (1,2,3,4,5), (2,3), (X,Y,Z) =", ~result
+# Expected: (1, X, Y, Z, 4, 5)
+
+# Single-value mode: old is single, new replaces exactly
+echo ""
+echo "Single-value mode (old=single): new replaces exactly:"
+mylist: {list 1, 2, 3, 2, 5}
+result: {replace ~mylist, 2, {list A, B}}
+echo "  replace (1,2,3,2,5), 2, (A,B) =", ~result
+# Expected: (1, (A, B), 3, (A, B), 5) - list becomes single element
 
 echo ""
 echo "=== Edge cases ==="

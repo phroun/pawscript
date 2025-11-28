@@ -1034,9 +1034,8 @@ func (ps *PawScript) RegisterTypesLib() {
 			oldVal := ctx.Args[1]
 			newVal := ctx.Args[2]
 
-			// Check if old value is a list
-			// Strategy: First try single-value matching (for nested list replacement)
-			// If no single elements match the list, fall back to sequence matching
+			// Check if old value is a list (sequence match mode)
+			// List old = sequence to find, new = sequence to splice in
 			if oldList, ok := oldVal.(StoredList); ok {
 				oldItems := oldList.Items()
 				oldLen := len(oldItems)
@@ -1047,64 +1046,6 @@ func (ps *PawScript) RegisterTypesLib() {
 					return BoolStatus(true)
 				}
 
-				// First: check if any single element deeply equals the old list
-				// This handles cases like replacing nested lists by value
-				var singleValueMatches []int
-				for i, item := range items {
-					if deepEqual(item, oldVal, ctx.executor) {
-						singleValueMatches = append(singleValueMatches, i)
-					}
-				}
-
-				// If we found single-value matches, use those
-				if len(singleValueMatches) > 0 {
-					// Determine which matches to replace based on count
-					replaceSet := make(map[int]bool)
-					if count == 0 {
-						// Replace all
-						for _, pos := range singleValueMatches {
-							replaceSet[pos] = true
-						}
-					} else if count > 0 {
-						// Replace first N
-						n := int(count)
-						if n > len(singleValueMatches) {
-							n = len(singleValueMatches)
-						}
-						for i := 0; i < n; i++ {
-							replaceSet[singleValueMatches[i]] = true
-						}
-					} else {
-						// Replace last N (count is negative)
-						n := int(-count)
-						if n > len(singleValueMatches) {
-							n = len(singleValueMatches)
-						}
-						for i := len(singleValueMatches) - n; i < len(singleValueMatches); i++ {
-							replaceSet[singleValueMatches[i]] = true
-						}
-					}
-
-					// Build result
-					var result []interface{}
-					for i, item := range items {
-						if replaceSet[i] {
-							// Replace this item with newVal
-							if newList, ok := newVal.(StoredList); ok {
-								result = append(result, newList.Items()...)
-							} else {
-								result = append(result, newVal)
-							}
-						} else {
-							result = append(result, item)
-						}
-					}
-
-					setListResult(ctx, NewStoredListWithRefs(result, nil, ctx.executor))
-					return BoolStatus(true)
-				}
-
-				// No single-value matches found - fall back to sequence matching
 				// Find all sequence match positions
 				var matchPositions []int
 				for i := 0; i+oldLen <= len(items); i++ {
@@ -1149,11 +1090,12 @@ func (ps *PawScript) RegisterTypesLib() {
 				}
 
 				// Build result by iterating through items
+				// For sequence mode: new is spliced in as items
 				var result []interface{}
 				i := 0
 				for i < len(items) {
 					if replaceSet[i] {
-						// Replace this sequence with newVal
+						// Replace this sequence with newVal items
 						if newList, ok := newVal.(StoredList); ok {
 							result = append(result, newList.Items()...)
 						} else {
@@ -1170,7 +1112,8 @@ func (ps *PawScript) RegisterTypesLib() {
 				return BoolStatus(true)
 			}
 
-			// Single value match
+			// Single value match mode
+			// Single old = find that item, new replaces exactly as one element
 			// Find all match positions first
 			var matchPositions []int
 			for i, item := range items {
@@ -1207,15 +1150,12 @@ func (ps *PawScript) RegisterTypesLib() {
 			}
 
 			// Build result
+			// For single-value mode: new replaces exactly as one element (even if it's a list)
 			var result []interface{}
 			for i, item := range items {
 				if replaceSet[i] {
-					// Replace this item with newVal
-					if newList, ok := newVal.(StoredList); ok {
-						result = append(result, newList.Items()...)
-					} else {
-						result = append(result, newVal)
-					}
+					// Replace this item with newVal exactly (as single element)
+					result = append(result, newVal)
 				} else {
 					result = append(result, item)
 				}
