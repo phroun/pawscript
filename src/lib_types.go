@@ -2,6 +2,7 @@ package pawscript
 
 import (
 	"fmt"
+	"strconv"
 	"strings"
 )
 
@@ -138,6 +139,24 @@ func deepEqual(a, b interface{}, executor *Executor) bool {
 
 	// Fallback: string comparison
 	return fmt.Sprintf("%v", resolvedA) == fmt.Sprintf("%v", resolvedB)
+}
+
+// findAllStringPositions finds all non-overlapping positions of substr in str
+func findAllStringPositions(str, substr string) []int {
+	var positions []int
+	if substr == "" {
+		return positions
+	}
+	start := 0
+	for {
+		idx := strings.Index(str[start:], substr)
+		if idx == -1 {
+			break
+		}
+		positions = append(positions, start+idx)
+		start += idx + len(substr)
+	}
+	return positions
 }
 
 // RegisterTypesLib registers string and list manipulation commands
@@ -978,24 +997,285 @@ func (ps *PawScript) RegisterTypesLib() {
 		return BoolStatus(true)
 	})
 
-	// replace - replace all occurrences of substring
-	// Usage: replace "hello world", "world", "gopher"  -> "hello gopher"
-	// Replaces ALL occurrences (like strings.ReplaceAll)
+	// replace - replace occurrences in string or list
+	// String Usage: replace "hello world world", "world", "gopher"  -> "hello gopher gopher" (all)
+	//               replace "hello world world", "world", "gopher", 1  -> "hello gopher world" (first 1)
+	//               replace "hello world world", "world", "gopher", -1 -> "hello world gopher" (last 1)
+	// List Usage:   replace ~list, old, new       -> replace all occurrences (single value or sequence)
+	//               replace ~list, old, new, N    -> replace first N (positive) or last N (negative)
+	// Count: omitted or 0 = all, positive N = first N, negative N = last N
 	ps.RegisterCommandInModule("stdlib", "replace", func(ctx *Context) Result {
 		if len(ctx.Args) < 3 {
-			ctx.LogError(CatCommand, "Usage: replace <string>, <old>, <new>")
+			ctx.LogError(CatCommand, "Usage: replace <string|list>, <old>, <new> [, count]")
 			ctx.SetResult("")
 			return BoolStatus(false)
 		}
 
+		// Parse optional count argument (4th arg)
+		count := int64(0) // 0 means replace all
+		if len(ctx.Args) >= 4 {
+			countArg := ctx.Args[3]
+			switch v := countArg.(type) {
+			case int64:
+				count = v
+			case float64:
+				count = int64(v)
+			default:
+				countStr := resolveToString(countArg, ctx.executor)
+				if parsed, err := strconv.ParseInt(countStr, 10, 64); err == nil {
+					count = parsed
+				}
+			}
+		}
+
+		// Check if first argument is a list
+		if list, ok := ctx.Args[0].(StoredList); ok {
+			items := list.Items()
+			oldVal := ctx.Args[1]
+			newVal := ctx.Args[2]
+
+			// Check if old value is a list
+			// Strategy: First try single-value matching (for nested list replacement)
+			// If no single elements match the list, fall back to sequence matching
+			if oldList, ok := oldVal.(StoredList); ok {
+				oldItems := oldList.Items()
+				oldLen := len(oldItems)
+
+				if oldLen == 0 {
+					// Empty old sequence - return original list
+					setListResult(ctx, list)
+					return BoolStatus(true)
+				}
+
+				// First: check if any single element deeply equals the old list
+				// This handles cases like replacing nested lists by value
+				var singleValueMatches []int
+				for i, item := range items {
+					if deepEqual(item, oldVal, ctx.executor) {
+						singleValueMatches = append(singleValueMatches, i)
+					}
+				}
+
+				// If we found single-value matches, use those
+				if len(singleValueMatches) > 0 {
+					// Determine which matches to replace based on count
+					replaceSet := make(map[int]bool)
+					if count == 0 {
+						// Replace all
+						for _, pos := range singleValueMatches {
+							replaceSet[pos] = true
+						}
+					} else if count > 0 {
+						// Replace first N
+						n := int(count)
+						if n > len(singleValueMatches) {
+							n = len(singleValueMatches)
+						}
+						for i := 0; i < n; i++ {
+							replaceSet[singleValueMatches[i]] = true
+						}
+					} else {
+						// Replace last N (count is negative)
+						n := int(-count)
+						if n > len(singleValueMatches) {
+							n = len(singleValueMatches)
+						}
+						for i := len(singleValueMatches) - n; i < len(singleValueMatches); i++ {
+							replaceSet[singleValueMatches[i]] = true
+						}
+					}
+
+					// Build result
+					var result []interface{}
+					for i, item := range items {
+						if replaceSet[i] {
+							// Replace this item with newVal
+							if newList, ok := newVal.(StoredList); ok {
+								result = append(result, newList.Items()...)
+							} else {
+								result = append(result, newVal)
+							}
+						} else {
+							result = append(result, item)
+						}
+					}
+
+					setListResult(ctx, NewStoredListWithRefs(result, nil, ctx.executor))
+					return BoolStatus(true)
+				}
+
+				// No single-value matches found - fall back to sequence matching
+				// Find all sequence match positions
+				var matchPositions []int
+				for i := 0; i+oldLen <= len(items); i++ {
+					match := true
+					for j := 0; j < oldLen; j++ {
+						if !deepEqual(items[i+j], oldItems[j], ctx.executor) {
+							match = false
+							break
+						}
+					}
+					if match {
+						matchPositions = append(matchPositions, i)
+						i += oldLen - 1 // Skip to end of this match (loop will add 1)
+					}
+				}
+
+				// Determine which matches to replace based on count
+				replaceSet := make(map[int]bool)
+				if count == 0 || len(matchPositions) == 0 {
+					// Replace all
+					for _, pos := range matchPositions {
+						replaceSet[pos] = true
+					}
+				} else if count > 0 {
+					// Replace first N
+					n := int(count)
+					if n > len(matchPositions) {
+						n = len(matchPositions)
+					}
+					for i := 0; i < n; i++ {
+						replaceSet[matchPositions[i]] = true
+					}
+				} else {
+					// Replace last N (count is negative)
+					n := int(-count)
+					if n > len(matchPositions) {
+						n = len(matchPositions)
+					}
+					for i := len(matchPositions) - n; i < len(matchPositions); i++ {
+						replaceSet[matchPositions[i]] = true
+					}
+				}
+
+				// Build result by iterating through items
+				var result []interface{}
+				i := 0
+				for i < len(items) {
+					if replaceSet[i] {
+						// Replace this sequence with newVal
+						if newList, ok := newVal.(StoredList); ok {
+							result = append(result, newList.Items()...)
+						} else {
+							result = append(result, newVal)
+						}
+						i += oldLen
+					} else {
+						result = append(result, items[i])
+						i++
+					}
+				}
+
+				setListResult(ctx, NewStoredListWithRefs(result, nil, ctx.executor))
+				return BoolStatus(true)
+			}
+
+			// Single value match
+			// Find all match positions first
+			var matchPositions []int
+			for i, item := range items {
+				if deepEqual(item, oldVal, ctx.executor) {
+					matchPositions = append(matchPositions, i)
+				}
+			}
+
+			// Determine which matches to replace based on count
+			replaceSet := make(map[int]bool)
+			if count == 0 || len(matchPositions) == 0 {
+				// Replace all
+				for _, pos := range matchPositions {
+					replaceSet[pos] = true
+				}
+			} else if count > 0 {
+				// Replace first N
+				n := int(count)
+				if n > len(matchPositions) {
+					n = len(matchPositions)
+				}
+				for i := 0; i < n; i++ {
+					replaceSet[matchPositions[i]] = true
+				}
+			} else {
+				// Replace last N (count is negative)
+				n := int(-count)
+				if n > len(matchPositions) {
+					n = len(matchPositions)
+				}
+				for i := len(matchPositions) - n; i < len(matchPositions); i++ {
+					replaceSet[matchPositions[i]] = true
+				}
+			}
+
+			// Build result
+			var result []interface{}
+			for i, item := range items {
+				if replaceSet[i] {
+					// Replace this item with newVal
+					if newList, ok := newVal.(StoredList); ok {
+						result = append(result, newList.Items()...)
+					} else {
+						result = append(result, newVal)
+					}
+				} else {
+					result = append(result, item)
+				}
+			}
+
+			setListResult(ctx, NewStoredListWithRefs(result, nil, ctx.executor))
+			return BoolStatus(true)
+		}
+
+		// String mode
 		str := resolveToString(ctx.Args[0], ctx.executor)
 		old := resolveToString(ctx.Args[1], ctx.executor)
-		new := resolveToString(ctx.Args[2], ctx.executor)
+		newStr := resolveToString(ctx.Args[2], ctx.executor)
 
-		result := strings.ReplaceAll(str, old, new)
+		var result string
+		if count == 0 {
+			// Replace all
+			result = strings.ReplaceAll(str, old, newStr)
+		} else if count > 0 {
+			// Replace first N occurrences
+			result = strings.Replace(str, old, newStr, int(count))
+		} else {
+			// Replace last N occurrences
+			// Need to find positions and replace from the end
+			n := int(-count)
+			positions := findAllStringPositions(str, old)
+			if len(positions) == 0 {
+				result = str
+			} else {
+				// Determine which positions to replace (last N)
+				startIdx := len(positions) - n
+				if startIdx < 0 {
+					startIdx = 0
+				}
+				replacePositions := positions[startIdx:]
+
+				// Build result by replacing only those positions
+				var sb strings.Builder
+				lastEnd := 0
+				posSet := make(map[int]bool)
+				for _, pos := range replacePositions {
+					posSet[pos] = true
+				}
+				for _, pos := range positions {
+					sb.WriteString(str[lastEnd:pos])
+					if posSet[pos] {
+						sb.WriteString(newStr)
+					} else {
+						sb.WriteString(old)
+					}
+					lastEnd = pos + len(old)
+				}
+				sb.WriteString(str[lastEnd:])
+				result = sb.String()
+			}
+		}
+
 		if ctx.executor != nil {
-			result := ctx.executor.maybeStoreValue(result, ctx.state)
-			ctx.state.SetResultWithoutClaim(result)
+			storedResult := ctx.executor.maybeStoreValue(result, ctx.state)
+			ctx.state.SetResultWithoutClaim(storedResult)
 		} else {
 			ctx.state.SetResultWithoutClaim(result)
 		}
