@@ -3,6 +3,7 @@ package pawscript
 import (
 	"fmt"
 	"regexp"
+	"strconv"
 	"strings"
 	"time"
 )
@@ -575,9 +576,141 @@ func (e *Executor) applySyntacticSugar(commandStr string) string {
 	return fmt.Sprintf("%s '%s', (%s)%s", commandPart, identifier, content, remainder)
 }
 
+// splitAccessors splits a string into base and accessor parts
+// For "~list.key.sub" returns ("~list", ".key.sub")
+// For "\x00LIST:5\x00.key" returns ("\x00LIST:5\x00", ".key")
+// For "\x00LIST:5\x00 0 1" returns ("\x00LIST:5\x00", " 0 1")
+func splitAccessors(s string) (base string, accessors string) {
+	// Check for list marker pattern
+	if strings.HasPrefix(s, "\x00") {
+		// Find the closing \x00
+		endIdx := strings.Index(s[1:], "\x00")
+		if endIdx >= 0 {
+			base = s[:endIdx+2] // Include both \x00 markers
+			accessors = s[endIdx+2:]
+			return
+		}
+	}
+
+	// For tilde expressions, find the first accessor (. or space followed by digit)
+	for i := 1; i < len(s); i++ {
+		if s[i] == '.' {
+			return s[:i], s[i:]
+		}
+		if s[i] == ' ' {
+			// Check if followed by a digit
+			j := i + 1
+			for j < len(s) && s[j] == ' ' {
+				j++
+			}
+			if j < len(s) && s[j] >= '0' && s[j] <= '9' {
+				return s[:i], s[i:]
+			}
+		}
+	}
+	return s, ""
+}
+
+// applyAccessorChain applies a chain of accessors to a value
+// Accessors: ".key" for named args, " N" for index access
+func (e *Executor) applyAccessorChain(value interface{}, accessors string, position *SourcePosition) interface{} {
+	if accessors == "" {
+		return value
+	}
+
+	current := value
+	i := 0
+
+	for i < len(accessors) {
+		// Skip whitespace
+		for i < len(accessors) && accessors[i] == ' ' {
+			i++
+		}
+		if i >= len(accessors) {
+			break
+		}
+
+		// Resolve current to get the actual list
+		resolved := e.resolveValue(current)
+		list, isList := resolved.(StoredList)
+
+		if accessors[i] == '.' {
+			// Dot accessor for named argument
+			i++ // skip the dot
+			if i >= len(accessors) {
+				e.logger.ErrorCat(CatList, "Expected key name after dot")
+				return Symbol(UndefinedMarker)
+			}
+
+			// Collect the key name
+			keyStart := i
+			for i < len(accessors) && accessors[i] != '.' && accessors[i] != ' ' {
+				i++
+			}
+			key := accessors[keyStart:i]
+
+			if !isList {
+				e.logger.ErrorCat(CatList, "Cannot use dot accessor on non-list value")
+				return Symbol(UndefinedMarker)
+			}
+
+			namedArgs := list.NamedArgs()
+			if namedArgs == nil {
+				e.logger.DebugCat(CatList, "List has no named arguments, cannot access .%s", key)
+				return Symbol(UndefinedMarker)
+			}
+			val, exists := namedArgs[key]
+			if !exists {
+				e.logger.DebugCat(CatList, "Named argument '%s' not found in list", key)
+				return Symbol(UndefinedMarker)
+			}
+			current = val
+
+		} else if accessors[i] >= '0' && accessors[i] <= '9' {
+			// Integer index accessor
+			numStart := i
+			for i < len(accessors) && accessors[i] >= '0' && accessors[i] <= '9' {
+				i++
+			}
+			// Check for decimal point (error case)
+			if i < len(accessors) && accessors[i] == '.' {
+				j := i + 1
+				if j < len(accessors) && accessors[j] >= '0' && accessors[j] <= '9' {
+					e.logger.ErrorCat(CatList, "Non-integer index not allowed")
+					return Symbol(UndefinedMarker)
+				}
+			}
+			numStr := accessors[numStart:i]
+			idx, err := strconv.Atoi(numStr)
+			if err != nil {
+				e.logger.ErrorCat(CatList, "Invalid index: %s", numStr)
+				return Symbol(UndefinedMarker)
+			}
+
+			if !isList {
+				e.logger.ErrorCat(CatList, "Cannot use index accessor on non-list value")
+				return Symbol(UndefinedMarker)
+			}
+
+			if idx < 0 || idx >= list.Len() {
+				e.logger.DebugCat(CatList, "Index %d out of bounds (list has %d items)", idx, list.Len())
+				return Symbol(UndefinedMarker)
+			}
+			current = list.Get(idx)
+
+		} else {
+			// Unknown accessor character, stop
+			break
+		}
+	}
+
+	return current
+}
+
 // processArguments processes arguments array to resolve object markers and tilde expressions
 // Resolves LIST, STR, and BLOCK markers to their actual values
 // Also resolves ~expr tilde expressions to their variable values
+// Handles accessor patterns like .key and integer indices
 func (e *Executor) processArguments(args []interface{}, state *ExecutionState, substitutionCtx *SubstitutionContext, position *SourcePosition) []interface{} {
 	if len(args) == 0 {
 		return args
@@ -602,14 +735,24 @@ func (e *Executor) processArguments(args []interface{}, state *ExecutionState, s
 		if isMarker {
 			// Check for tilde expression first (~varname)
 			if strings.HasPrefix(markerStr, "~") {
-				resolved, ok := e.resolveTildeExpression(markerStr, state, substitutionCtx, position)
+				// Split off any accessors first
+				base, accessors := splitAccessors(markerStr)
+
+				resolved, ok := e.resolveTildeExpression(base, state, substitutionCtx, position)
 				if !ok {
 					// Tilde resolution failed, error already logged - keep original
-					e.logger.DebugCat(CatCommand,"processArguments[%d]: Tilde resolution failed for %q", i, markerStr)
+					e.logger.DebugCat(CatCommand,"processArguments[%d]: Tilde resolution failed for %q", i, base)
 					result[i] = arg
 					continue
 				}
-				e.logger.DebugCat(CatCommand,"processArguments[%d]: Resolved tilde expression %q to %v", i, markerStr, resolved)
+				e.logger.DebugCat(CatCommand,"processArguments[%d]: Resolved tilde expression %q to %v", i, base, resolved)
+
+				// Apply any accessors
+				if accessors != "" {
+					resolved = e.applyAccessorChain(resolved, accessors, position)
+					e.logger.DebugCat(CatCommand,"processArguments[%d]: After accessors %q: %v", i, accessors, resolved)
+				}
+
 				// Update arg to the resolved value and check if it's a marker that needs further resolution
 				arg = resolved
 				if sym, ok := resolved.(Symbol); ok {
@@ -624,8 +767,9 @@ func (e *Executor) processArguments(args []interface{}, state *ExecutionState, s
 				// Fall through to check for object markers in the resolved value
 			}
 
-			// Check for object marker
-			if objType, objID := parseObjectMarker(markerStr); objID >= 0 {
+			// Check for object marker (possibly with accessors)
+			base, accessors := splitAccessors(markerStr)
+			if objType, objID := parseObjectMarker(base); objID >= 0 {
 				e.logger.DebugCat(CatCommand,"processArguments[%d]: Detected %s marker with ID %d", i, objType, objID)
 				// Retrieve the actual value (doesn't affect refcount)
 				if value, exists := e.getObject(objID); exists {
@@ -633,7 +777,13 @@ func (e *Executor) processArguments(args []interface{}, state *ExecutionState, s
 					case "list":
 						// Return as StoredList - this passes the object by reference
 						// Don't claim here - the receiving context (SetVariable, etc.) will claim
-						result[i] = value
+						finalValue := value
+						// Apply any accessors
+						if accessors != "" {
+							finalValue = e.applyAccessorChain(value, accessors, position)
+							e.logger.DebugCat(CatCommand,"processArguments[%d]: After accessors %q: %v", i, accessors, finalValue)
+						}
+						result[i] = finalValue
 						e.logger.DebugCat(CatCommand,"processArguments[%d]: Resolved list marker to StoredList", i)
 					case "str":
 						// Keep as marker (pass-by-reference) - don't copy the string

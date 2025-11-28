@@ -1,0 +1,27 @@
+# Test list accessor syntax
+
+echo "=== Testing dot accessor syntax for named arguments ==="
+x: {list a: 10, b: 20, c: 30}
+echo "x.a =", ~x.a
+echo "x.b =", ~x.b
+echo "x.c =", ~x.c
+
+echo ""
+echo "=== Testing index accessor syntax for positional items ==="
+y: {list first, second, third}
+echo "y 0 =", ~y 0
+echo "y 1 =", ~y 1
+echo "y 2 =", ~y 2
+
+echo ""
+echo "=== Testing chained accessors ==="
+z: {list inner: {list val: 42}}
+echo "z.inner.val =", ~z.inner.val
+
+echo ""
+echo "=== Testing undefined access ==="
+echo "x.nonexistent =", ~x.nonexistent
+echo "y 99 =", ~y 99
+
+echo ""
+echo "=== Test complete ==="

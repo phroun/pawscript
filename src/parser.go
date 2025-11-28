@@ -610,6 +610,7 @@ func parseArguments(argsStr string) ([]interface{}, map[string]interface{}) {
 	var sugar bool
 	var pendingPositional strings.Builder // For tracking invalid positional after paren without comma
 	var hasPendingPositional bool
+	var accessorPending bool // True after seeing a dot following a list marker or tilde
 
 	// Helper to finalize current argument
 	finalizeArg := func() {
@@ -657,6 +658,40 @@ func parseArguments(argsStr string) ([]interface{}, map[string]interface{}) {
 		}
 	}
 
+	// Helper to get raw string for accessor concatenation (no angle brackets)
+	rawString := func(v interface{}) string {
+		switch val := v.(type) {
+		case QuotedString:
+			return string(val)
+		case string:
+			return val
+		case Symbol:
+			return string(val)
+		case int64:
+			return strconv.FormatInt(val, 10)
+		case float64:
+			return strconv.FormatFloat(val, 'f', -1, 64)
+		default:
+			return fmt.Sprintf("%v", val)
+		}
+	}
+
+	// Helper to check if a value is a tilde expression
+	isTildeExpr := func(v interface{}) bool {
+		if sym, ok := v.(Symbol); ok {
+			return strings.HasPrefix(string(sym), "~")
+		}
+		return false
+	}
+
+	// Helper to check if a symbol is a dot
+	isDot := func(v interface{}) bool {
+		if sym, ok := v.(Symbol); ok {
+			return string(sym) == "."
+		}
+		return false
+	}
+
 	// Helper to combine a new unit with current state
 	combineUnit := func(newValue interface{}, newType argUnitType) bool {
 		// Check for pending positional (after paren without comma)
@@ -680,6 +715,17 @@ func parseArguments(argsStr string) ([]interface{}, map[string]interface{}) {
 			// First unit
 			currentValue = newValue
 			currentType = newType
+			return true
+		}
+
+		// Handle accessor pending state - we've seen a dot and are expecting a key
+		if accessorPending {
+			// The new value is the key for the accessor
+			// Concatenate: currentValue + "." + key
+			s := rawString(currentValue) + "." + rawString(newValue)
+			currentValue = Symbol(s)
+			// Keep currentType as-is (unitComplex or unitSymbol)
+			accessorPending = false
 			return true
 		}
 
@@ -722,6 +768,24 @@ func parseArguments(argsStr string) ([]interface{}, map[string]interface{}) {
 			}
 
 		case unitNumber, unitSymbol, unitNil, unitBool:
+			// Special handling for tilde expressions with accessors
+			if currentType == unitSymbol && isTildeExpr(currentValue) {
+				if isDot(newValue) {
+					// Tilde + dot - next unit will be the key
+					accessorPending = true
+					return true
+				}
+				if newType == unitNumber {
+					// Tilde + integer index accessor
+					if num, ok := newValue.(int64); ok {
+						s := rawString(currentValue) + " " + strconv.FormatInt(num, 10)
+						currentValue = Symbol(s)
+						return true
+					}
+				}
+				// Fall through to normal symbol handling for other cases
+			}
+
 			// Number/Symbol/nil/bool + something
 			switch newType {
 			case unitString:
@@ -792,7 +856,21 @@ func parseArguments(argsStr string) ([]interface{}, map[string]interface{}) {
 			}
 
 		case unitComplex:
-			// Complex objects can't combine
+			// Complex objects (list markers) can combine with accessors
+			if isDot(newValue) {
+				// Dot accessor - next unit will be the key
+				accessorPending = true
+				return true
+			}
+			if newType == unitNumber {
+				// Integer index accessor - concatenate with space
+				if num, ok := newValue.(int64); ok {
+					s := rawString(currentValue) + " " + strconv.FormatInt(num, 10)
+					currentValue = Symbol(s)
+					return true
+				}
+			}
+			// Other types can't combine with list markers
 			return false
 		}
 
@@ -1103,9 +1181,16 @@ func parseNextUnit(runes []rune, i int) (interface{}, argUnitType, int) {
 		return QuotedString(raw), unitString, i
 	}
 
+	// Single dot as its own symbol (for list accessor syntax)
+	// This allows list.key to parse as: list, ., key
+	if char == '.' {
+		return Symbol("."), unitSymbol, i + 1
+	}
+
 	// Bare word (symbol, number, nil, true, false)
 	// Handle escape sequences - backslash protects the next character
 	start := i
+	isTildeExpr := char == '~'
 	for i < len(runes) {
 		c := runes[i]
 		// Handle escape sequences - skip backslash and the escaped character
@@ -1114,6 +1199,10 @@ func parseNextUnit(runes []rune, i int) (interface{}, argUnitType, int) {
 			continue
 		}
 		if unicode.IsSpace(c) || c == ',' || c == ':' || c == '(' || c == ')' || c == '{' || c == '}' || c == '"' || c == '\'' {
+			break
+		}
+		// Tilde expressions stop at dot to allow accessor syntax
+		if isTildeExpr && c == '.' {
 			break
 		}
 		i++
