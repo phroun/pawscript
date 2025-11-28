@@ -794,6 +794,7 @@ func (ps *PawScript) RegisterTypesLib() {
 	// contains - check if string contains substring, or if list contains item
 	// Usage: contains "hello world", "world"  -> true
 	//        contains ~mylist, "item"         -> true if item in list
+	//        contains ~mylist, ~sublist       -> true if sublist in list (deep comparison)
 	ps.RegisterCommandInModule("stdlib", "contains", func(ctx *Context) Result {
 		if len(ctx.Args) < 2 {
 			ctx.LogError(CatCommand, "Usage: contains <string|list>, <substring|item>")
@@ -806,13 +807,9 @@ func (ps *PawScript) RegisterTypesLib() {
 
 		// Check if first argument is a list
 		if list, ok := value.(StoredList); ok {
-			// List mode: check if item exists
-			searchResolved := ctx.executor.resolveValue(search)
-			searchStr := fmt.Sprintf("%v", searchResolved)
+			// List mode: check if item exists using deep comparison
 			for _, item := range list.Items() {
-				itemResolved := ctx.executor.resolveValue(item)
-				itemStr := fmt.Sprintf("%v", itemResolved)
-				if itemStr == searchStr {
+				if deepEqual(item, search, ctx.executor) {
 					ctx.SetResult(true)
 					return BoolStatus(true)
 				}
@@ -833,6 +830,7 @@ func (ps *PawScript) RegisterTypesLib() {
 	// index - find first index of substring or item (-1 if not found)
 	// Usage: index "hello world", "world"  -> 6
 	//        index ~mylist, "item"          -> position of item in list
+	//        index ~mylist, ~sublist        -> position of sublist in list (deep comparison)
 	// Returns -1 if not found (like many languages)
 	// Always succeeds and sets result (use result to check if found)
 	ps.RegisterCommandInModule("stdlib", "index", func(ctx *Context) Result {
@@ -847,13 +845,9 @@ func (ps *PawScript) RegisterTypesLib() {
 
 		// Check if first argument is a list
 		if list, ok := value.(StoredList); ok {
-			// List mode: find index of item
-			searchResolved := ctx.executor.resolveValue(search)
-			searchStr := fmt.Sprintf("%v", searchResolved)
+			// List mode: find index of item using deep comparison
 			for i, item := range list.Items() {
-				itemResolved := ctx.executor.resolveValue(item)
-				itemStr := fmt.Sprintf("%v", itemResolved)
-				if itemStr == searchStr {
+				if deepEqual(item, search, ctx.executor) {
 					ctx.SetResult(int64(i))
 					return BoolStatus(true)
 				}
