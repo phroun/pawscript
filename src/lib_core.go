@@ -677,6 +677,29 @@ func (ps *PawScript) RegisterCoreLib() {
 			return BoolStatus(false)
 		}
 
+		// Warn if condition is not a ParenGroup, bool true, or from a variable
+		// A non-block condition is likely a mistake - the condition should be
+		// re-evaluated each iteration, which requires a code block
+		_, condIsParenGroup := ctx.Args[0].(ParenGroup)
+		isBoolTrue := false
+		if b, ok := ctx.Args[0].(bool); ok && b {
+			isBoolTrue = true
+		}
+		condFromVariable := len(ctx.RawArgs) > 0 && strings.HasPrefix(ctx.RawArgs[0], "~")
+
+		if !condIsParenGroup && !isBoolTrue && !condFromVariable {
+			ctx.LogWarning(CatCommand, "while condition is not a code block; it will not be re-evaluated each iteration. Use (condition) for dynamic conditions or 'true' for intentional infinite loops")
+		}
+
+		// Warn if body is not a ParenGroup or from a variable
+		// Someone might accidentally use braces {cmd} instead of parentheses (cmd)
+		_, bodyIsParenGroup := ctx.Args[1].(ParenGroup)
+		bodyFromVariable := len(ctx.RawArgs) > 1 && strings.HasPrefix(ctx.RawArgs[1], "~")
+
+		if !bodyIsParenGroup && !bodyFromVariable {
+			ctx.LogWarning(CatCommand, "while body is not a code block; use (commands) for the loop body, not {commands}")
+		}
+
 		conditionBlock := fmt.Sprintf("%v", ctx.Args[0])
 		bodyBlock := fmt.Sprintf("%v", ctx.Args[1])
 

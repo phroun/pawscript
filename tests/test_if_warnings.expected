@@ -21,3 +21,36 @@ Test 5: Brace expression (no warning expected)
 Brace expression works correctly
 
 === if Warning Tests Complete ===
+
+=== Testing while Command Warnings ===
+
+Test 6: Literal false condition warning
+(Expecting WARN about non-block condition)
+[PawScript WARN] while condition is not a code block; it will not be re-evaluated each iteration. Use (condition) for dynamic conditions or 'true' for intentional infinite loops
+  at line 54, column 1 in test_if_warnings.paw
+
+Test 7: Literal number condition warning
+(Expecting WARN about non-block condition)
+[PawScript WARN] while condition is not a code block; it will not be re-evaluated each iteration. Use (condition) for dynamic conditions or 'true' for intentional infinite loops
+  at line 62, column 1 in test_if_warnings.paw
+[PawScript ERROR] Unknown command: 0
+  at line 1, column 1 in <unknown>
+
+Test 8: while true (no warning expected)
+Intentional infinite loop
+
+Test 9: Variable condition (no warning expected)
+
+Test 10: Normal block condition (no warning expected)
+  iteration 0
+  iteration 1
+
+Test 11: Brace body warning
+(Expecting WARN about non-block body)
+wrong braces
+[PawScript WARN] while condition is not a code block; it will not be re-evaluated each iteration. Use (condition) for dynamic conditions or 'true' for intentional infinite loops
+  at line 95, column 1 in test_if_warnings.paw
+[PawScript WARN] while body is not a code block; use (commands) for the loop body, not {commands}
+  at line 95, column 1 in test_if_warnings.paw
+
+=== while Warning Tests Complete ===
