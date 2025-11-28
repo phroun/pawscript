@@ -1,0 +1,83 @@
+#!/usr/bin/env pawgui
+# Example PawScript GUI Application
+# Run with: pawgui example.paw
+
+# Configure the window
+gui_title "PawScript GUI Example"
+gui_resize 450, 400
+
+# Welcome section
+gui_label "=== PawScript GUI Demo ==="
+gui_label ""
+
+# Name input section
+gui_label "What's your name?"
+gui_entry "Enter your name...", id: "nameEntry"
+
+# Greeting handler - reads from entry, writes to label
+macro greet (
+    name: {gui_get nameEntry}
+    gui_set greeting, "Hello, ~name;! Welcome to PawScript GUI."
+)
+
+gui_button "Greet Me", id: "greetBtn", onclick: "greet"
+gui_label "", id: "greeting"
+
+gui_label ""
+gui_label "--- Counter Demo ---"
+
+# Counter state stored in hidden entry widget
+gui_entry "", id: "counterState"
+gui_set counterState, "0"
+gui_label "Count: 0", id: "countLabel"
+
+macro inc (
+    current: {gui_get counterState}
+    newval: {add ~current, 1}
+    gui_set counterState, "~newval"
+    gui_set countLabel, "Count: ~newval"
+)
+
+macro dec (
+    current: {gui_get counterState}
+    newval: {sub ~current, 1}
+    gui_set counterState, "~newval"
+    gui_set countLabel, "Count: ~newval"
+)
+
+macro reset_counter (
+    gui_set counterState, "0"
+    gui_set countLabel, "Count: 0"
+)
+
+gui_button "[ + ]", onclick: "inc"
+gui_button "[ - ]", onclick: "dec"
+gui_button "Reset", onclick: "reset_counter"
+
+gui_label ""
+gui_label "--- Calculator Demo ---"
+
+gui_entry "First number", id: "num1"
+gui_entry "Second number", id: "num2"
+gui_label "Result: ", id: "calcResult"
+
+macro do_add (
+    a: {gui_get num1}
+    b: {gui_get num2}
+    result: {add ~a, ~b}
+    gui_set calcResult, "Result: ~a + ~b = ~result"
+)
+
+macro do_mul (
+    a: {gui_get num1}
+    b: {gui_get num2}
+    result: {mul ~a, ~b}
+    gui_set calcResult, "Result: ~a * ~b = ~result"
+)
+
+gui_button "Add", onclick: "do_add"
+gui_button "Multiply", onclick: "do_mul"
+
+# Export all callback macros so they're available for button clicks
+MODULE exports
+EXPORT greet, inc, dec, reset_counter, do_add, do_mul

@@ -80,27 +80,41 @@ func (ps *PawScript) RegisterSystemLib(scriptArgs []string) {
 
 	// Helper to resolve a value to a channel (handles markers and direct objects)
 	valueToChannel := func(ctx *Context, val interface{}) *StoredChannel {
+		ps.logger.DebugCat(CatIO,"valueToChannel: input type=%T, value=%v", val, val)
 		switch v := val.(type) {
 		case *StoredChannel:
+			ps.logger.DebugCat(CatIO,"valueToChannel: direct *StoredChannel")
 			return v
 		case Symbol:
 			markerType, objectID := parseObjectMarker(string(v))
+			ps.logger.DebugCat(CatIO,"valueToChannel: Symbol, markerType=%s, objectID=%d", markerType, objectID)
 			if markerType == "channel" && objectID >= 0 {
 				if obj, exists := ctx.executor.getObject(objectID); exists {
+					ps.logger.DebugCat(CatIO,"valueToChannel: got object from storage, type=%T", obj)
 					if ch, ok := obj.(*StoredChannel); ok {
+						ps.logger.DebugCat(CatIO,"valueToChannel: channel hasNativeSend=%v, isClosed=%v", ch.NativeSend != nil, ch.IsClosed)
 						return ch
 					}
+				} else {
+					ps.logger.DebugCat(CatIO,"valueToChannel: object %d not found in storage", objectID)
 				}
 			}
 		case string:
 			markerType, objectID := parseObjectMarker(v)
+			ps.logger.DebugCat(CatIO,"valueToChannel: string, markerType=%s, objectID=%d", markerType, objectID)
 			if markerType == "channel" && objectID >= 0 {
 				if obj, exists := ctx.executor.getObject(objectID); exists {
+					ps.logger.DebugCat(CatIO,"valueToChannel: got object from storage, type=%T", obj)
 					if ch, ok := obj.(*StoredChannel); ok {
+						ps.logger.DebugCat(CatIO,"valueToChannel: channel hasNativeSend=%v, isClosed=%v", ch.NativeSend != nil, ch.IsClosed)
 						return ch
 					}
+				} else {
+					ps.logger.DebugCat(CatIO,"valueToChannel: object %d not found in storage", objectID)
 				}
 			}
+		default:
+			ps.logger.DebugCat(CatIO,"valueToChannel: unhandled type %T", val)
 		}
 		return nil
 	}
@@ -110,9 +124,14 @@ func (ps *PawScript) RegisterSystemLib(scriptArgs []string) {
 	resolveChannel := func(ctx *Context, channelName string) *StoredChannel {
 		// First, check local macro variables
 		if value, exists := ctx.state.GetVariable(channelName); exists {
+			ps.logger.DebugCat(CatIO,"resolveChannel(%s): found in local vars, value type=%T, value=%v", channelName, value, value)
 			if ch := valueToChannel(ctx, value); ch != nil {
+				ps.logger.DebugCat(CatIO,"resolveChannel(%s): valueToChannel returned channel", channelName)
 				return ch
 			}
+			ps.logger.DebugCat(CatIO,"resolveChannel(%s): valueToChannel returned nil", channelName)
+		} else {
+			ps.logger.DebugCat(CatIO,"resolveChannel(%s): NOT found in local vars", channelName)
 		}
 
 		// Then, check ObjectsModule and ObjectsInherited
@@ -145,28 +164,37 @@ func (ps *PawScript) RegisterSystemLib(scriptArgs []string) {
 	// Helper to get a channel from first argument or default
 	getOutputChannel := func(ctx *Context, defaultName string) (*StoredChannel, []interface{}, bool) {
 		args := ctx.Args
+		ps.logger.DebugCat(CatIO,"getOutputChannel: defaultName=%s, numArgs=%d", defaultName, len(args))
 
 		// Check if first arg is already a channel (from tilde resolution)
 		if len(args) > 0 {
+			ps.logger.DebugCat(CatIO,"getOutputChannel: first arg type=%T, value=%v", args[0], args[0])
 			if ch, ok := args[0].(*StoredChannel); ok {
+				ps.logger.DebugCat(CatIO,"getOutputChannel: first arg is *StoredChannel, hasNativeSend=%v", ch.NativeSend != nil)
 				return ch, args[1:], true
 			}
 			// Or if first arg is a symbol starting with #
 			if sym, ok := args[0].(Symbol); ok {
 				symStr := string(sym)
 				if strings.HasPrefix(symStr, "#") {
+					ps.logger.DebugCat(CatIO,"getOutputChannel: first arg is #-prefixed Symbol: %s", symStr)
 					if ch := resolveChannel(ctx, symStr); ch != nil {
+						ps.logger.DebugCat(CatIO,"getOutputChannel: resolved to channel, hasNativeSend=%v", ch.NativeSend != nil)
 						return ch, args[1:], true
 					}
+					ps.logger.DebugCat(CatIO,"getOutputChannel: resolveChannel returned nil for %s", symStr)
 				}
 			}
 		}
 
 		// Use default channel (also resolved through local vars first)
+		ps.logger.DebugCat(CatIO,"getOutputChannel: trying default channel %s", defaultName)
 		if ch := resolveChannel(ctx, defaultName); ch != nil {
+			ps.logger.DebugCat(CatIO,"getOutputChannel: default channel resolved, hasNativeSend=%v", ch.NativeSend != nil)
 			return ch, args, true
 		}
 
+		ps.logger.DebugCat(CatIO,"getOutputChannel: NO channel found, returning false")
 		return nil, args, false
 	}
 
@@ -327,7 +355,8 @@ func (ps *PawScript) RegisterSystemLib(scriptArgs []string) {
 				if hasStoredList {
 					setListResult(ctx, storedListSource)
 				} else {
-					ctx.SetResult(sourceList)
+					// Convert raw slice to StoredList before setting as result
+					setListResult(ctx, NewStoredList(sourceList))
 				}
 				return BoolStatus(true)
 			}
@@ -575,9 +604,11 @@ func (ps *PawScript) RegisterSystemLib(scriptArgs []string) {
 
 	// echo/print - output with automatic newline and spaces between args
 	outputLineCommand := func(ctx *Context) Result {
+		ps.logger.DebugCat(CatIO,"outputLineCommand (print/echo): starting")
 		ch, args, found := getOutputChannel(ctx, "#out")
 		if !found {
 			// Fallback: use OutputContext for consistent channel resolution with system fallback
+			ps.logger.DebugCat(CatIO,"outputLineCommand: NO channel found, using OutputContext fallback")
 			text := ""
 			for i, arg := range ctx.Args {
 				if i > 0 {
@@ -590,6 +621,7 @@ func (ps *PawScript) RegisterSystemLib(scriptArgs []string) {
 			return BoolStatus(true)
 		}
 
+		ps.logger.DebugCat(CatIO,"outputLineCommand: channel found, hasNativeSend=%v", ch.NativeSend != nil)
 		text := ""
 		for i, arg := range args {
 			if i > 0 {
@@ -598,11 +630,14 @@ func (ps *PawScript) RegisterSystemLib(scriptArgs []string) {
 			text += formatArgForDisplay(arg, ctx.executor)
 		}
 
+		ps.logger.DebugCat(CatIO,"outputLineCommand: calling ChannelSend with text=%q", text)
 		err := ChannelSend(ch, text+"\n")
 		if err != nil {
+			ps.logger.DebugCat(CatIO,"outputLineCommand: ChannelSend returned error: %v", err)
 			ctx.LogError(CatIO, fmt.Sprintf("Failed to write: %v", err))
 			return BoolStatus(false)
 		}
+		ps.logger.DebugCat(CatIO,"outputLineCommand: ChannelSend succeeded")
 		return BoolStatus(true)
 	}
 
@@ -713,6 +748,18 @@ func (ps *PawScript) RegisterSystemLib(scriptArgs []string) {
 		ts.mu.Lock()
 		defer ts.mu.Unlock()
 
+		// Get output channel - use it for both capability checking AND writing
+		outCh, _, found := getOutputChannel(ctx, "#out")
+
+		// Helper to send output to the resolved channel or system stdout
+		sendOutput := func(text string) {
+			if found && outCh != nil {
+				_ = ChannelSend(outCh, text)
+			} else {
+				fmt.Print(text)
+			}
+		}
+
 		// Check for mode argument
 		if len(ctx.Args) > 0 {
 			var mode string
@@ -727,28 +774,48 @@ func (ps *PawScript) RegisterSystemLib(scriptArgs []string) {
 				mode = fmt.Sprintf("%v", v)
 			}
 
-			// Handle specific clear modes - emit ANSI codes
+			// Handle specific clear modes - emit ANSI codes if supported
 			ansiCode := ANSIClearMode(mode)
-			if ansiCode != "" {
-				fmt.Print(ansiCode)
+			if ansiCode != "" && ChannelSupportsANSI(outCh) {
+				// In brace expression: return ANSI code as string for substitution
+				// Otherwise: emit to output channel
+				if ctx.state.InBraceExpression {
+					ctx.SetResult(QuotedString(ansiCode))
+					return BoolStatus(true)
+				}
+				sendOutput(ansiCode)
 				ts.HasCleared = false // partial clear doesn't count as full clear
 				return BoolStatus(true)
 			}
-			// Unknown mode - fall through to default behavior
+			// Unknown mode or no ANSI support - return empty string in brace, fall through otherwise
+			if ctx.state.InBraceExpression {
+				ctx.SetResult(QuotedString(""))
+				return BoolStatus(true)
+			}
 		}
 
-		// Default clear behavior
-		if IsTerminal() {
+		// Default clear behavior - check channel's terminal capabilities
+		if ChannelIsTerminal(outCh) && ChannelSupportsANSI(outCh) {
+			// In brace expression: return ANSI code as string for substitution
+			if ctx.state.InBraceExpression {
+				ctx.SetResult(QuotedString(ANSIClearScreen()))
+				return BoolStatus(true)
+			}
 			// Terminal mode - send ANSI clear and home cursor
-			fmt.Print(ANSIClearScreen())
+			sendOutput(ANSIClearScreen())
 			// Reset cursor position in our tracking
 			ts.X = ts.XBase
 			ts.Y = ts.YBase
 			ts.HasCleared = true
 		} else {
+			// In brace expression without ANSI: return empty string (no side effects)
+			if ctx.state.InBraceExpression {
+				ctx.SetResult(QuotedString(""))
+				return BoolStatus(true)
+			}
 			// Redirected mode - send separator unless we just cleared
 			if !ts.HasCleared {
-				fmt.Print("\n=======================================\n\n")
+				sendOutput("\n=======================================\n\n")
 				ts.HasCleared = true
 			}
 		}
@@ -766,10 +833,35 @@ func (ps *PawScript) RegisterSystemLib(scriptArgs []string) {
 		ts.mu.Lock()
 		defer ts.mu.Unlock()
 
+		// Get output channel - use it for both capability checking AND writing
+		outCh, _, found := getOutputChannel(ctx, "#out")
+
+		// Helper to send output to the resolved channel or system stdout
+		sendOutput := func(text string) {
+			if found && outCh != nil {
+				_ = ChannelSend(outCh, text)
+			} else {
+				fmt.Print(text)
+			}
+		}
+
 		// Check for reset option first
 		if v, ok := ctx.NamedArgs["reset"]; ok && isTruthy(v) {
-			// Emit reset sequence
-			fmt.Print(ANSIReset())
+			// In brace expression: return ANSI code as string for substitution
+			// Otherwise: emit to output channel
+			if ctx.state.InBraceExpression {
+				if ChannelSupportsANSI(outCh) {
+					ctx.SetResult(QuotedString(ANSIReset()))
+				} else {
+					ctx.SetResult(QuotedString(""))
+				}
+				return BoolStatus(true)
+			}
+
+			// Emit reset sequence if ANSI supported
+			if ChannelSupportsANSI(outCh) {
+				sendOutput(ANSIReset())
+			}
 
 			// Reset all tracked state to defaults
 			ts.CurrentFG = -1
@@ -780,15 +872,15 @@ func (ps *PawScript) RegisterSystemLib(scriptArgs []string) {
 			ts.Invert = false
 			ts.HasCleared = false
 
-			// Build and return result list
+			// Build and return result list with channel's terminal info
 			resultNamedArgs := map[string]interface{}{
 				"bold":      false,
 				"blink":     false,
 				"underline": false,
 				"invert":    false,
-				"term":      GetTerminalType(),
-				"ansi":      SupportsANSI(),
-				"color":     SupportsColor(),
+				"term":      ChannelGetTerminalType(outCh),
+				"ansi":      ChannelSupportsANSI(outCh),
+				"color":     ChannelSupportsColor(outCh),
 			}
 
 			result := NewStoredListWithNamed([]interface{}{
@@ -836,9 +928,13 @@ func (ps *PawScript) RegisterSystemLib(scriptArgs []string) {
 			}
 		}
 
+		// Track whether we're actually setting anything (vs just querying)
+		isSettingColor := false
+
 		// Parse positional arguments
 		if len(ctx.Args) >= 1 {
 			fg = parseColor(ctx.Args[0])
+			isSettingColor = true
 		}
 		if len(ctx.Args) >= 2 {
 			bg = parseColor(ctx.Args[1])
@@ -853,15 +949,19 @@ func (ps *PawScript) RegisterSystemLib(scriptArgs []string) {
 
 		if v, ok := ctx.NamedArgs["bold"]; ok {
 			bold = isTruthy(v)
+			isSettingColor = true
 		}
 		if v, ok := ctx.NamedArgs["blink"]; ok {
 			blink = isTruthy(v)
+			isSettingColor = true
 		}
 		if v, ok := ctx.NamedArgs["underline"]; ok {
 			underline = isTruthy(v)
+			isSettingColor = true
 		}
 		if v, ok := ctx.NamedArgs["invert"]; ok {
 			invert = isTruthy(v)
+			isSettingColor = true
 		}
 
 		// Generate and emit ANSI sequence
@@ -876,17 +976,28 @@ func (ps *PawScript) RegisterSystemLib(scriptArgs []string) {
 			effectiveBG = ts.CurrentBG
 		}
 
+		// Generate ANSI code if supported
 		var ansiCode string
-		if bg == -1 && len(ctx.Args) == 1 && !bold && !blink && !underline && !invert {
-			// Only foreground specified, no attributes - just change foreground
-			ansiCode = fmt.Sprintf("\x1b[%dm", CGAToANSIFG(fg))
-		} else {
-			// Need full color setting (handles reset for attributes)
-			ansiCode = ANSIColor(effectiveFG, effectiveBG, bold, blink, underline, invert)
+		if ChannelSupportsANSI(outCh) {
+			if bg == -1 && len(ctx.Args) == 1 && !bold && !blink && !underline && !invert {
+				// Only foreground specified, no attributes - just change foreground
+				ansiCode = fmt.Sprintf("\x1b[%dm", CGAToANSIFG(fg))
+			} else {
+				// Need full color setting (handles reset for attributes)
+				ansiCode = ANSIColor(effectiveFG, effectiveBG, bold, blink, underline, invert)
+			}
 		}
 
+		// In brace expression with color setting: return ANSI code as string for substitution
+		// When just querying (no args), fall through to return info list
+		if ctx.state.InBraceExpression && isSettingColor {
+			ctx.SetResult(QuotedString(ansiCode))
+			return BoolStatus(true)
+		}
+
+		// Emit ANSI code to output
 		if ansiCode != "" {
-			fmt.Print(ansiCode)
+			sendOutput(ansiCode)
 		}
 
 		// Update tracked state
@@ -902,15 +1013,15 @@ func (ps *PawScript) RegisterSystemLib(scriptArgs []string) {
 		ts.Invert = invert
 		ts.HasCleared = false
 
-		// Build and return result list
+		// Build and return result list with channel's terminal info
 		resultNamedArgs := map[string]interface{}{
 			"bold":      ts.Bold,
 			"blink":     ts.AttrBlink,
 			"underline": ts.Underline,
 			"invert":    ts.Invert,
-			"term":      GetTerminalType(),
-			"ansi":      SupportsANSI(),
-			"color":     SupportsColor(),
+			"term":      ChannelGetTerminalType(outCh),
+			"ansi":      ChannelSupportsANSI(outCh),
+			"color":     ChannelSupportsColor(outCh),
 		}
 
 		result := NewStoredListWithNamed([]interface{}{
@@ -948,7 +1059,7 @@ func (ps *PawScript) RegisterSystemLib(scriptArgs []string) {
 		if duplex, ok := ctx.NamedArgs["duplex"]; ok {
 			enabled := isTruthy(duplex)
 			ts.mu.Unlock()
-			ts.SetDuplex(enabled)
+			_ = ts.SetDuplex(enabled)
 			ts.mu.Lock()
 		}
 
@@ -1125,7 +1236,7 @@ func (ps *PawScript) RegisterSystemLib(scriptArgs []string) {
 	// msleep - sleep for specified milliseconds (async)
 	ps.RegisterCommandInModule("sys", "msleep", func(ctx *Context) Result {
 		if len(ctx.Args) < 1 {
-			ps.logger.Error("Usage: msleep <milliseconds>")
+			ps.logger.ErrorCat(CatCommand, "Usage: msleep <milliseconds>")
 			return BoolStatus(false)
 		}
 
@@ -1140,17 +1251,17 @@ func (ps *PawScript) RegisterSystemLib(scriptArgs []string) {
 		case string:
 			parsed, err := strconv.ParseInt(v, 10, 64)
 			if err != nil {
-				ps.logger.Error("msleep: invalid milliseconds value: %v", v)
+				ps.logger.ErrorCat(CatArgument, "msleep: invalid milliseconds value: %v", v)
 				return BoolStatus(false)
 			}
 			ms = parsed
 		default:
-			ps.logger.Error("msleep: milliseconds must be a number, got %T", v)
+			ps.logger.ErrorCat(CatArgument, "msleep: milliseconds must be a number, got %T", v)
 			return BoolStatus(false)
 		}
 
 		if ms < 0 {
-			ps.logger.Error("msleep: milliseconds cannot be negative")
+			ps.logger.ErrorCat(CatArgument, "msleep: milliseconds cannot be negative")
 			return BoolStatus(false)
 		}
 
@@ -1165,34 +1276,123 @@ func (ps *PawScript) RegisterSystemLib(scriptArgs []string) {
 	})
 
 	// log_print - output log messages from scripts
+	// Supports multiple categories: log_print level, message, cat1, cat2, ...
+	// Or a list of categories: log_print level, message, (cat1, cat2, ...)
 	ps.RegisterCommandInModule("debug", "log_print", func(ctx *Context) Result {
 		if len(ctx.Args) < 2 {
-			ctx.LogError(CatIO, "Usage: log_print <level>, <message>, [category]")
+			ctx.LogError(CatIO, "Usage: log_print <level>, <message>, [categories...]")
 			return BoolStatus(false)
 		}
 
 		levelStr := strings.ToLower(fmt.Sprintf("%v", ctx.Args[0]))
 		var level LogLevel
 		switch levelStr {
+		case "trace":
+			level = LevelTrace
+		case "info":
+			level = LevelInfo
 		case "debug":
 			level = LevelDebug
+		case "notice":
+			level = LevelNotice
 		case "warn", "warning":
 			level = LevelWarn
 		case "error":
 			level = LevelError
+		case "fatal":
+			level = LevelFatal
 		default:
-			ctx.LogError(CatIO, fmt.Sprintf("Invalid log level: %s (use debug, warn, or error)", levelStr))
+			ctx.LogError(CatIO, fmt.Sprintf("Invalid log level: %s (use trace, info, debug, notice, warn, error, or fatal)", levelStr))
 			return BoolStatus(false)
 		}
 
 		message := fmt.Sprintf("%v", ctx.Args[1])
 
-		category := CatUser
+		// Parse categories from remaining arguments
+		var categories []LogCategory
+
 		if len(ctx.Args) > 2 {
-			category = LogCategory(fmt.Sprintf("%v", ctx.Args[2]))
+			// Check if third arg is a list (ParenGroup, StoredList, or list marker)
+			thirdArg := ctx.Args[2]
+
+			// Try to extract categories from a list-like argument
+			var catItems []interface{}
+			gotList := false
+
+			switch v := thirdArg.(type) {
+			case ParenGroup:
+				catItems, _ = parseArguments(string(v))
+				gotList = true
+			case StoredBlock:
+				catItems, _ = parseArguments(string(v))
+				gotList = true
+			case StoredList:
+				catItems = v.Items()
+				gotList = true
+			case Symbol:
+				// Check for list marker
+				markerType, objectID := parseObjectMarker(string(v))
+				if markerType == "list" && objectID >= 0 {
+					if obj, exists := ctx.executor.getObject(objectID); exists {
+						if list, ok := obj.(StoredList); ok {
+							catItems = list.Items()
+							gotList = true
+						}
+					}
+				}
+			case string:
+				// Check for list marker
+				markerType, objectID := parseObjectMarker(v)
+				if markerType == "list" && objectID >= 0 {
+					if obj, exists := ctx.executor.getObject(objectID); exists {
+						if list, ok := obj.(StoredList); ok {
+							catItems = list.Items()
+							gotList = true
+						}
+					}
+				}
+			}
+
+			if gotList {
+				// Convert list items to categories
+				for _, item := range catItems {
+					catStr := fmt.Sprintf("%v", item)
+					if cat, valid := LogCategoryFromString(catStr); valid {
+						categories = append(categories, cat)
+					} else {
+						// Use as-is if not a recognized category name
+						categories = append(categories, LogCategory(catStr))
+					}
+				}
+			} else {
+				// Multiple positional arguments as categories
+				for i := 2; i < len(ctx.Args); i++ {
+					catStr := fmt.Sprintf("%v", ctx.Args[i])
+					if cat, valid := LogCategoryFromString(catStr); valid {
+						categories = append(categories, cat)
+					} else {
+						// Use as-is if not a recognized category name
+						categories = append(categories, LogCategory(catStr))
+					}
+				}
+			}
 		}
 
-		ctx.logger.Log(level, category, message, ctx.Position, nil)
+		// Default to CatUser if no categories specified
+		if len(categories) == 0 {
+			categories = []LogCategory{CatUser}
+		}
+
+		// Set output context for channel routing and LogConfig access
+		ctx.logger.SetOutputContext(NewOutputContext(ctx.state, ctx.executor))
+		defer ctx.logger.ClearOutputContext()
+
+		// Use LogMulti for multiple categories, Log for single
+		if len(categories) == 1 {
+			ctx.logger.Log(level, categories[0], message, ctx.Position, nil)
+		} else {
+			ctx.logger.LogMulti(level, categories, message, ctx.Position, nil)
+		}
 
 		return BoolStatus(level != LevelError)
 	})
@@ -1204,6 +1404,20 @@ func (ps *PawScript) RegisterSystemLib(scriptArgs []string) {
 		microtime := now.UnixMicro()
 		ctx.SetResult(microtime)
 		return BoolStatus(true)
+	})
+
+	// error_logging - configure which log messages go to #err
+	// Named args: default, floor, force (log levels), plus per-category levels
+	// Returns: current configuration as StoredList with named args
+	ps.RegisterCommandInModule("debug", "error_logging", func(ctx *Context) Result {
+		return configureLogFilter(ctx, ps, true)
+	})
+
+	// debug_logging - configure which log messages go to #out
+	// Named args: default, floor, force (log levels), plus per-category levels
+	// Returns: current configuration as StoredList with named args
+	ps.RegisterCommandInModule("debug", "debug_logging", func(ctx *Context) Result {
+		return configureLogFilter(ctx, ps, false)
 	})
 
 	// datetime - format and convert date/time values
@@ -1401,4 +1615,124 @@ func (ps *PawScript) RegisterSystemLib(scriptArgs []string) {
 		ctx.SetResult(formatTime(parsedTime, targetTZ, hasSeconds))
 		return BoolStatus(true)
 	})
+}
+
+// configureLogFilter implements error_logging and debug_logging commands
+// isErrorLog=true for error_logging (#err), false for debug_logging (#out)
+func configureLogFilter(ctx *Context, ps *PawScript, isErrorLog bool) Result {
+	if ctx.state.moduleEnv == nil {
+		ctx.LogError(CatSystem, "no module environment available")
+		return BoolStatus(false)
+	}
+
+	// Get the LogConfig, triggering COW if we're making changes
+	hasChanges := len(ctx.Args) > 0 || len(ctx.NamedArgs) > 0
+
+	ctx.state.moduleEnv.mu.Lock()
+	var filter *LogFilter
+	if hasChanges {
+		logConfig := ctx.state.moduleEnv.GetLogConfigForModification()
+		if isErrorLog {
+			filter = logConfig.ErrorLog
+		} else {
+			filter = logConfig.DebugLog
+		}
+	} else {
+		logConfig := ctx.state.moduleEnv.LogConfigModule
+		if isErrorLog {
+			filter = logConfig.ErrorLog
+		} else {
+			filter = logConfig.DebugLog
+		}
+	}
+	ctx.state.moduleEnv.mu.Unlock()
+
+	// Helper to parse a log level from an argument
+	parseLevel := func(val interface{}) (LogLevel, bool) {
+		switch v := val.(type) {
+		case string:
+			level := LogLevelFromString(v)
+			return level, level >= 0
+		case QuotedString:
+			level := LogLevelFromString(string(v))
+			return level, level >= 0
+		case Symbol:
+			level := LogLevelFromString(string(v))
+			return level, level >= 0
+		case int64:
+			if v >= int64(LevelTrace) && v <= int64(LevelFatal) {
+				return LogLevel(v), true
+			}
+		case int:
+			if v >= int(LevelTrace) && v <= int(LevelFatal) {
+				return LogLevel(v), true
+			}
+		case float64:
+			iv := int(v)
+			if iv >= int(LevelTrace) && iv <= int(LevelFatal) {
+				return LogLevel(iv), true
+			}
+		}
+		return LevelFatal, false
+	}
+
+	// Process "default" level from positional arg or named arg
+	if len(ctx.Args) >= 1 {
+		if level, ok := parseLevel(ctx.Args[0]); ok {
+			filter.Default = level
+		}
+	}
+	if val, exists := ctx.NamedArgs["default"]; exists {
+		if level, ok := parseLevel(val); ok {
+			filter.Default = level
+		}
+	}
+
+	// Process "floor" and "force" from named args
+	if val, exists := ctx.NamedArgs["floor"]; exists {
+		if level, ok := parseLevel(val); ok {
+			filter.Floor = level
+		}
+	}
+	if val, exists := ctx.NamedArgs["force"]; exists {
+		if level, ok := parseLevel(val); ok {
+			filter.Force = level
+		}
+	}
+
+	// Process per-category levels from named args
+	for key, val := range ctx.NamedArgs {
+		// Skip reserved names
+		if key == "default" || key == "floor" || key == "force" {
+			continue
+		}
+
+		// Check if this is a valid category name
+		if cat, valid := LogCategoryFromString(key); valid {
+			if level, ok := parseLevel(val); ok {
+				filter.Categories[cat] = level
+			}
+		}
+	}
+
+	// Build and return result list with current configuration
+	resultNamedArgs := map[string]interface{}{
+		"default": LogLevelToString(filter.Default),
+		"floor":   LogLevelToString(filter.Floor),
+		"force":   LogLevelToString(filter.Force),
+	}
+
+	// Add all category settings
+	for _, cat := range AllLogCategories() {
+		if level, exists := filter.Categories[cat]; exists {
+			resultNamedArgs[string(cat)] = LogLevelToString(level)
+		}
+	}
+
+	result := NewStoredListWithNamed([]interface{}{}, resultNamedArgs)
+	id := ctx.executor.storeObject(result, "list")
+	marker := fmt.Sprintf("\x00LIST:%d\x00", id)
+	ctx.state.SetResultWithoutClaim(Symbol(marker))
+
+	return BoolStatus(true)
 }

@@ -71,6 +71,10 @@ type ModuleEnvironment struct {
 	ItemMetadataInherited map[string]*ItemMetadata // Reference from parent
 	ItemMetadataModule    map[string]*ItemMetadata // Copy-on-write
 
+	// Log configuration layers (controls what goes to #err and #out)
+	LogConfigInherited *LogConfig // Reference from parent
+	LogConfigModule    *LogConfig // Copy-on-write
+
 	// Tracking flags for copy-on-write
 	libraryInheritedCopied  bool
 	libraryRestrictedCopied bool
@@ -78,6 +82,7 @@ type ModuleEnvironment struct {
 	macrosModuleCopied      bool
 	objectsModuleCopied     bool
 	metadataModuleCopied    bool
+	logConfigModuleCopied   bool
 }
 
 // NewModuleEnvironment creates a new module environment
@@ -89,6 +94,7 @@ func NewModuleEnvironment() *ModuleEnvironment {
 	macroRegistry := make(map[string]*StoredMacro)
 	objRegistry := make(map[string]interface{})
 	metadataRegistry := make(map[string]*ItemMetadata)
+	logConfig := NewLogConfig()
 
 	return &ModuleEnvironment{
 		DefaultName:              "",
@@ -103,11 +109,14 @@ func NewModuleEnvironment() *ModuleEnvironment {
 		ModuleExports:            make(Library),
 		ItemMetadataInherited:    metadataRegistry,
 		ItemMetadataModule:       metadataRegistry, // Same instance, COW on modification
+		LogConfigInherited:       logConfig,
+		LogConfigModule:          logConfig, // Same instance, COW on modification
 		libraryRestrictedCopied:  false,
 		commandsModuleCopied:     false,
 		macrosModuleCopied:       false,
 		objectsModuleCopied:      false,
 		metadataModuleCopied:     false,
+		logConfigModuleCopied:    false,
 	}
 }
 
@@ -121,6 +130,7 @@ func NewChildModuleEnvironment(parent *ModuleEnvironment) *ModuleEnvironment {
 	effectiveMacros := getEffectiveMacroRegistry(parent)
 	effectiveObjects := getEffectiveObjectRegistry(parent)
 	effectiveMetadata := getEffectiveMetadataRegistry(parent)
+	effectiveLogConfig := getEffectiveLogConfig(parent)
 
 	// Child inherits from parent's LibraryRestricted (becomes new Inherited)
 	// Child starts with its Restricted pointing to same instance
@@ -148,12 +158,18 @@ func NewChildModuleEnvironment(parent *ModuleEnvironment) *ModuleEnvironment {
 		ItemMetadataInherited: effectiveMetadata,
 		ItemMetadataModule:    effectiveMetadata,
 
+		// LogConfig: both point to effective log config
+		// COW flag reset - any modification creates a new copy
+		LogConfigInherited: effectiveLogConfig,
+		LogConfigModule:    effectiveLogConfig,
+
 		ModuleExports:           make(Library), // Start blank - caller merges after execution
 		libraryRestrictedCopied: false,
 		commandsModuleCopied:    false,
 		macrosModuleCopied:      false,
 		objectsModuleCopied:     false,
 		metadataModuleCopied:    false,
+		logConfigModuleCopied:   false,
 	}
 }
 
@@ -171,6 +187,7 @@ func NewMacroModuleEnvironment(parent *ModuleEnvironment) *ModuleEnvironment {
 	effectiveMacros := getEffectiveMacroRegistry(parent)
 	effectiveObjects := getEffectiveObjectRegistry(parent)
 	effectiveMetadata := getEffectiveMetadataRegistry(parent)
+	effectiveLogConfig := getEffectiveLogConfig(parent)
 
 	return &ModuleEnvironment{
 		DefaultName: parent.DefaultName,
@@ -199,6 +216,11 @@ func NewMacroModuleEnvironment(parent *ModuleEnvironment) *ModuleEnvironment {
 		ItemMetadataInherited: effectiveMetadata,
 		ItemMetadataModule:    effectiveMetadata,
 
+		// LogConfig: both point to effective log config
+		// COW flag reset - any modification creates a new copy
+		LogConfigInherited: effectiveLogConfig,
+		LogConfigModule:    effectiveLogConfig,
+
 		// ModuleExports starts blank - caller merges into their LibraryInherited after execution
 		ModuleExports: make(Library),
 
@@ -208,6 +230,7 @@ func NewMacroModuleEnvironment(parent *ModuleEnvironment) *ModuleEnvironment {
 		macrosModuleCopied:      false,
 		objectsModuleCopied:     false,
 		metadataModuleCopied:    false,
+		logConfigModuleCopied:   false,
 	}
 }
 
@@ -229,6 +252,10 @@ func getEffectiveObjectRegistry(env *ModuleEnvironment) map[string]interface{} {
 
 func getEffectiveMetadataRegistry(env *ModuleEnvironment) map[string]*ItemMetadata {
 	return env.ItemMetadataModule
+}
+
+func getEffectiveLogConfig(env *ModuleEnvironment) *LogConfig {
+	return env.LogConfigModule
 }
 
 // CopyLibraryInherited performs copy-on-write for LibraryInherited
@@ -330,6 +357,31 @@ func (env *ModuleEnvironment) EnsureMetadataRegistryCopied() {
 	}
 	env.ItemMetadataModule = newModule
 	env.metadataModuleCopied = true
+}
+
+// EnsureLogConfigCopied performs copy-on-write for LogConfigModule.
+// Creates an isolated copy so modifications don't affect the original shared config.
+func (env *ModuleEnvironment) EnsureLogConfigCopied() {
+	if env.logConfigModuleCopied {
+		return
+	}
+	// Deep copy the log config
+	env.LogConfigModule = env.LogConfigModule.Copy()
+	env.logConfigModuleCopied = true
+}
+
+// GetLogConfig returns the effective log config for this module environment
+func (env *ModuleEnvironment) GetLogConfig() *LogConfig {
+	env.mu.RLock()
+	defer env.mu.RUnlock()
+	return env.LogConfigModule
+}
+
+// GetLogConfigForModification returns the log config ready for modification (triggers COW if needed)
+// Caller must hold the lock
+func (env *ModuleEnvironment) GetLogConfigForModification() *LogConfig {
+	env.EnsureLogConfigCopied()
+	return env.LogConfigModule
 }
 
 // CopyCommandRegistry is an alias for EnsureCommandRegistryCopied for backward compatibility.

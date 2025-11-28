@@ -157,15 +157,15 @@ func (e *Executor) substituteBraceExpressions(str string, ctx *SubstitutionConte
 		return str // No braces to process
 	}
 
-	e.logger.Debug("Found %d top-level braces to evaluate", len(braces))
+	e.logger.DebugCat(CatCommand,"Found %d top-level braces to evaluate", len(braces))
 
 	// Execute all braces and collect their results
 	evaluations := make([]*BraceEvaluation, len(braces))
 	hasAsync := false
 
 	for i, brace := range braces {
-		e.logger.Debug("Evaluating brace %d: line=%d, column=%d", i, brace.StartLine, brace.StartColumn)
-		e.logger.Debug("Brace content: \"{%s}\"", brace.Content)
+		e.logger.DebugCat(CatCommand,"Evaluating brace %d: line=%d, column=%d", i, brace.StartLine, brace.StartColumn)
+		e.logger.DebugCat(CatCommand,"Brace content: \"{%s}\"", brace.Content)
 
 		// Create a child state with shared variables but isolated result storage
 		// This prevents async braces from racing on result storage while still sharing variables
@@ -175,6 +175,9 @@ func (e *Executor) substituteBraceExpressions(str string, ctx *SubstitutionConte
 			return str // nil, fmt.Errorf("context cannot be nil")
 		}
 		braceState := NewExecutionStateFromSharedVars(ctx.ExecutionState)
+		// Mark this state as being inside a brace expression
+		// Commands can check this to return values instead of emitting side effects to #out
+		braceState.InBraceExpression = true
 
 		// Calculate accumulated offsets for this brace
 		/*currentLineOffset := 0
@@ -197,7 +200,7 @@ func (e *Executor) substituteBraceExpressions(str string, ctx *SubstitutionConte
 			newColumnOffset = brace.StartColumn - 1
 		}
 
-		e.logger.Debug("Brace offsets: line=%d, column=%d", newLineOffset, newColumnOffset)
+		e.logger.DebugCat(CatCommand,"Brace offsets: line=%d, column=%d", newLineOffset, newColumnOffset)
 
 		// Create substitution context using the child state
 		braceSubstitutionCtx := &SubstitutionContext{
@@ -219,6 +222,9 @@ func (e *Executor) substituteBraceExpressions(str string, ctx *SubstitutionConte
 			newLineOffset,
 			newColumnOffset,
 		)
+
+		// Track that a brace was evaluated (for get_substatus)
+		ctx.BracesEvaluated++
 
 		// Capture the result IMMEDIATELY after execution, before the next brace can overwrite it
 		var capturedResult interface{}
@@ -250,7 +256,7 @@ func (e *Executor) substituteBraceExpressions(str string, ctx *SubstitutionConte
 			evaluations[i].IsAsync = true
 			evaluations[i].TokenID = string(tokenResult)
 			hasAsync = true
-			e.logger.Debug("Brace %d returned async token: %s", i, evaluations[i].TokenID)
+			e.logger.DebugCat(CatCommand,"Brace %d returned async token: %s", i, evaluations[i].TokenID)
 		} else if earlyReturn, ok := executeResult.(EarlyReturn); ok {
 			// Handle early return (ret command) - treat as successful completion
 			// Use the formal result from the EarlyReturn
@@ -259,15 +265,15 @@ func (e *Executor) substituteBraceExpressions(str string, ctx *SubstitutionConte
 			// Check the status to determine success/failure
 			if !bool(earlyReturn.Status) {
 				evaluations[i].Failed = true
-				e.logger.Debug("Brace %d completed with early return (failure)", i)
+				e.logger.DebugCat(CatCommand,"Brace %d completed with early return (failure)", i)
 			} else {
-				e.logger.Debug("Brace %d completed with early return (success)", i)
+				e.logger.DebugCat(CatCommand,"Brace %d completed with early return (success)", i)
 			}
 
 			// Use the result from EarlyReturn if present
 			if earlyReturn.HasResult {
 				evaluations[i].Result = earlyReturn.Result
-				e.logger.Debug("Early return has result: %v", earlyReturn.Result)
+				e.logger.DebugCat(CatCommand,"Early return has result: %v", earlyReturn.Result)
 			} else if hasCapturedResult {
 				evaluations[i].Result = capturedResult
 			}
@@ -289,7 +295,7 @@ func (e *Executor) substituteBraceExpressions(str string, ctx *SubstitutionConte
 						if !parentOwns {
 							// Parent doesn't own it yet - claim ownership
 							ctx.ExecutionState.ClaimObjectReference(refID)
-							e.logger.Debug("Parent claimed ownership of object %d from brace result", refID)
+							e.logger.DebugCat(CatCommand,"Parent claimed ownership of object %d from brace result", refID)
 						}
 					}
 				}
@@ -298,20 +304,33 @@ func (e *Executor) substituteBraceExpressions(str string, ctx *SubstitutionConte
 			// Synchronous completion
 			evaluations[i].Completed = true
 
-			// Check if it was successful
+			// Track brace failures in the substitution context
+			// This allows assignment to propagate the status from brace expressions
 			if boolStatus, ok := executeResult.(BoolStatus); ok && !bool(boolStatus) {
-				evaluations[i].Failed = true
-				//evaluations[i].Error = "Command returned false"
-				e.logger.Debug("Brace %d completed synchronously with failure", i)
-			} else {
-				e.logger.Debug("Brace %d completed synchronously with success", i)
+				ctx.BraceFailureCount++
+				e.logger.DebugCat(CatCommand,"Brace %d returned false status, failure count now: %d", i, ctx.BraceFailureCount)
 			}
-			// Use the captured result - this part used to be in an else
+
+			// Determine the result value first
+			// Commands that return a BoolStatus without calling SetResult should use the
+			// boolean value itself as the result (e.g., {false} returns "false", {true} returns "true")
 			if hasCapturedResult {
 				evaluations[i].Result = capturedResult
-				e.logger.Debug("Brace %d has captured result: %s", i, evaluations[i].Result)
+				e.logger.DebugCat(CatCommand,"Brace %d has captured result: %s", i, evaluations[i].Result)
 			} else if boolStatus, ok := executeResult.(BoolStatus); ok {
 				evaluations[i].Result = fmt.Sprintf("%v", bool(boolStatus))
+				e.logger.DebugCat(CatCommand,"Brace %d using boolean status as result: %s", i, evaluations[i].Result)
+			}
+
+			// Only mark as truly failed if we got an error result, not just a false status
+			// Commands like {false}, {eq 1, 2}, {token_valid ~exhausted} return false status
+			// with a valid boolean result - they should NOT abort the parent command
+			hasResult := hasCapturedResult || executeResult != nil
+			if !hasResult {
+				evaluations[i].Failed = true
+				e.logger.DebugCat(CatCommand,"Brace %d completed with no result (failure)", i)
+			} else {
+				e.logger.DebugCat(CatCommand,"Brace %d completed synchronously with success", i)
 			}
 			// end part that used to be in an else
 
@@ -350,7 +369,7 @@ func (e *Executor) substituteBraceExpressions(str string, ctx *SubstitutionConte
 
 	// If any evaluation is async, we need to coordinate
 	if hasAsync {
-		e.logger.Debug("At least one brace is async, creating coordinator token")
+		e.logger.DebugCat(CatCommand,"At least one brace is async, creating coordinator token")
 
 		// We need to return a special marker that tells the caller we're suspending
 		// The caller (executeSingleCommand) will need to handle this
@@ -361,7 +380,7 @@ func (e *Executor) substituteBraceExpressions(str string, ctx *SubstitutionConte
 			func(finalString string, success bool) Result {
 				// This callback will be invoked when all braces complete
 				// For now, we need to signal back through the token system
-				e.logger.Debug("Brace coordinator completed: success=%v, string=%s", success, finalString)
+				e.logger.DebugCat(CatCommand,"Brace coordinator completed: success=%v, string=%s", success, finalString)
 				// Store the result in a way that can be retrieved
 				return BoolStatus(success)
 			},
@@ -392,8 +411,8 @@ func (e *Executor) substituteBraceExpressions(str string, ctx *SubstitutionConte
 				sourceContext = nil // We'll add this later if needed
 			}
 
-			e.logger.Warn(errorMsg, eval.Position, sourceContext)
-			e.logger.Debug("Synchronous brace evaluation %d failed, aborting command", i)
+			e.logger.WarnCat(CatCommand,errorMsg, eval.Position, sourceContext)
+			e.logger.DebugCat(CatCommand,"Synchronous brace evaluation %d failed, aborting command", i)
 			// Return special marker to indicate brace failure
 			return "\x00PAWS_FAILED\x00"
 		}
@@ -401,13 +420,16 @@ func (e *Executor) substituteBraceExpressions(str string, ctx *SubstitutionConte
 
 	// Substitute all results immediately
 	result := e.substituteAllBraces(str, evaluations, ctx.ExecutionState)
-	e.logger.Debug("All braces synchronous, substituted result: %s", result)
+	e.logger.DebugCat(CatCommand,"All braces synchronous, substituted result: %s", result)
 
 	return result
 }
 
 // substituteTildeExpressions substitutes ~varname patterns in strings with variable values
 func (e *Executor) substituteTildeExpressions(str string, state *ExecutionState, position *SourcePosition) string {
+	// Placeholder for escaped tildes - must match the one used in applySubstitution
+	const escapedTildePlaceholder = "\x00TILDE\x00"
+
 	if state == nil {
 		return str
 	}
@@ -441,12 +463,24 @@ func (e *Executor) substituteTildeExpressions(str string, state *ExecutionState,
 		if exists {
 			// Resolve any object markers to get display value
 			resolved := e.resolveValue(value)
-			valueStr := fmt.Sprintf("%v", resolved)
+			var valueStr string
+			// Handle StoredList specially to format contents
+			if list, ok := resolved.(StoredList); ok {
+				valueStr = formatListForDisplay(list)
+			} else {
+				valueStr = fmt.Sprintf("%v", resolved)
+			}
 			// Since tildes are only found inside double-quoted strings,
-			// we need to escape any double quotes in the substituted value
-			// to prevent breaking the quote structure
+			// we need to escape backslashes and quotes in the substituted value
+			// to prevent breaking the quote structure.
+			// IMPORTANT: These must come BEFORE tilde escaping, otherwise the
+			// placeholder's \x00 bytes would get double-escaped to \\x00
 			valueStr = strings.ReplaceAll(valueStr, `\`, `\\`)
 			valueStr = strings.ReplaceAll(valueStr, `"`, `\"`)
+			// Escape tildes in the resolved value to prevent tilde injection
+			// This ensures user input containing tildes doesn't get interpreted
+			// as variable references when the result string is re-parsed
+			valueStr = strings.ReplaceAll(valueStr, "~", escapedTildePlaceholder)
 			result = append(result, []rune(valueStr)...)
 		} else {
 			// Variable not found - log error and leave empty
@@ -698,11 +732,15 @@ func (e *Executor) substituteAllBraces(originalString string, evaluations []*Bra
 
 	for _, eval := range sortedEvals {
 		// Get the result value
+		// IMPORTANT: Prioritize eval.Result over state.GetResult() because:
+		// 1. For EarlyReturn, the result is explicitly stored in eval.Result
+		// 2. The braceState might inherit parent's result (from NewExecutionStateFromSharedVars)
+		//    which would be the wrong value
 		var rawValue interface{}
-		if eval.State != nil && eval.State.HasResult() {
-			rawValue = eval.State.GetResult()
-		} else if eval.Result != nil {
+		if eval.Result != nil {
 			rawValue = eval.Result
+		} else if eval.State != nil && eval.State.HasResult() {
+			rawValue = eval.State.GetResult()
 		}
 
 		// Format the result based on type
@@ -744,6 +782,9 @@ func (e *Executor) substituteAllBraces(originalString string, evaluations []*Bra
 // This ensures nested structures maintain shared storage via reference passing
 // while still supporting human-readable display in string contexts.
 func (e *Executor) formatBraceResult(value interface{}, originalString string, bracePos int, state *ExecutionState) string {
+	// Placeholder for escaped tildes - must match the one used in applySubstitution
+	const escapedTildePlaceholder = "\x00TILDE\x00"
+
 	// Handle nil specially - output as bare word "nil"
 	if value == nil {
 		return "nil"
@@ -754,6 +795,13 @@ func (e *Executor) formatBraceResult(value interface{}, originalString string, b
 
 	// If it's a Symbol that might be a marker, return it unchanged to preserve the reference
 	if sym, ok := value.(Symbol); ok {
+		// Handle undefined marker specially
+		if string(sym) == UndefinedMarker {
+			if insideQuotes {
+				return "<undefined>"
+			}
+			return "undefined"
+		}
 		if objType, objID := parseObjectMarker(string(sym)); objID >= 0 {
 			// It's an object marker - pass it through unchanged
 			// Don't resolve and re-store, that would create duplicate storage entries!
@@ -801,17 +849,27 @@ func (e *Executor) formatBraceResult(value interface{}, originalString string, b
 	case ParenGroup:
 		if insideQuotes {
 			// Inside quotes: unwrap and escape only quotes/backslashes
-			return e.escapeQuotesAndBackslashes(string(v))
+			// Also escape tildes to prevent tilde injection
+			result := e.escapeQuotesAndBackslashes(string(v))
+			result = strings.ReplaceAll(result, "~", escapedTildePlaceholder)
+			return result
 		}
 		// Outside quotes: preserve as parentheses
-		return "(" + string(v) + ")"
+		// Also escape tildes to prevent tilde injection
+		content := strings.ReplaceAll(string(v), "~", escapedTildePlaceholder)
+		return "(" + content + ")"
 	case QuotedString:
 		if insideQuotes {
 			// Inside quotes: unwrap and escape only quotes/backslashes
-			return e.escapeQuotesAndBackslashes(string(v))
+			// Also escape tildes to prevent tilde injection
+			result := e.escapeQuotesAndBackslashes(string(v))
+			result = strings.ReplaceAll(result, "~", escapedTildePlaceholder)
+			return result
 		}
 		// Outside quotes: preserve as quoted string, escaping internal quotes
+		// Also escape tildes to prevent tilde injection
 		escaped := e.escapeQuotesAndBackslashes(string(v))
+		escaped = strings.ReplaceAll(escaped, "~", escapedTildePlaceholder)
 		return "\"" + escaped + "\""
 	case Symbol:
 		// If it's a Symbol that might be a marker, resolve it first for proper formatting
@@ -840,11 +898,16 @@ func (e *Executor) formatBraceResult(value interface{}, originalString string, b
 	case string:
 		if insideQuotes {
 			// Inside quotes: escape only quotes/backslashes
-			return e.escapeQuotesAndBackslashes(v)
+			// Also escape tildes to prevent tilde injection
+			result := e.escapeQuotesAndBackslashes(v)
+			result = strings.ReplaceAll(result, "~", escapedTildePlaceholder)
+			return result
 		}
 		// Outside quotes: wrap in quotes to preserve the string value
 		// (don't escape spaces/special chars - that's for bare words only)
+		// Also escape tildes to prevent tilde injection
 		escaped := e.escapeQuotesAndBackslashes(v)
+		escaped = strings.ReplaceAll(escaped, "~", escapedTildePlaceholder)
 		return "\"" + escaped + "\""
 	case StoredList:
 		if insideQuotes {
@@ -866,10 +929,14 @@ func (e *Executor) formatBraceResult(value interface{}, originalString string, b
 		// Unknown type - convert to string and wrap in quotes outside quote context
 		str := fmt.Sprintf("%v", v)
 		if insideQuotes {
-			return e.escapeQuotesAndBackslashes(str)
+			result := e.escapeQuotesAndBackslashes(str)
+			result = strings.ReplaceAll(result, "~", escapedTildePlaceholder)
+			return result
 		}
 		// Wrap in quotes to preserve value
+		// Also escape tildes to prevent tilde injection
 		escaped := e.escapeQuotesAndBackslashes(str)
+		escaped = strings.ReplaceAll(escaped, "~", escapedTildePlaceholder)
 		return "\"" + escaped + "\""
 	}
 }

@@ -5,15 +5,23 @@ import (
 	"strings"
 )
 
+// UndefinedMarker is the special marker for undefined values
+const UndefinedMarker = "\x00UNDEFINED\x00"
+
 // resolveValue resolves any object marker (LIST/STRING/BLOCK) to its actual value
 // If the value is not a marker, returns it unchanged
 // This is the central resolution function - all resolution should go through here
 func (e *Executor) resolveValue(value interface{}) interface{} {
 	// Check if it's a Symbol that might be a marker
 	if sym, ok := value.(Symbol); ok {
-		if objType, objID := parseObjectMarker(string(sym)); objID >= 0 {
+		str := string(sym)
+		// Check for undefined marker - convert to bare undefined symbol
+		if str == UndefinedMarker {
+			return Symbol("undefined")
+		}
+		if objType, objID := parseObjectMarker(str); objID >= 0 {
 			if actualValue, exists := e.getObject(objID); exists {
-				e.logger.Debug("Resolved %s marker %d to actual value", objType, objID)
+				e.logger.DebugCat(CatVariable,"Resolved %s marker %d to actual value", objType, objID)
 				// Convert stored types back to their original forms
 				switch v := actualValue.(type) {
 				case StoredString:
@@ -29,9 +37,13 @@ func (e *Executor) resolveValue(value interface{}) interface{} {
 
 	// Check if it's a string that might be a marker
 	if str, ok := value.(string); ok {
+		// Check for undefined marker - convert to bare undefined symbol
+		if str == UndefinedMarker {
+			return Symbol("undefined")
+		}
 		if objType, objID := parseObjectMarker(str); objID >= 0 {
 			if actualValue, exists := e.getObject(objID); exists {
-				e.logger.Debug("Resolved %s marker %d to actual value", objType, objID)
+				e.logger.DebugCat(CatVariable,"Resolved %s marker %d to actual value", objType, objID)
 				// Convert stored types back to their original forms
 				switch v := actualValue.(type) {
 				case StoredString:

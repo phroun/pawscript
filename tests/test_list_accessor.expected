@@ -1,0 +1,33 @@
+=== Testing dot accessor syntax for named arguments ===
+x.a = 10
+x.b = 20
+x.c = 30
+
+=== Testing index accessor syntax for positional items ===
+y 0 = first
+y 1 = second
+y 2 = third
+
+=== Testing chained accessors ===
+z.inner.val = 42
+
+=== Testing multidimensional arrays ===
+matrix 0 0 = 1
+matrix 0 2 = 3
+matrix 1 1 = 5
+
+=== Testing positional arrays within named elements ===
+data.items 0 = apple
+data.items 1 = banana
+data.items 2 = cherry
+data.count = 3
+
+=== Testing index then dot accessor ===
+students 0.firstName = Alice
+students 1.lastName = Jones
+
+=== Testing undefined access ===
+x.nonexistent = undefined
+y 99 = undefined
+
+=== Test complete ===

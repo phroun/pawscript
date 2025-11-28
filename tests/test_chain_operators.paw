@@ -3,7 +3,7 @@
 echo "=== CHAIN OPERATOR TESTS (~>) ==="
 echo ""
 
-echo "Test 1: ~> prepends {get_result} with comma"
+echo "Test 1: ~> prepends \{get_result\} with comma"
 str_upper "hello"
 ~> echo "world"
 echo "Expected: HELLO world"
@@ -26,7 +26,7 @@ echo ""
 echo "=== LONG CHAIN OPERATOR TESTS (~~>) ==="
 echo ""
 
-echo "Test 4: ~~> appends {get_result} with comma"
+echo "Test 4: ~~> appends \{get_result\} with comma"
 str_upper "hello"
 ~~> echo "world"
 echo "Expected: world HELLO"

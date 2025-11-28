@@ -46,6 +46,24 @@ func (ps *PawScript) RegisterCoreLib() {
 		return BoolStatus(false)
 	})
 
+	// get_status - gets the previous command's status as a formal bool result
+	// Returns true/false as the result, leaves status unchanged (like ret)
+	ps.RegisterCommandInModule("core", "get_status", func(ctx *Context) Result {
+		status := ctx.state.GetLastStatus()
+		ctx.SetResult(status)
+		return BoolStatus(status)
+	})
+
+	// get_substatus - gets whether the previous command's brace expressions all succeeded
+	// Returns true (result and status) if no brace expressions returned false status
+	// Returns false (result and status) if any brace expression returned false status
+	ps.RegisterCommandInModule("core", "get_substatus", func(ctx *Context) Result {
+		braceFailures := ctx.state.GetLastBraceFailureCount()
+		success := braceFailures == 0
+		ctx.SetResult(success)
+		return BoolStatus(success)
+	})
+
 	// ret - early return from block
 	ps.RegisterCommandInModule("core", "ret", func(ctx *Context) Result {
 		switch len(ctx.Args) {
@@ -132,6 +150,10 @@ func (ps *PawScript) RegisterCoreLib() {
 							if list, ok := obj.(StoredList); ok {
 								return list
 							}
+						case "string":
+							if str, ok := obj.(StoredString); ok {
+								return str
+							}
 						}
 						return obj
 					}
@@ -148,6 +170,10 @@ func (ps *PawScript) RegisterCoreLib() {
 						case "list":
 							if list, ok := obj.(StoredList); ok {
 								return list
+							}
+						case "string":
+							if str, ok := obj.(StoredString); ok {
+								return str
 							}
 						}
 						return obj
@@ -172,7 +198,13 @@ func (ps *PawScript) RegisterCoreLib() {
 					}
 					ctx.state.moduleEnv.mu.RUnlock()
 				}
+			} else {
+				// Regular Symbol might be a marker
+				value = resolveValue(value)
 			}
+		} else if _, ok := value.(string); ok {
+			// String might be a marker
+			value = resolveValue(value)
 		}
 
 		switch v := value.(type) {
@@ -181,6 +213,9 @@ func (ps *PawScript) RegisterCoreLib() {
 			return BoolStatus(true)
 		case *StoredChannel:
 			ctx.SetResult(ChannelLen(v))
+			return BoolStatus(true)
+		case StoredString:
+			ctx.SetResult(len(string(v)))
 			return BoolStatus(true)
 		case string, QuotedString, Symbol:
 			resolved := ctx.executor.resolveValue(v)
@@ -288,7 +323,7 @@ func (ps *PawScript) RegisterCoreLib() {
 
 	// macro - define a macro
 	ps.RegisterCommandInModule("macros", "macro", func(ctx *Context) Result {
-		ps.logger.Debug("macro command called with %d args", len(ctx.Args))
+		ps.logger.DebugCat(CatMacro,"macro command called with %d args", len(ctx.Args))
 
 		// Capture the current module environment for lexical scoping
 		macroEnv := NewMacroModuleEnvironment(ctx.state.moduleEnv)
@@ -296,27 +331,27 @@ func (ps *PawScript) RegisterCoreLib() {
 		// Check for anonymous macro: macro (body)
 		if len(ctx.Args) == 1 {
 			commands := fmt.Sprintf("%v", ctx.Args[0])
-			ps.logger.Debug("Creating anonymous macro with commands: %s", commands)
+			ps.logger.DebugCat(CatMacro,"Creating anonymous macro with commands: %s", commands)
 
 			macro := NewStoredMacroWithEnv(commands, ctx.Position, macroEnv)
 			objectID := ctx.executor.storeObject(macro, "macro")
 			macroMarker := fmt.Sprintf("\x00MACRO:%d\x00", objectID)
 			ctx.state.SetResult(Symbol(macroMarker))
 
-			ps.logger.Debug("Created anonymous macro (object %d)", objectID)
+			ps.logger.DebugCat(CatMacro,"Created anonymous macro (object %d)", objectID)
 			return BoolStatus(true)
 		}
 
 		// Named macro: macro name, (body)
 		if len(ctx.Args) < 2 {
-			ps.logger.Error("Usage: macro <name>, <commands> OR macro <commands>")
+			ps.logger.ErrorCat(CatCommand, "Usage: macro <name>, <commands> OR macro <commands>")
 			return BoolStatus(false)
 		}
 
 		name := fmt.Sprintf("%v", ctx.Args[0])
 		commands := fmt.Sprintf("%v", ctx.Args[1])
 
-		ps.logger.Debug("Defining macro '%s' with commands: %s", name, commands)
+		ps.logger.DebugCat(CatMacro,"Defining macro '%s' with commands: %s", name, commands)
 
 		// Create the StoredMacro
 		macro := NewStoredMacroWithEnv(commands, ctx.Position, macroEnv)
@@ -327,14 +362,14 @@ func (ps *PawScript) RegisterCoreLib() {
 		ctx.state.moduleEnv.MacrosModule[name] = &macro
 		ctx.state.moduleEnv.mu.Unlock()
 
-		ps.logger.Debug("Successfully defined named macro '%s' in MacrosModule", name)
+		ps.logger.DebugCat(CatMacro,"Successfully defined named macro '%s' in MacrosModule", name)
 		return BoolStatus(true)
 	})
 
 	// call - call a macro or command
 	ps.RegisterCommandInModule("macros", "call", func(ctx *Context) Result {
 		if len(ctx.Args) < 1 {
-			ps.logger.Error("Usage: call <macro_name_or_object>, [args...]")
+			ps.logger.ErrorCat(CatCommand, "Usage: call <macro_name_or_object>, [args...]")
 			return BoolStatus(false)
 		}
 
@@ -344,7 +379,7 @@ func (ps *PawScript) RegisterCoreLib() {
 
 		// Check if the first argument is already a resolved StoredCommand object
 		if cmd, ok := firstArg.(StoredCommand); ok {
-			ps.logger.Debug("Calling resolved StoredCommand object: %s", cmd.CommandName)
+			ps.logger.DebugCat(CatMacro,"Calling resolved StoredCommand object: %s", cmd.CommandName)
 
 			cmdCtx := &Context{
 				Args:      callArgs,
@@ -366,9 +401,9 @@ func (ps *PawScript) RegisterCoreLib() {
 
 		// Check if the first argument is already a resolved StoredMacro object
 		if macro, ok := firstArg.(StoredMacro); ok {
-			ps.logger.Debug("Calling resolved StoredMacro object")
+			ps.logger.DebugCat(CatMacro,"Calling resolved StoredMacro object")
 
-			return ps.macroSystem.ExecuteStoredMacro(&macro, func(commands string, macroExecState *ExecutionState, substCtx *SubstitutionContext) Result {
+			return ps.executor.ExecuteStoredMacro(&macro, func(commands string, macroExecState *ExecutionState, substCtx *SubstitutionContext) Result {
 				filename := ""
 				lineOffset := 0
 				columnOffset := 0
@@ -386,17 +421,17 @@ func (ps *PawScript) RegisterCoreLib() {
 			markerType, objectID := parseObjectMarker(string(sym))
 
 			if markerType == "command" && objectID >= 0 {
-				ps.logger.Debug("Calling StoredCommand via marker (object %d)", objectID)
+				ps.logger.DebugCat(CatMacro,"Calling StoredCommand via marker (object %d)", objectID)
 
 				obj, exists := ctx.executor.getObject(objectID)
 				if !exists {
-					ps.logger.Error("Command object %d not found", objectID)
+					ps.logger.ErrorCat(CatArgument, "Command object %d not found", objectID)
 					return BoolStatus(false)
 				}
 
 				cmd, ok := obj.(StoredCommand)
 				if !ok {
-					ps.logger.Error("Object %d is not a StoredCommand", objectID)
+					ps.logger.ErrorCat(CatArgument, "Object %d is not a StoredCommand", objectID)
 					return BoolStatus(false)
 				}
 
@@ -419,21 +454,21 @@ func (ps *PawScript) RegisterCoreLib() {
 			}
 
 			if markerType == "macro" && objectID >= 0 {
-				ps.logger.Debug("Calling StoredMacro via marker (object %d)", objectID)
+				ps.logger.DebugCat(CatMacro,"Calling StoredMacro via marker (object %d)", objectID)
 
 				obj, exists := ctx.executor.getObject(objectID)
 				if !exists {
-					ps.logger.Error("Macro object %d not found", objectID)
+					ps.logger.ErrorCat(CatArgument, "Macro object %d not found", objectID)
 					return BoolStatus(false)
 				}
 
 				macro, ok := obj.(StoredMacro)
 				if !ok {
-					ps.logger.Error("Object %d is not a StoredMacro", objectID)
+					ps.logger.ErrorCat(CatArgument, "Object %d is not a StoredMacro", objectID)
 					return BoolStatus(false)
 				}
 
-				return ps.macroSystem.ExecuteStoredMacro(&macro, func(commands string, macroExecState *ExecutionState, substCtx *SubstitutionContext) Result {
+				return ps.executor.ExecuteStoredMacro(&macro, func(commands string, macroExecState *ExecutionState, substCtx *SubstitutionContext) Result {
 					filename := ""
 					lineOffset := 0
 					columnOffset := 0
@@ -447,26 +482,90 @@ func (ps *PawScript) RegisterCoreLib() {
 			}
 		}
 
-		// Otherwise, treat it as a macro name - look up in module environment
-		name := fmt.Sprintf("%v", firstArg)
-		ps.logger.Debug("Calling macro by name: %s", name)
+	// Check if the first argument is a marker (string type, from $1 substitution etc.)
+	if str, ok := firstArg.(string); ok {
+		markerType, objectID := parseObjectMarker(str)
 
-		// Look up macro in module environment
+		if markerType == "command" && objectID >= 0 {
+			ps.logger.DebugCat(CatMacro,"Calling StoredCommand via string marker (object %d)", objectID)
+
+			obj, exists := ctx.executor.getObject(objectID)
+			if !exists {
+				ps.logger.ErrorCat(CatArgument, "Command object %d not found", objectID)
+				return BoolStatus(false)
+			}
+
+			cmd, ok := obj.(StoredCommand)
+			if !ok {
+				ps.logger.ErrorCat(CatArgument, "Object %d is not a StoredCommand", objectID)
+				return BoolStatus(false)
+			}
+
+			cmdCtx := &Context{
+				Args:      callArgs,
+				NamedArgs: ctx.NamedArgs,
+				Position:  ctx.Position,
+				state:     childState,
+				executor:  ctx.executor,
+				logger:    ctx.logger,
+			}
+
+			result := cmd.Handler(cmdCtx)
+
+			if childState.HasResult() {
+				ctx.state.SetResult(childState.GetResult())
+			}
+
+			return result
+		}
+
+		if markerType == "macro" && objectID >= 0 {
+			ps.logger.DebugCat(CatMacro,"Calling StoredMacro via string marker (object %d)", objectID)
+
+			obj, exists := ctx.executor.getObject(objectID)
+			if !exists {
+				ps.logger.ErrorCat(CatArgument, "Macro object %d not found", objectID)
+				return BoolStatus(false)
+			}
+
+			macro, ok := obj.(StoredMacro)
+			if !ok {
+				ps.logger.ErrorCat(CatArgument, "Object %d is not a StoredMacro", objectID)
+				return BoolStatus(false)
+			}
+
+			return ps.executor.ExecuteStoredMacro(&macro, func(commands string, macroExecState *ExecutionState, substCtx *SubstitutionContext) Result {
+				filename := ""
+				lineOffset := 0
+				columnOffset := 0
+				if substCtx != nil {
+					filename = substCtx.Filename
+					lineOffset = substCtx.CurrentLineOffset
+					columnOffset = substCtx.CurrentColumnOffset
+				}
+				return ps.executor.ExecuteWithState(commands, macroExecState, substCtx, filename, lineOffset, columnOffset)
+			}, callArgs, ctx.NamedArgs, childState, ctx.Position, ctx.state)
+		}
+	}
+
+	// Otherwise, treat it as a macro name - look up in module environment
+		name := fmt.Sprintf("%v", firstArg)
+		ps.logger.DebugCat(CatMacro,"Calling macro by name: %s", name)
+
+		// Look up macro in module environment (COW - only check MacrosModule)
 		var macro *StoredMacro
 		ctx.state.moduleEnv.mu.RLock()
 		if m, exists := ctx.state.moduleEnv.MacrosModule[name]; exists && m != nil {
-			macro = m
-		} else if m, exists := ctx.state.moduleEnv.MacrosInherited[name]; exists && m != nil {
 			macro = m
 		}
 		ctx.state.moduleEnv.mu.RUnlock()
 
 		if macro == nil {
-			ps.logger.Error("Macro \"%s\" not found", name)
+			ps.logger.ErrorCat(CatMacro, "Macro \"%s\" not found", name)
 			return BoolStatus(false)
 		}
 
-		return ps.macroSystem.ExecuteStoredMacro(macro, func(commands string, macroExecState *ExecutionState, substCtx *SubstitutionContext) Result {
+		return ps.executor.ExecuteStoredMacro(macro, func(commands string, macroExecState *ExecutionState, substCtx *SubstitutionContext) Result {
 			filename := ""
 			lineOffset := 0
 			columnOffset := 0
@@ -481,26 +580,16 @@ func (ps *PawScript) RegisterCoreLib() {
 
 	// macro_list - list all defined macros in current scope
 	ps.RegisterCommandInModule("macros", "macro_list", func(ctx *Context) Result {
-		// Collect macros from module environment (MacrosModule and MacrosInherited)
-		macroSet := make(map[string]bool)
+		// Collect macros from module environment (COW - only check MacrosModule)
 		ctx.state.moduleEnv.mu.RLock()
+		macros := make([]string, 0, len(ctx.state.moduleEnv.MacrosModule))
 		for name, macro := range ctx.state.moduleEnv.MacrosModule {
 			if macro != nil {
-				macroSet[name] = true
-			}
-		}
-		for name, macro := range ctx.state.moduleEnv.MacrosInherited {
-			if macro != nil {
-				macroSet[name] = true
+				macros = append(macros, name)
 			}
 		}
 		ctx.state.moduleEnv.mu.RUnlock()
 
-		// Convert to sorted slice
-		macros := make([]string, 0, len(macroSet))
-		for name := range macroSet {
-			macros = append(macros, name)
-		}
 		sort.Strings(macros)
 		ctx.SetResult(fmt.Sprintf("%v", macros))
 		return BoolStatus(true)
@@ -515,17 +604,16 @@ func (ps *PawScript) RegisterCoreLib() {
 
 		name := fmt.Sprintf("%v", ctx.Args[0])
 
-		// Delete from MacrosModule (with COW) - sets to nil to shadow inherited
+		// Delete from MacrosModule (COW will trigger on write if needed)
 		ctx.state.moduleEnv.mu.Lock()
-		_, existsModule := ctx.state.moduleEnv.MacrosModule[name]
-		_, existsInherited := ctx.state.moduleEnv.MacrosInherited[name]
-		if !existsModule && !existsInherited {
+		macro, exists := ctx.state.moduleEnv.MacrosModule[name]
+		if !exists || macro == nil {
 			ctx.state.moduleEnv.mu.Unlock()
 			ctx.LogError(CatMacro, fmt.Sprintf("PawScript macro \"%s\" not found or could not be deleted", name))
 			return BoolStatus(false)
 		}
 		ctx.state.moduleEnv.EnsureMacroRegistryCopied()
-		ctx.state.moduleEnv.MacrosModule[name] = nil // nil shadows inherited
+		delete(ctx.state.moduleEnv.MacrosModule, name)
 		ctx.state.moduleEnv.mu.Unlock()
 
 		return BoolStatus(true)
@@ -533,7 +621,7 @@ func (ps *PawScript) RegisterCoreLib() {
 
 	// macro_clear - clear all macros from current scope
 	ps.RegisterCommandInModule("macros", "macro_clear", func(ctx *Context) Result {
-		// Count and clear macros from MacrosModule, shadow MacrosInherited
+		// Count and clear macros from MacrosModule (COW)
 		ctx.state.moduleEnv.mu.Lock()
 		count := 0
 
@@ -544,17 +632,9 @@ func (ps *PawScript) RegisterCoreLib() {
 			}
 		}
 
-		// Reset MacrosModule to empty (clears locally defined)
+		// Reset MacrosModule to empty
 		ctx.state.moduleEnv.MacrosModule = make(map[string]*StoredMacro)
 		ctx.state.moduleEnv.macrosModuleCopied = true
-
-		// Shadow all inherited macros with nil
-		for name, macro := range ctx.state.moduleEnv.MacrosInherited {
-			if macro != nil {
-				count++
-				ctx.state.moduleEnv.MacrosModule[name] = nil
-			}
-		}
 
 		ctx.state.moduleEnv.mu.Unlock()
 
@@ -565,16 +645,16 @@ func (ps *PawScript) RegisterCoreLib() {
 	// command_ref - get a reference to a built-in or registered command
 	ps.RegisterCommandInModule("macros", "command_ref", func(ctx *Context) Result {
 		if len(ctx.Args) < 1 {
-			ps.logger.Error("Usage: command_ref <command_name>")
+			ps.logger.ErrorCat(CatCommand, "Usage: command_ref <command_name>")
 			return BoolStatus(false)
 		}
 
 		commandName := fmt.Sprintf("%v", ctx.Args[0])
-		ps.logger.Debug("Getting command reference for: %s", commandName)
+		ps.logger.DebugCat(CatMacro, "Getting command reference for: %s", commandName)
 
 		handler, exists := ctx.state.moduleEnv.GetCommand(commandName)
 		if !exists {
-			ps.logger.Error("Command \"%s\" not found", commandName)
+			ps.logger.ErrorCat(CatMacro, "Command \"%s\" not found", commandName)
 			return BoolStatus(false)
 		}
 
@@ -583,21 +663,55 @@ func (ps *PawScript) RegisterCoreLib() {
 		commandMarker := fmt.Sprintf("\x00COMMAND:%d\x00", objectID)
 		ctx.state.SetResult(Symbol(commandMarker))
 
-		ps.logger.Debug("Created command reference for '%s' (object %d)", commandName, objectID)
+		ps.logger.DebugCat(CatMacro,"Created command reference for '%s' (object %d)", commandName, objectID)
 		return BoolStatus(true)
 	})
 
 	// ==================== flow:: module ====================
 
 	// while - loop while condition is true
+	// Generator-aware: catches YieldResult and attaches WhileContinuation
 	ps.RegisterCommandInModule("flow", "while", func(ctx *Context) Result {
 		if len(ctx.Args) < 2 {
 			ctx.LogError(CatCommand, "Usage: while (condition), (body)")
 			return BoolStatus(false)
 		}
 
+		// Warn if condition is not a ParenGroup, bool true, or from a variable
+		// A non-block condition is likely a mistake - the condition should be
+		// re-evaluated each iteration, which requires a code block
+		_, condIsParenGroup := ctx.Args[0].(ParenGroup)
+		isBoolTrue := false
+		if b, ok := ctx.Args[0].(bool); ok && b {
+			isBoolTrue = true
+		}
+		condFromVariable := len(ctx.RawArgs) > 0 && strings.HasPrefix(ctx.RawArgs[0], "~")
+
+		if !condIsParenGroup && !isBoolTrue && !condFromVariable {
+			ctx.LogWarning(CatCommand, "while condition is not a code block; it will not be re-evaluated each iteration. Use (condition) for dynamic conditions or 'true' for intentional infinite loops")
+		}
+
+		// Warn if body is not a ParenGroup or from a variable
+		// Someone might accidentally use braces {cmd} instead of parentheses (cmd)
+		_, bodyIsParenGroup := ctx.Args[1].(ParenGroup)
+		bodyFromVariable := len(ctx.RawArgs) > 1 && strings.HasPrefix(ctx.RawArgs[1], "~")
+
+		if !bodyIsParenGroup && !bodyFromVariable {
+			ctx.LogWarning(CatCommand, "while body is not a code block; use (commands) for the loop body, not {commands}")
+		}
+
 		conditionBlock := fmt.Sprintf("%v", ctx.Args[0])
 		bodyBlock := fmt.Sprintf("%v", ctx.Args[1])
+
+		// Parse body into commands once so we can track position for yields
+		parser := NewParser(bodyBlock, "")
+		cleanedBody := parser.RemoveComments(bodyBlock)
+		normalizedBody := parser.NormalizeKeywords(cleanedBody)
+		bodyCommands, err := parser.ParseCommandSequence(normalizedBody)
+		if err != nil {
+			ctx.LogError(CatCommand, fmt.Sprintf("while: failed to parse body: %v", err))
+			return BoolStatus(false)
+		}
 
 		maxIterations := 10000
 		iterations := 0
@@ -618,6 +732,24 @@ func (ps *PawScript) RegisterCoreLib() {
 				return earlyReturn.Status
 			}
 
+			// Check for yield in condition (unusual but possible)
+			if yieldResult, ok := condResult.(YieldResult); ok {
+				outerCont := &WhileContinuation{
+					ConditionBlock:    conditionBlock,
+					BodyBlock:         bodyBlock,
+					RemainingBodyCmds: bodyCommands, // Full body since we haven't started
+					BodyCmdIndex:      -1,           // -1 indicates yield was in condition
+					IterationCount:    iterations,
+					State:             ctx.state,
+				}
+				if yieldResult.WhileContinuation == nil {
+					yieldResult.WhileContinuation = outerCont
+				} else {
+					yieldResult.WhileContinuation.ParentContinuation = outerCont
+				}
+				return yieldResult
+			}
+
 			// Handle async in condition
 			shouldContinue := false
 			if condToken, isToken := condResult.(TokenResult); isToken {
@@ -634,34 +766,74 @@ func (ps *PawScript) RegisterCoreLib() {
 				break
 			}
 
-			bodyResult := ctx.executor.ExecuteWithState(
-				bodyBlock,
-				ctx.state,
-				nil,
-				"",
-				0, 0,
-			)
-
-			if earlyReturn, ok := bodyResult.(EarlyReturn); ok {
-				if earlyReturn.HasResult {
-					ctx.SetResult(earlyReturn.Result)
-				}
-				return earlyReturn.Status
-			}
-
-			if bodyToken, isToken := bodyResult.(TokenResult); isToken {
-				tokenID := string(bodyToken)
-				waitChan := make(chan ResumeData, 1)
-				ctx.executor.attachWaitChan(tokenID, waitChan)
-				resumeData := <-waitChan
-
-				if !resumeData.Status {
-					ctx.LogError(CatFlow, "Async operation in while loop failed")
-					return BoolStatus(false)
+			// Execute body commands one at a time to track position for yields
+			lastStatus := true
+			for cmdIdx, cmd := range bodyCommands {
+				if strings.TrimSpace(cmd.Command) == "" {
+					continue
 				}
 
-				iterations++
-				continue
+				// Apply flow control
+				shouldExecute := true
+				switch cmd.Separator {
+				case "&":
+					shouldExecute = lastStatus
+				case "|":
+					shouldExecute = !lastStatus
+				}
+
+				if !shouldExecute {
+					continue
+				}
+
+				result := ctx.executor.executeParsedCommand(cmd, ctx.state, nil)
+
+				// Check for yield - attach while continuation
+				// For nested while loops, chain as parent continuation
+				if yieldResult, ok := result.(YieldResult); ok {
+					outerCont := &WhileContinuation{
+						ConditionBlock:    conditionBlock,
+						BodyBlock:         bodyBlock,
+						RemainingBodyCmds: bodyCommands[cmdIdx+1:],
+						BodyCmdIndex:      cmdIdx,
+						IterationCount:    iterations,
+						State:             ctx.state,
+					}
+					if yieldResult.WhileContinuation == nil {
+						yieldResult.WhileContinuation = outerCont
+					} else {
+						// Chain: inner while's continuation gets outer as parent
+						yieldResult.WhileContinuation.ParentContinuation = outerCont
+					}
+					return yieldResult
+				}
+
+				// Check for early return
+				if earlyReturn, ok := result.(EarlyReturn); ok {
+					if earlyReturn.HasResult {
+						ctx.SetResult(earlyReturn.Result)
+					}
+					return earlyReturn.Status
+				}
+
+				// Handle async in body
+				if bodyToken, isToken := result.(TokenResult); isToken {
+					tokenID := string(bodyToken)
+					waitChan := make(chan ResumeData, 1)
+					ctx.executor.attachWaitChan(tokenID, waitChan)
+					resumeData := <-waitChan
+
+					if !resumeData.Status {
+						ctx.LogError(CatFlow, "Async operation in while loop failed")
+						return BoolStatus(false)
+					}
+					lastStatus = resumeData.Status
+					continue
+				}
+
+				if boolRes, ok := result.(BoolStatus); ok {
+					lastStatus = bool(boolRes)
+				}
 			}
 
 			iterations++

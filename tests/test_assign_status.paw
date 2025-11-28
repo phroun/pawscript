@@ -1,0 +1,20 @@
+# Test assignment status propagation
+
+print "Testing false status:"
+result: {false}
+print "result:", ~result
+
+print ""
+print "Testing brace expr that returns false:"
+x: {eq 1, 2}
+print "x:", ~x
+
+print ""
+print "Testing if (x: {false}):"
+if (x: {false}), (
+    print "if-body: should NOT run"
+)
+print "if-body finished"
+
+print ""
+print "Done"

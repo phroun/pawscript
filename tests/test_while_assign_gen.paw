@@ -1,0 +1,20 @@
+# Test while (v: {resume ~gen}) pattern
+
+macro count_to (
+    i: 0
+    max: $1
+    while (lt ~i, ~max), (
+        yield ~i
+        i: {add ~i, 1}
+    )
+)
+
+print "Testing while with resume assignment:"
+gen: {generator count_to, 3}
+
+while (v: {resume ~gen}), (
+    print "  got:", ~v
+)
+
+print "Loop finished"
+print "Done"

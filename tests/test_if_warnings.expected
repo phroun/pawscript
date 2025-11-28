@@ -1,0 +1,56 @@
+=== Testing if Command Warnings ===
+
+Test 1: Literal ParenGroup warning
+(Expecting WARN about block literal)
+[PawScript:command WARN] if received a block literal (parentheses) which is always truthy; did you mean to use braces {command} instead?
+  at line 10, column 1 in test_if_warnings.paw
+Block was truthy (as expected)
+
+Test 2: Variable ParenGroup (no warning expected)
+Variable block was truthy (no warning)
+
+Test 3: Extra arguments error
+(Expecting ERROR about usage)
+[PawScript:command ERROR] Usage: if <value>
+  at line 26, column 1 in test_if_warnings.paw
+
+Test 4: Normal boolean (no warning expected)
+Boolean true works correctly
+
+Test 5: Brace expression (no warning expected)
+Brace expression works correctly
+
+=== if Warning Tests Complete ===
+
+=== Testing while Command Warnings ===
+
+Test 6: Literal false condition warning
+(Expecting WARN about non-block condition)
+[PawScript:command WARN] while condition is not a code block; it will not be re-evaluated each iteration. Use (condition) for dynamic conditions or 'true' for intentional infinite loops
+  at line 54, column 1 in test_if_warnings.paw
+
+Test 7: Literal number condition warning
+(Expecting WARN about non-block condition)
+[PawScript:command WARN] while condition is not a code block; it will not be re-evaluated each iteration. Use (condition) for dynamic conditions or 'true' for intentional infinite loops
+  at line 62, column 1 in test_if_warnings.paw
+[PawScript:command ERROR] Unknown command: 0
+  at line 1, column 1 in <unknown>
+
+Test 8: while true (no warning expected)
+Intentional infinite loop
+
+Test 9: Variable condition (no warning expected)
+
+Test 10: Normal block condition (no warning expected)
+  iteration 0
+  iteration 1
+
+Test 11: Brace body warning
+(Expecting WARN about non-block body)
+wrong braces
+[PawScript:command WARN] while condition is not a code block; it will not be re-evaluated each iteration. Use (condition) for dynamic conditions or 'true' for intentional infinite loops
+  at line 95, column 1 in test_if_warnings.paw
+[PawScript:command WARN] while body is not a code block; use (commands) for the loop body, not {commands}
+  at line 95, column 1 in test_if_warnings.paw
+
+=== while Warning Tests Complete ===

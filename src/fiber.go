@@ -10,7 +10,7 @@ func (e *Executor) registerFiber(fiber *FiberHandle) {
 	e.mu.Lock()
 	defer e.mu.Unlock()
 	e.activeFibers[fiber.ID] = fiber
-	e.logger.Debug("Registered fiber %d", fiber.ID)
+	e.logger.DebugCat(CatAsync,"Registered fiber %d", fiber.ID)
 }
 
 // unregisterFiber removes a fiber from the active fibers map
@@ -18,7 +18,7 @@ func (e *Executor) unregisterFiber(fiberID int) {
 	e.mu.Lock()
 	defer e.mu.Unlock()
 	delete(e.activeFibers, fiberID)
-	e.logger.Debug("Unregistered fiber %d", fiberID)
+	e.logger.DebugCat(CatAsync,"Unregistered fiber %d", fiberID)
 }
 
 // getFiber retrieves a fiber by ID
@@ -54,7 +54,7 @@ func (e *Executor) GetSuspendedFibers() map[int]string {
 
 // SpawnFiber spawns a new fiber to execute a macro
 // parentModuleEnv allows the fiber to inherit commands from the parent context
-func (e *Executor) SpawnFiber(macro *StoredMacro, macroSystem *MacroSystem, args []interface{}, namedArgs map[string]interface{}, parentModuleEnv *ModuleEnvironment) *FiberHandle {
+func (e *Executor) SpawnFiber(macro *StoredMacro, args []interface{}, namedArgs map[string]interface{}, parentModuleEnv *ModuleEnvironment) *FiberHandle {
 	e.mu.Lock()
 	fiberID := e.nextFiberID
 	e.nextFiberID++
@@ -78,6 +78,15 @@ func (e *Executor) SpawnFiber(macro *StoredMacro, macroSystem *MacroSystem, args
 	handle.State.fiberID = fiberID
 	handle.State.executor = e
 
+	// CRITICAL: Claim references to fiber arguments BEFORE starting the goroutine
+	// This prevents the parent from releasing them before the fiber can use them
+	for _, arg := range args {
+		claimNestedReferences(arg, e)
+	}
+	for _, arg := range namedArgs {
+		claimNestedReferences(arg, e)
+	}
+
 	e.registerFiber(handle)
 
 	go func() {
@@ -89,12 +98,19 @@ func (e *Executor) SpawnFiber(macro *StoredMacro, macroSystem *MacroSystem, args
 			e.unregisterFiber(fiberID)
 			// Release all references owned by this fiber
 			handle.State.ReleaseAllReferences()
+			// Release the pre-claimed references from SpawnFiber
+			for _, arg := range args {
+				releaseNestedReferences(arg, e)
+			}
+			for _, arg := range namedArgs {
+				releaseNestedReferences(arg, e)
+			}
 		}()
 
-		e.logger.Debug("Fiber %d starting execution", fiberID)
+		e.logger.DebugCat(CatAsync,"Fiber %d starting execution", fiberID)
 
 		// Execute macro (token system handles all async operations and sequencing)
-		result := macroSystem.ExecuteStoredMacro(
+		result := e.ExecuteStoredMacro(
 			macro,
 			func(commands string, macroExecState *ExecutionState, ctx *SubstitutionContext) Result {
 				filename := ""
@@ -122,13 +138,13 @@ func (e *Executor) SpawnFiber(macro *StoredMacro, macroSystem *MacroSystem, args
 			handle.SuspendedOn = tokenID
 			handle.mu.Unlock()
 
-			e.logger.Debug("Fiber %d suspended on token %s, waiting for completion", fiberID, tokenID)
+			e.logger.DebugCat(CatAsync,"Fiber %d suspended on token %s, waiting for completion", fiberID, tokenID)
 
 			// Wait for the token chain to complete
 			// The token system will send resume data when all chained tokens finish
 			resumeData := <-handle.ResumeChan
 
-			e.logger.Debug("Fiber %d token %s completed with status %v", fiberID, resumeData.TokenID, resumeData.Status)
+			e.logger.DebugCat(CatAsync,"Fiber %d token %s completed with status %v", fiberID, resumeData.TokenID, resumeData.Status)
 
 			handle.mu.Lock()
 			handle.SuspendedOn = ""
@@ -149,7 +165,7 @@ func (e *Executor) SpawnFiber(macro *StoredMacro, macroSystem *MacroSystem, args
 			}
 			handle.mu.Unlock()
 
-			e.logger.Debug("Fiber %d completed with result: %v", fiberID, handle.Result)
+			e.logger.DebugCat(CatAsync,"Fiber %d completed with result: %v", fiberID, handle.Result)
 		}
 	}()
 

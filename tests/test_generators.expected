@@ -1,0 +1,147 @@
+=== Test 1: Simple generator with sequential yields ===
+Created generator
+v1: first
+v2: second
+v3: third
+v4: done
+Token valid: false
+
+=== Test 2: Generator with while loop ===
+Count 1-3:
+  1
+  2
+  3
+Final: finished
+
+=== Test 3: Fibonacci generator ===
+First 8 Fibonacci numbers:
+0 1 1 2 3 5 8 13
+After exhaustion: end
+
+=== Test 4: Generator with computation ===
+Squares 1-4: 1 4 9 16
+
+=== Test 5: each iterator ===
+Iterating fruits:
+ - apple
+ - banana
+ - cherry
+After list: <nil>
+Token valid: false
+
+=== Test 6: pair iterator ===
+Config pairs:
+  host = localhost
+  port = 8080
+After pairs: <nil>
+Token valid: false
+
+=== Test 7: Nested each iterators ===
+Matrix values:
+  1 2
+  3 4
+
+=== Test 8: each with empty list ===
+Empty iterator result: <nil>
+
+=== Test 9: pair with no named args ===
+Pair on positional-only: <nil>
+
+=== Test 10: token_valid lifecycle ===
+Before resume: true
+After 1 resume: true
+After exhaust: false
+
+=== Test 11: while with token_valid ===
+Range 0-4:
+  0
+  1
+  2
+  3
+  4
+
+=== Test 12: Multiple generators in sequence ===
+g1: 1 2
+g2: 10 11 12
+g1 final: finished
+
+=== Test 13: Generator with msleep between resumes ===
+Slow 1: one
+Slow 2: two
+Slow 3: three
+Slow 4: three_done
+
+=== Test 14: Nested while loops in generator ===
+Nested pairs:
+  (0, 0)
+  (0, 1)
+  (1, 0)
+  (1, 1)
+
+=== Test 15: Generator consuming another generator ===
+Doubled values:
+  2
+  4
+  6
+After: double_done
+
+=== Test 16: each iterator with msleep ===
+Colors with delay:
+ - red
+ - green
+ - blue
+
+=== Test 17: Generator state isolation ===
+s1: 0
+s2: 0
+s1: 10
+s2: 10
+s1: 110
+s2: 110
+s1 final: 110
+s2 final: 110
+
+=== Test 18: pair iterator on mixed list ===
+Positional count: 2
+Named pairs:
+  alpha -> 1
+  beta -> 2
+  gamma -> 3
+
+=== Test 19: Generator with conditional yields ===
+Even numbers 0-7:
+  0
+  2
+  4
+  6
+
+=== Test 20: Consuming generator with msleep delays ===
+Async count with delays:
+  0
+  1
+  2
+  3
+
+=== Test 21: Empty generator ===
+Token valid before resume: true
+Result: empty_done
+Status: true
+Token valid after: false
+
+=== Test 22: Generator with error ===
+Getting values:
+  first_ok status: true
+  second_ok status: true
+  error_here status: false
+Token valid after error: false
+
+=== Test 23: Error generator with while loop ===
+Consuming until error:
+  0
+  1
+  2
+[PawScript:command ERROR] resume: token not found or exhausted
+  at line 358, column 7 in test_generators.paw
+Error reason: error_at_3
+
+All generator tests passed!

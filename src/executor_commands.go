@@ -3,6 +3,7 @@ package pawscript
 import (
 	"fmt"
 	"regexp"
+	"strconv"
 	"strings"
 	"time"
 )
@@ -27,7 +28,7 @@ func (e *Executor) executeCommandSequence(commands []*ParsedCommand, state *Exec
 		}
 
 		if !shouldExecute {
-			e.logger.Debug("Skipping command \"%s\" due to flow control (separator: %s, lastStatus: %v)",
+			e.logger.DebugCat(CatCommand,"Skipping command \"%s\" due to flow control (separator: %s, lastStatus: %v)",
 				cmd.Command, cmd.Separator, lastStatus)
 			continue
 		}
@@ -36,23 +37,76 @@ func (e *Executor) executeCommandSequence(commands []*ParsedCommand, state *Exec
 
 		// Check for early return
 		if earlyReturn, ok := result.(EarlyReturn); ok {
-			e.logger.Debug("Command returned early return, terminating sequence")
+			e.logger.DebugCat(CatCommand,"Command returned early return, terminating sequence")
 			// Set the result if provided
 			if earlyReturn.HasResult {
 				state.SetResult(earlyReturn.Result)
 			}
-			// Return the status from the early return
-			return earlyReturn.Status
+			// Return the EarlyReturn itself so callers can propagate it
+			return earlyReturn
+		}
+
+		// Check for yield (from generator) - bubble up as EarlyReturn
+		if yieldResult, ok := result.(YieldResult); ok {
+			e.logger.DebugCat(CatCommand,"Command returned yield, bubbling up with value: %v", yieldResult.Value)
+			// Return the yield result so the resume handler can catch it
+			return yieldResult
+		}
+
+		// Check for suspend - create token with remaining commands and return it
+		if _, ok := result.(SuspendResult); ok {
+			e.logger.DebugCat(CatCommand,"Command returned suspend, creating token for remaining commands")
+
+			remainingCommands := commands[i+1:]
+
+			// Create a token for the suspension
+			suspendToken := e.RequestCompletionToken(
+				nil,
+				"",
+				30*time.Minute,
+				state,
+				cmd.Position,
+			)
+
+			// Store remaining commands in the token
+			if len(remainingCommands) > 0 {
+				e.mu.Lock()
+				if tokenData, exists := e.activeTokens[suspendToken]; exists {
+					tokenData.CommandSequence = &CommandSequence{
+						Type:              "generator",
+						RemainingCommands: remainingCommands,
+						CurrentIndex:      i + 1,
+						TotalCommands:     len(commands),
+						OriginalCommand:   "suspend",
+						Timestamp:         time.Now(),
+						Position:          cmd.Position,
+					}
+					tokenData.SubstitutionCtx = substitutionCtx
+				}
+				e.mu.Unlock()
+			}
+
+			// Create token marker and store in state's #token
+			tokenMarker := fmt.Sprintf("\x00TOKEN:%s\x00", suspendToken)
+			state.SetVariable("#token", Symbol(tokenMarker))
+
+			// Return as EarlyReturn with the token marker
+			state.SetResult(Symbol(tokenMarker))
+			return EarlyReturn{
+				Status:    BoolStatus(true),
+				Result:    Symbol(tokenMarker),
+				HasResult: true,
+			}
 		}
 
 		if tokenResult, ok := result.(TokenResult); ok {
-			e.logger.Debug("Command returned token %s, setting up sequence continuation", string(tokenResult))
+			e.logger.DebugCat(CatCommand,"Command returned token %s, setting up sequence continuation", string(tokenResult))
 
 			remainingCommands := commands[i+1:]
 			if len(remainingCommands) > 0 {
 				sequenceToken := e.RequestCompletionToken(
 					func(tokenID string) {
-						e.logger.Debug("Cleaning up suspended sequence for token %s", tokenID)
+						e.logger.DebugCat(CatCommand,"Cleaning up suspended sequence for token %s", tokenID)
 					},
 					"",
 					5*time.Minute,
@@ -62,7 +116,7 @@ func (e *Executor) executeCommandSequence(commands []*ParsedCommand, state *Exec
 
 				err := e.PushCommandSequence(sequenceToken, "sequence", remainingCommands, i+1, "sequence", state, cmd.Position)
 				if err != nil {
-					e.logger.Error("Failed to push command sequence: %v", err)
+					e.logger.ErrorCat(CatCommand,"Failed to push command sequence: %v", err)
 					return BoolStatus(false)
 				}
 
@@ -99,7 +153,7 @@ func (e *Executor) executeSingleCommand(
 	if strings.HasPrefix(commandStr, "!") {
 		shouldInvert = true
 		commandStr = strings.TrimSpace(commandStr[1:]) // Strip ! and trim again
-		e.logger.Debug("Detected ! operator, will invert success status")
+		e.logger.DebugCat(CatCommand,"Detected ! operator, will invert success status")
 	}
 
 	// Check for parenthesis block - execute in same scope
@@ -109,7 +163,7 @@ func (e *Executor) executeSingleCommand(
 		if _, _, isAssign := e.parseAssignment(commandStr); !isAssign {
 			blockContent := commandStr[1 : len(commandStr)-1]
 
-			e.logger.Debug("Executing parenthesis block in same scope: (%s)", blockContent)
+			e.logger.DebugCat(CatCommand,"Executing parenthesis block in same scope: (%s)", blockContent)
 
 			// Execute block content in the SAME state (no child scope)
 			result := e.ExecuteWithState(
@@ -132,7 +186,7 @@ func (e *Executor) executeSingleCommand(
 	// Apply syntactic sugar
 	commandStr = e.applySyntacticSugar(commandStr)
 
-	e.logger.Debug("executeSingleCommand called with: \"%s\"", commandStr)
+	e.logger.DebugCat(CatCommand,"executeSingleCommand called with: \"%s\"", commandStr)
 
 	// CRITICAL: Always evaluate brace expressions, even when not in a macro context
 	// Create a minimal substitution context if one doesn't exist
@@ -169,10 +223,17 @@ func (e *Executor) executeSingleCommand(
 	// Apply substitution (which includes brace expressions)
 	commandStr = e.applySubstitution(commandStr, substitutionCtx)
 
+	// Store the brace failure count for get_substatus, but only if:
+	// 1. Braces were evaluated in this command
+	// 2. We're not inside a brace expression (avoid inner commands overwriting outer count)
+	if substitutionCtx.BracesEvaluated > 0 && !state.InBraceExpression {
+		state.SetLastBraceFailureCount(substitutionCtx.BraceFailureCount)
+	}
+
 	// Check if brace evaluation failed
 	if commandStr == "\x00PAWS_FAILED\x00" {
 		// Error already logged by ExecuteWithState with correct position
-		e.logger.Debug("Brace evaluation failed, returning false")
+		e.logger.DebugCat(CatCommand,"Brace evaluation failed, returning false")
 		result := BoolStatus(false)
 		if shouldInvert {
 			return BoolStatus(!bool(result))
@@ -186,7 +247,7 @@ func (e *Executor) executeSingleCommand(
 		markerLen := len("\x00PAWS:")
 		coordinatorToken := commandStr[markerLen : len(commandStr)-1]
 
-		e.logger.Debug("Async brace evaluation detected, coordinator token: %s", coordinatorToken)
+		e.logger.DebugCat(CatCommand,"Async brace evaluation detected, coordinator token: %s", coordinatorToken)
 
 		// We need to update the coordinator's resume callback to continue this command
 		e.mu.Lock()
@@ -205,10 +266,10 @@ func (e *Executor) executeSingleCommand(
 				if !success {
 					// Error already logged by ExecuteWithState with correct position
 					// Just debug log which brace failed
-					e.logger.Debug("Brace evaluation failed, command cannot execute")
+					e.logger.DebugCat(CatCommand,"Brace evaluation failed, command cannot execute")
 					for i, eval := range evaluations {
 						if eval.Failed && eval.Position != nil {
-							e.logger.Debug("Failed brace %d was at line %d, column %d",
+							e.logger.DebugCat(CatCommand,"Failed brace %d was at line %d, column %d",
 								i, eval.Position.Line, eval.Position.Column)
 						}
 					}
@@ -219,11 +280,11 @@ func (e *Executor) executeSingleCommand(
 					return result
 				}
 
-				e.logger.Debug("Brace coordinator resumed with substituted string: %s", finalString)
+				e.logger.DebugCat(CatCommand,"Brace coordinator resumed with substituted string: %s", finalString)
 
 				// Check for assignment pattern (target: value)
 				if target, valueStr, isAssign := e.parseAssignment(finalString); isAssign {
-					e.logger.Debug("Detected assignment in async resume: target=%s, value=%s", target, valueStr)
+					e.logger.DebugCat(CatCommand,"Detected assignment in async resume: target=%s, value=%s", target, valueStr)
 					result := e.handleAssignment(target, valueStr, capturedState, capturedSubstitutionCtx, capturedPosition)
 					if capturedShouldInvert {
 						return e.invertStatus(result, capturedState, capturedPosition)
@@ -233,7 +294,7 @@ func (e *Executor) executeSingleCommand(
 
 				// Check for tilde expression (pure value expression as command)
 				if strings.HasPrefix(finalString, "~") {
-					e.logger.Debug("Detected tilde expression in async resume: %s", finalString)
+					e.logger.DebugCat(CatCommand,"Detected tilde expression in async resume: %s", finalString)
 					value, ok := e.resolveTildeExpression(finalString, capturedState, capturedSubstitutionCtx, capturedPosition)
 					if ok {
 						capturedState.SetResult(value)
@@ -252,10 +313,20 @@ func (e *Executor) executeSingleCommand(
 				// Now parse and execute the command with the substituted string
 				cmdName, args, namedArgs := ParseCommand(finalString)
 
+				// Capture raw args before resolution (preserve parens for ParenGroups)
+				rawArgs := make([]string, len(args))
+				for i, arg := range args {
+					if _, ok := arg.(ParenGroup); ok {
+						rawArgs[i] = fmt.Sprintf("(%v)", arg)
+					} else {
+						rawArgs[i] = fmt.Sprintf("%v", arg)
+					}
+				}
+
 				// Process arguments to resolve any LIST markers and tilde expressions
 				args = e.processArguments(args, capturedState, capturedSubstitutionCtx, capturedPosition)
 
-				e.logger.Debug("Parsed as - Command: \"%s\", Args: %v", cmdName, args)
+				e.logger.DebugCat(CatCommand,"Parsed as - Command: \"%s\", Args: %v", cmdName, args)
 
 				// Check for super commands first
 				if result, handled := e.executeSuperCommand(cmdName, args, namedArgs, capturedState, capturedPosition); handled {
@@ -267,7 +338,7 @@ func (e *Executor) executeSingleCommand(
 
 				// Check for macros in module environment
 				if macro, exists := capturedState.moduleEnv.GetMacro(cmdName); exists {
-					e.logger.Debug("Found macro \"%s\" in module environment", cmdName)
+					e.logger.DebugCat(CatCommand,"Found macro \"%s\" in module environment", cmdName)
 					result := e.executeMacro(macro, args, namedArgs, capturedState, capturedPosition)
 					if capturedShouldInvert {
 						return e.invertStatus(result, capturedState, capturedPosition)
@@ -277,8 +348,8 @@ func (e *Executor) executeSingleCommand(
 
 				// Check for commands in module environment
 				if handler, exists := capturedState.moduleEnv.GetCommand(cmdName); exists {
-					e.logger.Debug("Found command \"%s\" in module environment", cmdName)
-					ctx := e.createContext(args, namedArgs, capturedState, capturedPosition)
+					e.logger.DebugCat(CatCommand,"Found command \"%s\" in module environment", cmdName)
+					ctx := e.createContext(args, rawArgs, namedArgs, capturedState, capturedPosition)
 					result := handler(ctx)
 					if capturedShouldInvert {
 						return e.invertStatus(result, capturedState, capturedPosition)
@@ -288,10 +359,10 @@ func (e *Executor) executeSingleCommand(
 
 				// Try fallback handler if command not found
 				if e.fallbackHandler != nil {
-					e.logger.Debug("Command \"%s\" not found, trying fallback handler", cmdName)
+					e.logger.DebugCat(CatCommand,"Command \"%s\" not found, trying fallback handler", cmdName)
 					fallbackResult := e.fallbackHandler(cmdName, args, namedArgs, capturedState, capturedPosition)
 					if fallbackResult != nil {
-						e.logger.Debug("Fallback handler returned: %v", fallbackResult)
+						e.logger.DebugCat(CatCommand,"Fallback handler returned: %v", fallbackResult)
 						if capturedShouldInvert {
 							return e.invertStatus(fallbackResult, capturedState, capturedPosition)
 						}
@@ -310,7 +381,7 @@ func (e *Executor) executeSingleCommand(
 			e.mu.Unlock()
 		} else {
 			e.mu.Unlock()
-			e.logger.Error("Coordinator token %s not found or invalid", coordinatorToken)
+			e.logger.ErrorCat(CatCommand,"Coordinator token %s not found or invalid", coordinatorToken)
 			result := BoolStatus(false)
 			if shouldInvert {
 				return BoolStatus(!bool(result))
@@ -322,11 +393,11 @@ func (e *Executor) executeSingleCommand(
 		return TokenResult(coordinatorToken)
 	}
 
-	e.logger.Debug("After substitution: \"%s\"", commandStr)
+	e.logger.DebugCat(CatCommand,"After substitution: \"%s\"", commandStr)
 
 	// Check for assignment pattern (target: value)
 	if target, valueStr, isAssign := e.parseAssignment(commandStr); isAssign {
-		e.logger.Debug("Detected assignment: target=%s, value=%s", target, valueStr)
+		e.logger.DebugCat(CatCommand,"Detected assignment: target=%s, value=%s", target, valueStr)
 		result := e.handleAssignment(target, valueStr, state, substitutionCtx, position)
 		if shouldInvert {
 			return e.invertStatus(result, state, position)
@@ -336,7 +407,7 @@ func (e *Executor) executeSingleCommand(
 
 	// Check for tilde expression (pure value expression as command)
 	if strings.HasPrefix(commandStr, "~") {
-		e.logger.Debug("Detected tilde expression: %s", commandStr)
+		e.logger.DebugCat(CatCommand,"Detected tilde expression: %s", commandStr)
 		value, ok := e.resolveTildeExpression(commandStr, state, substitutionCtx, position)
 		if ok {
 			state.SetResult(value)
@@ -355,10 +426,21 @@ func (e *Executor) executeSingleCommand(
 	// Parse command
 	cmdName, args, namedArgs := ParseCommand(commandStr)
 
+	// Capture raw args before resolution (for diagnostic warnings like 'if' with ParenGroup)
+	// For ParenGroups, preserve the outer parens so we can tell literals from variables
+	rawArgs := make([]string, len(args))
+	for i, arg := range args {
+		if _, ok := arg.(ParenGroup); ok {
+			rawArgs[i] = fmt.Sprintf("(%v)", arg)
+		} else {
+			rawArgs[i] = fmt.Sprintf("%v", arg)
+		}
+	}
+
 	// Process arguments to resolve any LIST markers and tilde expressions
 	args = e.processArguments(args, state, substitutionCtx, position)
 
-	e.logger.Debug("Parsed as - Command: \"%s\", Args: %v", cmdName, args)
+	e.logger.DebugCat(CatCommand,"Parsed as - Command: \"%s\", Args: %v", cmdName, args)
 
 	// Check for super commands first (MODULE, LIBRARY, IMPORT, REMOVE, EXPORT)
 	if result, handled := e.executeSuperCommand(cmdName, args, namedArgs, state, position); handled {
@@ -370,7 +452,7 @@ func (e *Executor) executeSingleCommand(
 
 	// Check for macros in module environment
 	if macro, exists := state.moduleEnv.GetMacro(cmdName); exists {
-		e.logger.Debug("Found macro \"%s\" in module environment", cmdName)
+		e.logger.DebugCat(CatCommand,"Found macro \"%s\" in module environment", cmdName)
 		result := e.executeMacro(macro, args, namedArgs, state, position)
 		if shouldInvert {
 			return e.invertStatus(result, state, position)
@@ -380,8 +462,8 @@ func (e *Executor) executeSingleCommand(
 
 	// Check for commands in module environment
 	if handler, exists := state.moduleEnv.GetCommand(cmdName); exists {
-		e.logger.Debug("Found command \"%s\" in module environment", cmdName)
-		ctx := e.createContext(args, namedArgs, state, position)
+		e.logger.DebugCat(CatCommand,"Found command \"%s\" in module environment", cmdName)
+		ctx := e.createContext(args, rawArgs, namedArgs, state, position)
 		result := handler(ctx)
 		if shouldInvert {
 			return e.invertStatus(result, state, position)
@@ -391,10 +473,10 @@ func (e *Executor) executeSingleCommand(
 
 	// Try fallback handler if command not found
 	if e.fallbackHandler != nil {
-		e.logger.Debug("Command \"%s\" not found, trying fallback handler", cmdName)
+		e.logger.DebugCat(CatCommand,"Command \"%s\" not found, trying fallback handler", cmdName)
 		fallbackResult := e.fallbackHandler(cmdName, args, namedArgs, state, position)
 		if fallbackResult != nil {
-			e.logger.Debug("Fallback handler returned: %v", fallbackResult)
+			e.logger.DebugCat(CatCommand,"Fallback handler returned: %v", fallbackResult)
 			if shouldInvert {
 				return e.invertStatus(fallbackResult, state, position)
 			}
@@ -402,13 +484,15 @@ func (e *Executor) executeSingleCommand(
 		}
 	}
 
-	// Command not found
+	// Command not found - set result to undefined marker and return false status
+	// Note: Using UndefinedMarker not Symbol("undefined") because the bare
+	// symbol has special handling in SetResult that clears the result
 	e.logger.UnknownCommandError(cmdName, position, nil)
-	result := BoolStatus(false)
+	state.SetResult(Symbol(UndefinedMarker))
 	if shouldInvert {
-		return BoolStatus(!bool(result))
+		return BoolStatus(true)
 	}
-	return result
+	return BoolStatus(false)
 }
 
 // applySyntacticSugar applies syntactic sugar transformations
@@ -492,9 +576,141 @@ func (e *Executor) applySyntacticSugar(commandStr string) string {
 	return fmt.Sprintf("%s '%s', (%s)%s", commandPart, identifier, content, remainder)
 }
 
+// splitAccessors splits a string into base and accessor parts
+// For "~list.key.sub" returns ("~list", ".key.sub")
+// For "\x00LIST:5\x00.key" returns ("\x00LIST:5\x00", ".key")
+// For "\x00LIST:5\x00 0 1" returns ("\x00LIST:5\x00", " 0 1")
+func splitAccessors(s string) (base string, accessors string) {
+	// Check for list marker pattern
+	if strings.HasPrefix(s, "\x00") {
+		// Find the closing \x00
+		endIdx := strings.Index(s[1:], "\x00")
+		if endIdx >= 0 {
+			base = s[:endIdx+2] // Include both \x00 markers
+			accessors = s[endIdx+2:]
+			return
+		}
+	}
+
+	// For tilde expressions, find the first accessor (. or space followed by digit)
+	for i := 1; i < len(s); i++ {
+		if s[i] == '.' {
+			return s[:i], s[i:]
+		}
+		if s[i] == ' ' {
+			// Check if followed by a digit
+			j := i + 1
+			for j < len(s) && s[j] == ' ' {
+				j++
+			}
+			if j < len(s) && s[j] >= '0' && s[j] <= '9' {
+				return s[:i], s[i:]
+			}
+		}
+	}
+	return s, ""
+}
+
+// applyAccessorChain applies a chain of accessors to a value
+// Accessors: ".key" for named args, " N" for index access
+func (e *Executor) applyAccessorChain(value interface{}, accessors string, position *SourcePosition) interface{} {
+	if accessors == "" {
+		return value
+	}
+
+	current := value
+	i := 0
+
+	for i < len(accessors) {
+		// Skip whitespace
+		for i < len(accessors) && accessors[i] == ' ' {
+			i++
+		}
+		if i >= len(accessors) {
+			break
+		}
+
+		// Resolve current to get the actual list
+		resolved := e.resolveValue(current)
+		list, isList := resolved.(StoredList)
+
+		if accessors[i] == '.' {
+			// Dot accessor for named argument
+			i++ // skip the dot
+			if i >= len(accessors) {
+				e.logger.ErrorCat(CatList, "Expected key name after dot")
+				return Symbol(UndefinedMarker)
+			}
+
+			// Collect the key name
+			keyStart := i
+			for i < len(accessors) && accessors[i] != '.' && accessors[i] != ' ' {
+				i++
+			}
+			key := accessors[keyStart:i]
+
+			if !isList {
+				e.logger.ErrorCat(CatList, "Cannot use dot accessor on non-list value")
+				return Symbol(UndefinedMarker)
+			}
+
+			namedArgs := list.NamedArgs()
+			if namedArgs == nil {
+				e.logger.DebugCat(CatList, "List has no named arguments, cannot access .%s", key)
+				return Symbol(UndefinedMarker)
+			}
+			val, exists := namedArgs[key]
+			if !exists {
+				e.logger.DebugCat(CatList, "Named argument '%s' not found in list", key)
+				return Symbol(UndefinedMarker)
+			}
+			current = val
+
+		} else if accessors[i] >= '0' && accessors[i] <= '9' {
+			// Integer index accessor
+			numStart := i
+			for i < len(accessors) && accessors[i] >= '0' && accessors[i] <= '9' {
+				i++
+			}
+			// Check for decimal point (error case)
+			if i < len(accessors) && accessors[i] == '.' {
+				j := i + 1
+				if j < len(accessors) && accessors[j] >= '0' && accessors[j] <= '9' {
+					e.logger.ErrorCat(CatList, "Non-integer index not allowed")
+					return Symbol(UndefinedMarker)
+				}
+			}
+			numStr := accessors[numStart:i]
+			idx, err := strconv.Atoi(numStr)
+			if err != nil {
+				e.logger.ErrorCat(CatList, "Invalid index: %s", numStr)
+				return Symbol(UndefinedMarker)
+			}
+
+			if !isList {
+				e.logger.ErrorCat(CatList, "Cannot use index accessor on non-list value")
+				return Symbol(UndefinedMarker)
+			}
+
+			if idx < 0 || idx >= list.Len() {
+				e.logger.DebugCat(CatList, "Index %d out of bounds (list has %d items)", idx, list.Len())
+				return Symbol(UndefinedMarker)
+			}
+			current = list.Get(idx)
+
+		} else {
+			// Unknown accessor character, stop
+			break
+		}
+	}
+
+	return current
+}
+
 // processArguments processes arguments array to resolve object markers and tilde expressions
 // Resolves LIST, STR, and BLOCK markers to their actual values
 // Also resolves ~expr tilde expressions to their variable values
+// Handles accessor patterns like .key and integer indices
 func (e *Executor) processArguments(args []interface{}, state *ExecutionState, substitutionCtx *SubstitutionContext, position *SourcePosition) []interface{} {
 	if len(args) == 0 {
 		return args
@@ -509,24 +725,34 @@ func (e *Executor) processArguments(args []interface{}, state *ExecutionState, s
 		if sym, ok := arg.(Symbol); ok {
 			markerStr = string(sym)
 			isMarker = true
-			e.logger.Debug("processArguments[%d]: Symbol arg, len=%d, first chars=%q", i, len(markerStr), markerStr[:min(len(markerStr), 20)])
+			e.logger.DebugCat(CatCommand,"processArguments[%d]: Symbol arg, len=%d, first chars=%q", i, len(markerStr), markerStr[:min(len(markerStr), 20)])
 		} else if str, ok := arg.(string); ok {
 			markerStr = str
 			isMarker = true
-			e.logger.Debug("processArguments[%d]: string arg, len=%d, first chars=%q", i, len(markerStr), markerStr[:min(len(markerStr), 20)])
+			e.logger.DebugCat(CatCommand,"processArguments[%d]: string arg, len=%d, first chars=%q", i, len(markerStr), markerStr[:min(len(markerStr), 20)])
 		}
 
 		if isMarker {
 			// Check for tilde expression first (~varname)
 			if strings.HasPrefix(markerStr, "~") {
-				resolved, ok := e.resolveTildeExpression(markerStr, state, substitutionCtx, position)
+				// Split off any accessors first
+				base, accessors := splitAccessors(markerStr)
+
+				resolved, ok := e.resolveTildeExpression(base, state, substitutionCtx, position)
 				if !ok {
 					// Tilde resolution failed, error already logged - keep original
-					e.logger.Debug("processArguments[%d]: Tilde resolution failed for %q", i, markerStr)
+					e.logger.DebugCat(CatCommand,"processArguments[%d]: Tilde resolution failed for %q", i, base)
 					result[i] = arg
 					continue
 				}
-				e.logger.Debug("processArguments[%d]: Resolved tilde expression %q to %v", i, markerStr, resolved)
+				e.logger.DebugCat(CatCommand,"processArguments[%d]: Resolved tilde expression %q to %v", i, base, resolved)
+
+				// Apply any accessors
+				if accessors != "" {
+					resolved = e.applyAccessorChain(resolved, accessors, position)
+					e.logger.DebugCat(CatCommand,"processArguments[%d]: After accessors %q: %v", i, accessors, resolved)
+				}
+
 				// Update arg to the resolved value and check if it's a marker that needs further resolution
 				arg = resolved
 				if sym, ok := resolved.(Symbol); ok {
@@ -541,37 +767,54 @@ func (e *Executor) processArguments(args []interface{}, state *ExecutionState, s
 				// Fall through to check for object markers in the resolved value
 			}
 
-			// Check for object marker
-			if objType, objID := parseObjectMarker(markerStr); objID >= 0 {
-				e.logger.Debug("processArguments[%d]: Detected %s marker with ID %d", i, objType, objID)
+			// Check for object marker (possibly with accessors)
+			base, accessors := splitAccessors(markerStr)
+			if objType, objID := parseObjectMarker(base); objID >= 0 {
+				e.logger.DebugCat(CatCommand,"processArguments[%d]: Detected %s marker with ID %d", i, objType, objID)
 				// Retrieve the actual value (doesn't affect refcount)
 				if value, exists := e.getObject(objID); exists {
 					switch objType {
 					case "list":
 						// Return as StoredList - this passes the object by reference
 						// Don't claim here - the receiving context (SetVariable, etc.) will claim
-						result[i] = value
-						e.logger.Debug("processArguments[%d]: Resolved list marker to StoredList", i)
+						finalValue := value
+						// Apply any accessors
+						if accessors != "" {
+							finalValue = e.applyAccessorChain(value, accessors, position)
+							e.logger.DebugCat(CatCommand,"processArguments[%d]: After accessors %q: %v", i, accessors, finalValue)
+						}
+						result[i] = finalValue
+						e.logger.DebugCat(CatCommand,"processArguments[%d]: Resolved list marker to StoredList", i)
 					case "str":
 						// Keep as marker (pass-by-reference) - don't copy the string
 						// The marker will be resolved when needed (display, string ops)
 						// Keep the original arg (Symbol or string containing marker)
 						result[i] = arg
-						e.logger.Debug("processArguments[%d]: Preserved string marker (pass-by-reference)", i)
+						e.logger.DebugCat(CatCommand,"processArguments[%d]: Preserved string marker (pass-by-reference)", i)
 					case "block":
 						// Keep as marker (pass-by-reference) - don't copy the block
 						// The marker will be resolved when needed (execution)
 						result[i] = arg
-						e.logger.Debug("processArguments[%d]: Preserved block marker (pass-by-reference)", i)
+						e.logger.DebugCat(CatCommand,"processArguments[%d]: Preserved block marker (pass-by-reference)", i)
+					case "channel":
+						// Keep as marker (pass-by-reference) - channel identity must be preserved
+						result[i] = arg
+						e.logger.DebugCat(CatCommand,"processArguments[%d]: Preserved channel marker (pass-by-reference)", i)
+					case "fiber":
+						// Keep as marker (pass-by-reference) - fiber identity must be preserved
+						result[i] = arg
+						e.logger.DebugCat(CatCommand,"processArguments[%d]: Preserved fiber marker (pass-by-reference)", i)
 					default:
-						result[i] = value
+						// For unknown types, keep the marker to preserve reference semantics
+						result[i] = arg
+						e.logger.DebugCat(CatCommand,"processArguments[%d]: Preserved %s marker (pass-by-reference)", i, objType)
 					}
 					continue
 				} else {
-					e.logger.Debug("processArguments[%d]: Object %d not found in store!", i, objID)
+					e.logger.DebugCat(CatCommand,"processArguments[%d]: Object %d not found in store!", i, objID)
 				}
 			} else {
-				e.logger.Debug("processArguments[%d]: Not a valid object marker", i)
+				e.logger.DebugCat(CatCommand,"processArguments[%d]: Not a valid object marker", i)
 			}
 		}
 
@@ -589,12 +832,12 @@ func (e *Executor) invertStatus(result Result, state *ExecutionState, position *
 	if boolStatus, ok := result.(BoolStatus); ok {
 		// Invert synchronous result immediately
 		inverted := !bool(boolStatus)
-		e.logger.Debug("Inverted synchronous result: %v -> %v", bool(boolStatus), inverted)
+		e.logger.DebugCat(CatCommand,"Inverted synchronous result: %v -> %v", bool(boolStatus), inverted)
 		return BoolStatus(inverted)
 	} else if earlyReturn, ok := result.(EarlyReturn); ok {
 		// Invert the status of an early return
 		inverted := !bool(earlyReturn.Status)
-		e.logger.Debug("Inverted early return status: %v -> %v", bool(earlyReturn.Status), inverted)
+		e.logger.DebugCat(CatCommand,"Inverted early return status: %v -> %v", bool(earlyReturn.Status), inverted)
 		return EarlyReturn{
 			Status:    BoolStatus(inverted),
 			Result:    earlyReturn.Result,
@@ -602,7 +845,7 @@ func (e *Executor) invertStatus(result Result, state *ExecutionState, position *
 		}
 	} else if tokenResult, ok := result.(TokenResult); ok {
 		// For async result, create wrapper token with inversion flag
-		e.logger.Debug("Creating inverter wrapper for async token: %s", string(tokenResult))
+		e.logger.DebugCat(CatCommand,"Creating inverter wrapper for async token: %s", string(tokenResult))
 
 		inverterToken := e.RequestCompletionToken(nil, "", 5*time.Minute, state, position)
 
@@ -616,7 +859,7 @@ func (e *Executor) invertStatus(result Result, state *ExecutionState, position *
 		// Chain the inverter to the original token
 		e.chainTokens(string(tokenResult), inverterToken)
 
-		e.logger.Debug("Created inverter token: %s -> %s", string(tokenResult), inverterToken)
+		e.logger.DebugCat(CatCommand,"Created inverter token: %s -> %s", string(tokenResult), inverterToken)
 		return TokenResult(inverterToken)
 	}
 
@@ -647,7 +890,7 @@ func (e *Executor) executeMacro(
 		macroContext.ParentMacro = position.MacroContext
 	}
 
-	e.logger.Debug("Executing macro defined at %s:%d, called from %s:%d",
+	e.logger.DebugCat(CatCommand,"Executing macro defined at %s:%d, called from %s:%d",
 		macro.DefinitionFile, macro.DefinitionLine,
 		position.Filename, position.Line)
 
@@ -707,19 +950,19 @@ func (e *Executor) executeMacro(
 			state.moduleEnv.LibraryInherited["exports"][name] = item
 		}
 		state.moduleEnv.mu.Unlock()
-		e.logger.Debug("Merged %d exports from macro to parent's exports module", len(exportsSection))
+		e.logger.DebugCat(CatCommand,"Merged %d exports from macro to parent's exports module", len(exportsSection))
 	}
 	macroState.moduleEnv.mu.RUnlock()
 
 	// Transfer result to parent state
 	if macroState.HasResult() {
 		state.SetResult(macroState.GetResult())
-		e.logger.Debug("Transferred macro result to parent state: %v", macroState.GetResult())
+		e.logger.DebugCat(CatCommand,"Transferred macro result to parent state: %v", macroState.GetResult())
 	}
 
 	// Clean up macro state
 	macroState.ReleaseAllReferences()
 
-	e.logger.Debug("Macro execution completed with result: %v", result)
+	e.logger.DebugCat(CatCommand,"Macro execution completed with result: %v", result)
 	return result
 }

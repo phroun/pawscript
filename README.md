@@ -75,6 +75,56 @@ See the `examples/` directory for sample scripts and usage patterns.
 
 ## Changelog
 
+### 0.2.7 -- November 27, 2025
+- Move Makefile into a more standard location
+- Added --license switch to show the MIT License.
+- Fixed bug where object markers would resolve too early when passing
+  parameters to macros.
+- Made "channel" and "fiber" fully fledged types with get_type support.
+- Removed outdated MacroSystem now that the Environments hold macros.
+- PopulateIOModule now creates StoredChannels for #stdin, #stdout, and #stderr.
+- Better error checking when host environment uses SetResult.
+- Added host helpers: ExecuteInRoot and ImportModuleToRoot.
+- Added a proof of concept project, pawgui, to integrate Fyne with PawScript.
+- Add immediate focus handling for sizedWidget terminal wrapper
+- Fixed ExecuteFile to wait for async completion before merging exports.
+- Fixed waitChan propagation for chained async tokens.
+- Fixed fiber spawn macro lookup.
+- Fixed tilde injection vulnerability in macro argument substitution.
+- Fixed tilde injection in variable interpolation (external input.)
+- Fixed remaining tilde injection vulnerabilities in brace expressions.
+- Updated pawgui demos to use PawScript color and clear commands.
+- Added channel-aware terminal capabilities for multiple consoles.
+- Fixed color/clear commands to send ANSI to correct channel.
+- Added InBraceExpression flag for brace expression output purity.
+- Updated pawgui demos to use inline brace color expressions.
+- Added generator/coroutine support with yield inside while loops.
+- Added each and pair iterators for efficient list iteration.
+- Added comprehensive generator test suite with expected output.
+- Fixed terminal color handling when output is redirected.
+- Fixed async generator interleaving and iterator termination bugs.
+- Generator completion now returns status false.
+- Propagated brace expression status through assignment.
+- Fixed nested while loops in generators.
+- Added get_status command to core module.
+- Added tests for empty generator and mid-generator error handling
+- Added if command validation and warnings for improper usages.
+- Added get_substatus command to check brace expression failures.
+- Added proper undefined result handling for unknown commands.
+- Add while command argument validation warnings.
+- Support for single list arguments passed to math operations
+- Added log categories to all error/warning/debug messages
+- Expanded log levels to seven severity levels.
+- Added comprehensive logging configuration system with error_logging
+  and debug_logging commands
+- Add Network category, IO Category and multi-category logging support.
+- Extended log_print to support multiple categories for a single entry.
+- Add #debug channel for separate debug output redirection.
+- Added list accessor syntax (~list.key for named args, ~list N for index)
+- Added multidimensional and mixed accessor tests
+- Support for index-then-dot accessor syntax (~students 1.firstName)
+- Stricter number parsing: dots only in floats when digit before and after.
+
 ### 0.2.6 -- November 25, 2025
 - `env_dump` returns all environment variables as a list with named args
 - `rune` converts a character to its Unicode code point (inverse of `chr`)

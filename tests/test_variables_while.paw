@@ -72,7 +72,7 @@ echo ""
 # Test 6: While loop that never executes
 echo "Test 6: While loop that doesn't execute"
 set_result "before"
-while false, (
+while (false), (
     set_result "inside"
 )
 echo "Result: {get_result}"

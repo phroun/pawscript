@@ -32,6 +32,7 @@ type MacroContext struct {
 // Context is passed to command handlers
 type Context struct {
 	Args         []interface{}
+	RawArgs      []string               // Original argument strings before resolution (for diagnostics)
 	NamedArgs    map[string]interface{} // Named arguments (key: value)
 	Position     *SourcePosition
 	state        *ExecutionState
@@ -47,6 +48,14 @@ func (c *Context) LogError(cat LogCategory, message string) {
 	c.logger.SetOutputContext(NewOutputContext(c.state, c.executor))
 	defer c.logger.ClearOutputContext()
 	c.logger.CommandError(cat, "", message, c.Position)
+}
+
+// LogWarning logs a command warning with position, routing through execution state channels
+func (c *Context) LogWarning(cat LogCategory, message string) {
+	// Set output context for channel routing
+	c.logger.SetOutputContext(NewOutputContext(c.state, c.executor))
+	defer c.logger.ClearOutputContext()
+	c.logger.CommandWarning(cat, "", message, c.Position)
 }
 
 // SetResult sets the formal result value
@@ -79,6 +88,21 @@ func (c *Context) ResumeToken(tokenID string, status bool) bool {
 	return c.resumeToken(tokenID, status)
 }
 
+// StoreObject stores an object and returns its ID
+func (c *Context) StoreObject(value interface{}, typeName string) int {
+	return c.executor.storeObject(value, typeName)
+}
+
+// ClaimObjectReference claims ownership of an object to prevent garbage collection
+func (c *Context) ClaimObjectReference(objectID int) {
+	c.state.ClaimObjectReference(objectID)
+}
+
+// NewStoredListWithRefs creates a StoredList and claims references to any nested object markers
+func (c *Context) NewStoredListWithRefs(items []interface{}, namedArgs map[string]interface{}) StoredList {
+	return NewStoredListWithRefs(items, namedArgs, c.executor)
+}
+
 // Handler is a function that handles a command
 type Handler func(*Context) Result
 
@@ -105,6 +129,43 @@ type EarlyReturn struct {
 }
 
 func (EarlyReturn) isResult() {}
+
+// YieldResult represents yielding a value from a generator
+// The executor catches this and updates the token's remaining commands
+type YieldResult struct {
+	Value             interface{}
+	TokenID           string              // Token to update (empty = use #token from state)
+	WhileContinuation *WhileContinuation  // Optional - set when yielding from inside while loop
+}
+
+func (YieldResult) isResult() {}
+
+// SuspendResult signals that a new suspension token should be created
+// with the remaining commands in the current sequence
+type SuspendResult struct{}
+
+func (SuspendResult) isResult() {}
+
+// WhileContinuation stores state for resuming a while loop after yield
+type WhileContinuation struct {
+	ConditionBlock      string            // The while condition (re-evaluated each iteration)
+	BodyBlock           string            // The full while body
+	RemainingBodyCmds   []*ParsedCommand  // Commands remaining in current iteration after yield
+	BodyCmdIndex        int               // Which command in body yielded
+	IterationCount      int               // Current iteration number
+	State               *ExecutionState   // Execution state at time of yield
+	SubstitutionCtx     *SubstitutionContext
+	ParentContinuation  *WhileContinuation // For nested while loops - outer loop's state
+}
+
+// IteratorState stores state for Go-backed iterators (each, pair)
+type IteratorState struct {
+	Type       string        // "each" or "pair"
+	ListID     int           // Object ID of the list being iterated
+	Index      int           // Current position (for "each")
+	Keys       []string      // Keys to iterate (for "pair")
+	KeyIndex   int           // Current key position (for "pair")
+}
 
 // ParsedCommand represents a parsed command with metadata
 type ParsedCommand struct {
@@ -187,10 +248,13 @@ type TokenData struct {
 	SuspendedResult    interface{}
 	HasSuspendedResult bool
 	Position           *SourcePosition
-	BraceCoordinator   *BraceCoordinator // For coordinating parallel brace evaluation
-	InvertStatus       bool              // If true, invert the success status when this token completes
-	FiberID            int               // ID of the fiber that created this token
-	WaitChan           chan ResumeData   // For synchronous blocking (e.g., in while loops)
+	BraceCoordinator   *BraceCoordinator  // For coordinating parallel brace evaluation
+	InvertStatus       bool               // If true, invert the success status when this token completes
+	FiberID            int                // ID of the fiber that created this token
+	WaitChan           chan ResumeData    // For synchronous blocking (e.g., in while loops)
+	SubstitutionCtx    *SubstitutionContext // For generator macro argument substitution
+	WhileContinuation  *WhileContinuation // For resuming while loops after yield
+	IteratorState      *IteratorState     // For Go-backed iterators (each, pair)
 }
 
 // MacroDefinition stores a macro definition
@@ -212,6 +276,13 @@ type SubstitutionContext struct {
 	CurrentLineOffset   int
 	CurrentColumnOffset int
 	Filename            string // Filename for error reporting
+	// BraceFailureCount tracks how many brace expressions returned false status during substitution
+	// This is separate from ExecutionState.lastStatus which tracks the main command's status
+	// If > 0, assignment should propagate failure status
+	BraceFailureCount int
+	// BracesEvaluated tracks how many brace expressions were evaluated during substitution
+	// Used to know whether to update lastBraceFailureCount (only if braces were present)
+	BracesEvaluated int
 }
 
 // Config holds configuration for PawScript
@@ -380,6 +451,48 @@ type StoredChannel struct {
 	NativeSend      func(interface{}) error         // Native send handler
 	NativeRecv      func() (interface{}, error)     // Native receive handler
 	NativeClose     func() error                    // Native close handler
+	// Terminal capabilities associated with this channel
+	// Allows channels to report their own ANSI/color/size support
+	// If nil, system terminal capabilities are used as fallback
+	Terminal        *TerminalCapabilities
+}
+
+// GetTerminalCapabilities returns terminal capabilities for this channel
+// Falls back through: this channel -> parent channel -> system terminal
+func (ch *StoredChannel) GetTerminalCapabilities() *TerminalCapabilities {
+	if ch == nil {
+		return GetSystemTerminalCapabilities()
+	}
+
+	ch.mu.RLock()
+	defer ch.mu.RUnlock()
+
+	// Check this channel's terminal
+	if ch.Terminal != nil {
+		return ch.Terminal
+	}
+
+	// For subscribers, check parent (without holding our lock)
+	if ch.IsSubscriber && ch.ParentChannel != nil {
+		ch.mu.RUnlock()
+		caps := ch.ParentChannel.GetTerminalCapabilities()
+		ch.mu.RLock()
+		return caps
+	}
+
+	// Fall back to system terminal
+	return GetSystemTerminalCapabilities()
+}
+
+// SetTerminalCapabilities sets terminal capabilities for this channel
+// Multiple channels can share the same capabilities pointer
+func (ch *StoredChannel) SetTerminalCapabilities(caps *TerminalCapabilities) {
+	if ch == nil {
+		return
+	}
+	ch.mu.Lock()
+	defer ch.mu.Unlock()
+	ch.Terminal = caps
 }
 
 // NewStoredChannel creates a new channel with optional buffer size

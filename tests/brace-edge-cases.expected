@@ -1,6 +1,0 @@
-[PawScript ERROR] Parse error: Unclosed quote: missing closing "
-  at line 12, column 1 in brace-edge-cases.paw
-
-     11 | echo "Worse: {echo "unclosed quote}"
-  >  12 | 
-        | ^

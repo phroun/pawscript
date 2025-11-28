@@ -1,0 +1,98 @@
+#!/usr/bin/env paw
+# Test that 'if' and 'while' commands generate appropriate warnings and errors
+
+echo "=== Testing if Command Warnings ==="
+echo ""
+
+# Test 1: Literal ParenGroup should generate a warning
+echo "Test 1: Literal ParenGroup warning"
+echo "(Expecting WARN about block literal)"
+if (this is a literal block) then (
+    echo "Block was truthy (as expected)"
+)
+echo ""
+
+# Test 2: Variable containing ParenGroup should NOT warn
+echo "Test 2: Variable ParenGroup (no warning expected)"
+code_block: (some code)
+if ~code_block then (
+    echo "Variable block was truthy (no warning)"
+)
+echo ""
+
+# Test 3: Extra arguments should generate an error
+echo "Test 3: Extra arguments error"
+echo "(Expecting ERROR about usage)"
+if true, extra_argument then (
+    echo "This should not run"
+)
+echo ""
+
+# Test 4: Normal boolean usage (no warning)
+echo "Test 4: Normal boolean (no warning expected)"
+if true then (
+    echo "Boolean true works correctly"
+)
+echo ""
+
+# Test 5: Brace expression result (no warning)
+echo "Test 5: Brace expression (no warning expected)"
+if {eq 1, 1} then (
+    echo "Brace expression works correctly"
+)
+echo ""
+
+echo "=== if Warning Tests Complete ==="
+echo ""
+
+echo "=== Testing while Command Warnings ==="
+echo ""
+
+# Test 6: Literal false should generate a warning
+echo "Test 6: Literal false condition warning"
+echo "(Expecting WARN about non-block condition)"
+while false, (
+    echo "This should not run"
+)
+echo ""
+
+# Test 7: Literal number should generate a warning
+echo "Test 7: Literal number condition warning"
+echo "(Expecting WARN about non-block condition)"
+while 0, (
+    echo "This should not run"
+)
+echo ""
+
+# Test 8: while true should NOT warn (intentional infinite loop pattern)
+echo "Test 8: while true (no warning expected)"
+while true, (
+    echo "Intentional infinite loop"
+    ret
+)
+echo ""
+
+# Test 9: Variable condition should NOT warn
+echo "Test 9: Variable condition (no warning expected)"
+cond: (false)
+while ~cond, (
+    echo "This should not run"
+)
+echo ""
+
+# Test 10: Normal block condition (no warning)
+echo "Test 10: Normal block condition (no warning expected)"
+i: 0
+while (lt ~i, 2), (
+    echo "  iteration ~i"
+    i: {add ~i, 1}
+)
+echo ""
+
+# Test 11: Body using braces instead of parentheses should warn
+echo "Test 11: Brace body warning"
+echo "(Expecting WARN about non-block body)"
+while false, {echo "wrong braces"}
+echo ""
+
+echo "=== while Warning Tests Complete ==="

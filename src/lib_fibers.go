@@ -11,7 +11,7 @@ func (ps *PawScript) RegisterFibersLib() {
 	// fiber_spawn - spawn a new fiber to execute a macro
 	ps.RegisterCommandInModule("fibers", "fiber_spawn", func(ctx *Context) Result {
 		if len(ctx.Args) < 1 {
-			ps.logger.Error("Usage: fiber_spawn <macro>, [args...]")
+			ps.logger.ErrorCat(CatCommand, "Usage: fiber_spawn <macro>, [args...]")
 			return BoolStatus(false)
 		}
 
@@ -31,27 +31,44 @@ func (ps *PawScript) RegisterFibersLib() {
 			if markerType == "macro" && objectID >= 0 {
 				obj, exists := ctx.executor.getObject(objectID)
 				if !exists {
-					ps.logger.Error("Macro object %d not found", objectID)
+					ps.logger.ErrorCat(CatArgument, "Macro object %d not found", objectID)
 					return BoolStatus(false)
 				}
 				if m, ok := obj.(StoredMacro); ok {
 					macro = &m
 				}
 			} else {
-				// Try to look up as a named macro
-				if m, found := ps.macroSystem.GetStoredMacro(symStr); found {
+				// Look up macro in module environment (same as call command)
+				ctx.state.moduleEnv.mu.RLock()
+				if m, exists := ctx.state.moduleEnv.MacrosModule[symStr]; exists && m != nil {
 					macro = m
 				}
+				ctx.state.moduleEnv.mu.RUnlock()
 			}
 		} else if str, ok := firstArg.(string); ok {
-			// Try to look up as a named macro (string form)
-			if m, found := ps.macroSystem.GetStoredMacro(str); found {
-				macro = m
+			// First check if it's an object marker (from $1 substitution, etc.)
+			markerType, objectID := parseObjectMarker(str)
+			if markerType == "macro" && objectID >= 0 {
+				obj, exists := ctx.executor.getObject(objectID)
+				if !exists {
+					ps.logger.ErrorCat(CatArgument, "Macro object %d not found", objectID)
+					return BoolStatus(false)
+				}
+				if m, ok := obj.(StoredMacro); ok {
+					macro = &m
+				}
+			} else {
+				// Look up macro in module environment (string form)
+				ctx.state.moduleEnv.mu.RLock()
+				if m, exists := ctx.state.moduleEnv.MacrosModule[str]; exists && m != nil {
+					macro = m
+				}
+				ctx.state.moduleEnv.mu.RUnlock()
 			}
 		}
 
 		if macro == nil {
-			ps.logger.Error("First argument must be a macro or macro name")
+			ps.logger.ErrorCat(CatArgument, "First argument must be a macro or macro name")
 			return BoolStatus(false)
 		}
 
@@ -60,20 +77,20 @@ func (ps *PawScript) RegisterFibersLib() {
 		if parentModuleEnv == nil {
 			parentModuleEnv = ctx.state.moduleEnv
 		}
-		handle := ctx.executor.SpawnFiber(macro, ps.macroSystem, fiberArgs, namedArgs, parentModuleEnv)
+		handle := ctx.executor.SpawnFiber(macro, fiberArgs, namedArgs, parentModuleEnv)
 
 		objectID := ctx.executor.storeObject(handle, "fiber")
 		fiberMarker := fmt.Sprintf("\x00FIBER:%d\x00", objectID)
 		ctx.state.SetResult(Symbol(fiberMarker))
 
-		ps.logger.Debug("Spawned fiber %d (object %d)", handle.ID, objectID)
+		ps.logger.DebugCat(CatAsync, "Spawned fiber %d (object %d)", handle.ID, objectID)
 		return BoolStatus(true)
 	})
 
 	// fiber_wait - wait for a fiber to complete and get its result
 	ps.RegisterCommandInModule("fibers", "fiber_wait", func(ctx *Context) Result {
 		if len(ctx.Args) < 1 {
-			ps.logger.Error("Usage: fiber_wait <fiber_handle>")
+			ps.logger.ErrorCat(CatCommand, "Usage: fiber_wait <fiber_handle>")
 			return BoolStatus(false)
 		}
 
@@ -85,7 +102,20 @@ func (ps *PawScript) RegisterFibersLib() {
 			if markerType == "fiber" && objectID >= 0 {
 				obj, exists := ctx.executor.getObject(objectID)
 				if !exists {
-					ps.logger.Error("Fiber object %d not found", objectID)
+					ps.logger.ErrorCat(CatArgument, "Fiber object %d not found", objectID)
+					return BoolStatus(false)
+				}
+				if h, ok := obj.(*FiberHandle); ok {
+					handle = h
+				}
+			}
+		} else if str, ok := ctx.Args[0].(string); ok {
+			// Handle string type markers (from $1 substitution, etc.)
+			markerType, objectID := parseObjectMarker(str)
+			if markerType == "fiber" && objectID >= 0 {
+				obj, exists := ctx.executor.getObject(objectID)
+				if !exists {
+					ps.logger.ErrorCat(CatArgument, "Fiber object %d not found", objectID)
 					return BoolStatus(false)
 				}
 				if h, ok := obj.(*FiberHandle); ok {
@@ -95,13 +125,13 @@ func (ps *PawScript) RegisterFibersLib() {
 		}
 
 		if handle == nil {
-			ps.logger.Error("First argument must be a fiber handle")
+			ps.logger.ErrorCat(CatArgument, "First argument must be a fiber handle")
 			return BoolStatus(false)
 		}
 
 		result, err := ctx.executor.WaitForFiber(handle)
 		if err != nil {
-			ps.logger.Error("Failed to wait for fiber: %v", err)
+			ps.logger.ErrorCat(CatAsync, "Failed to wait for fiber: %v", err)
 			return BoolStatus(false)
 		}
 

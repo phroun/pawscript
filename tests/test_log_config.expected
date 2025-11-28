@@ -1,0 +1,30 @@
+=== Testing error_logging defaults ===
+error_logging config: (default: "warn", floor: "trace", force: "fatal")
+
+=== Testing debug_logging defaults ===
+debug_logging config: (default: "none", floor: "trace", force: "fatal")
+
+=== Testing log_print with error level (goes to stderr by default) ===
+[PawScript:user ERROR] Test error message
+  at line 14, column 1 in test_log_config.paw
+
+=== Testing log_print with warn level (goes to stderr by default) ===
+[PawScript:command WARN] Test warning message
+  at line 18, column 1 in test_log_config.paw
+
+=== Enable debug output for 'math' category ===
+debug_logging after change: (default: "debug", floor: "trace", force: "fatal", math: "trace")
+
+=== Testing log_print with debug level and math category ===
+[DEBUG:math] Math debug message
+  at line 28, column 1 in test_log_config.paw
+
+=== Testing log_print with multiple categories ===
+[DEBUG:command+math] Multi-category message
+  at line 33, column 1 in test_log_config.paw
+
+=== Testing log_print with category block ===
+[INFO:io+network] Category block message
+  at line 38, column 1 in test_log_config.paw
+
+=== Test complete ===

@@ -1,5 +1,6 @@
 .DS_Store
 /paw
+/pawgui
 /token_example
 dist
 node_modules
@@ -12,3 +13,4 @@ node_modules
 /pawscript.wasm
 /releases
 js/pawscript.wasm
+/bin/

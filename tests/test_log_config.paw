@@ -1,0 +1,41 @@
+# Test log configuration system
+
+echo "=== Testing error_logging defaults ==="
+error_logging => err_config
+echo "error_logging config: ~err_config"
+
+echo ""
+echo "=== Testing debug_logging defaults ==="
+debug_logging => dbg_config
+echo "debug_logging config: ~dbg_config"
+
+echo ""
+echo "=== Testing log_print with error level (goes to stderr by default) ==="
+log_print error, "Test error message", user
+
+echo ""
+echo "=== Testing log_print with warn level (goes to stderr by default) ==="
+log_print warn, "Test warning message", command
+
+echo ""
+echo "=== Enable debug output for 'math' category ==="
+debug_logging debug, math: trace
+debug_logging => updated_config
+echo "debug_logging after change: ~updated_config"
+
+echo ""
+echo "=== Testing log_print with debug level and math category ==="
+log_print debug, "Math debug message", math
+
+echo ""
+echo "=== Testing log_print with multiple categories ==="
+debug_logging command: debug
+log_print debug, "Multi-category message", command, math
+
+echo ""
+echo "=== Testing log_print with category block ==="
+debug_logging io: info, network: info
+log_print info, "Category block message", (io, network)
+
+echo ""
+echo "=== Test complete ==="

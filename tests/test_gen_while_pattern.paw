@@ -1,0 +1,23 @@
+# Test the while (v: {resume ~gen}) pattern
+
+macro range_gen (
+    i: $1
+    max: $2
+    while (lt ~i, ~max), (
+        yield ~i
+        i: {add ~i, 1}
+    )
+    ret "done"
+)
+
+print "=== Test ==="
+
+rg: {generator range_gen, 0, 5}
+
+print "Values:"
+while (v: {resume ~rg}), (
+    print " ", ~v
+)
+
+print "Loop exited cleanly"
+print "Done"

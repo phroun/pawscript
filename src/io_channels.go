@@ -24,7 +24,8 @@ type IOChannelConfig struct {
 // PopulateIOModule creates native IO channels and registers them in the io module
 // Creates: io::#stdin/#in, io::#stdout/#out, io::#stderr/#err, io::#stdio/#io
 // If config is provided, uses custom channels; otherwise creates default OS-backed channels
-func (env *ModuleEnvironment) PopulateIOModule(config *IOChannelConfig) {
+// If executor is provided, channels are stored in storedObjects for proper ID tracking
+func (env *ModuleEnvironment) PopulateIOModule(config *IOChannelConfig, executor *Executor) {
 	env.mu.Lock()
 	defer env.mu.Unlock()
 
@@ -147,6 +148,23 @@ func (env *ModuleEnvironment) PopulateIOModule(config *IOChannelConfig) {
 		}
 	}
 
+	// Set system terminal capabilities on default channels
+	// All four channels share the same system terminal, so they share the same capabilities pointer
+	// This means a resize event only needs to update one TerminalCapabilities instance
+	sysCaps := GetSystemTerminalCapabilities()
+	if stdinCh.Terminal == nil {
+		stdinCh.Terminal = sysCaps
+	}
+	if stdoutCh.Terminal == nil {
+		stdoutCh.Terminal = sysCaps
+	}
+	if stderrCh.Terminal == nil {
+		stderrCh.Terminal = sysCaps
+	}
+	if stdioCh.Terminal == nil {
+		stdioCh.Terminal = sysCaps
+	}
+
 	// Register channels with both full and short names
 	// Full names
 	ioModule["#stdin"] = &ModuleItem{Type: "object", Value: stdinCh}
@@ -159,6 +177,9 @@ func (env *ModuleEnvironment) PopulateIOModule(config *IOChannelConfig) {
 	ioModule["#out"] = &ModuleItem{Type: "object", Value: stdoutCh}
 	ioModule["#err"] = &ModuleItem{Type: "object", Value: stderrCh}
 	ioModule["#io"] = &ModuleItem{Type: "object", Value: stdioCh}
+
+	// Debug output channel (alias to stdout, allows separate redirection of debug output)
+	ioModule["#debug"] = &ModuleItem{Type: "object", Value: stdoutCh}
 
 	// Register any custom channels from config
 	if config != nil && config.CustomChannels != nil {
@@ -183,12 +204,36 @@ func (env *ModuleEnvironment) PopulateIOModule(config *IOChannelConfig) {
 	env.LibraryRestricted["io"]["#out"] = ioModule["#out"]
 	env.LibraryRestricted["io"]["#err"] = ioModule["#err"]
 	env.LibraryRestricted["io"]["#io"] = ioModule["#io"]
+	env.LibraryRestricted["io"]["#debug"] = ioModule["#debug"]
 
 	// Add custom channels to LibraryRestricted as well
 	if config != nil && config.CustomChannels != nil {
 		for name, ch := range config.CustomChannels {
 			if ch != nil {
 				env.LibraryRestricted["io"][name] = &ModuleItem{Type: "object", Value: ch}
+			}
+		}
+	}
+
+	// Store channels in executor's storedObjects for proper ID tracking
+	// This allows channels to be passed to macros and stored in lists
+	if executor != nil {
+		// Store each unique channel (stdin, stdout, stderr, stdio)
+		// Note: we only store unique channels to avoid duplicate IDs
+		storedChannels := make(map[*StoredChannel]bool)
+		for _, ch := range []*StoredChannel{stdinCh, stdoutCh, stderrCh, stdioCh} {
+			if ch != nil && !storedChannels[ch] {
+				executor.storeObject(ch, "channel")
+				storedChannels[ch] = true
+			}
+		}
+		// Store custom channels as well
+		if config != nil && config.CustomChannels != nil {
+			for _, ch := range config.CustomChannels {
+				if ch != nil && !storedChannels[ch] {
+					executor.storeObject(ch, "channel")
+					storedChannels[ch] = true
+				}
 			}
 		}
 	}
@@ -206,6 +251,7 @@ func (env *ModuleEnvironment) PopulateIOModule(config *IOChannelConfig) {
 	env.ObjectsInherited["#out"] = stdoutCh
 	env.ObjectsInherited["#err"] = stderrCh
 	env.ObjectsInherited["#io"] = stdioCh
+	env.ObjectsInherited["#debug"] = stdoutCh
 
 	// Add custom channels to ObjectsInherited as well
 	if config != nil && config.CustomChannels != nil {

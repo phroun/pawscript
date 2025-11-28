@@ -1,4 +1,5 @@
 Testing brace expressions
-[PawScript ERROR] Unknown command: undefined_command_that_fails
+[PawScript:command ERROR] Unknown command: undefined_command_that_fails
   at line 3, column 16 in bad-command-in-brace.paw
+Result: <undefined>
 This might not execute depending on error handling

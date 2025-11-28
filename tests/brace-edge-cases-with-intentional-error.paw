@@ -8,4 +8,4 @@ echo "Result: {echo hello}"
 echo "Bad: {& echo leading operator in brace}"
 
 # Unclosed quote inside brace
-echo "Worse: {echo "unclosed quote}"
+echo "Worse: {echo "unclosed quote will cause error}"

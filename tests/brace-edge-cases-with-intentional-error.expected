@@ -1,0 +1,6 @@
+[PawScript:parse ERROR] Parse error: Unclosed quote: missing closing "
+  at line 12, column 1 in brace-edge-cases-with-intentional-error.paw
+
+     11 | echo "Worse: {echo "unclosed quote will cause error}"
+  >  12 | 
+        | ^
