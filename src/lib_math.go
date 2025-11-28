@@ -6,20 +6,41 @@ import (
 	"strings"
 )
 
+// getNumericArgs extracts numeric arguments from either multiple args or a single list.
+// If there's exactly 1 argument that resolves to a StoredList, returns the list items.
+// Otherwise returns ctx.Args directly. This allows math operations like:
+//   add 1, 2, 3      (multiple args)
+//   add ~mylist      (single list containing [1, 2, 3])
+// Returns the items to iterate over and whether a list was unwrapped.
+func getNumericArgs(ctx *Context) ([]interface{}, bool) {
+	if len(ctx.Args) == 1 {
+		resolved := ctx.executor.resolveValue(ctx.Args[0])
+		if list, ok := resolved.(StoredList); ok {
+			return list.Items(), true
+		}
+	}
+	return ctx.Args, false
+}
+
 // RegisterMathLib registers math and comparison commands
 // Modules: math, cmp
 func (ps *PawScript) RegisterMathLib() {
 
 	// ==================== math:: module ====================
 
-	// add - sums any number of arguments
+	// add - sums any number of arguments, or all elements of a single list
 	ps.RegisterCommandInModule("math", "add", func(ctx *Context) Result {
-		if len(ctx.Args) < 2 {
-			ctx.LogError(CatCommand, "Usage: add <a>, <b>, ...")
+		args, fromList := getNumericArgs(ctx)
+		if len(args) < 2 {
+			if fromList {
+				ctx.LogError(CatCommand, "add: list must contain at least 2 elements")
+			} else {
+				ctx.LogError(CatCommand, "Usage: add <a>, <b>, ... or add <list>")
+			}
 			return BoolStatus(false)
 		}
 		sum := float64(0)
-		for i, arg := range ctx.Args {
+		for i, arg := range args {
 			resolved := ctx.executor.resolveValue(arg)
 			n, ok := toNumber(resolved)
 			if !ok {
@@ -32,23 +53,28 @@ func (ps *PawScript) RegisterMathLib() {
 		return BoolStatus(true)
 	})
 
-	// sub - subtracts all remaining arguments from the first
+	// sub - subtracts all remaining arguments from the first, or from first element of a list
 	ps.RegisterCommandInModule("math", "sub", func(ctx *Context) Result {
-		if len(ctx.Args) < 2 {
-			ctx.LogError(CatCommand, "Usage: sub <start>, <a>, ...")
+		args, fromList := getNumericArgs(ctx)
+		if len(args) < 2 {
+			if fromList {
+				ctx.LogError(CatCommand, "sub: list must contain at least 2 elements")
+			} else {
+				ctx.LogError(CatCommand, "Usage: sub <start>, <a>, ... or sub <list>")
+			}
 			return BoolStatus(false)
 		}
-		resolved0 := ctx.executor.resolveValue(ctx.Args[0])
+		resolved0 := ctx.executor.resolveValue(args[0])
 		result, ok := toNumber(resolved0)
 		if !ok {
-			ctx.LogError(CatArgument, fmt.Sprintf("Invalid numeric argument at position 1: %v", ctx.Args[0]))
+			ctx.LogError(CatArgument, fmt.Sprintf("Invalid numeric argument at position 1: %v", args[0]))
 			return BoolStatus(false)
 		}
-		for i := 1; i < len(ctx.Args); i++ {
-			resolved := ctx.executor.resolveValue(ctx.Args[i])
+		for i := 1; i < len(args); i++ {
+			resolved := ctx.executor.resolveValue(args[i])
 			n, ok := toNumber(resolved)
 			if !ok {
-				ctx.LogError(CatArgument, fmt.Sprintf("Invalid numeric argument at position %d: %v", i+1, ctx.Args[i]))
+				ctx.LogError(CatArgument, fmt.Sprintf("Invalid numeric argument at position %d: %v", i+1, args[i]))
 				return BoolStatus(false)
 			}
 			result -= n
@@ -57,14 +83,19 @@ func (ps *PawScript) RegisterMathLib() {
 		return BoolStatus(true)
 	})
 
-	// mul - multiplies any number of arguments
+	// mul - multiplies any number of arguments, or all elements of a single list
 	ps.RegisterCommandInModule("math", "mul", func(ctx *Context) Result {
-		if len(ctx.Args) < 2 {
-			ctx.LogError(CatCommand, "Usage: mul <a>, <b>, ...")
+		args, fromList := getNumericArgs(ctx)
+		if len(args) < 2 {
+			if fromList {
+				ctx.LogError(CatCommand, "mul: list must contain at least 2 elements")
+			} else {
+				ctx.LogError(CatCommand, "Usage: mul <a>, <b>, ... or mul <list>")
+			}
 			return BoolStatus(false)
 		}
 		product := float64(1)
-		for i, arg := range ctx.Args {
+		for i, arg := range args {
 			resolved := ctx.executor.resolveValue(arg)
 			n, ok := toNumber(resolved)
 			if !ok {
@@ -81,58 +112,88 @@ func (ps *PawScript) RegisterMathLib() {
 	// With >2 args: first / product(rest)
 	// Named args: remainder:true or modulo:true returns [result, remainder/modulo]
 	ps.RegisterCommandInModule("math", "idiv", func(ctx *Context) Result {
-		if len(ctx.Args) < 2 {
-			ctx.LogError(CatCommand, "Usage: idiv <dividend>, <divisor>, ... [remainder: true] [modulo: true]")
+		args, fromList := getNumericArgs(ctx)
+		if len(args) < 2 {
+			if fromList {
+				ctx.LogError(CatCommand, "idiv: list must contain at least 2 elements")
+			} else {
+				ctx.LogError(CatCommand, "Usage: idiv <dividend>, <divisor>, ... or idiv <list>")
+			}
 			return BoolStatus(false)
 		}
-		return performDivision(ctx, true, false, false)
+		return performDivision(ctx, args, true, false, false)
 	})
 
 	// fdiv - floating point division
 	// With >2 args: first / product(rest)
 	// Named args: remainder:true or modulo:true returns [result, remainder/modulo]
 	ps.RegisterCommandInModule("math", "fdiv", func(ctx *Context) Result {
-		if len(ctx.Args) < 2 {
-			ctx.LogError(CatCommand, "Usage: fdiv <dividend>, <divisor>, ... [remainder: true] [modulo: true]")
+		args, fromList := getNumericArgs(ctx)
+		if len(args) < 2 {
+			if fromList {
+				ctx.LogError(CatCommand, "fdiv: list must contain at least 2 elements")
+			} else {
+				ctx.LogError(CatCommand, "Usage: fdiv <dividend>, <divisor>, ... or fdiv <list>")
+			}
 			return BoolStatus(false)
 		}
-		return performDivision(ctx, false, false, false)
+		return performDivision(ctx, args, false, false, false)
 	})
 
 	// iremainder - integer division remainder only (sign from dividend)
 	ps.RegisterCommandInModule("math", "iremainder", func(ctx *Context) Result {
-		if len(ctx.Args) < 2 {
-			ctx.LogError(CatCommand, "Usage: iremainder <dividend>, <divisor>, ...")
+		args, fromList := getNumericArgs(ctx)
+		if len(args) < 2 {
+			if fromList {
+				ctx.LogError(CatCommand, "iremainder: list must contain at least 2 elements")
+			} else {
+				ctx.LogError(CatCommand, "Usage: iremainder <dividend>, <divisor>, ... or iremainder <list>")
+			}
 			return BoolStatus(false)
 		}
-		return performDivision(ctx, true, true, false)
+		return performDivision(ctx, args, true, true, false)
 	})
 
 	// imodulo - integer division modulo only (sign from divisor)
 	ps.RegisterCommandInModule("math", "imodulo", func(ctx *Context) Result {
-		if len(ctx.Args) < 2 {
-			ctx.LogError(CatCommand, "Usage: imodulo <dividend>, <divisor>, ...")
+		args, fromList := getNumericArgs(ctx)
+		if len(args) < 2 {
+			if fromList {
+				ctx.LogError(CatCommand, "imodulo: list must contain at least 2 elements")
+			} else {
+				ctx.LogError(CatCommand, "Usage: imodulo <dividend>, <divisor>, ... or imodulo <list>")
+			}
 			return BoolStatus(false)
 		}
-		return performDivision(ctx, true, false, true)
+		return performDivision(ctx, args, true, false, true)
 	})
 
 	// fremainder - floating point division remainder only (sign from dividend)
 	ps.RegisterCommandInModule("math", "fremainder", func(ctx *Context) Result {
-		if len(ctx.Args) < 2 {
-			ctx.LogError(CatCommand, "Usage: fremainder <dividend>, <divisor>, ...")
+		args, fromList := getNumericArgs(ctx)
+		if len(args) < 2 {
+			if fromList {
+				ctx.LogError(CatCommand, "fremainder: list must contain at least 2 elements")
+			} else {
+				ctx.LogError(CatCommand, "Usage: fremainder <dividend>, <divisor>, ... or fremainder <list>")
+			}
 			return BoolStatus(false)
 		}
-		return performDivision(ctx, false, true, false)
+		return performDivision(ctx, args, false, true, false)
 	})
 
 	// fmodulo - floating point division modulo only (sign from divisor)
 	ps.RegisterCommandInModule("math", "fmodulo", func(ctx *Context) Result {
-		if len(ctx.Args) < 2 {
-			ctx.LogError(CatCommand, "Usage: fmodulo <dividend>, <divisor>, ...")
+		args, fromList := getNumericArgs(ctx)
+		if len(args) < 2 {
+			if fromList {
+				ctx.LogError(CatCommand, "fmodulo: list must contain at least 2 elements")
+			} else {
+				ctx.LogError(CatCommand, "Usage: fmodulo <dividend>, <divisor>, ... or fmodulo <list>")
+			}
 			return BoolStatus(false)
 		}
-		return performDivision(ctx, false, false, true)
+		return performDivision(ctx, args, false, false, true)
 	})
 
 	// floor - rounds down to nearest integer
@@ -215,23 +276,28 @@ func (ps *PawScript) RegisterMathLib() {
 		return BoolStatus(true)
 	})
 
-	// min - returns minimum of any number of arguments
+	// min - returns minimum of any number of arguments, or minimum element of a list
 	ps.RegisterCommandInModule("math", "min", func(ctx *Context) Result {
-		if len(ctx.Args) < 1 {
-			ctx.LogError(CatCommand, "Usage: min <a>, <b>, ...")
+		args, fromList := getNumericArgs(ctx)
+		if len(args) < 1 {
+			if fromList {
+				ctx.LogError(CatCommand, "min: list must contain at least 1 element")
+			} else {
+				ctx.LogError(CatCommand, "Usage: min <a>, <b>, ... or min <list>")
+			}
 			return BoolStatus(false)
 		}
-		resolved0 := ctx.executor.resolveValue(ctx.Args[0])
+		resolved0 := ctx.executor.resolveValue(args[0])
 		minVal, ok := toNumber(resolved0)
 		if !ok {
-			ctx.LogError(CatArgument, fmt.Sprintf("Invalid numeric argument at position 1: %v", ctx.Args[0]))
+			ctx.LogError(CatArgument, fmt.Sprintf("Invalid numeric argument at position 1: %v", args[0]))
 			return BoolStatus(false)
 		}
-		for i := 1; i < len(ctx.Args); i++ {
-			resolved := ctx.executor.resolveValue(ctx.Args[i])
+		for i := 1; i < len(args); i++ {
+			resolved := ctx.executor.resolveValue(args[i])
 			n, ok := toNumber(resolved)
 			if !ok {
-				ctx.LogError(CatArgument, fmt.Sprintf("Invalid numeric argument at position %d: %v", i+1, ctx.Args[i]))
+				ctx.LogError(CatArgument, fmt.Sprintf("Invalid numeric argument at position %d: %v", i+1, args[i]))
 				return BoolStatus(false)
 			}
 			if n < minVal {
@@ -242,23 +308,28 @@ func (ps *PawScript) RegisterMathLib() {
 		return BoolStatus(true)
 	})
 
-	// max - returns maximum of any number of arguments
+	// max - returns maximum of any number of arguments, or maximum element of a list
 	ps.RegisterCommandInModule("math", "max", func(ctx *Context) Result {
-		if len(ctx.Args) < 1 {
-			ctx.LogError(CatCommand, "Usage: max <a>, <b>, ...")
+		args, fromList := getNumericArgs(ctx)
+		if len(args) < 1 {
+			if fromList {
+				ctx.LogError(CatCommand, "max: list must contain at least 1 element")
+			} else {
+				ctx.LogError(CatCommand, "Usage: max <a>, <b>, ... or max <list>")
+			}
 			return BoolStatus(false)
 		}
-		resolved0 := ctx.executor.resolveValue(ctx.Args[0])
+		resolved0 := ctx.executor.resolveValue(args[0])
 		maxVal, ok := toNumber(resolved0)
 		if !ok {
-			ctx.LogError(CatArgument, fmt.Sprintf("Invalid numeric argument at position 1: %v", ctx.Args[0]))
+			ctx.LogError(CatArgument, fmt.Sprintf("Invalid numeric argument at position 1: %v", args[0]))
 			return BoolStatus(false)
 		}
-		for i := 1; i < len(ctx.Args); i++ {
-			resolved := ctx.executor.resolveValue(ctx.Args[i])
+		for i := 1; i < len(args); i++ {
+			resolved := ctx.executor.resolveValue(args[i])
 			n, ok := toNumber(resolved)
 			if !ok {
-				ctx.LogError(CatArgument, fmt.Sprintf("Invalid numeric argument at position %d: %v", i+1, ctx.Args[i]))
+				ctx.LogError(CatArgument, fmt.Sprintf("Invalid numeric argument at position %d: %v", i+1, args[i]))
 				return BoolStatus(false)
 			}
 			if n > maxVal {
@@ -398,25 +469,26 @@ func (ps *PawScript) RegisterMathLib() {
 }
 
 // performDivision is a helper that handles all division variants
+// args: the numeric arguments (either from ctx.Args or expanded from a list)
 // isInteger: true for floored integer division, false for floating point
 // remainderOnly: if true, only return the remainder (sign from dividend)
 // moduloOnly: if true, only return the modulo (sign from divisor)
-func performDivision(ctx *Context, isInteger bool, remainderOnly bool, moduloOnly bool) Result {
+func performDivision(ctx *Context, args []interface{}, isInteger bool, remainderOnly bool, moduloOnly bool) Result {
 	// Get dividend (first argument)
-	resolved0 := ctx.executor.resolveValue(ctx.Args[0])
+	resolved0 := ctx.executor.resolveValue(args[0])
 	dividend, ok := toNumber(resolved0)
 	if !ok {
-		ctx.LogError(CatArgument, fmt.Sprintf("Invalid numeric argument at position 1: %v", ctx.Args[0]))
+		ctx.LogError(CatArgument, fmt.Sprintf("Invalid numeric argument at position 1: %v", args[0]))
 		return BoolStatus(false)
 	}
 
 	// Calculate divisor as product of remaining arguments
 	divisor := float64(1)
-	for i := 1; i < len(ctx.Args); i++ {
-		resolved := ctx.executor.resolveValue(ctx.Args[i])
+	for i := 1; i < len(args); i++ {
+		resolved := ctx.executor.resolveValue(args[i])
 		n, ok := toNumber(resolved)
 		if !ok {
-			ctx.LogError(CatArgument, fmt.Sprintf("Invalid numeric argument at position %d: %v", i+1, ctx.Args[i]))
+			ctx.LogError(CatArgument, fmt.Sprintf("Invalid numeric argument at position %d: %v", i+1, args[i]))
 			return BoolStatus(false)
 		}
 		divisor *= n

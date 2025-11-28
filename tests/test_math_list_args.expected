@@ -1,0 +1,27 @@
+=== Testing Math Operations with List Arguments ===
+
+Test list: (1, 2, 3, 4, 5)
+Div test list: (100, 20, 5)
+
+Test 1: add with list
+PASS: add (1, 2, 3, 4, 5) = 15
+Test 2: mul with list
+PASS: mul (1, 2, 3, 4, 5) = 120
+Test 3: sub with list
+PASS: sub (100, 20, 5) = 75
+Test 4: min with list
+PASS: min (1, 2, 3, 4, 5) = 1
+Test 5: max with list
+PASS: max (1, 2, 3, 4, 5) = 5
+Test 6: idiv with list
+PASS: idiv (100, 20, 5) = 1
+Test 7: fdiv with list
+PASS: fdiv (100, 20, 5) = 1
+
+Test 8: Regular multi-arg still works
+PASS: add 10, 20, 30 = 60
+
+Test 9: min with single element list
+PASS: min of single element = 42
+
+=== Math List Argument Tests Complete ===

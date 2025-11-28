@@ -1,0 +1,109 @@
+#!/usr/bin/env paw
+# Test that math operations work with single list arguments
+
+echo "=== Testing Math Operations with List Arguments ==="
+echo ""
+
+# Create test lists
+nums: {list 1, 2, 3, 4, 5}
+divnums: {list 100, 20, 5}
+
+echo "Test list: ~nums"
+echo "Div test list: ~divnums"
+echo ""
+
+# Test add
+echo "Test 1: add with list"
+result: {add ~nums}
+expected: 15
+if {eq ~result, ~expected} then (
+    echo "PASS: add ~nums = ~result"
+) else (
+    echo "FAIL: add ~nums = ~result (expected ~expected)"
+)
+
+# Test mul
+echo "Test 2: mul with list"
+result: {mul ~nums}
+expected: 120
+if {eq ~result, ~expected} then (
+    echo "PASS: mul ~nums = ~result"
+) else (
+    echo "FAIL: mul ~nums = ~result (expected ~expected)"
+)
+
+# Test sub (100 - 20 - 5 = 75)
+echo "Test 3: sub with list"
+result: {sub ~divnums}
+expected: 75
+if {eq ~result, ~expected} then (
+    echo "PASS: sub ~divnums = ~result"
+) else (
+    echo "FAIL: sub ~divnums = ~result (expected ~expected)"
+)
+
+# Test min
+echo "Test 4: min with list"
+result: {min ~nums}
+expected: 1
+if {eq ~result, ~expected} then (
+    echo "PASS: min ~nums = ~result"
+) else (
+    echo "FAIL: min ~nums = ~result (expected ~expected)"
+)
+
+# Test max
+echo "Test 5: max with list"
+result: {max ~nums}
+expected: 5
+if {eq ~result, ~expected} then (
+    echo "PASS: max ~nums = ~result"
+) else (
+    echo "FAIL: max ~nums = ~result (expected ~expected)"
+)
+
+# Test idiv (100 / (20*5) = 100/100 = 1)
+echo "Test 6: idiv with list"
+result: {idiv ~divnums}
+expected: 1
+if {eq ~result, ~expected} then (
+    echo "PASS: idiv ~divnums = ~result"
+) else (
+    echo "FAIL: idiv ~divnums = ~result (expected ~expected)"
+)
+
+# Test fdiv
+echo "Test 7: fdiv with list"
+result: {fdiv ~divnums}
+expected: 1
+if {eq ~result, ~expected} then (
+    echo "PASS: fdiv ~divnums = ~result"
+) else (
+    echo "FAIL: fdiv ~divnums = ~result (expected ~expected)"
+)
+
+# Test that regular multi-arg still works
+echo ""
+echo "Test 8: Regular multi-arg still works"
+result: {add 10, 20, 30}
+expected: 60
+if {eq ~result, ~expected} then (
+    echo "PASS: add 10, 20, 30 = ~result"
+) else (
+    echo "FAIL: add 10, 20, 30 = ~result (expected ~expected)"
+)
+
+# Test min/max with single element list
+echo ""
+echo "Test 9: min with single element list"
+single: {list 42}
+result: {min ~single}
+expected: 42
+if {eq ~result, ~expected} then (
+    echo "PASS: min of single element = ~result"
+) else (
+    echo "FAIL: min of single element = ~result (expected ~expected)"
+)
+
+echo ""
+echo "=== Math List Argument Tests Complete ==="
