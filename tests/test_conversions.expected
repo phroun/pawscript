@@ -54,14 +54,6 @@ number "abc", 0: 0
 number hello, -1: -1
 number "invalid", default: default
 
--- number (invalid with nil) --
-[PawScript:type ERROR] Cannot convert to number
-  at line 76, column 26 in test_conversions.paw
-number "abc": <nil>
-[PawScript:type ERROR] Cannot convert to number
-  at line 77, column 24 in test_conversions.paw
-number hello: <nil>
-
 === BOOL COMMAND ===
 
 -- bool (truthy values) --

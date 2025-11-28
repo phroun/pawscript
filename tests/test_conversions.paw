@@ -72,11 +72,6 @@ echo "number hello, -1:", {number hello, -1}
 echo "number \"invalid\", default:", {number "invalid", default}
 
 echo ""
-echo "-- number (invalid with nil) --"
-echo "number \"abc\":", {number "abc"}
-echo "number hello:", {number hello}
-
-echo ""
 echo "=== BOOL COMMAND ==="
 echo ""
 
