@@ -1276,9 +1276,11 @@ func (ps *PawScript) RegisterSystemLib(scriptArgs []string) {
 	})
 
 	// log_print - output log messages from scripts
+	// Supports multiple categories: log_print level, message, cat1, cat2, ...
+	// Or a list of categories: log_print level, message, (cat1, cat2, ...)
 	ps.RegisterCommandInModule("debug", "log_print", func(ctx *Context) Result {
 		if len(ctx.Args) < 2 {
-			ctx.LogError(CatIO, "Usage: log_print <level>, <message>, [category]")
+			ctx.LogError(CatIO, "Usage: log_print <level>, <message>, [categories...]")
 			return BoolStatus(false)
 		}
 
@@ -1306,16 +1308,91 @@ func (ps *PawScript) RegisterSystemLib(scriptArgs []string) {
 
 		message := fmt.Sprintf("%v", ctx.Args[1])
 
-		category := CatUser
+		// Parse categories from remaining arguments
+		var categories []LogCategory
+
 		if len(ctx.Args) > 2 {
-			category = LogCategory(fmt.Sprintf("%v", ctx.Args[2]))
+			// Check if third arg is a list (ParenGroup, StoredList, or list marker)
+			thirdArg := ctx.Args[2]
+
+			// Try to extract categories from a list-like argument
+			var catItems []interface{}
+			gotList := false
+
+			switch v := thirdArg.(type) {
+			case ParenGroup:
+				catItems, _ = parseArguments(string(v))
+				gotList = true
+			case StoredBlock:
+				catItems, _ = parseArguments(string(v))
+				gotList = true
+			case StoredList:
+				catItems = v.Items()
+				gotList = true
+			case Symbol:
+				// Check for list marker
+				markerType, objectID := parseObjectMarker(string(v))
+				if markerType == "list" && objectID >= 0 {
+					if obj, exists := ctx.executor.getObject(objectID); exists {
+						if list, ok := obj.(StoredList); ok {
+							catItems = list.Items()
+							gotList = true
+						}
+					}
+				}
+			case string:
+				// Check for list marker
+				markerType, objectID := parseObjectMarker(v)
+				if markerType == "list" && objectID >= 0 {
+					if obj, exists := ctx.executor.getObject(objectID); exists {
+						if list, ok := obj.(StoredList); ok {
+							catItems = list.Items()
+							gotList = true
+						}
+					}
+				}
+			}
+
+			if gotList {
+				// Convert list items to categories
+				for _, item := range catItems {
+					catStr := fmt.Sprintf("%v", item)
+					if cat, valid := LogCategoryFromString(catStr); valid {
+						categories = append(categories, cat)
+					} else {
+						// Use as-is if not a recognized category name
+						categories = append(categories, LogCategory(catStr))
+					}
+				}
+			} else {
+				// Multiple positional arguments as categories
+				for i := 2; i < len(ctx.Args); i++ {
+					catStr := fmt.Sprintf("%v", ctx.Args[i])
+					if cat, valid := LogCategoryFromString(catStr); valid {
+						categories = append(categories, cat)
+					} else {
+						// Use as-is if not a recognized category name
+						categories = append(categories, LogCategory(catStr))
+					}
+				}
+			}
+		}
+
+		// Default to CatUser if no categories specified
+		if len(categories) == 0 {
+			categories = []LogCategory{CatUser}
 		}
 
 		// Set output context for channel routing and LogConfig access
 		ctx.logger.SetOutputContext(NewOutputContext(ctx.state, ctx.executor))
 		defer ctx.logger.ClearOutputContext()
 
-		ctx.logger.Log(level, category, message, ctx.Position, nil)
+		// Use LogMulti for multiple categories, Log for single
+		if len(categories) == 1 {
+			ctx.logger.Log(level, categories[0], message, ctx.Position, nil)
+		} else {
+			ctx.logger.LogMulti(level, categories, message, ctx.Position, nil)
+		}
 
 		return BoolStatus(level != LevelError)
 	})
