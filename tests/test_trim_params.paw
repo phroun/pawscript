@@ -1,0 +1,44 @@
+# Test trim commands with optional parameters
+
+echo "=== Testing trim ==="
+echo "Default (whitespace):"
+echo "  trim '  hello  ' =", {trim "  hello  "}
+
+echo "Override (only 'x'):"
+echo "  trim 'xxhelloxx', 'x' =", {trim "xxhelloxx", "x"}
+
+echo "Extend (whitespace + 'x') using ,, syntax:"
+echo "  trim 'xx hello xx',, 'x' =", {trim "xx hello xx",, "x"}
+
+echo ""
+echo "=== Testing trim_start ==="
+echo "Default (whitespace):"
+echo "  trim_start '  hello  ' =", {trim_start "  hello  "}
+
+echo "Override (only 'x'):"
+echo "  trim_start 'xxhello', 'x' =", {trim_start "xxhello", "x"}
+
+echo "Extend (whitespace + 'x') using ,, syntax:"
+echo "  trim_start 'xx  hello',, 'x' =", {trim_start "xx  hello",, "x"}
+
+echo ""
+echo "=== Testing trim_end ==="
+echo "Default (whitespace):"
+echo "  trim_end '  hello  ' =", {trim_end "  hello  "}
+
+echo "Override (only 'x'):"
+echo "  trim_end 'helloxx', 'x' =", {trim_end "helloxx", "x"}
+
+echo "Extend (whitespace + 'x') using ,, syntax:"
+echo "  trim_end 'hello  xx',, 'x' =", {trim_end "hello  xx",, "x"}
+
+echo ""
+echo "=== Edge cases ==="
+echo "Multiple chars in override:"
+echo "  trim '##hello##', '#' =", {trim "##hello##", "#"}
+
+echo "Multiple chars in extend:"
+echo "  trim '## hello ##',, '#' =", {trim "## hello ##",, "#"}
+
+echo ""
+echo "=== All trim parameter tests complete ==="

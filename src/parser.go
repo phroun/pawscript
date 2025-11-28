@@ -900,7 +900,12 @@ func parseArguments(argsStr string) ([]interface{}, map[string]interface{}) {
 				hasPendingPositional = false
 				pendingPositional.Reset()
 			}
-			finalizeArg()
+			// If no argument accumulated, insert undefined placeholder
+			if currentType == unitNone {
+				args = append(args, Symbol("undefined"))
+			} else {
+				finalizeArg()
+			}
 			sugar = false // Comma resets sugar for subsequent args... actually no, sugar persists
 			// Actually re-reading: after sugar=true, only named args allowed
 			// But comma should still finalize current arg

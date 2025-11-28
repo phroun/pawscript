@@ -330,17 +330,41 @@ func (ps *PawScript) RegisterTypesLib() {
 		return BoolStatus(true)
 	})
 
-	// trim - trim whitespace from both ends
-	// Usage: trim "  hello  "  -> "hello"
+	// trim - trim characters from both ends
+	// Usage: trim "  hello  "              -> "hello" (default whitespace)
+	//        trim "xxhelloxx", "x"         -> "hello" (override: trim only "x")
+	//        trim "xxhello  ",, "x"        -> "hello" (extend: whitespace + "x")
 	ps.RegisterCommandInModule("stdlib", "trim", func(ctx *Context) Result {
 		if len(ctx.Args) < 1 {
-			ctx.LogError(CatCommand, "Usage: trim <string>")
+			ctx.LogError(CatCommand, "Usage: trim <string>, [chars], [extend_chars]")
 			ctx.SetResult("")
 			return BoolStatus(false)
 		}
 
 		str := resolveToString(ctx.Args[0], ctx.executor)
-		result := strings.TrimSpace(str)
+		cutset := " \t\n\r" // default whitespace
+
+		// Helper to check if arg is undefined/skipped
+		isUndefined := func(arg interface{}) bool {
+			if arg == nil {
+				return true
+			}
+			if sym, ok := arg.(Symbol); ok && string(sym) == "undefined" {
+				return true
+			}
+			return false
+		}
+
+		// Check for override (arg 2) or extend (arg 3)
+		if len(ctx.Args) >= 2 && !isUndefined(ctx.Args[1]) {
+			// Override mode: use only the specified chars
+			cutset = resolveToString(ctx.Args[1], ctx.executor)
+		} else if len(ctx.Args) >= 3 && !isUndefined(ctx.Args[2]) {
+			// Extend mode: add to default whitespace
+			cutset += resolveToString(ctx.Args[2], ctx.executor)
+		}
+
+		result := strings.Trim(str, cutset)
 		if ctx.executor != nil {
 			result := ctx.executor.maybeStoreValue(result, ctx.state)
 			ctx.state.SetResultWithoutClaim(result)
@@ -350,17 +374,41 @@ func (ps *PawScript) RegisterTypesLib() {
 		return BoolStatus(true)
 	})
 
-	// trim_start - trim whitespace from start
-	// Usage: trim_start "  hello  "  -> "hello  "
+	// trim_start - trim characters from start
+	// Usage: trim_start "  hello  "              -> "hello  " (default whitespace)
+	//        trim_start "xxhello", "x"           -> "hello" (override: trim only "x")
+	//        trim_start "xxhello",, "x"          -> "hello" (extend: whitespace + "x")
 	ps.RegisterCommandInModule("stdlib", "trim_start", func(ctx *Context) Result {
 		if len(ctx.Args) < 1 {
-			ctx.LogError(CatCommand, "Usage: trim_start <string>")
+			ctx.LogError(CatCommand, "Usage: trim_start <string>, [chars], [extend_chars]")
 			ctx.SetResult("")
 			return BoolStatus(false)
 		}
 
 		str := resolveToString(ctx.Args[0], ctx.executor)
-		result := strings.TrimLeft(str, " \t\n\r")
+		cutset := " \t\n\r" // default whitespace
+
+		// Helper to check if arg is undefined/skipped
+		isUndefined := func(arg interface{}) bool {
+			if arg == nil {
+				return true
+			}
+			if sym, ok := arg.(Symbol); ok && string(sym) == "undefined" {
+				return true
+			}
+			return false
+		}
+
+		// Check for override (arg 2) or extend (arg 3)
+		if len(ctx.Args) >= 2 && !isUndefined(ctx.Args[1]) {
+			// Override mode: use only the specified chars
+			cutset = resolveToString(ctx.Args[1], ctx.executor)
+		} else if len(ctx.Args) >= 3 && !isUndefined(ctx.Args[2]) {
+			// Extend mode: add to default whitespace
+			cutset += resolveToString(ctx.Args[2], ctx.executor)
+		}
+
+		result := strings.TrimLeft(str, cutset)
 		if ctx.executor != nil {
 			result := ctx.executor.maybeStoreValue(result, ctx.state)
 			ctx.state.SetResultWithoutClaim(result)
@@ -370,17 +418,41 @@ func (ps *PawScript) RegisterTypesLib() {
 		return BoolStatus(true)
 	})
 
-	// trim_end - trim whitespace from end
-	// Usage: trim_end "  hello  "  -> "  hello"
+	// trim_end - trim characters from end
+	// Usage: trim_end "  hello  "              -> "  hello" (default whitespace)
+	//        trim_end "helloxx", "x"           -> "hello" (override: trim only "x")
+	//        trim_end "helloxx  ",, "x"        -> "hello" (extend: whitespace + "x")
 	ps.RegisterCommandInModule("stdlib", "trim_end", func(ctx *Context) Result {
 		if len(ctx.Args) < 1 {
-			ctx.LogError(CatCommand, "Usage: trim_end <string>")
+			ctx.LogError(CatCommand, "Usage: trim_end <string>, [chars], [extend_chars]")
 			ctx.SetResult("")
 			return BoolStatus(false)
 		}
 
 		str := resolveToString(ctx.Args[0], ctx.executor)
-		result := strings.TrimRight(str, " \t\n\r")
+		cutset := " \t\n\r" // default whitespace
+
+		// Helper to check if arg is undefined/skipped
+		isUndefined := func(arg interface{}) bool {
+			if arg == nil {
+				return true
+			}
+			if sym, ok := arg.(Symbol); ok && string(sym) == "undefined" {
+				return true
+			}
+			return false
+		}
+
+		// Check for override (arg 2) or extend (arg 3)
+		if len(ctx.Args) >= 2 && !isUndefined(ctx.Args[1]) {
+			// Override mode: use only the specified chars
+			cutset = resolveToString(ctx.Args[1], ctx.executor)
+		} else if len(ctx.Args) >= 3 && !isUndefined(ctx.Args[2]) {
+			// Extend mode: add to default whitespace
+			cutset += resolveToString(ctx.Args[2], ctx.executor)
+		}
+
+		result := strings.TrimRight(str, cutset)
 		if ctx.executor != nil {
 			result := ctx.executor.maybeStoreValue(result, ctx.state)
 			ctx.state.SetResultWithoutClaim(result)
