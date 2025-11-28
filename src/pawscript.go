@@ -23,7 +23,18 @@ func New(config *Config) *PawScript {
 		config = DefaultConfig()
 	}
 
-	logger := NewLogger(config.Debug)
+	// Ensure I/O streams are set
+	if config.Stdin == nil {
+		config.Stdin = os.Stdin
+	}
+	if config.Stdout == nil {
+		config.Stdout = os.Stdout
+	}
+	if config.Stderr == nil {
+		config.Stderr = os.Stderr
+	}
+
+	logger := NewLoggerWithWriters(config.Debug, config.Stdout, config.Stderr)
 	executor := NewExecutor(logger)
 
 	// Create root module environment for all execution states
@@ -169,22 +180,24 @@ func (ps *PawScript) dumpRemainingBubbles(state *ExecutionState) {
 		return
 	}
 
+	stderr := ps.config.Stderr
+
 	// Helper to dump a bubble map
 	dumpBubbleMap := func(label string, bubbleMap map[string][]*BubbleEntry) {
 		if len(bubbleMap) == 0 {
 			return
 		}
-		fmt.Fprintf(os.Stderr, "[%s]\n", label)
+		fmt.Fprintf(stderr, "[%s]\n", label)
 		for flavor, entries := range bubbleMap {
-			fmt.Fprintf(os.Stderr, "  Flavor: %s (%d entries)\n", flavor, len(entries))
+			fmt.Fprintf(stderr, "  Flavor: %s (%d entries)\n", flavor, len(entries))
 			for i, entry := range entries {
-				fmt.Fprintf(os.Stderr, "    [%d] content=%v, microtime=%d, memo=%q\n",
+				fmt.Fprintf(stderr, "    [%d] content=%v, microtime=%d, memo=%q\n",
 					i, entry.Content, entry.Microtime, entry.Memo)
 				if len(entry.StackTrace) > 0 {
-					fmt.Fprintf(os.Stderr, "        stack trace (%d frames):\n", len(entry.StackTrace))
+					fmt.Fprintf(stderr, "        stack trace (%d frames):\n", len(entry.StackTrace))
 					for j, frame := range entry.StackTrace {
 						if frameMap, ok := frame.(map[string]interface{}); ok {
-							fmt.Fprintf(os.Stderr, "          [%d] %v at %v:%v\n",
+							fmt.Fprintf(stderr, "          [%d] %v at %v:%v\n",
 								j, frameMap["macro"], frameMap["file"], frameMap["line"])
 						}
 					}

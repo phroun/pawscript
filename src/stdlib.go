@@ -157,9 +157,18 @@ func resolveToString(arg interface{}, executor *Executor) string {
 
 // RegisterStandardLibrary registers all standard library commands
 // This is the main entry point for setting up the PawScript standard library
-// Uses default OS-backed IO channels (stdin, stdout, stderr)
+// Uses custom IO channels from ps.config if set, otherwise defaults to OS-backed channels
 func (ps *PawScript) RegisterStandardLibrary(scriptArgs []string) {
-	ps.RegisterStandardLibraryWithIO(scriptArgs, nil)
+	// Create IOChannelConfig from ps.config's Stdin/Stdout/Stderr if any are set
+	var ioConfig *IOChannelConfig
+	if ps.config != nil && (ps.config.Stdin != nil || ps.config.Stdout != nil || ps.config.Stderr != nil) {
+		ioConfig = &IOChannelConfig{
+			DefaultStdin:  ps.config.Stdin,
+			DefaultStdout: ps.config.Stdout,
+			DefaultStderr: ps.config.Stderr,
+		}
+	}
+	ps.RegisterStandardLibraryWithIO(scriptArgs, ioConfig)
 }
 
 // RegisterStandardLibraryWithIO registers all standard library commands with custom IO channels
