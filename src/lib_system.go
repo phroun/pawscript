@@ -1285,14 +1285,22 @@ func (ps *PawScript) RegisterSystemLib(scriptArgs []string) {
 		levelStr := strings.ToLower(fmt.Sprintf("%v", ctx.Args[0]))
 		var level LogLevel
 		switch levelStr {
+		case "trace":
+			level = LevelTrace
+		case "info":
+			level = LevelInfo
 		case "debug":
 			level = LevelDebug
+		case "notice":
+			level = LevelNotice
 		case "warn", "warning":
 			level = LevelWarn
 		case "error":
 			level = LevelError
+		case "fatal":
+			level = LevelFatal
 		default:
-			ctx.LogError(CatIO, fmt.Sprintf("Invalid log level: %s (use debug, warn, or error)", levelStr))
+			ctx.LogError(CatIO, fmt.Sprintf("Invalid log level: %s (use trace, info, debug, notice, warn, error, or fatal)", levelStr))
 			return BoolStatus(false)
 		}
 
@@ -1302,6 +1310,10 @@ func (ps *PawScript) RegisterSystemLib(scriptArgs []string) {
 		if len(ctx.Args) > 2 {
 			category = LogCategory(fmt.Sprintf("%v", ctx.Args[2]))
 		}
+
+		// Set output context for channel routing and LogConfig access
+		ctx.logger.SetOutputContext(NewOutputContext(ctx.state, ctx.executor))
+		defer ctx.logger.ClearOutputContext()
 
 		ctx.logger.Log(level, category, message, ctx.Position, nil)
 
@@ -1315,6 +1327,20 @@ func (ps *PawScript) RegisterSystemLib(scriptArgs []string) {
 		microtime := now.UnixMicro()
 		ctx.SetResult(microtime)
 		return BoolStatus(true)
+	})
+
+	// error_logging - configure which log messages go to #err
+	// Named args: default, floor, force (log levels), plus per-category levels
+	// Returns: current configuration as StoredList with named args
+	ps.RegisterCommandInModule("debug", "error_logging", func(ctx *Context) Result {
+		return configureLogFilter(ctx, ps, true)
+	})
+
+	// debug_logging - configure which log messages go to #out
+	// Named args: default, floor, force (log levels), plus per-category levels
+	// Returns: current configuration as StoredList with named args
+	ps.RegisterCommandInModule("debug", "debug_logging", func(ctx *Context) Result {
+		return configureLogFilter(ctx, ps, false)
 	})
 
 	// datetime - format and convert date/time values
@@ -1512,4 +1538,124 @@ func (ps *PawScript) RegisterSystemLib(scriptArgs []string) {
 		ctx.SetResult(formatTime(parsedTime, targetTZ, hasSeconds))
 		return BoolStatus(true)
 	})
+}
+
+// configureLogFilter implements error_logging and debug_logging commands
+// isErrorLog=true for error_logging (#err), false for debug_logging (#out)
+func configureLogFilter(ctx *Context, ps *PawScript, isErrorLog bool) Result {
+	if ctx.state.moduleEnv == nil {
+		ctx.LogError(CatSystem, "no module environment available")
+		return BoolStatus(false)
+	}
+
+	// Get the LogConfig, triggering COW if we're making changes
+	hasChanges := len(ctx.Args) > 0 || len(ctx.NamedArgs) > 0
+
+	ctx.state.moduleEnv.mu.Lock()
+	var filter *LogFilter
+	if hasChanges {
+		logConfig := ctx.state.moduleEnv.GetLogConfigForModification()
+		if isErrorLog {
+			filter = logConfig.ErrorLog
+		} else {
+			filter = logConfig.DebugLog
+		}
+	} else {
+		logConfig := ctx.state.moduleEnv.LogConfigModule
+		if isErrorLog {
+			filter = logConfig.ErrorLog
+		} else {
+			filter = logConfig.DebugLog
+		}
+	}
+	ctx.state.moduleEnv.mu.Unlock()
+
+	// Helper to parse a log level from an argument
+	parseLevel := func(val interface{}) (LogLevel, bool) {
+		switch v := val.(type) {
+		case string:
+			level := LogLevelFromString(v)
+			return level, level >= 0
+		case QuotedString:
+			level := LogLevelFromString(string(v))
+			return level, level >= 0
+		case Symbol:
+			level := LogLevelFromString(string(v))
+			return level, level >= 0
+		case int64:
+			if v >= int64(LevelTrace) && v <= int64(LevelFatal) {
+				return LogLevel(v), true
+			}
+		case int:
+			if v >= int(LevelTrace) && v <= int(LevelFatal) {
+				return LogLevel(v), true
+			}
+		case float64:
+			iv := int(v)
+			if iv >= int(LevelTrace) && iv <= int(LevelFatal) {
+				return LogLevel(iv), true
+			}
+		}
+		return LevelFatal, false
+	}
+
+	// Process "default" level from positional arg or named arg
+	if len(ctx.Args) >= 1 {
+		if level, ok := parseLevel(ctx.Args[0]); ok {
+			filter.Default = level
+		}
+	}
+	if val, exists := ctx.NamedArgs["default"]; exists {
+		if level, ok := parseLevel(val); ok {
+			filter.Default = level
+		}
+	}
+
+	// Process "floor" and "force" from named args
+	if val, exists := ctx.NamedArgs["floor"]; exists {
+		if level, ok := parseLevel(val); ok {
+			filter.Floor = level
+		}
+	}
+	if val, exists := ctx.NamedArgs["force"]; exists {
+		if level, ok := parseLevel(val); ok {
+			filter.Force = level
+		}
+	}
+
+	// Process per-category levels from named args
+	for key, val := range ctx.NamedArgs {
+		// Skip reserved names
+		if key == "default" || key == "floor" || key == "force" {
+			continue
+		}
+
+		// Check if this is a valid category name
+		if cat, valid := LogCategoryFromString(key); valid {
+			if level, ok := parseLevel(val); ok {
+				filter.Categories[cat] = level
+			}
+		}
+	}
+
+	// Build and return result list with current configuration
+	resultNamedArgs := map[string]interface{}{
+		"default": LogLevelToString(filter.Default),
+		"floor":   LogLevelToString(filter.Floor),
+		"force":   LogLevelToString(filter.Force),
+	}
+
+	// Add all category settings
+	for _, cat := range AllLogCategories() {
+		if level, exists := filter.Categories[cat]; exists {
+			resultNamedArgs[string(cat)] = LogLevelToString(level)
+		}
+	}
+
+	result := NewStoredListWithNamed([]interface{}{}, resultNamedArgs)
+	id := ctx.executor.storeObject(result, "list")
+	marker := fmt.Sprintf("\x00LIST:%d\x00", id)
+	ctx.state.SetResultWithoutClaim(Symbol(marker))
+
+	return BoolStatus(true)
 }

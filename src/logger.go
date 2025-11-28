@@ -151,6 +151,199 @@ const (
 	CatUser     LogCategory = "user"     // User generated/custom
 )
 
+// AllLogCategories returns a slice of all defined log categories (excluding CatNone)
+func AllLogCategories() []LogCategory {
+	return []LogCategory{
+		CatParse, CatCommand, CatVariable, CatArgument, CatIO,
+		CatMacro, CatAsync, CatMemory, CatMath, CatList, CatString,
+		CatType, CatFlow, CatSystem, CatApp, CatUser,
+	}
+}
+
+// LogFilter controls which log messages pass through to an output channel
+// A message passes the filter if:
+//   - Level >= Force (always pass), OR
+//   - Level >= Floor AND Level >= threshold
+//     (where threshold is Categories[cat] if exists, else Default)
+type LogFilter struct {
+	Default    LogLevel                // Threshold for categories not in the map
+	Categories map[LogCategory]LogLevel // Per-category thresholds
+	Floor      LogLevel                // Global floor: nothing below this ever shows
+	Force      LogLevel                // Global force: everything at/above this always shows
+}
+
+// NewLogFilter creates a new LogFilter with sensible defaults
+func NewLogFilter(defaultLevel LogLevel) *LogFilter {
+	return &LogFilter{
+		Default:    defaultLevel,
+		Categories: make(map[LogCategory]LogLevel),
+		Floor:      LevelTrace, // Don't block anything by default
+		Force:      LevelFatal, // Only Fatal forces through by default
+	}
+}
+
+// Passes checks if a message with the given level and category passes this filter
+func (f *LogFilter) Passes(level LogLevel, cat LogCategory) bool {
+	// Force: always pass if level >= Force
+	if level >= f.Force {
+		return true
+	}
+
+	// Floor: never pass if level < Floor
+	if level < f.Floor {
+		return false
+	}
+
+	// Get threshold for this category (use Default if not specified)
+	threshold := f.Default
+	if catLevel, exists := f.Categories[cat]; exists {
+		threshold = catLevel
+	}
+
+	return level >= threshold
+}
+
+// Copy creates a deep copy of the LogFilter for COW semantics
+func (f *LogFilter) Copy() *LogFilter {
+	if f == nil {
+		return nil
+	}
+	newFilter := &LogFilter{
+		Default:    f.Default,
+		Categories: make(map[LogCategory]LogLevel, len(f.Categories)),
+		Floor:      f.Floor,
+		Force:      f.Force,
+	}
+	for k, v := range f.Categories {
+		newFilter.Categories[k] = v
+	}
+	return newFilter
+}
+
+// LogConfig holds the two log filter systems (error_logging and debug_logging)
+// ErrorLog controls what goes to #err; DebugLog controls what goes to #out
+// A message can pass both filters and appear in both outputs
+type LogConfig struct {
+	ErrorLog *LogFilter // Filter for #err output
+	DebugLog *LogFilter // Filter for #out output
+}
+
+// LevelNone represents "off" - threshold higher than any level, so nothing passes
+const LevelNone LogLevel = LevelFatal + 1
+
+// NewLogConfig creates a new LogConfig with default settings
+// ErrorLog defaults to showing Warn and above; DebugLog defaults to showing nothing
+func NewLogConfig() *LogConfig {
+	errorFilter := NewLogFilter(LevelWarn) // Default: show Warn and above on #err
+	debugFilter := NewLogFilter(LevelNone) // Default: show nothing on #out
+
+	return &LogConfig{
+		ErrorLog: errorFilter,
+		DebugLog: debugFilter,
+	}
+}
+
+// Copy creates a deep copy of the LogConfig for COW semantics
+func (c *LogConfig) Copy() *LogConfig {
+	if c == nil {
+		return nil
+	}
+	return &LogConfig{
+		ErrorLog: c.ErrorLog.Copy(),
+		DebugLog: c.DebugLog.Copy(),
+	}
+}
+
+// LogLevelFromString converts a string name to a LogLevel
+// Returns -1 if the string is not a valid level name
+func LogLevelFromString(name string) LogLevel {
+	switch strings.ToLower(name) {
+	case "trace":
+		return LevelTrace
+	case "info":
+		return LevelInfo
+	case "debug":
+		return LevelDebug
+	case "notice":
+		return LevelNotice
+	case "warn", "warning":
+		return LevelWarn
+	case "error":
+		return LevelError
+	case "fatal":
+		return LevelFatal
+	case "none", "off":
+		return LevelNone
+	default:
+		return LogLevel(-1)
+	}
+}
+
+// LogLevelToString converts a LogLevel to its string name
+func LogLevelToString(level LogLevel) string {
+	switch level {
+	case LevelTrace:
+		return "trace"
+	case LevelInfo:
+		return "info"
+	case LevelDebug:
+		return "debug"
+	case LevelNotice:
+		return "notice"
+	case LevelWarn:
+		return "warn"
+	case LevelError:
+		return "error"
+	case LevelFatal:
+		return "fatal"
+	case LevelNone:
+		return "none"
+	default:
+		return "unknown"
+	}
+}
+
+// LogCategoryFromString converts a string name to a LogCategory
+// Returns CatNone if the string is not a valid category name
+func LogCategoryFromString(name string) (LogCategory, bool) {
+	switch strings.ToLower(name) {
+	case "parse":
+		return CatParse, true
+	case "command":
+		return CatCommand, true
+	case "variable":
+		return CatVariable, true
+	case "argument":
+		return CatArgument, true
+	case "io":
+		return CatIO, true
+	case "macro":
+		return CatMacro, true
+	case "async":
+		return CatAsync, true
+	case "memory":
+		return CatMemory, true
+	case "math":
+		return CatMath, true
+	case "list":
+		return CatList, true
+	case "string":
+		return CatString, true
+	case "type":
+		return CatType, true
+	case "flow":
+		return CatFlow, true
+	case "system":
+		return CatSystem, true
+	case "app":
+		return CatApp, true
+	case "user":
+		return CatUser, true
+	default:
+		return CatNone, false
+	}
+}
+
 // ANSI color codes for terminal output
 const (
 	colorYellow = "\x1b[93m" // Bright yellow foreground
@@ -231,34 +424,6 @@ func (l *Logger) WithContext(state *ExecutionState, executor *Executor) *Logger 
 	}
 }
 
-// writeOutput writes to the appropriate output (channel or direct writer)
-// For debug output, uses #out channel; for errors/warnings, uses #err channel
-func (l *Logger) writeOutput(isDebug bool, output string) {
-	if l.outputContext != nil {
-		var err error
-		if isDebug {
-			err = l.outputContext.WriteToOut(output + "\n")
-		} else {
-			err = l.outputContext.WriteToErr(output + "\n")
-		}
-		if err == nil {
-			return // Successfully wrote to channel
-		}
-		// Fall through to direct writer on channel error
-	}
-
-	// Direct writer fallback (system console)
-	if isDebug {
-		_, _ = fmt.Fprintln(l.out, output)
-	} else {
-		// Apply color to error/warning output when writing to terminal
-		if l.colorEnabled {
-			_, _ = fmt.Fprintf(l.errOut, "%s%s%s\n", colorYellow, output, colorReset)
-		} else {
-			_, _ = fmt.Fprintln(l.errOut, output)
-		}
-	}
-}
 
 // SetEnabled enables or disables debug logging
 func (l *Logger) SetEnabled(enabled bool) {
@@ -304,7 +469,33 @@ func (l *Logger) shouldLog(level LogLevel, cat LogCategory) bool {
 
 // Log is the unified logging method
 func (l *Logger) Log(level LogLevel, cat LogCategory, message string, position *SourcePosition, context []string) {
-	if !l.shouldLog(level, cat) {
+	// Get LogConfig from output context's module environment (if available)
+	var logConfig *LogConfig
+	if l.outputContext != nil && l.outputContext.State != nil && l.outputContext.State.moduleEnv != nil {
+		logConfig = l.outputContext.State.moduleEnv.GetLogConfig()
+	}
+
+	// Determine which outputs this message should go to
+	sendToErr := false
+	sendToOut := false
+
+	if logConfig != nil {
+		// Use LogConfig for filtering
+		sendToErr = logConfig.ErrorLog.Passes(level, cat)
+		sendToOut = logConfig.DebugLog.Passes(level, cat)
+	} else {
+		// Legacy behavior: use the old shouldLog logic
+		if !l.shouldLog(level, cat) {
+			return
+		}
+		// Default routing: low severity to stdout, high severity to stderr
+		isLowSeverity := level == LevelTrace || level == LevelInfo || level == LevelDebug
+		sendToErr = !isLowSeverity
+		sendToOut = isLowSeverity
+	}
+
+	// If nothing passes, don't log
+	if !sendToErr && !sendToOut {
 		return
 	}
 
@@ -350,10 +541,43 @@ func (l *Logger) Log(level LogLevel, cat LogCategory, message string, position *
 		}
 	}
 
-	// Route to appropriate output using channel-aware helper
-	// Trace, Info, Debug go to stdout; Notice, Warn, Error, Fatal go to stderr
-	isLowSeverity := level == LevelTrace || level == LevelInfo || level == LevelDebug
-	l.writeOutput(isLowSeverity, output)
+	// Send to each destination that passed its filter
+	if sendToErr {
+		l.writeOutputToErr(output)
+	}
+	if sendToOut {
+		l.writeOutputToOut(output)
+	}
+}
+
+// writeOutputToErr writes to #err channel or stderr
+func (l *Logger) writeOutputToErr(output string) {
+	if l.outputContext != nil {
+		if err := l.outputContext.WriteToErr(output + "\n"); err == nil {
+			return // Successfully wrote to channel
+		}
+		// Fall through to direct writer on channel error
+	}
+
+	// Direct writer fallback (system stderr)
+	if l.colorEnabled {
+		_, _ = fmt.Fprintf(l.errOut, "%s%s%s\n", colorYellow, output, colorReset)
+	} else {
+		_, _ = fmt.Fprintln(l.errOut, output)
+	}
+}
+
+// writeOutputToOut writes to #out channel or stdout
+func (l *Logger) writeOutputToOut(output string) {
+	if l.outputContext != nil {
+		if err := l.outputContext.WriteToOut(output + "\n"); err == nil {
+			return // Successfully wrote to channel
+		}
+		// Fall through to direct writer on channel error
+	}
+
+	// Direct writer fallback (system stdout)
+	_, _ = fmt.Fprintln(l.out, output)
 }
 
 // Convenience methods that route through Log
