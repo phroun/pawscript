@@ -1,0 +1,46 @@
+=== Test 1: Simple variable existence ===
+x exists: true
+y exists: false
+(Expected: true, false)
+
+=== Test 2: List with named args ===
+has name: true
+has email: false
+(Expected: true, false)
+
+=== Test 3: Nested list accessors ===
+has data.info.contact.email: true
+has data.info.contact.phone: false
+has data.info.missing.field: false
+(Expected: true, false, false)
+
+=== Test 4: List index existence ===
+has index 0: true
+has index 2: true
+has index 5: false
+(Expected: true, true, false)
+
+=== Test 5: Mixed index and key access ===
+has users[0].name: true
+has users[1].name: true
+has users[2].name: false
+(Expected: true, true, false)
+
+=== Test 6: Use in conditionals ===
+Debug mode available
+No verbose config
+(Expected: Debug mode available, No verbose config)
+
+=== Test 7: Question in string interpolation ===
+item exists: true
+missing exists: false
+(Expected: true, false)
+item.value exists: true
+item.missing exists: false
+(Expected: true, false)
+
+=== Test 8: Undefined value check ===
+undefined var exists: false
+(Expected: false)
+
+=== All ? operator tests complete ===

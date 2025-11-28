@@ -217,12 +217,13 @@ type BraceLocation struct {
 	IsUnescape       bool // true if ${...}, false if {...}
 }
 
-// TildeLocation tracks the position of a tilde variable reference in a string
+// TildeLocation tracks the position of a tilde or question variable reference in a string
 type TildeLocation struct {
-	StartPos    int    // Position of the ~
-	EndPos      int    // Position of last char of varname (or semicolon if present)
-	VarName     string // The variable name (without ~ or ;)
-	HasSemicolon bool  // true if terminated by explicit semicolon
+	StartPos     int    // Position of the ~ or ?
+	EndPos       int    // Position of last char of varname (or semicolon if present)
+	VarName      string // The variable name (without ~ or ? or ;)
+	HasSemicolon bool   // true if terminated by explicit semicolon
+	IsQuestion   bool   // true if this is a ? (existence check) expression, false for ~ (value)
 }
 
 // BraceEvaluation tracks the evaluation state of a single brace expression
