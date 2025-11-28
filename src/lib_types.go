@@ -1341,27 +1341,176 @@ func (ps *PawScript) RegisterTypesLib() {
 		return BoolStatus(result)
 	})
 
-	// str_repeat - repeat string n times
-	// Usage: str_repeat "ab", 3  -> "ababab"
-	ps.RegisterCommandInModule("stdlib", "str_repeat", func(ctx *Context) Result {
+	// repeat - polymorphic repetition command
+	// String mode: repeat "abc", 3 -> "abcabcabc"
+	// List mode: repeat ~mylist, 3 -> items repeated 3 times
+	// Block mode: repeat (code), 5, [counter_var] -> runs block 5 times, collects results
+	//   - Optional 3rd arg is variable name to store iteration counter (0-based)
+	//   - Returns list of results from each iteration (nil for undefined results)
+	//   - If any iteration fails, adds failures: (list of failed iteration numbers)
+	ps.RegisterCommandInModule("stdlib", "repeat", func(ctx *Context) Result {
 		if len(ctx.Args) < 2 {
-			ctx.LogError(CatCommand, "Usage: str_repeat <string>, <count>")
-			ctx.SetResult("")
+			ctx.LogError(CatCommand, "Usage: repeat <string|list|block>, <count>, [counter_var]")
+			ctx.SetResult(nil)
 			return BoolStatus(false)
 		}
 
-		str := resolveToString(ctx.Args[0], ctx.executor)
-		count, ok := toNumber(ctx.Args[1])
+		countNum, ok := toNumber(ctx.Args[1])
 		if !ok {
 			ctx.LogError(CatArgument, "Count must be a number")
-			ctx.SetResult("")
+			ctx.SetResult(nil)
 			return BoolStatus(false)
 		}
+		count := int(countNum)
+		if count < 0 {
+			count = 0
+		}
 
-		result := strings.Repeat(str, int(count))
+		value := ctx.Args[0]
+
+		// Check for block mode first (ParenGroup)
+		if block, isBlock := value.(ParenGroup); isBlock {
+			// Block mode - execute block count times, collect results
+			bodyBlock := string(block)
+
+			// Get optional counter variable name
+			var counterVar string
+			if len(ctx.Args) >= 3 {
+				counterVar = fmt.Sprintf("%v", ctx.Args[2])
+			}
+
+			// Parse body into commands once
+			parser := NewParser(bodyBlock, "")
+			cleanedBody := parser.RemoveComments(bodyBlock)
+			normalizedBody := parser.NormalizeKeywords(cleanedBody)
+			bodyCommands, err := parser.ParseCommandSequence(normalizedBody)
+			if err != nil {
+				ctx.LogError(CatCommand, fmt.Sprintf("repeat: failed to parse body: %v", err))
+				ctx.SetResult(nil)
+				return BoolStatus(false)
+			}
+
+			results := make([]interface{}, 0, count)
+			var failures []interface{}
+
+			for iteration := 0; iteration < count; iteration++ {
+				// Set counter variable if specified
+				if counterVar != "" {
+					ctx.state.SetVariable(counterVar, int64(iteration))
+				}
+
+				// Clear result for this iteration
+				ctx.state.ClearResult()
+
+				// Execute body commands
+				lastStatus := true
+
+				for cmdIdx, cmd := range bodyCommands {
+					if strings.TrimSpace(cmd.Command) == "" {
+						continue
+					}
+
+					// Apply flow control
+					shouldExecute := true
+					switch cmd.Separator {
+					case "&":
+						shouldExecute = lastStatus
+					case "|":
+						shouldExecute = !lastStatus
+					}
+
+					if !shouldExecute {
+						continue
+					}
+
+					result := ctx.executor.executeParsedCommand(cmd, ctx.state, nil)
+
+					// Check for yield - attach repeat continuation
+					if yieldResult, ok := result.(YieldResult); ok {
+						outerCont := &RepeatContinuation{
+							BodyBlock:         bodyBlock,
+							RemainingBodyCmds: bodyCommands[cmdIdx+1:],
+							BodyCmdIndex:      cmdIdx,
+							CurrentIteration:  iteration,
+							TotalIterations:   count,
+							CounterVar:        counterVar,
+							Results:           results,
+							Failures:          failures,
+							State:             ctx.state,
+						}
+						if yieldResult.RepeatContinuation == nil {
+							yieldResult.RepeatContinuation = outerCont
+						} else {
+							yieldResult.RepeatContinuation.ParentContinuation = outerCont
+						}
+						return yieldResult
+					}
+
+					// Check for early return
+					if earlyReturn, ok := result.(EarlyReturn); ok {
+						if earlyReturn.HasResult {
+							ctx.SetResult(earlyReturn.Result)
+						}
+						return earlyReturn.Status
+					}
+
+					// Handle async in body
+					if bodyToken, isToken := result.(TokenResult); isToken {
+						tokenID := string(bodyToken)
+						waitChan := make(chan ResumeData, 1)
+						ctx.executor.attachWaitChan(tokenID, waitChan)
+						resumeData := <-waitChan
+						lastStatus = resumeData.Status
+						continue
+					}
+
+					if boolRes, ok := result.(BoolStatus); ok {
+						lastStatus = bool(boolRes)
+					}
+				}
+
+				// Collect result for this iteration
+				iterResult := ctx.state.GetResult()
+				results = append(results, iterResult)
+
+				// Track failure if final status of iteration is false
+				if !lastStatus {
+					failures = append(failures, int64(iteration))
+				}
+			}
+
+			// Build result list with optional failures named arg
+			var namedArgs map[string]interface{}
+			if len(failures) > 0 {
+				namedArgs = map[string]interface{}{
+					"failures": NewStoredList(failures),
+				}
+			}
+
+			resultList := NewStoredListWithNamed(results, namedArgs)
+			setListResult(ctx, resultList)
+			return BoolStatus(true)
+		}
+
+		// Check for list mode
+		if list, isList := value.(StoredList); isList {
+			// List mode - repeat list items count times
+			items := list.Items()
+			newItems := make([]interface{}, 0, len(items)*count)
+			for i := 0; i < count; i++ {
+				newItems = append(newItems, items...)
+			}
+			resultList := NewStoredListWithNamed(newItems, list.NamedArgs())
+			setListResult(ctx, resultList)
+			return BoolStatus(true)
+		}
+
+		// String mode (default) - repeat string count times
+		str := resolveToString(value, ctx.executor)
+		result := strings.Repeat(str, count)
 		if ctx.executor != nil {
-			result := ctx.executor.maybeStoreValue(result, ctx.state)
-			ctx.state.SetResultWithoutClaim(result)
+			stored := ctx.executor.maybeStoreValue(result, ctx.state)
+			ctx.state.SetResultWithoutClaim(stored)
 		} else {
 			ctx.state.SetResultWithoutClaim(result)
 		}

@@ -121,20 +121,20 @@ mem_stats
 echo "Expected: 1 object (only large_base)"
 echo ""
 
-# ============ str_repeat ============
-echo "Test 18: str_repeat small result"
-small_repeat: {str_repeat "ab", 3}
+# ============ repeat ============
+echo "Test 18: repeat small result"
+small_repeat: {repeat "ab", 3}
 mem_stats
 echo "Expected: 1 object (large_base)"
 echo ""
 
-echo "Test 19: str_repeat large result"
-large_repeat: {str_repeat "abcdefghij", 25}
+echo "Test 19: repeat large result"
+large_repeat: {repeat "abcdefghij", 25}
 mem_stats
 echo "Expected: 2 objects (large_base + large_repeat of 250 chars)"
 echo ""
 
-echo "Test 20: Clear str_repeat results"
+echo "Test 20: Clear repeat results"
 small_repeat: nil
 large_repeat: nil
 mem_stats
