@@ -1,6 +1,8 @@
 package pawscript
 
 import (
+	"fmt"
+	"os"
 	"sort"
 	"time"
 )
@@ -150,6 +152,55 @@ func (ps *PawScript) NewExecutionStateFromRoot() *ExecutionState {
 	return state
 }
 
+// dumpRemainingBubbles dumps any remaining bubbles to stderr before returning control to host.
+// This includes orphaned bubbles (from abandoned fibers) and bubbles in the execution state.
+func (ps *PawScript) dumpRemainingBubbles(state *ExecutionState) {
+	// Collect all bubbles: orphaned + state's bubbleMap
+	orphaned := ps.executor.GetOrphanedBubbles()
+
+	state.mu.Lock()
+	stateBubbles := state.bubbleMap
+	state.mu.Unlock()
+
+	hasOrphaned := len(orphaned) > 0
+	hasStateBubbles := len(stateBubbles) > 0
+
+	if !hasOrphaned && !hasStateBubbles {
+		return
+	}
+
+	// Helper to dump a bubble map
+	dumpBubbleMap := func(label string, bubbleMap map[string][]*BubbleEntry) {
+		if len(bubbleMap) == 0 {
+			return
+		}
+		fmt.Fprintf(os.Stderr, "[%s]\n", label)
+		for flavor, entries := range bubbleMap {
+			fmt.Fprintf(os.Stderr, "  Flavor: %s (%d entries)\n", flavor, len(entries))
+			for i, entry := range entries {
+				fmt.Fprintf(os.Stderr, "    [%d] content=%v, microtime=%d, memo=%q\n",
+					i, entry.Content, entry.Microtime, entry.Memo)
+				if len(entry.StackTrace) > 0 {
+					fmt.Fprintf(os.Stderr, "        stack trace (%d frames):\n", len(entry.StackTrace))
+					for j, frame := range entry.StackTrace {
+						if frameMap, ok := frame.(map[string]interface{}); ok {
+							fmt.Fprintf(os.Stderr, "          [%d] %v at %v:%v\n",
+								j, frameMap["macro"], frameMap["file"], frameMap["line"])
+						}
+					}
+				}
+			}
+		}
+	}
+
+	if hasOrphaned {
+		dumpBubbleMap("Orphaned bubbles", orphaned)
+	}
+	if hasStateBubbles {
+		dumpBubbleMap("Remaining bubbles", stateBubbles)
+	}
+}
+
 // ExecuteFile executes a script file with proper filename tracking.
 // If the script contains async operations (like msleep), this function waits
 // for the entire script to complete before returning and merging exports.
@@ -191,6 +242,9 @@ func (ps *PawScript) ExecuteFile(commandString, filename string) Result {
 	// Merge any module exports into the root environment for persistence
 	state.moduleEnv.MergeExportsInto(ps.rootModuleEnv)
 
+	// Dump any remaining bubbles to stderr before returning control to host
+	ps.dumpRemainingBubbles(state)
+
 	return result
 }
 
@@ -202,6 +256,9 @@ func (ps *PawScript) Execute(commandString string, args ...interface{}) Result {
 
 	// Merge any module exports into the root environment for persistence
 	state.moduleEnv.MergeExportsInto(ps.rootModuleEnv)
+
+	// Dump any remaining bubbles to stderr before returning control to host
+	ps.dumpRemainingBubbles(state)
 
 	return result
 }
@@ -264,7 +321,12 @@ func (ps *PawScript) ExecuteWithEnvironment(commandString string, env *ModuleEnv
 	state := NewExecutionState()
 	state.moduleEnv = env
 	defer state.ReleaseAllReferences()
-	return ps.executor.ExecuteWithState(commandString, state, nil, filename, lineOffset, columnOffset)
+	result := ps.executor.ExecuteWithState(commandString, state, nil, filename, lineOffset, columnOffset)
+
+	// Dump any remaining bubbles to stderr before returning control to host
+	ps.dumpRemainingBubbles(state)
+
+	return result
 }
 
 // RequestToken requests an async completion token
