@@ -264,6 +264,85 @@ func (ps *PawScript) RegisterCoreLib() {
 		return BoolStatus(true)
 	})
 
+	// bubble - add a bubble to the bubble map
+	// Usage: bubble flavor, content [, trace [, memo]]
+	// flavor: string key for categorizing bubbles
+	// content: any PawScript value
+	// trace: boolean (default true) - whether to include stack trace
+	// memo: optional string memo
+	ps.RegisterCommandInModule("core", "bubble", func(ctx *Context) Result {
+		if len(ctx.Args) < 2 {
+			ctx.LogError(CatCommand, "bubble requires at least 2 arguments: flavor, content")
+			return BoolStatus(false)
+		}
+
+		// Get flavor (convert to string)
+		flavor := fmt.Sprintf("%v", ctx.Args[0])
+
+		// Get content
+		content := ctx.Args[1]
+
+		// Get trace (default true)
+		trace := true
+		if len(ctx.Args) >= 3 {
+			switch v := ctx.Args[2].(type) {
+			case bool:
+				trace = v
+			case Symbol:
+				trace = string(v) != "false" && string(v) != "0"
+			case string:
+				trace = v != "false" && v != "0"
+			default:
+				trace = true
+			}
+		}
+
+		// Get memo (default empty)
+		memo := ""
+		if len(ctx.Args) >= 4 {
+			memo = fmt.Sprintf("%v", ctx.Args[3])
+		}
+
+		// Claim reference if content is a stored object
+		if sym, ok := content.(Symbol); ok {
+			_, objectID := parseObjectMarker(string(sym))
+			if objectID >= 0 {
+				ctx.state.ClaimObjectReference(objectID)
+			}
+		}
+
+		ctx.state.AddBubble(flavor, content, trace, memo)
+		return BoolStatus(true)
+	})
+
+	// bubble_dump - debug command to dump the bubble map contents
+	ps.RegisterCommandInModule("debug", "bubble_dump", func(ctx *Context) Result {
+		bubbleMap := ctx.state.GetBubbleMap()
+		if len(bubbleMap) == 0 {
+			fmt.Fprintln(os.Stderr, "[bubble_dump] No bubbles")
+			return BoolStatus(true)
+		}
+
+		fmt.Fprintln(os.Stderr, "[bubble_dump] Bubble map contents:")
+		for flavor, entries := range bubbleMap {
+			fmt.Fprintf(os.Stderr, "  Flavor: %s (%d entries)\n", flavor, len(entries))
+			for i, entry := range entries {
+				fmt.Fprintf(os.Stderr, "    [%d] content=%v, microtime=%d, memo=%q\n",
+					i, entry.Content, entry.Microtime, entry.Memo)
+				if len(entry.StackTrace) > 0 {
+					fmt.Fprintf(os.Stderr, "        stack trace (%d frames):\n", len(entry.StackTrace))
+					for j, frame := range entry.StackTrace {
+						if frameMap, ok := frame.(map[string]interface{}); ok {
+							fmt.Fprintf(os.Stderr, "          [%d] %v at %v:%v\n",
+								j, frameMap["macro"], frameMap["file"], frameMap["line"])
+						}
+					}
+				}
+			}
+		}
+		return BoolStatus(true)
+	})
+
 	// ==================== macros:: module ====================
 
 	// macro - define a macro
@@ -876,6 +955,9 @@ func (ps *PawScript) RegisterCoreLib() {
 			defer execState.ReleaseAllReferences()
 
 			result := ctx.executor.ExecuteWithState(string(content), execState, nil, filename, 0, 0)
+
+			// Merge bubbles from included file's state to caller state
+			ctx.state.MergeBubbles(execState)
 
 			if boolStatus, ok := result.(BoolStatus); ok && !bool(boolStatus) {
 				return BoolStatus(false)

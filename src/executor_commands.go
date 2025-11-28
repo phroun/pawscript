@@ -1324,6 +1324,9 @@ func (e *Executor) executeMacro(
 		e.logger.DebugCat(CatCommand,"Transferred macro result to parent state: %v", macroState.GetResult())
 	}
 
+	// Merge bubbles from macro state to parent state
+	state.MergeBubbles(macroState)
+
 	// Clean up macro state
 	macroState.ReleaseAllReferences()
 

@@ -5,7 +5,17 @@ import (
 	"strconv"
 	"strings"
 	"sync"
+	"time"
 )
+
+// BubbleEntry represents a single bubble in the bubble system
+// Bubbles are out-of-band values that accumulate and "bubble up" through the call stack
+type BubbleEntry struct {
+	Content    interface{}   // The PawScript value
+	Microtime  int64         // Microseconds since epoch when created
+	Memo       string        // Optional memo string
+	StackTrace []interface{} // Optional stack trace (nil if trace was false)
+}
 
 // ExecutionState manages the result state during command execution
 type ExecutionState struct {
@@ -20,6 +30,7 @@ type ExecutionState struct {
 	fiberID               int                  // ID of the fiber this state belongs to (0 for main)
 	moduleEnv             *ModuleEnvironment   // Module environment for this state
 	macroContext          *MacroContext        // Current macro context for stack traces
+	bubbleMap             map[string][]*BubbleEntry // Map of flavor -> list of bubbles
 	// InBraceExpression is true when executing inside a brace expression {...}
 	// Commands can check this to return values instead of emitting side effects to #out
 	InBraceExpression bool
@@ -32,32 +43,36 @@ func NewExecutionState() *ExecutionState {
 		lastStatus:   true, // Default to success
 		variables:    make(map[string]interface{}),
 		ownedObjects: make(map[int]int),
-		executor:     nil,                 // Will be set when attached to executor
-		fiberID:      0,                   // Main fiber
-		moduleEnv:    NewModuleEnvironment(), // Create new module environment
+		executor:     nil,                             // Will be set when attached to executor
+		fiberID:      0,                               // Main fiber
+		moduleEnv:    NewModuleEnvironment(),          // Create new module environment
+		bubbleMap:    make(map[string][]*BubbleEntry), // Fresh bubble map
 	}
 }
 
 // NewExecutionStateFrom creates a child state inheriting from parent
+// Used for macro calls - starts with fresh result and fresh bubbleMap
 func NewExecutionStateFrom(parent *ExecutionState) *ExecutionState {
 	if parent == nil {
 		return NewExecutionState()
 	}
 
 	return &ExecutionState{
-		currentResult: nil,                             // Fresh result storage for this child
-		hasResult:     false,                           // Child starts with no result
-		lastStatus:    true,                            // Child starts with success status
-		variables:     make(map[string]interface{}),    // Create fresh map
-		ownedObjects:  make(map[int]int),               // Fresh owned objects counter
-		executor:      parent.executor,                 // Share executor reference
-		fiberID:       parent.fiberID,                  // Inherit fiber ID
+		currentResult: nil,                                         // Fresh result storage for this child
+		hasResult:     false,                                       // Child starts with no result
+		lastStatus:    true,                                        // Child starts with success status
+		variables:     make(map[string]interface{}),                // Create fresh map
+		ownedObjects:  make(map[int]int),                           // Fresh owned objects counter
+		executor:      parent.executor,                             // Share executor reference
+		fiberID:       parent.fiberID,                              // Inherit fiber ID
 		moduleEnv:     NewChildModuleEnvironment(parent.moduleEnv), // Create child module environment
+		bubbleMap:     make(map[string][]*BubbleEntry),             // Fresh bubble map (will merge on return)
 	}
 }
 
 // NewExecutionStateFromSharedVars creates a child that shares variables but has its own result storage
 // This is used for braces that need isolated result storage but shared variable scope
+// Bubbles survive into and out of brace expressions (shared bubbleMap)
 func NewExecutionStateFromSharedVars(parent *ExecutionState) *ExecutionState {
 	if parent == nil {
 		return NewExecutionState()
@@ -77,6 +92,7 @@ func NewExecutionStateFromSharedVars(parent *ExecutionState) *ExecutionState {
 		fiberID:               parent.fiberID,               // Inherit fiber ID
 		moduleEnv:             parent.moduleEnv,             // Share module environment with parent
 		macroContext:          parent.macroContext,          // Inherit macro context for stack traces
+		bubbleMap:             parent.bubbleMap,             // Share bubble map with parent (bubbles survive into/out of braces)
 	}
 }
 
@@ -484,4 +500,85 @@ func parseObjectMarker(s string) (string, int) {
 	}
 	
 	return markerType, id
+}
+
+// AddBubble adds a new bubble entry to the bubble map
+// If trace is true, includes the current stack trace
+func (s *ExecutionState) AddBubble(flavor string, content interface{}, trace bool, memo string) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+
+	if s.bubbleMap == nil {
+		s.bubbleMap = make(map[string][]*BubbleEntry)
+	}
+
+	// Build stack trace if requested
+	var stackTrace []interface{}
+	if trace && s.macroContext != nil {
+		for mc := s.macroContext; mc != nil; mc = mc.ParentMacro {
+			frame := map[string]interface{}{
+				"macro":    mc.MacroName,
+				"file":     mc.InvocationFile,
+				"line":     int64(mc.InvocationLine),
+				"column":   int64(mc.InvocationColumn),
+				"def_file": mc.DefinitionFile,
+				"def_line": int64(mc.DefinitionLine),
+			}
+			stackTrace = append(stackTrace, frame)
+		}
+	}
+
+	entry := &BubbleEntry{
+		Content:    content,
+		Microtime:  time.Now().UnixMicro(),
+		Memo:       memo,
+		StackTrace: stackTrace,
+	}
+
+	s.bubbleMap[flavor] = append(s.bubbleMap[flavor], entry)
+}
+
+// MergeBubbles merges bubbles from a child state into this state
+// Called when a macro returns to concatenate child's bubbles onto parent's
+func (s *ExecutionState) MergeBubbles(child *ExecutionState) {
+	if child == nil {
+		return
+	}
+
+	child.mu.RLock()
+	childBubbles := child.bubbleMap
+	child.mu.RUnlock()
+
+	if len(childBubbles) == 0 {
+		return
+	}
+
+	s.mu.Lock()
+	defer s.mu.Unlock()
+
+	if s.bubbleMap == nil {
+		s.bubbleMap = make(map[string][]*BubbleEntry)
+	}
+
+	// Concatenate each flavor's entries
+	for flavor, entries := range childBubbles {
+		s.bubbleMap[flavor] = append(s.bubbleMap[flavor], entries...)
+	}
+}
+
+// GetBubbleMap returns a copy of the bubble map for inspection
+func (s *ExecutionState) GetBubbleMap() map[string][]*BubbleEntry {
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+
+	if s.bubbleMap == nil {
+		return nil
+	}
+
+	// Return a shallow copy
+	result := make(map[string][]*BubbleEntry, len(s.bubbleMap))
+	for k, v := range s.bubbleMap {
+		result[k] = v
+	}
+	return result
 }
