@@ -87,11 +87,12 @@ func (ps *PawScript) RegisterTypesLib() {
 		}
 	})
 
-	// append - returns a new list with item appended
+	// append - returns a new list with item appended, or string with suffix appended
 	// Usage: append ~mylist, newitem
+	//        append "hello", " world"  -> "hello world"
 	ps.RegisterCommandInModule("stdlib", "append", func(ctx *Context) Result {
 		if len(ctx.Args) < 2 {
-			ctx.LogError(CatCommand, "Usage: append <list>, <item>")
+			ctx.LogError(CatCommand, "Usage: append <list|string>, <item|suffix>")
 			ctx.SetResult(nil)
 			return BoolStatus(false)
 		}
@@ -103,6 +104,19 @@ func (ps *PawScript) RegisterTypesLib() {
 		case StoredList:
 			setListResult(ctx, v.Append(item))
 			return BoolStatus(true)
+		case string, QuotedString, Symbol, StoredString:
+			// String mode: concatenate suffix
+			resolved := ctx.executor.resolveValue(v)
+			str := fmt.Sprintf("%v", resolved)
+			suffix := resolveToString(item, ctx.executor)
+			result := str + suffix
+			if ctx.executor != nil {
+				result := ctx.executor.maybeStoreValue(result, ctx.state)
+				ctx.state.SetResultWithoutClaim(result)
+			} else {
+				ctx.state.SetResultWithoutClaim(result)
+			}
+			return BoolStatus(true)
 		default:
 			ctx.LogError(CatType, fmt.Sprintf("Cannot append to type %s\n", getTypeName(v)))
 			ctx.SetResult(nil)
@@ -110,11 +124,12 @@ func (ps *PawScript) RegisterTypesLib() {
 		}
 	})
 
-	// prepend - returns a new list with item prepended
+	// prepend - returns a new list with item prepended, or string with prefix prepended
 	// Usage: prepend ~mylist, newitem
+	//        prepend "world", "hello "  -> "hello world"
 	ps.RegisterCommandInModule("stdlib", "prepend", func(ctx *Context) Result {
 		if len(ctx.Args) < 2 {
-			ctx.LogError(CatCommand, "Usage: prepend <list>, <item>")
+			ctx.LogError(CatCommand, "Usage: prepend <list|string>, <item|prefix>")
 			ctx.SetResult(nil)
 			return BoolStatus(false)
 		}
@@ -125,6 +140,19 @@ func (ps *PawScript) RegisterTypesLib() {
 		switch v := value.(type) {
 		case StoredList:
 			setListResult(ctx, v.Prepend(item))
+			return BoolStatus(true)
+		case string, QuotedString, Symbol, StoredString:
+			// String mode: prepend prefix
+			resolved := ctx.executor.resolveValue(v)
+			str := fmt.Sprintf("%v", resolved)
+			prefix := resolveToString(item, ctx.executor)
+			result := prefix + str
+			if ctx.executor != nil {
+				result := ctx.executor.maybeStoreValue(result, ctx.state)
+				ctx.state.SetResultWithoutClaim(result)
+			} else {
+				ctx.state.SetResultWithoutClaim(result)
+			}
 			return BoolStatus(true)
 		default:
 			ctx.LogError(CatType, fmt.Sprintf("Cannot prepend to type %s\n", getTypeName(v)))
@@ -362,36 +390,80 @@ func (ps *PawScript) RegisterTypesLib() {
 		return BoolStatus(true)
 	})
 
-	// contains - check if string contains substring
+	// contains - check if string contains substring, or if list contains item
 	// Usage: contains "hello world", "world"  -> true
+	//        contains ~mylist, "item"         -> true if item in list
 	ps.RegisterCommandInModule("stdlib", "contains", func(ctx *Context) Result {
 		if len(ctx.Args) < 2 {
-			ctx.LogError(CatCommand, "Usage: contains <string>, <substring>")
+			ctx.LogError(CatCommand, "Usage: contains <string|list>, <substring|item>")
 			ctx.SetResult(false)
 			return BoolStatus(false)
 		}
 
-		str := resolveToString(ctx.Args[0], ctx.executor)
-		substr := resolveToString(ctx.Args[1], ctx.executor)
+		value := ctx.Args[0]
+		search := ctx.Args[1]
+
+		// Check if first argument is a list
+		if list, ok := value.(StoredList); ok {
+			// List mode: check if item exists
+			searchResolved := ctx.executor.resolveValue(search)
+			searchStr := fmt.Sprintf("%v", searchResolved)
+			for _, item := range list.Items() {
+				itemResolved := ctx.executor.resolveValue(item)
+				itemStr := fmt.Sprintf("%v", itemResolved)
+				if itemStr == searchStr {
+					ctx.SetResult(true)
+					return BoolStatus(true)
+				}
+			}
+			ctx.SetResult(false)
+			return BoolStatus(false)
+		}
+
+		// String mode: check if substring exists
+		str := resolveToString(value, ctx.executor)
+		substr := resolveToString(search, ctx.executor)
 
 		result := strings.Contains(str, substr)
 		ctx.SetResult(result)
 		return BoolStatus(result)
 	})
 
-	// index - find first index of substring (-1 if not found)
+	// index - find first index of substring or item (-1 if not found)
 	// Usage: index "hello world", "world"  -> 6
+	//        index ~mylist, "item"          -> position of item in list
 	// Returns -1 if not found (like many languages)
 	// Always succeeds and sets result (use result to check if found)
 	ps.RegisterCommandInModule("stdlib", "index", func(ctx *Context) Result {
 		if len(ctx.Args) < 2 {
-			ctx.LogError(CatCommand, "Usage: index <string>, <substring>")
+			ctx.LogError(CatCommand, "Usage: index <string|list>, <substring|item>")
 			ctx.SetResult(int64(-1))
 			return BoolStatus(false)
 		}
 
-		str := resolveToString(ctx.Args[0], ctx.executor)
-		substr := resolveToString(ctx.Args[1], ctx.executor)
+		value := ctx.Args[0]
+		search := ctx.Args[1]
+
+		// Check if first argument is a list
+		if list, ok := value.(StoredList); ok {
+			// List mode: find index of item
+			searchResolved := ctx.executor.resolveValue(search)
+			searchStr := fmt.Sprintf("%v", searchResolved)
+			for i, item := range list.Items() {
+				itemResolved := ctx.executor.resolveValue(item)
+				itemStr := fmt.Sprintf("%v", itemResolved)
+				if itemStr == searchStr {
+					ctx.SetResult(int64(i))
+					return BoolStatus(true)
+				}
+			}
+			ctx.SetResult(int64(-1))
+			return BoolStatus(true)
+		}
+
+		// String mode: find index of substring
+		str := resolveToString(value, ctx.executor)
+		substr := resolveToString(search, ctx.executor)
 
 		index := strings.Index(str, substr)
 		ctx.SetResult(int64(index))

@@ -1,0 +1,55 @@
+# Test polymorphic commands: append, prepend, contains, index
+
+echo "=== Testing append ==="
+echo "List append:"
+mylist: {list 1, 2, 3}
+result: {append ~mylist, 4}
+echo "append (1,2,3), 4 =", ~result
+
+echo "String append:"
+result: {append "hello", " world"}
+echo "append 'hello', ' world' =", ~result
+
+echo ""
+echo "=== Testing prepend ==="
+echo "List prepend:"
+mylist: {list 2, 3, 4}
+result: {prepend ~mylist, 1}
+echo "prepend (2,3,4), 1 =", ~result
+
+echo "String prepend:"
+result: {prepend "world", "hello "}
+echo "prepend 'world', 'hello ' =", ~result
+
+echo ""
+echo "=== Testing contains ==="
+echo "String contains:"
+result: {contains "hello world", "world"}
+echo "contains 'hello world', 'world' =", ~result
+result: {contains "hello world", "xyz"}
+echo "contains 'hello world', 'xyz' =", ~result
+
+echo "List contains:"
+mylist: {list apple, banana, cherry}
+result: {contains ~mylist, banana}
+echo "contains (apple,banana,cherry), banana =", ~result
+result: {contains ~mylist, grape}
+echo "contains (apple,banana,cherry), grape =", ~result
+
+echo ""
+echo "=== Testing index ==="
+echo "String index:"
+result: {index "hello world", "world"}
+echo "index 'hello world', 'world' =", ~result
+result: {index "hello world", "xyz"}
+echo "index 'hello world', 'xyz' =", ~result
+
+echo "List index:"
+mylist: {list apple, banana, cherry}
+result: {index ~mylist, banana}
+echo "index (apple,banana,cherry), banana =", ~result
+result: {index ~mylist, grape}
+echo "index (apple,banana,cherry), grape =", ~result
+
+echo ""
+echo "=== All polymorphic tests complete ==="
