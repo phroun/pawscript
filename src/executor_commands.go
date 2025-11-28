@@ -1188,8 +1188,8 @@ func (e *Executor) processArguments(args []interface{}, state *ExecutionState, s
 	return result
 }
 
-// processNamedArguments processes named argument values to resolve tilde expressions and object markers
-// This ensures named args like "base: ~eVal" get resolved the same way positional args do
+// processNamedArguments processes named argument keys and values to resolve tilde expressions and object markers
+// This ensures named args like "~dynKey: ~dynValue" get resolved the same way positional args do
 func (e *Executor) processNamedArguments(namedArgs map[string]interface{}, state *ExecutionState, substitutionCtx *SubstitutionContext, position *SourcePosition) map[string]interface{} {
 	if len(namedArgs) == 0 {
 		return namedArgs
@@ -1197,12 +1197,22 @@ func (e *Executor) processNamedArguments(namedArgs map[string]interface{}, state
 
 	result := make(map[string]interface{}, len(namedArgs))
 	for key, value := range namedArgs {
+		// Process the key if it starts with ~ (tilde expression)
+		finalKey := key
+		if strings.HasPrefix(key, "~") {
+			processedKey := e.processArguments([]interface{}{Symbol(key)}, state, substitutionCtx, position)
+			if len(processedKey) > 0 {
+				// Convert resolved key back to string
+				finalKey = fmt.Sprintf("%v", processedKey[0])
+			}
+		}
+
 		// Process the value as a single-element slice and extract the result
 		processed := e.processArguments([]interface{}{value}, state, substitutionCtx, position)
 		if len(processed) > 0 {
-			result[key] = processed[0]
+			result[finalKey] = processed[0]
 		} else {
-			result[key] = value
+			result[finalKey] = value
 		}
 	}
 

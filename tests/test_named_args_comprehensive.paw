@@ -82,3 +82,12 @@ b: 20
 # Both named args should resolve
 result3: {list x: ~a, y: ~b}
 echo ~result3
+
+echo ""
+echo "=== Test 14: Dynamic key names ==="
+keyName: "dynamic"
+keyVal: 99
+# Both key and value should resolve
+result4: {list ~keyName: ~keyVal}
+echo ~result4
+echo "Keys:", {keys ~result4}

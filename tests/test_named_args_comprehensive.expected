@@ -45,3 +45,7 @@ count should be 42
 
 === Test 13: Multiple tilde refs in named args ===
 (x: 10, y: 20)
+
+=== Test 14: Dynamic key names ===
+(dynamic: 99)
+Keys: ("dynamic")
