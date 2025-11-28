@@ -364,16 +364,103 @@ func (ps *PawScript) RegisterTypesLib() {
 		return BoolStatus(true)
 	})
 
-	// split - split string into list by delimiter
-	// Usage: split "a,b,c", ","  -> list of ["a", "b", "c"]
+	// split - split string or list by delimiter
+	// String Usage: split "a,b,c", ","  -> list of ["a", "b", "c"]
+	// List Usage:
+	//   split ~mylist, "x"       -> split list on occurrences of "x"
+	//   split ~mylist, ~delim    -> split list on sequence matching all items in delim
 	// Inverse of join
 	ps.RegisterCommandInModule("stdlib", "split", func(ctx *Context) Result {
 		if len(ctx.Args) < 2 {
-			ctx.LogError(CatCommand, "Usage: split <string>, <delimiter>")
+			ctx.LogError(CatCommand, "Usage: split <string|list>, <delimiter>")
 			ctx.SetResult(nil)
 			return BoolStatus(false)
 		}
 
+		// Check if first argument is a list
+		if list, ok := ctx.Args[0].(StoredList); ok {
+			items := list.Items()
+			delimiter := ctx.Args[1]
+
+			// Check if delimiter is a list (sequence match) or single value
+			if delimList, ok := delimiter.(StoredList); ok {
+				// Sequence match: split on occurrences of the full sequence
+				delimItems := delimList.Items()
+				delimLen := len(delimItems)
+
+				if delimLen == 0 {
+					// Empty delimiter - return original list
+					setListResult(ctx, list)
+					return BoolStatus(true)
+				}
+
+				var result [][]interface{}
+				var current []interface{}
+
+				i := 0
+				for i < len(items) {
+					// Check if sequence matches at current position
+					if i+delimLen <= len(items) {
+						match := true
+						for j := 0; j < delimLen; j++ {
+							if !deepEqual(items[i+j], delimItems[j], ctx.executor) {
+								match = false
+								break
+							}
+						}
+						if match {
+							// Found delimiter sequence - save current segment
+							result = append(result, current)
+							current = nil
+							i += delimLen
+							continue
+						}
+					}
+					current = append(current, items[i])
+					i++
+				}
+				// Add final segment
+				result = append(result, current)
+
+				// Convert to list of lists
+				resultItems := make([]interface{}, len(result))
+				for i, segment := range result {
+					segList := NewStoredList(segment)
+					id := ctx.executor.storeObject(segList, "list")
+					resultItems[i] = Symbol(fmt.Sprintf("\x00LIST:%d\x00", id))
+				}
+				setListResult(ctx, NewStoredListWithRefs(resultItems, nil, ctx.executor))
+				return BoolStatus(true)
+			}
+
+			// Single value match: split on occurrences of this value
+			var result [][]interface{}
+			var current []interface{}
+
+			for _, item := range items {
+				if deepEqual(item, delimiter, ctx.executor) {
+					// Found delimiter - save current segment
+					result = append(result, current)
+					current = nil
+				} else {
+					current = append(current, item)
+				}
+			}
+			// Add final segment
+			result = append(result, current)
+
+			// Convert to list of lists
+			resultItems := make([]interface{}, len(result))
+			for i, segment := range result {
+				segList := NewStoredList(segment)
+				id := ctx.executor.storeObject(segList, "list")
+				resultItems[i] = Symbol(fmt.Sprintf("\x00LIST:%d\x00", id))
+			}
+			setListResult(ctx, NewStoredListWithRefs(resultItems, nil, ctx.executor))
+			return BoolStatus(true)
+		}
+
+		// String mode: original behavior
 		str := resolveToString(ctx.Args[0], ctx.executor)
 		delimiter := resolveToString(ctx.Args[1], ctx.executor)
 
@@ -387,28 +474,53 @@ func (ps *PawScript) RegisterTypesLib() {
 		return BoolStatus(true)
 	})
 
-	// join - join list into string with delimiter
-	// Usage: join ~mylist, ","  -> "a,b,c"
+	// join - join list with delimiter (string or list)
+	// String delimiter: join ~mylist, ","  -> "a,b,c"
+	// List delimiter: join ~mylist, ~delim -> inserts all delim items between each original item
 	// Inverse of split
 	ps.RegisterCommandInModule("stdlib", "join", func(ctx *Context) Result {
 		if len(ctx.Args) < 2 {
 			ctx.LogError(CatCommand, "Usage: join <list>, <delimiter>")
-			ctx.SetResult("")
+			ctx.SetResult(nil)
 			return BoolStatus(false)
 		}
 
-		delimiter := resolveToString(ctx.Args[1], ctx.executor)
-
-		// Handle StoredList
+		// Handle StoredList as first argument
 		if storedList, ok := ctx.Args[0].(StoredList); ok {
 			items := storedList.Items()
+			delimiter := ctx.Args[1]
+
+			// Check if delimiter is a list
+			if delimList, ok := delimiter.(StoredList); ok {
+				// List delimiter: insert all delimiter items between each original item
+				delimItems := delimList.Items()
+
+				if len(items) == 0 {
+					setListResult(ctx, NewStoredList(nil))
+					return BoolStatus(true)
+				}
+
+				var resultItems []interface{}
+				for i, item := range items {
+					resultItems = append(resultItems, item)
+					if i < len(items)-1 {
+						// Insert delimiter items between original items
+						resultItems = append(resultItems, delimItems...)
+					}
+				}
+				setListResult(ctx, NewStoredListWithRefs(resultItems, nil, ctx.executor))
+				return BoolStatus(true)
+			}
+
+			// String delimiter: join into string (original behavior)
+			delimStr := resolveToString(delimiter, ctx.executor)
 			strItems := make([]string, len(items))
 			for i, item := range items {
 				// Resolve each item in case it's a marker
 				resolved := ctx.executor.resolveValue(item)
 				strItems[i] = fmt.Sprintf("%v", resolved)
 			}
-			result := strings.Join(strItems, delimiter)
+			result := strings.Join(strItems, delimStr)
 			if ctx.executor != nil {
 				result := ctx.executor.maybeStoreValue(result, ctx.state)
 				ctx.state.SetResultWithoutClaim(result)
@@ -419,7 +531,7 @@ func (ps *PawScript) RegisterTypesLib() {
 		}
 
 		ctx.LogError(CatType, fmt.Sprintf("First argument must be a list, got %s\n", getTypeName(ctx.Args[0])))
-		ctx.SetResult("")
+		ctx.SetResult(nil)
 		return BoolStatus(false)
 	})
 
@@ -890,15 +1002,57 @@ func (ps *PawScript) RegisterTypesLib() {
 		return BoolStatus(true)
 	})
 
-	// starts_with - check if string starts with prefix
-	// Usage: starts_with "hello world", "hello"  -> true
+	// starts_with - check if string starts with prefix, or list starts with value(s)
+	// String Usage: starts_with "hello world", "hello"  -> true
+	// List Usage:
+	//   starts_with ~mylist, "x"       -> true if list starts with "x"
+	//   starts_with ~mylist, ~prefix   -> true if list starts with all items in prefix (in sequence)
 	ps.RegisterCommandInModule("stdlib", "starts_with", func(ctx *Context) Result {
 		if len(ctx.Args) < 2 {
-			ctx.LogError(CatCommand, "Usage: starts_with <string>, <prefix>")
+			ctx.LogError(CatCommand, "Usage: starts_with <string|list>, <prefix|value>")
+			ctx.SetResult(false)
+			return BoolStatus(false)
+		}
+		if len(ctx.Args) > 2 {
+			ctx.LogError(CatCommand, "starts_with takes exactly 2 arguments")
 			ctx.SetResult(false)
 			return BoolStatus(false)
 		}
 
+		// Check if first argument is a list
+		if list, ok := ctx.Args[0].(StoredList); ok {
+			items := list.Items()
+			prefix := ctx.Args[1]
+
+			// Check if prefix is a list (sequence match) or single value
+			if prefixList, ok := prefix.(StoredList); ok {
+				// Sequence match: check if list starts with all items in prefixList
+				prefixItems := prefixList.Items()
+				if len(prefixItems) > len(items) {
+					ctx.SetResult(false)
+					return BoolStatus(false)
+				}
+				for i, prefixItem := range prefixItems {
+					if !deepEqual(items[i], prefixItem, ctx.executor) {
+						ctx.SetResult(false)
+						return BoolStatus(false)
+					}
+				}
+				ctx.SetResult(true)
+				return BoolStatus(true)
+			}
+
+			// Single value match: check if list starts with this value
+			if len(items) == 0 {
+				ctx.SetResult(false)
+				return BoolStatus(false)
+			}
+			result := deepEqual(items[0], prefix, ctx.executor)
+			ctx.SetResult(result)
+			return BoolStatus(result)
+		}
+
+		// String mode: original behavior
 		str := resolveToString(ctx.Args[0], ctx.executor)
 		prefix := resolveToString(ctx.Args[1], ctx.executor)
 
@@ -907,15 +1061,58 @@ func (ps *PawScript) RegisterTypesLib() {
 		return BoolStatus(result)
 	})
 
-	// ends_with - check if string ends with suffix
-	// Usage: ends_with "hello world", "world"  -> true
+	// ends_with - check if string ends with suffix, or list ends with value(s)
+	// String Usage: ends_with "hello world", "world"  -> true
+	// List Usage:
+	//   ends_with ~mylist, "x"       -> true if list ends with "x"
+	//   ends_with ~mylist, ~suffix   -> true if list ends with all items in suffix (in sequence)
 	ps.RegisterCommandInModule("stdlib", "ends_with", func(ctx *Context) Result {
 		if len(ctx.Args) < 2 {
-			ctx.LogError(CatCommand, "Usage: ends_with <string>, <suffix>")
+			ctx.LogError(CatCommand, "Usage: ends_with <string|list>, <suffix|value>")
+			ctx.SetResult(false)
+			return BoolStatus(false)
+		}
+		if len(ctx.Args) > 2 {
+			ctx.LogError(CatCommand, "ends_with takes exactly 2 arguments")
 			ctx.SetResult(false)
 			return BoolStatus(false)
 		}
 
+		// Check if first argument is a list
+		if list, ok := ctx.Args[0].(StoredList); ok {
+			items := list.Items()
+			suffix := ctx.Args[1]
+
+			// Check if suffix is a list (sequence match) or single value
+			if suffixList, ok := suffix.(StoredList); ok {
+				// Sequence match: check if list ends with all items in suffixList
+				suffixItems := suffixList.Items()
+				if len(suffixItems) > len(items) {
+					ctx.SetResult(false)
+					return BoolStatus(false)
+				}
+				startIdx := len(items) - len(suffixItems)
+				for i, suffixItem := range suffixItems {
+					if !deepEqual(items[startIdx+i], suffixItem, ctx.executor) {
+						ctx.SetResult(false)
+						return BoolStatus(false)
+					}
+				}
+				ctx.SetResult(true)
+				return BoolStatus(true)
+			}
+
+			// Single value match: check if list ends with this value
+			if len(items) == 0 {
+				ctx.SetResult(false)
+				return BoolStatus(false)
+			}
+			result := deepEqual(items[len(items)-1], suffix, ctx.executor)
+			ctx.SetResult(result)
+			return BoolStatus(result)
+		}
+
+		// String mode: original behavior
 		str := resolveToString(ctx.Args[0], ctx.executor)
 		suffix := resolveToString(ctx.Args[1], ctx.executor)
 
