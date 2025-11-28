@@ -1,6 +1,9 @@
 package pawscript
 
 import (
+	"fmt"
+	"os"
+	"strings"
 	"sync"
 )
 
@@ -402,9 +405,15 @@ func (env *ModuleEnvironment) CopyObjectRegistry() {
 // GetCommand looks up a command from the module's command registry.
 // CommandRegistryModule and CommandRegistryInherited start as the same map instance
 // and only diverge via COW. A nil handler value means the command was REMOVEd.
+// If name contains ScopeMarker (::), performs scoped lookup in Library instead.
 func (env *ModuleEnvironment) GetCommand(name string) (Handler, bool) {
 	env.mu.RLock()
 	defer env.mu.RUnlock()
+
+	// Check for scoped lookup (contains :: marker)
+	if strings.Contains(name, ScopeMarker) {
+		return env.getScopedCommand(name)
+	}
 
 	// Check Module registry (which starts as same instance as Inherited, diverges via COW)
 	handler, exists := env.CommandRegistryModule[name]
@@ -418,12 +427,68 @@ func (env *ModuleEnvironment) GetCommand(name string) (Handler, bool) {
 	return handler, true
 }
 
+// getScopedCommand looks up a command using module::item syntax.
+// ::modspec::item searches LibraryInherited, modspec::item searches LibraryRestricted.
+func (env *ModuleEnvironment) getScopedCommand(name string) (Handler, bool) {
+	var library Library
+	var moduleName, itemName string
+
+	if strings.HasPrefix(name, ScopeMarker) {
+		// ::modspec::item - search LibraryInherited
+		library = env.LibraryInherited
+		rest := strings.TrimPrefix(name, ScopeMarker)
+		parts := strings.SplitN(rest, ScopeMarker, 2)
+		if len(parts) != 2 {
+			return nil, false
+		}
+		moduleName, itemName = parts[0], parts[1]
+	} else {
+		// modspec::item - search LibraryRestricted
+		library = env.LibraryRestricted
+		parts := strings.SplitN(name, ScopeMarker, 2)
+		if len(parts) != 2 {
+			return nil, false
+		}
+		moduleName, itemName = parts[0], parts[1]
+	}
+
+	// Look up module in library
+	moduleSection, exists := library[moduleName]
+	if !exists {
+		fmt.Fprintf(os.Stderr, "[ERROR] Module not found: %s\n", moduleName)
+		return nil, false
+	}
+
+	// Look up item in module
+	item, exists := moduleSection[itemName]
+	if !exists {
+		return nil, false
+	}
+
+	// Verify it's a command
+	if item.Type != "command" {
+		return nil, false
+	}
+
+	// Extract handler
+	if handler, ok := item.Value.(Handler); ok {
+		return handler, true
+	}
+	return nil, false
+}
+
 // GetMacro looks up a macro from the module's macro registry.
 // MacrosModule and MacrosInherited start as the same map instance and diverge via COW.
 // A nil macro value means the macro was explicitly REMOVEd.
+// If name contains ScopeMarker (::), performs scoped lookup in Library instead.
 func (env *ModuleEnvironment) GetMacro(name string) (*StoredMacro, bool) {
 	env.mu.RLock()
 	defer env.mu.RUnlock()
+
+	// Check for scoped lookup (contains :: marker)
+	if strings.Contains(name, ScopeMarker) {
+		return env.getScopedMacro(name)
+	}
 
 	macro, exists := env.MacrosModule[name]
 	if !exists {
@@ -434,6 +499,56 @@ func (env *ModuleEnvironment) GetMacro(name string) (*StoredMacro, bool) {
 		return nil, false
 	}
 	return macro, true
+}
+
+// getScopedMacro looks up a macro using module::item syntax.
+// ::modspec::item searches LibraryInherited, modspec::item searches LibraryRestricted.
+func (env *ModuleEnvironment) getScopedMacro(name string) (*StoredMacro, bool) {
+	var library Library
+	var moduleName, itemName string
+
+	if strings.HasPrefix(name, ScopeMarker) {
+		// ::modspec::item - search LibraryInherited
+		library = env.LibraryInherited
+		rest := strings.TrimPrefix(name, ScopeMarker)
+		parts := strings.SplitN(rest, ScopeMarker, 2)
+		if len(parts) != 2 {
+			return nil, false
+		}
+		moduleName, itemName = parts[0], parts[1]
+	} else {
+		// modspec::item - search LibraryRestricted
+		library = env.LibraryRestricted
+		parts := strings.SplitN(name, ScopeMarker, 2)
+		if len(parts) != 2 {
+			return nil, false
+		}
+		moduleName, itemName = parts[0], parts[1]
+	}
+
+	// Look up module in library
+	moduleSection, exists := library[moduleName]
+	if !exists {
+		fmt.Fprintf(os.Stderr, "[ERROR] Module not found: %s\n", moduleName)
+		return nil, false
+	}
+
+	// Look up item in module
+	item, exists := moduleSection[itemName]
+	if !exists {
+		return nil, false
+	}
+
+	// Verify it's a macro
+	if item.Type != "macro" {
+		return nil, false
+	}
+
+	// Extract macro
+	if macro, ok := item.Value.(*StoredMacro); ok {
+		return macro, true
+	}
+	return nil, false
 }
 
 // GetObject looks up a #-prefixed object from the module's object registry.
