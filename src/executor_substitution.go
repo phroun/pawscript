@@ -425,7 +425,9 @@ func (e *Executor) substituteBraceExpressions(str string, ctx *SubstitutionConte
 	return result
 }
 
-// substituteTildeExpressions substitutes ~varname patterns in strings with variable values
+// substituteTildeExpressions substitutes ~varname and ?varname patterns in strings
+// ~varname substitutes with the variable value
+// ?varname substitutes with "true" if variable exists, "false" otherwise
 func (e *Executor) substituteTildeExpressions(str string, state *ExecutionState, position *SourcePosition) string {
 	// Placeholder for escaped tildes - must match the one used in applySubstitution
 	const escapedTildePlaceholder = "\x00TILDE\x00"
@@ -446,7 +448,7 @@ func (e *Executor) substituteTildeExpressions(str string, state *ExecutionState,
 
 	lastEnd := 0
 	for _, tilde := range tildes {
-		// Append everything before this tilde
+		// Append everything before this tilde/question
 		result = append(result, runes[lastEnd:tilde.StartPos]...)
 
 		// Look up the variable - first in local variables, then in ObjectsModule
@@ -460,31 +462,50 @@ func (e *Executor) substituteTildeExpressions(str string, state *ExecutionState,
 			}
 			state.moduleEnv.mu.RUnlock()
 		}
-		if exists {
-			// Resolve any object markers to get display value
-			resolved := e.resolveValue(value)
-			var valueStr string
-			// Handle StoredList specially to format contents
-			if list, ok := resolved.(StoredList); ok {
-				valueStr = formatListForDisplay(list)
-			} else {
-				valueStr = fmt.Sprintf("%v", resolved)
+
+		if tilde.IsQuestion {
+			// ? expression - substitute "true" or "false" based on existence
+			// Also check if value is undefined
+			if exists {
+				if sym, ok := value.(Symbol); ok {
+					if string(sym) == UndefinedMarker || string(sym) == "undefined" {
+						exists = false
+					}
+				}
 			}
-			// Since tildes are only found inside double-quoted strings,
-			// we need to escape backslashes and quotes in the substituted value
-			// to prevent breaking the quote structure.
-			// IMPORTANT: These must come BEFORE tilde escaping, otherwise the
-			// placeholder's \x00 bytes would get double-escaped to \\x00
-			valueStr = strings.ReplaceAll(valueStr, `\`, `\\`)
-			valueStr = strings.ReplaceAll(valueStr, `"`, `\"`)
-			// Escape tildes in the resolved value to prevent tilde injection
-			// This ensures user input containing tildes doesn't get interpreted
-			// as variable references when the result string is re-parsed
-			valueStr = strings.ReplaceAll(valueStr, "~", escapedTildePlaceholder)
-			result = append(result, []rune(valueStr)...)
+			if exists {
+				result = append(result, []rune("true")...)
+			} else {
+				result = append(result, []rune("false")...)
+			}
 		} else {
-			// Variable not found - log error and leave empty
-			e.logger.CommandError(CatVariable, "", fmt.Sprintf("Variable not found: %s", tilde.VarName), position)
+			// ~ expression - substitute with value
+			if exists {
+				// Resolve any object markers to get display value
+				resolved := e.resolveValue(value)
+				var valueStr string
+				// Handle StoredList specially to format contents
+				if list, ok := resolved.(StoredList); ok {
+					valueStr = formatListForDisplay(list)
+				} else {
+					valueStr = fmt.Sprintf("%v", resolved)
+				}
+				// Since tildes are only found inside double-quoted strings,
+				// we need to escape backslashes and quotes in the substituted value
+				// to prevent breaking the quote structure.
+				// IMPORTANT: These must come BEFORE tilde escaping, otherwise the
+				// placeholder's \x00 bytes would get double-escaped to \\x00
+				valueStr = strings.ReplaceAll(valueStr, `\`, `\\`)
+				valueStr = strings.ReplaceAll(valueStr, `"`, `\"`)
+				// Escape tildes in the resolved value to prevent tilde injection
+				// This ensures user input containing tildes doesn't get interpreted
+				// as variable references when the result string is re-parsed
+				valueStr = strings.ReplaceAll(valueStr, "~", escapedTildePlaceholder)
+				result = append(result, []rune(valueStr)...)
+			} else {
+				// Variable not found - log error and leave empty
+				e.logger.CommandError(CatVariable, "", fmt.Sprintf("Variable not found: %s", tilde.VarName), position)
+			}
 		}
 
 		lastEnd = tilde.EndPos + 1
@@ -663,10 +684,12 @@ func (e *Executor) findAllTildeLocations(str string) []*TildeLocation {
 			continue
 		}
 
-		// Only process tildes inside double-quoted strings AND outside parentheses
-		if char == '~' && inDoubleQuote && parenDepth == 0 && i+1 < len(runes) {
+		// Process tildes (~) and question marks (?) inside double-quoted strings AND outside parentheses
+		// ~ substitutes the value, ? substitutes "true" or "false" based on existence
+		if (char == '~' || char == '?') && inDoubleQuote && parenDepth == 0 && i+1 < len(runes) {
+			isQuestion := char == '?'
 			tildeStart := i
-			i++ // Move past the tilde
+			i++ // Move past the ~ or ?
 
 			// Collect variable name characters (letters, digits, underscore, or # prefix)
 			// The # prefix is allowed for ObjectsModule items like #stdin, #stdout
@@ -700,6 +723,7 @@ func (e *Executor) findAllTildeLocations(str string) []*TildeLocation {
 					EndPos:       endPos,
 					VarName:      varName,
 					HasSemicolon: hasSemicolon,
+					IsQuestion:   isQuestion,
 				})
 			}
 			continue

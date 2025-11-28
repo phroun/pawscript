@@ -332,6 +332,17 @@ func (e *Executor) executeSingleCommand(
 					return result
 				}
 
+				// Check for question expression (existence check as command)
+				if strings.HasPrefix(finalString, "?") {
+					e.logger.DebugCat(CatCommand, "Detected question expression in async resume: %s", finalString)
+					exists := e.resolveQuestionExpression(finalString, capturedState, capturedSubstitutionCtx, capturedPosition)
+					capturedState.SetResult(exists)
+					if capturedShouldInvert {
+						return BoolStatus(!exists)
+					}
+					return BoolStatus(exists)
+				}
+
 				// Check for tilde expression (pure value expression as command)
 				if strings.HasPrefix(finalString, "~") {
 					e.logger.DebugCat(CatCommand,"Detected tilde expression in async resume: %s", finalString)
@@ -443,6 +454,18 @@ func (e *Executor) executeSingleCommand(
 			return e.invertStatus(result, state, position)
 		}
 		return result
+	}
+
+	// Check for question expression (existence check as command)
+	// Returns true/false based on whether variable/accessor chain exists
+	if strings.HasPrefix(commandStr, "?") {
+		e.logger.DebugCat(CatCommand, "Detected question expression: %s", commandStr)
+		exists := e.resolveQuestionExpression(commandStr, state, substitutionCtx, position)
+		state.SetResult(exists)
+		if shouldInvert {
+			return BoolStatus(!exists)
+		}
+		return BoolStatus(exists)
 	}
 
 	// Check for tilde expression (pure value expression as command)
@@ -882,6 +905,102 @@ func (e *Executor) applyAccessorChain(value interface{}, accessors string, posit
 	return current
 }
 
+// accessorChainExists checks if a chain of accessors resolves successfully
+// Returns true if entire chain exists, false if any part is missing
+// This is the existence-check variant of applyAccessorChain (used by ? operator)
+func (e *Executor) accessorChainExists(value interface{}, accessors string) bool {
+	if accessors == "" {
+		return true
+	}
+
+	current := value
+	i := 0
+
+	for i < len(accessors) {
+		// Skip whitespace
+		for i < len(accessors) && accessors[i] == ' ' {
+			i++
+		}
+		if i >= len(accessors) {
+			break
+		}
+
+		// Resolve current to get the actual list
+		resolved := e.resolveValue(current)
+		list, isList := resolved.(StoredList)
+
+		if accessors[i] == '.' {
+			// Dot accessor for named argument
+			i++ // skip the dot
+			if i >= len(accessors) {
+				return false
+			}
+
+			// Collect the key name
+			keyStart := i
+			for i < len(accessors) && accessors[i] != '.' && accessors[i] != ' ' {
+				i++
+			}
+			key := accessors[keyStart:i]
+
+			if !isList {
+				return false
+			}
+
+			namedArgs := list.NamedArgs()
+			if namedArgs == nil {
+				return false
+			}
+			val, exists := namedArgs[key]
+			if !exists {
+				return false
+			}
+			current = val
+
+		} else if accessors[i] >= '0' && accessors[i] <= '9' {
+			// Integer index accessor
+			numStart := i
+			for i < len(accessors) && accessors[i] >= '0' && accessors[i] <= '9' {
+				i++
+			}
+			// Check for decimal point (error case)
+			if i < len(accessors) && accessors[i] == '.' {
+				j := i + 1
+				if j < len(accessors) && accessors[j] >= '0' && accessors[j] <= '9' {
+					return false
+				}
+			}
+			numStr := accessors[numStart:i]
+			idx, err := strconv.Atoi(numStr)
+			if err != nil {
+				return false
+			}
+
+			if !isList {
+				return false
+			}
+
+			if idx < 0 || idx >= list.Len() {
+				return false
+			}
+			current = list.Get(idx)
+
+		} else {
+			// Unknown accessor character, stop
+			break
+		}
+	}
+
+	// Check if final value is undefined
+	if sym, ok := current.(Symbol); ok {
+		if string(sym) == UndefinedMarker || string(sym) == "undefined" {
+			return false
+		}
+	}
+
+	return true
+}
+
 // processArguments processes arguments array to resolve object markers and tilde expressions
 // Resolves LIST, STR, and BLOCK markers to their actual values
 // Also resolves ~expr tilde expressions to their variable values
@@ -908,7 +1027,40 @@ func (e *Executor) processArguments(args []interface{}, state *ExecutionState, s
 		}
 
 		if isMarker {
-			// Check for tilde expression first (~varname)
+			// Check for question expression first (?varname) - existence check
+			if strings.HasPrefix(markerStr, "?") {
+				// Same resolution as ~, but return bool for existence
+				innerExpr := "~" + markerStr[1:] // Convert ?x to ~x for resolution
+				base, accessors := splitAccessors(innerExpr)
+
+				resolved, ok := e.resolveTildeExpression(base, state, substitutionCtx, position)
+				if !ok {
+					// Variable doesn't exist
+					e.logger.DebugCat(CatCommand, "processArguments[%d]: Question expression - variable not found for %q", i, base)
+					result[i] = false
+					continue
+				}
+
+				// Check if accessor chain exists
+				if accessors != "" {
+					exists := e.accessorChainExists(resolved, accessors)
+					e.logger.DebugCat(CatCommand, "processArguments[%d]: Question expression %q accessor chain exists: %v", i, markerStr, exists)
+					result[i] = exists
+				} else {
+					// Variable exists, no accessors to check
+					// But check if the value itself is undefined
+					if sym, ok := resolved.(Symbol); ok {
+						if string(sym) == UndefinedMarker || string(sym) == "undefined" {
+							result[i] = false
+							continue
+						}
+					}
+					result[i] = true
+				}
+				continue
+			}
+
+			// Check for tilde expression (~varname)
 			if strings.HasPrefix(markerStr, "~") {
 				// Split off any accessors first
 				base, accessors := splitAccessors(markerStr)

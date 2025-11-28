@@ -676,10 +676,11 @@ func parseArguments(argsStr string) ([]interface{}, map[string]interface{}) {
 		}
 	}
 
-	// Helper to check if a value is a tilde expression
+	// Helper to check if a value is a tilde or question expression (accessor-capable)
 	isTildeExpr := func(v interface{}) bool {
 		if sym, ok := v.(Symbol); ok {
-			return strings.HasPrefix(string(sym), "~")
+			s := string(sym)
+			return strings.HasPrefix(s, "~") || strings.HasPrefix(s, "?")
 		}
 		return false
 	}
@@ -1195,7 +1196,7 @@ func parseNextUnit(runes []rune, i int) (interface{}, argUnitType, int) {
 	// Bare word (symbol, number, nil, true, false)
 	// Handle escape sequences - backslash protects the next character
 	start := i
-	isTildeExpr := char == '~'
+	isAccessorExpr := char == '~' || char == '?' // Tilde and question expressions support accessor syntax
 	for i < len(runes) {
 		c := runes[i]
 		// Handle escape sequences - skip backslash and the escaped character
@@ -1206,8 +1207,8 @@ func parseNextUnit(runes []rune, i int) (interface{}, argUnitType, int) {
 		if unicode.IsSpace(c) || c == ',' || c == ':' || c == '(' || c == ')' || c == '{' || c == '}' || c == '"' || c == '\'' {
 			break
 		}
-		// Tilde expressions stop at dot to allow accessor syntax
-		if isTildeExpr && c == '.' {
+		// Tilde and question expressions stop at dot to allow accessor syntax
+		if isAccessorExpr && c == '.' {
 			break
 		}
 		// Dot is only part of a number if preceded by digit AND followed by digit
