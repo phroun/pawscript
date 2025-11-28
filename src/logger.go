@@ -138,6 +138,7 @@ const (
 	CatVariable LogCategory = "variable" // Variable operations (get/set)
 	CatArgument LogCategory = "argument" // Argument validation
 	CatIO       LogCategory = "io"       // I/O operations (read/exec)
+	CatNetwork  LogCategory = "network"  // Network operations
 	CatMacro    LogCategory = "macro"    // Macro operations
 	CatAsync    LogCategory = "async"    // Async/token operations
 	CatMemory   LogCategory = "memory"   // Memory/refcounting
@@ -154,7 +155,7 @@ const (
 // AllLogCategories returns a slice of all defined log categories (excluding CatNone)
 func AllLogCategories() []LogCategory {
 	return []LogCategory{
-		CatParse, CatCommand, CatVariable, CatArgument, CatIO,
+		CatParse, CatCommand, CatVariable, CatArgument, CatIO, CatNetwork,
 		CatMacro, CatAsync, CatMemory, CatMath, CatList, CatString,
 		CatType, CatFlow, CatSystem, CatApp, CatUser,
 	}
@@ -201,6 +202,35 @@ func (f *LogFilter) Passes(level LogLevel, cat LogCategory) bool {
 	}
 
 	return level >= threshold
+}
+
+// PassesAny checks if a message passes the filter for ANY of the given categories
+// This allows a message to be tagged with multiple categories (e.g., CatCommand + CatMath)
+// and pass if any of those categories' thresholds are met
+func (f *LogFilter) PassesAny(level LogLevel, cats []LogCategory) bool {
+	// Force: always pass if level >= Force
+	if level >= f.Force {
+		return true
+	}
+
+	// Floor: never pass if level < Floor
+	if level < f.Floor {
+		return false
+	}
+
+	// Check each category - pass if ANY category's threshold is met
+	for _, cat := range cats {
+		threshold := f.Default
+		if catLevel, exists := f.Categories[cat]; exists {
+			threshold = catLevel
+		}
+		if level >= threshold {
+			return true
+		}
+	}
+
+	// No category passed
+	return false
 }
 
 // Copy creates a deep copy of the LogFilter for COW semantics
@@ -317,6 +347,8 @@ func LogCategoryFromString(name string) (LogCategory, bool) {
 		return CatArgument, true
 	case "io":
 		return CatIO, true
+	case "network", "net":
+		return CatNetwork, true
 	case "macro":
 		return CatMacro, true
 	case "async":
@@ -550,6 +582,110 @@ func (l *Logger) Log(level LogLevel, cat LogCategory, message string, position *
 	}
 }
 
+// LogMulti is like Log but accepts multiple categories
+// A message passes a filter if ANY of its categories pass that filter's threshold
+// The first category in the list is used for the message prefix
+func (l *Logger) LogMulti(level LogLevel, cats []LogCategory, message string, position *SourcePosition, context []string) {
+	// Handle empty or single category case
+	if len(cats) == 0 {
+		l.Log(level, CatNone, message, position, context)
+		return
+	}
+	if len(cats) == 1 {
+		l.Log(level, cats[0], message, position, context)
+		return
+	}
+
+	// Get LogConfig from output context's module environment (if available)
+	var logConfig *LogConfig
+	if l.outputContext != nil && l.outputContext.State != nil && l.outputContext.State.moduleEnv != nil {
+		logConfig = l.outputContext.State.moduleEnv.GetLogConfig()
+	}
+
+	// Determine which outputs this message should go to
+	sendToErr := false
+	sendToOut := false
+
+	if logConfig != nil {
+		// Use LogConfig for filtering - pass if ANY category passes
+		sendToErr = logConfig.ErrorLog.PassesAny(level, cats)
+		sendToOut = logConfig.DebugLog.PassesAny(level, cats)
+	} else {
+		// Legacy behavior: use the old shouldLog logic with first category
+		if !l.shouldLog(level, cats[0]) {
+			return
+		}
+		// Default routing: low severity to stdout, high severity to stderr
+		isLowSeverity := level == LevelTrace || level == LevelInfo || level == LevelDebug
+		sendToErr = !isLowSeverity
+		sendToOut = isLowSeverity
+	}
+
+	// If nothing passes, don't log
+	if !sendToErr && !sendToOut {
+		return
+	}
+
+	// Build category suffix showing all categories (e.g., ":command+math")
+	var catSuffix string
+	if cats[0] != CatNone {
+		catParts := make([]string, 0, len(cats))
+		for _, cat := range cats {
+			if cat != CatNone {
+				catParts = append(catParts, string(cat))
+			}
+		}
+		if len(catParts) > 0 {
+			catSuffix = ":" + strings.Join(catParts, "+")
+		}
+	}
+
+	var prefix string
+	switch level {
+	case LevelTrace:
+		prefix = fmt.Sprintf("[TRACE%s]", catSuffix)
+	case LevelInfo:
+		prefix = fmt.Sprintf("[INFO%s]", catSuffix)
+	case LevelDebug:
+		prefix = fmt.Sprintf("[DEBUG%s]", catSuffix)
+	case LevelNotice:
+		prefix = fmt.Sprintf("[PawScript%s NOTICE]", catSuffix)
+	case LevelWarn:
+		prefix = fmt.Sprintf("[PawScript%s WARN]", catSuffix)
+	case LevelError, LevelFatal:
+		prefix = fmt.Sprintf("[PawScript%s ERROR]", catSuffix)
+	}
+
+	output := fmt.Sprintf("%s %s", prefix, message)
+
+	// Add position information if available
+	if position != nil {
+		filename := position.Filename
+		if filename == "" {
+			filename = "<unknown>"
+		}
+		output += fmt.Sprintf("\n  at line %d, column %d in %s", position.Line, position.Column, filename)
+
+		// Add macro context if present
+		if position.MacroContext != nil {
+			output += l.formatMacroContext(position.MacroContext)
+		}
+
+		// Add source context lines
+		if len(context) > 0 {
+			output += l.formatSourceContext(position, context)
+		}
+	}
+
+	// Send to each destination that passed its filter
+	if sendToErr {
+		l.writeOutputToErr(output)
+	}
+	if sendToOut {
+		l.writeOutputToOut(output)
+	}
+}
+
 // writeOutputToErr writes to #err channel or stderr
 func (l *Logger) writeOutputToErr(output string) {
 	if l.outputContext != nil {
@@ -651,6 +787,39 @@ func (l *Logger) Trace(format string, args ...interface{}) {
 // TraceCat logs a categorized trace message
 func (l *Logger) TraceCat(cat LogCategory, format string, args ...interface{}) {
 	l.Log(LevelTrace, cat, fmt.Sprintf(format, args...), nil, nil)
+}
+
+// Multi-category convenience methods - use when a message belongs to multiple categories
+// Message passes if ANY category's filter threshold is met
+
+// ErrorMulti logs an error with multiple categories
+func (l *Logger) ErrorMulti(cats []LogCategory, format string, args ...interface{}) {
+	l.LogMulti(LevelError, cats, fmt.Sprintf(format, args...), nil, nil)
+}
+
+// WarnMulti logs a warning with multiple categories
+func (l *Logger) WarnMulti(cats []LogCategory, format string, args ...interface{}) {
+	l.LogMulti(LevelWarn, cats, fmt.Sprintf(format, args...), nil, nil)
+}
+
+// NoticeMulti logs a notice with multiple categories
+func (l *Logger) NoticeMulti(cats []LogCategory, format string, args ...interface{}) {
+	l.LogMulti(LevelNotice, cats, fmt.Sprintf(format, args...), nil, nil)
+}
+
+// DebugMulti logs a debug message with multiple categories
+func (l *Logger) DebugMulti(cats []LogCategory, format string, args ...interface{}) {
+	l.LogMulti(LevelDebug, cats, fmt.Sprintf(format, args...), nil, nil)
+}
+
+// InfoMulti logs an info message with multiple categories
+func (l *Logger) InfoMulti(cats []LogCategory, format string, args ...interface{}) {
+	l.LogMulti(LevelInfo, cats, fmt.Sprintf(format, args...), nil, nil)
+}
+
+// TraceMulti logs a trace message with multiple categories
+func (l *Logger) TraceMulti(cats []LogCategory, format string, args ...interface{}) {
+	l.LogMulti(LevelTrace, cats, fmt.Sprintf(format, args...), nil, nil)
 }
 
 // ErrorWithPosition logs an error with position information
