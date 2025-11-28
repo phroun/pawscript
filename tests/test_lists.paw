@@ -19,9 +19,9 @@ echo ""
 
 # Test 2: Type detection
 echo "Test 2: Type detection"
-echo "Type of fruits: {get_type fruits}"
-echo "Type of nums: {get_type nums}"
-echo "Type of empty: {get_type empty}"
+echo "Type of fruits: {type fruits}"
+echo "Type of nums: {type nums}"
+echo "Type of empty: {type empty}"
 echo "(Expected: list for all)"
 echo ""
 
@@ -183,11 +183,11 @@ echo ""
 # Test 18: Type preservation in lists
 echo "Test 18: Type preservation"
 typedList: {list 42, "text", true, symbol, nil}
-echo "Item 1 type: {get_inferred_type {argv ~typedList, 1}}"
-echo "Item 2 type: {get_inferred_type {argv ~typedList, 2}}"
-echo "Item 3 type: {get_inferred_type {argv ~typedList, 3}}"
-echo "Item 4 type: {get_inferred_type {argv ~typedList, 4}}"
-echo "Item 5 type: {get_inferred_type {argv ~typedList, 5}}"
+echo "Item 1 type: {infer {argv ~typedList, 1}}"
+echo "Item 2 type: {infer {argv ~typedList, 2}}"
+echo "Item 3 type: {infer {argv ~typedList, 3}}"
+echo "Item 4 type: {infer {argv ~typedList, 4}}"
+echo "Item 5 type: {infer {argv ~typedList, 5}}"
 echo "(Expected: int, string, bool, symbol, nil)"
 echo ""
 

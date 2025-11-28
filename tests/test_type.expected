@@ -1,4 +1,4 @@
-=== get_type Comprehensive Test ===
+=== type Comprehensive Test ===
 
 Test 1: Integer variables
   int1 = 42 → int (expected: int)
@@ -80,8 +80,8 @@ Expected behaviors:
   - Bare identifiers → symbol
   - Quoted text → string
   - Undefined variables → undefined
-  - get_type always returns a type name (never fails)
+  - type always returns a type name (never fails)
 
-If all results match expected, get_type is working correctly!
+If all results match expected, type is working correctly!
 
 === Test Complete ===

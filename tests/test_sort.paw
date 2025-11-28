@@ -46,9 +46,9 @@ echo "(nil < false < true < numbers < symbols < strings)"
 mixed: (5, nil, true, "beta", alpha, false, 2, "alpha")
 sorted_mixed: {sort ~mixed}
 echo "Sorted count: {len ~sorted_mixed}"
-echo "First item type: {get_inferred_type {argv ~sorted_mixed, 1}}"
-echo "Second item type: {get_inferred_type {argv ~sorted_mixed, 2}}"
-echo "Third item type: {get_inferred_type {argv ~sorted_mixed, 3}}"
+echo "First item type: {infer {argv ~sorted_mixed, 1}}"
+echo "Second item type: {infer {argv ~sorted_mixed, 2}}"
+echo "Third item type: {infer {argv ~sorted_mixed, 3}}"
 echo "(Expected: 8, nil, bool, bool)"
 echo ""
 

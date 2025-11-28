@@ -6,15 +6,15 @@ echo ""
 echo "Test 1: Access native IO channels via tilde with # prefix"
 # The ~#stdout should resolve to the io::#stdout channel (from ObjectsInherited)
 #out_ch: ~#stdout
-echo "stdout channel type: {get_type #out_ch}"
+echo "stdout channel type: {type #out_ch}"
 echo ""
 
 echo "Test 2: Access io channel aliases"
 # Short aliases
 #out_alias: ~#out
 #err_alias: ~#err
-echo "out alias type: {get_type #out_alias}"
-echo "err alias type: {get_type #err_alias}"
+echo "out alias type: {type #out_alias}"
+echo "err alias type: {type #err_alias}"
 echo ""
 
 echo "Test 3: Create custom channel and use with echo (channel arg)"

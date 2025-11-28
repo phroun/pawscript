@@ -80,7 +80,7 @@ See the `examples/` directory for sample scripts and usage patterns.
 - Added --license switch to show the MIT License.
 - Fixed bug where object markers would resolve too early when passing
   parameters to macros.
-- Made "channel" and "fiber" fully fledged types with get_type support.
+- Made "channel" and "fiber" fully fledged types with type command support.
 - Removed outdated MacroSystem now that the Environments hold macros.
 - PopulateIOModule now creates StoredChannels for #stdin, #stdout, and #stderr.
 - Better error checking when host environment uses SetResult.

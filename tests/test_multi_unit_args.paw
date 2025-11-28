@@ -63,16 +63,16 @@ echo ""
 
 # Section 8: nil Literal Handling
 echo "--- Section 8: nil Literal ---"
-get_inferred_type nil
+infer nil
 echo "nil type: {get_result}"
 x: nil
-get_inferred_type ~x
+infer ~x
 echo "Variable set to nil: {get_result}"
 echo ""
 
 # Section 9: Escaped Quotes in Bare Words (creates symbol with quote chars)
 echo "--- Section 9: Escaped Quotes in Bare Words ---"
-get_inferred_type \"text\"
+infer \"text\"
 echo "Type of bare word with escaped quotes: {get_result}"
 echo ""
 

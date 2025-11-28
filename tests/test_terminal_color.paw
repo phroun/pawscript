@@ -3,7 +3,7 @@
 
 print "=== Test 1: Color command returns list ==="
 info: {color}
-type: {get_type ~info}
+type: {type ~info}
 print "Color returns: ~type"
 print ""
 

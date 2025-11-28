@@ -1,6 +1,6 @@
 === Type System Tests ===
 
-Test 1: get_inferred_type
+Test 1: infer
 Type of 42: int
 Type of 3.14: float
 Type of true: bool
@@ -9,7 +9,7 @@ Type of "hello": string
 Type of myvar (symbol): symbol
 Type of (block): block
 
-Test 2: get_type with variables
+Test 2: type with variables
 Type of num variable: int
 Type of str variable: string
 Type of bool_val variable: bool

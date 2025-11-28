@@ -85,8 +85,8 @@ func (ps *PawScript) RegisterCoreLib() {
 		}
 	})
 
-	// get_inferred_type - returns the type of a value
-	ps.RegisterCommandInModule("core", "get_inferred_type", func(ctx *Context) Result {
+	// infer - returns the type of a value
+	ps.RegisterCommandInModule("core", "infer", func(ctx *Context) Result {
 		if len(ctx.Args) < 1 {
 			ctx.SetResult("undefined")
 			return BoolStatus(true)
@@ -97,10 +97,10 @@ func (ps *PawScript) RegisterCoreLib() {
 		return BoolStatus(true)
 	})
 
-	// get_type - returns the type of a variable without fetching its value
-	ps.RegisterCommandInModule("core", "get_type", func(ctx *Context) Result {
+	// type - returns the type of a variable without fetching its value
+	ps.RegisterCommandInModule("core", "type", func(ctx *Context) Result {
 		if len(ctx.Args) < 1 {
-			ctx.LogError(CatCommand, "Usage: get_type <variable_name>")
+			ctx.LogError(CatCommand, "Usage: type <variable_name>")
 			ctx.SetResult("undefined")
 			return BoolStatus(false)
 		}

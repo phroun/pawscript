@@ -1,154 +1,154 @@
 #!/usr/bin/env paw
-# Comprehensive test for get_inferred_type command
+# Comprehensive test for infer command
 # Tests type detection for all 9 types
 
-echo "=== get_inferred_type Comprehensive Test ==="
+echo "=== infer Comprehensive Test ==="
 echo ""
 
 # Test 1: Integer types
 echo "Test 1: Integer types"
-get_inferred_type 42
+infer 42
 echo "  42 → {get_result} (expected: int)"
 
-get_inferred_type -10
+infer -10
 echo "  -10 → {get_result} (expected: int)"
 
-get_inferred_type 0
+infer 0
 echo "  0 → {get_result} (expected: int)"
 echo ""
 
 # Test 2: Float types
 echo "Test 2: Float types"
-get_inferred_type 3.14
+infer 3.14
 echo "  3.14 → {get_result} (expected: float)"
 
-get_inferred_type -0.5
+infer -0.5
 echo "  -0.5 → {get_result} (expected: float)"
 
-get_inferred_type 0.0
+infer 0.0
 echo "  0.0 → {get_result} (expected: float)"
 echo ""
 
 # Test 3: Boolean types
 echo "Test 3: Boolean types"
-get_inferred_type true
+infer true
 echo "  true → {get_result} (expected: bool)"
 
-get_inferred_type false
+infer false
 echo "  false → {get_result} (expected: bool)"
 echo ""
 
 # Test 4: nil type
 echo "Test 4: nil type"
-get_inferred_type nil
+infer nil
 echo "  nil → {get_result} (expected: nil)"
 echo ""
 
 # Test 5: String types (quoted)
 echo "Test 5: String types (quoted)"
-get_inferred_type "hello"
+infer "hello"
 echo "  \"hello\" → {get_result} (expected: string)"
 
-get_inferred_type "world"
+infer "world"
 echo "  \"world\" → {get_result} (expected: string)"
 
-get_inferred_type ""
+infer ""
 echo "  \"\" (empty) → {get_result} (expected: string)"
 
-get_inferred_type "42"
+infer "42"
 echo "  \"42\" (quoted number) → {get_result} (expected: string)"
 
-get_inferred_type "true"
+infer "true"
 echo "  \"true\" (quoted bool) → {get_result} (expected: string)"
 echo ""
 
 # Test 6: Symbol types (bare identifiers)
 echo "Test 6: Symbol types (bare identifiers)"
-get_inferred_type myvar
+infer myvar
 echo "  myvar → {get_result} (expected: symbol)"
 
-get_inferred_type identifier
+infer identifier
 echo "  identifier → {get_result} (expected: symbol)"
 
-get_inferred_type foo123
+infer foo123
 echo "  foo123 → {get_result} (expected: symbol)"
 
-get_inferred_type _underscore
+infer _underscore
 echo "  _underscore → {get_result} (expected: symbol)"
 echo ""
 
 # Test 7: Block types (ParenGroup)
 echo "Test 7: Block types (ParenGroup)"
-get_inferred_type (echo test)
+infer (echo test)
 echo "  (echo test) → {get_result} (expected: block)"
 
-get_inferred_type (code here)
+infer (code here)
 echo "  (code here) → {get_result} (expected: block)"
 
-get_inferred_type ()
+infer ()
 echo "  () (empty) → {get_result} (expected: block)"
 echo ""
 
 # Test 8: Symbol vs String distinction
 echo "Test 8: Symbol vs String distinction"
-get_inferred_type admin
+infer admin
 echo "  admin (bare) → {get_result} (expected: symbol)"
 
-get_inferred_type "admin"
+infer "admin"
 echo "  \"admin\" (quoted) → {get_result} (expected: string)"
 
-get_inferred_type test
+infer test
 echo "  test (bare) → {get_result} (expected: symbol)"
 
-get_inferred_type "test"
+infer "test"
 echo "  \"test\" (quoted) → {get_result} (expected: string)"
 echo ""
 
 # Test 9: Numbers as different types
 echo "Test 9: Numbers as different types"
-get_inferred_type 123
+infer 123
 echo "  123 (bare) → {get_result} (expected: int)"
 
-get_inferred_type "123"
+infer "123"
 echo "  \"123\" (quoted) → {get_result} (expected: string)"
 echo ""
 
 # Test 10: Special string values
 echo "Test 10: Special string values"
-get_inferred_type "false"
+infer "false"
 echo "  \"false\" (string) → {get_result} (expected: string)"
 
-get_inferred_type "0"
+infer "0"
 echo "  \"0\" (string) → {get_result} (expected: string)"
 
-get_inferred_type "nil"
+infer "nil"
 echo "  \"nil\" (string) → {get_result} (expected: string)"
 echo ""
 
 # Test 11: Edge cases
 echo "Test 11: Edge cases"
-get_inferred_type a
+infer a
 echo "  a (single char) → {get_result} (expected: symbol)"
 
-get_inferred_type "a"
+infer "a"
 echo "  \"a\" (quoted single char) → {get_result} (expected: string)"
 
-get_inferred_type x_y_z
+infer x_y_z
 echo "  x_y_z (underscores) → {get_result} (expected: symbol)"
 
-get_inferred_type CamelCase
+infer CamelCase
 echo "  CamelCase → {get_result} (expected: symbol)"
 echo ""
 
 # Test 12: Type stability (call multiple times)
 echo "Test 12: Type stability"
-get_inferred_type myidentifier
+infer myidentifier
 echo "  First call: {get_result}"
 
-get_inferred_type myidentifier
+infer myidentifier
 echo "  Second call: {get_result}"
 
-get_inferred_type myidentifier
+infer myidentifier
 echo "  Third call: {get_result}"
 echo "  All should be: symbol"
 echo ""
@@ -163,6 +163,6 @@ echo "  Booleans (true, false) → bool"
 echo "  Null (nil) → nil"
 echo "  Blocks ((code)) → block"
 echo ""
-echo "If all results match expected, get_inferred_type is working correctly!"
+echo "If all results match expected, infer is working correctly!"
 echo ""
 echo "=== Test Complete ==="

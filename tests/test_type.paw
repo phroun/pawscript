@@ -1,196 +1,196 @@
 #!/usr/bin/env paw
-# Comprehensive test for get_type command
+# Comprehensive test for type command
 # Tests type detection for variables containing all 9 types
 
-echo "=== get_type Comprehensive Test ==="
+echo "=== type Comprehensive Test ==="
 echo ""
 
 # Test 1: Integer variables
 echo "Test 1: Integer variables"
 int1: 42
-get_type int1
+type int1
 echo "  int1 = 42 → {get_result} (expected: int)"
 
 int2: -10
-get_type int2
+type int2
 echo "  int2 = -10 → {get_result} (expected: int)"
 
 int3: 0
-get_type int3
+type int3
 echo "  int3 = 0 → {get_result} (expected: int)"
 echo ""
 
 # Test 2: Float variables
 echo "Test 2: Float variables"
 float1: 3.14
-get_type float1
+type float1
 echo "  float1 = 3.14 → {get_result} (expected: float)"
 
 float2: -0.5
-get_type float2
+type float2
 echo "  float2 = -0.5 → {get_result} (expected: float)"
 
 float3: 0.0
-get_type float3
+type float3
 echo "  float3 = 0.0 → {get_result} (expected: float)"
 echo ""
 
 # Test 3: Boolean variables
 echo "Test 3: Boolean variables"
 bool1: true
-get_type bool1
+type bool1
 echo "  bool1 = true → {get_result} (expected: bool)"
 
 bool2: false
-get_type bool2
+type bool2
 echo "  bool2 = false → {get_result} (expected: bool)"
 echo ""
 
 # Test 4: nil variables
 echo "Test 4: nil variables"
 null_var: nil
-get_type null_var
+type null_var
 echo "  null_var = nil → {get_result} (expected: nil)"
 echo ""
 
 # Test 5: String variables (quoted)
 echo "Test 5: String variables (quoted)"
 str1: "hello"
-get_type str1
+type str1
 echo "  str1 = \"hello\" → {get_result} (expected: string)"
 
 str2: "world"
-get_type str2
+type str2
 echo "  str2 = \"world\" → {get_result} (expected: string)"
 
 str3: ""
-get_type str3
+type str3
 echo "  str3 = \"\" (empty) → {get_result} (expected: string)"
 
 str4: "42"
-get_type str4
+type str4
 echo "  str4 = \"42\" → {get_result} (expected: string)"
 echo ""
 
 # Test 6: Symbol variables (bare identifiers)
 echo "Test 6: Symbol variables (bare identifiers)"
 sym1: myvar
-get_type sym1
+type sym1
 echo "  sym1 = myvar → {get_result} (expected: symbol)"
 
 sym2: identifier
-get_type sym2
+type sym2
 echo "  sym2 = identifier → {get_result} (expected: symbol)"
 
 sym3: foo123
-get_type sym3
+type sym3
 echo "  sym3 = foo123 → {get_result} (expected: symbol)"
 
 sym4: _underscore
-get_type sym4
+type sym4
 echo "  sym4 = _underscore → {get_result} (expected: symbol)"
 echo ""
 
 # Test 7: Block variables (ParenGroup)
 echo "Test 7: Block variables (ParenGroup)"
 block1: (echo test)
-get_type block1
+type block1
 echo "  block1 = (echo test) → {get_result} (expected: block)"
 
 block2: (code here)
-get_type block2
+type block2
 echo "  block2 = (code here) → {get_result} (expected: block)"
 
 block3: ()
-get_type block3
+type block3
 echo "  block3 = () → {get_result} (expected: block)"
 echo ""
 
 # Test 8: Undefined variables
 echo "Test 8: Undefined variables"
-get_type nonexistent_var1
+type nonexistent_var1
 echo "  nonexistent_var1 → {get_result} (expected: undefined)"
 
-get_type never_defined
+type never_defined
 echo "  never_defined → {get_result} (expected: undefined)"
 
-get_type xyz123
+type xyz123
 echo "  xyz123 → {get_result} (expected: undefined)"
 echo ""
 
 # Test 9: Symbol vs String variables
 echo "Test 9: Symbol vs String variables"
 role_sym: admin
-get_type role_sym
+type role_sym
 echo "  role_sym = admin → {get_result} (expected: symbol)"
 
 role_str: "admin"
-get_type role_str
+type role_str
 echo "  role_str = \"admin\" → {get_result} (expected: string)"
 
 status_sym: active
-get_type status_sym
+type status_sym
 echo "  status_sym = active → {get_result} (expected: symbol)"
 
 status_str: "active"
-get_type status_str
+type status_str
 echo "  status_str = \"active\" → {get_result} (expected: string)"
 echo ""
 
 # Test 10: Variable overwriting with different types
 echo "Test 10: Variable type changes"
 x: 42
-get_type x
+type x
 echo "  x = 42 → {get_result} (expected: int)"
 
 x: "hello"
-get_type x
+type x
 echo "  x = \"hello\" → {get_result} (expected: string)"
 
 x: myidentifier
-get_type x
+type x
 echo "  x = myidentifier → {get_result} (expected: symbol)"
 
 x: true
-get_type x
+type x
 echo "  x = true → {get_result} (expected: bool)"
 
 x: (code)
-get_type x
+type x
 echo "  x = (code) → {get_result} (expected: block)"
 echo ""
 
 # Test 11: Numbers in different forms
 echo "Test 11: Numbers in different forms"
 num_int: 123
-get_type num_int
+type num_int
 echo "  num_int = 123 → {get_result} (expected: int)"
 
 num_str: "123"
-get_type num_str
+type num_str
 echo "  num_str = \"123\" → {get_result} (expected: string)"
 
 num_float: 123.0
-get_type num_float
+type num_float
 echo "  num_float = 123.0 → {get_result} (expected: float)"
 echo ""
 
 # Test 12: Special string values
 echo "Test 12: Special string values"
 special1: "false"
-get_type special1
+type special1
 echo "  special1 = \"false\" → {get_result} (expected: string)"
 
 special2: "0"
-get_type special2
+type special2
 echo "  special2 = \"0\" → {get_result} (expected: string)"
 
 special3: "nil"
-get_type special3
+type special3
 echo "  special3 = \"nil\" → {get_result} (expected: string)"
 
 special4: "true"
-get_type special4
+type special4
 echo "  special4 = \"true\" → {get_result} (expected: string)"
 echo ""
 
@@ -198,13 +198,13 @@ echo ""
 echo "Test 13: Variable existence checking"
 
 exists_var: test
-if {eq {get_type exists_var}, undefined} then (
+if {eq {type exists_var}, undefined} then (
     echo "  ✗ FAIL: exists_var should exist"
 ) else (
-    echo "  ✓ PASS: exists_var exists (type: {get_type exists_var})"
+    echo "  ✓ PASS: exists_var exists (type: {type exists_var})"
 )
 
-if {eq {get_type does_not_exist}, undefined} then (
+if {eq {type does_not_exist}, undefined} then (
     echo "  ✓ PASS: does_not_exist is undefined"
 ) else (
     echo "  ✗ FAIL: does_not_exist should be undefined"
@@ -217,16 +217,16 @@ MyVar: test1
 myvar: test2
 MYVAR: test3
 
-get_type MyVar
+type MyVar
 echo "  MyVar → {get_result} (expected: symbol)"
 
-get_type myvar
+type myvar
 echo "  myvar → {get_result} (expected: symbol)"
 
-get_type MYVAR
+type MYVAR
 echo "  MYVAR → {get_result} (expected: symbol)"
 
-get_type myVAR
+type myVAR
 echo "  myVAR (not defined) → {get_result} (expected: undefined)"
 echo ""
 
@@ -236,11 +236,11 @@ echo "Test 15: Practical use cases"
 
 # Safe variable access pattern
 macro safe_access(
-    if {eq {get_type $1}, undefined} then (
+    if {eq {type $1}, undefined} then (
         echo "Variable $1 is not defined, using default"
         ret "default"
     ) else (
-        echo "Variable $1 exists with type: {get_type $1}"
+        echo "Variable $1 exists with type: {type $1}"
         true;ret ~$1
     )
 )
@@ -254,16 +254,16 @@ echo ""
 
 # Type-based dispatch
 macro type_dispatch(
-    if {eq {get_type $1}, symbol} then (
+    if {eq {type $1}, symbol} then (
         echo "Got symbol: ~$1"
-    ) else if {eq {get_type $1}, string} then (
+    ) else if {eq {type $1}, string} then (
         echo "Got string: ~$1"
-    ) else if {eq {get_type $1}, int} then (
+    ) else if {eq {type $1}, int} then (
         echo "Got int: ~$1"
-    ) else if {eq {get_type $1}, undefined} then (
+    ) else if {eq {type $1}, undefined} then (
         echo "Variable $1 is undefined"
     ) else (
-        echo "Got {get_type $1}: ~$1"
+        echo "Got {type $1}: ~$1"
     )
 )
 
@@ -290,8 +290,8 @@ echo "  - Variables store their original type"
 echo "  - Bare identifiers → symbol"
 echo "  - Quoted text → string"
 echo "  - Undefined variables → undefined"
-echo "  - get_type always returns a type name (never fails)"
+echo "  - type always returns a type name (never fails)"
 echo ""
-echo "If all results match expected, get_type is working correctly!"
+echo "If all results match expected, type is working correctly!"
 echo ""
 echo "=== Test Complete ==="
