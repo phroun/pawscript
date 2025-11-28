@@ -1,5 +1,6 @@
 === CHAIN OPERATOR TESTS (~>) ===
 
+Test 1: ~> prepends {get_result} with comma
 HELLO world
 Expected: HELLO world
 
@@ -15,7 +16,7 @@ Expected: FIRST third
 
 === LONG CHAIN OPERATOR TESTS (~~>) ===
 
-Test 4: ~~> appends FIRST with comma
+Test 4: ~~> appends {get_result} with comma
 world HELLO
 Expected: world HELLO
 

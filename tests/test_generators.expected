@@ -140,6 +140,8 @@ Consuming until error:
   0
   1
   2
+[PawScript ERROR] resume: token not found or exhausted
+  at line 358, column 7 in test_generators.paw
 Error reason: error_at_3
 
 All generator tests passed!

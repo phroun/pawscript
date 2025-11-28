@@ -3,6 +3,7 @@ package pawscript
 import (
 	"fmt"
 	"math"
+	"strings"
 )
 
 // RegisterMathLib registers math and comparison commands
@@ -380,10 +381,13 @@ func (ps *PawScript) RegisterMathLib() {
 			return BoolStatus(false)
 		}
 
-		// Warn if the argument is a ParenGroup - likely a mistake
+		// Warn if the argument is a literal ParenGroup - likely a mistake
 		// User probably meant {command} (execute) not (command) (block literal)
+		// Only warn if the raw argument started with '(' (literal), not if it came from a variable
 		if _, ok := ctx.Args[0].(ParenGroup); ok {
-			ctx.LogWarning(CatCommand, "if received a block literal (parentheses) which is always truthy; did you mean to use braces {command} instead?")
+			if len(ctx.RawArgs) > 0 && strings.HasPrefix(ctx.RawArgs[0], "(") {
+				ctx.LogWarning(CatCommand, "if received a block literal (parentheses) which is always truthy; did you mean to use braces {command} instead?")
+			}
 		}
 
 		// Normalize the first argument to boolean

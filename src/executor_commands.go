@@ -312,6 +312,16 @@ func (e *Executor) executeSingleCommand(
 				// Now parse and execute the command with the substituted string
 				cmdName, args, namedArgs := ParseCommand(finalString)
 
+				// Capture raw args before resolution (preserve parens for ParenGroups)
+				rawArgs := make([]string, len(args))
+				for i, arg := range args {
+					if _, ok := arg.(ParenGroup); ok {
+						rawArgs[i] = fmt.Sprintf("(%v)", arg)
+					} else {
+						rawArgs[i] = fmt.Sprintf("%v", arg)
+					}
+				}
+
 				// Process arguments to resolve any LIST markers and tilde expressions
 				args = e.processArguments(args, capturedState, capturedSubstitutionCtx, capturedPosition)
 
@@ -338,7 +348,7 @@ func (e *Executor) executeSingleCommand(
 				// Check for commands in module environment
 				if handler, exists := capturedState.moduleEnv.GetCommand(cmdName); exists {
 					e.logger.Debug("Found command \"%s\" in module environment", cmdName)
-					ctx := e.createContext(args, namedArgs, capturedState, capturedPosition)
+					ctx := e.createContext(args, rawArgs, namedArgs, capturedState, capturedPosition)
 					result := handler(ctx)
 					if capturedShouldInvert {
 						return e.invertStatus(result, capturedState, capturedPosition)
@@ -415,6 +425,17 @@ func (e *Executor) executeSingleCommand(
 	// Parse command
 	cmdName, args, namedArgs := ParseCommand(commandStr)
 
+	// Capture raw args before resolution (for diagnostic warnings like 'if' with ParenGroup)
+	// For ParenGroups, preserve the outer parens so we can tell literals from variables
+	rawArgs := make([]string, len(args))
+	for i, arg := range args {
+		if _, ok := arg.(ParenGroup); ok {
+			rawArgs[i] = fmt.Sprintf("(%v)", arg)
+		} else {
+			rawArgs[i] = fmt.Sprintf("%v", arg)
+		}
+	}
+
 	// Process arguments to resolve any LIST markers and tilde expressions
 	args = e.processArguments(args, state, substitutionCtx, position)
 
@@ -441,7 +462,7 @@ func (e *Executor) executeSingleCommand(
 	// Check for commands in module environment
 	if handler, exists := state.moduleEnv.GetCommand(cmdName); exists {
 		e.logger.Debug("Found command \"%s\" in module environment", cmdName)
-		ctx := e.createContext(args, namedArgs, state, position)
+		ctx := e.createContext(args, rawArgs, namedArgs, state, position)
 		result := handler(ctx)
 		if shouldInvert {
 			return e.invertStatus(result, state, position)

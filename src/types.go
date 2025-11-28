@@ -32,6 +32,7 @@ type MacroContext struct {
 // Context is passed to command handlers
 type Context struct {
 	Args         []interface{}
+	RawArgs      []string               // Original argument strings before resolution (for diagnostics)
 	NamedArgs    map[string]interface{} // Named arguments (key: value)
 	Position     *SourcePosition
 	state        *ExecutionState

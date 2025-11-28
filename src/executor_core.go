@@ -95,7 +95,7 @@ func (e *Executor) Execute(commandStr string, args ...interface{}) Result {
 		e.mu.RUnlock()
 
 		if exists {
-			ctx := e.createContext(args, nil, state, nil)
+			ctx := e.createContext(args, nil, nil, state, nil)
 			return handler(ctx)
 		}
 
@@ -171,9 +171,10 @@ func (e *Executor) ExecuteWithState(
 }
 
 // createContext creates a command context
-func (e *Executor) createContext(args []interface{}, namedArgs map[string]interface{}, state *ExecutionState, position *SourcePosition) *Context {
+func (e *Executor) createContext(args []interface{}, rawArgs []string, namedArgs map[string]interface{}, state *ExecutionState, position *SourcePosition) *Context {
 	return &Context{
 		Args:      args,
+		RawArgs:   rawArgs,
 		NamedArgs: namedArgs,
 		Position:  position,
 		state:     state,
