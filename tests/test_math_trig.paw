@@ -1,0 +1,116 @@
+#!/usr/bin/env paw
+# Test for auxiliary math library (trig functions and constants)
+# This library requires explicit IMPORT math
+
+echo "=== Auxiliary Math Library Tests ==="
+echo ""
+
+# First verify that math functions are NOT available without import
+echo "Test 1: Verify math:: requires IMPORT"
+echo "sin should not exist yet..."
+? sin then (echo "ERROR: sin exists without import") else (echo "sin not found (correct)")
+echo ""
+
+# Import the math library
+IMPORT math
+echo "IMPORT math completed"
+echo ""
+
+# Test 2: Trigonometric functions
+echo "Test 2: Trigonometric functions"
+echo "sin(0) =", {sin 0}
+echo "cos(0) =", {cos 0}
+echo "tan(0) =", {tan 0}
+echo "(Expected: 0, 1, 0)"
+echo ""
+
+# Test 3: sin/cos at key angles (using tau)
+echo "Test 3: sin/cos at key angles"
+quarter: {fdiv ~#tau, 4}
+half: {fdiv ~#tau, 2}
+echo "sin(tau/4) =", {sin ~quarter}
+echo "cos(tau/4) near 0:", {lt {abs {cos ~quarter}}, 0.0000001}
+echo "sin(tau/2) near 0:", {lt {abs {sin ~half}}, 0.0000001}
+echo "cos(tau/2) =", {cos ~half}
+echo "(Expected: 1, true, true, -1)"
+echo ""
+
+# Test 4: atan2
+echo "Test 4: atan2"
+echo "atan2(0, 1) =", {atan2 0, 1}
+echo "atan2(1, 0) =", {atan2 1, 0}
+echo "atan2(1, 1) =", {atan2 1, 1}
+echo "atan2(-1, -1) =", {atan2 -1, -1}
+echo "(Expected: 0, tau/4, tau/8, -3*tau/8)"
+echo ""
+
+# Test 5: Degree/radian conversion
+echo "Test 5: Degree/radian conversion"
+echo "deg(tau) =", {deg ~#tau}
+echo "deg(tau/2) =", {deg {fdiv ~#tau, 2}}
+echo "deg(tau/4) =", {deg {fdiv ~#tau, 4}}
+echo "rad(360) =", {rad 360}
+echo "rad(180) =", {rad 180}
+echo "rad(90) =", {rad 90}
+echo "(Expected: 360, 180, 90, tau, tau/2, tau/4)"
+echo ""
+
+# Test 6: Logarithms
+echo "Test 6: Logarithms"
+echo "ln(1) =", {ln 1}
+echo "ln(e) =", {ln ~#e}
+echo "log10(1) =", {log10 1}
+echo "log10(10) =", {log10 10}
+echo "log10(100) =", {log10 100}
+echo "log10(1000) =", {log10 1000}
+echo "(Expected: 0, 1, 0, 1, 2, 3)"
+echo ""
+
+# Test 7: log with base parameter
+echo "Test 7: log with base: parameter"
+echo "log(8, base: 2) =", {log 8, base: 2}
+echo "log(27, base: 3) =", {round {log 27, base: 3}}
+echo "log(100, base: 10) =", {log 100, base: 10}
+echo "log(16, base: 4) =", {log 16, base: 4}
+echo "(Expected: 3, 3, 2, 2)"
+echo ""
+
+# Test 8: Mathematical constants
+echo "Test 8: Mathematical constants"
+echo "tau =", ~#tau
+echo "e =", ~#e
+echo "phi =", ~#phi
+echo "root2 =", ~#root2
+echo "root3 =", ~#root3
+echo "root5 =", ~#root5
+echo "ln2 =", ~#ln2
+echo ""
+
+# Test 9: Verify constant relationships
+echo "Test 9: Constant relationships"
+echo "root2 * root2 =", {round {mul ~#root2, ~#root2}}
+echo "root3 * root3 =", {round {mul ~#root3, ~#root3}}
+echo "root5 * root5 =", {round {mul ~#root5, ~#root5}}
+echo "ln(2) =", {ln 2}
+echo "#ln2 =", ~#ln2
+echo "(Expected: 2, 3, 5, same, same)"
+echo ""
+
+# Test 10: phi (golden ratio) property
+echo "Test 10: phi property (phi^2 = phi + 1)"
+phi_squared: {mul ~#phi, ~#phi}
+phi_plus_one: {add ~#phi, 1}
+echo "phi^2 =", ~phi_squared
+echo "phi + 1 =", ~phi_plus_one
+echo "Equal:", {eq ~phi_squared, ~phi_plus_one}
+echo ""
+
+# Test 11: Combining trig and conversions
+echo "Test 11: Combining operations"
+echo "sin(rad(90)) =", {sin {rad 90}}
+echo "cos(rad(180)) =", {cos {rad 180}}
+echo "deg(atan2(1, 0)) =", {deg {atan2 1, 0}}
+echo "(Expected: 1, -1, 90)"
+echo ""
+
+echo "=== All Auxiliary Math Tests Complete ==="
