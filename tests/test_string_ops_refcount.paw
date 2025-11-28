@@ -13,40 +13,40 @@ mem_stats
 echo "Expected: 0 objects"
 echo ""
 
-# ============ str_upper ============
-echo "Test 2: str_upper with small string"
-small_upper: {str_upper "hello world"}
+# ============ upper ============
+echo "Test 2: upper with small string"
+small_upper: {upper "hello world"}
 mem_stats
 echo "Expected: 0 objects (small string stays inline)"
 echo ""
 
-echo "Test 3: str_upper with large string"
-large_upper: {str_upper ~large_base}
+echo "Test 3: upper with large string"
+large_upper: {upper ~large_base}
 mem_stats
 echo "Expected: 2 objects (large_base + large_upper)"
 echo ""
 
-echo "Test 4: Clear str_upper results"
+echo "Test 4: Clear upper results"
 small_upper: nil
 large_upper: nil
 mem_stats
 echo "Expected: 1 object (only large_base)"
 echo ""
 
-# ============ str_lower ============
-echo "Test 5: str_lower with small string"
-small_lower: {str_lower "HELLO WORLD"}
+# ============ lower ============
+echo "Test 5: lower with small string"
+small_lower: {lower "HELLO WORLD"}
 mem_stats
 echo "Expected: 1 object (large_base)"
 echo ""
 
-echo "Test 6: str_lower with large string"
-large_lower: {str_lower ~large_base}
+echo "Test 6: lower with large string"
+large_lower: {lower ~large_base}
 mem_stats
 echo "Expected: 2 objects (large_base + large_lower)"
 echo ""
 
-echo "Test 7: Clear str_lower results"
+echo "Test 7: Clear lower results"
 small_lower: nil
 large_lower: nil
 mem_stats

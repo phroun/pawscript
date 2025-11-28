@@ -44,16 +44,16 @@ echo "Expected: one|two|three"
 print
 
 # ==========================================
-# str_upper and str_lower - case conversion
+# upper and lower - case conversion
 # ==========================================
-echo "Testing str_upper..."
-upper: {str_upper "hello world"}
+echo "Testing upper..."
+upper: {upper "hello world"}
 echo "Uppercase: ~upper"
 echo "Expected: HELLO WORLD"
 print
 
-echo "Testing str_lower..."
-lower: {str_lower "HELLO WORLD"}
+echo "Testing lower..."
+lower: {lower "HELLO WORLD"}
 echo "Lowercase: ~lower"
 echo "Expected: hello world"
 print
@@ -235,11 +235,11 @@ trimmed: {trim ~raw}
 echo "Trimmed: [~trimmed]"
 echo "Expected: [HELLO WORLD]"
 
-formatted: {str_lower ~trimmed}
+formatted: {lower ~trimmed}
 echo "Lowercased: [~formatted]"
 echo "Expected: [hello world]"
 
-upper_version: {str_upper ~formatted}
+upper_version: {upper ~formatted}
 echo "Back to upper: [~upper_version]"
 echo "Expected: [HELLO WORLD]"
 print

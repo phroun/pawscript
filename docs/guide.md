@@ -335,8 +335,8 @@ fiber_wait_all          # Wait for all fibers
 
 | Command | Description |
 |---------|-------------|
-| `str_upper str` | Convert to uppercase |
-| `str_lower str` | Convert to lowercase |
+| `upper str` | Convert to uppercase |
+| `lower str` | Convert to lowercase |
 
 ### I/O (`io`)
 

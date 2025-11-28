@@ -15,7 +15,7 @@ ID    Type      RefCount  Size(bytes)
 6     string    1         232
 Expected: 0 objects
 
-Test 2: str_upper with small string
+Test 2: upper with small string
 === Memory Statistics ===
 Total stored objects: 5
 Total estimated size: 360 bytes
@@ -29,7 +29,7 @@ ID    Type      RefCount  Size(bytes)
 5     string    1         232
 Expected: 0 objects (small string stays inline)
 
-Test 3: str_upper with large string
+Test 3: upper with large string
 === Memory Statistics ===
 Total stored objects: 6
 Total estimated size: 592 bytes
@@ -44,7 +44,7 @@ ID    Type      RefCount  Size(bytes)
 7     string    2         232
 Expected: 2 objects (large_base + large_upper)
 
-Test 4: Clear str_upper results
+Test 4: Clear upper results
 === Memory Statistics ===
 Total stored objects: 5
 Total estimated size: 360 bytes
@@ -58,7 +58,7 @@ ID    Type      RefCount  Size(bytes)
 5     string    1         232
 Expected: 1 object (only large_base)
 
-Test 5: str_lower with small string
+Test 5: lower with small string
 === Memory Statistics ===
 Total stored objects: 5
 Total estimated size: 360 bytes
@@ -72,7 +72,7 @@ ID    Type      RefCount  Size(bytes)
 5     string    1         232
 Expected: 1 object (large_base)
 
-Test 6: str_lower with large string
+Test 6: lower with large string
 === Memory Statistics ===
 Total stored objects: 6
 Total estimated size: 592 bytes
@@ -87,7 +87,7 @@ ID    Type      RefCount  Size(bytes)
 8     string    2         232
 Expected: 2 objects (large_base + large_lower)
 
-Test 7: Clear str_lower results
+Test 7: Clear lower results
 === Memory Statistics ===
 Total stored objects: 5
 Total estimated size: 360 bytes

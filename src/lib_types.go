@@ -554,11 +554,11 @@ func (ps *PawScript) RegisterTypesLib() {
 		return BoolStatus(false)
 	})
 
-	// str_upper - convert string to uppercase
-	// Usage: str_upper "hello"  -> "HELLO"
-	ps.RegisterCommandInModule("stdlib", "str_upper", func(ctx *Context) Result {
+	// upper - convert string to uppercase
+	// Usage: upper "hello"  -> "HELLO"
+	ps.RegisterCommandInModule("stdlib", "upper", func(ctx *Context) Result {
 		if len(ctx.Args) < 1 {
-			ctx.LogError(CatCommand, "Usage: str_upper <string>")
+			ctx.LogError(CatCommand, "Usage: upper <string>")
 			ctx.SetResult("")
 			return BoolStatus(false)
 		}
@@ -575,11 +575,11 @@ func (ps *PawScript) RegisterTypesLib() {
 		return BoolStatus(true)
 	})
 
-	// str_lower - convert string to lowercase
-	// Usage: str_lower "HELLO"  -> "hello"
-	ps.RegisterCommandInModule("stdlib", "str_lower", func(ctx *Context) Result {
+	// lower - convert string to lowercase
+	// Usage: lower "HELLO"  -> "hello"
+	ps.RegisterCommandInModule("stdlib", "lower", func(ctx *Context) Result {
 		if len(ctx.Args) < 1 {
-			ctx.LogError(CatCommand, "Usage: str_lower <string>")
+			ctx.LogError(CatCommand, "Usage: lower <string>")
 			ctx.SetResult("")
 			return BoolStatus(false)
 		}
