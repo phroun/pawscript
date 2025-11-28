@@ -115,14 +115,17 @@ func (oc *OutputContext) WriteToErr(message string) error {
 	return err
 }
 
-// LogLevel represents the severity of a log message
+// LogLevel represents the severity of a log message (higher value = higher severity)
 type LogLevel int
 
 const (
-	LevelDebug LogLevel = iota // Development info (requires enabled + category)
-	LevelWarn                  // Warnings (requires enabled or category)
-	LevelError                 // Runtime errors (always shown)
-	LevelFatal                 // Parse/unknown command errors (always shown)
+	LevelTrace  LogLevel = iota // Detailed tracing (requires enabled + category)
+	LevelInfo                   // Informational messages (requires enabled + category)
+	LevelDebug                  // Development debugging (requires enabled + category)
+	LevelNotice                 // Notable events (always shown)
+	LevelWarn                   // Warnings (always shown)
+	LevelError                  // Runtime errors (always shown)
+	LevelFatal                  // Parse/unknown command errors (always shown)
 )
 
 // LogCategory represents the subsystem generating the message
@@ -290,9 +293,9 @@ func (l *Logger) IsCategoryEnabled(cat LogCategory) bool {
 // shouldLog determines if a message should be logged based on level and category
 func (l *Logger) shouldLog(level LogLevel, cat LogCategory) bool {
 	switch level {
-	case LevelFatal, LevelError, LevelWarn:
+	case LevelFatal, LevelError, LevelWarn, LevelNotice:
 		return true // Always shown
-	case LevelDebug:
+	case LevelDebug, LevelInfo, LevelTrace:
 		return l.enabled && (cat == CatNone || l.enabledCategories[cat])
 	default:
 		return false
@@ -312,8 +315,14 @@ func (l *Logger) Log(level LogLevel, cat LogCategory, message string, position *
 	}
 
 	switch level {
+	case LevelTrace:
+		prefix = fmt.Sprintf("[TRACE%s]", catSuffix)
+	case LevelInfo:
+		prefix = fmt.Sprintf("[INFO%s]", catSuffix)
 	case LevelDebug:
 		prefix = fmt.Sprintf("[DEBUG%s]", catSuffix)
+	case LevelNotice:
+		prefix = fmt.Sprintf("[PawScript%s NOTICE]", catSuffix)
 	case LevelWarn:
 		prefix = fmt.Sprintf("[PawScript%s WARN]", catSuffix)
 	case LevelError, LevelFatal:
@@ -342,19 +351,32 @@ func (l *Logger) Log(level LogLevel, cat LogCategory, message string, position *
 	}
 
 	// Route to appropriate output using channel-aware helper
-	l.writeOutput(level == LevelDebug, output)
+	// Trace, Info, Debug go to stdout; Notice, Warn, Error, Fatal go to stderr
+	isLowSeverity := level == LevelTrace || level == LevelInfo || level == LevelDebug
+	l.writeOutput(isLowSeverity, output)
 }
 
 // Convenience methods that route through Log
+// Ordered by severity: Fatal, Error, Warn, Notice, Debug, Info, Trace
 
-// Debug logs a debug message (no position)
-func (l *Logger) Debug(format string, args ...interface{}) {
-	l.Log(LevelDebug, CatNone, fmt.Sprintf(format, args...), nil, nil)
+// Fatal logs a fatal error message (no position) - use ParseError or UnknownCommandError for positioned errors
+func (l *Logger) Fatal(format string, args ...interface{}) {
+	l.Log(LevelFatal, CatNone, fmt.Sprintf(format, args...), nil, nil)
 }
 
-// DebugCat logs a categorized debug message
-func (l *Logger) DebugCat(cat LogCategory, format string, args ...interface{}) {
-	l.Log(LevelDebug, cat, fmt.Sprintf(format, args...), nil, nil)
+// FatalCat logs a categorized fatal error message
+func (l *Logger) FatalCat(cat LogCategory, format string, args ...interface{}) {
+	l.Log(LevelFatal, cat, fmt.Sprintf(format, args...), nil, nil)
+}
+
+// Error logs an error message (no position)
+func (l *Logger) Error(format string, args ...interface{}) {
+	l.Log(LevelError, CatNone, fmt.Sprintf(format, args...), nil, nil)
+}
+
+// ErrorCat logs a categorized error message
+func (l *Logger) ErrorCat(cat LogCategory, format string, args ...interface{}) {
+	l.Log(LevelError, cat, fmt.Sprintf(format, args...), nil, nil)
 }
 
 // Warn logs a warning message (no position)
@@ -367,14 +389,44 @@ func (l *Logger) WarnCat(cat LogCategory, format string, args ...interface{}) {
 	l.Log(LevelWarn, cat, fmt.Sprintf(format, args...), nil, nil)
 }
 
-// Error logs an error message (no position)
-func (l *Logger) Error(format string, args ...interface{}) {
-	l.Log(LevelError, CatNone, fmt.Sprintf(format, args...), nil, nil)
+// Notice logs a notable event (no position) - always shown, less severe than warning
+func (l *Logger) Notice(format string, args ...interface{}) {
+	l.Log(LevelNotice, CatNone, fmt.Sprintf(format, args...), nil, nil)
 }
 
-// ErrorCat logs a categorized error message
-func (l *Logger) ErrorCat(cat LogCategory, format string, args ...interface{}) {
-	l.Log(LevelError, cat, fmt.Sprintf(format, args...), nil, nil)
+// NoticeCat logs a categorized notice message
+func (l *Logger) NoticeCat(cat LogCategory, format string, args ...interface{}) {
+	l.Log(LevelNotice, cat, fmt.Sprintf(format, args...), nil, nil)
+}
+
+// Debug logs a debug message (no position)
+func (l *Logger) Debug(format string, args ...interface{}) {
+	l.Log(LevelDebug, CatNone, fmt.Sprintf(format, args...), nil, nil)
+}
+
+// DebugCat logs a categorized debug message
+func (l *Logger) DebugCat(cat LogCategory, format string, args ...interface{}) {
+	l.Log(LevelDebug, cat, fmt.Sprintf(format, args...), nil, nil)
+}
+
+// Info logs an informational message (no position)
+func (l *Logger) Info(format string, args ...interface{}) {
+	l.Log(LevelInfo, CatNone, fmt.Sprintf(format, args...), nil, nil)
+}
+
+// InfoCat logs a categorized informational message
+func (l *Logger) InfoCat(cat LogCategory, format string, args ...interface{}) {
+	l.Log(LevelInfo, cat, fmt.Sprintf(format, args...), nil, nil)
+}
+
+// Trace logs a detailed trace message (no position)
+func (l *Logger) Trace(format string, args ...interface{}) {
+	l.Log(LevelTrace, CatNone, fmt.Sprintf(format, args...), nil, nil)
+}
+
+// TraceCat logs a categorized trace message
+func (l *Logger) TraceCat(cat LogCategory, format string, args ...interface{}) {
+	l.Log(LevelTrace, cat, fmt.Sprintf(format, args...), nil, nil)
 }
 
 // ErrorWithPosition logs an error with position information
@@ -425,6 +477,11 @@ func (l *Logger) LogWithState(level LogLevel, cat LogCategory, message string, p
 	l.Log(level, cat, message, position, context)
 }
 
+// FatalWithState logs a fatal error message using the given execution state for channel resolution
+func (l *Logger) FatalWithState(cat LogCategory, message string, state *ExecutionState, executor *Executor) {
+	l.LogWithState(LevelFatal, cat, message, nil, nil, state, executor)
+}
+
 // ErrorWithState logs an error message using the given execution state for channel resolution
 func (l *Logger) ErrorWithState(cat LogCategory, message string, state *ExecutionState, executor *Executor) {
 	l.LogWithState(LevelError, cat, message, nil, nil, state, executor)
@@ -433,6 +490,26 @@ func (l *Logger) ErrorWithState(cat LogCategory, message string, state *Executio
 // WarnWithState logs a warning message using the given execution state for channel resolution
 func (l *Logger) WarnWithState(cat LogCategory, message string, state *ExecutionState, executor *Executor) {
 	l.LogWithState(LevelWarn, cat, message, nil, nil, state, executor)
+}
+
+// NoticeWithState logs a notice message using the given execution state for channel resolution
+func (l *Logger) NoticeWithState(cat LogCategory, message string, state *ExecutionState, executor *Executor) {
+	l.LogWithState(LevelNotice, cat, message, nil, nil, state, executor)
+}
+
+// DebugWithState logs a debug message using the given execution state for channel resolution
+func (l *Logger) DebugWithState(cat LogCategory, message string, state *ExecutionState, executor *Executor) {
+	l.LogWithState(LevelDebug, cat, message, nil, nil, state, executor)
+}
+
+// InfoWithState logs an info message using the given execution state for channel resolution
+func (l *Logger) InfoWithState(cat LogCategory, message string, state *ExecutionState, executor *Executor) {
+	l.LogWithState(LevelInfo, cat, message, nil, nil, state, executor)
+}
+
+// TraceWithState logs a trace message using the given execution state for channel resolution
+func (l *Logger) TraceWithState(cat LogCategory, message string, state *ExecutionState, executor *Executor) {
+	l.LogWithState(LevelTrace, cat, message, nil, nil, state, executor)
 }
 
 // formatMacroContext formats the macro call chain
