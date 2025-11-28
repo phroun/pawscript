@@ -39,3 +39,11 @@ echo ""
 echo "=== Test 8: Scoped strlist command ==="
 parts: {::strlist::split "a,b,c", ","}
 echo "split result:", ~parts
+
+echo ""
+echo "=== Test 9: After LIBRARY restrict, module:: fails but ::module:: works ==="
+LIBRARY "restrict math"
+math::sin 0
+echo "math::sin after restrict status:", {get_status}
+::math::sin 0
+echo "::math::sin after restrict =", {get_result}
