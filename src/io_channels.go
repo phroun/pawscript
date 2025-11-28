@@ -3,6 +3,7 @@ package pawscript
 import (
 	"bufio"
 	"fmt"
+	"io"
 	"os"
 	"time"
 )
@@ -10,11 +11,16 @@ import (
 // IOChannelConfig allows host applications to provide custom IO channel handlers
 // Any nil channel will use the default OS-backed implementation
 type IOChannelConfig struct {
-	// Standard channels - if nil, defaults will be created
+	// Standard channels - if nil, defaults will be created using DefaultStdin/Stdout/Stderr
 	Stdin  *StoredChannel // Read-only channel for input
 	Stdout *StoredChannel // Write-only channel for standard output
 	Stderr *StoredChannel // Write-only channel for error output
 	Stdio  *StoredChannel // Bidirectional channel (read from stdin, write to stdout)
+
+	// Default streams to use when creating default channels (if nil, uses os.Stdin/Stdout/Stderr)
+	DefaultStdin  io.Reader
+	DefaultStdout io.Writer
+	DefaultStderr io.Writer
 
 	// Additional custom channels - will be registered with their map keys as names
 	// Example: {"#mylog": logChannel} would create io::#mylog
@@ -37,12 +43,28 @@ func (env *ModuleEnvironment) PopulateIOModule(config *IOChannelConfig, executor
 
 	var stdinCh, stdoutCh, stderrCh, stdioCh *StoredChannel
 
+	// Determine which streams to use for defaults
+	defaultStdin := io.Reader(os.Stdin)
+	defaultStdout := io.Writer(os.Stdout)
+	defaultStderr := io.Writer(os.Stderr)
+	if config != nil {
+		if config.DefaultStdin != nil {
+			defaultStdin = config.DefaultStdin
+		}
+		if config.DefaultStdout != nil {
+			defaultStdout = config.DefaultStdout
+		}
+		if config.DefaultStderr != nil {
+			defaultStderr = config.DefaultStderr
+		}
+	}
+
 	// Use provided channels or create defaults
 	if config != nil && config.Stdin != nil {
 		stdinCh = config.Stdin
 	} else {
 		// Create default stdin channel - read-only
-		stdinReader := bufio.NewReader(os.Stdin)
+		stdinReader := bufio.NewReader(defaultStdin)
 		stdinCh = &StoredChannel{
 			BufferSize:       0,
 			Messages:         make([]ChannelMessage, 0),
@@ -75,6 +97,7 @@ func (env *ModuleEnvironment) PopulateIOModule(config *IOChannelConfig, executor
 	} else {
 		// Create default stdout channel - write-only
 		// Note: NativeSend does NOT add newline - callers add it if needed
+		stdout := defaultStdout // capture for closure
 		stdoutCh = &StoredChannel{
 			BufferSize:       0,
 			Messages:         make([]ChannelMessage, 0),
@@ -83,7 +106,7 @@ func (env *ModuleEnvironment) PopulateIOModule(config *IOChannelConfig, executor
 			IsClosed:         false,
 			Timestamp:        time.Now(),
 			NativeSend: func(v interface{}) error {
-				_, err := fmt.Fprintf(os.Stdout, "%v", v)
+				_, err := fmt.Fprintf(stdout, "%v", v)
 				return err
 			},
 			NativeRecv: func() (interface{}, error) {
@@ -97,6 +120,7 @@ func (env *ModuleEnvironment) PopulateIOModule(config *IOChannelConfig, executor
 	} else {
 		// Create default stderr channel - write-only
 		// Note: NativeSend does NOT add newline - callers add it if needed
+		stderr := defaultStderr // capture for closure
 		stderrCh = &StoredChannel{
 			BufferSize:       0,
 			Messages:         make([]ChannelMessage, 0),
@@ -105,7 +129,7 @@ func (env *ModuleEnvironment) PopulateIOModule(config *IOChannelConfig, executor
 			IsClosed:         false,
 			Timestamp:        time.Now(),
 			NativeSend: func(v interface{}) error {
-				_, err := fmt.Fprintf(os.Stderr, "%v", v)
+				_, err := fmt.Fprintf(stderr, "%v", v)
 				return err
 			},
 			NativeRecv: func() (interface{}, error) {
@@ -119,7 +143,8 @@ func (env *ModuleEnvironment) PopulateIOModule(config *IOChannelConfig, executor
 	} else {
 		// Create default stdio channel - bidirectional (read from stdin, write to stdout)
 		// Note: NativeSend does NOT add newline - callers add it if needed
-		stdioReader := bufio.NewReader(os.Stdin)
+		stdioReader := bufio.NewReader(defaultStdin)
+		stdout := defaultStdout // capture for closure
 		stdioCh = &StoredChannel{
 			BufferSize:       0,
 			Messages:         make([]ChannelMessage, 0),
@@ -128,7 +153,7 @@ func (env *ModuleEnvironment) PopulateIOModule(config *IOChannelConfig, executor
 			IsClosed:         false,
 			Timestamp:        time.Now(),
 			NativeSend: func(v interface{}) error {
-				_, err := fmt.Fprintf(os.Stdout, "%v", v)
+				_, err := fmt.Fprintf(stdout, "%v", v)
 				return err
 			},
 			NativeRecv: func() (interface{}, error) {

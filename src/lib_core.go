@@ -317,23 +317,24 @@ func (ps *PawScript) RegisterCoreLib() {
 
 	// bubble_dump - debug command to dump the bubble map contents
 	ps.RegisterCommandInModule("debug", "bubble_dump", func(ctx *Context) Result {
+		stderr := ps.logger.GetStderr()
 		bubbleMap := ctx.state.GetBubbleMap()
 		if len(bubbleMap) == 0 {
-			fmt.Fprintln(os.Stderr, "[bubble_dump] No bubbles")
+			fmt.Fprintln(stderr, "[bubble_dump] No bubbles")
 			return BoolStatus(true)
 		}
 
-		fmt.Fprintln(os.Stderr, "[bubble_dump] Bubble map contents:")
+		fmt.Fprintln(stderr, "[bubble_dump] Bubble map contents:")
 		for flavor, entries := range bubbleMap {
-			fmt.Fprintf(os.Stderr, "  Flavor: %s (%d entries)\n", flavor, len(entries))
+			fmt.Fprintf(stderr, "  Flavor: %s (%d entries)\n", flavor, len(entries))
 			for i, entry := range entries {
-				fmt.Fprintf(os.Stderr, "    [%d] content=%v, microtime=%d, memo=%q\n",
+				fmt.Fprintf(stderr, "    [%d] content=%v, microtime=%d, memo=%q\n",
 					i, entry.Content, entry.Microtime, entry.Memo)
 				if len(entry.StackTrace) > 0 {
-					fmt.Fprintf(os.Stderr, "        stack trace (%d frames):\n", len(entry.StackTrace))
+					fmt.Fprintf(stderr, "        stack trace (%d frames):\n", len(entry.StackTrace))
 					for j, frame := range entry.StackTrace {
 						if frameMap, ok := frame.(map[string]interface{}); ok {
-							fmt.Fprintf(os.Stderr, "          [%d] %v at %v:%v\n",
+							fmt.Fprintf(stderr, "          [%d] %v at %v:%v\n",
 								j, frameMap["macro"], frameMap["file"], frameMap["line"])
 						}
 					}
@@ -369,23 +370,24 @@ func (ps *PawScript) RegisterCoreLib() {
 
 	// bubble_orphans_dump - debug command to dump orphaned bubbles without retrieving them
 	ps.RegisterCommandInModule("debug", "bubble_orphans_dump", func(ctx *Context) Result {
+		stderr := ps.logger.GetStderr()
 		orphaned := ctx.executor.GetOrphanedBubbles()
 		if len(orphaned) == 0 {
-			fmt.Fprintln(os.Stderr, "[bubble_orphans_dump] No orphaned bubbles")
+			fmt.Fprintln(stderr, "[bubble_orphans_dump] No orphaned bubbles")
 			return BoolStatus(true)
 		}
 
-		fmt.Fprintln(os.Stderr, "[bubble_orphans_dump] Orphaned bubble map contents:")
+		fmt.Fprintln(stderr, "[bubble_orphans_dump] Orphaned bubble map contents:")
 		for flavor, entries := range orphaned {
-			fmt.Fprintf(os.Stderr, "  Flavor: %s (%d entries)\n", flavor, len(entries))
+			fmt.Fprintf(stderr, "  Flavor: %s (%d entries)\n", flavor, len(entries))
 			for i, entry := range entries {
-				fmt.Fprintf(os.Stderr, "    [%d] content=%v, microtime=%d, memo=%q\n",
+				fmt.Fprintf(stderr, "    [%d] content=%v, microtime=%d, memo=%q\n",
 					i, entry.Content, entry.Microtime, entry.Memo)
 				if len(entry.StackTrace) > 0 {
-					fmt.Fprintf(os.Stderr, "        stack trace (%d frames):\n", len(entry.StackTrace))
+					fmt.Fprintf(stderr, "        stack trace (%d frames):\n", len(entry.StackTrace))
 					for j, frame := range entry.StackTrace {
 						if frameMap, ok := frame.(map[string]interface{}); ok {
-							fmt.Fprintf(os.Stderr, "          [%d] %v at %v:%v\n",
+							fmt.Fprintf(stderr, "          [%d] %v at %v:%v\n",
 								j, frameMap["macro"], frameMap["file"], frameMap["line"])
 						}
 					}

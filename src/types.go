@@ -3,6 +3,8 @@ package pawscript
 import (
 	"context"
 	"fmt"
+	"io"
+	"os"
 	"sync"
 	"time"
 )
@@ -314,6 +316,9 @@ type Config struct {
 	AllowMacros          bool
 	ShowErrorContext     bool
 	ContextLines         int
+	Stdin                io.Reader // Custom stdin reader (default: os.Stdin)
+	Stdout               io.Writer // Custom stdout writer (default: os.Stdout)
+	Stderr               io.Writer // Custom stderr writer (default: os.Stderr)
 }
 
 // DefaultConfig returns default configuration
@@ -325,6 +330,9 @@ func DefaultConfig() *Config {
 		AllowMacros:          true,
 		ShowErrorContext:     true,
 		ContextLines:         2,
+		Stdin:                os.Stdin,
+		Stdout:               os.Stdout,
+		Stderr:               os.Stderr,
 	}
 }
 
