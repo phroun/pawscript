@@ -911,7 +911,7 @@ gui_label "while console runs!", panel: "left"
 (#out, #in, #err): {gui_console 400, 400, panel: "right"}
 
 # Define console interaction macro
-# Receives channels as $1, $2, $3 from fiber_spawn
+# Receives channels as $1, $2, $3 from fiber
 macro console_loop (
     # Initialize IO channels from arguments
     #out: $1
@@ -955,7 +955,7 @@ EXPORT greet_user, increment_counter, console_loop
 
 # Run console interaction in a fiber, passing the channels as arguments
 msleep 300
-fiber_spawn console_loop, ~#out, ~#in, ~#err
+fiber console_loop, ~#out, ~#in, ~#err
 
 `
 

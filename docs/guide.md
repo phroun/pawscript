@@ -297,7 +297,7 @@ macro worker(
     echo "from fiber"
 )
 
-h: {fiber_spawn worker}
+h: {fiber worker}
 echo "from main"
 fiber_wait ~h           # Wait for single fiber
 fiber_wait_all          # Wait for all fibers
@@ -356,7 +356,7 @@ fiber_wait_all          # Wait for all fibers
 
 | Command | Description |
 |---------|-------------|
-| `fiber_spawn macro` | Spawn concurrent fiber running the macro |
+| `fiber macro` | Spawn concurrent fiber running the macro |
 | `fiber_wait handle` | Wait for fiber to complete |
 | `fiber_wait_all` | Wait for all fibers |
 | `msleep ms` | Sleep for milliseconds |

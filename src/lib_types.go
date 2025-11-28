@@ -1476,6 +1476,276 @@ func (ps *PawScript) RegisterTypesLib() {
 		setListResult(ctx, resultList)
 		return BoolStatus(true)
 	})
+
+	// string - convert any value to its string representation
+	// Usage: string 123      -> "123"
+	//        string 3.14     -> "3.14"
+	//        string true     -> "true"
+	//        string nil      -> "nil"
+	//        string ~mylist  -> "(1, 2, 3)"
+	//        string ~myblock -> "<block>"
+	ps.RegisterCommandInModule("stdlib", "string", func(ctx *Context) Result {
+		if len(ctx.Args) < 1 {
+			ctx.LogError(CatCommand, "Usage: string <value>")
+			ctx.SetResult(nil)
+			return BoolStatus(false)
+		}
+
+		value := ctx.Args[0]
+
+		// Resolve any markers
+		resolved := value
+		if ctx.executor != nil {
+			resolved = ctx.executor.resolveValue(value)
+		}
+
+		var result string
+
+		switch v := resolved.(type) {
+		case nil:
+			result = "nil"
+		case bool:
+			if v {
+				result = "true"
+			} else {
+				result = "false"
+			}
+		case int64:
+			result = strconv.FormatInt(v, 10)
+		case int:
+			result = strconv.Itoa(v)
+		case float64:
+			// Format float without unnecessary trailing zeros
+			result = strconv.FormatFloat(v, 'f', -1, 64)
+		case Symbol:
+			s := string(v)
+			// Check for special symbols
+			if s == "nil" || s == "undefined" || s == "true" || s == "false" {
+				result = s
+			} else {
+				result = s
+			}
+		case QuotedString:
+			result = string(v)
+		case StoredString:
+			result = string(v)
+		case string:
+			result = v
+		case StoredList:
+			// Use formatListForDisplay for lists
+			result = formatListForDisplay(v)
+		case ParenGroup:
+			// Block/code - show as <block>
+			result = "<block>"
+		case StoredMacro, *StoredMacro:
+			result = "<macro>"
+		case *StoredCommand:
+			if v.CommandName != "" {
+				result = fmt.Sprintf("<command %s>", v.CommandName)
+			} else {
+				result = "<command>"
+			}
+		case *StoredChannel:
+			if ctx.executor != nil {
+				if id := ctx.executor.findStoredChannelID(v); id >= 0 {
+					result = fmt.Sprintf("<channel %d>", id)
+				} else {
+					result = "<channel>"
+				}
+			} else {
+				result = "<channel>"
+			}
+		case *FiberHandle:
+			if ctx.executor != nil {
+				if id := ctx.executor.findStoredFiberID(v); id >= 0 {
+					result = fmt.Sprintf("<fiber %d>", id)
+				} else {
+					result = "<fiber>"
+				}
+			} else {
+				result = "<fiber>"
+			}
+		default:
+			// Fallback to fmt.Sprintf
+			result = fmt.Sprintf("%v", v)
+		}
+
+		// Store the result string if needed
+		if ctx.executor != nil {
+			stored := ctx.executor.maybeStoreValue(result, ctx.state)
+			ctx.state.SetResultWithoutClaim(stored)
+		} else {
+			ctx.state.SetResultWithoutClaim(result)
+		}
+		return BoolStatus(true)
+	})
+
+	// float - convert value to float, with optional default on failure
+	// Usage: float "3.14"           -> 3.14
+	//        float "abc"            -> nil
+	//        float "abc", 0         -> 0
+	//        float 42               -> 42.0
+	//        float "123"            -> 123.0
+	ps.RegisterCommandInModule("stdlib", "float", func(ctx *Context) Result {
+		if len(ctx.Args) < 1 {
+			ctx.LogError(CatCommand, "Usage: float <value>, [default]")
+			ctx.SetResult(nil)
+			return BoolStatus(false)
+		}
+
+		value := ctx.Args[0]
+
+		// Resolve any markers
+		resolved := value
+		if ctx.executor != nil {
+			resolved = ctx.executor.resolveValue(value)
+		}
+
+		// Try to convert to float
+		if num, ok := toNumber(resolved); ok {
+			ctx.SetResult(num)
+			return BoolStatus(true)
+		}
+
+		// Conversion failed - return default or nil
+		if len(ctx.Args) >= 2 {
+			ctx.SetResult(ctx.Args[1])
+		} else {
+			ctx.SetResult(nil)
+		}
+		return BoolStatus(true)
+	})
+
+	// bool - check truthiness and return true/false symbol
+	// Usage: bool 1         -> true
+	//        bool 0         -> false
+	//        bool ""        -> false
+	//        bool "hello"   -> true
+	//        bool nil       -> false
+	//        bool ~list     -> true (non-nil)
+	ps.RegisterCommandInModule("stdlib", "bool", func(ctx *Context) Result {
+		if len(ctx.Args) < 1 {
+			ctx.LogError(CatCommand, "Usage: bool <value>")
+			ctx.SetResult(nil)
+			return BoolStatus(false)
+		}
+
+		value := ctx.Args[0]
+
+		// Resolve any markers
+		resolved := value
+		if ctx.executor != nil {
+			resolved = ctx.executor.resolveValue(value)
+		}
+
+		// Check truthiness
+		if isTruthy(resolved) {
+			ctx.SetResult(true)
+		} else {
+			ctx.SetResult(false)
+		}
+		return BoolStatus(true)
+	})
+
+	// symbol - convert any value to a symbol
+	// Like string but returns Symbol type; fails if result contains null bytes
+	// Usage: symbol 123           -> 123 (as symbol)
+	//        symbol "hello"       -> hello (as symbol)
+	//        symbol ~list, default -> default if contains nulls
+	ps.RegisterCommandInModule("stdlib", "symbol", func(ctx *Context) Result {
+		if len(ctx.Args) < 1 {
+			ctx.LogError(CatCommand, "Usage: symbol <value>, [default]")
+			ctx.SetResult(nil)
+			return BoolStatus(false)
+		}
+
+		value := ctx.Args[0]
+
+		// Resolve any markers
+		resolved := value
+		if ctx.executor != nil {
+			resolved = ctx.executor.resolveValue(value)
+		}
+
+		var result string
+
+		switch v := resolved.(type) {
+		case nil:
+			result = "nil"
+		case bool:
+			if v {
+				result = "true"
+			} else {
+				result = "false"
+			}
+		case int64:
+			result = strconv.FormatInt(v, 10)
+		case int:
+			result = strconv.Itoa(v)
+		case float64:
+			// Format float without unnecessary trailing zeros
+			result = strconv.FormatFloat(v, 'f', -1, 64)
+		case Symbol:
+			result = string(v)
+		case QuotedString:
+			result = string(v)
+		case StoredString:
+			result = string(v)
+		case string:
+			result = v
+		case StoredList:
+			// Use formatListForDisplay for lists
+			result = formatListForDisplay(v)
+		case ParenGroup:
+			// Block/code - show as <block>
+			result = "<block>"
+		case StoredMacro, *StoredMacro:
+			result = "<macro>"
+		case *StoredCommand:
+			if v.CommandName != "" {
+				result = fmt.Sprintf("<command %s>", v.CommandName)
+			} else {
+				result = "<command>"
+			}
+		case *StoredChannel:
+			if ctx.executor != nil {
+				if id := ctx.executor.findStoredChannelID(v); id >= 0 {
+					result = fmt.Sprintf("<channel %d>", id)
+				} else {
+					result = "<channel>"
+				}
+			} else {
+				result = "<channel>"
+			}
+		case *FiberHandle:
+			if ctx.executor != nil {
+				if id := ctx.executor.findStoredFiberID(v); id >= 0 {
+					result = fmt.Sprintf("<fiber %d>", id)
+				} else {
+					result = "<fiber>"
+				}
+			} else {
+				result = "<fiber>"
+			}
+		default:
+			// Fallback to fmt.Sprintf
+			result = fmt.Sprintf("%v", v)
+		}
+
+		// Check for null bytes - symbols cannot contain them
+		if strings.Contains(result, "\x00") {
+			ctx.LogError(CatType, "Cannot create symbol containing null bytes")
+			if len(ctx.Args) >= 2 {
+				ctx.SetResult(ctx.Args[1])
+			} else {
+				ctx.SetResult(nil)
+			}
+			return BoolStatus(false)
+		}
+
+		ctx.SetResult(Symbol(result))
+		return BoolStatus(true)
+	})
 }
 
 // sortItemsDefault sorts items using the default PawScript ordering:
