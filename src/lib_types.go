@@ -173,7 +173,7 @@ func (ps *PawScript) RegisterTypesLib() {
 	// Usage: slice ~mylist, 0, 3    - items 0, 1, 2
 	//        slice ~mylist, 1, -1   - from index 1 to end
 	//        slice "hello", 0, 3          - "hel"
-	ps.RegisterCommandInModule("stdlib", "slice", func(ctx *Context) Result {
+	ps.RegisterCommandInModule("strlist", "slice", func(ctx *Context) Result {
 		if len(ctx.Args) < 3 {
 			ctx.LogError(CatCommand, "Usage: slice <list|string>, <start>, <end>")
 			ctx.SetResult(nil)
@@ -244,7 +244,7 @@ func (ps *PawScript) RegisterTypesLib() {
 	// append - returns a new list with item appended, or string with suffix appended
 	// Usage: append ~mylist, newitem
 	//        append "hello", " world"  -> "hello world"
-	ps.RegisterCommandInModule("stdlib", "append", func(ctx *Context) Result {
+	ps.RegisterCommandInModule("strlist", "append", func(ctx *Context) Result {
 		if len(ctx.Args) < 2 {
 			ctx.LogError(CatCommand, "Usage: append <list|string>, <item|suffix>")
 			ctx.SetResult(nil)
@@ -281,7 +281,7 @@ func (ps *PawScript) RegisterTypesLib() {
 	// prepend - returns a new list with item prepended, or string with prefix prepended
 	// Usage: prepend ~mylist, newitem
 	//        prepend "world", "hello "  -> "hello world"
-	ps.RegisterCommandInModule("stdlib", "prepend", func(ctx *Context) Result {
+	ps.RegisterCommandInModule("strlist", "prepend", func(ctx *Context) Result {
 		if len(ctx.Args) < 2 {
 			ctx.LogError(CatCommand, "Usage: prepend <list|string>, <item|prefix>")
 			ctx.SetResult(nil)
@@ -318,7 +318,7 @@ func (ps *PawScript) RegisterTypesLib() {
 	// compact - returns a new list with a fresh backing array
 	// Usage: compact ~mylist
 	// Use this to free memory after slicing a large list
-	ps.RegisterCommandInModule("stdlib", "compact", func(ctx *Context) Result {
+	ps.RegisterCommandInModule("strlist", "compact", func(ctx *Context) Result {
 		if len(ctx.Args) < 1 {
 			ctx.LogError(CatCommand, "Usage: compact <list>")
 			ctx.SetResult(nil)
@@ -343,7 +343,7 @@ func (ps *PawScript) RegisterTypesLib() {
 	//        concat ~list1, ~list2                   -> combined list (lists)
 	//        concat ~list, "item1", "item2"          -> list with items appended
 	//        concat ~list1, ~list2, "extra"          -> lists concatenated + item appended
-	ps.RegisterCommandInModule("stdlib", "concat", func(ctx *Context) Result {
+	ps.RegisterCommandInModule("strlist", "concat", func(ctx *Context) Result {
 		if len(ctx.Args) < 2 {
 			ctx.LogError(CatCommand, "Usage: concat <value1>, <value2>, ...")
 			ctx.SetResult(nil)
@@ -389,7 +389,7 @@ func (ps *PawScript) RegisterTypesLib() {
 	//   split ~mylist, "x"       -> split list on occurrences of "x"
 	//   split ~mylist, ~delim    -> split list on sequence matching all items in delim
 	// Inverse of join
-	ps.RegisterCommandInModule("stdlib", "split", func(ctx *Context) Result {
+	ps.RegisterCommandInModule("strlist", "split", func(ctx *Context) Result {
 		if len(ctx.Args) < 2 {
 			ctx.LogError(CatCommand, "Usage: split <string|list>, <delimiter>")
 			ctx.SetResult(nil)
@@ -497,7 +497,7 @@ func (ps *PawScript) RegisterTypesLib() {
 	// String delimiter: join ~mylist, ","  -> "a,b,c"
 	// List delimiter: join ~mylist, ~delim -> inserts all delim items between each original item
 	// Inverse of split
-	ps.RegisterCommandInModule("stdlib", "join", func(ctx *Context) Result {
+	ps.RegisterCommandInModule("strlist", "join", func(ctx *Context) Result {
 		if len(ctx.Args) < 2 {
 			ctx.LogError(CatCommand, "Usage: join <list>, <delimiter>")
 			ctx.SetResult(nil)
@@ -556,7 +556,7 @@ func (ps *PawScript) RegisterTypesLib() {
 
 	// upper - convert string to uppercase
 	// Usage: upper "hello"  -> "HELLO"
-	ps.RegisterCommandInModule("stdlib", "upper", func(ctx *Context) Result {
+	ps.RegisterCommandInModule("strlist", "upper", func(ctx *Context) Result {
 		if len(ctx.Args) < 1 {
 			ctx.LogError(CatCommand, "Usage: upper <string>")
 			ctx.SetResult("")
@@ -577,7 +577,7 @@ func (ps *PawScript) RegisterTypesLib() {
 
 	// lower - convert string to lowercase
 	// Usage: lower "HELLO"  -> "hello"
-	ps.RegisterCommandInModule("stdlib", "lower", func(ctx *Context) Result {
+	ps.RegisterCommandInModule("strlist", "lower", func(ctx *Context) Result {
 		if len(ctx.Args) < 1 {
 			ctx.LogError(CatCommand, "Usage: lower <string>")
 			ctx.SetResult("")
@@ -607,7 +607,7 @@ func (ps *PawScript) RegisterTypesLib() {
 	//   trim ~mylist, "x"             -> removes "x" from both ends (override)
 	//   trim ~mylist,, "x"            -> removes nil/undefined and "x" from both ends (extend)
 	//   trim ~mylist, (1, 2)          -> removes lists matching (1, 2) by value
-	ps.RegisterCommandInModule("stdlib", "trim", func(ctx *Context) Result {
+	ps.RegisterCommandInModule("strlist", "trim", func(ctx *Context) Result {
 		if len(ctx.Args) < 1 {
 			ctx.LogError(CatCommand, "Usage: trim <string|list>, [values], [extend_values...]")
 			ctx.SetResult(nil)
@@ -720,7 +720,7 @@ func (ps *PawScript) RegisterTypesLib() {
 	//   trim_start ~mylist                  -> removes nil/undefined from start
 	//   trim_start ~mylist, "x"             -> removes "x" from start (override)
 	//   trim_start ~mylist,, "x"            -> removes nil/undefined and "x" from start (extend)
-	ps.RegisterCommandInModule("stdlib", "trim_start", func(ctx *Context) Result {
+	ps.RegisterCommandInModule("strlist", "trim_start", func(ctx *Context) Result {
 		if len(ctx.Args) < 1 {
 			ctx.LogError(CatCommand, "Usage: trim_start <string|list>, [values], [extend_values...]")
 			ctx.SetResult(nil)
@@ -826,7 +826,7 @@ func (ps *PawScript) RegisterTypesLib() {
 	//   trim_end ~mylist                  -> removes nil/undefined from end
 	//   trim_end ~mylist, "x"             -> removes "x" from end (override)
 	//   trim_end ~mylist,, "x"            -> removes nil/undefined and "x" from end (extend)
-	ps.RegisterCommandInModule("stdlib", "trim_end", func(ctx *Context) Result {
+	ps.RegisterCommandInModule("strlist", "trim_end", func(ctx *Context) Result {
 		if len(ctx.Args) < 1 {
 			ctx.LogError(CatCommand, "Usage: trim_end <string|list>, [values], [extend_values...]")
 			ctx.SetResult(nil)
@@ -926,7 +926,7 @@ func (ps *PawScript) RegisterTypesLib() {
 	// Usage: contains "hello world", "world"  -> true
 	//        contains ~mylist, "item"         -> true if item in list
 	//        contains ~mylist, ~sublist       -> true if sublist in list (deep comparison)
-	ps.RegisterCommandInModule("stdlib", "contains", func(ctx *Context) Result {
+	ps.RegisterCommandInModule("strlist", "contains", func(ctx *Context) Result {
 		if len(ctx.Args) < 2 {
 			ctx.LogError(CatCommand, "Usage: contains <string|list>, <substring|item>")
 			ctx.SetResult(false)
@@ -964,7 +964,7 @@ func (ps *PawScript) RegisterTypesLib() {
 	//        index ~mylist, ~sublist        -> position of sublist in list (deep comparison)
 	// Returns -1 if not found (like many languages)
 	// Always succeeds and sets result (use result to check if found)
-	ps.RegisterCommandInModule("stdlib", "index", func(ctx *Context) Result {
+	ps.RegisterCommandInModule("strlist", "index", func(ctx *Context) Result {
 		if len(ctx.Args) < 2 {
 			ctx.LogError(CatCommand, "Usage: index <string|list>, <substring|item>")
 			ctx.SetResult(int64(-1))
@@ -1004,7 +1004,7 @@ func (ps *PawScript) RegisterTypesLib() {
 	// List Usage:   replace ~list, old, new       -> replace all occurrences (single value or sequence)
 	//               replace ~list, old, new, N    -> replace first N (positive) or last N (negative)
 	// Count: omitted or 0 = all, positive N = first N, negative N = last N
-	ps.RegisterCommandInModule("stdlib", "replace", func(ctx *Context) Result {
+	ps.RegisterCommandInModule("strlist", "replace", func(ctx *Context) Result {
 		if len(ctx.Args) < 3 {
 			ctx.LogError(CatCommand, "Usage: replace <string|list>, <old>, <new> [, count]")
 			ctx.SetResult("")
@@ -1227,7 +1227,7 @@ func (ps *PawScript) RegisterTypesLib() {
 	// List Usage:
 	//   starts_with ~mylist, "x"       -> true if list starts with "x"
 	//   starts_with ~mylist, ~prefix   -> true if list starts with all items in prefix (in sequence)
-	ps.RegisterCommandInModule("stdlib", "starts_with", func(ctx *Context) Result {
+	ps.RegisterCommandInModule("strlist", "starts_with", func(ctx *Context) Result {
 		if len(ctx.Args) < 2 {
 			ctx.LogError(CatCommand, "Usage: starts_with <string|list>, <prefix|value>")
 			ctx.SetResult(false)
@@ -1286,7 +1286,7 @@ func (ps *PawScript) RegisterTypesLib() {
 	// List Usage:
 	//   ends_with ~mylist, "x"       -> true if list ends with "x"
 	//   ends_with ~mylist, ~suffix   -> true if list ends with all items in suffix (in sequence)
-	ps.RegisterCommandInModule("stdlib", "ends_with", func(ctx *Context) Result {
+	ps.RegisterCommandInModule("strlist", "ends_with", func(ctx *Context) Result {
 		if len(ctx.Args) < 2 {
 			ctx.LogError(CatCommand, "Usage: ends_with <string|list>, <suffix|value>")
 			ctx.SetResult(false)
@@ -1348,7 +1348,7 @@ func (ps *PawScript) RegisterTypesLib() {
 	//   - Optional 3rd arg is variable name to store iteration counter (0-based)
 	//   - Returns list of results from each iteration (nil for undefined results)
 	//   - If any iteration fails, adds failures: (list of failed iteration numbers)
-	ps.RegisterCommandInModule("stdlib", "repeat", func(ctx *Context) Result {
+	ps.RegisterCommandInModule("strlist", "repeat", func(ctx *Context) Result {
 		if len(ctx.Args) < 2 {
 			ctx.LogError(CatCommand, "Usage: repeat <string|list|block>, <count>, [counter_var]")
 			ctx.SetResult(nil)
@@ -1546,7 +1546,7 @@ func (ps *PawScript) RegisterTypesLib() {
 	//   nil < false < true < numbers (low to high) < symbols (alpha) < strings (alpha) < other (original order)
 	//
 	// Custom comparator receives two items as $1 and $2, returns true if $1 should come before $2
-	ps.RegisterCommandInModule("stdlib", "sort", func(ctx *Context) Result {
+	ps.RegisterCommandInModule("strlist", "sort", func(ctx *Context) Result {
 		if len(ctx.Args) < 1 {
 			ctx.LogError(CatCommand, "Usage: sort <list>, [comparator], [desc: true|false]")
 			ctx.SetResult(nil)
@@ -1651,7 +1651,7 @@ func (ps *PawScript) RegisterTypesLib() {
 	//        string nil      -> "nil"
 	//        string ~mylist  -> "(1, 2, 3)"
 	//        string ~myblock -> "<block>"
-	ps.RegisterCommandInModule("stdlib", "string", func(ctx *Context) Result {
+	ps.RegisterCommandInModule("types", "string", func(ctx *Context) Result {
 		if len(ctx.Args) < 1 {
 			ctx.LogError(CatCommand, "Usage: string <value>")
 			ctx.SetResult(nil)
@@ -1753,7 +1753,7 @@ func (ps *PawScript) RegisterTypesLib() {
 	//        float "abc", 0         -> 0
 	//        float 42               -> 42.0
 	//        float "123"            -> 123.0
-	ps.RegisterCommandInModule("stdlib", "float", func(ctx *Context) Result {
+	ps.RegisterCommandInModule("types", "float", func(ctx *Context) Result {
 		if len(ctx.Args) < 1 {
 			ctx.LogError(CatCommand, "Usage: float <value>, [default]")
 			ctx.SetResult(nil)
@@ -1790,7 +1790,7 @@ func (ps *PawScript) RegisterTypesLib() {
 	//        number "abc", 0         -> 0 (default on failure)
 	//        number 42.0             -> 42 (int64, exact)
 	//        number 42.5             -> 42.5 (float64, not exact)
-	ps.RegisterCommandInModule("stdlib", "number", func(ctx *Context) Result {
+	ps.RegisterCommandInModule("types", "number", func(ctx *Context) Result {
 		if len(ctx.Args) < 1 {
 			ctx.LogError(CatCommand, "Usage: number <value>, [default]")
 			ctx.SetResult(nil)
@@ -1834,7 +1834,7 @@ func (ps *PawScript) RegisterTypesLib() {
 	//        bool "hello"   -> true
 	//        bool nil       -> false
 	//        bool ~list     -> true (non-nil)
-	ps.RegisterCommandInModule("stdlib", "bool", func(ctx *Context) Result {
+	ps.RegisterCommandInModule("types", "bool", func(ctx *Context) Result {
 		if len(ctx.Args) < 1 {
 			ctx.LogError(CatCommand, "Usage: bool <value>")
 			ctx.SetResult(nil)
@@ -1863,7 +1863,7 @@ func (ps *PawScript) RegisterTypesLib() {
 	// Usage: symbol 123           -> 123 (as symbol)
 	//        symbol "hello"       -> hello (as symbol)
 	//        symbol ~list, default -> default if contains nulls
-	ps.RegisterCommandInModule("stdlib", "symbol", func(ctx *Context) Result {
+	ps.RegisterCommandInModule("types", "symbol", func(ctx *Context) Result {
 		if len(ctx.Args) < 1 {
 			ctx.LogError(CatCommand, "Usage: symbol <value>, [default]")
 			ctx.SetResult(nil)
@@ -1963,7 +1963,7 @@ func (ps *PawScript) RegisterTypesLib() {
 	//        block ~mylist                 -> joins list items with newlines into block
 	//        block ~myStringVar            -> creates block from string variable
 	// This is the inverse of getting a block's code content
-	ps.RegisterCommandInModule("stdlib", "block", func(ctx *Context) Result {
+	ps.RegisterCommandInModule("types", "block", func(ctx *Context) Result {
 		if len(ctx.Args) < 1 {
 			ctx.LogError(CatCommand, "Usage: block <string|list>")
 			ctx.SetResult(nil)

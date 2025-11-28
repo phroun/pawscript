@@ -86,7 +86,7 @@ func (ps *PawScript) RegisterCoreLib() {
 	})
 
 	// infer - returns the type of a value
-	ps.RegisterCommandInModule("core", "infer", func(ctx *Context) Result {
+	ps.RegisterCommandInModule("types", "infer", func(ctx *Context) Result {
 		if len(ctx.Args) < 1 {
 			ctx.SetResult("undefined")
 			return BoolStatus(true)
@@ -98,7 +98,7 @@ func (ps *PawScript) RegisterCoreLib() {
 	})
 
 	// type - returns the type of a variable without fetching its value
-	ps.RegisterCommandInModule("core", "type", func(ctx *Context) Result {
+	ps.RegisterCommandInModule("types", "type", func(ctx *Context) Result {
 		if len(ctx.Args) < 1 {
 			ctx.LogError(CatCommand, "Usage: type <variable_name>")
 			ctx.SetResult("undefined")
@@ -119,13 +119,13 @@ func (ps *PawScript) RegisterCoreLib() {
 	})
 
 	// list - creates an immutable list from arguments
-	ps.RegisterCommandInModule("core", "list", func(ctx *Context) Result {
+	ps.RegisterCommandInModule("types", "list", func(ctx *Context) Result {
 		setListResult(ctx, NewStoredListWithRefs(ctx.Args, ctx.NamedArgs, ctx.executor))
 		return BoolStatus(true)
 	})
 
 	// len - returns the length of a list, string, or channel
-	ps.RegisterCommandInModule("core", "len", func(ctx *Context) Result {
+	ps.RegisterCommandInModule("types", "len", func(ctx *Context) Result {
 		if len(ctx.Args) < 1 {
 			ctx.LogError(CatCommand, "Usage: len <list|string|channel>")
 			ctx.SetResult(0)
@@ -234,7 +234,7 @@ func (ps *PawScript) RegisterCoreLib() {
 	})
 
 	// keys - returns a list of all keys from a list's named arguments
-	ps.RegisterCommandInModule("core", "keys", func(ctx *Context) Result {
+	ps.RegisterCommandInModule("strlist", "keys", func(ctx *Context) Result {
 		if len(ctx.Args) < 1 {
 			ctx.LogError(CatCommand, "Usage: keys <list>")
 			ctx.SetResult(nil)

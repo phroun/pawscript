@@ -415,7 +415,7 @@ func (ps *PawScript) RegisterSystemLib(scriptArgs []string) {
 	})
 
 	// exec - execute external command and capture output
-	ps.RegisterCommandInModule("sys", "exec", func(ctx *Context) Result {
+	ps.RegisterCommandInModule("os", "exec", func(ctx *Context) Result {
 		if len(ctx.Args) == 0 {
 			ctx.LogError(CatIO, "No command specified for exec.")
 			return BoolStatus(false)
@@ -459,7 +459,7 @@ func (ps *PawScript) RegisterSystemLib(scriptArgs []string) {
 	})
 
 	// include - include another source file
-	ps.RegisterCommandInModule("stdlib", "include", func(ctx *Context) Result {
+	ps.RegisterCommandInModule("core", "include", func(ctx *Context) Result {
 		if len(ctx.Args) == 0 {
 			ctx.LogError(CatIO, "Usage: include \"filename\" or include (imports...), \"filename\"")
 			return BoolStatus(false)
@@ -1234,7 +1234,7 @@ func (ps *PawScript) RegisterSystemLib(scriptArgs []string) {
 	// ==================== sys:: module ====================
 
 	// msleep - sleep for specified milliseconds (async)
-	ps.RegisterCommandInModule("sys", "msleep", func(ctx *Context) Result {
+	ps.RegisterCommandInModule("time", "msleep", func(ctx *Context) Result {
 		if len(ctx.Args) < 1 {
 			ps.logger.ErrorCat(CatCommand, "Usage: msleep <milliseconds>")
 			return BoolStatus(false)
@@ -1398,7 +1398,7 @@ func (ps *PawScript) RegisterSystemLib(scriptArgs []string) {
 	})
 
 	// microtime - return microseconds since epoch or since interpreter started
-	ps.RegisterCommandInModule("sys", "microtime", func(ctx *Context) Result {
+	ps.RegisterCommandInModule("time", "microtime", func(ctx *Context) Result {
 		// Try to get system time in microseconds
 		now := time.Now()
 		microtime := now.UnixMicro()
@@ -1425,7 +1425,7 @@ func (ps *PawScript) RegisterSystemLib(scriptArgs []string) {
 	// datetime "America/Los_Angeles"  -> Local time as "YYYY-MM-DDTHH:NN:SS-07:00"
 	// datetime "UTC", stamp           -> Convert stamp to UTC
 	// datetime "UTC", stamp, "America/Los_Angeles" -> Interpret stamp as LA time, output UTC
-	ps.RegisterCommandInModule("sys", "datetime", func(ctx *Context) Result {
+	ps.RegisterCommandInModule("time", "datetime", func(ctx *Context) Result {
 		now := time.Now()
 
 		// Helper to format time with optional seconds

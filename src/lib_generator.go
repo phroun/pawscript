@@ -43,7 +43,7 @@ func (ps *PawScript) RegisterGeneratorLib() {
 	// generator - Create a generator from a macro without executing it
 	// Returns a token that can be resumed to get values
 	// generator <macro_name>, [args...]
-	ps.RegisterCommandInModule("core", "generator", func(ctx *Context) Result {
+	ps.RegisterCommandInModule("coroutines", "generator", func(ctx *Context) Result {
 		if len(ctx.Args) < 1 {
 			ctx.LogError(CatCommand, "Usage: generator <macro_name>, [args...]")
 			return BoolStatus(false)
@@ -203,7 +203,7 @@ func (ps *PawScript) RegisterGeneratorLib() {
 
 	// resume - Resume execution of a suspended token
 	// resume <token>
-	ps.RegisterCommandInModule("core", "resume", func(ctx *Context) Result {
+	ps.RegisterCommandInModule("coroutines", "resume", func(ctx *Context) Result {
 		if len(ctx.Args) < 1 {
 			ctx.LogError(CatCommand, "Usage: resume <token>")
 			return BoolStatus(false)
@@ -778,7 +778,7 @@ func (ps *PawScript) RegisterGeneratorLib() {
 
 	// yield - Yield a value from a generator, pausing execution
 	// yield [token], <value>
-	ps.RegisterCommandInModule("core", "yield", func(ctx *Context) Result {
+	ps.RegisterCommandInModule("coroutines", "yield", func(ctx *Context) Result {
 		var value interface{}
 		var tokenID string
 
@@ -816,7 +816,7 @@ func (ps *PawScript) RegisterGeneratorLib() {
 
 	// suspend - Suspend execution and return a token to the caller
 	// suspend
-	ps.RegisterCommandInModule("core", "suspend", func(ctx *Context) Result {
+	ps.RegisterCommandInModule("coroutines", "suspend", func(ctx *Context) Result {
 		// Return SuspendResult - the executor loop will catch this
 		// and create a new token with the remaining commands
 		return SuspendResult{}
@@ -825,7 +825,7 @@ func (ps *PawScript) RegisterGeneratorLib() {
 	// token_valid - Check if a token is still valid (not exhausted)
 	// token_valid <token>
 	// Returns BoolStatus(true/false) based on whether the token exists and has remaining items
-	ps.RegisterCommandInModule("core", "token_valid", func(ctx *Context) Result {
+	ps.RegisterCommandInModule("coroutines", "token_valid", func(ctx *Context) Result {
 		if len(ctx.Args) < 1 {
 			ctx.SetResult(false)
 			return BoolStatus(false)
@@ -891,7 +891,7 @@ func (ps *PawScript) RegisterGeneratorLib() {
 
 	// each - Create an iterator that yields each positional item from a list
 	// each <list>
-	ps.RegisterCommandInModule("core", "each", func(ctx *Context) Result {
+	ps.RegisterCommandInModule("coroutines", "each", func(ctx *Context) Result {
 		if len(ctx.Args) < 1 {
 			ctx.LogError(CatCommand, "Usage: each <list>")
 			return BoolStatus(false)
@@ -942,7 +942,7 @@ func (ps *PawScript) RegisterGeneratorLib() {
 
 	// pair - Create an iterator that yields key/value pairs from a list's named arguments
 	// pair <list>
-	ps.RegisterCommandInModule("core", "pair", func(ctx *Context) Result {
+	ps.RegisterCommandInModule("coroutines", "pair", func(ctx *Context) Result {
 		if len(ctx.Args) < 1 {
 			ctx.LogError(CatCommand, "Usage: pair <list>")
 			return BoolStatus(false)
