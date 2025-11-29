@@ -89,10 +89,17 @@ GUI cross-compilation requires [fyne-cross](https://github.com/fyne-io/fyne-cros
 2. Install fyne-cross and the fyne CLI:
    ```bash
    go install github.com/fyne-io/fyne-cross@latest
-   go install fyne.io/tools/cmd/fyne@latest
+   go install fyne.io/fyne/v2/cmd/fyne@latest
    ```
 
-   Note: You may see a deprecation warning about the old fyne tool location - this is expected and the build will still complete.
+   **Troubleshooting:** If you see errors like `flag provided but not defined: -appBuild`, there's a version mismatch between fyne-cross and the fyne CLI. Try:
+   ```bash
+   # Option 1: Use develop branch of fyne-cross
+   go install github.com/fyne-io/fyne-cross@develop
+
+   # Option 2: Use an older compatible fyne CLI
+   go install fyne.io/fyne/v2/cmd/fyne@v2.4.0
+   ```
 
 3. Build for specific platforms:
    ```bash

@@ -129,7 +129,7 @@ build-gui-ms-arm64:
 	@mkdir -p $(RELEASE_DIR)/pawgui-$(VERSION)-windows-arm64
 	@cp -r examples $(RELEASE_DIR)/pawgui-$(VERSION)-windows-arm64/examples
 	@cp README.md LICENSE $(RELEASE_DIR)/pawgui-$(VERSION)-windows-arm64/
-	@mv $(SRC_DIR)/fyne-cross/dist/windows-arm64/pawgui.exe $(RELEASE_DIR)/pawgui-$(VERSION)-windows-arm64/ 2>/dev/null || true
+	@unzip -o $(SRC_DIR)/fyne-cross/dist/windows-arm64/pawgui.zip -d $(RELEASE_DIR)/pawgui-$(VERSION)-windows-arm64/
 	@cd $(RELEASE_DIR) && zip -r pawgui-$(VERSION)-windows-arm64.zip pawgui-$(VERSION)-windows-arm64
 	@rm -rf $(RELEASE_DIR)/pawgui-$(VERSION)-windows-arm64 $(SRC_DIR)/fyne-cross
 	@echo "Created: $(RELEASE_DIR)/pawgui-$(VERSION)-windows-arm64.zip"
@@ -140,7 +140,7 @@ build-gui-ms-x64:
 	@mkdir -p $(RELEASE_DIR)/pawgui-$(VERSION)-windows-x64
 	@cp -r examples $(RELEASE_DIR)/pawgui-$(VERSION)-windows-x64/examples
 	@cp README.md LICENSE $(RELEASE_DIR)/pawgui-$(VERSION)-windows-x64/
-	@mv $(SRC_DIR)/fyne-cross/dist/windows-amd64/pawgui.exe $(RELEASE_DIR)/pawgui-$(VERSION)-windows-x64/ 2>/dev/null || true
+	@unzip -o $(SRC_DIR)/fyne-cross/dist/windows-amd64/pawgui.zip -d $(RELEASE_DIR)/pawgui-$(VERSION)-windows-x64/
 	@cd $(RELEASE_DIR) && zip -r pawgui-$(VERSION)-windows-x64.zip pawgui-$(VERSION)-windows-x64
 	@rm -rf $(RELEASE_DIR)/pawgui-$(VERSION)-windows-x64 $(SRC_DIR)/fyne-cross
 	@echo "Created: $(RELEASE_DIR)/pawgui-$(VERSION)-windows-x64.zip"
@@ -151,7 +151,7 @@ build-gui-linux-arm64:
 	@mkdir -p $(RELEASE_DIR)/pawgui-$(VERSION)-linux-arm64
 	@cp -r examples $(RELEASE_DIR)/pawgui-$(VERSION)-linux-arm64/examples
 	@cp README.md LICENSE $(RELEASE_DIR)/pawgui-$(VERSION)-linux-arm64/
-	@mv $(SRC_DIR)/fyne-cross/dist/linux-arm64/pawgui $(RELEASE_DIR)/pawgui-$(VERSION)-linux-arm64/ 2>/dev/null || true
+	@tar -xf $(SRC_DIR)/fyne-cross/dist/linux-arm64/pawgui.tar.xz -C $(RELEASE_DIR)/pawgui-$(VERSION)-linux-arm64/
 	@cd $(RELEASE_DIR) && tar -czf pawgui-$(VERSION)-linux-arm64.tar.gz pawgui-$(VERSION)-linux-arm64
 	@rm -rf $(RELEASE_DIR)/pawgui-$(VERSION)-linux-arm64 $(SRC_DIR)/fyne-cross
 	@echo "Created: $(RELEASE_DIR)/pawgui-$(VERSION)-linux-arm64.tar.gz"
@@ -162,7 +162,7 @@ build-gui-linux-x64:
 	@mkdir -p $(RELEASE_DIR)/pawgui-$(VERSION)-linux-x64
 	@cp -r examples $(RELEASE_DIR)/pawgui-$(VERSION)-linux-x64/examples
 	@cp README.md LICENSE $(RELEASE_DIR)/pawgui-$(VERSION)-linux-x64/
-	@mv $(SRC_DIR)/fyne-cross/dist/linux-amd64/pawgui $(RELEASE_DIR)/pawgui-$(VERSION)-linux-x64/ 2>/dev/null || true
+	@tar -xf $(SRC_DIR)/fyne-cross/dist/linux-amd64/pawgui.tar.xz -C $(RELEASE_DIR)/pawgui-$(VERSION)-linux-x64/
 	@cd $(RELEASE_DIR) && tar -czf pawgui-$(VERSION)-linux-x64.tar.gz pawgui-$(VERSION)-linux-x64
 	@rm -rf $(RELEASE_DIR)/pawgui-$(VERSION)-linux-x64 $(SRC_DIR)/fyne-cross
 	@echo "Created: $(RELEASE_DIR)/pawgui-$(VERSION)-linux-x64.tar.gz"
@@ -220,4 +220,5 @@ help:
 	@echo ""
 	@echo "GUI cross-compilation requires fyne-cross, fyne CLI, and Docker:"
 	@echo "  go install github.com/fyne-io/fyne-cross@latest"
-	@echo "  go install fyne.io/tools/cmd/fyne@latest"
+	@echo "  go install fyne.io/fyne/v2/cmd/fyne@latest"
+	@echo "See BUILDING.md for troubleshooting version compatibility issues."
