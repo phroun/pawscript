@@ -283,6 +283,54 @@ type_dispatch not_defined
 echo ""
 )#
 
+# Test 15: List type
+echo "Test 15: List type"
+mylist: {list 1, 2, 3}
+echo "  mylist type: {type mylist} (expected: list)"
+emptylist: {list}
+echo "  emptylist type: {type emptylist} (expected: list)"
+echo ""
+
+# Test 16: Bytes type
+echo "Test 16: Bytes type"
+mybytes: {bytes 0xDE, 0xAD, 0xBE, 0xEF}
+echo "  mybytes type: {type mybytes} (expected: bytes)"
+emptybytes: {bytes}
+echo "  emptybytes type: {type emptybytes} (expected: bytes)"
+echo ""
+
+# Test 17: Struct types
+echo "Test 17: Struct types"
+# Create a struct definition (which is a list with __size)
+structdesc: {list ("name", 8, "bytes"), ("age", 1, "int")}
+#MyStructDef: {struct_def ~structdesc}
+echo "  struct def type: {type #MyStructDef} (expected: list)"
+
+# Create a single struct
+singlestruct: {struct #MyStructDef}
+echo "  single struct type: {type singlestruct} (expected: struct)"
+
+# Create a struct array
+structarray: {struct #MyStructDef, {list}, 3}
+echo "  struct array type: {type structarray} (expected: structarray)"
+echo ""
+
+# Test 18: Channel type
+echo "Test 18: Channel type"
+mychan: {channel}
+echo "  mychan type: {type mychan} (expected: channel)"
+echo ""
+
+# Test 19: File type (can't easily test without actual file operations)
+echo "Test 19: File type"
+echo "  (File type requires file operations - skipped)"
+echo ""
+
+# Test 20: Fiber type (requires spawn)
+echo "Test 20: Fiber type"
+echo "  (Fiber type requires spawn - skipped for basic test)"
+echo ""
+
 echo "=== Summary ==="
 echo ""
 echo "Expected behaviors:"

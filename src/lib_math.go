@@ -208,6 +208,28 @@ func (ps *PawScript) RegisterMathLib() {
 		return BoolStatus(true)
 	})
 
+	// pow - power/exponentiation (base^exponent)
+	ps.RegisterCommandInModule("math", "pow", func(ctx *Context) Result {
+		if len(ctx.Args) < 2 {
+			ctx.LogError(CatCommand, "Usage: pow <base>, <exponent>")
+			return BoolStatus(false)
+		}
+		resolvedBase := ctx.executor.resolveValue(ctx.Args[0])
+		base, ok := toNumber(resolvedBase)
+		if !ok {
+			ctx.LogError(CatArgument, fmt.Sprintf("Invalid numeric argument for base: %v", ctx.Args[0]))
+			return BoolStatus(false)
+		}
+		resolvedExp := ctx.executor.resolveValue(ctx.Args[1])
+		exp, ok := toNumber(resolvedExp)
+		if !ok {
+			ctx.LogError(CatArgument, fmt.Sprintf("Invalid numeric argument for exponent: %v", ctx.Args[1]))
+			return BoolStatus(false)
+		}
+		ctx.SetResult(math.Pow(base, exp))
+		return BoolStatus(true)
+	})
+
 	// Register mathematical constants as objects
 	ps.RegisterObjectInModule("math", "#tau", Tau)
 	ps.RegisterObjectInModule("math", "#e", E)
