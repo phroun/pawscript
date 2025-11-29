@@ -112,6 +112,44 @@ func (c *Context) GetMacroContext() *MacroContext {
 	return c.state.macroContext
 }
 
+// GetVariable retrieves a variable from the current execution state
+func (c *Context) GetVariable(name string) (interface{}, bool) {
+	return c.state.GetVariable(name)
+}
+
+// ResolveHashArg resolves a hash-prefixed symbol through the lookup chain:
+// 1. Local variables
+// 2. ObjectsModule (module's copy-on-write object layer)
+// 3. ObjectsInherited (inherited objects like io::#out)
+// Returns nil if not found
+func (c *Context) ResolveHashArg(name string) interface{} {
+	// 1. Check local variables
+	if val, exists := c.state.GetVariable(name); exists {
+		return val
+	}
+
+	// 2. Check module objects (through moduleEnv)
+	if c.state.moduleEnv != nil {
+		c.state.moduleEnv.mu.RLock()
+		if c.state.moduleEnv.ObjectsModule != nil {
+			if obj, found := c.state.moduleEnv.ObjectsModule[name]; found {
+				c.state.moduleEnv.mu.RUnlock()
+				return obj
+			}
+		}
+		// 3. Check inherited objects
+		if c.state.moduleEnv.ObjectsInherited != nil {
+			if obj, found := c.state.moduleEnv.ObjectsInherited[name]; found {
+				c.state.moduleEnv.mu.RUnlock()
+				return obj
+			}
+		}
+		c.state.moduleEnv.mu.RUnlock()
+	}
+
+	return nil
+}
+
 // Handler is a function that handles a command
 type Handler func(*Context) Result
 

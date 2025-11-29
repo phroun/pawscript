@@ -23,24 +23,37 @@ import (
 
 var version = "dev" // set via -ldflags at build time
 
-// GuiState holds the current GUI state accessible to PawScript
-type GuiState struct {
-	mu         sync.RWMutex
-	app        fyne.App
-	mainWindow fyne.Window
-	widgets    map[string]fyne.CanvasObject
-	containers map[string]*fyne.Container
-	ps         *pawscript.PawScript
-
-	// Layout containers
+// WindowState holds state for a single window
+type WindowState struct {
+	window       fyne.Window
 	content      *fyne.Container  // Main content (used when no split)
 	leftContent  *fyne.Container  // Left panel content
 	rightContent *fyne.Container  // Right panel content
 	splitView    *container.Split // HSplit container (created on demand)
 	usingSplit   bool             // Whether we're using split layout
+	widgets      map[string]fyne.CanvasObject
+	containers   map[string]*fyne.Container
+	terminal     *terminal.Terminal
+}
 
-	// Terminal widget (if created)
-	terminal *terminal.Terminal
+// GuiState holds the current GUI state accessible to PawScript
+type GuiState struct {
+	mu      sync.RWMutex
+	app     fyne.App
+	ps      *pawscript.PawScript
+	windows map[int]*WindowState // Windows by object ID
+	nextID  int                  // Next window ID
+
+	// Legacy fields for backwards compatibility (default window)
+	mainWindow   fyne.Window
+	widgets      map[string]fyne.CanvasObject
+	containers   map[string]*fyne.Container
+	content      *fyne.Container  // Main content (used when no split)
+	leftContent  *fyne.Container  // Left panel content
+	rightContent *fyne.Container  // Right panel content
+	splitView    *container.Split // HSplit container (created on demand)
+	usingSplit   bool             // Whether we're using split layout
+	terminal     *terminal.Terminal
 }
 
 var guiState *GuiState
@@ -297,6 +310,8 @@ func main() {
 		leftContent:  container.NewVBox(),
 		rightContent: container.NewVBox(),
 		usingSplit:   false,
+		windows:      make(map[int]*WindowState),
+		nextID:       1,
 	}
 
 	// Register GUI commands
@@ -317,9 +332,12 @@ func main() {
 			fmt.Fprintf(os.Stderr, "Script execution failed\n")
 		}
 		// Import exports module directly into root so macros are callable
-		if ps.ImportModuleToRoot("exports") {
-			if debug {
-				fmt.Fprintf(os.Stderr, "Successfully imported exports module to root\n")
+		// Only attempt if the module exists to avoid error logging
+		if ps.HasLibraryModule("exports") {
+			if ps.ImportModuleToRoot("exports") {
+				if debug {
+					fmt.Fprintf(os.Stderr, "Successfully imported exports module to root\n")
+				}
 			}
 		}
 	}()
@@ -447,8 +465,10 @@ Environment Variables (use SCRIPT_DIR as placeholder):
   PAW_EXEC_ROOTS      Override default exec roots
 
 GUI Commands (available in scripts):
-  gui_title <text>              Set window title
-  gui_resize <w>, <h>           Resize window
+  gui_window <title> [w], [h]   Create new window, returns handle
+  gui_title [#win,] <text>      Set window title
+  gui_resize [#win,] <w>, <h>   Resize window
+  gui_close #win                Close a window
   gui_split [offset]            Enable split layout (0.0-1.0)
   gui_label <text>              Create label widget
   gui_button <text>             Create button widget
@@ -458,6 +478,12 @@ GUI Commands (available in scripts):
   gui_clear                     Clear all widgets
   gui_msgbox <message>          Show message dialog
   gui_console [w], [h]          Create terminal console
+
+Window Handle Usage:
+  #window: {gui_window "My Window", 800, 600}
+  gui_title #window, "New Title"
+  gui_resize #window, 400, 300
+  gui_close #window
 
 Examples:
   pawgui examples/gui-demo.paw       # Run the GUI demo
@@ -511,8 +537,126 @@ func ensureSplitLayout() {
 	guiState.usingSplit = true
 }
 
+// resolveWindow resolves a window from hash-args pattern
+// Returns the WindowState and remaining args
+// If first arg is a #-prefixed symbol, resolves through: local vars → ObjectsModule → ObjectsInherited
+// Falls back to default window (ID 0 = main window) if not specified
+func resolveWindow(ctx *pawscript.Context) (*WindowState, []interface{}) {
+	args := ctx.Args
+
+	// Check if first arg is a #-prefixed symbol
+	if len(args) > 0 {
+		if sym, ok := args[0].(pawscript.Symbol); ok {
+			symStr := string(sym)
+			if strings.HasPrefix(symStr, "#") {
+				// Try to resolve through the chain
+				resolved := ctx.ResolveHashArg(symStr)
+				if resolved != nil {
+					// Check if it's a window marker
+					if marker, ok := resolved.(pawscript.Symbol); ok {
+						markerStr := string(marker)
+						if strings.HasPrefix(markerStr, "\x00WINDOW:") && strings.HasSuffix(markerStr, "\x00") {
+							idStr := markerStr[len("\x00WINDOW:") : len(markerStr)-1]
+							if id, err := strconv.Atoi(idStr); err == nil {
+								guiState.mu.RLock()
+								ws, exists := guiState.windows[id]
+								guiState.mu.RUnlock()
+								if exists {
+									return ws, args[1:]
+								}
+							}
+						}
+					}
+				}
+			}
+		}
+	}
+
+	// Return nil to indicate use default window (mainWindow)
+	return nil, args
+}
+
+// getWindowOrDefault returns the resolved window state or creates one for the main window
+func getWindowOrDefault(ws *WindowState) *WindowState {
+	if ws != nil {
+		return ws
+	}
+	// Return a wrapper around the main window state
+	return &WindowState{
+		window:       guiState.mainWindow,
+		content:      guiState.content,
+		leftContent:  guiState.leftContent,
+		rightContent: guiState.rightContent,
+		splitView:    guiState.splitView,
+		usingSplit:   guiState.usingSplit,
+		widgets:      guiState.widgets,
+		containers:   guiState.containers,
+		terminal:     guiState.terminal,
+	}
+}
+
 // registerGuiCommands registers all GUI-related commands with PawScript
 func registerGuiCommands(ps *pawscript.PawScript) {
+	// gui_window - Create a new window and return a handle
+	// Usage: #mywin: {gui_window "Title"} or #mywin: {gui_window "Title", 800, 600}
+	ps.RegisterCommand("gui_window", func(ctx *pawscript.Context) pawscript.Result {
+		title := "PawScript Window"
+		width := float32(400)
+		height := float32(300)
+
+		if len(ctx.Args) >= 1 {
+			title = fmt.Sprintf("%v", ctx.Args[0])
+		}
+		if len(ctx.Args) >= 3 {
+			if w, ok := toFloat(ctx.Args[1]); ok {
+				width = float32(w)
+			}
+			if h, ok := toFloat(ctx.Args[2]); ok {
+				height = float32(h)
+			}
+		}
+
+		// Create window state
+		guiState.mu.Lock()
+		id := guiState.nextID
+		guiState.nextID++
+		guiState.mu.Unlock()
+
+		var ws *WindowState
+		done := make(chan struct{})
+
+		fyne.Do(func() {
+			newWindow := guiState.app.NewWindow(title)
+			newWindow.Resize(fyne.NewSize(width, height))
+
+			ws = &WindowState{
+				window:       newWindow,
+				content:      container.NewVBox(),
+				leftContent:  container.NewVBox(),
+				rightContent: container.NewVBox(),
+				usingSplit:   false,
+				widgets:      make(map[string]fyne.CanvasObject),
+				containers:   make(map[string]*fyne.Container),
+			}
+
+			newWindow.SetContent(ws.content)
+			newWindow.Show()
+
+			guiState.mu.Lock()
+			guiState.windows[id] = ws
+			guiState.mu.Unlock()
+
+			close(done)
+		})
+
+		<-done
+
+		// Return window marker
+		marker := fmt.Sprintf("\x00WINDOW:%d\x00", id)
+		ctx.SetResult(pawscript.Symbol(marker))
+		return pawscript.BoolStatus(true)
+	})
+
 	// gui_split - Enable split layout with left/right panels
 	ps.RegisterCommand("gui_split", func(ctx *pawscript.Context) pawscript.Result {
 		offset := 0.5
@@ -539,32 +683,44 @@ func registerGuiCommands(ps *pawscript.PawScript) {
 	})
 
 	// gui_title - Set window title
+	// Usage: gui_title <title> or gui_title #window, <title>
 	ps.RegisterCommand("gui_title", func(ctx *pawscript.Context) pawscript.Result {
-		if len(ctx.Args) < 1 {
-			ctx.LogError(pawscript.CatCommand, "Usage: gui_title <window_title>")
+		ws, args := resolveWindow(ctx)
+		if len(args) < 1 {
+			ctx.LogError(pawscript.CatCommand, "Usage: gui_title [#window,] <window_title>")
 			return pawscript.BoolStatus(false)
 		}
-		title := fmt.Sprintf("%v", ctx.Args[0])
+		title := fmt.Sprintf("%v", args[0])
 		fyne.Do(func() {
-			guiState.mainWindow.SetTitle(title)
+			if ws != nil {
+				ws.window.SetTitle(title)
+			} else {
+				guiState.mainWindow.SetTitle(title)
+			}
 		})
 		return pawscript.BoolStatus(true)
 	})
 
 	// gui_resize - Resize window
+	// Usage: gui_resize <w>, <h> or gui_resize #window, <w>, <h>
 	ps.RegisterCommand("gui_resize", func(ctx *pawscript.Context) pawscript.Result {
-		if len(ctx.Args) < 2 {
-			ctx.LogError(pawscript.CatCommand, "Usage: gui_resize <width>, <height>")
+		ws, args := resolveWindow(ctx)
+		if len(args) < 2 {
+			ctx.LogError(pawscript.CatCommand, "Usage: gui_resize [#window,] <width>, <height>")
 			return pawscript.BoolStatus(false)
 		}
-		width, wOk := toFloat(ctx.Args[0])
-		height, hOk := toFloat(ctx.Args[1])
+		width, wOk := toFloat(args[0])
+		height, hOk := toFloat(args[1])
 		if !wOk || !hOk {
 			ctx.LogError(pawscript.CatArgument, "Invalid dimensions")
 			return pawscript.BoolStatus(false)
 		}
 		fyne.Do(func() {
-			guiState.mainWindow.Resize(fyne.NewSize(float32(width), float32(height)))
+			if ws != nil {
+				ws.window.Resize(fyne.NewSize(float32(width), float32(height)))
+			} else {
+				guiState.mainWindow.Resize(fyne.NewSize(float32(width), float32(height)))
+			}
 		})
 		return pawscript.BoolStatus(true)
 	})
@@ -725,6 +881,20 @@ func registerGuiCommands(ps *pawscript.PawScript) {
 			guiState.widgets = make(map[string]fyne.CanvasObject)
 			guiState.mu.Unlock()
 			guiState.content.Refresh()
+		})
+		return pawscript.BoolStatus(true)
+	})
+
+	// gui_close - Close a window
+	// Usage: gui_close #window
+	ps.RegisterCommand("gui_close", func(ctx *pawscript.Context) pawscript.Result {
+		ws, _ := resolveWindow(ctx)
+		if ws == nil {
+			ctx.LogError(pawscript.CatCommand, "Usage: gui_close #window")
+			return pawscript.BoolStatus(false)
+		}
+		fyne.Do(func() {
+			ws.window.Close()
 		})
 		return pawscript.BoolStatus(true)
 	})
