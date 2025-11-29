@@ -3,7 +3,7 @@
 IMPORT files
 
 print "=== Test 1: Create and write to file ==="
-#f: {file "files_test_data/test1.txt", mode: "w", create: true}
+#f: {file "output/test1.txt", mode: "w", create: true}
 print "File opened for writing"
 echo ~#f, "Hello, World!"
 echo ~#f, "Second line"
@@ -12,7 +12,7 @@ print "File written and closed"
 print ""
 
 print "=== Test 2: Read file line by line ==="
-#f: {file "files_test_data/test1.txt", mode: "r"}
+#f: {file "output/test1.txt", mode: "r"}
 line1: {read ~#f}
 line2: {read ~#f}
 print "Line 1: ~line1"
@@ -21,7 +21,7 @@ close ~#f
 print ""
 
 print "=== Test 3: Read entire file with eof: true ==="
-#f: {file "files_test_data/test1.txt", mode: "r"}
+#f: {file "output/test1.txt", mode: "r"}
 content: {read ~#f, eof: true}
 print "Full content:"
 print ~content
@@ -29,7 +29,7 @@ close ~#f
 print ""
 
 print "=== Test 4: File seek and tell ==="
-#f: {file "files_test_data/test1.txt", mode: "r"}
+#f: {file "output/test1.txt", mode: "r"}
 pos1: {tell ~#f}
 print "Initial position: ~pos1"
 first: {read ~#f}
@@ -44,43 +44,43 @@ close ~#f
 print ""
 
 print "=== Test 5: File exists ==="
-exists1: {file_exists "files_test_data/test1.txt"}
-exists2: {file_exists "files_test_data/nonexistent.txt"}
+exists1: {file_exists "output/test1.txt"}
+exists2: {file_exists "output/nonexistent.txt"}
 print "test1.txt exists: ~exists1"
 print "nonexistent.txt exists: ~exists2"
 print ""
 
 print "=== Test 6: File info ==="
-info: {file_info "files_test_data/test1.txt"}
+info: {file_info "output/test1.txt"}
 (isdir:, size:, mode:, mtime:): ~info
 print "Is directory: ~isdir"
 print "Size > 0: {gt ~size, 0}"
 print ""
 
 print "=== Test 7: Path manipulation ==="
-joined: {join_path "files_test_data", "subdir", "file.txt"}
+joined: {join_path "output", "subdir", "file.txt"}
 print "join_path: ~joined"
-dirname: {dir_name "files_test_data/test1.txt"}
+dirname: {dir_name "output/test1.txt"}
 print "dir_name: ~dirname"
-basename: {base_name "files_test_data/test1.txt"}
+basename: {base_name "output/test1.txt"}
 print "base_name: ~basename"
-ext: {file_ext "files_test_data/test1.txt"}
+ext: {file_ext "output/test1.txt"}
 print "file_ext: ~ext"
 print ""
 
 print "=== Test 8: Auto-close on undefined ==="
-#f: {file "files_test_data/test1.txt", mode: "r"}
+#f: {file "output/test1.txt", mode: "r"}
 print "File opened"
 #f: undefined
 print "File set to undefined (auto-closed)"
 print ""
 
 print "=== Test 9: Write vs echo (newline handling) ==="
-#f: {file "files_test_data/test2.txt", mode: "w", create: true}
+#f: {file "output/test2.txt", mode: "w", create: true}
 echo ~#f, "Line with newline"
 write ~#f, "No newline after this"
 close ~#f
-#f: {file "files_test_data/test2.txt", mode: "r"}
+#f: {file "output/test2.txt", mode: "r"}
 content: {read ~#f, eof: true}
 print "Content:"
 print ~content
@@ -89,13 +89,13 @@ close ~#f
 print ""
 
 print "=== Test 10: Append mode ==="
-#f: {file "files_test_data/test3.txt", mode: "w", create: true}
+#f: {file "output/test3.txt", mode: "w", create: true}
 echo ~#f, "Original"
 close ~#f
-#f: {file "files_test_data/test3.txt", mode: "a"}
+#f: {file "output/test3.txt", mode: "a"}
 echo ~#f, "Appended"
 close ~#f
-#f: {file "files_test_data/test3.txt", mode: "r"}
+#f: {file "output/test3.txt", mode: "r"}
 content: {read ~#f, eof: true}
 print "After append:"
 print ~content
@@ -103,38 +103,38 @@ close ~#f
 print ""
 
 print "=== Test 11: Directory operations ==="
-mkdir "files_test_data/newdir"
-direxists: {file_exists "files_test_data/newdir"}
+mkdir "output/newdir"
+direxists: {file_exists "output/newdir"}
 print "Directory created: ~direxists"
-rmdir "files_test_data/newdir"
-afterrm: {file_exists "files_test_data/newdir"}
+rmdir "output/newdir"
+afterrm: {file_exists "output/newdir"}
 print "After rmdir: ~afterrm"
 print ""
 
 print "=== Test 12: List directory ==="
-entries: {list_dir "files_test_data"}
+entries: {list_dir "output"}
 print "Directory has entries: {gt {len ~entries}, 0}"
 print ""
 
 print "=== Test 13: File truncate (at position) ==="
-#f: {file "files_test_data/test4.txt", mode: "w", create: true}
+#f: {file "output/test4.txt", mode: "w", create: true}
 write ~#f, "1234567890ABCDEFGHIJ"
 close ~#f
-#f: {file "files_test_data/test4.txt", mode: "rw"}
+#f: {file "output/test4.txt", mode: "rw"}
 seek ~#f, 10
 truncate ~#f
 close ~#f
-#f: {file "files_test_data/test4.txt", mode: "r"}
+#f: {file "output/test4.txt", mode: "r"}
 truncated: {read ~#f, eof: true}
 print "Truncated at position 10: ~truncated"
 close ~#f
 print ""
 
 print "=== Test 14: Cleanup test files ==="
-rm "files_test_data/test1.txt"
-rm "files_test_data/test2.txt"
-rm "files_test_data/test3.txt"
-rm "files_test_data/test4.txt"
+rm "output/test1.txt"
+rm "output/test2.txt"
+rm "output/test3.txt"
+rm "output/test4.txt"
 print "Test files removed"
 print ""
 
