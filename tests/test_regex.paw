@@ -1,0 +1,116 @@
+#!/usr/bin/env paw
+# Test for regex commands: match, regex_find, regex_replace
+
+echo "=== Regex Command Tests ==="
+echo ""
+
+# Test 1: Basic match
+echo "Test 1: Basic match"
+result1: {match "hello world", (world)}
+echo "match 'hello world', (world): ~result1"
+result2: {match "hello world", (xyz)}
+echo "match 'hello world', (xyz): ~result2"
+echo "(Expected: true, false)"
+echo ""
+
+# Test 2: Case-insensitive match
+echo "Test 2: Case-insensitive match"
+result3: {match "Hello World", (hello)}
+echo "match 'Hello World', (hello): ~result3"
+result4: {match "Hello World", (hello), case_insensitive: true}
+echo "match case_insensitive: ~result4"
+echo "(Expected: false, true)"
+echo ""
+
+# Test 3: regex_find - first match
+echo "Test 3: regex_find - first match"
+found: {regex_find "abc123def456", ([0-9]+)}
+echo "First number: {~found 0}"
+echo "(Expected: 123)"
+echo ""
+
+# Test 4: regex_find - all matches
+echo "Test 4: regex_find - all matches"
+allFound: {regex_find "abc123def456ghi789", ([0-9]+), all: true}
+echo "Match count: {len ~allFound}"
+echo "Match 1: {~allFound 0 0}"
+echo "Match 2: {~allFound 1 0}"
+echo "Match 3: {~allFound 2 0}"
+echo "(Expected: 3, 123, 456, 789)"
+echo ""
+
+# Test 5: regex_find with capture groups
+echo "Test 5: Capture groups"
+dateMatch: {regex_find "Date: 2024-11-29", (([0-9]{4})-([0-9]{2})-([0-9]{2}))}
+echo "Full match: {~dateMatch 0}"
+echo "Year: {~dateMatch 1}"
+echo "Month: {~dateMatch 2}"
+echo "Day: {~dateMatch 3}"
+echo "(Expected: 2024-11-29, 2024, 11, 29)"
+echo ""
+
+# Test 6: regex_replace - basic
+echo "Test 6: regex_replace - basic"
+replaced: {regex_replace "hello world", (world), "universe"}
+echo "Replace world: ~replaced"
+echo "(Expected: hello universe)"
+echo ""
+
+# Test 7: regex_replace with count
+echo "Test 7: regex_replace with count"
+text: "aaa bbb aaa ccc aaa ddd aaa"
+replaced1: {regex_replace ~text, (aaa), "XXX", count: 2}
+echo "Replace first 2: ~replaced1"
+replaced2: {regex_replace ~text, (aaa), "XXX", count: -2}
+echo "Replace last 2: ~replaced2"
+echo "(Expected: XXX bbb XXX ccc aaa ddd aaa)"
+echo "(Expected: aaa bbb aaa ccc XXX ddd XXX)"
+echo ""
+
+# Test 8: regex_replace with backreferences
+echo "Test 8: Backreferences"
+swapped: {regex_replace "John Smith", ((\w+) (\w+)), "$2, $1"}
+echo "Swap names: ~swapped"
+echo "(Expected: Smith, John)"
+echo ""
+
+# Test 9: Pattern replacement
+echo "Test 9: Pattern replacement"
+replaced3: {regex_replace "cat bat rat mat", ([cbr]at), "pet"}
+echo "Replace *at: ~replaced3"
+echo "(Expected: pet pet pet mat)"
+echo ""
+
+# Test 10: Bytes input
+echo "Test 10: Bytes input"
+myBytes: {bytes "hello 123 world 456"}
+found: {regex_find ~myBytes, ([0-9]+)}
+echo "Found in bytes: {~found 0}"
+echo "(Expected: 123)"
+echo ""
+
+# Test 11: Block input/output
+echo "Test 11: Block input/output"
+myBlock: (text with number 42)
+replaced: {regex_replace ~myBlock, ([0-9]+), "NUM"}
+echo "Replaced: ~replaced"
+echo "Type: {type replaced}"
+echo "(Expected: text with number NUM, block)"
+echo ""
+
+# Test 12: Symbol input
+echo "Test 12: Symbol input"
+matchResult: {match hello_world_123, ([0-9]+)}
+echo "Symbol match: ~matchResult"
+echo "(Expected: true)"
+echo ""
+
+# Test 13: No match returns nil
+echo "Test 13: No match returns nil"
+noMatch: {regex_find "abc", ([0-9]+)}
+echo "No match result: ~noMatch"
+echo "Type: {type noMatch}"
+echo "(Expected: nil, nil)"
+echo ""
+
+echo "=== All Regex Tests Complete ==="

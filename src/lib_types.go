@@ -3,6 +3,7 @@ package pawscript
 import (
 	"fmt"
 	"math"
+	"regexp"
 	"sort"
 	"strconv"
 	"strings"
@@ -1940,6 +1941,262 @@ func (ps *PawScript) RegisterTypesLib() {
 		// Create result list with sorted items and preserved named args
 		resultList := NewStoredListWithNamed(items, namedArgs)
 		setListResult(ctx, resultList)
+		return BoolStatus(true)
+	})
+
+	// Helper function to extract string content from various types for regex operations
+	extractStringContent := func(value interface{}, executor *Executor) (string, string) {
+		// Returns (content, sourceType) where sourceType is "string", "bytes", "block", "symbol"
+		if executor != nil {
+			value = executor.resolveValue(value)
+		}
+		switch v := value.(type) {
+		case string:
+			return v, "string"
+		case QuotedString:
+			return string(v), "string"
+		case StoredString:
+			return string(v), "string"
+		case StoredBytes:
+			return string(v.Data()), "bytes"
+		case []byte:
+			return string(v), "bytes"
+		case ParenGroup:
+			return string(v), "block"
+		case Symbol:
+			return string(v), "symbol"
+		default:
+			return fmt.Sprintf("%v", v), "string"
+		}
+	}
+
+	// Helper to return result in compatible type
+	returnCompatibleType := func(ctx *Context, result string, sourceType string) {
+		switch sourceType {
+		case "bytes":
+			ctx.SetResult(NewStoredBytes([]byte(result)))
+		case "block":
+			ctx.SetResult(ParenGroup(result))
+		case "symbol":
+			ctx.SetResult(Symbol(result))
+		default:
+			ctx.SetResult(result)
+		}
+	}
+
+	// Helper to extract regex pattern from various input types
+	extractPattern := func(value interface{}, executor *Executor) string {
+		if executor != nil {
+			value = executor.resolveValue(value)
+		}
+		switch v := value.(type) {
+		case string:
+			return v
+		case QuotedString:
+			return string(v)
+		case StoredString:
+			return string(v)
+		case ParenGroup:
+			return string(v)
+		case Symbol:
+			return string(v)
+		default:
+			return fmt.Sprintf("%v", v)
+		}
+	}
+
+	// match - test if a regex pattern matches the input
+	// Usage: match <input>, <pattern> [, case_insensitive: true]
+	// Returns true/false for match success
+	// Input can be string, bytes, block (ParenGroup), or symbol
+	// Pattern can be literal string, block, or symbol
+	ps.RegisterCommandInModule("strlist", "match", func(ctx *Context) Result {
+		if len(ctx.Args) < 2 {
+			ctx.LogError(CatCommand, "Usage: match <input>, <pattern> [, case_insensitive: true]")
+			ctx.SetResult(false)
+			return BoolStatus(false)
+		}
+
+		input, _ := extractStringContent(ctx.Args[0], ctx.executor)
+		pattern := extractPattern(ctx.Args[1], ctx.executor)
+
+		// Handle case_insensitive option
+		if ci, hasCi := ctx.NamedArgs["case_insensitive"]; hasCi && toBool(ci) {
+			pattern = "(?i)" + pattern
+		}
+
+		re, err := regexp.Compile(pattern)
+		if err != nil {
+			ctx.LogError(CatArgument, fmt.Sprintf("Invalid regex pattern: %v", err))
+			ctx.SetResult(false)
+			return BoolStatus(false)
+		}
+
+		matched := re.MatchString(input)
+		ctx.SetResult(matched)
+		return BoolStatus(matched)
+	})
+
+	// regex_find - find all matches and capture groups
+	// Usage: regex_find <input>, <pattern> [, all: true] [, case_insensitive: true]
+	// Returns: single match returns list of [fullMatch, group1, group2, ...]
+	//          all: true returns list of lists [[fullMatch, g1, g2], [fullMatch, g1, g2], ...]
+	// Returns nil if no match found
+	ps.RegisterCommandInModule("strlist", "regex_find", func(ctx *Context) Result {
+		if len(ctx.Args) < 2 {
+			ctx.LogError(CatCommand, "Usage: regex_find <input>, <pattern> [, all: true] [, case_insensitive: true]")
+			ctx.SetResult(nil)
+			return BoolStatus(false)
+		}
+
+		input, _ := extractStringContent(ctx.Args[0], ctx.executor)
+		pattern := extractPattern(ctx.Args[1], ctx.executor)
+
+		// Handle options
+		findAll := false
+		if allVal, hasAll := ctx.NamedArgs["all"]; hasAll {
+			findAll = toBool(allVal)
+		}
+		if ci, hasCi := ctx.NamedArgs["case_insensitive"]; hasCi && toBool(ci) {
+			pattern = "(?i)" + pattern
+		}
+
+		re, err := regexp.Compile(pattern)
+		if err != nil {
+			ctx.LogError(CatArgument, fmt.Sprintf("Invalid regex pattern: %v", err))
+			ctx.SetResult(nil)
+			return BoolStatus(false)
+		}
+
+		if findAll {
+			// Find all matches with capture groups
+			allMatches := re.FindAllStringSubmatch(input, -1)
+			if allMatches == nil || len(allMatches) == 0 {
+				ctx.SetResult(nil)
+				return BoolStatus(true)
+			}
+
+			// Convert to list of lists
+			var resultItems []interface{}
+			for _, match := range allMatches {
+				var matchItems []interface{}
+				for _, group := range match {
+					matchItems = append(matchItems, group)
+				}
+				matchList := NewStoredList(matchItems)
+				matchID := ctx.executor.storeObject(matchList, "list")
+				resultItems = append(resultItems, Symbol(fmt.Sprintf("\x00LIST:%d\x00", matchID)))
+			}
+			// Use NewStoredListWithRefs to properly claim references to nested lists
+			resultList := NewStoredListWithRefs(resultItems, nil, ctx.executor)
+			setListResult(ctx, resultList)
+			return BoolStatus(true)
+		} else {
+			// Find first match with capture groups
+			match := re.FindStringSubmatch(input)
+			if match == nil {
+				ctx.SetResult(nil)
+				return BoolStatus(true)
+			}
+
+			// Convert to list
+			var matchItems []interface{}
+			for _, group := range match {
+				matchItems = append(matchItems, group)
+			}
+			resultList := NewStoredList(matchItems)
+			setListResult(ctx, resultList)
+			return BoolStatus(true)
+		}
+	})
+
+	// regex_replace - replace matches with replacement string
+	// Usage: regex_replace <input>, <pattern>, <replacement> [, count: N] [, case_insensitive: true]
+	// Replacement can use $1, $2, etc. for capture groups, or ${name} for named groups
+	// count: 0 or omitted = replace all, positive = replace first N, negative = replace last N
+	// Returns modified string/bytes/block (same type as input)
+	ps.RegisterCommandInModule("strlist", "regex_replace", func(ctx *Context) Result {
+		if len(ctx.Args) < 3 {
+			ctx.LogError(CatCommand, "Usage: regex_replace <input>, <pattern>, <replacement> [, count: N] [, case_insensitive: true]")
+			ctx.SetResult(nil)
+			return BoolStatus(false)
+		}
+
+		input, sourceType := extractStringContent(ctx.Args[0], ctx.executor)
+		pattern := extractPattern(ctx.Args[1], ctx.executor)
+		replacement := extractPattern(ctx.Args[2], ctx.executor)
+
+		// Handle options
+		count := int64(0) // 0 = replace all
+		if countVal, hasCount := ctx.NamedArgs["count"]; hasCount {
+			if num, ok := toNumber(countVal); ok {
+				count = int64(num)
+			}
+		}
+		if ci, hasCi := ctx.NamedArgs["case_insensitive"]; hasCi && toBool(ci) {
+			pattern = "(?i)" + pattern
+		}
+
+		re, err := regexp.Compile(pattern)
+		if err != nil {
+			ctx.LogError(CatArgument, fmt.Sprintf("Invalid regex pattern: %v", err))
+			ctx.SetResult(nil)
+			return BoolStatus(false)
+		}
+
+		var result string
+		if count == 0 {
+			// Replace all
+			result = re.ReplaceAllString(input, replacement)
+		} else if count > 0 {
+			// Replace first N matches
+			replaced := 0
+			result = re.ReplaceAllStringFunc(input, func(match string) string {
+				if int64(replaced) < count {
+					replaced++
+					// Expand replacement with capture groups
+					return re.ReplaceAllString(match, replacement)
+				}
+				return match
+			})
+		} else {
+			// Replace last N matches (count is negative)
+			n := int(-count)
+			matches := re.FindAllStringIndex(input, -1)
+			if matches == nil || len(matches) == 0 {
+				result = input
+			} else {
+				// Determine which matches to replace (last N)
+				replaceSet := make(map[int]bool)
+				start := len(matches) - n
+				if start < 0 {
+					start = 0
+				}
+				for i := start; i < len(matches); i++ {
+					replaceSet[matches[i][0]] = true
+				}
+
+				// Replace only the selected matches
+				var builder strings.Builder
+				lastEnd := 0
+				for _, match := range matches {
+					matchStart, matchEnd := match[0], match[1]
+					builder.WriteString(input[lastEnd:matchStart])
+					if replaceSet[matchStart] {
+						// This match should be replaced
+						matchedStr := input[matchStart:matchEnd]
+						builder.WriteString(re.ReplaceAllString(matchedStr, replacement))
+					} else {
+						builder.WriteString(input[matchStart:matchEnd])
+					}
+					lastEnd = matchEnd
+				}
+				builder.WriteString(input[lastEnd:])
+				result = builder.String()
+			}
+		}
+
+		returnCompatibleType(ctx, result, sourceType)
 		return BoolStatus(true)
 	})
 
