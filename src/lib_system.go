@@ -120,6 +120,50 @@ func (ps *PawScript) RegisterSystemLib(scriptArgs []string) {
 		return nil
 	}
 
+	// Helper to convert a value to a StoredFile
+	valueToFile := func(ctx *Context, val interface{}) *StoredFile {
+		switch v := val.(type) {
+		case *StoredFile:
+			return v
+		}
+		return nil
+	}
+
+	// Helper to resolve a file name (like "#myfile") to a file
+	// Resolution order: local variables -> ObjectsModule -> ObjectsInherited
+	resolveFile := func(ctx *Context, fileName string) *StoredFile {
+		// First, check local macro variables
+		if value, exists := ctx.state.GetVariable(fileName); exists {
+			if f := valueToFile(ctx, value); f != nil {
+				return f
+			}
+		}
+
+		// Then, check ObjectsModule and ObjectsInherited
+		if ctx.state.moduleEnv != nil {
+			ctx.state.moduleEnv.mu.RLock()
+			defer ctx.state.moduleEnv.mu.RUnlock()
+
+			if ctx.state.moduleEnv.ObjectsModule != nil {
+				if obj, exists := ctx.state.moduleEnv.ObjectsModule[fileName]; exists {
+					if f := valueToFile(ctx, obj); f != nil {
+						return f
+					}
+				}
+			}
+
+			if ctx.state.moduleEnv.ObjectsInherited != nil {
+				if obj, exists := ctx.state.moduleEnv.ObjectsInherited[fileName]; exists {
+					if f := valueToFile(ctx, obj); f != nil {
+						return f
+					}
+				}
+			}
+		}
+
+		return nil
+	}
+
 	// Helper to resolve a channel name (like "#out" or "#err") to a channel
 	// Resolution order: local variables -> ObjectsModule -> ObjectsInherited
 	resolveChannel := func(ctx *Context, channelName string) *StoredChannel {
@@ -461,8 +505,45 @@ func (ps *PawScript) RegisterSystemLib(scriptArgs []string) {
 
 	// ==================== io:: module ====================
 
-	// write - output without automatic newline
+	// write - output without automatic newline (supports files and channels)
 	outputCommand := func(ctx *Context) Result {
+		// Check if first arg is a file handle
+		if len(ctx.Args) > 0 {
+			ps.logger.DebugCat(CatIO, "write: first arg type=%T, value=%v", ctx.Args[0], ctx.Args[0])
+			// Direct file handle
+			if f, ok := ctx.Args[0].(*StoredFile); ok {
+				text := ""
+				for _, arg := range ctx.Args[1:] {
+					text += formatArgForDisplay(arg, ctx.executor)
+				}
+				err := f.Write(text)
+				if err != nil {
+					ctx.LogError(CatIO, fmt.Sprintf("write: %v", err))
+					return BoolStatus(false)
+				}
+				return BoolStatus(true)
+			}
+			// Check for #-prefixed symbol that might be a file
+			if sym, ok := ctx.Args[0].(Symbol); ok {
+				symStr := string(sym)
+				if strings.HasPrefix(symStr, "#") {
+					if f := resolveFile(ctx, symStr); f != nil {
+						text := ""
+						for _, arg := range ctx.Args[1:] {
+							text += formatArgForDisplay(arg, ctx.executor)
+						}
+						err := f.Write(text)
+						if err != nil {
+							ctx.LogError(CatIO, fmt.Sprintf("write: %v", err))
+							return BoolStatus(false)
+						}
+						return BoolStatus(true)
+					}
+				}
+			}
+		}
+
+		// Fall back to channel handling
 		ch, args, found := getOutputChannel(ctx, "#out")
 		if !found {
 			// Fallback: use OutputContext for consistent channel resolution with system fallback
@@ -488,9 +569,52 @@ func (ps *PawScript) RegisterSystemLib(scriptArgs []string) {
 		return BoolStatus(true)
 	}
 
-	// echo/print - output with automatic newline and spaces between args
+	// echo/print - output with automatic newline and spaces between args (supports files)
 	outputLineCommand := func(ctx *Context) Result {
 		ps.logger.DebugCat(CatIO,"outputLineCommand (print/echo): starting")
+
+		// Check if first arg is a file handle
+		if len(ctx.Args) > 0 {
+			// Direct file handle
+			if f, ok := ctx.Args[0].(*StoredFile); ok {
+				text := ""
+				for i, arg := range ctx.Args[1:] {
+					if i > 0 {
+						text += " "
+					}
+					text += formatArgForDisplay(arg, ctx.executor)
+				}
+				err := f.Write(text + "\n")
+				if err != nil {
+					ctx.LogError(CatIO, fmt.Sprintf("echo: %v", err))
+					return BoolStatus(false)
+				}
+				return BoolStatus(true)
+			}
+			// Check for #-prefixed symbol that might be a file
+			if sym, ok := ctx.Args[0].(Symbol); ok {
+				symStr := string(sym)
+				if strings.HasPrefix(symStr, "#") {
+					if f := resolveFile(ctx, symStr); f != nil {
+						text := ""
+						for i, arg := range ctx.Args[1:] {
+							if i > 0 {
+								text += " "
+							}
+							text += formatArgForDisplay(arg, ctx.executor)
+						}
+						err := f.Write(text + "\n")
+						if err != nil {
+							ctx.LogError(CatIO, fmt.Sprintf("echo: %v", err))
+							return BoolStatus(false)
+						}
+						return BoolStatus(true)
+					}
+				}
+			}
+		}
+
+		// Fall back to channel handling
 		ch, args, found := getOutputChannel(ctx, "#out")
 		if !found {
 			// Fallback: use OutputContext for consistent channel resolution with system fallback
@@ -531,8 +655,75 @@ func (ps *PawScript) RegisterSystemLib(scriptArgs []string) {
 	ps.RegisterCommandInModule("io", "echo", outputLineCommand)
 	ps.RegisterCommandInModule("io", "print", outputLineCommand)
 
-	// read - read a line from stdin or specified channel
+	// read - read a line from stdin, channel, or file
+	// For files: read <file> or read <file>, eof: true
 	ps.RegisterCommandInModule("io", "read", func(ctx *Context) Result {
+		// Check if first arg is a file handle
+		if len(ctx.Args) > 0 {
+			// Direct file handle
+			if f, ok := ctx.Args[0].(*StoredFile); ok {
+				readToEof := false
+				if eof, ok := ctx.NamedArgs["eof"]; ok {
+					if b, ok := eof.(bool); ok {
+						readToEof = b
+					} else if s, ok := eof.(string); ok {
+						readToEof = s == "true"
+					}
+				}
+				var content string
+				var err error
+				if readToEof {
+					content, err = f.ReadAll()
+				} else {
+					content, err = f.ReadLine()
+				}
+				if err != nil {
+					if err.Error() == "EOF" || strings.Contains(err.Error(), "EOF") {
+						ctx.SetResult("")
+						return BoolStatus(false)
+					}
+					ctx.LogError(CatIO, fmt.Sprintf("read: %v", err))
+					return BoolStatus(false)
+				}
+				ctx.SetResult(content)
+				return BoolStatus(true)
+			}
+			// Check for #-prefixed symbol that might be a file
+			if sym, ok := ctx.Args[0].(Symbol); ok {
+				symStr := string(sym)
+				if strings.HasPrefix(symStr, "#") {
+					if f := resolveFile(ctx, symStr); f != nil {
+						readToEof := false
+						if eof, ok := ctx.NamedArgs["eof"]; ok {
+							if b, ok := eof.(bool); ok {
+								readToEof = b
+							} else if s, ok := eof.(string); ok {
+								readToEof = s == "true"
+							}
+						}
+						var content string
+						var err error
+						if readToEof {
+							content, err = f.ReadAll()
+						} else {
+							content, err = f.ReadLine()
+						}
+						if err != nil {
+							if err.Error() == "EOF" || strings.Contains(err.Error(), "EOF") {
+								ctx.SetResult("")
+								return BoolStatus(false)
+							}
+							ctx.LogError(CatIO, fmt.Sprintf("read: %v", err))
+							return BoolStatus(false)
+						}
+						ctx.SetResult(content)
+						return BoolStatus(true)
+					}
+				}
+			}
+		}
+
+		// Fall back to channel handling
 		ch, found := getInputChannel(ctx, "#in")
 		if !found {
 			token := ctx.RequestToken(nil)

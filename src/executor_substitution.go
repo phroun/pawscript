@@ -946,6 +946,19 @@ func (e *Executor) formatBraceResult(value interface{}, originalString string, b
 			state.ClaimObjectReference(id)
 		}
 		return fmt.Sprintf("\x00LIST:%d\x00", id)
+	case *StoredFile:
+		if insideQuotes {
+			// Inside quotes: show file path
+			return v.Path
+		}
+		// Outside quotes: use a special marker that preserves the object
+		// Format: \x00FILE:index\x00 where index is stored in the execution state
+		id := e.storeObject(value, "file")
+		// The creating context claims the first reference
+		if state != nil {
+			state.ClaimObjectReference(id)
+		}
+		return fmt.Sprintf("\x00FILE:%d\x00", id)
 	case int64, float64:
 		// Numbers as-is
 		return fmt.Sprintf("%v", v)

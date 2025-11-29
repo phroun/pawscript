@@ -140,6 +140,15 @@ func (s *ExecutionState) SetResult(value interface{}) {
 				id := s.executor.storeObject(v, "channel")
 				value = Symbol(fmt.Sprintf("\x00CHANNEL:%d\x00", id))
 			}
+		case *StoredFile:
+			// Find existing file ID
+			if id := s.executor.findStoredFileID(v); id >= 0 {
+				value = Symbol(fmt.Sprintf("\x00FILE:%d\x00", id))
+			} else {
+				// Store the file
+				id := s.executor.storeObject(v, "file")
+				value = Symbol(fmt.Sprintf("\x00FILE:%d\x00", id))
+			}
 		case []interface{}:
 			// Convert raw slice to StoredList
 			list := NewStoredList(v)
