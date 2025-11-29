@@ -114,6 +114,7 @@ See the `examples/` directory for sample scripts and usage patterns.
   - `rng` command creates RNG token, optional `seed:` parameter for reproducibility
   - `resume ~token` returns full Int63 range, `resume ~token, max` returns 0 to max-1
   - `resume ~token, min, max` returns random value in range min to max (inclusive)
+  - `random` convenience command uses default `#random` or accepts custom generator
   - `#random` default RNG in io:: module, can be overridden locally for reproducible tests
   - Uses Go's `math/rand` with `NewSource` for seeded generators
 

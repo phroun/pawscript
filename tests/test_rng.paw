@@ -70,4 +70,31 @@ big2: {resume ~fullRng}
 echo "Full Int63:", ~big1, ~big2
 
 echo ""
+echo "=== Test 10: random command with default #random ==="
+#random: {rng seed: 888}
+rand1: {random 100}
+rand2: {random 100}
+echo "random 100:", ~rand1, ~rand2
+
+echo ""
+echo "=== Test 11: random command with range ==="
+#random: {rng seed: 888}
+range1: {random 50, 60}
+range2: {random 50, 60}
+echo "random 50, 60:", ~range1, ~range2
+
+echo ""
+echo "=== Test 12: random command with custom generator ==="
+customRng: {rng seed: 999}
+cust1: {random ~customRng, 100}
+cust2: {random ~customRng, 100}
+echo "With custom generator:", ~cust1, ~cust2
+customRng2: {rng seed: 999}
+cust3: {random ~customRng2, 100}
+cust4: {random ~customRng2, 100}
+echo "Same seed again:", ~cust3, ~cust4
+custMatch: {::cmp::eq ~cust1, ~cust3}
+echo "Sequences match:", ~custMatch
+
+echo ""
 echo "=== All RNG tests completed ==="

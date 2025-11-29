@@ -28,4 +28,15 @@ Unseeded RNG produces different values: true
 === Test 9: Full Int63 range (no args to resume) ===
 Full Int63: 2630686136689446574 2761839402383659414
 
+=== Test 10: random command with default #random ===
+random 100: 48 0
+
+=== Test 11: random command with range ===
+random 50, 60: 50 58
+
+=== Test 12: random command with custom generator ===
+With custom generator: 93 31
+Same seed again: 93 31
+Sequences match: true
+
 === All RNG tests completed ===
