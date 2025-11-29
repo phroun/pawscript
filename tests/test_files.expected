@@ -27,8 +27,8 @@ Is directory: false
 Size > 0: true
 
 === Test 7: Path manipulation ===
-join_path: files_test_data/subdir/file.txt
-dir_name: files_test_data
+join_path: output/subdir/file.txt
+dir_name: output
 base_name: test1.txt
 file_ext: .txt
 
