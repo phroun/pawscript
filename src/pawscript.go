@@ -276,6 +276,15 @@ func (ps *PawScript) Execute(commandString string, args ...interface{}) Result {
 	return result
 }
 
+// HasLibraryModule checks if a module exists in the library.
+// Use this to check before calling ImportModuleToRoot to avoid error logging.
+func (ps *PawScript) HasLibraryModule(moduleName string) bool {
+	ps.rootModuleEnv.mu.RLock()
+	defer ps.rootModuleEnv.mu.RUnlock()
+	_, exists := ps.rootModuleEnv.LibraryRestricted[moduleName]
+	return exists
+}
+
 // ImportModuleToRoot imports all items from a module directly into the root environment.
 // This makes the items available to all subsequent Execute() calls without needing IMPORT.
 func (ps *PawScript) ImportModuleToRoot(moduleName string) bool {
