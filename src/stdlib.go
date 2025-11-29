@@ -127,6 +127,17 @@ func formatArgForDisplay(arg interface{}, executor *Executor) string {
 			}
 		}
 		return "<fiber>"
+	case *StoredFile:
+		// Display as <file N> to avoid leaking internal representation
+		if executor != nil {
+			if id := executor.findStoredFileID(v); id >= 0 {
+				return fmt.Sprintf("<file %d>", id)
+			}
+		}
+		return "<file>"
+	case StoredBytes:
+		// Display as hex string with angle brackets: <08AEC7FF 0810CD00 24EE>
+		return v.String()
 	default:
 		// Check if the original value was an unresolved marker (string or Symbol form)
 		// This handles cases where the object was garbage collected or not found
@@ -157,9 +168,18 @@ func resolveToString(arg interface{}, executor *Executor) string {
 
 // RegisterStandardLibrary registers all standard library commands
 // This is the main entry point for setting up the PawScript standard library
-// Uses default OS-backed IO channels (stdin, stdout, stderr)
+// Uses custom IO channels from ps.config if set, otherwise defaults to OS-backed channels
 func (ps *PawScript) RegisterStandardLibrary(scriptArgs []string) {
-	ps.RegisterStandardLibraryWithIO(scriptArgs, nil)
+	// Create IOChannelConfig from ps.config's Stdin/Stdout/Stderr if any are set
+	var ioConfig *IOChannelConfig
+	if ps.config != nil && (ps.config.Stdin != nil || ps.config.Stdout != nil || ps.config.Stderr != nil) {
+		ioConfig = &IOChannelConfig{
+			DefaultStdin:  ps.config.Stdin,
+			DefaultStdout: ps.config.Stdout,
+			DefaultStderr: ps.config.Stderr,
+		}
+	}
+	ps.RegisterStandardLibraryWithIO(scriptArgs, ioConfig)
 }
 
 // RegisterStandardLibraryWithIO registers all standard library commands with custom IO channels
@@ -179,7 +199,7 @@ func (ps *PawScript) RegisterStandardLibrary(scriptArgs []string) {
 func (ps *PawScript) RegisterStandardLibraryWithIO(scriptArgs []string, ioConfig *IOChannelConfig) {
 	// Register all library modules
 	ps.RegisterCoreLib()             // core::, macros::, flow::, debug::
-	ps.RegisterMathLib()             // math::, cmp::
+	ps.RegisterBasicMathLib()        // basicmath::, cmp::
 	ps.RegisterTypesLib()            // strlist::, str::
 	ps.RegisterSystemLib(scriptArgs) // os::, io::, sys::
 	ps.RegisterChannelsLib()         // channels::
@@ -189,13 +209,23 @@ func (ps *PawScript) RegisterStandardLibraryWithIO(scriptArgs []string, ioConfig
 	// Copy commands from LibraryInherited to CommandRegistryInherited for direct access
 	ps.rootModuleEnv.PopulateDefaultImports()
 
+	// Register auxiliary libraries AFTER PopulateDefaultImports
+	// These are available via IMPORT but not auto-imported
+	ps.RegisterMathLib()    // math:: (trig functions, constants)
+	ps.RegisterFilesLib()   // files:: (file system operations)
+	ps.RegisterBitwiseLib() // bitwise:: (bitwise operations)
+
 	// Populate IO module with native stdin/stdout/stderr/stdio channels
 	// Uses custom channels from ioConfig if provided
 	// Pass executor so channels get stored with proper IDs
 	ps.rootModuleEnv.PopulateIOModule(ioConfig, ps.executor)
 
 	// Populate OS module with script arguments as #args
-	ps.rootModuleEnv.PopulateOSModule(scriptArgs)
+	scriptDir := ""
+	if ps.config != nil {
+		scriptDir = ps.config.ScriptDir
+	}
+	ps.rootModuleEnv.PopulateOSModule(scriptArgs, scriptDir)
 }
 
 // estimateObjectSize provides a rough estimate of object size in bytes
@@ -234,6 +264,66 @@ func estimateItemSize(value interface{}) int {
 	}
 }
 
+// parseHexToInt64 parses a hex string like "0xF0A1B2" to int64
+// Handles odd digit count by assuming leading zero
+func parseHexToInt64(s string) (int64, bool) {
+	if !strings.HasPrefix(strings.ToLower(s), "0x") {
+		return 0, false
+	}
+	hexPart := s[2:]
+	if len(hexPart) == 0 {
+		return 0, false
+	}
+	// Odd number of digits - assume leading zero
+	if len(hexPart)%2 == 1 {
+		hexPart = "0" + hexPart
+	}
+	val, err := strconv.ParseInt(hexPart, 16, 64)
+	if err != nil {
+		return 0, false
+	}
+	return val, true
+}
+
+// parseHexToBytes parses a hex string like "0xF0A1B2" to StoredBytes
+// Handles odd digit count by assuming leading zero
+func parseHexToBytes(s string) (StoredBytes, bool) {
+	if !strings.HasPrefix(strings.ToLower(s), "0x") {
+		return StoredBytes{}, false
+	}
+	hexPart := strings.ToUpper(s[2:])
+	if len(hexPart) == 0 {
+		return StoredBytes{}, false
+	}
+	// Odd number of digits - assume leading zero
+	if len(hexPart)%2 == 1 {
+		hexPart = "0" + hexPart
+	}
+	// Parse each pair of hex digits
+	data := make([]byte, len(hexPart)/2)
+	for i := 0; i < len(hexPart); i += 2 {
+		var b byte
+		for j := 0; j < 2; j++ {
+			c := hexPart[i+j]
+			b <<= 4
+			if c >= '0' && c <= '9' {
+				b |= c - '0'
+			} else if c >= 'A' && c <= 'F' {
+				b |= c - 'A' + 10
+			} else {
+				return StoredBytes{}, false
+			}
+		}
+		data[i/2] = b
+	}
+	return NewStoredBytes(data), true
+}
+
+// isHexLiteral checks if a string is a hex literal (starts with 0x)
+func isHexLiteral(s string) bool {
+	return strings.HasPrefix(strings.ToLower(s), "0x")
+}
+
 // toNumber converts values to numbers
 func toNumber(val interface{}) (float64, bool) {
 	switch v := val.(type) {
@@ -243,9 +333,16 @@ func toNumber(val interface{}) (float64, bool) {
 		return v, true
 	case int:
 		return float64(v), true
+	case StoredBytes:
+		// Coerce bytes to int64 (big-endian)
+		return float64(v.ToInt64()), true
 	case Symbol:
 		// Try to parse symbol as number
 		str := string(v)
+		// Check for hex literal first
+		if i, ok := parseHexToInt64(str); ok {
+			return float64(i), true
+		}
 		// Try to parse as float
 		if f, err := strconv.ParseFloat(str, 64); err == nil {
 			return f, true
@@ -258,6 +355,10 @@ func toNumber(val interface{}) (float64, bool) {
 	case QuotedString:
 		// QuotedString behaves like string for parsing
 		str := string(v)
+		// Check for hex literal first
+		if i, ok := parseHexToInt64(str); ok {
+			return float64(i), true
+		}
 		if f, err := strconv.ParseFloat(str, 64); err == nil {
 			return f, true
 		}
@@ -269,6 +370,10 @@ func toNumber(val interface{}) (float64, bool) {
 		// ParenGroup (code block) is not a number
 		return 0, false
 	case string:
+		// Check for hex literal first
+		if i, ok := parseHexToInt64(v); ok {
+			return float64(i), true
+		}
 		// Try to parse as float
 		if f, err := strconv.ParseFloat(v, 64); err == nil {
 			return f, true
@@ -316,6 +421,40 @@ func toInt64(val interface{}) (int64, bool) {
 		}
 		if f, err := strconv.ParseFloat(v, 64); err == nil {
 			return int64(f), true
+		}
+		return 0, false
+	default:
+		return 0, false
+	}
+}
+
+// toFloat64 converts values to float64
+func toFloat64(val interface{}) (float64, bool) {
+	switch v := val.(type) {
+	case float64:
+		return v, true
+	case int64:
+		return float64(v), true
+	case int:
+		return float64(v), true
+	case Symbol:
+		str := string(v)
+		if f, err := strconv.ParseFloat(str, 64); err == nil {
+			return f, true
+		}
+		if i, err := strconv.ParseInt(str, 10, 64); err == nil {
+			return float64(i), true
+		}
+		return 0, false
+	case QuotedString:
+		str := string(v)
+		if f, err := strconv.ParseFloat(str, 64); err == nil {
+			return f, true
+		}
+		return 0, false
+	case string:
+		if f, err := strconv.ParseFloat(v, 64); err == nil {
+			return f, true
 		}
 		return 0, false
 	default:
@@ -406,8 +545,18 @@ func getTypeName(val interface{}) string {
 		return "channel"
 	case *FiberHandle:
 		return "fiber"
+	case *StoredFile:
+		return "file"
 	case StoredList:
+		// Struct definitions are just lists with __size
 		return "list"
+	case StoredBytes:
+		return "bytes"
+	case StoredStruct:
+		if v.IsArray() {
+			return "structarray"
+		}
+		return "struct"
 	case StoredString:
 		return "string"
 	case StoredBlock:

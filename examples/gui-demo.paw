@@ -1,0 +1,97 @@
+#!/usr/bin/env pawgui
+# PawScript GUI Demo with Split Layout
+# Run with: pawgui gui-demo.paw  OR  pawgui -demo
+
+# Create main window with handle
+#window: {gui_window "PawScript GUI Demo", 900, 500}
+
+# Enable split layout (40% left, 60% right)
+gui_split 0.4
+
+# === LEFT PANEL: GUI Controls ===
+gui_label "=== GUI Controls ===", panel: "left"
+gui_label "", panel: "left"
+
+gui_label "Enter your name:", panel: "left"
+gui_entry "Type here...", id: "nameEntry", panel: "left"
+
+# Greeting handler - reads from entry widget, writes to label
+macro greet_user (
+    name: {gui_get nameEntry}
+    gui_set welcome, "Hello, ~name;!"
+)
+
+gui_button "Greet Me", onclick: "greet_user", panel: "left"
+gui_label "Welcome!", id: "welcome", panel: "left"
+
+gui_label "", panel: "left"
+gui_label "--- Counter ---", panel: "left"
+
+# Counter demo - state stored in hidden widget
+gui_entry "", id: "counterState", panel: "left"
+gui_set counterState, "0"
+gui_label "Counter: 0", id: "counterLabel", panel: "left"
+
+macro increment_counter (
+    current: {gui_get counterState}
+    newval: {add ~current, 1}
+    gui_set counterState, "~newval"
+    gui_set counterLabel, "Counter: ~newval"
+)
+
+gui_button "Increment", onclick: "increment_counter", panel: "left"
+
+gui_label "", panel: "left"
+gui_label "GUI remains responsive", panel: "left"
+gui_label "while console runs!", panel: "left"
+
+# === RIGHT PANEL: Console Terminal ===
+# Create console on right panel, unpack to #out/#in/#err for print/read
+(#out, #in, #err): {gui_console 400, 400, panel: "right"}
+
+# Define console interaction macro
+# Receives channels as $1, $2, $3 from fiber
+macro console_loop (
+    # Initialize IO channels from arguments
+    #out: $1
+    #in: $2
+    #err: $3
+    print "out:", ~#out
+    print #out, "To console"
+
+    # Clear and show welcome
+    clear
+    print "{color cyan}=== PawScript Console ==={color reset: true}"
+    print ""
+    print "This console runs in a {color yellow}fiber{color reset: true},"
+    print "so it doesn't block the GUI!"
+    print ""
+
+    # Show color capabilities - inline colors for each word
+    print "{color green}Colors work:{color reset: true} {color red}red{color reset: true} {color yellow}yellow{color reset: true} {color blue}blue{color reset: true}"
+    print ""
+
+    # Interactive loop
+    count: 0
+    while (true), (
+        count: {add ~count, 1}
+        write "{color magenta}[{color reset: true}~count{color magenta}]{color reset: true} Enter text (or 'quit'): "
+        input: {read}
+
+        {eq ~input, "quit"} & (
+            print "{color red}Goodbye!{color reset: true}"
+            ret
+        )
+
+        print "You said: {color cyan}~input{color reset: true}"
+        print ""
+    )
+)
+
+# Export macros for callbacks
+MODULE exports
+EXPORT greet_user, increment_counter, console_loop
+
+# Run console interaction in a fiber, passing the channels as arguments
+msleep 300
+fiber console_loop, ~#out, ~#in, ~#err

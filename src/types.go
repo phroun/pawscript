@@ -3,6 +3,10 @@ package pawscript
 import (
 	"context"
 	"fmt"
+	"io"
+	"math/rand"
+	"os"
+	"strings"
 	"sync"
 	"time"
 )
@@ -103,6 +107,63 @@ func (c *Context) NewStoredListWithRefs(items []interface{}, namedArgs map[strin
 	return NewStoredListWithRefs(items, namedArgs, c.executor)
 }
 
+// GetMacroContext returns the current macro context for stack traces
+func (c *Context) GetMacroContext() *MacroContext {
+	return c.state.macroContext
+}
+
+// GetVariable retrieves a variable from the current execution state
+func (c *Context) GetVariable(name string) (interface{}, bool) {
+	return c.state.GetVariable(name)
+}
+
+// ResolveHashArg resolves a hash-prefixed symbol through the lookup chain:
+// 1. Local variables
+// 2. ObjectsModule (module's copy-on-write object layer)
+// 3. ObjectsInherited (inherited objects like io::#out)
+// Returns nil if not found
+func (c *Context) ResolveHashArg(name string) interface{} {
+	// 1. Check local variables
+	if val, exists := c.state.GetVariable(name); exists {
+		return val
+	}
+
+	// 2. Check module objects (through moduleEnv)
+	if c.state.moduleEnv != nil {
+		c.state.moduleEnv.mu.RLock()
+		if c.state.moduleEnv.ObjectsModule != nil {
+			if obj, found := c.state.moduleEnv.ObjectsModule[name]; found {
+				c.state.moduleEnv.mu.RUnlock()
+				return obj
+			}
+		}
+		// 3. Check inherited objects
+		if c.state.moduleEnv.ObjectsInherited != nil {
+			if obj, found := c.state.moduleEnv.ObjectsInherited[name]; found {
+				c.state.moduleEnv.mu.RUnlock()
+				return obj
+			}
+		}
+		c.state.moduleEnv.mu.RUnlock()
+	}
+
+	return nil
+}
+
+// SetModuleObject sets a value in the current module's ObjectsModule (copy-on-write layer).
+// This allows commands to override inherited objects for the current module context.
+func (c *Context) SetModuleObject(name string, value interface{}) {
+	if c.state.moduleEnv == nil {
+		return
+	}
+	c.state.moduleEnv.mu.Lock()
+	defer c.state.moduleEnv.mu.Unlock()
+	if c.state.moduleEnv.ObjectsModule == nil {
+		c.state.moduleEnv.ObjectsModule = make(map[string]interface{})
+	}
+	c.state.moduleEnv.ObjectsModule[name] = value
+}
+
 // Handler is a function that handles a command
 type Handler func(*Context) Result
 
@@ -133,9 +194,11 @@ func (EarlyReturn) isResult() {}
 // YieldResult represents yielding a value from a generator
 // The executor catches this and updates the token's remaining commands
 type YieldResult struct {
-	Value             interface{}
-	TokenID           string              // Token to update (empty = use #token from state)
-	WhileContinuation *WhileContinuation  // Optional - set when yielding from inside while loop
+	Value              interface{}
+	TokenID            string               // Token to update (empty = use #token from state)
+	WhileContinuation  *WhileContinuation   // Optional - set when yielding from inside while loop
+	RepeatContinuation *RepeatContinuation  // Optional - set when yielding from inside repeat loop
+	ForContinuation    *ForContinuation     // Optional - set when yielding from inside for loop
 }
 
 func (YieldResult) isResult() {}
@@ -158,13 +221,59 @@ type WhileContinuation struct {
 	ParentContinuation  *WhileContinuation // For nested while loops - outer loop's state
 }
 
-// IteratorState stores state for Go-backed iterators (each, pair)
+// RepeatContinuation stores state for resuming a repeat loop after yield
+type RepeatContinuation struct {
+	BodyBlock           string               // The repeat body
+	RemainingBodyCmds   []*ParsedCommand     // Commands remaining in current iteration after yield
+	BodyCmdIndex        int                  // Which command in body yielded
+	CurrentIteration    int                  // Current iteration number (0-based)
+	TotalIterations     int                  // Total number of iterations
+	CounterVar          string               // Optional variable name for iteration counter
+	Results             []interface{}        // Results collected so far
+	Failures            []interface{}        // Failed iteration numbers so far
+	State               *ExecutionState      // Execution state at time of yield
+	ParentContinuation  *RepeatContinuation  // For nested repeat loops
+}
+
+// ForContinuation stores state for resuming a for loop after yield
+type ForContinuation struct {
+	BodyBlock         string              // The for body
+	RemainingBodyCmds []*ParsedCommand    // Commands remaining in current iteration after yield
+	BodyCmdIndex      int                 // Which command in body yielded
+	IterationNumber   int                 // Current iteration number (1-based for iter:)
+	IterVar           string              // Variable for iteration value
+	IterNumVar        string              // Variable for iter: (iteration number)
+	IndexVar          string              // Variable for index: (0-based index)
+	KeyVar            string              // Variable for key (key-value iteration)
+	ValueVar          string              // Variable for value (key-value iteration)
+	UnpackVars        []string            // Variables for unpack mode
+	// Iterator state
+	IteratorToken     string              // Token marker for the iterator
+	IteratorType      string              // "range", "list", "keys", "generator", "channel", "structarray"
+	IsDescending      bool                // Whether iterating in descending order
+	State             *ExecutionState     // Execution state at time of yield
+	ParentContinuation *ForContinuation   // For nested for loops
+	// Numeric range state
+	RangeStart        float64             // Start value for numeric range
+	RangeEnd          float64             // End value for numeric range
+	RangeStep         float64             // Step value for numeric range
+	RangeCurrent      float64             // Current value in numeric range
+}
+
+// IteratorState stores state for Go-backed iterators (each, pair, range, rng)
 type IteratorState struct {
-	Type       string        // "each" or "pair"
+	Type       string        // "each", "pair", "range", or "rng"
 	ListID     int           // Object ID of the list being iterated
 	Index      int           // Current position (for "each")
 	Keys       []string      // Keys to iterate (for "pair")
 	KeyIndex   int           // Current key position (for "pair")
+	Rng        *rand.Rand    // Random number generator (for "rng")
+	// Range iterator fields
+	RangeStart   float64 // Start value (for "range")
+	RangeEnd     float64 // End value (for "range")
+	RangeStep    float64 // Step value (for "range")
+	RangeCurrent float64 // Current value (for "range")
+	RangeStarted bool    // Whether iteration has started (for "range")
 }
 
 // ParsedCommand represents a parsed command with metadata
@@ -202,12 +311,13 @@ type BraceLocation struct {
 	IsUnescape       bool // true if ${...}, false if {...}
 }
 
-// TildeLocation tracks the position of a tilde variable reference in a string
+// TildeLocation tracks the position of a tilde or question variable reference in a string
 type TildeLocation struct {
-	StartPos    int    // Position of the ~
-	EndPos      int    // Position of last char of varname (or semicolon if present)
-	VarName     string // The variable name (without ~ or ;)
-	HasSemicolon bool  // true if terminated by explicit semicolon
+	StartPos     int    // Position of the ~ or ?
+	EndPos       int    // Position of last char of varname (or semicolon if present)
+	VarName      string // The variable name (without ~ or ? or ;)
+	HasSemicolon bool   // true if terminated by explicit semicolon
+	IsQuestion   bool   // true if this is a ? (existence check) expression, false for ~ (value)
 }
 
 // BraceEvaluation tracks the evaluation state of a single brace expression
@@ -254,6 +364,7 @@ type TokenData struct {
 	WaitChan           chan ResumeData    // For synchronous blocking (e.g., in while loops)
 	SubstitutionCtx    *SubstitutionContext // For generator macro argument substitution
 	WhileContinuation  *WhileContinuation // For resuming while loops after yield
+	ForContinuation    *ForContinuation   // For resuming for loops after yield
 	IteratorState      *IteratorState     // For Go-backed iterators (each, pair)
 }
 
@@ -285,6 +396,13 @@ type SubstitutionContext struct {
 	BracesEvaluated int
 }
 
+// FileAccessConfig controls file system access permissions
+type FileAccessConfig struct {
+	ReadRoots  []string // Directories allowed for read access (empty = no access)
+	WriteRoots []string // Directories allowed for write access (empty = no access)
+	ExecRoots  []string // Directories allowed for exec command (empty = no access)
+}
+
 // Config holds configuration for PawScript
 type Config struct {
 	Debug                bool
@@ -293,6 +411,11 @@ type Config struct {
 	AllowMacros          bool
 	ShowErrorContext     bool
 	ContextLines         int
+	Stdin                io.Reader         // Custom stdin reader (default: os.Stdin)
+	Stdout               io.Writer         // Custom stdout writer (default: os.Stdout)
+	Stderr               io.Writer         // Custom stderr writer (default: os.Stderr)
+	FileAccess           *FileAccessConfig // File system access control (nil = unrestricted)
+	ScriptDir            string            // Directory containing the script being executed
 }
 
 // DefaultConfig returns default configuration
@@ -304,6 +427,9 @@ func DefaultConfig() *Config {
 		AllowMacros:          true,
 		ShowErrorContext:     true,
 		ContextLines:         2,
+		Stdin:                os.Stdin,
+		Stdout:               os.Stdout,
+		Stderr:               os.Stderr,
 	}
 }
 
@@ -532,6 +658,184 @@ func (ch *StoredChannel) String() string {
 	return "(channel)"
 }
 
+// StoredFile represents an open file handle
+// Files act like channels for read/write but support additional operations
+type StoredFile struct {
+	mu       sync.RWMutex
+	File     *os.File  // The underlying OS file handle
+	Path     string    // Original path used to open the file
+	Mode     string    // "r", "w", "a", "rw"
+	IsClosed bool
+}
+
+// NewStoredFile creates a new file handle
+func NewStoredFile(file *os.File, path, mode string) *StoredFile {
+	return &StoredFile{
+		File:     file,
+		Path:     path,
+		Mode:     mode,
+		IsClosed: false,
+	}
+}
+
+// Close closes the file handle
+func (f *StoredFile) Close() error {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	if f.IsClosed {
+		return nil
+	}
+	f.IsClosed = true
+	if f.File != nil {
+		return f.File.Close()
+	}
+	return nil
+}
+
+// String returns a string representation for debugging
+func (f *StoredFile) String() string {
+	if f.IsClosed {
+		return "(file:closed)"
+	}
+	return fmt.Sprintf("(file:%s)", f.Path)
+}
+
+// ReadLine reads a single line from the file
+func (f *StoredFile) ReadLine() (string, error) {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	if f.IsClosed || f.File == nil {
+		return "", fmt.Errorf("file is closed")
+	}
+	// Use a simple byte-by-byte read to get a line
+	var line []byte
+	buf := make([]byte, 1)
+	for {
+		n, err := f.File.Read(buf)
+		if n > 0 {
+			if buf[0] == '\n' {
+				break
+			}
+			line = append(line, buf[0])
+		}
+		if err != nil {
+			if err == io.EOF && len(line) > 0 {
+				break
+			}
+			return string(line), err
+		}
+	}
+	// Strip trailing \r if present (Windows line endings)
+	if len(line) > 0 && line[len(line)-1] == '\r' {
+		line = line[:len(line)-1]
+	}
+	return string(line), nil
+}
+
+// ReadAll reads the entire remaining content of the file
+func (f *StoredFile) ReadAll() (string, error) {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	if f.IsClosed || f.File == nil {
+		return "", fmt.Errorf("file is closed")
+	}
+	content, err := io.ReadAll(f.File)
+	if err != nil {
+		return "", err
+	}
+	return string(content), nil
+}
+
+// Write writes a string to the file
+func (f *StoredFile) Write(s string) error {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	if f.IsClosed || f.File == nil {
+		return fmt.Errorf("file is closed")
+	}
+	_, err := f.File.WriteString(s)
+	return err
+}
+
+// Seek moves the file position
+func (f *StoredFile) Seek(offset int64, whence int) (int64, error) {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	if f.IsClosed || f.File == nil {
+		return 0, fmt.Errorf("file is closed")
+	}
+	return f.File.Seek(offset, whence)
+}
+
+// Tell returns the current file position
+func (f *StoredFile) Tell() (int64, error) {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	if f.IsClosed || f.File == nil {
+		return 0, fmt.Errorf("file is closed")
+	}
+	return f.File.Seek(0, io.SeekCurrent)
+}
+
+// Flush flushes the file buffers
+func (f *StoredFile) Flush() error {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	if f.IsClosed || f.File == nil {
+		return fmt.Errorf("file is closed")
+	}
+	return f.File.Sync()
+}
+
+// Truncate truncates the file at the current position
+func (f *StoredFile) Truncate() error {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	if f.IsClosed || f.File == nil {
+		return fmt.Errorf("file is closed")
+	}
+	pos, err := f.File.Seek(0, io.SeekCurrent)
+	if err != nil {
+		return err
+	}
+	return f.File.Truncate(pos)
+}
+
+// ReadBytes reads up to n bytes from the file
+// If n <= 0, reads all remaining bytes
+func (f *StoredFile) ReadBytes(n int) ([]byte, error) {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	if f.IsClosed || f.File == nil {
+		return nil, fmt.Errorf("file is closed")
+	}
+	if n <= 0 {
+		// Read all remaining bytes
+		return io.ReadAll(f.File)
+	}
+	buf := make([]byte, n)
+	bytesRead, err := io.ReadFull(f.File, buf)
+	if err == io.EOF || err == io.ErrUnexpectedEOF {
+		// Return what was read
+		return buf[:bytesRead], nil
+	}
+	if err != nil {
+		return buf[:bytesRead], err
+	}
+	return buf, nil
+}
+
+// WriteBytes writes raw bytes to the file
+func (f *StoredFile) WriteBytes(data []byte) error {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	if f.IsClosed || f.File == nil {
+		return fmt.Errorf("file is closed")
+	}
+	_, err := f.File.Write(data)
+	return err
+}
+
 // ResumeData contains information for resuming a suspended fiber
 type ResumeData struct {
 	TokenID string
@@ -541,15 +845,17 @@ type ResumeData struct {
 
 // FiberHandle represents a running fiber (lightweight thread)
 type FiberHandle struct {
-	mu           sync.RWMutex
-	ID           int
-	State        *ExecutionState
-	SuspendedOn  string          // tokenID if suspended, "" if running
-	ResumeChan   chan ResumeData // Channel for resuming suspended fiber
-	Result       interface{}     // Final result when fiber completes
-	Error        error           // Error if fiber failed
-	CompleteChan chan struct{}   // Closed when fiber completes
-	Completed    bool            // True when fiber has finished
+	mu             sync.RWMutex
+	ID             int
+	State          *ExecutionState
+	SuspendedOn    string                    // tokenID if suspended, "" if running
+	ResumeChan     chan ResumeData           // Channel for resuming suspended fiber
+	Result         interface{}               // Final result when fiber completes
+	Error          error                     // Error if fiber failed
+	CompleteChan   chan struct{}             // Closed when fiber completes
+	Completed      bool                      // True when fiber has finished
+	FinalBubbleMap map[string][]*BubbleEntry // Preserved bubbleMap after fiber completion
+	BubbleUpMap    map[string][]*BubbleEntry // Early bubble staging area (for fiber_bubble)
 }
 
 // StoredList represents an immutable list of values with optional named arguments
@@ -737,4 +1043,336 @@ func (pl StoredList) String() string {
 		return "(list)"
 	}
 	return "(list with named args)"
+}
+
+// StoredBytes represents an immutable byte array
+// All operations return new StoredBytes instances (copy-on-write)
+// Slicing shares the backing array for memory efficiency
+// When elements are extracted, they are converted to int64
+type StoredBytes struct {
+	data []byte
+}
+
+// NewStoredBytes creates a new StoredBytes from a byte slice
+func NewStoredBytes(data []byte) StoredBytes {
+	return StoredBytes{data: data}
+}
+
+// NewStoredBytesFromInts creates StoredBytes from int64 values
+// Values are masked to byte range (0-255)
+func NewStoredBytesFromInts(values []int64) StoredBytes {
+	data := make([]byte, len(values))
+	for i, v := range values {
+		data[i] = byte(v & 0xFF)
+	}
+	return StoredBytes{data: data}
+}
+
+// Data returns the underlying byte slice (direct reference)
+func (sb StoredBytes) Data() []byte {
+	return sb.data
+}
+
+// Len returns the number of bytes
+func (sb StoredBytes) Len() int {
+	return len(sb.data)
+}
+
+// Get returns the byte at the given index as int64
+// Returns 0 if index is out of bounds
+func (sb StoredBytes) Get(index int) int64 {
+	if index < 0 || index >= len(sb.data) {
+		return 0
+	}
+	return int64(sb.data[index])
+}
+
+// Slice returns a new StoredBytes with bytes from start to end (end exclusive)
+// Shares the backing array for memory efficiency (O(1) time, O(1) space)
+func (sb StoredBytes) Slice(start, end int) StoredBytes {
+	if start < 0 {
+		start = 0
+	}
+	if end > len(sb.data) {
+		end = len(sb.data)
+	}
+	if start > end {
+		start = end
+	}
+	return StoredBytes{data: sb.data[start:end]}
+}
+
+// Append returns a new StoredBytes with the byte appended (O(n) copy-on-write)
+// Value is masked to byte range
+func (sb StoredBytes) Append(value int64) StoredBytes {
+	newData := make([]byte, len(sb.data)+1)
+	copy(newData, sb.data)
+	newData[len(sb.data)] = byte(value & 0xFF)
+	return StoredBytes{data: newData}
+}
+
+// AppendBytes returns a new StoredBytes with other bytes appended
+func (sb StoredBytes) AppendBytes(other StoredBytes) StoredBytes {
+	newData := make([]byte, len(sb.data)+len(other.data))
+	copy(newData, sb.data)
+	copy(newData[len(sb.data):], other.data)
+	return StoredBytes{data: newData}
+}
+
+// Prepend returns a new StoredBytes with the byte prepended (O(n) copy-on-write)
+// Value is masked to byte range
+func (sb StoredBytes) Prepend(value int64) StoredBytes {
+	newData := make([]byte, len(sb.data)+1)
+	newData[0] = byte(value & 0xFF)
+	copy(newData[1:], sb.data)
+	return StoredBytes{data: newData}
+}
+
+// Concat returns a new StoredBytes with bytes from both (O(n+m) copy)
+func (sb StoredBytes) Concat(other StoredBytes) StoredBytes {
+	newData := make([]byte, len(sb.data)+len(other.data))
+	copy(newData, sb.data)
+	copy(newData[len(sb.data):], other.data)
+	return StoredBytes{data: newData}
+}
+
+// Compact returns a new StoredBytes with a new backing array
+// Use this to free memory if you've sliced a large byte array
+func (sb StoredBytes) Compact() StoredBytes {
+	newData := make([]byte, len(sb.data))
+	copy(newData, sb.data)
+	return StoredBytes{data: newData}
+}
+
+// String returns a hex string representation with spaces every 4 bytes
+// Format: <08AEC7FF 0810CD00 24EE>
+func (sb StoredBytes) String() string {
+	if len(sb.data) == 0 {
+		return "<>"
+	}
+
+	var result strings.Builder
+	result.WriteByte('<')
+
+	for i, b := range sb.data {
+		if i > 0 && i%4 == 0 {
+			result.WriteByte(' ')
+		}
+		result.WriteString(fmt.Sprintf("%02X", b))
+	}
+
+	result.WriteByte('>')
+	return result.String()
+}
+
+// ToInt64 converts the bytes to an int64 (big-endian)
+// Used when bytes are coerced to a number
+func (sb StoredBytes) ToInt64() int64 {
+	var result int64
+	for _, b := range sb.data {
+		result = (result << 8) | int64(b)
+	}
+	return result
+}
+
+// FromString creates StoredBytes from a string (low-ASCII only)
+// Returns error if any character is >= 128
+func StoredBytesFromString(s string) (StoredBytes, error) {
+	data := make([]byte, len(s))
+	for i := 0; i < len(s); i++ {
+		if s[i] >= 128 {
+			return StoredBytes{}, fmt.Errorf("non-ASCII character at position %d", i)
+		}
+		data[i] = s[i]
+	}
+	return StoredBytes{data: data}, nil
+}
+
+// ToASCIIString converts bytes to string (for display/debugging)
+func (sb StoredBytes) ToASCIIString() string {
+	return string(sb.data)
+}
+
+// ========================================
+// Struct Definitions are now StoredLists
+// ========================================
+// A struct definition is a StoredList with the following format:
+//   __size: int (total size in bytes)
+//   __named: StoredList (metadata from descriptor)
+//   fieldName: StoredList [offset, length, mode] or [offset, length, "struct", nestedDefID, count]
+//
+// This allows advanced users to customize union types and overlapping fields.
+
+// ========================================
+// StoredStruct - Instance of a struct
+// ========================================
+
+// StoredStruct represents an instance of a struct or struct array
+// The definition is now a StoredList, referenced by its object ID
+type StoredStruct struct {
+	defID      int    // Object ID of the definition StoredList
+	data       []byte // Backing byte array
+	offset     int    // Offset into the backing array (for slices)
+	recordSize int    // Size of each record
+	length     int    // Number of records (-1 for single struct, >= 0 for array)
+}
+
+// NewStoredStruct creates a new single struct instance
+func NewStoredStruct(defID int, size int) StoredStruct {
+	data := make([]byte, size)
+	return StoredStruct{
+		defID:      defID,
+		data:       data,
+		offset:     0,
+		recordSize: size,
+		length:     -1, // Single struct
+	}
+}
+
+// NewStoredStructArray creates a new struct array with n elements
+func NewStoredStructArray(defID int, size int, n int) StoredStruct {
+	data := make([]byte, size*n)
+	return StoredStruct{
+		defID:      defID,
+		data:       data,
+		offset:     0,
+		recordSize: size,
+		length:     n,
+	}
+}
+
+// NewStoredStructFromData creates a struct from existing data (for nested structs)
+func NewStoredStructFromData(defID int, data []byte, recordSize int, length int) StoredStruct {
+	return StoredStruct{
+		defID:      defID,
+		data:       data,
+		offset:     0,
+		recordSize: recordSize,
+		length:     length,
+	}
+}
+
+// DefID returns the object ID of the struct definition list
+func (ss StoredStruct) DefID() int {
+	return ss.defID
+}
+
+// IsArray returns true if this is a struct array
+func (ss StoredStruct) IsArray() bool {
+	return ss.length >= 0
+}
+
+// Len returns the number of elements (-1 for single struct)
+func (ss StoredStruct) Len() int {
+	return ss.length
+}
+
+// RecordSize returns the size of each record
+func (ss StoredStruct) RecordSize() int {
+	return ss.recordSize
+}
+
+// Data returns the underlying byte slice for this struct/array
+func (ss StoredStruct) Data() []byte {
+	if ss.length < 0 {
+		// Single struct
+		return ss.data[ss.offset : ss.offset+ss.recordSize]
+	}
+	// Array
+	return ss.data[ss.offset : ss.offset+ss.recordSize*ss.length]
+}
+
+// Get returns the struct at index i (for arrays)
+// Returns a single struct that shares the backing array
+func (ss StoredStruct) Get(index int) StoredStruct {
+	if ss.length < 0 {
+		// Single struct - can't index
+		return ss
+	}
+	if index < 0 || index >= ss.length {
+		return StoredStruct{} // Invalid index
+	}
+	return StoredStruct{
+		defID:      ss.defID,
+		data:       ss.data,
+		offset:     ss.offset + index*ss.recordSize,
+		recordSize: ss.recordSize,
+		length:     -1, // Returns a single struct
+	}
+}
+
+// Slice returns a new struct array with elements from start to end (end exclusive)
+// Shares the backing array for memory efficiency
+func (ss StoredStruct) Slice(start, end int) StoredStruct {
+	if ss.length < 0 {
+		// Single struct - can't slice
+		return ss
+	}
+	if start < 0 {
+		start = 0
+	}
+	if end > ss.length {
+		end = ss.length
+	}
+	if start > end {
+		start = end
+	}
+	return StoredStruct{
+		defID:      ss.defID,
+		data:       ss.data,
+		offset:     ss.offset + start*ss.recordSize,
+		recordSize: ss.recordSize,
+		length:     end - start,
+	}
+}
+
+// Compact returns a new struct array with a fresh backing array
+func (ss StoredStruct) Compact() StoredStruct {
+	oldData := ss.Data()
+	newData := make([]byte, len(oldData))
+	copy(newData, oldData)
+	return StoredStruct{
+		defID:      ss.defID,
+		data:       newData,
+		offset:     0,
+		recordSize: ss.recordSize,
+		length:     ss.length,
+	}
+}
+
+// GetBytesAt returns raw bytes at the given offset and length
+func (ss StoredStruct) GetBytesAt(fieldOffset, fieldLength int) ([]byte, bool) {
+	start := ss.offset + fieldOffset
+	end := start + fieldLength
+	if end > len(ss.data) {
+		return nil, false
+	}
+	return ss.data[start:end], true
+}
+
+// SetBytesAt sets raw bytes at the given offset
+func (ss StoredStruct) SetBytesAt(fieldOffset int, value []byte, maxLen int) bool {
+	start := ss.offset + fieldOffset
+	copyLen := len(value)
+	if copyLen > maxLen {
+		copyLen = maxLen
+	}
+	copy(ss.data[start:start+copyLen], value[:copyLen])
+	return true
+}
+
+// ZeroPadAt zero-pads from the given position to the end of the field
+func (ss StoredStruct) ZeroPadAt(fieldOffset, startPos, fieldLength int) {
+	start := ss.offset + fieldOffset
+	for i := startPos; i < fieldLength; i++ {
+		ss.data[start+i] = 0
+	}
+}
+
+// String returns a human-readable representation
+func (ss StoredStruct) String() string {
+	if ss.length < 0 {
+		return fmt.Sprintf("<Struct defID=%d size=%d>", ss.defID, ss.recordSize)
+	}
+	return fmt.Sprintf("<StructArray[%d] defID=%d>", ss.length, ss.defID)
 }

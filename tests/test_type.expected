@@ -1,4 +1,4 @@
-=== get_type Comprehensive Test ===
+=== type Comprehensive Test ===
 
 Test 1: Integer variables
   int1 = 42 → int (expected: int)
@@ -73,6 +73,28 @@ Test 14: Case sensitivity
   MYVAR → symbol (expected: symbol)
   myVAR (not defined) → undefined (expected: undefined)
 
+Test 15: List type
+  mylist type: list (expected: list)
+  emptylist type: list (expected: list)
+
+Test 16: Bytes type
+  mybytes type: bytes (expected: bytes)
+  emptybytes type: bytes (expected: bytes)
+
+Test 17: Struct types
+  struct def type: list (expected: list)
+  single struct type: struct (expected: struct)
+  struct array type: structarray (expected: structarray)
+
+Test 18: Channel type
+  mychan type: channel (expected: channel)
+
+Test 19: File type
+  (File type requires file operations - skipped)
+
+Test 20: Fiber type
+  (Fiber type requires spawn - skipped for basic test)
+
 === Summary ===
 
 Expected behaviors:
@@ -80,8 +102,8 @@ Expected behaviors:
   - Bare identifiers → symbol
   - Quoted text → string
   - Undefined variables → undefined
-  - get_type always returns a type name (never fails)
+  - type always returns a type name (never fails)
 
-If all results match expected, get_type is working correctly!
+If all results match expected, type is working correctly!
 
 === Test Complete ===

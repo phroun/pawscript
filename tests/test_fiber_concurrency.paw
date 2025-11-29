@@ -1,7 +1,7 @@
 # Test fiber concurrency with msleep
 
 print "=== Test 1: Simple concurrent fibers ==="
-fiber_spawn {macro (
+fiber {macro (
   i: 0
   while (lt ~i, 3), (
     print "Fiber A: iteration ~i"
@@ -9,7 +9,7 @@ fiber_spawn {macro (
     i: {add ~i, 1}
   )
 )}
-fiber_spawn {macro (
+fiber {macro (
   i: 0
   while (lt ~i, 3), (
     print "Fiber B: iteration ~i"
@@ -24,17 +24,17 @@ print "All fibers completed"
 print ""
 
 print "=== Test 2: Fibers with different sleep times ==="
-fiber_spawn {macro (
+fiber {macro (
   print "Fast fiber: starting"
   msleep 20
   print "Fast fiber: done after 20ms"
 )}
-fiber_spawn {macro (
+fiber {macro (
   print "Medium fiber: starting"
   msleep 50
   print "Medium fiber: done after 50ms"
 )}
-fiber_spawn {macro (
+fiber {macro (
   print "Slow fiber: starting"
   msleep 80
   print "Slow fiber: done after 80ms"
@@ -47,9 +47,9 @@ print "All fibers complete"
 print ""
 
 print "=== Test 3: Fiber counting during execution ==="
-fiber_spawn {macro (msleep 100)}
-fiber_spawn {macro (msleep 100)}
-fiber_spawn {macro (msleep 100)}
+fiber {macro (msleep 100)}
+fiber {macro (msleep 100)}
+fiber {macro (msleep 100)}
 count1: {fiber_count}
 print "Active fibers: ~count1"
 msleep 150

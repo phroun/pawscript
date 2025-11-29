@@ -46,9 +46,9 @@ echo "(nil < false < true < numbers < symbols < strings)"
 mixed: (5, nil, true, "beta", alpha, false, 2, "alpha")
 sorted_mixed: {sort ~mixed}
 echo "Sorted count: {len ~sorted_mixed}"
-echo "First item type: {get_inferred_type {argv ~sorted_mixed, 1}}"
-echo "Second item type: {get_inferred_type {argv ~sorted_mixed, 2}}"
-echo "Third item type: {get_inferred_type {argv ~sorted_mixed, 3}}"
+echo "First item type: {infer {argv ~sorted_mixed, 1}}"
+echo "Second item type: {infer {argv ~sorted_mixed, 2}}"
+echo "Third item type: {infer {argv ~sorted_mixed, 3}}"
 echo "(Expected: 8, nil, bool, bool)"
 echo ""
 
@@ -86,8 +86,8 @@ with_named: (c, a, b, key1: "value1", key2: "value2")
 sorted_named: {sort ~with_named}
 echo "Original positional count: 3"
 echo "Sorted positional: {join ~sorted_named, ", "}"
-echo "Key1 value: {get_val ~sorted_named, key1}"
-echo "Key2 value: {get_val ~sorted_named, key2}"
+echo "Key1 value: {ret ~sorted_named.key1}"
+echo "Key2 value: {ret ~sorted_named.key2}"
 echo "(Expected: a, b, c with keys intact)"
 echo ""
 

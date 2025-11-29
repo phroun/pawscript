@@ -1,0 +1,115 @@
+=== STRING COMMAND ===
+
+-- string (primitives) --
+string 123: 123
+string 3.14: 3.14
+string true: true
+string false: false
+string nil: nil
+
+-- string (symbols and strings) --
+string hello: hello
+string "quoted": quoted
+
+-- string (lists) --
+string (1, 2, 3): (1, 2, 3)
+string nested: (a, (1, 2), b)
+
+-- string (special types) --
+string block: echo "hi"
+
+=== FLOAT COMMAND ===
+
+-- float (valid conversions) --
+float 42: 42
+float 3.14: 3.14
+float "123": 123
+float "3.14": 3.14
+float 0: 0
+
+-- float (invalid with nil) --
+float "abc": <nil>
+float hello: <nil>
+
+-- float (invalid with default) --
+float "abc", 0: 0
+float "abc", -1: -1
+float "abc", default: default
+
+=== NUMBER COMMAND ===
+
+-- number (integer results) --
+number 42: 42
+number "123": 123
+number 3.0: 3
+number "100.0": 100
+
+-- number (float results) --
+number 3.14: 3.14
+number "2.5": 2.5
+number 0.001: 0.001
+
+-- number (invalid with default) --
+number "abc", 0: 0
+number hello, -1: -1
+number "invalid", default: default
+
+=== BOOL COMMAND ===
+
+-- bool (truthy values) --
+bool 1: true
+bool 42: true
+bool "hello": true
+bool true: true
+bool (1, 2): true
+
+-- bool (falsy values) --
+bool 0: false
+bool "": false
+bool "0": false
+bool "false": false
+bool false: false
+bool nil: false
+
+=== SYMBOL COMMAND ===
+
+-- symbol (valid conversions) --
+symbol 123: 123
+symbol 3.14: 3.14
+symbol hello: hello
+symbol "quoted": quoted
+symbol true: true
+symbol nil: <nil>
+
+-- symbol (lists) --
+symbol (a, b, c): a, b, c
+
+=== BLOCK COMMAND ===
+
+-- block (from string) --
+block created: echo "block executed"
+
+-- block (from ParenGroup) --
+block created: echo "from paren"
+
+-- block (from list) --
+block created: echo line1
+echo line2
+
+-- block (used with repeat) --
+repeat output:
+iteration
+iteration
+iteration
+
+-- block (used with macro) --
+Hello from dynamic macro
+
+-- block (direct execution) --
+directly_executed
+
+-- block (with arguments) --
+Hello, World!
+Sum: 1 + 2 = 3
+
+=== ALL TESTS COMPLETE ===

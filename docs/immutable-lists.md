@@ -60,11 +60,11 @@ echo {len ~fruits}        # Output: 3
 echo {len "hello"}              # Output: 5 (works on strings too!)
 ```
 
-#### `get_type` / `get_inferred_type` - Type detection
+#### `type` / `infer` - Type detection
 ```pawscript
 mylist: {list 1, 2, 3}
-echo {get_type mylist}          # Output: list
-echo {get_inferred_type ~mylist}  # Output: list
+echo {type mylist}          # Output: list
+echo {infer ~mylist}        # Output: list
 ```
 
 #### `argc` - Count items (enhanced)
@@ -223,11 +223,11 @@ Lists preserve the types of their items:
 ```pawscript
 mixed: {list 42, "text", true, symbol, nil}
 
-echo {get_inferred_type {argv ~mixed, 1}}  # int
-echo {get_inferred_type {argv ~mixed, 2}}  # string
-echo {get_inferred_type {argv ~mixed, 3}}  # bool
-echo {get_inferred_type {argv ~mixed, 4}}  # symbol
-echo {get_inferred_type {argv ~mixed, 5}}  # nil
+echo {infer {argv ~mixed, 1}}  # int
+echo {infer {argv ~mixed, 2}}  # string
+echo {infer {argv ~mixed, 3}}  # bool
+echo {infer {argv ~mixed, 4}}  # symbol
+echo {infer {argv ~mixed, 5}}  # nil
 ```
 
 ## Nested Lists and Blocks

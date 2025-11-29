@@ -1,0 +1,88 @@
+# Test ? operator for existence checking
+
+echo "=== Test 1: Simple variable existence ==="
+x: 42
+exists_x: ?x
+exists_y: ?y
+echo "x exists: ~exists_x"
+echo "y exists: ~exists_y"
+echo "(Expected: true, false)"
+echo ""
+
+echo "=== Test 2: List with named args ==="
+person: {list name: "Alice", age: 30}
+has_name: ?person.name
+has_email: ?person.email
+echo "has name: ~has_name"
+echo "has email: ~has_email"
+echo "(Expected: true, false)"
+echo ""
+
+echo "=== Test 3: Nested list accessors ==="
+data: {list info: {list contact: {list email: "test@example.com"}}}
+has_email: ?data.info.contact.email
+has_phone: ?data.info.contact.phone
+has_missing: ?data.info.missing.field
+echo "has data.info.contact.email: ~has_email"
+echo "has data.info.contact.phone: ~has_phone"
+echo "has data.info.missing.field: ~has_missing"
+echo "(Expected: true, false, false)"
+echo ""
+
+echo "=== Test 4: List index existence ==="
+nums: {list 10, 20, 30}
+has_0: ?nums 0
+has_2: ?nums 2
+has_5: ?nums 5
+echo "has index 0: ~has_0"
+echo "has index 2: ~has_2"
+echo "has index 5: ~has_5"
+echo "(Expected: true, true, false)"
+echo ""
+
+echo "=== Test 5: Mixed index and key access ==="
+users: {list {list name: "Bob"}, {list name: "Carol"}}
+has_user0_name: ?users 0.name
+has_user1_name: ?users 1.name
+has_user2_name: ?users 2.name
+echo "has users[0].name: ~has_user0_name"
+echo "has users[1].name: ~has_user1_name"
+echo "has users[2].name: ~has_user2_name"
+echo "(Expected: true, true, false)"
+echo ""
+
+echo "=== Test 6: Use in conditionals ==="
+config: {list debug: true}
+if ?config.debug then (
+    echo "Debug mode available"
+) else (
+    echo "No debug config"
+)
+if ?config.verbose then (
+    echo "Verbose mode available"
+) else (
+    echo "No verbose config"
+)
+echo "(Expected: Debug mode available, No verbose config)"
+echo ""
+
+echo "=== Test 7: Question in string interpolation ==="
+item: {list value: 123}
+# In strings, ?varname checks simple variable existence (no accessor chains)
+echo "item exists: ?item"
+echo "missing exists: ?missing"
+echo "(Expected: true, false)"
+# For accessor chains in strings, use brace expressions:
+echo "item.value exists: {?item.value}"
+echo "item.missing exists: {?item.missing}"
+echo "(Expected: true, false)"
+echo ""
+
+echo "=== Test 8: Undefined value check ==="
+undef_var: undefined
+has_undef: ?undef_var
+echo "undefined var exists: ~has_undef"
+echo "(Expected: false)"
+echo ""
+
+echo "=== All ? operator tests complete ==="

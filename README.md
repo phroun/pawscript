@@ -75,12 +75,146 @@ See the `examples/` directory for sample scripts and usage patterns.
 
 ## Changelog
 
+### 0.2.8 -- November 28-29, 2025 - Thanksgiving Alpha
+- Polymorphic commands: `append`, `prepend`, `contains`, `index` now work on
+  both strings and lists
+- `trim`, `trim_left`, `trim_right` accept optional character sets and work
+  on lists with deep comparison
+- `replace` command is polymorphic with `count:` parameter for controlling
+  replacements
+- `starts_with`, `ends_with`, `split`, `join` are now polymorphic for lists
+- Deep equality comparison for list operations (`contains`, `index`, `eq`)
+- Comparison operators (`gt`, `lt`, `eq`, `gte`, `lte`) support multiple
+  arguments and proper string comparison
+- `repeat` command (renamed from `str_repeat`) is polymorphic: repeats strings,
+  lists, or repeatedly executes a block accumulating results
+- Type conversion commands: `string`, `number`, `block` for explicit type
+  coercion
+- Renamed `fiber_spawn` to `fiber` for brevity
+- Renamed `get_type` to `type` and `get_inferred_type` to `infer`
+- Renamed `str_upper`/`str_lower` to `upper`/`lower`
+- Removed `get_val` command, replaced by accessor notation `~list.key`
+- `len` now returns int64 for consistency
+- Direct block execution in command position: `{~block}` or
+  `{~block} args` syntax
+- `?` operator for existence checking (undefined/defined testing)
+- `stack_trace` command for runtime call stack introspection
+- Tilde in command position (`~x`) is now implicit `set_result ~x`
+- Bubble system for out-of-band value accumulation (`bubble_up`, `bubble_pop`,
+  `bubble_dump`)
+- `fiber_bubble` command for early bubble transfer from running fibers
+- Orphaned bubble system: abandoned fiber bubbles automatically transfer to
+  parent
+- Auto-dump remaining bubbles when script execution ends
+- Host application I/O stream configuration via `config.Stdin`,
+  `config.Stdout`, `config.Stderr`
+- Moved `if` command to core module
+- `string` command returns block content when given a block
+- Added documentation for COW (copy-on-write) inheritance system
+- Added documentation for result passing system (result-flow.md)
+- Added Fibonacci benchmark examples
+- Renamed basic math module from math:: to basicmath:: (auto-imported)
+- Auxiliary math library (math::) with trig functions (sin, cos, tan,
+  atan2, deg, rad, log, log10, ln, pow) and constants (#tau, #e, #phi,
+  #root2, #root3, #root5, #ln2) - requires `IMPORT math`
+- Named argument tilde resolution: both keys (`~dynKey:`) and values
+  (`: ~dynVal`) now resolve
+- Accessor syntax support in named argument keys (`~obj.field:`, `~list 0:`)
+- Scope operator `::` for explicit module access
+  - `module::item` searches LibraryRestricted (requires IMPORT first)
+  - `::module::item` searches LibraryInherited (from all loaded modules)
+- Random number generation using token pattern:
+  - `rng` command creates RNG token, optional `seed:` parameter for
+    reproducibility
+  - `resume ~token` returns full Int63 range, `resume ~token, max`
+    returns 0 to max-1
+  - `resume ~token, min, max` returns random value in range min to max
+    (inclusive)
+  - `random` convenience command uses default `#random` or accepts custom
+    generator
+  - `#random` default RNG in io:: module, can be overridden locally for
+    reproducible tests
+  - Uses Go's `math/rand` with `NewSource` for seeded generators
+- File system module (files::) with secure sandbox:
+  - `open`, `close`, `read`, `write`, `seek`, `flush`, `eof` for file handle operations
+  - `read_file`, `write_file`, `append_file` for one-shot file access
+  - `exists`, `is_file`, `is_dir`, `file_size`, `file_info` for file metadata
+  - `mkdir`, `remove`, `rename`, `copy`, `list_dir` for file system manipulation
+  - `temp_file`, `temp_dir` for temporary file creation
+  - Sandbox restricts file access to script directory + explicit allow paths
+  - CLI flags: `--allow-read`, `--allow-write`, `--allow-exec`, `--sandbox-dir`
+  - `script_dir` added to `#args` for reliable path resolution
+  - Exec restricted from running scripts in writable directories
+- StoredBytes type for binary data handling:
+  - `bytes` command creates byte arrays from integers, hex literals, or strings
+  - Byte accessor syntax: `~myBytes 0` returns byte at index as int64
+  - `slice`, `append`, `prepend`, `concat`, `compact` work on bytes
+  - `len` returns byte count, hex display format `<DEADBEEF>`
+- StoredStruct type for fixed-layout binary records:
+  - `struct_def` creates struct definition from field descriptors
+  - Field format: `("name", size, "mode")` for binary field specification
+  - `struct` creates instances from definitions, optional source data and count
+  - Struct arrays with `slice`, `compact`, index access (`~array 0`)
+  - Field access via dot notation: `~myStruct.fieldName`
+  - Struct definitions are StoredLists, enabling advanced customization
+  - Extended field modes for binary data:
+    - `bytes`, `string`, `struct` - basic modes
+    - `int`/`int_be`, `int_le` - signed integers, big/little-endian
+    - `uint`/`uint_be`, `uint_le` - unsigned integers, big/little-endian
+    - `float`/`float_be`, `float_le` - IEEE 754 floats (4 or 8 bytes)
+    - `bit0`-`bit7` - individual bits, size=0 to share byte with other bits
+  - Bit modes enable packing 8 booleans in one byte (OR to set, AND to read)
+  - Added extended struct field modes: endianness, unsigned, float, and bitfields
+    - Endianness modes: int_be/int_le, uint_be/uint_le for big/little-endian
+    - Unsigned integers: uint/uint_be/uint_le (no sign extension on read)
+    - Float modes: float_be/float_le for IEEE 754 (4 or 8 byte) conversion
+    - Bit modes: bit0-bit7 for individual bits, size=0 to share byte
+    - Bit packing: up to 8 booleans in one byte (OR to set, AND to read)
+    - Use toNumber for int field assignment (handles hex literals)
+- New bitwise:: module with operations for int64 and bytes types:
+  - bitwise_and, bitwise_or, bitwise_xor: binary ops with align/repeat options
+  - bitwise_not: unary complement operation
+  - bitwise_shl, bitwise_shr: shift left/right by N bits
+  - bitwise_rol, bitwise_ror: rotate with configurable bitlength (default 8)
+  - Output type matches first argument (int64 or bytes, preserving length)
+  - align: left|right option for bytes of different lengths
+  - repeat: true option for cyclic application (cipher-like XOR)
+  - List support: operations applied element-wise when first arg is list
+  - Handles both StoredList and ParenGroup inputs
+- Implement `for` command with multiple forms:
+  - Numeric ranges: `for 1, 10, i, (body)` with optional `by:` step
+  - List iteration: `for ~list, item, (body)` with `order: descending`
+  - Key-value pairs: `for ~list, key, value, (body)` over named args
+  - Struct fields: `for ~struct, fieldname, value, (body)`
+  - Generator/iterator: `for ~generator, x, (body)`
+  - Unpack mode: `for ~list, (a, b, c), (body)`
+- Add `iter:` and `index:` named args for iteration tracking
+- Implement `range` command for explicit range generators
+- Add ForContinuation type for resuming for loops after yield
+- Full support for yield inside for loops in generators
+- Support for async operations (msleep) inside for loops
+- Add toFloat64 helper for numeric range parsing
+- Added full CLI support to pawgui, run with --help
+- Removed assumption of a single window in pawgui.
+  - Creating a window with console: true will populate it with a terminal
+    and grab #out/#in/#err to allow regular CLI-style PawScript interactions.
+  - When all windows are closed, and all fibers have ended, the application
+    will close itself.
+- Added a primitive launcher to pawgui when invoked with no arguments.
+  - CLI scripts will run directly inside the launcher's console window.
+  - File -> New will create additional launcher instances.
+- Explicit focus and autofocus of pawgui controls.
+- Better default sizing and centering of pawgui console or launcher windows.
+- Added automatic build process for pawgui for all platforms in Makefile
+- Fixed a macro argument substitution bug for short string types.
+- Native OS dialogs for File -> Open using sqweek.
+
 ### 0.2.7 -- November 27, 2025
 - Move Makefile into a more standard location
 - Added --license switch to show the MIT License.
 - Fixed bug where object markers would resolve too early when passing
   parameters to macros.
-- Made "channel" and "fiber" fully fledged types with get_type support.
+- Made "channel" and "fiber" fully fledged types with type command support.
 - Removed outdated MacroSystem now that the Environments hold macros.
 - PopulateIOModule now creates StoredChannels for #stdin, #stdout, and #stderr.
 - Better error checking when host environment uses SetResult.
@@ -100,14 +234,12 @@ See the `examples/` directory for sample scripts and usage patterns.
 - Updated pawgui demos to use inline brace color expressions.
 - Added generator/coroutine support with yield inside while loops.
 - Added each and pair iterators for efficient list iteration.
-- Added comprehensive generator test suite with expected output.
 - Fixed terminal color handling when output is redirected.
 - Fixed async generator interleaving and iterator termination bugs.
 - Generator completion now returns status false.
 - Propagated brace expression status through assignment.
 - Fixed nested while loops in generators.
 - Added get_status command to core module.
-- Added tests for empty generator and mid-generator error handling
 - Added if command validation and warnings for improper usages.
 - Added get_substatus command to check brace expression failures.
 - Added proper undefined result handling for unknown commands.
@@ -121,7 +253,6 @@ See the `examples/` directory for sample scripts and usage patterns.
 - Extended log_print to support multiple categories for a single entry.
 - Add #debug channel for separate debug output redirection.
 - Added list accessor syntax (~list.key for named args, ~list N for index)
-- Added multidimensional and mixed accessor tests
 - Support for index-then-dot accessor syntax (~students 1.firstName)
 - Stricter number parsing: dots only in floats when digit before and after.
 
@@ -180,7 +311,7 @@ See the `examples/` directory for sample scripts and usage patterns.
 - Commands/macros now support named arguments, separated by colon.
 - Lists can now function as a key:value store (map/dictionary/hash-table)
 - `keys` returns a list of keys from a list
-- `get_val` given a list and a key, extracts the corresponding value
+- Accessor notation `~list.key` extracts a named value from a list
 
 ### 0.2.3 -- November 22, 2025
 - New concise syntax for get ~x and set x:

@@ -9,7 +9,7 @@ macro get_input (
 );
 
 macro super_get (
-  str_lower $1
+  lower $1
   ~> get_input
 )
 

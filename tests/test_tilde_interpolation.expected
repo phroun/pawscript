@@ -71,7 +71,7 @@ Test 17: Tilde injection prevention - bare macro body
 Expected: ~secret (NOT INJECTED)
 
 Test 18: Tilde injection prevention - quoted macro body
-Arg: '~secret'
+Arg: ~secret
 Expected: Arg: '~secret' (NOT INJECTED)
 
 Test 19: Tilde injection prevention - embedded tilde

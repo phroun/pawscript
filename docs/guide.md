@@ -170,7 +170,7 @@ len ~nums => size                    # size = 3
 slice ~nums, 1, 2 => middle          # Items at indices 1-2
 append ~nums, 4 => extended          # New list with 4 added
 keys ~with_named => keylist          # Get named argument keys
-get_val ~with_named, key => val      # val = "value"
+val: {ret ~with_named.key}           # Accessor notation for named values
 sort ~nums, desc: true => descending # Sort descending
 ```
 
@@ -297,7 +297,7 @@ macro worker(
     echo "from fiber"
 )
 
-h: {fiber_spawn worker}
+h: {fiber worker}
 echo "from main"
 fiber_wait ~h           # Wait for single fiber
 fiber_wait_all          # Wait for all fibers
@@ -329,14 +329,14 @@ fiber_wait_all          # Wait for all fibers
 | `len list` | Get length of list or string |
 | `sort list, [cmp], [desc: true]` | Sort list items |
 | `keys list` | Get named argument keys from list |
-| `get_val list, key` | Get named argument value by key |
+| `~list.key` | Accessor notation for named values |
 
 ### Strings (`stdlib`)
 
 | Command | Description |
 |---------|-------------|
-| `str_upper str` | Convert to uppercase |
-| `str_lower str` | Convert to lowercase |
+| `upper str` | Convert to uppercase |
+| `lower str` | Convert to lowercase |
 
 ### I/O (`io`)
 
@@ -356,7 +356,7 @@ fiber_wait_all          # Wait for all fibers
 
 | Command | Description |
 |---------|-------------|
-| `fiber_spawn macro` | Spawn concurrent fiber running the macro |
+| `fiber macro` | Spawn concurrent fiber running the macro |
 | `fiber_wait handle` | Wait for fiber to complete |
 | `fiber_wait_all` | Wait for all fibers |
 | `msleep ms` | Sleep for milliseconds |

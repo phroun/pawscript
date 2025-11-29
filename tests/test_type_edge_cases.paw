@@ -76,9 +76,9 @@ x: "text"
 y: symbol
 z: (block)
 
-echo "\"text\" type: {get_type x}"
-echo "symbol type: {get_type y}"
-echo "(block) type: {get_type z}"
+echo "\"text\" type: {type x}"
+echo "symbol type: {type y}"
+echo "(block) type: {type z}"
 echo ""
 
 # Test 7: Edge case - string "false" vs bool false

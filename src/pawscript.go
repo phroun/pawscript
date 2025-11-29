@@ -1,6 +1,8 @@
 package pawscript
 
 import (
+	"fmt"
+	"os"
 	"sort"
 	"time"
 )
@@ -21,7 +23,18 @@ func New(config *Config) *PawScript {
 		config = DefaultConfig()
 	}
 
-	logger := NewLogger(config.Debug)
+	// Ensure I/O streams are set
+	if config.Stdin == nil {
+		config.Stdin = os.Stdin
+	}
+	if config.Stdout == nil {
+		config.Stdout = os.Stdout
+	}
+	if config.Stderr == nil {
+		config.Stderr = os.Stderr
+	}
+
+	logger := NewLoggerWithWriters(config.Debug, config.Stdout, config.Stderr)
 	executor := NewExecutor(logger)
 
 	// Create root module environment for all execution states
@@ -150,6 +163,57 @@ func (ps *PawScript) NewExecutionStateFromRoot() *ExecutionState {
 	return state
 }
 
+// dumpRemainingBubbles dumps any remaining bubbles to stderr before returning control to host.
+// This includes orphaned bubbles (from abandoned fibers) and bubbles in the execution state.
+func (ps *PawScript) dumpRemainingBubbles(state *ExecutionState) {
+	// Collect all bubbles: orphaned + state's bubbleMap
+	orphaned := ps.executor.GetOrphanedBubbles()
+
+	state.mu.Lock()
+	stateBubbles := state.bubbleMap
+	state.mu.Unlock()
+
+	hasOrphaned := len(orphaned) > 0
+	hasStateBubbles := len(stateBubbles) > 0
+
+	if !hasOrphaned && !hasStateBubbles {
+		return
+	}
+
+	stderr := ps.config.Stderr
+
+	// Helper to dump a bubble map
+	dumpBubbleMap := func(label string, bubbleMap map[string][]*BubbleEntry) {
+		if len(bubbleMap) == 0 {
+			return
+		}
+		fmt.Fprintf(stderr, "[%s]\n", label)
+		for flavor, entries := range bubbleMap {
+			fmt.Fprintf(stderr, "  Flavor: %s (%d entries)\n", flavor, len(entries))
+			for i, entry := range entries {
+				fmt.Fprintf(stderr, "    [%d] content=%v, microtime=%d, memo=%q\n",
+					i, entry.Content, entry.Microtime, entry.Memo)
+				if len(entry.StackTrace) > 0 {
+					fmt.Fprintf(stderr, "        stack trace (%d frames):\n", len(entry.StackTrace))
+					for j, frame := range entry.StackTrace {
+						if frameMap, ok := frame.(map[string]interface{}); ok {
+							fmt.Fprintf(stderr, "          [%d] %v at %v:%v\n",
+								j, frameMap["macro"], frameMap["file"], frameMap["line"])
+						}
+					}
+				}
+			}
+		}
+	}
+
+	if hasOrphaned {
+		dumpBubbleMap("Orphaned bubbles", orphaned)
+	}
+	if hasStateBubbles {
+		dumpBubbleMap("Remaining bubbles", stateBubbles)
+	}
+}
+
 // ExecuteFile executes a script file with proper filename tracking.
 // If the script contains async operations (like msleep), this function waits
 // for the entire script to complete before returning and merging exports.
@@ -191,6 +255,9 @@ func (ps *PawScript) ExecuteFile(commandString, filename string) Result {
 	// Merge any module exports into the root environment for persistence
 	state.moduleEnv.MergeExportsInto(ps.rootModuleEnv)
 
+	// Dump any remaining bubbles to stderr before returning control to host
+	ps.dumpRemainingBubbles(state)
+
 	return result
 }
 
@@ -203,7 +270,40 @@ func (ps *PawScript) Execute(commandString string, args ...interface{}) Result {
 	// Merge any module exports into the root environment for persistence
 	state.moduleEnv.MergeExportsInto(ps.rootModuleEnv)
 
+	// Dump any remaining bubbles to stderr before returning control to host
+	ps.dumpRemainingBubbles(state)
+
 	return result
+}
+
+// HasLibraryModule checks if a module exists in the library.
+// Use this to check before calling ImportModuleToRoot to avoid error logging.
+func (ps *PawScript) HasLibraryModule(moduleName string) bool {
+	ps.rootModuleEnv.mu.RLock()
+	defer ps.rootModuleEnv.mu.RUnlock()
+	_, exists := ps.rootModuleEnv.LibraryRestricted[moduleName]
+	return exists
+}
+
+// SetInheritedObject sets or overrides an object in the ObjectsInherited map.
+// This is useful for overriding default channels like #out, #in, #err at runtime.
+// The moduleName parameter is currently ignored - objects are set at the root level.
+func (ps *PawScript) SetInheritedObject(moduleName, objectName string, value interface{}) {
+	ps.rootModuleEnv.mu.Lock()
+	defer ps.rootModuleEnv.mu.Unlock()
+	if ps.rootModuleEnv.ObjectsInherited == nil {
+		ps.rootModuleEnv.ObjectsInherited = make(map[string]interface{})
+	}
+	ps.rootModuleEnv.ObjectsInherited[objectName] = value
+}
+
+// GetFiberCount returns the number of currently active fibers.
+// Returns 0 if no fibers are running.
+func (ps *PawScript) GetFiberCount() int {
+	if ps.executor == nil {
+		return 0
+	}
+	return ps.executor.GetFiberCount()
 }
 
 // ImportModuleToRoot imports all items from a module directly into the root environment.
@@ -264,7 +364,12 @@ func (ps *PawScript) ExecuteWithEnvironment(commandString string, env *ModuleEnv
 	state := NewExecutionState()
 	state.moduleEnv = env
 	defer state.ReleaseAllReferences()
-	return ps.executor.ExecuteWithState(commandString, state, nil, filename, lineOffset, columnOffset)
+	result := ps.executor.ExecuteWithState(commandString, state, nil, filename, lineOffset, columnOffset)
+
+	// Dump any remaining bubbles to stderr before returning control to host
+	ps.dumpRemainingBubbles(state)
+
+	return result
 }
 
 // RequestToken requests an async completion token

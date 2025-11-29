@@ -75,7 +75,7 @@ All widget commands support `panel: "left"` or `panel: "right"` to place them in
   - `out_channel`: Send text to display in the terminal (supports ANSI codes)
   - `in_channel`: Receive keyboard input from the terminal
   - `err_channel`: Same as out_channel (for compatibility)
-  - Use `fiber_spawn` to run console interaction without blocking the GUI
+  - Use `fiber` to run console interaction without blocking the GUI
 
 ### Dialogs
 
@@ -166,7 +166,7 @@ gui_button "Click me", panel: "left"
 (#out, #in, #err): {gui_console 400, 400, panel: "right"}
 
 # Run console in fiber so GUI stays responsive
-fiber_spawn {macro (
+fiber {macro (
     print "Console ready!"
     while (true), (
         input: {read}

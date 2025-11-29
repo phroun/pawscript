@@ -1,0 +1,38 @@
+=== STRING MODE ===
+repeat "ab", 3: ababab
+repeat "x", 5: xxxxx
+repeat "hello", 0: 
+repeat symbol, 2: abcabc
+
+=== LIST MODE ===
+repeat (1,2,3), 2: (1, 2, 3, 1, 2, 3)
+repeat (1,2,3), 3: (1, 2, 3, 1, 2, 3, 1, 2, 3)
+repeat (1,2,3), 0: ()
+repeat (a), 4: (a, a, a, a)
+
+=== BLOCK MODE (basic) ===
+3 iterations returning 'hi': ("hi", "hi", "hi")
+
+=== BLOCK MODE (with counter) ===
+squares 0-4: (0, 1, 4, 9, 16)
+
+=== BLOCK MODE (no result set) ===
+tick
+tick
+tick
+no results set: (nil, nil, nil)
+
+=== BLOCK MODE (mixed results) ===
+mixed: ("small", "small", "big", "big")
+
+=== BLOCK MODE (with failures) ===
+results: (failures: (1, 3), 0, 1, 2, 3, 4)
+failures: (1, 3)
+
+=== BLOCK MODE (async with msleep) ===
+async results: (100, 101, 102)
+
+=== BLOCK MODE (while loop inside) ===
+triangle numbers: (0, 0, 1, 3, 6)
+
+=== ALL REPEAT TESTS COMPLETE ===

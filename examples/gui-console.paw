@@ -1,0 +1,48 @@
+#!/usr/bin/env pawgui
+# PawScript Console Demo
+# Shows terminal features using gui_console returned channels
+# Run with: pawgui gui-console.paw  OR  pawgui -console
+
+# Create main window with handle
+#window: {gui_window "PawScript Console Demo", 700, 500}
+
+# Create console and unpack channels directly into #out, #in, #err
+# This makes echo, print, write, read automatically use them!
+(#out, #in, #err): {gui_console 680, 450}
+
+# Give the terminal a moment to initialize
+msleep 200
+
+# Now we can use standard print and echo commands!
+# Clear screen and show title - use inline color for the header
+clear
+print "{color cyan}=== PawScript Console Demo ==={color reset: true}"
+echo ""
+print "This terminal supports colors!"
+echo ""
+
+echo #stdout, "Regular output"
+
+# Show colors - mix of styles for demonstration
+# Standalone color command when multiple lines share the same color
+color red
+print "This is red text"
+
+# Inline colors for single-line styling
+print "{color green}This is green text{color reset: true}"
+print "{color yellow}This is yellow text{color reset: true}"
+print "{color blue}This is blue text{color reset: true}"
+echo ""
+
+# Mixed inline colors in one line
+print "Rainbow: {color red}R{color yellow}a{color green}i{color cyan}n{color blue}b{color magenta}o{color white}w{color reset: true}"
+echo ""
+
+write "Type something and press Enter: "
+
+# Read from console using the standard read command
+input: {read}
+print "You typed: {color cyan}~input{color reset: true}"
+suppress: true
+MODULE exports
+EXPORT suppress

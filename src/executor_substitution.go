@@ -2,7 +2,6 @@ package pawscript
 
 import (
 	"fmt"
-	"regexp"
 	"strconv"
 	"strings"
 	"unicode"
@@ -91,42 +90,8 @@ func (e *Executor) applySubstitution(str string, ctx *SubstitutionContext) strin
 		}
 
 		// Apply $1, $2, etc (indexed args) - pull from $@ list using argv
-		re := regexp.MustCompile(`\$(\d+)`)
-		result = re.ReplaceAllStringFunc(result, func(match string) string {
-			indexStr := match[1:] // Remove $
-			index, err := strconv.Atoi(indexStr)
-			if err != nil {
-				return match
-			}
-
-			// Get from $@ list
-			if ctx.ExecutionState != nil {
-				if argsVar, exists := ctx.ExecutionState.GetVariable("$@"); exists {
-					// Get the LIST object
-					if sym, ok := argsVar.(Symbol); ok {
-						marker := string(sym)
-						if objType, objID := parseObjectMarker(marker); objType == "list" && objID >= 0 {
-							if listObj, exists := e.getObject(objID); exists {
-								if storedList, ok := listObj.(StoredList); ok {
-									// index is 1-based, convert to 0-based
-									item := storedList.Get(index - 1)
-									if item != nil {
-										return e.formatArgumentForSubstitution(item)
-									}
-								}
-							}
-						}
-					}
-				}
-			}
-
-			// Fallback to old behavior
-			index-- // Convert to 0-based
-			if index >= 0 && index < len(ctx.Args) {
-				return e.formatArgumentForSubstitution(ctx.Args[index])
-			}
-			return match
-		})
+		// Use position-aware substitution to handle quote context correctly
+		result = e.substituteDollarArgs(result, ctx)
 	}
 
 	// Finally, restore escaped dollar signs
@@ -425,7 +390,9 @@ func (e *Executor) substituteBraceExpressions(str string, ctx *SubstitutionConte
 	return result
 }
 
-// substituteTildeExpressions substitutes ~varname patterns in strings with variable values
+// substituteTildeExpressions substitutes ~varname and ?varname patterns in strings
+// ~varname substitutes with the variable value
+// ?varname substitutes with "true" if variable exists, "false" otherwise
 func (e *Executor) substituteTildeExpressions(str string, state *ExecutionState, position *SourcePosition) string {
 	// Placeholder for escaped tildes - must match the one used in applySubstitution
 	const escapedTildePlaceholder = "\x00TILDE\x00"
@@ -446,7 +413,7 @@ func (e *Executor) substituteTildeExpressions(str string, state *ExecutionState,
 
 	lastEnd := 0
 	for _, tilde := range tildes {
-		// Append everything before this tilde
+		// Append everything before this tilde/question
 		result = append(result, runes[lastEnd:tilde.StartPos]...)
 
 		// Look up the variable - first in local variables, then in ObjectsModule
@@ -460,31 +427,52 @@ func (e *Executor) substituteTildeExpressions(str string, state *ExecutionState,
 			}
 			state.moduleEnv.mu.RUnlock()
 		}
-		if exists {
-			// Resolve any object markers to get display value
-			resolved := e.resolveValue(value)
-			var valueStr string
-			// Handle StoredList specially to format contents
-			if list, ok := resolved.(StoredList); ok {
-				valueStr = formatListForDisplay(list)
-			} else {
-				valueStr = fmt.Sprintf("%v", resolved)
+
+		if tilde.IsQuestion {
+			// ? expression - substitute "true" or "false" based on existence
+			// Also check if value is undefined
+			if exists {
+				if sym, ok := value.(Symbol); ok {
+					if string(sym) == UndefinedMarker || string(sym) == "undefined" {
+						exists = false
+					}
+				}
 			}
-			// Since tildes are only found inside double-quoted strings,
-			// we need to escape backslashes and quotes in the substituted value
-			// to prevent breaking the quote structure.
-			// IMPORTANT: These must come BEFORE tilde escaping, otherwise the
-			// placeholder's \x00 bytes would get double-escaped to \\x00
-			valueStr = strings.ReplaceAll(valueStr, `\`, `\\`)
-			valueStr = strings.ReplaceAll(valueStr, `"`, `\"`)
-			// Escape tildes in the resolved value to prevent tilde injection
-			// This ensures user input containing tildes doesn't get interpreted
-			// as variable references when the result string is re-parsed
-			valueStr = strings.ReplaceAll(valueStr, "~", escapedTildePlaceholder)
-			result = append(result, []rune(valueStr)...)
+			if exists {
+				result = append(result, []rune("true")...)
+			} else {
+				result = append(result, []rune("false")...)
+			}
 		} else {
-			// Variable not found - log error and leave empty
-			e.logger.CommandError(CatVariable, "", fmt.Sprintf("Variable not found: %s", tilde.VarName), position)
+			// ~ expression - substitute with value
+			if exists {
+				// Resolve any object markers to get display value
+				resolved := e.resolveValue(value)
+				var valueStr string
+				// Handle StoredList and StoredBytes specially to format contents
+				if list, ok := resolved.(StoredList); ok {
+					valueStr = formatListForDisplay(list)
+				} else if bytes, ok := resolved.(StoredBytes); ok {
+					valueStr = bytes.String()
+				} else {
+					valueStr = fmt.Sprintf("%v", resolved)
+				}
+				// Since tildes are only found inside double-quoted strings,
+				// we need to escape backslashes and quotes in the substituted value
+				// to prevent breaking the quote structure.
+				// IMPORTANT: These must come BEFORE tilde escaping, otherwise the
+				// placeholder's \x00 bytes would get double-escaped to \\x00
+				valueStr = strings.ReplaceAll(valueStr, `\`, `\\`)
+				valueStr = strings.ReplaceAll(valueStr, `"`, `\"`)
+				// Escape tildes in the resolved value to prevent tilde injection
+				// This ensures user input containing tildes doesn't get interpreted
+				// as variable references when the result string is re-parsed
+				valueStr = strings.ReplaceAll(valueStr, "~", escapedTildePlaceholder)
+				result = append(result, []rune(valueStr)...)
+			} else {
+				// Variable not found - log error and leave empty
+				e.logger.CommandError(CatVariable, "", fmt.Sprintf("Variable not found: %s", tilde.VarName), position)
+			}
 		}
 
 		lastEnd = tilde.EndPos + 1
@@ -663,10 +651,12 @@ func (e *Executor) findAllTildeLocations(str string) []*TildeLocation {
 			continue
 		}
 
-		// Only process tildes inside double-quoted strings AND outside parentheses
-		if char == '~' && inDoubleQuote && parenDepth == 0 && i+1 < len(runes) {
+		// Process tildes (~) and question marks (?) inside double-quoted strings AND outside parentheses
+		// ~ substitutes the value, ? substitutes "true" or "false" based on existence
+		if (char == '~' || char == '?') && inDoubleQuote && parenDepth == 0 && i+1 < len(runes) {
+			isQuestion := char == '?'
 			tildeStart := i
-			i++ // Move past the tilde
+			i++ // Move past the ~ or ?
 
 			// Collect variable name characters (letters, digits, underscore, or # prefix)
 			// The # prefix is allowed for ObjectsModule items like #stdin, #stdout
@@ -700,6 +690,7 @@ func (e *Executor) findAllTildeLocations(str string) []*TildeLocation {
 					EndPos:       endPos,
 					VarName:      varName,
 					HasSemicolon: hasSemicolon,
+					IsQuestion:   isQuestion,
 				})
 			}
 			continue
@@ -922,6 +913,46 @@ func (e *Executor) formatBraceResult(value interface{}, originalString string, b
 			state.ClaimObjectReference(id)
 		}
 		return fmt.Sprintf("\x00LIST:%d\x00", id)
+	case StoredBytes:
+		if insideQuotes {
+			// Inside quotes: format as hex display
+			return v.String()
+		}
+		// Outside quotes: use a special marker that preserves the object
+		// Format: \x00BYTES:index\x00 where index is stored in the execution state
+		id := e.storeObject(value, "bytes")
+		// The creating context claims the first reference
+		if state != nil {
+			state.ClaimObjectReference(id)
+		}
+		return fmt.Sprintf("\x00BYTES:%d\x00", id)
+	case *StoredFile:
+		if insideQuotes {
+			// Inside quotes: show file path
+			return v.Path
+		}
+		// Outside quotes: use a special marker that preserves the object
+		// Format: \x00FILE:index\x00 where index is stored in the execution state
+		id := e.storeObject(value, "file")
+		// The creating context claims the first reference
+		if state != nil {
+			state.ClaimObjectReference(id)
+		}
+		return fmt.Sprintf("\x00FILE:%d\x00", id)
+	case StoredStruct:
+		if insideQuotes {
+			// Inside quotes: format as display string
+			return v.String()
+		}
+		// Outside quotes: use a special marker that preserves the object
+		// Format: \x00STRUCT:index\x00 where index is stored in the execution state
+		id := e.storeObject(value, "struct")
+		// The creating context claims the first reference
+		if state != nil {
+			state.ClaimObjectReference(id)
+		}
+		return fmt.Sprintf("\x00STRUCT:%d\x00", id)
+	// Note: StructDef is now a StoredList, handled above
 	case int64, float64:
 		// Numbers as-is
 		return fmt.Sprintf("%v", v)
@@ -972,4 +1003,157 @@ func (e *Executor) isInsideQuotes(str string, pos int) bool {
 	}
 
 	return inQuote
+}
+
+// substituteDollarArgs substitutes $1, $2, etc. with quote-awareness
+// When $N is inside quotes, just insert the content (no extra quotes)
+// When $N is outside quotes, preserve quotes around strings with spaces
+// Properly tracks braces, parentheses, and escape sequences like the parser
+func (e *Executor) substituteDollarArgs(str string, ctx *SubstitutionContext) string {
+	runes := []rune(str)
+	var result strings.Builder
+	result.Grow(len(str))
+
+	inQuote := false
+	var quoteChar rune
+	braceDepth := 0
+	parenDepth := 0
+	i := 0
+
+	for i < len(runes) {
+		char := runes[i]
+
+		// Handle escape sequences - skip the escaped character
+		if char == '\\' && i+1 < len(runes) {
+			result.WriteRune(char)
+			result.WriteRune(runes[i+1])
+			i += 2
+			continue
+		}
+
+		// Track quote state - quotes inside parens still count as "in quote" for $N context
+		// But quotes inside braces don't affect our tracking (braces are already resolved)
+		if !inQuote && (char == '"' || char == '\'') {
+			inQuote = true
+			quoteChar = char
+			result.WriteRune(char)
+			i++
+			continue
+		}
+		if inQuote && char == quoteChar {
+			inQuote = false
+			quoteChar = 0
+			result.WriteRune(char)
+			i++
+			continue
+		}
+
+		// Track parentheses (only when not in quotes)
+		if !inQuote {
+			if char == '(' {
+				parenDepth++
+				result.WriteRune(char)
+				i++
+				continue
+			} else if char == ')' {
+				parenDepth--
+				result.WriteRune(char)
+				i++
+				continue
+			}
+		}
+
+		// Track braces (only when not in quotes and not inside parens)
+		if !inQuote && parenDepth == 0 {
+			if char == '{' {
+				braceDepth++
+				result.WriteRune(char)
+				i++
+				continue
+			} else if char == '}' {
+				braceDepth--
+				result.WriteRune(char)
+				i++
+				continue
+			}
+		}
+
+		// Check for $N pattern
+		if char == '$' && i+1 < len(runes) && runes[i+1] >= '0' && runes[i+1] <= '9' {
+			// Parse the number
+			numStart := i + 1
+			numEnd := numStart
+			for numEnd < len(runes) && runes[numEnd] >= '0' && runes[numEnd] <= '9' {
+				numEnd++
+			}
+
+			indexStr := string(runes[numStart:numEnd])
+			index, err := strconv.Atoi(indexStr)
+			if err != nil {
+				// Not a valid number, output as-is
+				result.WriteRune(char)
+				i++
+				continue
+			}
+
+			// Get the argument value
+			var argValue interface{}
+			found := false
+
+			// Try to get from $@ list first
+			if ctx.ExecutionState != nil {
+				if argsVar, exists := ctx.ExecutionState.GetVariable("$@"); exists {
+					if sym, ok := argsVar.(Symbol); ok {
+						marker := string(sym)
+						if objType, objID := parseObjectMarker(marker); objType == "list" && objID >= 0 {
+							if listObj, exists := e.getObject(objID); exists {
+								if storedList, ok := listObj.(StoredList); ok {
+									// index is 1-based, convert to 0-based
+									item := storedList.Get(index - 1)
+									if item != nil {
+										argValue = item
+										found = true
+									}
+								}
+							}
+						}
+					}
+				}
+			}
+
+			// Fallback to ctx.Args
+			if !found {
+				idx := index - 1 // Convert to 0-based
+				if idx >= 0 && idx < len(ctx.Args) {
+					argValue = ctx.Args[idx]
+					found = true
+				}
+			}
+
+			if found {
+				// Format based on quote context
+				var substitution string
+				if inQuote {
+					// Inside quotes: just insert content, no extra quotes
+					substitution = e.formatArgumentForQuotedContext(argValue)
+				} else {
+					// Outside quotes: may need to add quotes to preserve token boundaries
+					substitution = e.formatArgumentForSubstitution(argValue)
+				}
+				result.WriteString(substitution)
+			} else {
+				// Argument not found, leave $N as-is
+				result.WriteString(string(runes[i:numEnd]))
+			}
+
+			i = numEnd
+			continue
+		}
+
+		// Regular character
+		result.WriteRune(char)
+		i++
+	}
+
+	return result.String()
 }

@@ -16,21 +16,21 @@ echo "Keys:"
 echo {keys ~simple}
 
 echo ""
-echo "=== Test 3: get_val command ==="
+echo "=== Test 3: accessor notation ==="
 data: {list pos1, pos2, name: "John", age: 30, city: "NYC"}
 echo "List:"
 echo ~data
 echo "Get 'name':"
-echo {get_val ~data, name}
+echo ~data.name
 echo "Get 'age':"
-echo {get_val ~data, age}
+echo ~data.age
 echo "Get 'city':"
-echo {get_val ~data, city}
+echo ~data.city
 
 echo ""
-echo "=== Test 4: get_val with quoted key ==="
-echo "Get 'name' with quoted key:"
-echo {get_val ~data, "name"}
+echo "=== Test 4: accessor in brace expression ==="
+echo "Get 'name' in braces:"
+echo {ret ~data.name}
 
 echo ""
 echo "=== Test 5: keys sorted order ==="
@@ -47,6 +47,6 @@ macro show_named_args(
   echo "Keys in", $@
   echo {keys ~myargs}
   echo "Value of 'radius':"
-  echo {get_val ~myargs, radius}
+  echo ~myargs.radius
 )
 show_named_args 1, 2, radius: 5.5, height: 10

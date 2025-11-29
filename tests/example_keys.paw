@@ -12,9 +12,9 @@ echo {keys ~person}
 
 echo ""
 echo "Get individual values:"
-echo "Age: {get_val ~person, age}"
-echo "City: {get_val ~person, city}"
-echo "Role: {get_val ~person, role}"
+echo "Age: {ret ~person.age}"
+echo "City: {ret ~person.city}"
+echo "Role: {ret ~person.role}"
 
 echo ""
 echo "Iterate over keys:"

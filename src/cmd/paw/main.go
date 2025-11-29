@@ -64,6 +64,13 @@ func main() {
 	flag.BoolVar(debugFlag, "d", false, "Enable debug output (short)")
 	flag.BoolVar(verboseFlag, "v", false, "Enable verbose output (short, alias for -debug)")
 
+	// File access control flags
+	unrestrictedFlag := flag.Bool("unrestricted", false, "Disable all file/exec access restrictions")
+	readRootsFlag := flag.String("read-roots", "", "Additional directories for file reading")
+	writeRootsFlag := flag.String("write-roots", "", "Additional directories for file writing")
+	execRootsFlag := flag.String("exec-roots", "", "Additional directories for exec command")
+	sandboxFlag := flag.String("sandbox", "", "Restrict all access to this directory only")
+
 	// Custom usage function
 	flag.Usage = showUsage
 
@@ -149,6 +156,130 @@ func main() {
 		os.Exit(1)
 	}
 
+	// Build file access configuration
+	// Default: sandboxed to safe paths. Use --unrestricted to disable.
+	var fileAccess *pawscript.FileAccessConfig
+
+	// Determine script directory (used for sandbox paths and relative path resolution)
+	var scriptDir string
+	if scriptFile != "" {
+		absScript, err := filepath.Abs(scriptFile)
+		if err == nil {
+			scriptDir = filepath.Dir(absScript)
+		}
+	}
+
+	if !*unrestrictedFlag {
+		fileAccess = &pawscript.FileAccessConfig{}
+		cwd, _ := os.Getwd()
+		tmpDir := os.TempDir()
+
+		// Helper to expand SCRIPT_DIR placeholder and resolve path
+		expandPath := func(path string) string {
+			path = strings.TrimSpace(path)
+			if path == "" {
+				return ""
+			}
+			// Replace SCRIPT_DIR placeholder with actual script directory
+			if strings.HasPrefix(path, "SCRIPT_DIR/") {
+				if scriptDir != "" {
+					path = filepath.Join(scriptDir, path[11:])
+				} else {
+					return "" // No script dir available, skip this path
+				}
+			} else if path == "SCRIPT_DIR" {
+				if scriptDir != "" {
+					path = scriptDir
+				} else {
+					return ""
+				}
+			}
+			absPath, err := filepath.Abs(path)
+			if err != nil {
+				return ""
+			}
+			return absPath
+		}
+
+		// Helper to parse comma-separated roots with SCRIPT_DIR expansion
+		parseRoots := func(rootsStr string) []string {
+			var roots []string
+			for _, root := range strings.Split(rootsStr, ",") {
+				if expanded := expandPath(root); expanded != "" {
+					roots = append(roots, expanded)
+				}
+			}
+			return roots
+		}
+
+		if *sandboxFlag != "" {
+			// --sandbox overrides all defaults with a single directory
+			absPath, err := filepath.Abs(*sandboxFlag)
+			if err != nil {
+				errorPrintf("Error resolving sandbox path: %v\n", err)
+				os.Exit(1)
+			}
+			fileAccess.ReadRoots = []string{absPath}
+			fileAccess.WriteRoots = []string{absPath}
+			fileAccess.ExecRoots = []string{absPath}
+		} else {
+			// Check environment variables first (override defaults if set)
+			envReadRoots := os.Getenv("PAW_READ_ROOTS")
+			envWriteRoots := os.Getenv("PAW_WRITE_ROOTS")
+			envExecRoots := os.Getenv("PAW_EXEC_ROOTS")
+
+			if envReadRoots != "" {
+				fileAccess.ReadRoots = parseRoots(envReadRoots)
+			} else {
+				// Default read roots: SCRIPT_DIR, cwd, /tmp
+				if scriptDir != "" {
+					fileAccess.ReadRoots = append(fileAccess.ReadRoots, scriptDir)
+				}
+				if cwd != "" && cwd != scriptDir {
+					fileAccess.ReadRoots = append(fileAccess.ReadRoots, cwd)
+				}
+				fileAccess.ReadRoots = append(fileAccess.ReadRoots, tmpDir)
+			}
+
+			if envWriteRoots != "" {
+				fileAccess.WriteRoots = parseRoots(envWriteRoots)
+			} else {
+				// Default write roots: SCRIPT_DIR/saves, SCRIPT_DIR/output, cwd/saves, cwd/output, /tmp
+				if scriptDir != "" {
+					fileAccess.WriteRoots = append(fileAccess.WriteRoots, filepath.Join(scriptDir, "saves"))
+					fileAccess.WriteRoots = append(fileAccess.WriteRoots, filepath.Join(scriptDir, "output"))
+				}
+				if cwd != "" {
+					fileAccess.WriteRoots = append(fileAccess.WriteRoots, filepath.Join(cwd, "saves"))
+					fileAccess.WriteRoots = append(fileAccess.WriteRoots, filepath.Join(cwd, "output"))
+				}
+				fileAccess.WriteRoots = append(fileAccess.WriteRoots, tmpDir)
+			}
+
+			if envExecRoots != "" {
+				fileAccess.ExecRoots = parseRoots(envExecRoots)
+			} else {
+				// Default exec roots: SCRIPT_DIR/helpers, SCRIPT_DIR/bin
+				if scriptDir != "" {
+					fileAccess.ExecRoots = append(fileAccess.ExecRoots, filepath.Join(scriptDir, "helpers"))
+					fileAccess.ExecRoots = append(fileAccess.ExecRoots, filepath.Join(scriptDir, "bin"))
+				}
+			}
+
+			// Add any additional roots from command-line flags (appended to env/defaults)
+			if *readRootsFlag != "" {
+				fileAccess.ReadRoots = append(fileAccess.ReadRoots, parseRoots(*readRootsFlag)...)
+			}
+			if *writeRootsFlag != "" {
+				fileAccess.WriteRoots = append(fileAccess.WriteRoots, parseRoots(*writeRootsFlag)...)
+			}
+			if *execRootsFlag != "" {
+				fileAccess.ExecRoots = append(fileAccess.ExecRoots, parseRoots(*execRootsFlag)...)
+			}
+		}
+	}
+	// If --unrestricted, fileAccess remains nil (no restrictions)
+
 	// Create PawScript interpreter
 	ps := pawscript.New(&pawscript.Config{
 		Debug:                debug, // Use the flag value
@@ -156,6 +287,8 @@ func main() {
 		EnableSyntacticSugar: true,
 		ShowErrorContext:     true,
 		ContextLines:         2,
+		FileAccess:           fileAccess,
+		ScriptDir:            scriptDir,
 	})
 
 	// Register standard library commands
@@ -259,7 +392,7 @@ WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING
 FROM, OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR
 OTHER DEALINGS IN THE SOFTWARE.
 `
-	fmt.Fprintf(os.Stdout, license)
+	fmt.Fprint(os.Stdout, license)
 }
 
 func showUsage() {
@@ -273,19 +406,34 @@ Options:
   --license           View license and exit
   -d, -debug          Enable debug output
   -v, -verbose        Enable verbose output (same as -debug)
-  
+  --unrestricted      Disable all file/exec access restrictions
+  --sandbox DIR       Restrict all access to DIR only
+  --read-roots DIRS   Additional directories for reading
+  --write-roots DIRS  Additional directories for writing
+  --exec-roots DIRS   Additional directories for exec command
+
 Arguments:
   script.paw          Script file to execute (adds .paw extension if needed)
-  --                  Separates script filename from arguments (for stdin input)
-  
+  --                  Separates script filename from arguments
+
+Default Security Sandbox:
+  Read:   SCRIPT_DIR, CWD, /tmp
+  Write:  SCRIPT_DIR/saves, SCRIPT_DIR/output, CWD/saves, CWD/output, /tmp
+  Exec:   SCRIPT_DIR/helpers, SCRIPT_DIR/bin
+
+Environment Variables (use SCRIPT_DIR as placeholder):
+  PAW_READ_ROOTS      Override default read roots
+  PAW_WRITE_ROOTS     Override default write roots
+  PAW_EXEC_ROOTS      Override default exec roots
+
 Examples:
-  paw hello.paw               # Execute hello.paw
-  paw hello                   # Execute hello.paw (adds .paw extension)
-  paw -d hello.paw            # Execute with debug output
-  paw --verbose hello.paw     # Execute with verbose output
-  paw script.paw -- a b       # Execute script.paw with args "a" and "b"
-  echo "echo Hello" | paw     # Execute commands from pipe
-  paw -d -- a ab < my.paw     # Execute from stdin with arguments and debug
+  paw hello.paw                    # Execute with default sandbox
+  paw --unrestricted hello.paw     # No file/exec restrictions
+  paw --sandbox /myapp test.paw    # Restrict all to /myapp
+  paw --exec-roots /usr/bin test.paw  # Add /usr/bin to exec roots
+
+  # Environment variable with SCRIPT_DIR placeholder:
+  export PAW_WRITE_ROOTS="SCRIPT_DIR/data,/tmp"
 `
 	fmt.Fprint(os.Stderr, usage)
 }

@@ -6,10 +6,10 @@ echo ""
 
 # Test 1: Type detection
 echo "Test 1: Basic type detection"
-echo "42 is type: {get_inferred_type 42}"
-echo "\"text\" is type: {get_inferred_type \"text\"}"
-echo "bareword is type: {get_inferred_type bareword}"
-echo "(block) is type: {get_inferred_type (some code)}"
+echo "42 is type: {infer 42}"
+echo "\"text\" is type: {infer \"text\"}"
+echo "bareword is type: {infer bareword}"
+echo "(block) is type: {infer (some code)}"
 echo ""
 
 # Test 2: Storing different types
@@ -19,15 +19,15 @@ str_var: "hello"
 sym_var: myidentifier
 block_var: (echo test)
 
-echo "int_var type: {get_type int_var}"
-echo "str_var type: {get_type str_var}"
-echo "sym_var type: {get_type sym_var}"
-echo "block_var type: {get_type block_var}"
+echo "int_var type: {type int_var}"
+echo "str_var type: {type str_var}"
+echo "sym_var type: {type sym_var}"
+echo "block_var type: {type block_var}"
 echo ""
 
 # Test 3: Undefined variable check
 echo "Test 3: Undefined variable"
-echo "Checking type of 'does_not_exist': {get_type does_not_exist}"
+echo "Checking type of 'does_not_exist': {type does_not_exist}"
 echo "(Above should show 'undefined')"
 echo ""
 
@@ -73,16 +73,16 @@ echo ""
 echo "Test 7: Type-based conditional logic"
 value: identifier_name
 
-if {eq {get_type value}, symbol} then (
+if {eq {type value}, symbol} then (
     echo "Value is a symbol: ~value"
 ) else (
-    if {eq {get_type value}, string} then (
+    if {eq {type value}, string} then (
         echo "Value is a string: ~value"
     ) else (
-        if {eq {get_type value}, int} then (
+        if {eq {type value}, int} then (
             echo "Value is a number: ~value"
         ) else (
-            echo "Value is: {get_type value}"
+            echo "Value is: {type value}"
         )
     )
 )
@@ -91,11 +91,11 @@ echo ""
 # Test 8: Check before use pattern
 echo "Test 8: Safe variable access"
 macro safe_get(
-    if {eq {get_type $1}, undefined} then (
+    if {eq {type $1}, undefined} then (
         echo "Variable $1 is undefined, using default";
         ret "default"
     ) else (
-        echo "Variable $1 exists with type {get_type $1}";
+        echo "Variable $1 exists with type {type $1}";
         ret ~$1
     )
 )
@@ -108,7 +108,7 @@ echo ""
 # Test 9: ParenGroup (block) type
 echo "Test 9: Block type"
 code_block: (echo "This is code"; echo "More code")
-echo "Type of code_block: {get_type code_block}"
+echo "Type of code_block: {type code_block}"
 echo ""
 
 # Test 10: Mixed types in operations
@@ -117,9 +117,9 @@ x: foo
 y: "bar"
 z: 123
 
-echo "x (symbol): ~x - type: {get_type x}"
-echo "y (string): ~y - type: {get_type y}"
-echo "z (int): ~z - type: {get_type z}"
+echo "x (symbol): ~x - type: {type x}"
+echo "y (string): ~y - type: {type y}"
+echo "z (int): ~z - type: {type z}"
 echo ""
 
 echo "=== All Symbol Tests Complete ==="

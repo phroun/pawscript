@@ -3,6 +3,8 @@ package pawscript
 import (
 	"bufio"
 	"fmt"
+	"io"
+	"math/rand"
 	"os"
 	"time"
 )
@@ -10,11 +12,16 @@ import (
 // IOChannelConfig allows host applications to provide custom IO channel handlers
 // Any nil channel will use the default OS-backed implementation
 type IOChannelConfig struct {
-	// Standard channels - if nil, defaults will be created
+	// Standard channels - if nil, defaults will be created using DefaultStdin/Stdout/Stderr
 	Stdin  *StoredChannel // Read-only channel for input
 	Stdout *StoredChannel // Write-only channel for standard output
 	Stderr *StoredChannel // Write-only channel for error output
 	Stdio  *StoredChannel // Bidirectional channel (read from stdin, write to stdout)
+
+	// Default streams to use when creating default channels (if nil, uses os.Stdin/Stdout/Stderr)
+	DefaultStdin  io.Reader
+	DefaultStdout io.Writer
+	DefaultStderr io.Writer
 
 	// Additional custom channels - will be registered with their map keys as names
 	// Example: {"#mylog": logChannel} would create io::#mylog
@@ -37,12 +44,28 @@ func (env *ModuleEnvironment) PopulateIOModule(config *IOChannelConfig, executor
 
 	var stdinCh, stdoutCh, stderrCh, stdioCh *StoredChannel
 
+	// Determine which streams to use for defaults
+	defaultStdin := io.Reader(os.Stdin)
+	defaultStdout := io.Writer(os.Stdout)
+	defaultStderr := io.Writer(os.Stderr)
+	if config != nil {
+		if config.DefaultStdin != nil {
+			defaultStdin = config.DefaultStdin
+		}
+		if config.DefaultStdout != nil {
+			defaultStdout = config.DefaultStdout
+		}
+		if config.DefaultStderr != nil {
+			defaultStderr = config.DefaultStderr
+		}
+	}
+
 	// Use provided channels or create defaults
 	if config != nil && config.Stdin != nil {
 		stdinCh = config.Stdin
 	} else {
 		// Create default stdin channel - read-only
-		stdinReader := bufio.NewReader(os.Stdin)
+		stdinReader := bufio.NewReader(defaultStdin)
 		stdinCh = &StoredChannel{
 			BufferSize:       0,
 			Messages:         make([]ChannelMessage, 0),
@@ -75,6 +98,7 @@ func (env *ModuleEnvironment) PopulateIOModule(config *IOChannelConfig, executor
 	} else {
 		// Create default stdout channel - write-only
 		// Note: NativeSend does NOT add newline - callers add it if needed
+		stdout := defaultStdout // capture for closure
 		stdoutCh = &StoredChannel{
 			BufferSize:       0,
 			Messages:         make([]ChannelMessage, 0),
@@ -83,7 +107,7 @@ func (env *ModuleEnvironment) PopulateIOModule(config *IOChannelConfig, executor
 			IsClosed:         false,
 			Timestamp:        time.Now(),
 			NativeSend: func(v interface{}) error {
-				_, err := fmt.Fprintf(os.Stdout, "%v", v)
+				_, err := fmt.Fprintf(stdout, "%v", v)
 				return err
 			},
 			NativeRecv: func() (interface{}, error) {
@@ -97,6 +121,7 @@ func (env *ModuleEnvironment) PopulateIOModule(config *IOChannelConfig, executor
 	} else {
 		// Create default stderr channel - write-only
 		// Note: NativeSend does NOT add newline - callers add it if needed
+		stderr := defaultStderr // capture for closure
 		stderrCh = &StoredChannel{
 			BufferSize:       0,
 			Messages:         make([]ChannelMessage, 0),
@@ -105,7 +130,7 @@ func (env *ModuleEnvironment) PopulateIOModule(config *IOChannelConfig, executor
 			IsClosed:         false,
 			Timestamp:        time.Now(),
 			NativeSend: func(v interface{}) error {
-				_, err := fmt.Fprintf(os.Stderr, "%v", v)
+				_, err := fmt.Fprintf(stderr, "%v", v)
 				return err
 			},
 			NativeRecv: func() (interface{}, error) {
@@ -119,7 +144,8 @@ func (env *ModuleEnvironment) PopulateIOModule(config *IOChannelConfig, executor
 	} else {
 		// Create default stdio channel - bidirectional (read from stdin, write to stdout)
 		// Note: NativeSend does NOT add newline - callers add it if needed
-		stdioReader := bufio.NewReader(os.Stdin)
+		stdioReader := bufio.NewReader(defaultStdin)
+		stdout := defaultStdout // capture for closure
 		stdioCh = &StoredChannel{
 			BufferSize:       0,
 			Messages:         make([]ChannelMessage, 0),
@@ -128,7 +154,7 @@ func (env *ModuleEnvironment) PopulateIOModule(config *IOChannelConfig, executor
 			IsClosed:         false,
 			Timestamp:        time.Now(),
 			NativeSend: func(v interface{}) error {
-				_, err := fmt.Fprintf(os.Stdout, "%v", v)
+				_, err := fmt.Fprintf(stdout, "%v", v)
 				return err
 			},
 			NativeRecv: func() (interface{}, error) {
@@ -181,6 +207,24 @@ func (env *ModuleEnvironment) PopulateIOModule(config *IOChannelConfig, executor
 	// Debug output channel (alias to stdout, allows separate redirection of debug output)
 	ioModule["#debug"] = &ModuleItem{Type: "object", Value: stdoutCh}
 
+	// Create default random number generator
+	// Uses current time as seed for non-reproducible random numbers
+	if executor != nil {
+		rngSource := rand.New(rand.NewSource(time.Now().UnixNano()))
+		// Use very long timeout (effectively permanent)
+		tokenID := executor.RequestCompletionToken(nil, "", 100*365*24*time.Hour, nil, nil)
+		executor.mu.Lock()
+		if tokenData, exists := executor.activeTokens[tokenID]; exists {
+			tokenData.IteratorState = &IteratorState{
+				Type: "rng",
+				Rng:  rngSource,
+			}
+		}
+		executor.mu.Unlock()
+		tokenMarker := fmt.Sprintf("\x00TOKEN:%s\x00", tokenID)
+		ioModule["#random"] = &ModuleItem{Type: "object", Value: Symbol(tokenMarker)}
+	}
+
 	// Register any custom channels from config
 	if config != nil && config.CustomChannels != nil {
 		for name, ch := range config.CustomChannels {
@@ -205,6 +249,9 @@ func (env *ModuleEnvironment) PopulateIOModule(config *IOChannelConfig, executor
 	env.LibraryRestricted["io"]["#err"] = ioModule["#err"]
 	env.LibraryRestricted["io"]["#io"] = ioModule["#io"]
 	env.LibraryRestricted["io"]["#debug"] = ioModule["#debug"]
+	if ioModule["#random"] != nil {
+		env.LibraryRestricted["io"]["#random"] = ioModule["#random"]
+	}
 
 	// Add custom channels to LibraryRestricted as well
 	if config != nil && config.CustomChannels != nil {
@@ -252,6 +299,13 @@ func (env *ModuleEnvironment) PopulateIOModule(config *IOChannelConfig, executor
 	env.ObjectsInherited["#err"] = stderrCh
 	env.ObjectsInherited["#io"] = stdioCh
 	env.ObjectsInherited["#debug"] = stdoutCh
+
+	// Add #random token to ObjectsInherited if it exists
+	if ioModule["#random"] != nil {
+		if item, ok := ioModule["#random"].Value.(Symbol); ok {
+			env.ObjectsInherited["#random"] = item
+		}
+	}
 
 	// Add custom channels to ObjectsInherited as well
 	if config != nil && config.CustomChannels != nil {

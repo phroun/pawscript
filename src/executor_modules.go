@@ -698,6 +698,16 @@ func (e *Executor) handleEXPORT(args []interface{}, namedArgs map[string]interfa
 
 		itemName := fmt.Sprintf("%v", arg)
 
+		// Check for variable (export variable value as an object)
+		if val, exists := state.GetVariable(itemName); exists {
+			section[itemName] = &ModuleItem{
+				Type:  "object",
+				Value: val,
+			}
+			e.logger.DebugCat(CatSystem,"EXPORT: Exported variable \"%s\" as object from module \"%s\"", itemName, moduleName)
+			continue
+		}
+
 		// Check if it's an object export (#-prefixed)
 		if strings.HasPrefix(itemName, "#") {
 			// Export from ObjectsModule
@@ -768,16 +778,6 @@ func (e *Executor) handleEXPORT(args []interface{}, namedArgs map[string]interfa
 				Value: handler,
 			}
 			e.logger.DebugCat(CatSystem,"EXPORT: Exported command \"%s\" from module \"%s\"", itemName, moduleName)
-			continue
-		}
-
-		// Check for variable (export variable value as an object)
-		if val, exists := state.GetVariable(itemName); exists {
-			section[itemName] = &ModuleItem{
-				Type:  "object",
-				Value: val,
-			}
-			e.logger.DebugCat(CatSystem,"EXPORT: Exported variable \"%s\" as object from module \"%s\"", itemName, moduleName)
 			continue
 		}
 

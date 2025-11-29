@@ -100,7 +100,11 @@ func (oc *OutputContext) WriteToOut(message string) error {
 	if ch := oc.ResolveChannel("#out"); ch != nil {
 		return ChannelSend(ch, message)
 	}
-	// Fallback to system stdout
+	// Fallback to system stdout (use executor's logger if available)
+	if oc.Executor != nil && oc.Executor.logger != nil {
+		_, err := fmt.Fprint(oc.Executor.logger.out, message)
+		return err
+	}
 	_, err := fmt.Fprint(os.Stdout, message)
 	return err
 }
@@ -110,7 +114,11 @@ func (oc *OutputContext) WriteToErr(message string) error {
 	if ch := oc.ResolveChannel("#err"); ch != nil {
 		return ChannelSend(ch, message)
 	}
-	// Fallback to system stderr
+	// Fallback to system stderr (use executor's logger if available)
+	if oc.Executor != nil && oc.Executor.logger != nil {
+		_, err := fmt.Fprint(oc.Executor.logger.errOut, message)
+		return err
+	}
 	_, err := fmt.Fprint(os.Stderr, message)
 	return err
 }
@@ -121,7 +129,11 @@ func (oc *OutputContext) WriteToDebug(message string) error {
 	if ch := oc.ResolveChannel("#debug"); ch != nil {
 		return ChannelSend(ch, message)
 	}
-	// Fallback to system stdout
+	// Fallback to system stdout (use executor's logger if available)
+	if oc.Executor != nil && oc.Executor.logger != nil {
+		_, err := fmt.Fprint(oc.Executor.logger.out, message)
+		return err
+	}
 	_, err := fmt.Fprint(os.Stdout, message)
 	return err
 }
@@ -431,16 +443,37 @@ func stderrSupportsColor() bool {
 	return true
 }
 
-// NewLogger creates a new logger
+// NewLogger creates a new logger with default stdout/stderr
 func NewLogger(enabled bool) *Logger {
+	return NewLoggerWithWriters(enabled, os.Stdout, os.Stderr)
+}
+
+// NewLoggerWithWriters creates a new logger with custom writers
+func NewLoggerWithWriters(enabled bool, stdout, stderr io.Writer) *Logger {
+	if stdout == nil {
+		stdout = os.Stdout
+	}
+	if stderr == nil {
+		stderr = os.Stderr
+	}
 	return &Logger{
 		enabled:           enabled,
 		enabledCategories: make(map[LogCategory]bool),
-		out:               os.Stdout,
-		errOut:            os.Stderr,
+		out:               stdout,
+		errOut:            stderr,
 		outputContext:     nil,
 		colorEnabled:      stderrSupportsColor(),
 	}
+}
+
+// GetStdout returns the stdout writer
+func (l *Logger) GetStdout() io.Writer {
+	return l.out
+}
+
+// GetStderr returns the stderr writer
+func (l *Logger) GetStderr() io.Writer {
+	return l.errOut
 }
 
 // SetOutputContext sets the output context for channel-based logging
@@ -846,7 +879,9 @@ func (l *Logger) ParseError(message string, position *SourcePosition, context []
 
 // UnknownCommandError logs an unknown command error (always visible)
 func (l *Logger) UnknownCommandError(commandName string, position *SourcePosition, context []string) {
-	l.Log(LevelFatal, CatCommand, fmt.Sprintf("Unknown command: %s", commandName), position, context)
+	// Convert internal scope marker back to :: for display
+	displayName := strings.ReplaceAll(commandName, ScopeMarker, "::")
+	l.Log(LevelFatal, CatCommand, fmt.Sprintf("Unknown command: %s", displayName), position, context)
 }
 
 // CommandError logs a command execution error with category

@@ -2,7 +2,7 @@
 
 print "=== Test 1: Cursor returns list ==="
 info: {cursor}
-type: {get_type ~info}
+type: {type ~info}
 print "Cursor returns: ~type"
 print ""
 
@@ -15,13 +15,13 @@ print "First 4 positional values present: yes"
 print ""
 
 print "=== Test 3: Cursor list has named args ==="
-screenRows: {get_val ~info, screen_rows}
-screenCols: {get_val ~info, screen_cols}
-x: {get_val ~info, x}
-y: {get_val ~info, y}
-visible: {get_val ~info, visible}
-shape: {get_val ~info, shape}
-duplex: {get_val ~info, duplex}
+screenRows: {ret ~info.screen_rows}
+screenCols: {ret ~info.screen_cols}
+x: {ret ~info.x}
+y: {ret ~info.y}
+visible: {ret ~info.visible}
+shape: {ret ~info.shape}
+duplex: {ret ~info.duplex}
 print "screen_rows present: yes"
 print "screen_cols present: yes"
 print "x present: yes"
@@ -34,47 +34,47 @@ print ""
 print "=== Test 4: Setting position ==="
 cursor x: 5, y: 10
 info2: {cursor}
-x2: {get_val ~info2, x}
-y2: {get_val ~info2, y}
+x2: {ret ~info2.x}
+y2: {ret ~info2.y}
 print "After x:5, y:10 -> x=~x2, y=~y2"
 print ""
 
 print "=== Test 5: Setting visibility ==="
 cursor visible: false
 info3: {cursor}
-vis3: {get_val ~info3, visible}
+vis3: {ret ~info3.visible}
 print "After visible:false -> visible=~vis3"
 cursor visible: true
 info4: {cursor}
-vis4: {get_val ~info4, visible}
+vis4: {ret ~info4.visible}
 print "After visible:true -> visible=~vis4"
 print ""
 
 print "=== Test 6: Setting shape ==="
 cursor shape: underline
 info5: {cursor}
-shape5: {get_val ~info5, shape}
+shape5: {ret ~info5.shape}
 print "After shape:underline -> shape=~shape5"
 cursor shape: block
 info6: {cursor}
-shape6: {get_val ~info6, shape}
+shape6: {ret ~info6.shape}
 print "After shape:block -> shape=~shape6"
 print ""
 
 print "=== Test 7: Sticky region parameters ==="
 cursor xbase: 5, ybase: 3, rows: 20, cols: 60
 info7: {cursor}
-rows7: {get_val ~info7, rows}
-cols7: {get_val ~info7, cols}
+rows7: {ret ~info7.rows}
+cols7: {ret ~info7.cols}
 print "After setting region: rows=~rows7, cols=~cols7"
 print ""
 
 print "=== Test 8: Reset clears state ==="
 cursor reset: true
 info8: {cursor}
-visible8: {get_val ~info8, visible}
-duplex8: {get_val ~info8, duplex}
-shape8: {get_val ~info8, shape}
+visible8: {ret ~info8.visible}
+duplex8: {ret ~info8.duplex}
+shape8: {ret ~info8.shape}
 print "After reset: visible=~visible8, duplex=~duplex8, shape=~shape8"
 print ""
 

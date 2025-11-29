@@ -7,6 +7,10 @@ import (
 	"unicode"
 )
 
+// ScopeMarker is the special marker for scope operator ::
+// Used to distinguish module::item from named argument syntax
+const ScopeMarker = "\x00SCOPE\x00"
+
 // SourceMap maps transformed positions to original positions
 type SourceMap struct {
 	Filename              string
@@ -676,10 +680,11 @@ func parseArguments(argsStr string) ([]interface{}, map[string]interface{}) {
 		}
 	}
 
-	// Helper to check if a value is a tilde expression
+	// Helper to check if a value is a tilde or question expression (accessor-capable)
 	isTildeExpr := func(v interface{}) bool {
 		if sym, ok := v.(Symbol); ok {
-			return strings.HasPrefix(string(sym), "~")
+			s := string(sym)
+			return strings.HasPrefix(s, "~") || strings.HasPrefix(s, "?")
 		}
 		return false
 	}
@@ -750,9 +755,13 @@ func parseArguments(argsStr string) ([]interface{}, map[string]interface{}) {
 				currentValue = QuotedString(s)
 				lastWasNumber = true
 			case unitSymbol, unitNil, unitBool:
-				// Concatenate with angle brackets
+				// Concatenate - use rawString for tilde expressions to preserve for resolution
 				s := valueToString(currentValue)
-				s += valueToString(newValue) // valueToString already adds <>
+				if isTildeExpr(newValue) {
+					s += rawString(newValue) // Keep tilde expressions resolvable
+				} else {
+					s += valueToString(newValue) // Wrap others in <>
+				}
 				currentValue = QuotedString(s)
 				lastWasNumber = false
 			case unitParen:
@@ -900,7 +909,12 @@ func parseArguments(argsStr string) ([]interface{}, map[string]interface{}) {
 				hasPendingPositional = false
 				pendingPositional.Reset()
 			}
-			finalizeArg()
+			// If no argument accumulated, insert undefined placeholder
+			if currentType == unitNone {
+				args = append(args, Symbol("undefined"))
+			} else {
+				finalizeArg()
+			}
 			sugar = false // Comma resets sugar for subsequent args... actually no, sugar persists
 			// Actually re-reading: after sugar=true, only named args allowed
 			// But comma should still finalize current arg
@@ -1190,7 +1204,7 @@ func parseNextUnit(runes []rune, i int) (interface{}, argUnitType, int) {
 	// Bare word (symbol, number, nil, true, false)
 	// Handle escape sequences - backslash protects the next character
 	start := i
-	isTildeExpr := char == '~'
+	isAccessorExpr := char == '~' || char == '?' // Tilde and question expressions support accessor syntax
 	for i < len(runes) {
 		c := runes[i]
 		// Handle escape sequences - skip backslash and the escaped character
@@ -1201,8 +1215,8 @@ func parseNextUnit(runes []rune, i int) (interface{}, argUnitType, int) {
 		if unicode.IsSpace(c) || c == ',' || c == ':' || c == '(' || c == ')' || c == '{' || c == '}' || c == '"' || c == '\'' {
 			break
 		}
-		// Tilde expressions stop at dot to allow accessor syntax
-		if isTildeExpr && c == '.' {
+		// Tilde and question expressions stop at dot to allow accessor syntax
+		if isAccessorExpr && c == '.' {
 			break
 		}
 		// Dot is only part of a number if preceded by digit AND followed by digit
@@ -1583,6 +1597,19 @@ func (p *Parser) NormalizeKeywords(source string) string {
 			}
 			resultPosition++
 			i++
+			continue
+		}
+
+		// Check for scope operator '::' (2 characters) - convert to marker
+		if char == ':' && i+1 < len(runes) && runes[i+1] == ':' {
+			// Write scope marker
+			result.WriteString(ScopeMarker)
+			// Map to original position
+			if origPos := p.sourceMap.GetOriginalPosition(i); origPos != nil {
+				newMappings[resultPosition] = origPos
+			}
+			resultPosition += len(ScopeMarker)
+			i += 2 // Skip both colons
 			continue
 		}
 

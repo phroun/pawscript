@@ -1,4 +1,4 @@
-=== get_inferred_type Comprehensive Test ===
+=== infer Comprehensive Test ===
 
 Test 1: Integer types
   42 → int (expected: int)
@@ -72,6 +72,6 @@ Expected type mappings:
   Null (nil) → nil
   Blocks ((code)) → block
 
-If all results match expected, get_inferred_type is working correctly!
+If all results match expected, infer is working correctly!
 
 === Test Complete ===

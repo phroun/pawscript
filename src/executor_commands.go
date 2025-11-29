@@ -2,6 +2,7 @@ package pawscript
 
 import (
 	"fmt"
+	"math"
 	"regexp"
 	"strconv"
 	"strings"
@@ -157,28 +158,68 @@ func (e *Executor) executeSingleCommand(
 	}
 
 	// Check for parenthesis block - execute in same scope
+	// Supports: (code) or (code) arg1, arg2
 	// BUT first check if this is an unpacking assignment like (a, b, c): values
-	if strings.HasPrefix(commandStr, "(") && strings.HasSuffix(commandStr, ")") {
-		// Check if this is actually an unpacking assignment pattern
-		if _, _, isAssign := e.parseAssignment(commandStr); !isAssign {
-			blockContent := commandStr[1 : len(commandStr)-1]
+	if strings.HasPrefix(commandStr, "(") {
+		// Find matching closing paren
+		closeIdx := e.findMatchingParen(commandStr, 0)
+		if closeIdx > 0 {
+			// Check if this is actually an unpacking assignment pattern
+			if _, _, isAssign := e.parseAssignment(commandStr); !isAssign {
+				blockContent := commandStr[1:closeIdx]
+				argsStr := strings.TrimSpace(commandStr[closeIdx+1:])
 
-			e.logger.DebugCat(CatCommand,"Executing parenthesis block in same scope: (%s)", blockContent)
+				e.logger.DebugCat(CatCommand, "Executing parenthesis block in same scope: (%s) with args: %s", blockContent, argsStr)
 
-			// Execute block content in the SAME state (no child scope)
-			result := e.ExecuteWithState(
-				blockContent,
-				state, // Same state, not a child
-				substitutionCtx,
-				position.Filename,
-				0, 0,
-			)
+				// Create substitution context for block arguments
+				blockSubstCtx := substitutionCtx
+				if argsStr != "" {
+					// Parse the arguments
+					_, args, _ := ParseCommand("dummy " + argsStr)
+					args = e.processArguments(args, state, substitutionCtx, position)
 
-			// Apply inversion if needed
-			if shouldInvert {
-				return e.invertStatus(result, state, position)
+					// Create args list for $@ and store it
+					argsList := NewStoredList(args)
+					argsListID := e.storeObject(argsList, "list")
+					argsMarker := fmt.Sprintf("\x00LIST:%d\x00", argsListID)
+
+					// Create a minimal MacroContext to enable $1, $2 substitution
+					blockMacroCtx := &MacroContext{
+						MacroName:      "(block)",
+						InvocationFile: position.Filename,
+						InvocationLine: position.Line,
+					}
+
+					// Create new substitution context with args
+					blockSubstCtx = &SubstitutionContext{
+						Args:                args,
+						ExecutionState:      state,
+						ParentContext:       substitutionCtx,
+						MacroContext:        blockMacroCtx,
+						CurrentLineOffset:   0,
+						CurrentColumnOffset: 0,
+						Filename:            position.Filename,
+					}
+
+					// Set $@ in state for dollar substitution
+					state.SetVariable("$@", Symbol(argsMarker))
+				}
+
+				// Execute block content in the SAME state (no child scope)
+				result := e.ExecuteWithState(
+					blockContent,
+					state, // Same state, not a child
+					blockSubstCtx,
+					position.Filename,
+					0, 0,
+				)
+
+				// Apply inversion if needed
+				if shouldInvert {
+					return e.invertStatus(result, state, position)
+				}
+				return result
 			}
-			return result
 		}
 		// Fall through to handle as assignment later
 	}
@@ -292,22 +333,83 @@ func (e *Executor) executeSingleCommand(
 					return result
 				}
 
+				// Check for question expression (existence check as command)
+				if strings.HasPrefix(finalString, "?") {
+					e.logger.DebugCat(CatCommand, "Detected question expression in async resume: %s", finalString)
+					exists := e.resolveQuestionExpression(finalString, capturedState, capturedSubstitutionCtx, capturedPosition)
+					capturedState.SetResult(exists)
+					if capturedShouldInvert {
+						return BoolStatus(!exists)
+					}
+					return BoolStatus(exists)
+				}
+
 				// Check for tilde expression (pure value expression as command)
+				// Implicit set_result
 				if strings.HasPrefix(finalString, "~") {
 					e.logger.DebugCat(CatCommand,"Detected tilde expression in async resume: %s", finalString)
-					value, ok := e.resolveTildeExpression(finalString, capturedState, capturedSubstitutionCtx, capturedPosition)
-					if ok {
-						capturedState.SetResult(value)
-						if capturedShouldInvert {
-							return BoolStatus(false)
-						}
-						return BoolStatus(true)
+					_, args, _ := ParseCommand("set_result " + finalString)
+					args = e.processArguments(args, capturedState, capturedSubstitutionCtx, capturedPosition)
+					if len(args) > 0 {
+						capturedState.SetResult(args[0])
 					}
-					// Tilde resolution failed, error already logged
 					if capturedShouldInvert {
-						return BoolStatus(true)
+						return BoolStatus(false)
 					}
-					return BoolStatus(false)
+					return BoolStatus(true)
+				}
+
+				// Check for block marker in command position
+				if strings.HasPrefix(finalString, "\x00BLOCK:") {
+					endIdx := strings.Index(finalString[1:], "\x00")
+					if endIdx >= 0 {
+						blockMarker := finalString[:endIdx+2]
+						argsStr := strings.TrimSpace(finalString[endIdx+2:])
+						if strings.HasPrefix(argsStr, ",") {
+							argsStr = strings.TrimSpace(argsStr[1:])
+						}
+						_, objectID := parseObjectMarker(blockMarker)
+						if objectID >= 0 {
+							if obj, exists := e.getObject(objectID); exists {
+								if storedBlock, ok := obj.(StoredBlock); ok {
+									blockSubstCtx := capturedSubstitutionCtx
+									if argsStr != "" {
+										_, args, _ := ParseCommand("dummy " + argsStr)
+										args = e.processArguments(args, capturedState, capturedSubstitutionCtx, capturedPosition)
+										argsList := NewStoredList(args)
+										argsListID := e.storeObject(argsList, "list")
+										argsMarker := fmt.Sprintf("\x00LIST:%d\x00", argsListID)
+										blockMacroCtx := &MacroContext{
+											MacroName:      "(block)",
+											InvocationFile: capturedPosition.Filename,
+											InvocationLine: capturedPosition.Line,
+										}
+										blockSubstCtx = &SubstitutionContext{
+											Args:                args,
+											ExecutionState:      capturedState,
+											ParentContext:       capturedSubstitutionCtx,
+											MacroContext:        blockMacroCtx,
+											CurrentLineOffset:   0,
+											CurrentColumnOffset: 0,
+											Filename:            capturedPosition.Filename,
+										}
+										capturedState.SetVariable("$@", Symbol(argsMarker))
+									}
+									result := e.ExecuteWithState(
+										string(storedBlock),
+										capturedState,
+										blockSubstCtx,
+										capturedPosition.Filename,
+										0, 0,
+									)
+									if capturedShouldInvert {
+										return e.invertStatus(result, capturedState, capturedPosition)
+									}
+									return result
+								}
+							}
+						}
+					}
 				}
 
 				// Now parse and execute the command with the substituted string
@@ -405,22 +507,105 @@ func (e *Executor) executeSingleCommand(
 		return result
 	}
 
-	// Check for tilde expression (pure value expression as command)
-	if strings.HasPrefix(commandStr, "~") {
-		e.logger.DebugCat(CatCommand,"Detected tilde expression: %s", commandStr)
-		value, ok := e.resolveTildeExpression(commandStr, state, substitutionCtx, position)
-		if ok {
-			state.SetResult(value)
-			if shouldInvert {
-				return BoolStatus(false)
-			}
-			return BoolStatus(true)
-		}
-		// Tilde resolution failed, error already logged
+	// Check for question expression (existence check as command)
+	// Returns true/false based on whether variable/accessor chain exists
+	if strings.HasPrefix(commandStr, "?") {
+		e.logger.DebugCat(CatCommand, "Detected question expression: %s", commandStr)
+		exists := e.resolveQuestionExpression(commandStr, state, substitutionCtx, position)
+		state.SetResult(exists)
 		if shouldInvert {
-			return BoolStatus(true)
+			return BoolStatus(!exists)
 		}
-		return BoolStatus(false)
+		return BoolStatus(exists)
+	}
+
+	// Check for tilde expression (pure value expression as command)
+	// This is an implicit "set_result" - the tilde expression is parsed as an argument
+	// with full accessor and unit combination support.
+	// For block execution with args, use: {~block}, args
+	if strings.HasPrefix(commandStr, "~") {
+		e.logger.DebugCat(CatCommand, "Detected tilde expression (implicit set_result): %s", commandStr)
+		// Treat as "set_result <expr>" - parse and process as argument
+		_, args, _ := ParseCommand("set_result " + commandStr)
+		args = e.processArguments(args, state, substitutionCtx, position)
+		if len(args) > 0 {
+			state.SetResult(args[0])
+		}
+		if shouldInvert {
+			return BoolStatus(false)
+		}
+		return BoolStatus(true)
+	}
+
+	// Check for block marker in command position (e.g., from {~block}, args)
+	// This allows block execution via: {~block}, arg1, arg2
+	if strings.HasPrefix(commandStr, "\x00BLOCK:") {
+		// Find the end of the block marker
+		endIdx := strings.Index(commandStr[1:], "\x00")
+		if endIdx >= 0 {
+			blockMarker := commandStr[:endIdx+2]
+			argsStr := strings.TrimSpace(commandStr[endIdx+2:])
+			// Remove leading comma if present
+			if strings.HasPrefix(argsStr, ",") {
+				argsStr = strings.TrimSpace(argsStr[1:])
+			}
+
+			_, objectID := parseObjectMarker(blockMarker)
+			if objectID >= 0 {
+				if obj, exists := e.getObject(objectID); exists {
+					if storedBlock, ok := obj.(StoredBlock); ok {
+						e.logger.DebugCat(CatCommand, "Executing block from marker with args: %s", argsStr)
+
+						// Create substitution context for block arguments
+						blockSubstCtx := substitutionCtx
+						if argsStr != "" {
+							// Parse the arguments
+							_, args, _ := ParseCommand("dummy " + argsStr)
+							args = e.processArguments(args, state, substitutionCtx, position)
+
+							// Create args list for $@ and store it
+							argsList := NewStoredList(args)
+							argsListID := e.storeObject(argsList, "list")
+							argsMarker := fmt.Sprintf("\x00LIST:%d\x00", argsListID)
+
+							// Create a minimal MacroContext to enable $1, $2 substitution
+							blockMacroCtx := &MacroContext{
+								MacroName:      "(block)",
+								InvocationFile: position.Filename,
+								InvocationLine: position.Line,
+							}
+
+							// Create new substitution context with args
+							blockSubstCtx = &SubstitutionContext{
+								Args:                args,
+								ExecutionState:      state,
+								ParentContext:       substitutionCtx,
+								MacroContext:        blockMacroCtx,
+								CurrentLineOffset:   0,
+								CurrentColumnOffset: 0,
+								Filename:            position.Filename,
+							}
+
+							// Set $@ in state for dollar substitution
+							state.SetVariable("$@", Symbol(argsMarker))
+						}
+
+						// Execute block content in current scope
+						result := e.ExecuteWithState(
+							string(storedBlock),
+							state,
+							blockSubstCtx,
+							position.Filename,
+							0, 0,
+						)
+						if shouldInvert {
+							return e.invertStatus(result, state, position)
+						}
+						return result
+					}
+				}
+			}
+		}
 	}
 
 	// Parse command
@@ -439,6 +624,9 @@ func (e *Executor) executeSingleCommand(
 
 	// Process arguments to resolve any LIST markers and tilde expressions
 	args = e.processArguments(args, state, substitutionCtx, position)
+
+	// Process named argument values the same way
+	namedArgs = e.processNamedArguments(namedArgs, state, substitutionCtx, position)
 
 	e.logger.DebugCat(CatCommand,"Parsed as - Command: \"%s\", Args: %v", cmdName, args)
 
@@ -611,6 +799,53 @@ func splitAccessors(s string) (base string, accessors string) {
 	return s, ""
 }
 
+// findMatchingParen finds the index of the closing paren that matches the opening paren at startIdx
+// Returns -1 if no matching paren found
+func (e *Executor) findMatchingParen(s string, startIdx int) int {
+	if startIdx >= len(s) || s[startIdx] != '(' {
+		return -1
+	}
+
+	depth := 0
+	inQuote := false
+	var quoteChar byte
+
+	for i := startIdx; i < len(s); i++ {
+		char := s[i]
+
+		// Handle escape sequences
+		if char == '\\' && i+1 < len(s) {
+			i++ // Skip next character
+			continue
+		}
+
+		// Handle quotes
+		if !inQuote && (char == '"' || char == '\'') {
+			inQuote = true
+			quoteChar = char
+			continue
+		}
+		if inQuote && char == quoteChar {
+			inQuote = false
+			continue
+		}
+		if inQuote {
+			continue
+		}
+
+		// Track paren nesting
+		if char == '(' {
+			depth++
+		} else if char == ')' {
+			depth--
+			if depth == 0 {
+				return i
+			}
+		}
+	}
+	return -1
+}
+
 // applyAccessorChain applies a chain of accessors to a value
 // Accessors: ".key" for named args, " N" for index access
 func (e *Executor) applyAccessorChain(value interface{}, accessors string, position *SourcePosition) interface{} {
@@ -630,12 +865,14 @@ func (e *Executor) applyAccessorChain(value interface{}, accessors string, posit
 			break
 		}
 
-		// Resolve current to get the actual list
+		// Resolve current to get the actual list, bytes, or struct
 		resolved := e.resolveValue(current)
 		list, isList := resolved.(StoredList)
+		bytes, isBytes := resolved.(StoredBytes)
+		structVal, isStruct := resolved.(StoredStruct)
 
 		if accessors[i] == '.' {
-			// Dot accessor for named argument
+			// Dot accessor for named argument or struct field
 			i++ // skip the dot
 			if i >= len(accessors) {
 				e.logger.ErrorCat(CatList, "Expected key name after dot")
@@ -649,22 +886,30 @@ func (e *Executor) applyAccessorChain(value interface{}, accessors string, posit
 			}
 			key := accessors[keyStart:i]
 
-			if !isList {
-				e.logger.ErrorCat(CatList, "Cannot use dot accessor on non-list value")
+			if isStruct {
+				// Struct field access using definition list
+				val, exists := e.getStructFieldValue(structVal, key)
+				if !exists {
+					e.logger.DebugCat(CatList, "Field '%s' not found in struct", key)
+					return Symbol(UndefinedMarker)
+				}
+				current = val
+			} else if isList {
+				namedArgs := list.NamedArgs()
+				if namedArgs == nil {
+					e.logger.DebugCat(CatList, "List has no named arguments, cannot access .%s", key)
+					return Symbol(UndefinedMarker)
+				}
+				val, exists := namedArgs[key]
+				if !exists {
+					e.logger.DebugCat(CatList, "Named argument '%s' not found in list", key)
+					return Symbol(UndefinedMarker)
+				}
+				current = val
+			} else {
+				e.logger.ErrorCat(CatList, "Cannot use dot accessor on non-list/non-struct value")
 				return Symbol(UndefinedMarker)
 			}
-
-			namedArgs := list.NamedArgs()
-			if namedArgs == nil {
-				e.logger.DebugCat(CatList, "List has no named arguments, cannot access .%s", key)
-				return Symbol(UndefinedMarker)
-			}
-			val, exists := namedArgs[key]
-			if !exists {
-				e.logger.DebugCat(CatList, "Named argument '%s' not found in list", key)
-				return Symbol(UndefinedMarker)
-			}
-			current = val
 
 		} else if accessors[i] >= '0' && accessors[i] <= '9' {
 			// Integer index accessor
@@ -687,16 +932,35 @@ func (e *Executor) applyAccessorChain(value interface{}, accessors string, posit
 				return Symbol(UndefinedMarker)
 			}
 
-			if !isList {
-				e.logger.ErrorCat(CatList, "Cannot use index accessor on non-list value")
+			if isList {
+				if idx < 0 || idx >= list.Len() {
+					e.logger.DebugCat(CatList, "Index %d out of bounds (list has %d items)", idx, list.Len())
+					return Symbol(UndefinedMarker)
+				}
+				current = list.Get(idx)
+			} else if isBytes {
+				if idx < 0 || idx >= bytes.Len() {
+					e.logger.DebugCat(CatList, "Index %d out of bounds (bytes has %d items)", idx, bytes.Len())
+					return Symbol(UndefinedMarker)
+				}
+				// Return byte as int64
+				current = bytes.Get(idx)
+			} else if isStruct {
+				// Struct array index access
+				if !structVal.IsArray() {
+					e.logger.ErrorCat(CatList, "Cannot use index accessor on single struct (use dot accessor for fields)")
+					return Symbol(UndefinedMarker)
+				}
+				if idx < 0 || idx >= structVal.Len() {
+					e.logger.DebugCat(CatList, "Index %d out of bounds (struct array has %d items)", idx, structVal.Len())
+					return Symbol(UndefinedMarker)
+				}
+				// Return a single struct from the array
+				current = structVal.Get(idx)
+			} else {
+				e.logger.ErrorCat(CatList, "Cannot use index accessor on non-list/non-bytes/non-struct value")
 				return Symbol(UndefinedMarker)
 			}
-
-			if idx < 0 || idx >= list.Len() {
-				e.logger.DebugCat(CatList, "Index %d out of bounds (list has %d items)", idx, list.Len())
-				return Symbol(UndefinedMarker)
-			}
-			current = list.Get(idx)
 
 		} else {
 			// Unknown accessor character, stop
@@ -705,6 +969,328 @@ func (e *Executor) applyAccessorChain(value interface{}, accessors string, posit
 	}
 
 	return current
+}
+
+// accessorChainExists checks if a chain of accessors resolves successfully
+// Returns true if entire chain exists, false if any part is missing
+// This is the existence-check variant of applyAccessorChain (used by ? operator)
+func (e *Executor) accessorChainExists(value interface{}, accessors string) bool {
+	if accessors == "" {
+		return true
+	}
+
+	current := value
+	i := 0
+
+	for i < len(accessors) {
+		// Skip whitespace
+		for i < len(accessors) && accessors[i] == ' ' {
+			i++
+		}
+		if i >= len(accessors) {
+			break
+		}
+
+		// Resolve current to get the actual list, bytes, or struct
+		resolved := e.resolveValue(current)
+		list, isList := resolved.(StoredList)
+		bytes, isBytes := resolved.(StoredBytes)
+		structVal, isStruct := resolved.(StoredStruct)
+
+		if accessors[i] == '.' {
+			// Dot accessor for named argument or struct field
+			i++ // skip the dot
+			if i >= len(accessors) {
+				return false
+			}
+
+			// Collect the key name
+			keyStart := i
+			for i < len(accessors) && accessors[i] != '.' && accessors[i] != ' ' {
+				i++
+			}
+			key := accessors[keyStart:i]
+
+			if isStruct {
+				val, exists := e.getStructFieldValue(structVal, key)
+				if !exists {
+					return false
+				}
+				current = val
+			} else if isList {
+				namedArgs := list.NamedArgs()
+				if namedArgs == nil {
+					return false
+				}
+				val, exists := namedArgs[key]
+				if !exists {
+					return false
+				}
+				current = val
+			} else {
+				return false
+			}
+
+		} else if accessors[i] >= '0' && accessors[i] <= '9' {
+			// Integer index accessor
+			numStart := i
+			for i < len(accessors) && accessors[i] >= '0' && accessors[i] <= '9' {
+				i++
+			}
+			// Check for decimal point (error case)
+			if i < len(accessors) && accessors[i] == '.' {
+				j := i + 1
+				if j < len(accessors) && accessors[j] >= '0' && accessors[j] <= '9' {
+					return false
+				}
+			}
+			numStr := accessors[numStart:i]
+			idx, err := strconv.Atoi(numStr)
+			if err != nil {
+				return false
+			}
+
+			if isList {
+				if idx < 0 || idx >= list.Len() {
+					return false
+				}
+				current = list.Get(idx)
+			} else if isBytes {
+				if idx < 0 || idx >= bytes.Len() {
+					return false
+				}
+				current = bytes.Get(idx)
+			} else if isStruct {
+				if !structVal.IsArray() || idx < 0 || idx >= structVal.Len() {
+					return false
+				}
+				current = structVal.Get(idx)
+			} else {
+				return false
+			}
+
+		} else {
+			// Unknown accessor character, stop
+			break
+		}
+	}
+
+	// Check if final value is undefined
+	if sym, ok := current.(Symbol); ok {
+		if string(sym) == UndefinedMarker || string(sym) == "undefined" {
+			return false
+		}
+	}
+
+	return true
+}
+
+// getStructFieldValue retrieves a field value from a struct using the definition list
+// This replaces the old GetFieldValue method that required *StructDef
+func (e *Executor) getStructFieldValue(ss StoredStruct, fieldName string) (interface{}, bool) {
+	// Look up the definition list by defID
+	defObj, ok := e.getObject(ss.DefID())
+	if !ok {
+		return nil, false
+	}
+	defList, ok := defObj.(StoredList)
+	if !ok {
+		return nil, false
+	}
+
+	// Look up field info from definition list
+	defNamedArgs := defList.NamedArgs()
+	if defNamedArgs == nil {
+		return nil, false
+	}
+	fieldInfoVal, hasField := defNamedArgs[fieldName]
+	if !hasField {
+		return nil, false
+	}
+
+	// Resolve the field info list
+	fieldInfo := e.resolveValue(fieldInfoVal)
+	fieldInfoList, ok := fieldInfo.(StoredList)
+	if !ok {
+		return nil, false
+	}
+
+	// Field info format: [offset, length, mode, optionalNestedDefID, optionalCount]
+	if fieldInfoList.Len() < 3 {
+		return nil, false
+	}
+
+	offsetNum, _ := toNumber(fieldInfoList.Get(0))
+	lengthNum, _ := toNumber(fieldInfoList.Get(1))
+	modeVal := fieldInfoList.Get(2)
+
+	fieldOffset := int(offsetNum)
+	fieldLength := int(lengthNum)
+	var fieldMode string
+	switch m := modeVal.(type) {
+	case string:
+		fieldMode = m
+	case QuotedString:
+		fieldMode = string(m)
+	case Symbol:
+		fieldMode = string(m)
+	default:
+		fieldMode = "bytes" // default to bytes
+	}
+
+	// Get the raw bytes for this field
+	bytes, ok := ss.GetBytesAt(fieldOffset, fieldLength)
+	if !ok {
+		return nil, false
+	}
+
+	switch fieldMode {
+	case "bytes":
+		// Return as StoredBytes
+		result := make([]byte, len(bytes))
+		copy(result, bytes)
+		return NewStoredBytes(result), true
+
+	case "string":
+		// Return as string, trimmed of trailing nulls
+		end := len(bytes)
+		for end > 0 && bytes[end-1] == 0 {
+			end--
+		}
+		return string(bytes[:end]), true
+
+	case "int", "int_be":
+		// Return as signed int64 (big-endian)
+		var result int64
+		for _, b := range bytes {
+			result = (result << 8) | int64(b)
+		}
+		// Sign extend if MSB is set
+		if len(bytes) > 0 && len(bytes) < 8 && bytes[0]&0x80 != 0 {
+			signBits := int64(-1) << (uint(len(bytes)) * 8)
+			result |= signBits
+		}
+		return result, true
+
+	case "int_le":
+		// Return as signed int64 (little-endian)
+		var result int64
+		for i := len(bytes) - 1; i >= 0; i-- {
+			result = (result << 8) | int64(bytes[i])
+		}
+		// Sign extend if MSB is set
+		if len(bytes) > 0 && len(bytes) < 8 && bytes[len(bytes)-1]&0x80 != 0 {
+			signBits := int64(-1) << (uint(len(bytes)) * 8)
+			result |= signBits
+		}
+		return result, true
+
+	case "uint", "uint_be":
+		// Return as unsigned int64 (big-endian)
+		var result int64
+		for _, b := range bytes {
+			result = (result << 8) | int64(b)
+		}
+		return result, true
+
+	case "uint_le":
+		// Return as unsigned int64 (little-endian)
+		var result int64
+		for i := len(bytes) - 1; i >= 0; i-- {
+			result = (result << 8) | int64(bytes[i])
+		}
+		return result, true
+
+	case "float", "float_be":
+		// Return as float64 (big-endian IEEE 754)
+		if len(bytes) == 4 {
+			bits := uint32(bytes[0])<<24 | uint32(bytes[1])<<16 | uint32(bytes[2])<<8 | uint32(bytes[3])
+			return float64(math.Float32frombits(bits)), true
+		} else if len(bytes) == 8 {
+			bits := uint64(bytes[0])<<56 | uint64(bytes[1])<<48 | uint64(bytes[2])<<40 | uint64(bytes[3])<<32 |
+				uint64(bytes[4])<<24 | uint64(bytes[5])<<16 | uint64(bytes[6])<<8 | uint64(bytes[7])
+			return math.Float64frombits(bits), true
+		}
+		// Unsupported float size, return as bytes
+		result := make([]byte, len(bytes))
+		copy(result, bytes)
+		return NewStoredBytes(result), true
+
+	case "float_le":
+		// Return as float64 (little-endian IEEE 754)
+		if len(bytes) == 4 {
+			bits := uint32(bytes[3])<<24 | uint32(bytes[2])<<16 | uint32(bytes[1])<<8 | uint32(bytes[0])
+			return float64(math.Float32frombits(bits)), true
+		} else if len(bytes) == 8 {
+			bits := uint64(bytes[7])<<56 | uint64(bytes[6])<<48 | uint64(bytes[5])<<40 | uint64(bytes[4])<<32 |
+				uint64(bytes[3])<<24 | uint64(bytes[2])<<16 | uint64(bytes[1])<<8 | uint64(bytes[0])
+			return math.Float64frombits(bits), true
+		}
+		// Unsupported float size, return as bytes
+		result := make([]byte, len(bytes))
+		copy(result, bytes)
+		return NewStoredBytes(result), true
+
+	case "bit0", "bit1", "bit2", "bit3", "bit4", "bit5", "bit6", "bit7":
+		// Return boolean based on specific bit (use bitwise AND for retrieval)
+		if len(bytes) < 1 {
+			return false, true
+		}
+		bitNum := int(fieldMode[3] - '0') // Extract bit number from mode name
+		mask := byte(1 << bitNum)
+		return (bytes[0] & mask) != 0, true
+
+	case "struct":
+		// Return as nested StoredStruct
+		// Get optional nested def ID and count
+		var nestedDefID int
+		var nestedCount int = -1 // -1 for single struct
+		if fieldInfoList.Len() >= 4 {
+			nestedIDNum, _ := toNumber(fieldInfoList.Get(3))
+			nestedDefID = int(nestedIDNum)
+		}
+		if fieldInfoList.Len() >= 5 {
+			countNum, _ := toNumber(fieldInfoList.Get(4))
+			nestedCount = int(countNum)
+		}
+
+		if nestedDefID == 0 {
+			return nil, false
+		}
+
+		nestedData := make([]byte, fieldLength)
+		copy(nestedData, bytes)
+
+		// Get nested struct size from its definition
+		nestedDefObj, ok := e.getObject(nestedDefID)
+		if !ok {
+			return nil, false
+		}
+		nestedDefList, ok := nestedDefObj.(StoredList)
+		if !ok {
+			return nil, false
+		}
+		nestedDefNamedArgs := nestedDefList.NamedArgs()
+		var nestedSizeVal interface{}
+		if nestedDefNamedArgs != nil {
+			nestedSizeVal = nestedDefNamedArgs["__size"]
+		}
+		nestedSizeNum, _ := toNumber(nestedSizeVal)
+		nestedSize := int(nestedSizeNum)
+
+		if nestedCount > 0 {
+			// Nested struct array
+			return NewStoredStructFromData(nestedDefID, nestedData, nestedSize, nestedCount), true
+		}
+		// Single nested struct
+		return NewStoredStructFromData(nestedDefID, nestedData, nestedSize, -1), true
+
+	default:
+		// Unknown mode, return as bytes
+		result := make([]byte, len(bytes))
+		copy(result, bytes)
+		return NewStoredBytes(result), true
+	}
 }
 
 // processArguments processes arguments array to resolve object markers and tilde expressions
@@ -733,7 +1319,40 @@ func (e *Executor) processArguments(args []interface{}, state *ExecutionState, s
 		}
 
 		if isMarker {
-			// Check for tilde expression first (~varname)
+			// Check for question expression first (?varname) - existence check
+			if strings.HasPrefix(markerStr, "?") {
+				// Same resolution as ~, but return bool for existence
+				innerExpr := "~" + markerStr[1:] // Convert ?x to ~x for resolution
+				base, accessors := splitAccessors(innerExpr)
+
+				resolved, ok := e.resolveTildeExpression(base, state, substitutionCtx, position)
+				if !ok {
+					// Variable doesn't exist
+					e.logger.DebugCat(CatCommand, "processArguments[%d]: Question expression - variable not found for %q", i, base)
+					result[i] = false
+					continue
+				}
+
+				// Check if accessor chain exists
+				if accessors != "" {
+					exists := e.accessorChainExists(resolved, accessors)
+					e.logger.DebugCat(CatCommand, "processArguments[%d]: Question expression %q accessor chain exists: %v", i, markerStr, exists)
+					result[i] = exists
+				} else {
+					// Variable exists, no accessors to check
+					// But check if the value itself is undefined
+					if sym, ok := resolved.(Symbol); ok {
+						if string(sym) == UndefinedMarker || string(sym) == "undefined" {
+							result[i] = false
+							continue
+						}
+					}
+					result[i] = true
+				}
+				continue
+			}
+
+			// Check for tilde expression (~varname)
 			if strings.HasPrefix(markerStr, "~") {
 				// Split off any accessors first
 				base, accessors := splitAccessors(markerStr)
@@ -804,6 +1423,31 @@ func (e *Executor) processArguments(args []interface{}, state *ExecutionState, s
 						// Keep as marker (pass-by-reference) - fiber identity must be preserved
 						result[i] = arg
 						e.logger.DebugCat(CatCommand,"processArguments[%d]: Preserved fiber marker (pass-by-reference)", i)
+					case "file":
+						// Return as *StoredFile - this passes the file handle by reference
+						result[i] = value
+						e.logger.DebugCat(CatCommand,"processArguments[%d]: Resolved file marker to *StoredFile", i)
+					case "bytes":
+						// Return as StoredBytes - this passes the bytes by reference
+						finalValue := value
+						// Apply any accessors
+						if accessors != "" {
+							finalValue = e.applyAccessorChain(value, accessors, position)
+							e.logger.DebugCat(CatCommand,"processArguments[%d]: After accessors %q: %v", i, accessors, finalValue)
+						}
+						result[i] = finalValue
+						e.logger.DebugCat(CatCommand,"processArguments[%d]: Resolved bytes marker to StoredBytes", i)
+					case "struct":
+						// Return as StoredStruct - this passes the struct by reference
+						finalValue := value
+						// Apply any accessors (index and field)
+						if accessors != "" {
+							finalValue = e.applyAccessorChain(value, accessors, position)
+							e.logger.DebugCat(CatCommand,"processArguments[%d]: After accessors %q: %v", i, accessors, finalValue)
+						}
+						result[i] = finalValue
+						e.logger.DebugCat(CatCommand,"processArguments[%d]: Resolved struct marker to StoredStruct", i)
+					// Note: struct definitions are now just lists (handled by "list" case)
 					default:
 						// For unknown types, keep the marker to preserve reference semantics
 						result[i] = arg
@@ -820,6 +1464,35 @@ func (e *Executor) processArguments(args []interface{}, state *ExecutionState, s
 
 		// Not a marker or tilde, keep the original argument
 		result[i] = arg
+	}
+
+	return result
+}
+
+// processNamedArguments processes named argument keys and values to resolve tilde expressions and object markers
+// This ensures named args like "~dynKey: ~dynValue" or "prefix~var: value" get resolved the same way positional args do
+func (e *Executor) processNamedArguments(namedArgs map[string]interface{}, state *ExecutionState, substitutionCtx *SubstitutionContext, position *SourcePosition) map[string]interface{} {
+	if len(namedArgs) == 0 {
+		return namedArgs
+	}
+
+	result := make(map[string]interface{}, len(namedArgs))
+	for key, value := range namedArgs {
+		// Process the key through full resolution (handles embedded tildes, accessors, etc.)
+		processedKey := e.processArguments([]interface{}{Symbol(key)}, state, substitutionCtx, position)
+		finalKey := key
+		if len(processedKey) > 0 {
+			// Convert resolved key back to string
+			finalKey = fmt.Sprintf("%v", processedKey[0])
+		}
+
+		// Process the value as a single-element slice and extract the result
+		processed := e.processArguments([]interface{}{value}, state, substitutionCtx, position)
+		if len(processed) > 0 {
+			result[finalKey] = processed[0]
+		} else {
+			result[finalKey] = value
+		}
 	}
 
 	return result
@@ -887,8 +1560,9 @@ func (e *Executor) executeMacro(
 		macroContext.InvocationFile = position.Filename
 		macroContext.InvocationLine = position.Line
 		macroContext.InvocationColumn = position.Column
-		macroContext.ParentMacro = position.MacroContext
 	}
+	// Parent macro context comes from the current execution state, not the position
+	macroContext.ParentMacro = state.macroContext
 
 	e.logger.DebugCat(CatCommand,"Executing macro defined at %s:%d, called from %s:%d",
 		macro.DefinitionFile, macro.DefinitionLine,
@@ -911,6 +1585,9 @@ func (e *Executor) executeMacro(
 
 	// Ensure macro state has executor reference
 	macroState.executor = e
+
+	// Set macro context for stack traces
+	macroState.macroContext = macroContext
 
 	// Create a LIST from the arguments (both positional and named) and store it as $@
 	argsList := NewStoredListWithRefs(args, namedArgs, e)
@@ -959,6 +1636,9 @@ func (e *Executor) executeMacro(
 		state.SetResult(macroState.GetResult())
 		e.logger.DebugCat(CatCommand,"Transferred macro result to parent state: %v", macroState.GetResult())
 	}
+
+	// Merge bubbles from macro state to parent state
+	state.MergeBubbles(macroState)
 
 	// Clean up macro state
 	macroState.ReleaseAllReferences()

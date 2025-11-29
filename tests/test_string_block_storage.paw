@@ -68,7 +68,7 @@ echo ""
 
 echo "Test 11: String operations with stored strings"
 large_text: "This is a large text string that will be stored as an object reference due to its length exceeding 200 characters. The string operations should still work correctly by resolving the reference automatically before performing operations like uppercase conversion."
-upper: {str_upper ~large_text}
+upper: {upper ~large_text}
 echo "Upper length: {len ~upper}"
 echo "Expected: length > 200 (operations work on stored strings)"
 mem_stats

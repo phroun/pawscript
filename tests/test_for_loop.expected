@@ -1,0 +1,79 @@
+=== For Loop Tests ===
+
+Test 1: Numeric range ascending
+Sum 1+2+3+4+5 = 15
+(Expected: 15)
+
+Test 2: Numeric range descending
+Count down: 5 4 3 2 1 
+(Expected: 5 4 3 2 1 )
+
+Test 3: Numeric range with step
+Even numbers: 0 2 4 6 8 10 
+(Expected: 0 2 4 6 8 10 )
+
+Test 4: Numeric range descending with step
+Descending evens: 10 8 6 4 2 0 
+(Expected: 10 8 6 4 2 0 )
+
+Test 5: List iteration
+Fruits: apple banana cherry 
+(Expected: apple banana cherry )
+
+Test 6: List iteration with iter:
+Numbered: 1:a 2:b 3:c 
+(Expected: 1:a 2:b 3:c )
+
+Test 7: List iteration with index:
+Indexed: [0]=x [1]=y [2]=z 
+(Expected: [0]=x [1]=y [2]=z )
+
+Test 8: List iteration descending
+Reversed: 3 2 1 
+(Expected: 3 2 1 )
+
+Test 9: Key-value iteration
+Key-values: age=30 city=NYC name=Alice 
+(Expected: age=30 city=NYC name=Alice )
+
+Test 10: Explicit range command
+Range result: 1 2 3 
+(Expected: 1 2 3 )
+
+Test 11: For with generator (range)
+Generator result: 10 11 12 
+(Expected: 10 11 12 )
+
+Test 12: Early return from for
+Found: 5
+(Expected: 5)
+
+Test 13: Nested for loops
+Nested: (1,1) (1,2) (2,1) (2,2) 
+(Expected: (1,1) (1,2) (2,1) (2,2) )
+
+Test 14: Range with fractional step
+Fractional: 0 0.25 0.5 0.75 1 
+(Expected: 0 0.25 0.5 0.75 1 )
+
+Test 15: iter: and index: together
+Both counters: 1/0:a 2/1:b 3/2:c 
+(Expected: 1/0:a 2/1:b 3/2:c )
+
+Test 16: Async in for loop
+After async: 1 2 3 
+(Expected: 1 2 3 )
+
+Test 17: Generator iteration
+Generator output: 1 2 3 
+(Expected: 1 2 3 )
+
+Test 18: Async generator
+Async generator output: 1 2 3 
+(Expected: 1 2 3 )
+
+Test 19: Struct array iteration
+Points: (10,20) (30,40) (50,60) 
+(Expected: (10,20) (30,40) (50,60) )
+
+=== All for loop tests complete ===

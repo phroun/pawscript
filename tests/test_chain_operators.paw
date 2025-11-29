@@ -4,19 +4,19 @@ echo "=== CHAIN OPERATOR TESTS (~>) ==="
 echo ""
 
 echo "Test 1: ~> prepends \{get_result\} with comma"
-str_upper "hello"
+upper "hello"
 ~> echo "world"
 echo "Expected: HELLO world"
 echo ""
 
 echo "Test 2: ~> with no additional args"
-str_upper "hello"
+upper "hello"
 ~> echo
 echo "Expected: HELLO"
 echo ""
 
 echo "Test 3: Multiple ~> chains"
-str_upper "first"
+upper "first"
 ~> echo "second"
 ~> echo "third"
 echo "Expected: FIRST second"
@@ -27,19 +27,19 @@ echo "=== LONG CHAIN OPERATOR TESTS (~~>) ==="
 echo ""
 
 echo "Test 4: ~~> appends \{get_result\} with comma"
-str_upper "hello"
+upper "hello"
 ~~> echo "world"
 echo "Expected: world HELLO"
 echo ""
 
 echo "Test 5: ~~> with no additional args"
-str_upper "test"
+upper "test"
 ~~> echo
 echo "Expected: TEST"
 echo ""
 
 echo "Test 6: Multiple ~~> chains"
-str_upper "first"
+upper "first"
 ~~> echo "second"
 ~~> echo "third"
 echo "Expected: second FIRST"
@@ -50,7 +50,7 @@ echo "=== FAT ARROW OPERATOR TESTS (=>) ==="
 echo ""
 
 echo "Test 7: => assigns result"
-str_upper "pawscript"
+upper "pawscript"
 => result
 echo "result = ~result"
 echo "Expected: result = PAWSCRIPT"
@@ -60,7 +60,7 @@ echo "=== MIXED OPERATOR TESTS ==="
 echo ""
 
 echo "Test 8: Combining ~> and =>"
-str_lower "HELLO"
+lower "HELLO"
 ~> concat " world"
 => greeting
 echo "greeting = ~greeting"
@@ -68,7 +68,7 @@ echo "Expected: greeting = hello world"
 echo ""
 
 echo "Test 9: Combining ~~> and =>"
-str_upper "test"
+upper "test"
 ~~> concat "value "
 => final
 echo "final = ~final"
@@ -79,23 +79,23 @@ echo "=== COMPACT SYNTAX TESTS ==="
 echo ""
 
 echo "Test 10: Compact ~>"
-str_upper "test"~>echo "ok"
+upper "test"~>echo "ok"
 echo "Expected: TEST ok"
 echo ""
 
 echo "Test 11: Compact ~~>"
-str_lower "VALUE"~~>echo "prefix"
+lower "VALUE"~~>echo "prefix"
 echo "Expected: prefix value"
 echo ""
 
 echo "Test 12: Compact =>"
-str_upper "data"=>var
+upper "data"=>var
 echo "var = ~var"
 echo "Expected: var = DATA"
 echo ""
 
 echo "Test 13: All on one line"
-str_upper "chain"~>concat " test"=>output
+upper "chain"~>concat " test"=>output
 echo "output = ~output"
 echo "Expected: output = CHAIN test"
 echo ""

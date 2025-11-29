@@ -39,6 +39,23 @@ func (e *Executor) maybeStoreValue(value interface{}, state *ExecutionState) int
 		// Store it as a new object
 		id := e.storeObject(v, "list")
 		return Symbol(fmt.Sprintf("\x00LIST:%d\x00", id))
+	case StoredBytes:
+		// StoredBytes objects - convert to marker
+		if id := e.findStoredBytesID(v); id >= 0 {
+			return Symbol(fmt.Sprintf("\x00BYTES:%d\x00", id))
+		}
+		// Not found, store as new object
+		id := e.storeObject(v, "bytes")
+		return Symbol(fmt.Sprintf("\x00BYTES:%d\x00", id))
+	case StoredStruct:
+		// StoredStruct objects - convert to marker
+		if id := e.findStoredStructID(v); id >= 0 {
+			return Symbol(fmt.Sprintf("\x00STRUCT:%d\x00", id))
+		}
+		// Not found, store as new object
+		id := e.storeObject(v, "struct")
+		return Symbol(fmt.Sprintf("\x00STRUCT:%d\x00", id))
+	// Note: StructDef is now a StoredList, no special handling needed
 	default:
 		return value
 	}
@@ -102,6 +119,33 @@ func (e *Executor) decrementObjectRefCount(objectID int) {
 				e.mu.Lock() // Re-lock for deletion
 			}
 
+			// Transfer FinalBubbleMap and BubbleUpMap to orphanedBubbles if it's a fiber handle
+			// This preserves bubbles from abandoned fibers for later retrieval
+			if fiberHandle, ok := obj.Value.(*FiberHandle); ok {
+				fiberHandle.mu.Lock()
+				hasBubbles := len(fiberHandle.FinalBubbleMap) > 0 || len(fiberHandle.BubbleUpMap) > 0
+				if hasBubbles {
+					// Merge both maps into a combined map for orphaning
+					combined := make(map[string][]*BubbleEntry)
+					for flavor, entries := range fiberHandle.FinalBubbleMap {
+						combined[flavor] = append(combined[flavor], entries...)
+					}
+					for flavor, entries := range fiberHandle.BubbleUpMap {
+						combined[flavor] = append(combined[flavor], entries...)
+					}
+					// Clear the maps so we don't double-process
+					fiberHandle.FinalBubbleMap = nil
+					fiberHandle.BubbleUpMap = nil
+					fiberHandle.mu.Unlock()
+					// Add to orphaned bubbles (transfers ownership of references)
+					e.mu.Unlock()
+					e.AddOrphanedBubbles(combined)
+					e.mu.Lock()
+				} else {
+					fiberHandle.mu.Unlock()
+				}
+			}
+
 			delete(e.storedObjects, objectID)
 			e.logger.DebugCat(CatMemory,"Object %d freed (refcount reached 0)", objectID)
 		}
@@ -162,6 +206,31 @@ func (e *Executor) findStoredListID(list StoredList) int {
 	return -1
 }
 
+// findStoredBytesID finds the ID of a StoredBytes by searching storedObjects
+// Returns -1 if not found
+func (e *Executor) findStoredBytesID(sb StoredBytes) int {
+	e.mu.RLock()
+	defer e.mu.RUnlock()
+
+	// Compare by checking if they share the same backing array
+	for id, obj := range e.storedObjects {
+		if objBytes, ok := obj.Value.(StoredBytes); ok {
+			if len(objBytes.data) == len(sb.data) {
+				if len(objBytes.data) == 0 {
+					// Both empty - match any empty bytes for now
+					return id
+				}
+				// Check if they point to the same backing array
+				if &objBytes.data[0] == &sb.data[0] {
+					return id
+				}
+			}
+		}
+	}
+
+	return -1
+}
+
 // findStoredChannelID finds the ID of a StoredChannel by searching storedObjects
 // Returns -1 if not found
 func (e *Executor) findStoredChannelID(ch *StoredChannel) int {
@@ -205,3 +274,52 @@ func (e *Executor) findStoredFiberID(fh *FiberHandle) int {
 
 	return -1
 }
+
+// findStoredFileID finds the ID of a StoredFile by searching storedObjects
+// Returns -1 if not found
+func (e *Executor) findStoredFileID(f *StoredFile) int {
+	if f == nil {
+		return -1
+	}
+
+	e.mu.RLock()
+	defer e.mu.RUnlock()
+
+	for id, obj := range e.storedObjects {
+		if objF, ok := obj.Value.(*StoredFile); ok {
+			// Compare by pointer identity
+			if objF == f {
+				return id
+			}
+		}
+	}
+
+	return -1
+}
+
+// findStoredStructID finds the ID of a StoredStruct by searching storedObjects
+// Returns -1 if not found
+func (e *Executor) findStoredStructID(ss StoredStruct) int {
+	e.mu.RLock()
+	defer e.mu.RUnlock()
+
+	// Compare by checking if they share the same backing array and have same offset/length
+	for id, obj := range e.storedObjects {
+		if objSS, ok := obj.Value.(StoredStruct); ok {
+			if len(objSS.data) == len(ss.data) && objSS.offset == ss.offset && objSS.length == ss.length {
+				if len(objSS.data) == 0 {
+					// Both empty - match any empty struct for now
+					return id
+				}
+				// Check if they point to the same backing array
+				if &objSS.data[0] == &ss.data[0] {
+					return id
+				}
+			}
+		}
+	}
+
+	return -1
+}
+
+// Note: StructDef is now a StoredList, so findStructDefID is no longer needed

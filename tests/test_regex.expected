@@ -1,0 +1,67 @@
+=== Regex Command Tests ===
+
+Test 1: Basic match
+match 'hello world', (world): true
+match 'hello world', (xyz): false
+(Expected: true, false)
+
+Test 2: Case-insensitive match
+match 'Hello World', (hello): false
+match case_insensitive: true
+(Expected: false, true)
+
+Test 3: regex_find - first match
+First number: 123
+(Expected: 123)
+
+Test 4: regex_find - all matches
+Match count: 3
+Match 1: 123
+Match 2: 456
+Match 3: 789
+(Expected: 3, 123, 456, 789)
+
+Test 5: Capture groups
+Full match: 2024-11-29
+Year: 2024
+Month: 11
+Day: 29
+(Expected: 2024-11-29, 2024, 11, 29)
+
+Test 6: regex_replace - basic
+Replace world: hello universe
+(Expected: hello universe)
+
+Test 7: regex_replace with count
+Replace first 2: XXX bbb XXX ccc aaa ddd aaa
+Replace last 2: aaa bbb aaa ccc XXX ddd XXX
+(Expected: XXX bbb XXX ccc aaa ddd aaa)
+(Expected: aaa bbb aaa ccc XXX ddd XXX)
+
+Test 8: Backreferences
+Swap names: Smith, John
+(Expected: Smith, John)
+
+Test 9: Pattern replacement
+Replace *at: pet pet pet mat
+(Expected: pet pet pet mat)
+
+Test 10: Bytes input
+Found in bytes: 123
+(Expected: 123)
+
+Test 11: Block input/output
+Replaced: text with number NUM
+Type: block
+(Expected: text with number NUM, block)
+
+Test 12: Symbol input
+Symbol match: true
+(Expected: true)
+
+Test 13: No match returns nil
+No match result: <nil>
+Type: nil
+(Expected: nil, nil)
+
+=== All Regex Tests Complete ===

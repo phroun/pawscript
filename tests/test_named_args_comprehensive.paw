@@ -58,3 +58,52 @@ echo ""
 echo "=== Test 10: Numeric and symbol keys ==="
 mixed_keys: {list 1: "one", abc: "alphabet"}
 echo ~mixed_keys
+
+echo ""
+echo "=== Test 11: Tilde resolution in command named args ==="
+# Test that tilde expressions in named argument values get resolved
+myval: 42
+result: {list item, count: ~myval}
+echo ~result
+echo "count should be 42"
+
+echo ""
+echo "=== Test 12: Object reference in named args ==="
+# Test that object markers (like list references) work in named args
+mylist: {list 1, 2, 3}
+# Pass list reference as named argument
+result2: {list nested: ~mylist}
+echo ~result2
+
+echo ""
+echo "=== Test 13: Multiple tilde refs in named args ==="
+a: 10
+b: 20
+# Both named args should resolve
+result3: {list x: ~a, y: ~b}
+echo ~result3
+
+echo ""
+echo "=== Test 14: Dynamic key names ==="
+keyName: "dynamic"
+keyVal: 99
+# Both key and value should resolve
+result4: {list ~keyName: ~keyVal}
+echo ~result4
+echo "Keys:", {keys ~result4}
+
+echo ""
+echo "=== Test 15: Dot accessor as key ==="
+# Dot accessor on left side of named argument
+students: {list firstName: "John", lastName: "Doe"}
+result5: {list ~students.firstName: "test"}
+echo ~result5
+echo "Key should be John"
+
+echo ""
+echo "=== Test 16: Space index accessor as key ==="
+# Space indexing accessor on left side of named argument
+studentNames: {list "Alice", "Bob", "Charlie"}
+result6: {list ~studentNames 1: "test"}
+echo ~result6
+echo "Key should be Bob"

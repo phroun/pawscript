@@ -44,16 +44,16 @@ echo "Expected: one|two|three"
 print
 
 # ==========================================
-# str_upper and str_lower - case conversion
+# upper and lower - case conversion
 # ==========================================
-echo "Testing str_upper..."
-upper: {str_upper "hello world"}
+echo "Testing upper..."
+upper: {upper "hello world"}
 echo "Uppercase: ~upper"
 echo "Expected: HELLO WORLD"
 print
 
-echo "Testing str_lower..."
-lower: {str_lower "HELLO WORLD"}
+echo "Testing lower..."
+lower: {lower "HELLO WORLD"}
 echo "Lowercase: ~lower"
 echo "Expected: hello world"
 print
@@ -166,18 +166,18 @@ echo "Expected: false"
 print
 
 # ==========================================
-# str_repeat - repeating strings
+# repeat - repeating strings
 # ==========================================
-echo "Testing str_repeat..."
-repeated: {str_repeat "ab", 3}
+echo "Testing repeat..."
+repeated: {repeat "ab", 3}
 echo "Repeated: ~repeated"
 echo "Expected: ababab"
 
-single: {str_repeat "x", 1}
+single: {repeat "x", 1}
 echo "Single repeat: ~single"
 echo "Expected: x"
 
-none: {str_repeat "y", 0}
+none: {repeat "y", 0}
 none_len: {len ~none}
 echo "Zero repeat length: ~none_len"
 echo "Expected: 0"
@@ -235,11 +235,11 @@ trimmed: {trim ~raw}
 echo "Trimmed: [~trimmed]"
 echo "Expected: [HELLO WORLD]"
 
-formatted: {str_lower ~trimmed}
+formatted: {lower ~trimmed}
 echo "Lowercased: [~formatted]"
 echo "Expected: [hello world]"
 
-upper_version: {str_upper ~formatted}
+upper_version: {upper ~formatted}
 echo "Back to upper: [~upper_version]"
 echo "Expected: [HELLO WORLD]"
 print

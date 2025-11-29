@@ -1,0 +1,83 @@
+=== Auxiliary Math Library Tests ===
+
+Test 1: Verify math:: requires IMPORT
+sin should not exist yet...
+sin not found (correct)
+
+IMPORT math completed
+
+Test 2: Trigonometric functions
+sin(0) = 0
+cos(0) = 1
+tan(0) = 0
+(Expected: 0, 1, 0)
+
+Test 3: sin/cos at key angles
+sin(tau/4) = 1
+cos(tau/4) near 0: true
+sin(tau/2) near 0: true
+cos(tau/2) = -1
+(Expected: 1, true, true, -1)
+
+Test 4: atan2
+atan2(0, 1) = 0
+atan2(1, 0) = 1.5707963267948966
+atan2(1, 1) = 0.7853981633974483
+atan2(-1, -1) = -2.356194490192345
+(Expected: 0, tau/4, tau/8, -3*tau/8)
+
+Test 5: Degree/radian conversion
+deg(tau) = 360
+deg(tau/2) = 180
+deg(tau/4) = 90
+rad(360) = 6.283185307179586
+rad(180) = 3.141592653589793
+rad(90) = 1.5707963267948966
+(Expected: 360, 180, 90, tau, tau/2, tau/4)
+
+Test 6: Logarithms
+ln(1) = 0
+ln(e) = 1
+log10(1) = 0
+log10(10) = 1
+log10(100) = 2
+log10(1000) = 3
+(Expected: 0, 1, 0, 1, 2, 3)
+
+Test 7: log with base: parameter
+log(8, base: 2) = 3
+log(27, base: 3) = 3
+log(100, base: 10) = 2
+log(16, base: 4) = 2
+log(e^2, base: 2.718281828459045) = 2
+(Expected: 3, 3, 2, 2, 2)
+
+Test 8: Mathematical constants
+tau = 6.283185307179586
+e = 2.718281828459045
+phi = 1.618033988749895
+root2 = 1.4142135623730951
+root3 = 1.7320508075688772
+root5 = 2.23606797749979
+ln2 = 0.6931471805599453
+
+Test 9: Constant relationships
+root2 * root2 = 2
+root3 * root3 = 3
+root5 * root5 = 5
+ln(2) = 0.6931471805599453
+#ln2 = 0.6931471805599453
+(Expected: 2, 3, 5, same, same)
+
+Test 10: phi property (phi^2 = phi + 1)
+phi^2 = 2.618033988749895
+phi + 1 = 2.618033988749895
+Equal: true
+
+Test 11: Combining operations
+sin(rad(90)) = 1
+cos(rad(180)) = -1
+deg(atan2(1, 0)) = 90
+(Expected: 1, -1, 90)
+
+=== All Auxiliary Math Tests Complete ===

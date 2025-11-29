@@ -6,6 +6,8 @@ import (
 	"fmt"
 	"os"
 	"os/exec"
+	"path/filepath"
+	"sort"
 	"strconv"
 	"strings"
 	"time"
@@ -116,6 +118,50 @@ func (ps *PawScript) RegisterSystemLib(scriptArgs []string) {
 		default:
 			ps.logger.DebugCat(CatIO,"valueToChannel: unhandled type %T", val)
 		}
+		return nil
+	}
+
+	// Helper to convert a value to a StoredFile
+	valueToFile := func(ctx *Context, val interface{}) *StoredFile {
+		switch v := val.(type) {
+		case *StoredFile:
+			return v
+		}
+		return nil
+	}
+
+	// Helper to resolve a file name (like "#myfile") to a file
+	// Resolution order: local variables -> ObjectsModule -> ObjectsInherited
+	resolveFile := func(ctx *Context, fileName string) *StoredFile {
+		// First, check local macro variables
+		if value, exists := ctx.state.GetVariable(fileName); exists {
+			if f := valueToFile(ctx, value); f != nil {
+				return f
+			}
+		}
+
+		// Then, check ObjectsModule and ObjectsInherited
+		if ctx.state.moduleEnv != nil {
+			ctx.state.moduleEnv.mu.RLock()
+			defer ctx.state.moduleEnv.mu.RUnlock()
+
+			if ctx.state.moduleEnv.ObjectsModule != nil {
+				if obj, exists := ctx.state.moduleEnv.ObjectsModule[fileName]; exists {
+					if f := valueToFile(ctx, obj); f != nil {
+						return f
+					}
+				}
+			}
+
+			if ctx.state.moduleEnv.ObjectsInherited != nil {
+				if obj, exists := ctx.state.moduleEnv.ObjectsInherited[fileName]; exists {
+					if f := valueToFile(ctx, obj); f != nil {
+						return f
+					}
+				}
+			}
+		}
+
 		return nil
 	}
 
@@ -415,20 +461,94 @@ func (ps *PawScript) RegisterSystemLib(scriptArgs []string) {
 	})
 
 	// exec - execute external command and capture output
-	ps.RegisterCommandInModule("sys", "exec", func(ctx *Context) Result {
+	ps.RegisterCommandInModule("os", "exec", func(ctx *Context) Result {
 		if len(ctx.Args) == 0 {
 			ctx.LogError(CatIO, "No command specified for exec.")
 			return BoolStatus(false)
 		}
 
 		cmdName := fmt.Sprintf("%v", ctx.Args[0])
+		resolvedCmd := cmdName // Will be updated if we resolve the path
+
+		// Resolve relative paths with directory components relative to script directory
+		if !filepath.IsAbs(cmdName) && (strings.Contains(cmdName, string(filepath.Separator)) || strings.Contains(cmdName, "/")) {
+			if ps.config != nil && ps.config.ScriptDir != "" {
+				resolvedCmd = filepath.Join(ps.config.ScriptDir, cmdName)
+			} else {
+				resolvedCmd, _ = filepath.Abs(cmdName)
+			}
+		}
+
+		// Validate exec access against ExecRoots if configured
+		if ps.config != nil && ps.config.FileAccess != nil {
+			fileAccess := ps.config.FileAccess
+			if len(fileAccess.ExecRoots) > 0 {
+				// Resolve the command path for validation
+				var cmdPath string
+				var err error
+				if filepath.IsAbs(resolvedCmd) {
+					cmdPath = resolvedCmd
+					// Check if the file exists
+					if _, err = os.Stat(cmdPath); err != nil {
+						ctx.LogError(CatIO, fmt.Sprintf("exec: command not found: %s", cmdName))
+						return BoolStatus(false)
+					}
+				} else {
+					// Try to find the command in PATH
+					cmdPath, err = exec.LookPath(resolvedCmd)
+					if err != nil {
+						ctx.LogError(CatIO, fmt.Sprintf("exec: command not found: %s", cmdName))
+						return BoolStatus(false)
+					}
+				}
+				cmdPath, _ = filepath.Abs(cmdPath)
+				cmdPath = filepath.Clean(cmdPath)
+
+				// Check if command is within allowed exec roots
+				// Use case-insensitive comparison on Windows/macOS
+				allowed := false
+				for _, root := range fileAccess.ExecRoots {
+					// Normalize root path to handle any .. sequences
+					absRoot, err := filepath.Abs(root)
+					if err != nil {
+						continue
+					}
+					absRoot = filepath.Clean(absRoot)
+					if pathHasPrefix(cmdPath, absRoot+string(filepath.Separator)) || pathEquals(cmdPath, absRoot) {
+						allowed = true
+						break
+					}
+				}
+				if !allowed {
+					ctx.LogError(CatIO, "exec: access denied: command outside allowed roots")
+					return BoolStatus(false)
+				}
+
+				// Security: exec roots must not overlap with write roots
+				// This prevents write-then-execute attacks
+				// Use case-insensitive comparison on Windows/macOS
+				if len(fileAccess.WriteRoots) > 0 {
+					for _, writeRoot := range fileAccess.WriteRoots {
+						absWriteRoot, err := filepath.Abs(writeRoot)
+						if err != nil {
+							continue
+						}
+						absWriteRoot = filepath.Clean(absWriteRoot)
+						if pathHasPrefix(cmdPath, absWriteRoot+string(filepath.Separator)) || pathEquals(cmdPath, absWriteRoot) {
+							ctx.LogError(CatIO, "exec: access denied: cannot execute from writable directory (security restriction)")
+							return BoolStatus(false)
+						}
+					}
+				}
+			}
+		}
 
 		var cmdArgs []string
 		for i := 1; i < len(ctx.Args); i++ {
 			cmdArgs = append(cmdArgs, fmt.Sprintf("%v", ctx.Args[i]))
 		}
 
-		cmd := exec.Command(cmdName, cmdArgs...)
+		cmd := exec.Command(resolvedCmd, cmdArgs...)
 
 		var stdoutBuf, stderrBuf bytes.Buffer
 		cmd.Stdout = &stdoutBuf
@@ -458,125 +578,47 @@ func (ps *PawScript) RegisterSystemLib(scriptArgs []string) {
 		return BoolStatus(success)
 	})
 
-	// include - include another source file
-	ps.RegisterCommandInModule("stdlib", "include", func(ctx *Context) Result {
-		if len(ctx.Args) == 0 {
-			ctx.LogError(CatIO, "Usage: include \"filename\" or include (imports...), \"filename\"")
-			return BoolStatus(false)
-		}
-
-		var filename string
-		var importSpec []interface{}
-		var importNamedSpec map[string]interface{}
-		isAdvancedForm := false
-
-		firstArg := ctx.Args[0]
-		if ctx.executor != nil {
-			firstArg = ctx.executor.resolveValue(firstArg)
-		}
-
-		switch v := firstArg.(type) {
-		case ParenGroup:
-			isAdvancedForm = true
-			importSpec, importNamedSpec = parseArguments(string(v))
-			if len(ctx.Args) < 2 {
-				ctx.LogError(CatIO, "include: filename required after import specification")
-				return BoolStatus(false)
-			}
-			filename = fmt.Sprintf("%v", ctx.Args[1])
-		case StoredList:
-			isAdvancedForm = true
-			importSpec = v.Items()
-			importNamedSpec = make(map[string]interface{})
-			if len(ctx.Args) < 2 {
-				ctx.LogError(CatIO, "include: filename required after import specification")
-				return BoolStatus(false)
-			}
-			filename = fmt.Sprintf("%v", ctx.Args[1])
-		default:
-			filename = fmt.Sprintf("%v", ctx.Args[0])
-		}
-
-		// Remove quotes if present
-		if strings.HasPrefix(filename, "\"") && strings.HasSuffix(filename, "\"") {
-			filename = filename[1 : len(filename)-1]
-		} else if strings.HasPrefix(filename, "'") && strings.HasSuffix(filename, "'") {
-			filename = filename[1 : len(filename)-1]
-		}
-
-		content, err := os.ReadFile(filename)
-		if err != nil {
-			ctx.LogError(CatIO, fmt.Sprintf("include: failed to read file %s: %v", filename, err))
-			return BoolStatus(false)
-		}
-
-		if isAdvancedForm {
-			restrictedEnv := NewMacroModuleEnvironment(ctx.state.moduleEnv)
-
-			execState := NewExecutionState()
-			execState.moduleEnv = restrictedEnv
-			execState.executor = ctx.executor
-			defer execState.ReleaseAllReferences()
-
-			result := ctx.executor.ExecuteWithState(string(content), execState, nil, filename, 0, 0)
-
-			if boolStatus, ok := result.(BoolStatus); ok && !bool(boolStatus) {
-				return BoolStatus(false)
-			}
-
-			ctx.state.moduleEnv.mu.Lock()
-			defer ctx.state.moduleEnv.mu.Unlock()
-
-			ctx.state.moduleEnv.CopyLibraryRestricted()
-
-			for _, arg := range importSpec {
-				moduleName := fmt.Sprintf("%v", arg)
-				if section, exists := restrictedEnv.ModuleExports[moduleName]; exists {
-					if ctx.state.moduleEnv.LibraryRestricted[moduleName] == nil {
-						ctx.state.moduleEnv.LibraryRestricted[moduleName] = make(ModuleSection)
-					}
-					if ctx.state.moduleEnv.LibraryInherited[moduleName] == nil {
-						ctx.state.moduleEnv.LibraryInherited[moduleName] = make(ModuleSection)
-					}
-					for itemName, item := range section {
-						ctx.state.moduleEnv.LibraryRestricted[moduleName][itemName] = item
-						ctx.state.moduleEnv.LibraryInherited[moduleName][itemName] = item
-					}
-				}
-			}
-
-			for targetName, sourceArg := range importNamedSpec {
-				sourceName := fmt.Sprintf("%v", sourceArg)
-				if section, exists := restrictedEnv.ModuleExports[sourceName]; exists {
-					if ctx.state.moduleEnv.LibraryRestricted[targetName] == nil {
-						ctx.state.moduleEnv.LibraryRestricted[targetName] = make(ModuleSection)
-					}
-					if ctx.state.moduleEnv.LibraryInherited[targetName] == nil {
-						ctx.state.moduleEnv.LibraryInherited[targetName] = make(ModuleSection)
-					}
-					for itemName, item := range section {
-						ctx.state.moduleEnv.LibraryRestricted[targetName][itemName] = item
-						ctx.state.moduleEnv.LibraryInherited[targetName][itemName] = item
-					}
-				}
-			}
-
-			return BoolStatus(true)
-		} else {
-			result := ctx.executor.ExecuteWithState(string(content), ctx.state, nil, filename, 0, 0)
-
-			if boolStatus, ok := result.(BoolStatus); ok && !bool(boolStatus) {
-				return BoolStatus(false)
-			}
-
-			return BoolStatus(true)
-		}
-	})
-
 	// ==================== io:: module ====================
 
-	// write - output without automatic newline
+	// write - output without automatic newline (supports files and channels)
 	outputCommand := func(ctx *Context) Result {
+		// Check if first arg is a file handle
+		if len(ctx.Args) > 0 {
+			ps.logger.DebugCat(CatIO, "write: first arg type=%T, value=%v", ctx.Args[0], ctx.Args[0])
+			// Direct file handle
+			if f, ok := ctx.Args[0].(*StoredFile); ok {
+				text := ""
+				for _, arg := range ctx.Args[1:] {
+					text += formatArgForDisplay(arg, ctx.executor)
+				}
+				err := f.Write(text)
+				if err != nil {
+					ctx.LogError(CatIO, fmt.Sprintf("write: %v", err))
+					return BoolStatus(false)
+				}
+				return BoolStatus(true)
+			}
+			// Check for #-prefixed symbol that might be a file
+			if sym, ok := ctx.Args[0].(Symbol); ok {
+				symStr := string(sym)
+				if strings.HasPrefix(symStr, "#") {
+					if f := resolveFile(ctx, symStr); f != nil {
+						text := ""
+						for _, arg := range ctx.Args[1:] {
+							text += formatArgForDisplay(arg, ctx.executor)
+						}
+						err := f.Write(text)
+						if err != nil {
+							ctx.LogError(CatIO, fmt.Sprintf("write: %v", err))
+							return BoolStatus(false)
+						}
+						return BoolStatus(true)
+					}
+				}
+			}
+		}
+
+		// Fall back to channel handling
 		ch, args, found := getOutputChannel(ctx, "#out")
 		if !found {
 			// Fallback: use OutputContext for consistent channel resolution with system fallback
@@ -602,9 +644,52 @@ func (ps *PawScript) RegisterSystemLib(scriptArgs []string) {
 		return BoolStatus(true)
 	}
 
-	// echo/print - output with automatic newline and spaces between args
+	// echo/print - output with automatic newline and spaces between args (supports files)
 	outputLineCommand := func(ctx *Context) Result {
 		ps.logger.DebugCat(CatIO,"outputLineCommand (print/echo): starting")
+
+		// Check if first arg is a file handle
+		if len(ctx.Args) > 0 {
+			// Direct file handle
+			if f, ok := ctx.Args[0].(*StoredFile); ok {
+				text := ""
+				for i, arg := range ctx.Args[1:] {
+					if i > 0 {
+						text += " "
+					}
+					text += formatArgForDisplay(arg, ctx.executor)
+				}
+				err := f.Write(text + "\n")
+				if err != nil {
+					ctx.LogError(CatIO, fmt.Sprintf("echo: %v", err))
+					return BoolStatus(false)
+				}
+				return BoolStatus(true)
+			}
+			// Check for #-prefixed symbol that might be a file
+			if sym, ok := ctx.Args[0].(Symbol); ok {
+				symStr := string(sym)
+				if strings.HasPrefix(symStr, "#") {
+					if f := resolveFile(ctx, symStr); f != nil {
+						text := ""
+						for i, arg := range ctx.Args[1:] {
+							if i > 0 {
+								text += " "
+							}
+							text += formatArgForDisplay(arg, ctx.executor)
+						}
+						err := f.Write(text + "\n")
+						if err != nil {
+							ctx.LogError(CatIO, fmt.Sprintf("echo: %v", err))
+							return BoolStatus(false)
+						}
+						return BoolStatus(true)
+					}
+				}
+			}
+		}
+
+		// Fall back to channel handling
 		ch, args, found := getOutputChannel(ctx, "#out")
 		if !found {
 			// Fallback: use OutputContext for consistent channel resolution with system fallback
@@ -645,8 +730,86 @@ func (ps *PawScript) RegisterSystemLib(scriptArgs []string) {
 	ps.RegisterCommandInModule("io", "echo", outputLineCommand)
 	ps.RegisterCommandInModule("io", "print", outputLineCommand)
 
-	// read - read a line from stdin or specified channel
+	// read - read a line from stdin, channel, or file
+	// For files: read <file> or read <file>, eof: true
 	ps.RegisterCommandInModule("io", "read", func(ctx *Context) Result {
+		// Helper to read from file with eof option
+		readFromFile := func(f *StoredFile) Result {
+			readToEof := false
+			if eof, ok := ctx.NamedArgs["eof"]; ok {
+				if b, ok := eof.(bool); ok {
+					readToEof = b
+				} else if s, ok := eof.(string); ok {
+					readToEof = s == "true"
+				}
+			}
+			var content string
+			var err error
+			if readToEof {
+				content, err = f.ReadAll()
+			} else {
+				content, err = f.ReadLine()
+			}
+			if err != nil {
+				if err.Error() == "EOF" || strings.Contains(err.Error(), "EOF") {
+					ctx.SetResult("")
+					return BoolStatus(false)
+				}
+				ctx.LogError(CatIO, fmt.Sprintf("read: %v", err))
+				return BoolStatus(false)
+			}
+			ctx.SetResult(content)
+			return BoolStatus(true)
+		}
+
+		// Check if first arg is provided
+		if len(ctx.Args) > 0 {
+			// Direct file handle
+			if f, ok := ctx.Args[0].(*StoredFile); ok {
+				return readFromFile(f)
+			}
+
+			// Check for channel
+			if ch, ok := ctx.Args[0].(*StoredChannel); ok {
+				_, value, err := ChannelRecv(ch)
+				if err != nil {
+					ctx.LogError(CatIO, fmt.Sprintf("read: %v", err))
+					return BoolStatus(false)
+				}
+				ctx.SetResult(value)
+				return BoolStatus(true)
+			}
+
+			// Check for #-prefixed symbol that might be a file or channel
+			if sym, ok := ctx.Args[0].(Symbol); ok {
+				symStr := string(sym)
+				if strings.HasPrefix(symStr, "#") {
+					// Try to resolve as file
+					if f := resolveFile(ctx, symStr); f != nil {
+						return readFromFile(f)
+					}
+					// Try to resolve as channel (check if it's #in or similar)
+					if symStr == "#in" {
+						ch, found := getInputChannel(ctx, "#in")
+						if found {
+							_, value, err := ChannelRecv(ch)
+							if err != nil {
+								ctx.LogError(CatIO, fmt.Sprintf("read: %v", err))
+								return BoolStatus(false)
+							}
+							ctx.SetResult(value)
+							return BoolStatus(true)
+						}
+					}
+				}
+			}
+
+			// Argument provided but not a valid file or channel - error out
+			ctx.LogError(CatIO, "read: invalid argument - expected file handle or channel")
+			return BoolStatus(false)
+		}
+
+		// No arguments - fall back to channel handling or stdin
 		ch, found := getInputChannel(ctx, "#in")
 		if !found {
 			token := ctx.RequestToken(nil)
@@ -673,6 +836,113 @@ func (ps *PawScript) RegisterSystemLib(scriptArgs []string) {
 			return BoolStatus(false)
 		}
 		ctx.SetResult(value)
+		return BoolStatus(true)
+	})
+
+	// read_bytes - read binary data from a file
+	// Usage: read_bytes <file> [count] or read_bytes <file>, all: true
+	// Returns a StoredBytes object
+	ps.RegisterCommandInModule("io", "read_bytes", func(ctx *Context) Result {
+		if len(ctx.Args) < 1 {
+			ctx.LogError(CatIO, "read_bytes: file required")
+			return BoolStatus(false)
+		}
+
+		// Get file handle
+		var file *StoredFile
+		if f, ok := ctx.Args[0].(*StoredFile); ok {
+			file = f
+		} else if sym, ok := ctx.Args[0].(Symbol); ok {
+			symStr := string(sym)
+			if strings.HasPrefix(symStr, "#") {
+				file = resolveFile(ctx, symStr)
+			}
+		}
+
+		if file == nil {
+			ctx.LogError(CatIO, "read_bytes: not a file handle")
+			return BoolStatus(false)
+		}
+
+		// Determine how many bytes to read
+		count := 0 // 0 means read all
+
+		// Check named args first
+		if _, ok := ctx.NamedArgs["all"]; ok {
+			count = 0 // Read all remaining bytes
+		}
+
+		// Check positional count argument
+		if len(ctx.Args) > 1 {
+			if n, ok := toInt64(ctx.Args[1]); ok {
+				count = int(n)
+			}
+		}
+
+		// Read bytes from file
+		data, err := file.ReadBytes(count)
+		if err != nil {
+			if err.Error() == "EOF" || strings.Contains(err.Error(), "EOF") {
+				// Return empty bytes on EOF
+				result := NewStoredBytes(nil)
+				id := ctx.executor.storeObject(result, "bytes")
+				marker := fmt.Sprintf("\x00BYTES:%d\x00", id)
+				ctx.state.SetResultWithoutClaim(Symbol(marker))
+				return BoolStatus(false)
+			}
+			ctx.LogError(CatIO, fmt.Sprintf("read_bytes: %v", err))
+			return BoolStatus(false)
+		}
+
+		// Create StoredBytes result
+		result := NewStoredBytes(data)
+		id := ctx.executor.storeObject(result, "bytes")
+		marker := fmt.Sprintf("\x00BYTES:%d\x00", id)
+		ctx.state.SetResultWithoutClaim(Symbol(marker))
+		return BoolStatus(true)
+	})
+
+	// write_bytes - write binary data to a file
+	// Usage: write_bytes <file>, <bytes>
+	ps.RegisterCommandInModule("io", "write_bytes", func(ctx *Context) Result {
+		if len(ctx.Args) < 2 {
+			ctx.LogError(CatIO, "write_bytes: file and bytes required")
+			return BoolStatus(false)
+		}
+
+		// Get file handle
+		var file *StoredFile
+		if f, ok := ctx.Args[0].(*StoredFile); ok {
+			file = f
+		} else if sym, ok := ctx.Args[0].(Symbol); ok {
+			symStr := string(sym)
+			if strings.HasPrefix(symStr, "#") {
+				file = resolveFile(ctx, symStr)
+			}
+		}
+
+		if file == nil {
+			ctx.LogError(CatIO, "write_bytes: not a file handle")
+			return BoolStatus(false)
+		}
+
+		// Get bytes to write
+		var data []byte
+		switch v := ctx.Args[1].(type) {
+		case StoredBytes:
+			data = v.Data()
+		default:
+			ctx.LogError(CatIO, fmt.Sprintf("write_bytes: expected bytes, got %s", getTypeName(v)))
+			return BoolStatus(false)
+		}
+
+		// Write bytes to file
+		err := file.WriteBytes(data)
+		if err != nil {
+			ctx.LogError(CatIO, fmt.Sprintf("write_bytes: %v", err))
+			return BoolStatus(false)
+		}
+
 		return BoolStatus(true)
 	})
 
@@ -1234,7 +1504,7 @@ func (ps *PawScript) RegisterSystemLib(scriptArgs []string) {
 	// ==================== sys:: module ====================
 
 	// msleep - sleep for specified milliseconds (async)
-	ps.RegisterCommandInModule("sys", "msleep", func(ctx *Context) Result {
+	ps.RegisterCommandInModule("time", "msleep", func(ctx *Context) Result {
 		if len(ctx.Args) < 1 {
 			ps.logger.ErrorCat(CatCommand, "Usage: msleep <milliseconds>")
 			return BoolStatus(false)
@@ -1398,7 +1668,7 @@ func (ps *PawScript) RegisterSystemLib(scriptArgs []string) {
 	})
 
 	// microtime - return microseconds since epoch or since interpreter started
-	ps.RegisterCommandInModule("sys", "microtime", func(ctx *Context) Result {
+	ps.RegisterCommandInModule("time", "microtime", func(ctx *Context) Result {
 		// Try to get system time in microseconds
 		now := time.Now()
 		microtime := now.UnixMicro()
@@ -1425,7 +1695,7 @@ func (ps *PawScript) RegisterSystemLib(scriptArgs []string) {
 	// datetime "America/Los_Angeles"  -> Local time as "YYYY-MM-DDTHH:NN:SS-07:00"
 	// datetime "UTC", stamp           -> Convert stamp to UTC
 	// datetime "UTC", stamp, "America/Los_Angeles" -> Interpret stamp as LA time, output UTC
-	ps.RegisterCommandInModule("sys", "datetime", func(ctx *Context) Result {
+	ps.RegisterCommandInModule("time", "datetime", func(ctx *Context) Result {
 		now := time.Now()
 
 		// Helper to format time with optional seconds
@@ -1615,6 +1885,194 @@ func (ps *PawScript) RegisterSystemLib(scriptArgs []string) {
 		ctx.SetResult(formatTime(parsedTime, targetTZ, hasSeconds))
 		return BoolStatus(true)
 	})
+
+	// ==================== debug:: module ====================
+
+	// mem_stats - debug command to show stored objects
+	ps.RegisterCommandInModule("debug", "mem_stats", func(ctx *Context) Result {
+		type objectInfo struct {
+			ID       int
+			Type     string
+			RefCount int
+			Size     int
+		}
+
+		var objects []objectInfo
+		totalSize := 0
+
+		ctx.executor.mu.RLock()
+		for id, obj := range ctx.executor.storedObjects {
+			size := estimateObjectSize(obj.Value)
+			objects = append(objects, objectInfo{
+				ID:       id,
+				Type:     obj.Type,
+				RefCount: obj.RefCount,
+				Size:     size,
+			})
+			totalSize += size
+		}
+		ctx.executor.mu.RUnlock()
+
+		// Sort by ID
+		for i := 0; i < len(objects)-1; i++ {
+			for j := i + 1; j < len(objects); j++ {
+				if objects[i].ID > objects[j].ID {
+					objects[i], objects[j] = objects[j], objects[i]
+				}
+			}
+		}
+
+		// Route output through channels
+		outCtx := NewOutputContext(ctx.state, ctx.executor)
+		var output strings.Builder
+		output.WriteString("=== Memory Statistics ===\n")
+		output.WriteString(fmt.Sprintf("Total stored objects: %d\n", len(objects)))
+		output.WriteString(fmt.Sprintf("Total estimated size: %d bytes\n\n", totalSize))
+
+		if len(objects) > 0 {
+			output.WriteString("ID    Type      RefCount  Size(bytes)\n")
+			output.WriteString("----  --------  --------  -----------\n")
+			for _, obj := range objects {
+				output.WriteString(fmt.Sprintf("%-4d  %-8s  %-8d  %d\n", obj.ID, obj.Type, obj.RefCount, obj.Size))
+			}
+		}
+		_ = outCtx.WriteToOut(output.String())
+
+		return BoolStatus(true)
+	})
+
+	// env_dump - debug command to show module environment details
+	ps.RegisterCommandInModule("debug", "env_dump", func(ctx *Context) Result {
+		outCtx := NewOutputContext(ctx.state, ctx.executor)
+		var output strings.Builder
+
+		env := ctx.state.moduleEnv
+		env.mu.RLock()
+		defer env.mu.RUnlock()
+
+		output.WriteString("=== Module Environment ===\n")
+
+		// Default module name
+		if env.DefaultName != "" {
+			output.WriteString(fmt.Sprintf("Default Module: %s\n", env.DefaultName))
+		}
+
+		// LibraryRestricted (available modules)
+		output.WriteString(fmt.Sprintf("\n--- Library Restricted (%d) ---\n", len(env.LibraryRestricted)))
+		writeLibrarySectionWrapped(&output, env.LibraryRestricted)
+
+		// Item metadata (shows import info) - grouped by source module
+		output.WriteString(fmt.Sprintf("\n--- Imported (%d) ---\n", len(env.ItemMetadataModule)))
+		if len(env.ItemMetadataModule) == 0 {
+			output.WriteString("  (none)\n")
+		} else {
+			// Group items by their source module
+			byModule := make(map[string][]string)
+			for name, meta := range env.ItemMetadataModule {
+				// Format: name(original) if renamed, else just name
+				displayName := name
+				if meta.OriginalName != name {
+					displayName = fmt.Sprintf("%s(%s)", name, meta.OriginalName)
+				}
+				byModule[meta.ImportedFromModule] = append(byModule[meta.ImportedFromModule], displayName)
+			}
+
+			// Get sorted module names
+			modNames := make([]string, 0, len(byModule))
+			for modName := range byModule {
+				modNames = append(modNames, modName)
+			}
+			sort.Strings(modNames)
+
+			// Output in same format as Library Restricted
+			for _, modName := range modNames {
+				items := byModule[modName]
+				sort.Strings(items)
+
+				// Write "  modname:: " prefix
+				prefix := fmt.Sprintf("  %s:: ", modName)
+				output.WriteString(prefix)
+
+				// Continuation indent is 4 spaces
+				contIndent := "    "
+				lineLen := len(prefix)
+
+				for i, name := range items {
+					if i > 0 {
+						output.WriteString(", ")
+						lineLen += 2
+					}
+					if lineLen+len(name) > 78 && i > 0 {
+						output.WriteString("\n")
+						output.WriteString(contIndent)
+						lineLen = len(contIndent)
+					}
+					output.WriteString(name)
+					lineLen += len(name)
+				}
+				output.WriteString("\n")
+			}
+		}
+
+		// CommandRegistryModule - count only non-nil (non-REMOVEd) commands
+		cmdNames := make([]string, 0, len(env.CommandRegistryModule))
+		for name, handler := range env.CommandRegistryModule {
+			if handler != nil { // Skip REMOVEd commands
+				cmdNames = append(cmdNames, name)
+			}
+		}
+		sort.Strings(cmdNames)
+		output.WriteString(fmt.Sprintf("\n--- Commands (%d) ---\n", len(cmdNames)))
+		writeWrappedList(&output, cmdNames, 2)
+
+		// MacrosModule - count only non-nil (non-REMOVEd) macros
+		macroNames := make([]string, 0, len(env.MacrosModule))
+		for name, macro := range env.MacrosModule {
+			if macro != nil { // Skip REMOVEd macros
+				macroNames = append(macroNames, name)
+			}
+		}
+		sort.Strings(macroNames)
+		output.WriteString(fmt.Sprintf("\n--- Macros (%d) ---\n", len(macroNames)))
+		writeWrappedList(&output, macroNames, 2)
+
+		// ObjectsModule
+		output.WriteString(fmt.Sprintf("\n--- Objects (%d) ---\n", len(env.ObjectsModule)))
+		if len(env.ObjectsModule) == 0 {
+			output.WriteString("  (none)\n")
+		} else {
+			objNames := make([]string, 0, len(env.ObjectsModule))
+			for name := range env.ObjectsModule {
+				objNames = append(objNames, name)
+			}
+			sort.Strings(objNames)
+			writeWrappedList(&output, objNames, 2)
+		}
+
+		// Module exports
+		output.WriteString(fmt.Sprintf("\n--- Exports (%d) ---\n", len(env.ModuleExports)))
+		writeLibrarySectionWrapped(&output, env.ModuleExports)
+
+		_ = outCtx.WriteToErr(output.String())
+		return BoolStatus(true)
+	})
+
+	// lib_dump - debug command to show LibraryInherited (the full inherited library)
+	ps.RegisterCommandInModule("debug", "lib_dump", func(ctx *Context) Result {
+		outCtx := NewOutputContext(ctx.state, ctx.executor)
+		var output strings.Builder
+
+		env := ctx.state.moduleEnv
+		env.mu.RLock()
+		defer env.mu.RUnlock()
+
+		output.WriteString("=== Library Inherited ===\n")
+		output.WriteString(fmt.Sprintf("\n--- Modules (%d) ---\n", len(env.LibraryInherited)))
+		writeLibrarySectionWrapped(&output, env.LibraryInherited)
+
+		_ = outCtx.WriteToErr(output.String())
+		return BoolStatus(true)
+	})
 }
 
 // configureLogFilter implements error_logging and debug_logging commands
@@ -1735,4 +2193,79 @@ func configureLogFilter(ctx *Context, ps *PawScript, isErrorLog bool) Result {
 	ctx.state.SetResultWithoutClaim(Symbol(marker))
 
 	return BoolStatus(true)
+}
+
+// writeWrappedList writes a comma-separated list with word wrapping
+func writeWrappedList(output *strings.Builder, items []string, indent int) {
+	if len(items) == 0 {
+		output.WriteString(strings.Repeat(" ", indent))
+		output.WriteString("(none)\n")
+		return
+	}
+	indentStr := strings.Repeat(" ", indent)
+	output.WriteString(indentStr)
+	lineLen := indent
+	for i, name := range items {
+		if i > 0 {
+			output.WriteString(", ")
+			lineLen += 2
+		}
+		if lineLen+len(name) > 78 && i > 0 {
+			output.WriteString("\n")
+			output.WriteString(indentStr)
+			lineLen = indent
+		}
+		output.WriteString(name)
+		lineLen += len(name)
+	}
+	output.WriteString("\n")
+}
+
+// writeLibrarySectionWrapped writes a Library (map of modules) with word wrapping
+// Format: "  modname:: item1, item2, ..."
+// Continuation lines are indented 2 spaces more than the initial "  "
+func writeLibrarySectionWrapped(output *strings.Builder, lib Library) {
+	if len(lib) == 0 {
+		output.WriteString("  (none)\n")
+		return
+	}
+
+	// Get sorted module names
+	modNames := make([]string, 0, len(lib))
+	for name := range lib {
+		modNames = append(modNames, name)
+	}
+	sort.Strings(modNames)
+
+	for _, modName := range modNames {
+		section := lib[modName]
+		itemNames := make([]string, 0, len(section))
+		for itemName := range section {
+			itemNames = append(itemNames, itemName)
+		}
+		sort.Strings(itemNames)
+
+		// Write "  modname:: " prefix
+		prefix := fmt.Sprintf("  %s:: ", modName)
+		output.WriteString(prefix)
+
+		// Continuation indent is 4 spaces (2 more than the leading "  ")
+		contIndent := "    "
+		lineLen := len(prefix)
+
+		for i, name := range itemNames {
+			if i > 0 {
+				output.WriteString(", ")
+				lineLen += 2
+			}
+			if lineLen+len(name) > 78 && i > 0 {
+				output.WriteString("\n")
+				output.WriteString(contIndent)
+				lineLen = len(contIndent)
+			}
+			output.WriteString(name)
+			lineLen += len(name)
+		}
+		output.WriteString("\n")
+	}
 }

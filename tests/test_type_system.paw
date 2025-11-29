@@ -4,53 +4,53 @@
 echo "=== Type System Tests ==="
 echo ""
 
-# Test 1: get_inferred_type with different value types
-echo "Test 1: get_inferred_type"
-echo "Type of 42: {get_inferred_type 42}"
-echo "Type of 3.14: {get_inferred_type 3.14}"
-echo "Type of true: {get_inferred_type true}"
-echo "Type of false: {get_inferred_type false}"
-echo "Type of \"hello\": {get_inferred_type "hello"}"
-echo "Type of myvar (symbol): {get_inferred_type myvar}"
-echo "Type of (block): {get_inferred_type (some code)}"
+# Test 1: infer with different value types
+echo "Test 1: infer"
+echo "Type of 42: {infer 42}"
+echo "Type of 3.14: {infer 3.14}"
+echo "Type of true: {infer true}"
+echo "Type of false: {infer false}"
+echo "Type of \"hello\": {infer "hello"}"
+echo "Type of myvar (symbol): {infer myvar}"
+echo "Type of (block): {infer (some code)}"
 echo ""
 
-# Test 2: get_type with variables
-echo "Test 2: get_type with variables"
+# Test 2: type with variables
+echo "Test 2: type with variables"
 
 num: 42
-echo "Type of num variable: {get_type num}"
+echo "Type of num variable: {type num}"
 
 str: "hello"
-echo "Type of str variable: {get_type str}"
+echo "Type of str variable: {type str}"
 
 bool_val: true
-echo "Type of bool_val variable: {get_type bool_val}"
+echo "Type of bool_val variable: {type bool_val}"
 
 sym: myidentifier
-echo "Type of sym variable (symbol): {get_type sym}"
+echo "Type of sym variable (symbol): {type sym}"
 
 blk: (code block)
-echo "Type of blk variable (block): {get_type blk}"
+echo "Type of blk variable (block): {type blk}"
 
 macro: {macro (echo "Hello!")}
-echo "Type of macro variable (macro): {get_type macro}"
+echo "Type of macro variable (macro): {type macro}"
 
 cmd: {command_ref "echo"}
-echo "Type of cmd variable (command): {get_type cmd}"
+echo "Type of cmd variable (command): {type cmd}"
 
 echo ""
 
 # Test 3: Undefined variable
 echo "Test 3: Undefined variable"
-echo "Type of undefined_var: {get_type undefined_var}"
+echo "Type of undefined_var: {type undefined_var}"
 echo "(Should print 'undefined' above)"
 echo ""
 
 # Test 4: Symbol vs string distinction
 echo "Test 4: Symbol vs String distinction"
-echo "Symbol: {get_inferred_type identifier} (should be 'symbol')"
-echo "String: {get_inferred_type \"identifier\"} (should be 'string')"
+echo "Symbol: {infer identifier} (should be 'symbol')"
+echo "String: {infer \"identifier\"} (should be 'string')"
 echo ""
 
 # Test 5: Using symbols in commands
@@ -59,15 +59,15 @@ x: foo
 y: "foo"
 echo "x (symbol) = ~x"
 echo "y (string) = ~y"
-echo "x type: {get_type x}"
-echo "y type: {get_type y}"
+echo "x type: {type x}"
+echo "y type: {type y}"
 echo ""
 
 # Test 6: nil handling
 echo "Test 6: nil handling"
-echo "Type of nil: {get_inferred_type nil}"
+echo "Type of nil: {infer nil}"
 null_var: nil
-echo "Type of null_var: {get_type null_var}"
+echo "Type of null_var: {type null_var}"
 echo ""
 
 echo "=== All Tests Complete ==="

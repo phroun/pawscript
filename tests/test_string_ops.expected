@@ -21,11 +21,11 @@ Expected: a-b-c-d
 Round-trip test: one|two|three
 Expected: one|two|three
 
-Testing str_upper...
+Testing upper...
 Uppercase: HELLO WORLD
 Expected: HELLO WORLD
 
-Testing str_lower...
+Testing lower...
 Lowercase: hello world
 Expected: hello world
 
@@ -71,7 +71,7 @@ Expected: true
 Ends with 'hello': false
 Expected: false
 
-Testing str_repeat...
+Testing repeat...
 Repeated: ababab
 Expected: ababab
 Single repeat: x

@@ -1,0 +1,155 @@
+# Test type conversion commands: string, float, bool, symbol
+
+echo "=== STRING COMMAND ==="
+echo ""
+
+echo "-- string (primitives) --"
+echo "string 123:", {string 123}
+echo "string 3.14:", {string 3.14}
+echo "string true:", {string true}
+echo "string false:", {string false}
+echo "string nil:", {string nil}
+
+echo ""
+echo "-- string (symbols and strings) --"
+echo "string hello:", {string hello}
+echo "string \"quoted\":", {string "quoted"}
+
+echo ""
+echo "-- string (lists) --"
+mylist: {list 1, 2, 3}
+echo "string ~mylist:", {string ~mylist}
+nested: {list a, {list 1, 2}, b}
+echo "string nested:", {string ~nested}
+
+echo ""
+echo "-- string (special types) --"
+myblock: (echo "hi")
+echo "string block:", {string ~myblock}
+
+echo ""
+echo "=== FLOAT COMMAND ==="
+echo ""
+
+echo "-- float (valid conversions) --"
+echo "float 42:", {float 42}
+echo "float 3.14:", {float 3.14}
+echo "float \"123\":", {float "123"}
+echo "float \"3.14\":", {float "3.14"}
+echo "float 0:", {float 0}
+
+echo ""
+echo "-- float (invalid with nil) --"
+echo "float \"abc\":", {float "abc"}
+echo "float hello:", {float hello}
+
+echo ""
+echo "-- float (invalid with default) --"
+echo "float \"abc\", 0:", {float "abc", 0}
+echo "float \"abc\", -1:", {float "abc", -1}
+echo "float \"abc\", default:", {float "abc", default}
+
+echo ""
+echo "=== NUMBER COMMAND ==="
+echo ""
+
+echo "-- number (integer results) --"
+echo "number 42:", {number 42}
+echo "number \"123\":", {number "123"}
+echo "number 3.0:", {number 3.0}
+echo "number \"100.0\":", {number "100.0"}
+
+echo ""
+echo "-- number (float results) --"
+echo "number 3.14:", {number 3.14}
+echo "number \"2.5\":", {number "2.5"}
+echo "number 0.001:", {number 0.001}
+
+echo ""
+echo "-- number (invalid with default) --"
+echo "number \"abc\", 0:", {number "abc", 0}
+echo "number hello, -1:", {number hello, -1}
+echo "number \"invalid\", default:", {number "invalid", default}
+
+echo ""
+echo "=== BOOL COMMAND ==="
+echo ""
+
+echo "-- bool (truthy values) --"
+echo "bool 1:", {bool 1}
+echo "bool 42:", {bool 42}
+echo "bool \"hello\":", {bool "hello"}
+echo "bool true:", {bool true}
+mylist: {list 1, 2}
+echo "bool ~mylist:", {bool ~mylist}
+
+echo ""
+echo "-- bool (falsy values) --"
+echo "bool 0:", {bool 0}
+echo "bool \"\":", {bool ""}
+echo "bool \"0\":", {bool "0"}
+echo "bool \"false\":", {bool "false"}
+echo "bool false:", {bool false}
+echo "bool nil:", {bool nil}
+
+echo ""
+echo "=== SYMBOL COMMAND ==="
+echo ""
+
+echo "-- symbol (valid conversions) --"
+echo "symbol 123:", {symbol 123}
+echo "symbol 3.14:", {symbol 3.14}
+echo "symbol hello:", {symbol hello}
+echo "symbol \"quoted\":", {symbol "quoted"}
+echo "symbol true:", {symbol true}
+echo "symbol nil:", {symbol nil}
+
+echo ""
+echo "-- symbol (lists) --"
+mylist: {list a, b, c}
+echo "symbol ~mylist:", {symbol ~mylist}
+
+echo ""
+echo "=== BLOCK COMMAND ==="
+echo ""
+
+echo "-- block (from string) --"
+b1: {block "echo \"block executed\""}
+echo "block created:", {string ~b1}
+
+echo ""
+echo "-- block (from ParenGroup) --"
+b2: {block (echo "from paren")}
+echo "block created:", {string ~b2}
+
+echo ""
+echo "-- block (from list) --"
+lines: {list "echo line1", "echo line2"}
+b3: {block ~lines}
+echo "block created:", {string ~b3}
+
+echo ""
+echo "-- block (used with repeat) --"
+b4: {block "echo iteration"}
+echo "repeat output:"
+repeat ~b4, 3
+
+echo ""
+echo "-- block (used with macro) --"
+b5: {block "echo \"Hello from dynamic macro\""}
+macro dynMacro, ~b5
+dynMacro
+
+echo ""
+echo "-- block (direct execution) --"
+b6: {block "echo directly_executed"}
+{~b6}
+
+echo ""
+echo "-- block (with arguments) --"
+b7: {block "echo \"Hello, $1!\""}
+{~b7} World
+(echo "Sum: $1 + $2 = 3") 1, 2
+
+echo ""
+echo "=== ALL TESTS COMPLETE ==="

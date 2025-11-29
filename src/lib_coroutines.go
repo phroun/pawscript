@@ -2,6 +2,7 @@ package pawscript
 
 import (
 	"fmt"
+	"math/rand"
 	"sort"
 	"strings"
 	"time"
@@ -43,7 +44,7 @@ func (ps *PawScript) RegisterGeneratorLib() {
 	// generator - Create a generator from a macro without executing it
 	// Returns a token that can be resumed to get values
 	// generator <macro_name>, [args...]
-	ps.RegisterCommandInModule("core", "generator", func(ctx *Context) Result {
+	ps.RegisterCommandInModule("coroutines", "generator", func(ctx *Context) Result {
 		if len(ctx.Args) < 1 {
 			ctx.LogError(CatCommand, "Usage: generator <macro_name>, [args...]")
 			return BoolStatus(false)
@@ -203,7 +204,7 @@ func (ps *PawScript) RegisterGeneratorLib() {
 
 	// resume - Resume execution of a suspended token
 	// resume <token>
-	ps.RegisterCommandInModule("core", "resume", func(ctx *Context) Result {
+	ps.RegisterCommandInModule("coroutines", "resume", func(ctx *Context) Result {
 		if len(ctx.Args) < 1 {
 			ctx.LogError(CatCommand, "Usage: resume <token>")
 			return BoolStatus(false)
@@ -235,6 +236,7 @@ func (ps *PawScript) RegisterGeneratorLib() {
 		state := tokenData.ExecutionState
 		substCtx := tokenData.SubstitutionCtx
 		whileCont := tokenData.WhileContinuation
+		forCont := tokenData.ForContinuation
 		iterState := tokenData.IteratorState
 		ctx.executor.mu.Unlock()
 
@@ -338,6 +340,108 @@ func (ps *PawScript) RegisterGeneratorLib() {
 
 				ctx.SetResult(Symbol(pairMarker))
 				return BoolStatus(true)
+
+			case "rng":
+				// Random number generator - never exhausts
+				if iterState.Rng == nil {
+					ctx.LogError(CatCommand, "resume: RNG state is nil")
+					ctx.executor.mu.Lock()
+					delete(ctx.executor.activeTokens, tokenID)
+					ctx.executor.mu.Unlock()
+					return BoolStatus(false)
+				}
+
+				// Get extra arguments (skip first arg which is the token)
+				extraArgs := ctx.Args[1:]
+
+				// Parse arguments to determine range
+				// resume ~rng         -> random int64
+				// resume ~rng, max    -> 0 to max-1
+				// resume ~rng, min, max -> min to max (inclusive)
+				var result int64
+				switch len(extraArgs) {
+				case 0:
+					// No args - return full range random int64
+					result = iterState.Rng.Int63()
+				case 1:
+					// One arg: max (exclusive), range is 0 to max-1
+					max, ok := toInt64(extraArgs[0])
+					if !ok || max <= 0 {
+						ctx.LogError(CatCommand, "resume: rng max must be a positive number")
+						return BoolStatus(false)
+					}
+					result = iterState.Rng.Int63n(max)
+				default:
+					// Two+ args: min, max (inclusive)
+					min, ok1 := toInt64(extraArgs[0])
+					max, ok2 := toInt64(extraArgs[1])
+					if !ok1 || !ok2 {
+						ctx.LogError(CatCommand, "resume: rng min and max must be numbers")
+						return BoolStatus(false)
+					}
+					if max < min {
+						ctx.LogError(CatCommand, "resume: rng max must be >= min")
+						return BoolStatus(false)
+					}
+					// Generate in range [min, max] inclusive
+					rangeSize := max - min + 1
+					result = min + iterState.Rng.Int63n(rangeSize)
+				}
+
+				ctx.SetResult(result)
+				return BoolStatus(true)
+
+			case "range":
+				// Range iterator - advances through numeric sequence
+				if !iterState.RangeStarted {
+					// First call - return start value
+					iterState.RangeCurrent = iterState.RangeStart
+					ctx.executor.mu.Lock()
+					if td, exists := ctx.executor.activeTokens[tokenID]; exists {
+						td.IteratorState.RangeStarted = true
+						td.IteratorState.RangeCurrent = iterState.RangeStart
+					}
+					ctx.executor.mu.Unlock()
+				}
+
+				// Check if we've reached the end
+				step := iterState.RangeStep
+				ascending := step > 0
+				current := iterState.RangeCurrent
+				end := iterState.RangeEnd
+
+				exhausted := false
+				if ascending {
+					exhausted = current > end
+				} else {
+					exhausted = current < end
+				}
+
+				if exhausted {
+					// Iterator exhausted - delete token
+					ctx.executor.mu.Lock()
+					delete(ctx.executor.activeTokens, tokenID)
+					ctx.executor.mu.Unlock()
+
+					ctx.SetResult(nil)
+					return BoolStatus(false)
+				}
+
+				// Return current value and advance
+				result := current
+				ctx.executor.mu.Lock()
+				if td, exists := ctx.executor.activeTokens[tokenID]; exists {
+					td.IteratorState.RangeCurrent = current + step
+				}
+				ctx.executor.mu.Unlock()
+
+				// Return as int64 if it's a whole number, otherwise float64
+				if result == float64(int64(result)) {
+					ctx.SetResult(int64(result))
+				} else {
+					ctx.SetResult(result)
+				}
+				return BoolStatus(true)
 			}
 		}
 
@@ -400,6 +504,13 @@ func (ps *PawScript) RegisterGeneratorLib() {
 					}
 					ctx.executor.mu.Unlock()
 
+					// Merge bubbles from generator state to caller state
+					ctx.state.MergeBubbles(state)
+					// Clear generator's bubbleMap to avoid duplicate merges
+					state.mu.Lock()
+					state.bubbleMap = make(map[string][]*BubbleEntry)
+					state.mu.Unlock()
+
 					ctx.SetResult(yieldResult.Value)
 					return BoolStatus(true)
 				}
@@ -409,6 +520,13 @@ func (ps *PawScript) RegisterGeneratorLib() {
 					ctx.executor.mu.Lock()
 					delete(ctx.executor.activeTokens, tokenID)
 					ctx.executor.mu.Unlock()
+
+					// Merge bubbles from generator state to caller state
+					ctx.state.MergeBubbles(state)
+					// Clear generator's bubbleMap after merge
+					state.mu.Lock()
+					state.bubbleMap = make(map[string][]*BubbleEntry)
+					state.mu.Unlock()
 
 					if earlyReturn.HasResult {
 						ctx.SetResult(earlyReturn.Result)
@@ -459,6 +577,13 @@ func (ps *PawScript) RegisterGeneratorLib() {
 
 				if earlyReturn, ok := condResult.(EarlyReturn); ok {
 					// Condition returned early - propagate
+					// Merge bubbles from generator state to caller state
+					ctx.state.MergeBubbles(state)
+					// Clear generator's bubbleMap after merge
+					state.mu.Lock()
+					state.bubbleMap = make(map[string][]*BubbleEntry)
+					state.mu.Unlock()
+
 					if earlyReturn.HasResult {
 						ctx.SetResult(earlyReturn.Result)
 					}
@@ -482,6 +607,13 @@ func (ps *PawScript) RegisterGeneratorLib() {
 						}
 					}
 					ctx.executor.mu.Unlock()
+
+					// Merge bubbles from generator state to caller state
+					ctx.state.MergeBubbles(state)
+					// Clear generator's bubbleMap after merge
+					state.mu.Lock()
+					state.bubbleMap = make(map[string][]*BubbleEntry)
+					state.mu.Unlock()
 
 					ctx.SetResult(yieldResult.Value)
 					return BoolStatus(true)
@@ -558,6 +690,13 @@ func (ps *PawScript) RegisterGeneratorLib() {
 						}
 						ctx.executor.mu.Unlock()
 
+						// Merge bubbles from generator state to caller state
+						ctx.state.MergeBubbles(state)
+						// Clear generator's bubbleMap after merge
+						state.mu.Lock()
+						state.bubbleMap = make(map[string][]*BubbleEntry)
+						state.mu.Unlock()
+
 						ctx.SetResult(yieldResult.Value)
 						return BoolStatus(true)
 					}
@@ -567,6 +706,13 @@ func (ps *PawScript) RegisterGeneratorLib() {
 						ctx.executor.mu.Lock()
 						delete(ctx.executor.activeTokens, tokenID)
 						ctx.executor.mu.Unlock()
+
+						// Merge bubbles from generator state to caller state
+						ctx.state.MergeBubbles(state)
+						// Clear generator's bubbleMap after merge
+						state.mu.Lock()
+						state.bubbleMap = make(map[string][]*BubbleEntry)
+						state.mu.Unlock()
 
 						if earlyReturn.HasResult {
 							ctx.SetResult(earlyReturn.Result)
@@ -601,6 +747,401 @@ func (ps *PawScript) RegisterGeneratorLib() {
 			}
 
 			// No parent - break out and continue with remaining generator commands
+			break
+		}
+
+		// Handle for continuation if present
+		for forCont != nil {
+			ps.logger.DebugCat(CatAsync,"resume: handling for continuation, %d remaining body commands", len(forCont.RemainingBodyCmds))
+
+			// Clear the continuation from the token (we're handling it now)
+			ctx.executor.mu.Lock()
+			if td, exists := ctx.executor.activeTokens[tokenID]; exists {
+				td.ForContinuation = nil
+			}
+			ctx.executor.mu.Unlock()
+
+			// Execute remaining body commands from where we left off
+			lastStatus := true
+			for cmdIdx, cmd := range forCont.RemainingBodyCmds {
+				if strings.TrimSpace(cmd.Command) == "" {
+					continue
+				}
+
+				// Apply flow control
+				shouldExecute := true
+				switch cmd.Separator {
+				case "&":
+					shouldExecute = lastStatus
+				case "|":
+					shouldExecute = !lastStatus
+				}
+
+				if !shouldExecute {
+					continue
+				}
+
+				result := ctx.executor.executeParsedCommand(cmd, forCont.State, substCtx)
+
+				// Check for yield within remaining body
+				if yieldResult, ok := result.(YieldResult); ok {
+					ps.logger.DebugCat(CatAsync,"resume: yield in for continuation body, value: %v", yieldResult.Value)
+
+					// Store new continuation for next resume
+					ctx.executor.mu.Lock()
+					if td, exists := ctx.executor.activeTokens[tokenID]; exists {
+						nextIdx := cmdIdx + 1
+						var remainingCmds []*ParsedCommand
+						if nextIdx < len(forCont.RemainingBodyCmds) {
+							remainingCmds = forCont.RemainingBodyCmds[nextIdx:]
+						}
+						td.ForContinuation = &ForContinuation{
+							BodyBlock:          forCont.BodyBlock,
+							RemainingBodyCmds:  remainingCmds,
+							BodyCmdIndex:       forCont.BodyCmdIndex + nextIdx,
+							IterationNumber:    forCont.IterationNumber,
+							IterVar:            forCont.IterVar,
+							IterNumVar:         forCont.IterNumVar,
+							IndexVar:           forCont.IndexVar,
+							KeyVar:             forCont.KeyVar,
+							ValueVar:           forCont.ValueVar,
+							UnpackVars:         forCont.UnpackVars,
+							IteratorToken:      forCont.IteratorToken,
+							IteratorType:       forCont.IteratorType,
+							IsDescending:       forCont.IsDescending,
+							State:              forCont.State,
+							ParentContinuation: forCont.ParentContinuation,
+						}
+					}
+					ctx.executor.mu.Unlock()
+
+					// Merge bubbles from generator state to caller state
+					ctx.state.MergeBubbles(forCont.State)
+					forCont.State.mu.Lock()
+					forCont.State.bubbleMap = make(map[string][]*BubbleEntry)
+					forCont.State.mu.Unlock()
+
+					ctx.SetResult(yieldResult.Value)
+					return BoolStatus(true)
+				}
+
+				// Check for early return
+				if earlyReturn, ok := result.(EarlyReturn); ok {
+					ctx.executor.mu.Lock()
+					delete(ctx.executor.activeTokens, tokenID)
+					ctx.executor.mu.Unlock()
+
+					ctx.state.MergeBubbles(forCont.State)
+					forCont.State.mu.Lock()
+					forCont.State.bubbleMap = make(map[string][]*BubbleEntry)
+					forCont.State.mu.Unlock()
+
+					if earlyReturn.HasResult {
+						ctx.SetResult(earlyReturn.Result)
+					}
+					return BoolStatus(false)
+				}
+
+				// Handle async
+				if asyncToken, isToken := result.(TokenResult); isToken {
+					asyncTokenID := string(asyncToken)
+					waitChan := make(chan ResumeData, 1)
+					ctx.executor.attachWaitChan(asyncTokenID, waitChan)
+					resumeData := <-waitChan
+					lastStatus = resumeData.Status
+					continue
+				}
+
+				if boolRes, ok := result.(BoolStatus); ok {
+					lastStatus = bool(boolRes)
+				}
+			}
+
+			// Finished remaining body commands - continue to next iteration
+			// Handle numeric range continuation
+			if forCont.IteratorType == "numrange" {
+				// Re-parse body for next iteration
+				parser := NewParser(forCont.BodyBlock, "")
+				cleanedBody := parser.RemoveComments(forCont.BodyBlock)
+				normalizedBody := parser.NormalizeKeywords(cleanedBody)
+				bodyCommands, err := parser.ParseCommandSequence(normalizedBody)
+				if err != nil {
+					ctx.LogError(CatCommand, fmt.Sprintf("resume: failed to parse for body: %v", err))
+					return BoolStatus(false)
+				}
+
+				startNum := forCont.RangeStart
+				endNum := forCont.RangeEnd
+				step := forCont.RangeStep
+				current := forCont.RangeCurrent + step
+				ascending := endNum >= startNum
+
+				maxIterations := 100000
+				iterations := 0
+				iterNum := forCont.IterationNumber + 1
+
+				for iterations < maxIterations {
+					// Check termination
+					if ascending && step > 0 {
+						if current > endNum {
+							break
+						}
+					} else if !ascending && step < 0 {
+						if current < endNum {
+							break
+						}
+					}
+
+					// Set iteration variable
+					if current == float64(int64(current)) {
+						forCont.State.SetVariable(forCont.IterVar, int64(current))
+					} else {
+						forCont.State.SetVariable(forCont.IterVar, current)
+					}
+
+					if forCont.IterNumVar != "" {
+						forCont.State.SetVariable(forCont.IterNumVar, int64(iterNum))
+					}
+					if forCont.IndexVar != "" {
+						forCont.State.SetVariable(forCont.IndexVar, int64(iterNum-1))
+					}
+
+					// Execute body
+					for cmdIdx, cmd := range bodyCommands {
+						if strings.TrimSpace(cmd.Command) == "" {
+							continue
+						}
+						shouldExecute := true
+						switch cmd.Separator {
+						case "&":
+							shouldExecute = lastStatus
+						case "|":
+							shouldExecute = !lastStatus
+						}
+						if !shouldExecute {
+							continue
+						}
+
+						result := ctx.executor.executeParsedCommand(cmd, forCont.State, substCtx)
+
+						// Check for yield
+						if yieldResult, ok := result.(YieldResult); ok {
+							// Store continuation
+							ctx.executor.mu.Lock()
+							if td, exists := ctx.executor.activeTokens[tokenID]; exists {
+								nextIdx := cmdIdx + 1
+								var remainingCmds []*ParsedCommand
+								if nextIdx < len(bodyCommands) {
+									remainingCmds = bodyCommands[nextIdx:]
+								}
+								td.ForContinuation = &ForContinuation{
+									BodyBlock:          forCont.BodyBlock,
+									RemainingBodyCmds:  remainingCmds,
+									BodyCmdIndex:       cmdIdx,
+									IterationNumber:    iterNum,
+									IterVar:            forCont.IterVar,
+									IterNumVar:         forCont.IterNumVar,
+									IndexVar:           forCont.IndexVar,
+									IteratorType:       "numrange",
+									State:              forCont.State,
+									ParentContinuation: forCont.ParentContinuation,
+									RangeStart:         startNum,
+									RangeEnd:           endNum,
+									RangeStep:          step,
+									RangeCurrent:       current,
+								}
+							}
+							ctx.executor.mu.Unlock()
+
+							ctx.state.MergeBubbles(forCont.State)
+							forCont.State.mu.Lock()
+							forCont.State.bubbleMap = make(map[string][]*BubbleEntry)
+							forCont.State.mu.Unlock()
+
+							ctx.SetResult(yieldResult.Value)
+							return BoolStatus(true)
+						}
+
+						// Check for early return
+						if earlyReturn, ok := result.(EarlyReturn); ok {
+							ctx.executor.mu.Lock()
+							delete(ctx.executor.activeTokens, tokenID)
+							ctx.executor.mu.Unlock()
+
+							ctx.state.MergeBubbles(forCont.State)
+							forCont.State.mu.Lock()
+							forCont.State.bubbleMap = make(map[string][]*BubbleEntry)
+							forCont.State.mu.Unlock()
+
+							if earlyReturn.HasResult {
+								ctx.SetResult(earlyReturn.Result)
+							}
+							return BoolStatus(false)
+						}
+
+						// Handle async
+						if asyncToken, isToken := result.(TokenResult); isToken {
+							asyncTokenID := string(asyncToken)
+							waitChan := make(chan ResumeData, 1)
+							ctx.executor.attachWaitChan(asyncTokenID, waitChan)
+							resumeData := <-waitChan
+							lastStatus = resumeData.Status
+							continue
+						}
+
+						if boolRes, ok := result.(BoolStatus); ok {
+							lastStatus = bool(boolRes)
+						}
+					}
+
+					current += step
+					iterNum++
+					iterations++
+				}
+			} else if forCont.IteratorToken != "" {
+				// Re-parse body for next iteration
+				parser := NewParser(forCont.BodyBlock, "")
+				cleanedBody := parser.RemoveComments(forCont.BodyBlock)
+				normalizedBody := parser.NormalizeKeywords(cleanedBody)
+				bodyCommands, err := parser.ParseCommandSequence(normalizedBody)
+				if err != nil {
+					ctx.LogError(CatCommand, fmt.Sprintf("resume: failed to parse for body: %v", err))
+					return BoolStatus(false)
+				}
+
+				maxIterations := 100000
+				iterations := 0
+				iterNum := forCont.IterationNumber + 1
+
+				for iterations < maxIterations {
+					// Resume the iterator to get next value
+					resumeCode := fmt.Sprintf("resume %s", forCont.IteratorToken)
+					resumeResult := ctx.executor.ExecuteWithState(resumeCode, forCont.State, nil, "", 0, 0)
+
+					// Check if iterator is exhausted
+					if boolRes, ok := resumeResult.(BoolStatus); ok && !bool(boolRes) {
+						break
+					}
+
+					// Get the yielded value
+					var value interface{}
+					if forCont.State.HasResult() {
+						value = forCont.State.GetResult()
+					}
+
+					// Set variables
+					if forCont.IterVar != "" {
+						forCont.State.SetVariable(forCont.IterVar, value)
+					}
+					if forCont.IterNumVar != "" {
+						forCont.State.SetVariable(forCont.IterNumVar, int64(iterNum))
+					}
+					if forCont.IndexVar != "" {
+						forCont.State.SetVariable(forCont.IndexVar, int64(iterNum-1))
+					}
+
+					// Execute body
+					for cmdIdx, cmd := range bodyCommands {
+						if strings.TrimSpace(cmd.Command) == "" {
+							continue
+						}
+						shouldExecute := true
+						switch cmd.Separator {
+						case "&":
+							shouldExecute = lastStatus
+						case "|":
+							shouldExecute = !lastStatus
+						}
+						if !shouldExecute {
+							continue
+						}
+
+						result := ctx.executor.executeParsedCommand(cmd, forCont.State, substCtx)
+
+						// Check for yield
+						if yieldResult, ok := result.(YieldResult); ok {
+							// Store continuation
+							ctx.executor.mu.Lock()
+							if td, exists := ctx.executor.activeTokens[tokenID]; exists {
+								nextIdx := cmdIdx + 1
+								var remainingCmds []*ParsedCommand
+								if nextIdx < len(bodyCommands) {
+									remainingCmds = bodyCommands[nextIdx:]
+								}
+								td.ForContinuation = &ForContinuation{
+									BodyBlock:          forCont.BodyBlock,
+									RemainingBodyCmds:  remainingCmds,
+									BodyCmdIndex:       cmdIdx,
+									IterationNumber:    iterNum,
+									IterVar:            forCont.IterVar,
+									IterNumVar:         forCont.IterNumVar,
+									IndexVar:           forCont.IndexVar,
+									KeyVar:             forCont.KeyVar,
+									ValueVar:           forCont.ValueVar,
+									UnpackVars:         forCont.UnpackVars,
+									IteratorToken:      forCont.IteratorToken,
+									IteratorType:       forCont.IteratorType,
+									IsDescending:       forCont.IsDescending,
+									State:              forCont.State,
+									ParentContinuation: forCont.ParentContinuation,
+								}
+							}
+							ctx.executor.mu.Unlock()
+
+							ctx.state.MergeBubbles(forCont.State)
+							forCont.State.mu.Lock()
+							forCont.State.bubbleMap = make(map[string][]*BubbleEntry)
+							forCont.State.mu.Unlock()
+
+							ctx.SetResult(yieldResult.Value)
+							return BoolStatus(true)
+						}
+
+						// Check for early return
+						if earlyReturn, ok := result.(EarlyReturn); ok {
+							ctx.executor.mu.Lock()
+							delete(ctx.executor.activeTokens, tokenID)
+							ctx.executor.mu.Unlock()
+
+							ctx.state.MergeBubbles(forCont.State)
+							forCont.State.mu.Lock()
+							forCont.State.bubbleMap = make(map[string][]*BubbleEntry)
+							forCont.State.mu.Unlock()
+
+							if earlyReturn.HasResult {
+								ctx.SetResult(earlyReturn.Result)
+							}
+							return BoolStatus(false)
+						}
+
+						// Handle async
+						if asyncToken, isToken := result.(TokenResult); isToken {
+							asyncTokenID := string(asyncToken)
+							waitChan := make(chan ResumeData, 1)
+							ctx.executor.attachWaitChan(asyncTokenID, waitChan)
+							resumeData := <-waitChan
+							lastStatus = resumeData.Status
+							continue
+						}
+
+						if boolRes, ok := result.(BoolStatus); ok {
+							lastStatus = bool(boolRes)
+						}
+					}
+
+					iterNum++
+					iterations++
+				}
+			}
+
+			// Check for parent continuation
+			if forCont.ParentContinuation != nil {
+				ps.logger.DebugCat(CatAsync,"resume: inner for finished, resuming parent continuation")
+				forCont = forCont.ParentContinuation
+				continue
+			}
+
+			// No parent - break out
 			break
 		}
 
@@ -658,12 +1199,14 @@ func (ps *PawScript) RegisterGeneratorLib() {
 						remaining = nil
 					}
 
-					// If this yield came from a while loop, store the continuation
+					// If this yield came from a while or for loop, store the continuation
 					if yieldResult.WhileContinuation != nil {
 						tokenData.WhileContinuation = yieldResult.WhileContinuation
 						tokenData.WhileContinuation.SubstitutionCtx = substCtx
-						// Keep the while command in remaining (don't advance past it)
-						// so that when continuation finishes, we continue after the while
+						tokenData.CommandSequence.RemainingCommands = remaining
+						tokenData.CommandSequence.CurrentIndex += nextIndex
+					} else if yieldResult.ForContinuation != nil {
+						tokenData.ForContinuation = yieldResult.ForContinuation
 						tokenData.CommandSequence.RemainingCommands = remaining
 						tokenData.CommandSequence.CurrentIndex += nextIndex
 					} else {
@@ -672,6 +1215,13 @@ func (ps *PawScript) RegisterGeneratorLib() {
 					}
 				}
 				ctx.executor.mu.Unlock()
+
+				// Merge bubbles from generator state to caller state
+				ctx.state.MergeBubbles(state)
+				// Clear generator's bubbleMap to avoid duplicate merges on next yield
+				state.mu.Lock()
+				state.bubbleMap = make(map[string][]*BubbleEntry)
+				state.mu.Unlock()
 
 				// Return the yielded value
 				ctx.SetResult(yieldResult.Value)
@@ -731,6 +1281,13 @@ func (ps *PawScript) RegisterGeneratorLib() {
 				delete(ctx.executor.activeTokens, tokenID)
 				ctx.executor.mu.Unlock()
 
+				// Merge bubbles from generator state to caller state
+				ctx.state.MergeBubbles(state)
+				// Clear generator's bubbleMap after merge
+				state.mu.Lock()
+				state.bubbleMap = make(map[string][]*BubbleEntry)
+				state.mu.Unlock()
+
 				// Return the result
 				if earlyReturn.HasResult {
 					ctx.SetResult(earlyReturn.Result)
@@ -768,6 +1325,13 @@ func (ps *PawScript) RegisterGeneratorLib() {
 		delete(ctx.executor.activeTokens, tokenID)
 		ctx.executor.mu.Unlock()
 
+		// Merge any remaining bubbles from generator state to caller state
+		ctx.state.MergeBubbles(state)
+		// Clear generator's bubbleMap after merge
+		state.mu.Lock()
+		state.bubbleMap = make(map[string][]*BubbleEntry)
+		state.mu.Unlock()
+
 		// Return final result with false to signal completion
 		// This allows while (v: {resume ~gen}) pattern to exit cleanly
 		if state.HasResult() {
@@ -778,7 +1342,7 @@ func (ps *PawScript) RegisterGeneratorLib() {
 
 	// yield - Yield a value from a generator, pausing execution
 	// yield [token], <value>
-	ps.RegisterCommandInModule("core", "yield", func(ctx *Context) Result {
+	ps.RegisterCommandInModule("coroutines", "yield", func(ctx *Context) Result {
 		var value interface{}
 		var tokenID string
 
@@ -816,7 +1380,7 @@ func (ps *PawScript) RegisterGeneratorLib() {
 
 	// suspend - Suspend execution and return a token to the caller
 	// suspend
-	ps.RegisterCommandInModule("core", "suspend", func(ctx *Context) Result {
+	ps.RegisterCommandInModule("coroutines", "suspend", func(ctx *Context) Result {
 		// Return SuspendResult - the executor loop will catch this
 		// and create a new token with the remaining commands
 		return SuspendResult{}
@@ -825,7 +1389,7 @@ func (ps *PawScript) RegisterGeneratorLib() {
 	// token_valid - Check if a token is still valid (not exhausted)
 	// token_valid <token>
 	// Returns BoolStatus(true/false) based on whether the token exists and has remaining items
-	ps.RegisterCommandInModule("core", "token_valid", func(ctx *Context) Result {
+	ps.RegisterCommandInModule("coroutines", "token_valid", func(ctx *Context) Result {
 		if len(ctx.Args) < 1 {
 			ctx.SetResult(false)
 			return BoolStatus(false)
@@ -891,7 +1455,7 @@ func (ps *PawScript) RegisterGeneratorLib() {
 
 	// each - Create an iterator that yields each positional item from a list
 	// each <list>
-	ps.RegisterCommandInModule("core", "each", func(ctx *Context) Result {
+	ps.RegisterCommandInModule("coroutines", "each", func(ctx *Context) Result {
 		if len(ctx.Args) < 1 {
 			ctx.LogError(CatCommand, "Usage: each <list>")
 			return BoolStatus(false)
@@ -942,7 +1506,7 @@ func (ps *PawScript) RegisterGeneratorLib() {
 
 	// pair - Create an iterator that yields key/value pairs from a list's named arguments
 	// pair <list>
-	ps.RegisterCommandInModule("core", "pair", func(ctx *Context) Result {
+	ps.RegisterCommandInModule("coroutines", "pair", func(ctx *Context) Result {
 		if len(ctx.Args) < 1 {
 			ctx.LogError(CatCommand, "Usage: pair <list>")
 			return BoolStatus(false)
@@ -996,6 +1560,271 @@ func (ps *PawScript) RegisterGeneratorLib() {
 		// Return the token marker
 		tokenMarker := fmt.Sprintf("\x00TOKEN:%s\x00", tokenID)
 		ctx.SetResult(Symbol(tokenMarker))
+		return BoolStatus(true)
+	})
+
+	// range - Create a range iterator that yields numeric values
+	// Usage: range <start>, <end> [by: <step>]
+	// Returns a token that can be used with resume to iterate through the range
+	// If end > start, step defaults to 1; if end < start, step defaults to -1
+	// The step sign is validated against direction, with a warning if mismatched
+	ps.RegisterCommandInModule("coroutines", "range", func(ctx *Context) Result {
+		if len(ctx.Args) < 2 {
+			ctx.LogError(CatCommand, "Usage: range <start>, <end> [by: <step>]")
+			return BoolStatus(false)
+		}
+
+		// Parse start and end values
+		startVal, ok1 := toFloat64(ctx.Args[0])
+		endVal, ok2 := toFloat64(ctx.Args[1])
+		if !ok1 || !ok2 {
+			ctx.LogError(CatCommand, "range: start and end must be numbers")
+			return BoolStatus(false)
+		}
+
+		// Determine step
+		var step float64
+		ascending := endVal >= startVal
+		if stepVal, hasStep := ctx.NamedArgs["by"]; hasStep {
+			var ok bool
+			step, ok = toFloat64(stepVal)
+			if !ok {
+				ctx.LogError(CatCommand, "range: step must be a number")
+				return BoolStatus(false)
+			}
+			// Warn if step direction doesn't match range direction
+			if step == 0 {
+				ctx.LogWarning(CatCommand, "range: step is zero; loop will iterate until max iterations")
+			} else if (ascending && step < 0) || (!ascending && step > 0) {
+				ctx.LogWarning(CatCommand, "range: step direction doesn't match range direction; loop will iterate until max iterations")
+			}
+		} else {
+			// Default step based on direction
+			if ascending {
+				step = 1
+			} else {
+				step = -1
+			}
+		}
+
+		// Create a token for the range iterator
+		tokenID := ctx.executor.RequestCompletionToken(
+			nil,
+			"",
+			30*time.Minute,
+			ctx.state,
+			ctx.Position,
+		)
+
+		// Store range state in the token
+		ctx.executor.mu.Lock()
+		if tokenData, exists := ctx.executor.activeTokens[tokenID]; exists {
+			tokenData.IteratorState = &IteratorState{
+				Type:         "range",
+				RangeStart:   startVal,
+				RangeEnd:     endVal,
+				RangeStep:    step,
+				RangeCurrent: startVal,
+				RangeStarted: false,
+			}
+		}
+		ctx.executor.mu.Unlock()
+
+		// Return the token marker
+		tokenMarker := fmt.Sprintf("\x00TOKEN:%s\x00", tokenID)
+		ctx.SetResult(Symbol(tokenMarker))
+		return BoolStatus(true)
+	})
+
+	// rng - Create a random number generator token
+	// Usage: rng [seed: <number>]
+	// Returns a token that can be used with resume to generate random numbers
+	// If seed is provided, the generator is reproducible; otherwise uses current time
+	ps.RegisterCommandInModule("coroutines", "rng", func(ctx *Context) Result {
+		var rngSource *rand.Rand
+
+		// Check for seed in named args
+		if seedVal, hasSeed := ctx.NamedArgs["seed"]; hasSeed {
+			seed, ok := toInt64(seedVal)
+			if !ok {
+				ctx.LogError(CatCommand, "rng: seed must be a number")
+				return BoolStatus(false)
+			}
+			rngSource = rand.New(rand.NewSource(seed))
+		} else {
+			// Use current time for unseeded generator
+			rngSource = rand.New(rand.NewSource(time.Now().UnixNano()))
+		}
+
+		// Create a token for the RNG
+		tokenID := ctx.executor.RequestCompletionToken(
+			nil,
+			"",
+			30*time.Minute, // Long-lived like other iterators
+			ctx.state,
+			ctx.Position,
+		)
+
+		// Store RNG state in the token
+		ctx.executor.mu.Lock()
+		if tokenData, exists := ctx.executor.activeTokens[tokenID]; exists {
+			tokenData.IteratorState = &IteratorState{
+				Type: "rng",
+				Rng:  rngSource,
+			}
+		}
+		ctx.executor.mu.Unlock()
+
+		// Return the token marker
+		tokenMarker := fmt.Sprintf("\x00TOKEN:%s\x00", tokenID)
+		ctx.SetResult(Symbol(tokenMarker))
+		return BoolStatus(true)
+	})
+
+	// Helper to resolve an RNG token from a value
+	resolveRngToken := func(ctx *Context, value interface{}) string {
+		var tokenStr string
+		switch v := value.(type) {
+		case Symbol:
+			tokenStr = string(v)
+		case string:
+			tokenStr = v
+		default:
+			return ""
+		}
+		if strings.HasPrefix(tokenStr, "\x00TOKEN:") && strings.HasSuffix(tokenStr, "\x00") {
+			return tokenStr
+		}
+		return ""
+	}
+
+	// Helper to resolve #random from local vars -> ObjectsModule -> ObjectsInherited
+	resolveRandomToken := func(ctx *Context, name string) string {
+		// First, check local macro variables
+		if value, exists := ctx.state.GetVariable(name); exists {
+			if token := resolveRngToken(ctx, value); token != "" {
+				return token
+			}
+		}
+
+		// Then, check ObjectsModule and ObjectsInherited
+		if ctx.state.moduleEnv != nil {
+			ctx.state.moduleEnv.mu.RLock()
+			defer ctx.state.moduleEnv.mu.RUnlock()
+
+			// Check ObjectsModule (copy-on-write layer)
+			if ctx.state.moduleEnv.ObjectsModule != nil {
+				if obj, exists := ctx.state.moduleEnv.ObjectsModule[name]; exists {
+					if token := resolveRngToken(ctx, obj); token != "" {
+						return token
+					}
+				}
+			}
+
+			// Check ObjectsInherited (root layer where io::#random lives)
+			if ctx.state.moduleEnv.ObjectsInherited != nil {
+				if obj, exists := ctx.state.moduleEnv.ObjectsInherited[name]; exists {
+					if token := resolveRngToken(ctx, obj); token != "" {
+						return token
+					}
+				}
+			}
+		}
+
+		return ""
+	}
+
+	// random - Generate a random number
+	// Usage: random [max] or random min, max - uses default #random
+	//        random <token> [max] or random <token> min, max - uses custom generator
+	ps.RegisterCommandInModule("coroutines", "random", func(ctx *Context) Result {
+		var tokenStr string
+		var rangeArgs []interface{}
+
+		// Check if first arg is an RNG token or a #-prefixed name
+		if len(ctx.Args) > 0 {
+			// Try to extract as token marker directly
+			if token := resolveRngToken(ctx, ctx.Args[0]); token != "" {
+				tokenStr = token
+				rangeArgs = ctx.Args[1:]
+			} else if sym, ok := ctx.Args[0].(Symbol); ok && strings.HasPrefix(string(sym), "#") {
+				// It's a #-prefixed symbol, resolve it like echo resolves channels
+				if token := resolveRandomToken(ctx, string(sym)); token != "" {
+					tokenStr = token
+					rangeArgs = ctx.Args[1:]
+				} else {
+					// Could not resolve as RNG, treat as range arg
+					rangeArgs = ctx.Args
+				}
+			} else {
+				// First arg is not a token or #-symbol, treat as range arg
+				rangeArgs = ctx.Args
+			}
+		}
+
+		// If no token provided, use default #random
+		if tokenStr == "" {
+			tokenStr = resolveRandomToken(ctx, "#random")
+			if tokenStr == "" {
+				ctx.LogError(CatCommand, "random: #random not found in environment")
+				return BoolStatus(false)
+			}
+		}
+
+		// Extract token ID
+		tokenID := tokenStr[len("\x00TOKEN:") : len(tokenStr)-1]
+
+		// Get the token data
+		ctx.executor.mu.Lock()
+		tokenData, exists := ctx.executor.activeTokens[tokenID]
+		if !exists {
+			ctx.executor.mu.Unlock()
+			ctx.LogError(CatCommand, "random: RNG token has expired")
+			return BoolStatus(false)
+		}
+
+		iterState := tokenData.IteratorState
+		if iterState == nil || iterState.Type != "rng" || iterState.Rng == nil {
+			ctx.executor.mu.Unlock()
+			ctx.LogError(CatCommand, "random: invalid RNG token state")
+			return BoolStatus(false)
+		}
+
+		// Generate the random number based on range args
+		var result int64
+		switch len(rangeArgs) {
+		case 0:
+			// Full Int63 range
+			result = iterState.Rng.Int63()
+		case 1:
+			// 0 to max-1
+			max, ok := toInt64(rangeArgs[0])
+			if !ok || max <= 0 {
+				ctx.executor.mu.Unlock()
+				ctx.LogError(CatCommand, "random: max must be a positive number")
+				return BoolStatus(false)
+			}
+			result = iterState.Rng.Int63n(max)
+		default:
+			// min to max (inclusive)
+			min, ok1 := toInt64(rangeArgs[0])
+			max, ok2 := toInt64(rangeArgs[1])
+			if !ok1 || !ok2 {
+				ctx.executor.mu.Unlock()
+				ctx.LogError(CatCommand, "random: min and max must be numbers")
+				return BoolStatus(false)
+			}
+			if max < min {
+				ctx.executor.mu.Unlock()
+				ctx.LogError(CatCommand, "random: max must be >= min")
+				return BoolStatus(false)
+			}
+			rangeSize := max - min + 1
+			result = min + iterState.Rng.Int63n(rangeSize)
+		}
+		ctx.executor.mu.Unlock()
+
+		ctx.SetResult(result)
 		return BoolStatus(true)
 	})
 }

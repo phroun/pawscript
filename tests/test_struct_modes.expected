@@ -1,0 +1,64 @@
+=== Struct Mode Tests ===
+
+Test 1: Endianness - 16-bit integers
+BE stored 0x1234, read back: 4660
+LE stored 0x1234, read back: 4660
+(Both should be: 4660)
+
+Test 2: Endianness - 32-bit integers
+BE stored 0x12345678, read back: 305419896
+LE stored 0x12345678, read back: 305419896
+(Both should be: 305419896)
+
+Test 3: Unsigned vs signed 8-bit
+Signed 0xFF read back: -1
+Unsigned 0xFF read back: 255
+(Expected: -1, 255)
+
+Test 4: Unsigned 16-bit
+Signed 0xFFFF read back: -1
+Unsigned 0xFFFF read back: 65535
+(Expected: -1, 65535)
+
+Test 5: Little-endian unsigned
+LE unsigned 0x1234 read back: 4660
+(Expected: 4660)
+
+Test 6: Float32 big-endian
+Float32 BE 3.14159 read back: 3.141590118408203
+Float32 LE 3.14159 read back: 3.141590118408203
+(Both should be approximately: 3.14159)
+
+Test 7: Float64 big-endian and little-endian
+Float64 BE 2.718281828 read back: 2.718281828
+Float64 LE 2.718281828 read back: 2.718281828
+(Both should be: 2.718281828)
+
+Test 8: Mixed modes
+ID (uint_le): 12345
+Temp (float_le): 98.5999984741211
+Name (string): Sensor1
+(Expected: 12345, approx 98.6, Sensor1)
+
+Test 9: Negative signed integers
+Neg 8-bit: -42
+Neg 16-bit BE: -1000
+Neg 32-bit LE: -123456
+(Expected: -42, -1000, -123456)
+
+Test 10: Bit modes (booleans packed in 1 byte)
+active (bit0): true
+visible (bit1): false
+selected (bit2): true
+enabled (bit7): true
+(Expected: true, false, true, true)
+
+Test 11: Verify bit packing
+Raw flags byte: <85>
+(Expected: <85> which is 133 decimal: bit0 + bit2 + bit7)
+
+Test 12: All 8 bits
+All bits set, raw byte: <FF>
+(Expected: <FF> which is 255)
+
+=== All Struct Mode Tests Complete ===

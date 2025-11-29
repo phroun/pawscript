@@ -3,7 +3,7 @@
 
 print "=== Test 1: Color command returns list ==="
 info: {color}
-type: {get_type ~info}
+type: {type ~info}
 print "Color returns: ~type"
 print ""
 
@@ -15,13 +15,13 @@ print "Initial bg: ~bg"
 print ""
 
 print "=== Test 3: Color list has named args ==="
-term: {get_val ~info, term}
-ansi: {get_val ~info, ansi}
-colorSupport: {get_val ~info, color}
-bold: {get_val ~info, bold}
-blink: {get_val ~info, blink}
-underline: {get_val ~info, underline}
-invert: {get_val ~info, invert}
+term: {ret ~info.term}
+ansi: {ret ~info.ansi}
+colorSupport: {ret ~info.color}
+bold: {ret ~info.bold}
+blink: {ret ~info.blink}
+underline: {ret ~info.underline}
+invert: {ret ~info.invert}
 print "term type returned: yes"
 print "ansi support checked: yes"
 print "color support checked: yes"
@@ -49,8 +49,8 @@ print ""
 print "=== Test 6: Setting attributes ==="
 color 15, bold: true, underline: true
 info4: {color}
-bold4: {get_val ~info4, bold}
-underline4: {get_val ~info4, underline}
+bold4: {ret ~info4.bold}
+underline4: {ret ~info4.underline}
 print "After bold+underline: bold=~bold4, underline=~underline4"
 print ""
 
@@ -59,8 +59,8 @@ color reset: true
 info5: {color}
 fg5: {argv ~info5, 1}
 bg5: {argv ~info5, 2}
-bold5: {get_val ~info5, bold}
-underline5: {get_val ~info5, underline}
+bold5: {ret ~info5.bold}
+underline5: {ret ~info5.underline}
 print "After reset: fg=~fg5, bg=~bg5, bold=~bold5, underline=~underline5"
 print ""
 
@@ -103,7 +103,7 @@ color red
 color bold: true
 info12: {color}
 fg12: {argv ~info12, 1}
-bold12: {get_val ~info12, bold}
+bold12: {ret ~info12.bold}
 print "After red then bold: fg=~fg12, bold=~bold12"
 color reset: true
 print ""

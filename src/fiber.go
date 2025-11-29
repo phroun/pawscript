@@ -93,6 +93,49 @@ func (e *Executor) SpawnFiber(macro *StoredMacro, args []interface{}, namedArgs 
 		defer func() {
 			handle.mu.Lock()
 			handle.Completed = true
+
+			// Preserve bubbles before releasing references
+			// First merge any unretrieved bubbleUpMap, then bubbleMap
+			handle.State.mu.Lock()
+			hasBubbleUp := len(handle.BubbleUpMap) > 0
+			hasBubbles := len(handle.State.bubbleMap) > 0
+			if hasBubbleUp || hasBubbles {
+				if handle.FinalBubbleMap == nil {
+					handle.FinalBubbleMap = make(map[string][]*BubbleEntry)
+				}
+				// First, merge unretrieved BubbleUpMap entries (already have refs claimed)
+				for flavor, entries := range handle.BubbleUpMap {
+					handle.FinalBubbleMap[flavor] = append(handle.FinalBubbleMap[flavor], entries...)
+				}
+				// Clear BubbleUpMap now that it's merged
+				handle.BubbleUpMap = nil
+				// Then merge bubbleMap entries, claiming refs for each
+				for flavor, entries := range handle.State.bubbleMap {
+					handle.FinalBubbleMap[flavor] = append(handle.FinalBubbleMap[flavor], entries...)
+					// Claim reference for each bubble's content to keep it alive
+					for _, entry := range entries {
+						if sym, ok := entry.Content.(Symbol); ok {
+							_, objectID := parseObjectMarker(string(sym))
+							if objectID >= 0 {
+								e.incrementObjectRefCount(objectID)
+							}
+						}
+					}
+				}
+			}
+			handle.State.mu.Unlock()
+
+			// Check if the fiber handle is still being tracked (storedObjects)
+			// If not, it was abandoned and we should orphan the bubbles directly
+			if len(handle.FinalBubbleMap) > 0 {
+				storedID := e.findStoredFiberID(handle)
+				if storedID < 0 {
+					// Handle was abandoned - orphan the bubbles directly
+					e.AddOrphanedBubbles(handle.FinalBubbleMap)
+					handle.FinalBubbleMap = nil
+				}
+			}
+
 			handle.mu.Unlock()
 			close(handle.CompleteChan)
 			e.unregisterFiber(fiberID)
