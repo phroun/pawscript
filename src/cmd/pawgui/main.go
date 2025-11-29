@@ -847,10 +847,10 @@ func updateWindowMenu(menu *fyne.MainMenu) {
 // showOpenFileDialog shows a native file dialog to select a .paw file (opens in new window)
 func showOpenFileDialog(win fyne.Window) {
 	// Use native OS file dialog via sqweek/dialog
-	// No filter applied - allow any file type (the left panel already shows .paw files)
 	go func() {
 		cwd, _ := os.Getwd()
 		filePath, err := dialog.File().
+			Filter("PawScript files", "paw").
 			SetStartDir(cwd).
 			Title("Open PawScript File").
 			Load()
@@ -865,10 +865,10 @@ func showOpenFileDialog(win fyne.Window) {
 // showOpenFileDialogForWindow shows a native file dialog and runs the script in the given window's console
 func showOpenFileDialogForWindow(win fyne.Window, ws *WindowState) {
 	// Use native OS file dialog via sqweek/dialog
-	// No filter applied - allow any file type
 	go func() {
 		cwd, _ := os.Getwd()
 		filePath, err := dialog.File().
+			Filter("PawScript files", "paw").
 			SetStartDir(cwd).
 			Title("Open PawScript File").
 			Load()
