@@ -797,8 +797,10 @@ func getPawFilesInDir(dir string) []string {
 // createMainMenu creates the application main menu
 func createMainMenu(win fyne.Window) *fyne.MainMenu {
 	// File menu
+	// Note: Menu callbacks run on the Fyne main thread, so we must use goroutines
+	// for functions that call fyne.Do() and wait (to avoid deadlock)
 	newItem := fyne.NewMenuItem("New Window", func() {
-		createLauncherWindow()
+		go createLauncherWindow()
 	})
 	openItem := fyne.NewMenuItem("Open...", func() {
 		showOpenFileDialog(win)
