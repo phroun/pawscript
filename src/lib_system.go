@@ -516,6 +516,22 @@ func (ps *PawScript) RegisterSystemLib(scriptArgs []string) {
 					ctx.LogError(CatIO, "exec: access denied: command outside allowed roots")
 					return BoolStatus(false)
 				}
+
+				// Security: exec roots must not overlap with write roots
+				// This prevents write-then-execute attacks
+				if len(fileAccess.WriteRoots) > 0 {
+					for _, writeRoot := range fileAccess.WriteRoots {
+						absWriteRoot, err := filepath.Abs(writeRoot)
+						if err != nil {
+							continue
+						}
+						absWriteRoot = filepath.Clean(absWriteRoot)
+						if strings.HasPrefix(cmdPath, absWriteRoot+string(filepath.Separator)) || cmdPath == absWriteRoot {
+							ctx.LogError(CatIO, "exec: access denied: cannot execute from writable directory (security restriction)")
+							return BoolStatus(false)
+						}
+					}
+				}
 			}
 		}
 
