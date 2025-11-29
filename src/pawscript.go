@@ -297,6 +297,15 @@ func (ps *PawScript) SetInheritedObject(moduleName, objectName string, value int
 	ps.rootModuleEnv.ObjectsInherited[objectName] = value
 }
 
+// GetFiberCount returns the number of currently active fibers.
+// Returns 0 if no fibers are running.
+func (ps *PawScript) GetFiberCount() int {
+	if ps.executor == nil {
+		return 0
+	}
+	return ps.executor.GetFiberCount()
+}
+
 // ImportModuleToRoot imports all items from a module directly into the root environment.
 // This makes the items available to all subsequent Execute() calls without needing IMPORT.
 func (ps *PawScript) ImportModuleToRoot(moduleName string) bool {

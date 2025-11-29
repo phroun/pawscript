@@ -38,11 +38,12 @@ type WindowState struct {
 
 // GuiState holds the current GUI state accessible to PawScript
 type GuiState struct {
-	mu      sync.RWMutex
-	app     fyne.App
-	ps      *pawscript.PawScript
-	windows map[int]*WindowState // Windows by object ID
-	nextID  int                  // Next window ID
+	mu              sync.RWMutex
+	app             fyne.App
+	ps              *pawscript.PawScript
+	windows         map[int]*WindowState // Windows by object ID
+	nextID          int                  // Next window ID
+	scriptCompleted bool                 // True when main script execution is done
 }
 
 var guiState *GuiState
@@ -364,10 +365,49 @@ func main() {
 				}
 			}
 		}
+
+		// Mark script as completed and start monitoring for auto-quit
+		guiState.mu.Lock()
+		guiState.scriptCompleted = true
+		guiState.mu.Unlock()
+
+		// Start monitoring for auto-quit condition
+		go monitorAutoQuit()
 	}()
 
 	// Run the Fyne event loop (blocking)
 	fyneApp.Run()
+}
+
+// monitorAutoQuit periodically checks if all conditions for auto-quit are met:
+// 1. Script execution completed
+// 2. No active fibers
+// 3. No open windows
+func monitorAutoQuit() {
+	ticker := time.NewTicker(100 * time.Millisecond)
+	defer ticker.Stop()
+
+	for range ticker.C {
+		guiState.mu.RLock()
+		scriptDone := guiState.scriptCompleted
+		windowCount := len(guiState.windows)
+		guiState.mu.RUnlock()
+
+		if !scriptDone {
+			continue
+		}
+
+		// Check fiber count
+		fiberCount := guiState.ps.GetFiberCount()
+
+		// If script is done, no fibers, and no windows, quit
+		if fiberCount == 0 && windowCount == 0 {
+			fyne.Do(func() {
+				guiState.app.Quit()
+			})
+			return
+		}
+	}
 }
 
 // ANSI color codes for terminal output
@@ -494,6 +534,7 @@ GUI Commands (available in scripts):
   gui_title [#win,] <text>      Set window title
   gui_resize [#win,] <w>, <h>   Resize window
   gui_close #win                Close a window
+  gui_focus <id>                Focus a widget by ID
   gui_split [offset]            Enable split layout (0.0-1.0)
   gui_label <text>              Create label widget
   gui_button <text>             Create button widget
@@ -662,6 +703,15 @@ func createConsoleWindowWithPipes(scriptFile string, stdinReader *io.PipeWriter,
 		term := terminal.New()
 		ws.terminal = term
 
+		// Add close handler to remove window from tracking
+		windowID := id // Capture for closure
+		newWindow.SetCloseIntercept(func() {
+			guiState.mu.Lock()
+			delete(guiState.windows, windowID)
+			guiState.mu.Unlock()
+			newWindow.Close()
+		})
+
 		// Set the terminal as the window content (full size)
 		clickInterceptor := newClickInterceptor(term)
 		termWithInterceptor := container.NewStack(term, clickInterceptor)
@@ -682,6 +732,12 @@ func createConsoleWindowWithPipes(scriptFile string, stdinReader *io.PipeWriter,
 				fmt.Fprintf(os.Stderr, "Terminal error: %v\n", err)
 			}
 		}()
+
+		// Auto-focus the terminal
+		canvas := newWindow.Canvas()
+		if canvas != nil {
+			canvas.Focus(term)
+		}
 
 		close(done)
 	})
@@ -732,6 +788,15 @@ func registerGuiCommands(ps *pawscript.PawScript) {
 				widgets:      make(map[string]fyne.CanvasObject),
 				containers:   make(map[string]*fyne.Container),
 			}
+
+			// Add close handler to remove window from tracking
+			windowID := id // Capture for closure
+			newWindow.SetCloseIntercept(func() {
+				guiState.mu.Lock()
+				delete(guiState.windows, windowID)
+				guiState.mu.Unlock()
+				newWindow.Close()
+			})
 
 			newWindow.SetContent(ws.content)
 			newWindow.Show()
@@ -1035,6 +1100,49 @@ func registerGuiCommands(ps *pawscript.PawScript) {
 		}
 		fyne.Do(func() {
 			ws.window.Close()
+		})
+		return pawscript.BoolStatus(true)
+	})
+
+	// gui_focus - Focus a widget by ID
+	// Searches all windows for the widget ID and focuses it
+	ps.RegisterCommand("gui_focus", func(ctx *pawscript.Context) pawscript.Result {
+		if len(ctx.Args) < 1 {
+			ctx.LogError(pawscript.CatCommand, "Usage: gui_focus <widget_id>")
+			return pawscript.BoolStatus(false)
+		}
+		id := fmt.Sprintf("%v", ctx.Args[0])
+
+		// Search all windows for the widget
+		var targetWidget fyne.CanvasObject
+		var targetWindow fyne.Window
+		guiState.mu.RLock()
+		for _, ws := range guiState.windows {
+			if w, exists := ws.widgets[id]; exists {
+				targetWidget = w
+				targetWindow = ws.window
+				break
+			}
+		}
+		guiState.mu.RUnlock()
+
+		if targetWidget == nil {
+			ctx.LogError(pawscript.CatArgument, fmt.Sprintf("Widget not found: %s", id))
+			return pawscript.BoolStatus(false)
+		}
+
+		// Check if widget is focusable
+		focusable, ok := targetWidget.(fyne.Focusable)
+		if !ok {
+			ctx.LogError(pawscript.CatArgument, fmt.Sprintf("Widget is not focusable: %s", id))
+			return pawscript.BoolStatus(false)
+		}
+
+		fyne.Do(func() {
+			canvas := targetWindow.Canvas()
+			if canvas != nil {
+				canvas.Focus(focusable)
+			}
 		})
 		return pawscript.BoolStatus(true)
 	})
