@@ -1,0 +1,46 @@
+=== Struct Tests ===
+
+Test 1: Create struct definition
+Type of def: structdef
+(Expected: structdef)
+
+Test 2: Create single struct
+Type of struct: struct
+(Expected: struct)
+
+Test 3: Field access (zero-initialized)
+name: <00000000 00000000>
+age: 0
+(Expected: empty bytes, 0)
+
+Test 4: Create struct with source data
+name bytes: <4A6F686E 00000000>
+age: 25
+(Expected: John bytes, 25)
+
+Test 5: Create struct array
+Type of array: struct
+Length: 5
+(Expected: struct, 5)
+
+Test 6: Access array element
+Type of element: struct
+(Expected: struct)
+
+Test 7: Access field through array index
+First element age: 0
+(Expected: 0)
+
+Test 8: Slice struct array
+Sliced length: 2
+(Expected: 2)
+
+Test 9: Compact struct array
+Compacted length: 2
+(Expected: 2)
+
+Test 10: Single struct len (field count)
+Field count: 3
+(Expected: 3)
+
+=== All Struct Tests Complete ===

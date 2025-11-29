@@ -159,6 +159,14 @@ func (ps *PawScript) RegisterCoreLib() {
 							if bytes, ok := obj.(StoredBytes); ok {
 								return bytes
 							}
+						case "struct":
+							if s, ok := obj.(StoredStruct); ok {
+								return s
+							}
+						case "structdef":
+							if sd, ok := obj.(*StructDef); ok {
+								return sd
+							}
 						}
 						return obj
 					}
@@ -183,6 +191,14 @@ func (ps *PawScript) RegisterCoreLib() {
 						case "bytes":
 							if bytes, ok := obj.(StoredBytes); ok {
 								return bytes
+							}
+						case "struct":
+							if s, ok := obj.(StoredStruct); ok {
+								return s
+							}
+						case "structdef":
+							if sd, ok := obj.(*StructDef); ok {
+								return sd
 							}
 						}
 						return obj
@@ -222,6 +238,15 @@ func (ps *PawScript) RegisterCoreLib() {
 			return BoolStatus(true)
 		case StoredBytes:
 			ctx.SetResult(int64(v.Len()))
+			return BoolStatus(true)
+		case StoredStruct:
+			// For single struct, return the number of fields
+			// For struct array, return the number of elements
+			if v.IsArray() {
+				ctx.SetResult(int64(v.Len()))
+			} else {
+				ctx.SetResult(int64(len(v.Def().Fields)))
+			}
 			return BoolStatus(true)
 		case *StoredChannel:
 			ctx.SetResult(int64(ChannelLen(v)))

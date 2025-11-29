@@ -974,6 +974,32 @@ func (e *Executor) formatBraceResult(value interface{}, originalString string, b
 			state.ClaimObjectReference(id)
 		}
 		return fmt.Sprintf("\x00FILE:%d\x00", id)
+	case StoredStruct:
+		if insideQuotes {
+			// Inside quotes: format as display string
+			return v.String()
+		}
+		// Outside quotes: use a special marker that preserves the object
+		// Format: \x00STRUCT:index\x00 where index is stored in the execution state
+		id := e.storeObject(value, "struct")
+		// The creating context claims the first reference
+		if state != nil {
+			state.ClaimObjectReference(id)
+		}
+		return fmt.Sprintf("\x00STRUCT:%d\x00", id)
+	case *StructDef:
+		if insideQuotes {
+			// Inside quotes: format as display string
+			return v.String()
+		}
+		// Outside quotes: use a special marker that preserves the object
+		// Format: \x00STRUCTDEF:index\x00 where index is stored in the execution state
+		id := e.storeObject(value, "structdef")
+		// The creating context claims the first reference
+		if state != nil {
+			state.ClaimObjectReference(id)
+		}
+		return fmt.Sprintf("\x00STRUCTDEF:%d\x00", id)
 	case int64, float64:
 		// Numbers as-is
 		return fmt.Sprintf("%v", v)

@@ -47,6 +47,22 @@ func (e *Executor) maybeStoreValue(value interface{}, state *ExecutionState) int
 		// Not found, store as new object
 		id := e.storeObject(v, "bytes")
 		return Symbol(fmt.Sprintf("\x00BYTES:%d\x00", id))
+	case StoredStruct:
+		// StoredStruct objects - convert to marker
+		if id := e.findStoredStructID(v); id >= 0 {
+			return Symbol(fmt.Sprintf("\x00STRUCT:%d\x00", id))
+		}
+		// Not found, store as new object
+		id := e.storeObject(v, "struct")
+		return Symbol(fmt.Sprintf("\x00STRUCT:%d\x00", id))
+	case *StructDef:
+		// StructDef objects - convert to marker
+		if id := e.findStructDefID(v); id >= 0 {
+			return Symbol(fmt.Sprintf("\x00STRUCTDEF:%d\x00", id))
+		}
+		// Not found, store as new object
+		id := e.storeObject(v, "structdef")
+		return Symbol(fmt.Sprintf("\x00STRUCTDEF:%d\x00", id))
 	default:
 		return value
 	}
@@ -280,6 +296,53 @@ func (e *Executor) findStoredFileID(f *StoredFile) int {
 		if objF, ok := obj.Value.(*StoredFile); ok {
 			// Compare by pointer identity
 			if objF == f {
+				return id
+			}
+		}
+	}
+
+	return -1
+}
+
+// findStoredStructID finds the ID of a StoredStruct by searching storedObjects
+// Returns -1 if not found
+func (e *Executor) findStoredStructID(ss StoredStruct) int {
+	e.mu.RLock()
+	defer e.mu.RUnlock()
+
+	// Compare by checking if they share the same backing array and have same offset/length
+	for id, obj := range e.storedObjects {
+		if objSS, ok := obj.Value.(StoredStruct); ok {
+			if len(objSS.data) == len(ss.data) && objSS.offset == ss.offset && objSS.length == ss.length {
+				if len(objSS.data) == 0 {
+					// Both empty - match any empty struct for now
+					return id
+				}
+				// Check if they point to the same backing array
+				if &objSS.data[0] == &ss.data[0] {
+					return id
+				}
+			}
+		}
+	}
+
+	return -1
+}
+
+// findStructDefID finds the ID of a StructDef by searching storedObjects
+// Returns -1 if not found
+func (e *Executor) findStructDefID(sd *StructDef) int {
+	if sd == nil {
+		return -1
+	}
+
+	e.mu.RLock()
+	defer e.mu.RUnlock()
+
+	for id, obj := range e.storedObjects {
+		if objSD, ok := obj.Value.(*StructDef); ok {
+			// Compare by pointer identity
+			if objSD == sd {
 				return id
 			}
 		}
