@@ -160,17 +160,17 @@ func main() {
 	// Default: sandboxed to safe paths. Use --unrestricted to disable.
 	var fileAccess *pawscript.FileAccessConfig
 
+	// Determine script directory (used for sandbox paths and relative path resolution)
+	var scriptDir string
+	if scriptFile != "" {
+		absScript, err := filepath.Abs(scriptFile)
+		if err == nil {
+			scriptDir = filepath.Dir(absScript)
+		}
+	}
+
 	if !*unrestrictedFlag {
 		fileAccess = &pawscript.FileAccessConfig{}
-
-		// Determine script directory and current working directory
-		var scriptDir string
-		if scriptFile != "" {
-			absScript, err := filepath.Abs(scriptFile)
-			if err == nil {
-				scriptDir = filepath.Dir(absScript)
-			}
-		}
 		cwd, _ := os.Getwd()
 		tmpDir := os.TempDir()
 
@@ -288,6 +288,7 @@ func main() {
 		ShowErrorContext:     true,
 		ContextLines:         2,
 		FileAccess:           fileAccess,
+		ScriptDir:            scriptDir,
 	})
 
 	// Register standard library commands

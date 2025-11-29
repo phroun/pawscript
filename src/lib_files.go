@@ -22,10 +22,17 @@ func (ps *PawScript) RegisterFilesLib() {
 	// Helper to validate path access against configured roots
 	// Returns cleaned absolute path and nil error if allowed
 	validatePathAccess := func(ctx *Context, path string, needsWrite bool) (string, error) {
-		// Get absolute path
-		absPath, err := filepath.Abs(path)
-		if err != nil {
-			return "", fmt.Errorf("invalid path: %v", err)
+		// Get absolute path - resolve relative paths from ScriptDir if available
+		var absPath string
+		var err error
+		if !filepath.IsAbs(path) && ps.config != nil && ps.config.ScriptDir != "" {
+			// Resolve relative path from script directory
+			absPath = filepath.Join(ps.config.ScriptDir, path)
+		} else {
+			absPath, err = filepath.Abs(path)
+			if err != nil {
+				return "", fmt.Errorf("invalid path: %v", err)
+			}
 		}
 		absPath = filepath.Clean(absPath)
 

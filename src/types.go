@@ -325,10 +325,11 @@ type Config struct {
 	AllowMacros          bool
 	ShowErrorContext     bool
 	ContextLines         int
-	Stdin                io.Reader        // Custom stdin reader (default: os.Stdin)
-	Stdout               io.Writer        // Custom stdout writer (default: os.Stdout)
-	Stderr               io.Writer        // Custom stderr writer (default: os.Stderr)
+	Stdin                io.Reader         // Custom stdin reader (default: os.Stdin)
+	Stdout               io.Writer         // Custom stdout writer (default: os.Stdout)
+	Stderr               io.Writer         // Custom stderr writer (default: os.Stderr)
 	FileAccess           *FileAccessConfig // File system access control (nil = unrestricted)
+	ScriptDir            string            // Directory containing the script being executed
 }
 
 // DefaultConfig returns default configuration
