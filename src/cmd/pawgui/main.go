@@ -44,6 +44,7 @@ type GuiState struct {
 	windows         map[int]*WindowState // Windows by object ID
 	nextID          int                  // Next window ID
 	scriptCompleted bool                 // True when main script execution is done
+	scale           float64              // GUI scale factor for size calculations
 }
 
 var guiState *GuiState
@@ -330,6 +331,7 @@ func main() {
 		ps:      ps,
 		windows: make(map[int]*WindowState),
 		nextID:  1,
+		scale:   *scaleFlag,
 	}
 
 	// Register GUI commands
@@ -787,10 +789,15 @@ func registerGuiCommands(ps *pawscript.PawScript) {
 			}
 		}
 
-		// Default to 80x25 character size for console windows (720x450 pixels)
+		// Default to 80x25 character size for console windows, accounting for scale
+		// Base character size: 9 pixels wide, 18 pixels tall
 		if isConsole && !sizeSpecified {
-			width = 720
-			height = 450
+			scale := guiState.scale
+			if scale < 1.0 {
+				scale = 1.0
+			}
+			width = float32(80 * 9 * scale)
+			height = float32(25 * 18 * scale)
 		}
 
 		// Create window state
