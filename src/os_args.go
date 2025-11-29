@@ -1,7 +1,10 @@
 package pawscript
 
+import "runtime"
+
 // PopulateOSModule creates the os module with script arguments as #args
 // Creates: os::#args (StoredList containing script arguments)
+// Named args include: os: (operating system name like "linux", "windows", "darwin")
 func (env *ModuleEnvironment) PopulateOSModule(scriptArgs []string) {
 	env.mu.Lock()
 	defer env.mu.Unlock()
@@ -18,8 +21,14 @@ func (env *ModuleEnvironment) PopulateOSModule(scriptArgs []string) {
 		argsItems[i] = arg
 	}
 
-	// Create StoredList for script arguments
-	argsList := NewStoredList(argsItems)
+	// Create named args with OS information
+	namedArgs := map[string]interface{}{
+		"os":   runtime.GOOS,   // "linux", "windows", "darwin", etc.
+		"arch": runtime.GOARCH, // "amd64", "arm64", etc.
+	}
+
+	// Create StoredList for script arguments with named OS info
+	argsList := NewStoredListWithNamed(argsItems, namedArgs)
 
 	// Register #args in os module
 	osModule["#args"] = &ModuleItem{Type: "object", Value: argsList}
