@@ -285,6 +285,18 @@ func (ps *PawScript) HasLibraryModule(moduleName string) bool {
 	return exists
 }
 
+// SetInheritedObject sets or overrides an object in the ObjectsInherited map.
+// This is useful for overriding default channels like #out, #in, #err at runtime.
+// The moduleName parameter is currently ignored - objects are set at the root level.
+func (ps *PawScript) SetInheritedObject(moduleName, objectName string, value interface{}) {
+	ps.rootModuleEnv.mu.Lock()
+	defer ps.rootModuleEnv.mu.Unlock()
+	if ps.rootModuleEnv.ObjectsInherited == nil {
+		ps.rootModuleEnv.ObjectsInherited = make(map[string]interface{})
+	}
+	ps.rootModuleEnv.ObjectsInherited[objectName] = value
+}
+
 // ImportModuleToRoot imports all items from a module directly into the root environment.
 // This makes the items available to all subsequent Execute() calls without needing IMPORT.
 func (ps *PawScript) ImportModuleToRoot(moduleName string) bool {
