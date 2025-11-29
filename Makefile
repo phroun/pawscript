@@ -37,7 +37,7 @@ ifeq ($(NATIVE_OS),windows)
 	cd $(SRC_DIR) && go build -ldflags "-X main.version=$(VERSION)" -o ../pawgui.exe ./cmd/pawgui
 	@echo "Created: pawgui.exe"
 else ifeq ($(NATIVE_OS),darwin)
-	cd $(SRC_DIR) && CGO_LDFLAGS="-Wl,-no_warn_duplicate_libraries" go build -ldflags "-X main.version=$(VERSION)" -o ../pawgui ./cmd/pawgui
+	cd $(SRC_DIR) && CGO_CFLAGS="-Wno-deprecated-declarations" CGO_LDFLAGS="-Wl,-no_warn_duplicate_libraries" go build -ldflags "-X main.version=$(VERSION)" -o ../pawgui ./cmd/pawgui
 	@echo "Created: pawgui"
 else
 	cd $(SRC_DIR) && go build -ldflags "-X main.version=$(VERSION)" -o ../pawgui ./cmd/pawgui
