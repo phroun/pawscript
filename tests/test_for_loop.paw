@@ -1,0 +1,214 @@
+#!/usr/bin/env paw
+# Comprehensive test for for loop and range commands
+
+echo "=== For Loop Tests ==="
+echo ""
+
+# Test 1: Basic numeric range (ascending)
+echo "Test 1: Numeric range ascending"
+sum: 0
+for 1, 5, i, (
+    sum: {add ~sum, ~i}
+)
+echo "Sum 1+2+3+4+5 = ~sum"
+echo "(Expected: 15)"
+echo ""
+
+# Test 2: Numeric range (descending)
+echo "Test 2: Numeric range descending"
+result: ""
+for 5, 1, i, (
+    result: "~result~i "
+)
+echo "Count down: ~result"
+echo "(Expected: 5 4 3 2 1 )"
+echo ""
+
+# Test 3: Numeric range with step
+echo "Test 3: Numeric range with step"
+result: ""
+for 0, 10, by: 2, i, (
+    result: "~result~i "
+)
+echo "Even numbers: ~result"
+echo "(Expected: 0 2 4 6 8 10 )"
+echo ""
+
+# Test 4: Numeric range descending with step
+echo "Test 4: Numeric range descending with step"
+result: ""
+for 10, 0, by: -2, i, (
+    result: "~result~i "
+)
+echo "Descending evens: ~result"
+echo "(Expected: 10 8 6 4 2 0 )"
+echo ""
+
+# Test 5: List iteration
+echo "Test 5: List iteration"
+items: (apple, banana, cherry)
+result: ""
+for ~items, item, (
+    result: "~result~item "
+)
+echo "Fruits: ~result"
+echo "(Expected: apple banana cherry )"
+echo ""
+
+# Test 6: List iteration with iter: variable
+echo "Test 6: List iteration with iter:"
+items: (a, b, c)
+result: ""
+for ~items, item, iter: n, (
+    result: "~result~n:~item "
+)
+echo "Numbered: ~result"
+echo "(Expected: 1:a 2:b 3:c )"
+echo ""
+
+# Test 7: List iteration with index: variable
+echo "Test 7: List iteration with index:"
+items: (x, y, z)
+result: ""
+for ~items, item, index: idx, (
+    result: "~result[~idx]=~item "
+)
+echo "Indexed: ~result"
+echo "(Expected: [0]=x [1]=y [2]=z )"
+echo ""
+
+# Test 8: List iteration descending
+echo "Test 8: List iteration descending"
+items: (1, 2, 3)
+result: ""
+for ~items, item, order: descending, (
+    result: "~result~item "
+)
+echo "Reversed: ~result"
+echo "(Expected: 3 2 1 )"
+echo ""
+
+# Test 9: Key-value iteration over list named args
+echo "Test 9: Key-value iteration"
+data: (name: "Alice", age: 30, city: "NYC")
+result: ""
+for ~data, k, v, (
+    result: "~result~k=~v "
+)
+echo "Key-values: ~result"
+echo "(Expected: age=30 city=NYC name=Alice )"
+echo ""
+
+# Test 10: Range command explicit
+echo "Test 10: Explicit range command"
+r: {range 1, 3}
+result: ""
+while (v: {resume ~r}), (
+    result: "~result~v "
+)
+echo "Range result: ~result"
+echo "(Expected: 1 2 3 )"
+echo ""
+
+# Test 11: For with generator token
+echo "Test 11: For with generator (range)"
+r: {range 10, 12}
+result: ""
+for ~r, v, (
+    result: "~result~v "
+)
+echo "Generator result: ~result"
+echo "(Expected: 10 11 12 )"
+echo ""
+
+# Test 12: Early return from for loop
+echo "Test 12: Early return from for"
+macro find_first, (
+    for 1, 100, i, (
+        {eq ~i, 5} & (ret ~i)
+    )
+    ret -1
+)
+found: {find_first}
+echo "Found: ~found"
+echo "(Expected: 5)"
+echo ""
+
+# Test 13: Nested for loops
+echo "Test 13: Nested for loops"
+result: ""
+for 1, 2, i, (
+    for 1, 2, j, (
+        result: "~result(~i,~j) "
+    )
+)
+echo "Nested: ~result"
+echo "(Expected: (1,1) (1,2) (2,1) (2,2) )"
+echo ""
+
+# Test 14: Range with fractional step
+echo "Test 14: Range with fractional step"
+result: ""
+for 0, 1, by: 0.25, x, (
+    result: "~result~x "
+)
+echo "Fractional: ~result"
+echo "(Expected: 0 0.25 0.5 0.75 1 )"
+echo ""
+
+# Test 15: Iteration number and index together
+echo "Test 15: iter: and index: together"
+items: (a, b, c)
+result: ""
+for ~items, item, iter: n, index: i, (
+    result: "~result~n/~i:~item "
+)
+echo "Both counters: ~result"
+echo "(Expected: 1/0:a 2/1:b 3/2:c )"
+echo ""
+
+# Test 16: Async operations in for loop (msleep)
+echo "Test 16: Async in for loop"
+result: ""
+for 1, 3, i, (
+    msleep 1
+    result: "~result~i "
+)
+echo "After async: ~result"
+echo "(Expected: 1 2 3 )"
+echo ""
+
+# Test 17: Generator with async macro
+echo "Test 17: Generator iteration"
+macro async_gen, (
+    for 1, 3, x, (
+        yield ~x
+    )
+)
+gen: {generator async_gen}
+result: ""
+for ~gen, v, (
+    result: "~result~v "
+)
+echo "Generator output: ~result"
+echo "(Expected: 1 2 3 )"
+echo ""
+
+# Test 18: Generator with async (msleep) inside for loop
+echo "Test 18: Async generator"
+macro async_gen_sleep, (
+    for 1, 3, x, (
+        msleep 1
+        yield ~x
+    )
+)
+gen2: {generator async_gen_sleep}
+result: ""
+for ~gen2, v, (
+    result: "~result~v "
+)
+echo "Async generator output: ~result"
+echo "(Expected: 1 2 3 )"
+echo ""
+
+echo "=== All for loop tests complete ==="

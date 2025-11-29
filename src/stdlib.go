@@ -428,6 +428,40 @@ func toInt64(val interface{}) (int64, bool) {
 	}
 }
 
+// toFloat64 converts values to float64
+func toFloat64(val interface{}) (float64, bool) {
+	switch v := val.(type) {
+	case float64:
+		return v, true
+	case int64:
+		return float64(v), true
+	case int:
+		return float64(v), true
+	case Symbol:
+		str := string(v)
+		if f, err := strconv.ParseFloat(str, 64); err == nil {
+			return f, true
+		}
+		if i, err := strconv.ParseInt(str, 10, 64); err == nil {
+			return float64(i), true
+		}
+		return 0, false
+	case QuotedString:
+		str := string(v)
+		if f, err := strconv.ParseFloat(str, 64); err == nil {
+			return f, true
+		}
+		return 0, false
+	case string:
+		if f, err := strconv.ParseFloat(v, 64); err == nil {
+			return f, true
+		}
+		return 0, false
+	default:
+		return 0, false
+	}
+}
+
 // isTruthy checks if a value is truthy (non-zero, non-empty, non-false)
 func isTruthy(val interface{}) bool {
 	switch v := val.(type) {
