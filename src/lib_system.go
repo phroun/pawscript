@@ -468,19 +468,34 @@ func (ps *PawScript) RegisterSystemLib(scriptArgs []string) {
 		}
 
 		cmdName := fmt.Sprintf("%v", ctx.Args[0])
+		resolvedCmd := cmdName // Will be updated if we resolve the path
+
+		// Resolve relative paths with directory components relative to script directory
+		if !filepath.IsAbs(cmdName) && (strings.Contains(cmdName, string(filepath.Separator)) || strings.Contains(cmdName, "/")) {
+			if ps.config != nil && ps.config.ScriptDir != "" {
+				resolvedCmd = filepath.Join(ps.config.ScriptDir, cmdName)
+			} else {
+				resolvedCmd, _ = filepath.Abs(cmdName)
+			}
+		}
 
 		// Validate exec access against ExecRoots if configured
 		if ps.config != nil && ps.config.FileAccess != nil {
 			fileAccess := ps.config.FileAccess
 			if len(fileAccess.ExecRoots) > 0 {
-				// Resolve the command path
+				// Resolve the command path for validation
 				var cmdPath string
 				var err error
-				if filepath.IsAbs(cmdName) {
-					cmdPath = cmdName
+				if filepath.IsAbs(resolvedCmd) {
+					cmdPath = resolvedCmd
+					// Check if the file exists
+					if _, err = os.Stat(cmdPath); err != nil {
+						ctx.LogError(CatIO, fmt.Sprintf("exec: command not found: %s", cmdName))
+						return BoolStatus(false)
+					}
 				} else {
 					// Try to find the command in PATH
-					cmdPath, err = exec.LookPath(cmdName)
+					cmdPath, err = exec.LookPath(resolvedCmd)
 					if err != nil {
 						ctx.LogError(CatIO, fmt.Sprintf("exec: command not found: %s", cmdName))
 						return BoolStatus(false)
@@ -490,9 +505,16 @@ func (ps *PawScript) RegisterSystemLib(scriptArgs []string) {
 				cmdPath = filepath.Clean(cmdPath)
 
 				// Check if command is within allowed exec roots
+				// Use case-insensitive comparison on Windows/macOS
 				allowed := false
 				for _, root := range fileAccess.ExecRoots {
-					if strings.HasPrefix(cmdPath, root+string(filepath.Separator)) || cmdPath == root {
+					// Normalize root path to handle any .. sequences
+					absRoot, err := filepath.Abs(root)
+					if err != nil {
+						continue
+					}
+					absRoot = filepath.Clean(absRoot)
+					if pathHasPrefix(cmdPath, absRoot+string(filepath.Separator)) || pathEquals(cmdPath, absRoot) {
 						allowed = true
 						break
 					}
@@ -500,6 +522,23 @@ func (ps *PawScript) RegisterSystemLib(scriptArgs []string) {
 				if !allowed {
 					ctx.LogError(CatIO, "exec: access denied: command outside allowed roots")
 					return BoolStatus(false)
+				}
+
+				// Security: exec roots must not overlap with write roots
+				// This prevents write-then-execute attacks
+				// Use case-insensitive comparison on Windows/macOS
+				if len(fileAccess.WriteRoots) > 0 {
+					for _, writeRoot := range fileAccess.WriteRoots {
+						absWriteRoot, err := filepath.Abs(writeRoot)
+						if err != nil {
+							continue
+						}
+						absWriteRoot = filepath.Clean(absWriteRoot)
+						if pathHasPrefix(cmdPath, absWriteRoot+string(filepath.Separator)) || pathEquals(cmdPath, absWriteRoot) {
+							ctx.LogError(CatIO, "exec: access denied: cannot execute from writable directory (security restriction)")
+							return BoolStatus(false)
+						}
+					}
 				}
 			}
 		}
@@ -509,7 +548,7 @@ func (ps *PawScript) RegisterSystemLib(scriptArgs []string) {
 			cmdArgs = append(cmdArgs, fmt.Sprintf("%v", ctx.Args[i]))
 		}
 
-		cmd := exec.Command(cmdName, cmdArgs...)
+		cmd := exec.Command(resolvedCmd, cmdArgs...)
 
 		var stdoutBuf, stderrBuf bytes.Buffer
 		cmd.Stdout = &stdoutBuf

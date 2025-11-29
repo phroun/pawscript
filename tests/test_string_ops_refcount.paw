@@ -188,10 +188,7 @@ echo ""
 # ============ exec ============
 # Select helper based on OS
 (os:): ~#args
-if {eq ~os, "windows"}
-    echo_helper: "helpers/echo.bat"
-else
-    echo_helper: "helpers/echo.sh"
+if {eq ~os, "windows"} then echo_helper: "helpers/echo.bat" else echo_helper: "helpers/echo.sh"
 
 echo "Test 27: exec with small output"
 small_exec: {exec ~echo_helper, "hello"}

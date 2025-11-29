@@ -217,7 +217,11 @@ func (ps *PawScript) RegisterStandardLibraryWithIO(scriptArgs []string, ioConfig
 	ps.rootModuleEnv.PopulateIOModule(ioConfig, ps.executor)
 
 	// Populate OS module with script arguments as #args
-	ps.rootModuleEnv.PopulateOSModule(scriptArgs)
+	scriptDir := ""
+	if ps.config != nil {
+		scriptDir = ps.config.ScriptDir
+	}
+	ps.rootModuleEnv.PopulateOSModule(scriptArgs, scriptDir)
 }
 
 // estimateObjectSize provides a rough estimate of object size in bytes
