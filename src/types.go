@@ -312,8 +312,9 @@ type SubstitutionContext struct {
 
 // FileAccessConfig controls file system access permissions
 type FileAccessConfig struct {
-	ReadRoots  []string // Directories allowed for read access (nil = unrestricted)
-	WriteRoots []string // Directories allowed for write access (nil = unrestricted)
+	ReadRoots  []string // Directories allowed for read access (empty = no access)
+	WriteRoots []string // Directories allowed for write access (empty = no access)
+	ExecRoots  []string // Directories allowed for exec command (empty = no access)
 }
 
 // Config holds configuration for PawScript

@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"os"
 	"os/exec"
+	"path/filepath"
 	"sort"
 	"strconv"
 	"strings"
@@ -467,6 +468,41 @@ func (ps *PawScript) RegisterSystemLib(scriptArgs []string) {
 		}
 
 		cmdName := fmt.Sprintf("%v", ctx.Args[0])
+
+		// Validate exec access against ExecRoots if configured
+		if ps.config != nil && ps.config.FileAccess != nil {
+			fileAccess := ps.config.FileAccess
+			if len(fileAccess.ExecRoots) > 0 {
+				// Resolve the command path
+				var cmdPath string
+				var err error
+				if filepath.IsAbs(cmdName) {
+					cmdPath = cmdName
+				} else {
+					// Try to find the command in PATH
+					cmdPath, err = exec.LookPath(cmdName)
+					if err != nil {
+						ctx.LogError(CatIO, fmt.Sprintf("exec: command not found: %s", cmdName))
+						return BoolStatus(false)
+					}
+				}
+				cmdPath, _ = filepath.Abs(cmdPath)
+				cmdPath = filepath.Clean(cmdPath)
+
+				// Check if command is within allowed exec roots
+				allowed := false
+				for _, root := range fileAccess.ExecRoots {
+					if strings.HasPrefix(cmdPath, root+string(filepath.Separator)) || cmdPath == root {
+						allowed = true
+						break
+					}
+				}
+				if !allowed {
+					ctx.LogError(CatIO, "exec: access denied: command outside allowed roots")
+					return BoolStatus(false)
+				}
+			}
+		}
 
 		var cmdArgs []string
 		for i := 1; i < len(ctx.Args); i++ {
