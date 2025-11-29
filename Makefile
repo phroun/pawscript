@@ -16,7 +16,8 @@ else
     BINARY_NAME := paw
 endif
 
-.PHONY: build-all clean-releases build build-gui install test test-coverage run-example clean fmt lint help
+.PHONY: build-all clean-releases build build-gui install test test-coverage run-example clean fmt lint help \
+	build-gui-macos-arm64 build-gui-macos-x64 build-gui-ms-arm64 build-gui-ms-x64 build-gui-linux-arm64 build-gui-linux-x64
 
 # Build native version for local use
 build:
@@ -62,8 +63,9 @@ else
 	fi
 endif
 
-# Build and package all platforms
-build-all: build-wasm build-macos-arm64 build-macos-x64 build-ms-arm64 build-ms-x64 build-linux-arm64 build-linux-x64
+# Build and package all platforms (CLI and GUI)
+build-all: build-wasm build-macos-arm64 build-macos-x64 build-ms-arm64 build-ms-x64 build-linux-arm64 build-linux-x64 \
+	build-gui-macos-arm64 build-gui-macos-x64 build-gui-ms-arm64 build-gui-ms-x64 build-gui-linux-arm64 build-gui-linux-x64
 
 # Clean release artifacts
 clean-releases:
@@ -98,6 +100,39 @@ build-linux-arm64:
 
 build-linux-x64:
 	$(call build-release,linux,amd64,linux,x64,paw,tar -czf,.tar.gz)
+
+# GUI release build macro (requires CGO - use fyne-cross for cross-compilation)
+# Args: 1=GOOS, 2=GOARCH, 3=platform-name, 4=arch-name, 5=binary-name, 6=archive-cmd, 7=archive-ext
+define build-release-gui
+	@echo "Building and packaging pawgui $(3) $(4)..."
+	@mkdir -p $(RELEASE_DIR)/pawgui-$(VERSION)-$(3)-$(4)
+	@cp -r examples $(RELEASE_DIR)/pawgui-$(VERSION)-$(3)-$(4)/examples
+	@cp README.md $(RELEASE_DIR)/pawgui-$(VERSION)-$(3)-$(4)/README.md
+	@cp LICENSE $(RELEASE_DIR)/pawgui-$(VERSION)-$(3)-$(4)/LICENSE
+	cd $(SRC_DIR) && CGO_ENABLED=1 GOOS=$(1) GOARCH=$(2) go build -ldflags "-X main.version=$(VERSION)" -o ../$(RELEASE_DIR)/pawgui-$(VERSION)-$(3)-$(4)/$(5) ./cmd/pawgui
+	@cd $(RELEASE_DIR) && $(6) pawgui-$(VERSION)-$(3)-$(4)$(7) pawgui-$(VERSION)-$(3)-$(4)
+	@rm -rf $(RELEASE_DIR)/pawgui-$(VERSION)-$(3)-$(4)
+	@echo "Created: $(RELEASE_DIR)/pawgui-$(VERSION)-$(3)-$(4)$(7)"
+endef
+
+# GUI builds (require CGO cross-compilation toolchain or fyne-cross)
+build-gui-macos-arm64:
+	$(call build-release-gui,darwin,arm64,macos,arm64,pawgui,tar -czf,.tar.gz)
+
+build-gui-macos-x64:
+	$(call build-release-gui,darwin,amd64,macos,x64,pawgui,tar -czf,.tar.gz)
+
+build-gui-ms-arm64:
+	$(call build-release-gui,windows,arm64,windows,arm64,pawgui.exe,zip -r,.zip)
+
+build-gui-ms-x64:
+	$(call build-release-gui,windows,amd64,windows,x64,pawgui.exe,zip -r,.zip)
+
+build-gui-linux-arm64:
+	$(call build-release-gui,linux,arm64,linux,arm64,pawgui,tar -czf,.tar.gz)
+
+build-gui-linux-x64:
+	$(call build-release-gui,linux,amd64,linux,x64,pawgui,tar -czf,.tar.gz)
 
 build-wasm:
 	@echo "Building paw WASM..."
@@ -138,7 +173,7 @@ help:
 	@echo "Targets:"
 	@echo "  build          - Build paw for native platform"
 	@echo "  build-gui      - Build pawgui (Fyne GUI) for native platform"
-	@echo "  build-all      - Build and package for all platforms"
+	@echo "  build-all      - Build and package paw+pawgui for all platforms"
 	@echo "  run-example    - Run hello.paw example"
 	@echo "  test           - Run regression tests"
 	@echo "  test-coverage  - Run tests with coverage report"
@@ -148,3 +183,5 @@ help:
 	@echo "  fmt            - Format code"
 	@echo "  lint           - Run linter"
 	@echo "  help           - Show this help"
+	@echo ""
+	@echo "GUI cross-compilation requires CGO toolchains or fyne-cross."
