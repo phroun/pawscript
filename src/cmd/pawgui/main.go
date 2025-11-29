@@ -8,6 +8,7 @@ import (
 	"io"
 	"os"
 	"path/filepath"
+	"sort"
 	"strconv"
 	"strings"
 	"sync"
@@ -16,6 +17,8 @@ import (
 	"fyne.io/fyne/v2"
 	"fyne.io/fyne/v2/app"
 	"fyne.io/fyne/v2/container"
+	"fyne.io/fyne/v2/dialog"
+	"fyne.io/fyne/v2/storage"
 	"fyne.io/fyne/v2/widget"
 	"github.com/fyne-io/terminal"
 	pawscript "github.com/phroun/pawscript"
@@ -146,10 +149,29 @@ func main() {
 		scriptContent = string(content)
 
 	} else {
-		// No filename and stdin is not redirected - show usage
-		showCopyright()
-		showUsage()
-		os.Exit(1)
+		// No filename and stdin is not redirected - launch GUI mode
+		// Set the FYNE_SCALE environment variable
+		err := os.Setenv("FYNE_SCALE", strconv.FormatFloat(*scaleFlag, 'f', -1, 64))
+		if err != nil {
+			fmt.Println("Error setting FYNE_SCALE:", err)
+		}
+
+		// Create the Fyne application
+		fyneApp := app.New()
+
+		// Initialize GUI state
+		guiState = &GuiState{
+			app:     fyneApp,
+			windows: make(map[int]*WindowState),
+			nextID:  1,
+		}
+
+		// Create and show the launcher window
+		createLauncherWindow()
+
+		// Run the Fyne event loop (blocking)
+		fyneApp.Run()
+		return
 	}
 
 	// Build file access configuration (same as paw)
@@ -750,6 +772,394 @@ func createConsoleWindowWithPipes(scriptFile string, stdinReader *io.PipeWriter,
 	})
 
 	<-done
+}
+
+// getPawFilesInDir returns a sorted list of .paw files in the given directory
+func getPawFilesInDir(dir string) []string {
+	var files []string
+	entries, err := os.ReadDir(dir)
+	if err != nil {
+		return files
+	}
+	for _, entry := range entries {
+		if !entry.IsDir() && strings.HasSuffix(strings.ToLower(entry.Name()), ".paw") {
+			files = append(files, entry.Name())
+		}
+	}
+	sort.Strings(files)
+	return files
+}
+
+// createMainMenu creates the application main menu
+func createMainMenu(win fyne.Window) *fyne.MainMenu {
+	// File menu
+	newItem := fyne.NewMenuItem("New Window", func() {
+		createLauncherWindow()
+	})
+	openItem := fyne.NewMenuItem("Open...", func() {
+		showOpenFileDialog(win)
+	})
+	fileMenu := fyne.NewMenu("File", newItem, openItem)
+
+	// Window menu - will be dynamically populated
+	windowMenu := fyne.NewMenu("Window")
+
+	return fyne.NewMainMenu(fileMenu, windowMenu)
+}
+
+// updateWindowMenu refreshes the Window menu with current windows
+func updateWindowMenu(menu *fyne.MainMenu) {
+	if menu == nil || len(menu.Items) < 2 {
+		return
+	}
+	windowMenu := menu.Items[1]
+
+	guiState.mu.RLock()
+	defer guiState.mu.RUnlock()
+
+	// Build list of window items
+	var items []*fyne.MenuItem
+	for id, ws := range guiState.windows {
+		windowID := id
+		windowState := ws
+		title := ws.window.Title()
+		if title == "" {
+			title = fmt.Sprintf("Window %d", id)
+		}
+		item := fyne.NewMenuItem(title, func() {
+			fyne.Do(func() {
+				windowState.window.RequestFocus()
+			})
+		})
+		_ = windowID // suppress unused warning
+		items = append(items, item)
+	}
+
+	windowMenu.Items = items
+	windowMenu.Refresh()
+}
+
+// showOpenFileDialog shows a file dialog to select a .paw file
+func showOpenFileDialog(win fyne.Window) {
+	fd := dialog.NewFileOpen(func(reader fyne.URIReadCloser, err error) {
+		if err != nil || reader == nil {
+			return
+		}
+		defer reader.Close()
+
+		filePath := reader.URI().Path()
+		runScriptFile(filePath)
+	}, win)
+
+	fd.SetFilter(storage.NewExtensionFileFilter([]string{".paw"}))
+
+	// Try to set starting directory to cwd
+	cwd, err := os.Getwd()
+	if err == nil {
+		uri := storage.NewFileURI(cwd)
+		lister, err := storage.ListerForURI(uri)
+		if err == nil {
+			fd.SetLocation(lister)
+		}
+	}
+
+	fd.Show()
+}
+
+// runScriptFile runs a .paw script file in a new console window
+func runScriptFile(filePath string) {
+	content, err := os.ReadFile(filePath)
+	if err != nil {
+		fmt.Fprintf(os.Stderr, "Error reading script file: %v\n", err)
+		return
+	}
+
+	scriptDir := filepath.Dir(filePath)
+	absScript, _ := filepath.Abs(filePath)
+	if absScript != "" {
+		scriptDir = filepath.Dir(absScript)
+	}
+
+	// Create file access config
+	cwd, _ := os.Getwd()
+	tmpDir := os.TempDir()
+	fileAccess := &pawscript.FileAccessConfig{
+		ReadRoots:  []string{scriptDir, cwd, tmpDir},
+		WriteRoots: []string{filepath.Join(scriptDir, "saves"), filepath.Join(scriptDir, "output"), filepath.Join(cwd, "saves"), filepath.Join(cwd, "output"), tmpDir},
+		ExecRoots:  []string{filepath.Join(scriptDir, "helpers"), filepath.Join(scriptDir, "bin")},
+	}
+
+	// Create a new PawScript instance for this script
+	ps := pawscript.New(&pawscript.Config{
+		Debug:                false,
+		AllowMacros:          true,
+		EnableSyntacticSugar: true,
+		ShowErrorContext:     true,
+		ContextLines:         2,
+		FileAccess:           fileAccess,
+		ScriptDir:            scriptDir,
+	})
+
+	// Create console window
+	guiState.mu.Lock()
+	id := guiState.nextID
+	guiState.nextID++
+	guiState.mu.Unlock()
+
+	title := filepath.Base(filePath) + " - PawScript"
+	width := float32(653)
+	height := float32(414)
+
+	// Create pipes for console I/O
+	// Note: io.Pipe() returns (reader, writer) - variable names indicate usage direction
+	stdinWriter, stdinReader := io.Pipe()
+	stdoutReader, stdoutWriter := io.Pipe()
+
+	charWidth := 80
+	charHeight := 25
+
+	consoleOutCh, consoleInCh, _ := createConsoleChannels(stdinWriter, stdoutWriter, charWidth, charHeight)
+
+	// Register standard library with console IO
+	ioConfig := &pawscript.IOChannelConfig{
+		Stdout: consoleOutCh,
+		Stdin:  consoleInCh,
+		Stderr: consoleOutCh,
+	}
+	ps.RegisterStandardLibraryWithIO([]string{}, ioConfig)
+	registerGuiCommands(ps)
+
+	var ws *WindowState
+	done := make(chan struct{})
+
+	fyne.Do(func() {
+		newWindow := guiState.app.NewWindow(title)
+		newWindow.Resize(fyne.NewSize(width, height))
+
+		ws = &WindowState{
+			window:       newWindow,
+			content:      container.NewVBox(),
+			leftContent:  container.NewVBox(),
+			rightContent: container.NewVBox(),
+			usingSplit:   false,
+			widgets:      make(map[string]fyne.CanvasObject),
+			containers:   make(map[string]*fyne.Container),
+		}
+
+		term := terminal.New()
+		ws.terminal = term
+
+		windowID := id
+		newWindow.SetCloseIntercept(func() {
+			guiState.mu.Lock()
+			delete(guiState.windows, windowID)
+			guiState.mu.Unlock()
+			newWindow.Close()
+		})
+
+		clickInterceptor := newClickInterceptor(term)
+		termWithInterceptor := container.NewStack(term, clickInterceptor)
+		newWindow.SetContent(termWithInterceptor)
+		newWindow.CenterOnScreen()
+		newWindow.Show()
+
+		guiState.mu.Lock()
+		guiState.windows[id] = ws
+		guiState.mu.Unlock()
+
+		go func() {
+			time.Sleep(time.Millisecond * 100)
+			err := term.RunWithConnection(stdinReader, stdoutReader)
+			if err != nil {
+				fmt.Fprintf(os.Stderr, "Terminal error: %v\n", err)
+			}
+		}()
+
+		canvas := newWindow.Canvas()
+		if canvas != nil {
+			canvas.Focus(term)
+		}
+
+		close(done)
+	})
+
+	<-done
+
+	// Run the script
+	go func() {
+		time.Sleep(200 * time.Millisecond)
+		result := ps.ExecuteFile(string(content), filePath)
+		if result == pawscript.BoolStatus(false) {
+			fmt.Fprintf(os.Stderr, "Script execution failed\n")
+		}
+	}()
+}
+
+// createLauncherWindow creates the main launcher window with file browser and help console
+func createLauncherWindow() {
+	guiState.mu.Lock()
+	id := guiState.nextID
+	guiState.nextID++
+	guiState.mu.Unlock()
+
+	done := make(chan struct{})
+
+	fyne.Do(func() {
+		win := guiState.app.NewWindow("PawScript Launcher")
+		win.Resize(fyne.NewSize(900, 500))
+
+		// Create the main menu
+		mainMenu := createMainMenu(win)
+		win.SetMainMenu(mainMenu)
+
+		// Create window state
+		ws := &WindowState{
+			window:       win,
+			content:      container.NewVBox(),
+			leftContent:  container.NewVBox(),
+			rightContent: container.NewVBox(),
+			usingSplit:   false,
+			widgets:      make(map[string]fyne.CanvasObject),
+			containers:   make(map[string]*fyne.Container),
+		}
+
+		// --- Left Panel: File Browser ---
+		cwd, _ := os.Getwd()
+		pawFiles := getPawFilesInDir(cwd)
+
+		fileList := widget.NewList(
+			func() int { return len(pawFiles) },
+			func() fyne.CanvasObject { return widget.NewLabel("template") },
+			func(i widget.ListItemID, o fyne.CanvasObject) {
+				o.(*widget.Label).SetText(pawFiles[i])
+			},
+		)
+
+		var selectedFile string
+		fileList.OnSelected = func(id widget.ListItemID) {
+			if id >= 0 && id < len(pawFiles) {
+				selectedFile = pawFiles[id]
+			}
+		}
+
+		runBtn := widget.NewButton("Run", func() {
+			if selectedFile != "" {
+				fullPath := filepath.Join(cwd, selectedFile)
+				runScriptFile(fullPath)
+			}
+		})
+
+		browseBtn := widget.NewButton("Browse...", func() {
+			showOpenFileDialog(win)
+		})
+
+		buttonBox := container.NewHBox(runBtn, browseBtn)
+
+		// Label for the file list
+		dirLabel := widget.NewLabel("Scripts in current directory:")
+
+		leftPanel := container.NewBorder(
+			dirLabel,   // top
+			buttonBox,  // bottom
+			nil,        // left
+			nil,        // right
+			fileList,   // center (fills remaining space)
+		)
+
+		// --- Right Panel: Console with Help ---
+		// Note: io.Pipe() returns (reader, writer) - variable names indicate usage direction
+		stdinWriter, stdinReader := io.Pipe()
+		stdoutReader, stdoutWriter := io.Pipe()
+		_ = stdinWriter // Not used for help-only console
+
+		term := terminal.New()
+		ws.terminal = term
+
+		clickInterceptor := newClickInterceptor(term)
+		termWithInterceptor := container.NewStack(term, clickInterceptor)
+
+		// Start terminal
+		go func() {
+			time.Sleep(time.Millisecond * 100)
+			err := term.RunWithConnection(stdinReader, stdoutReader)
+			if err != nil {
+				fmt.Fprintf(os.Stderr, "Terminal error: %v\n", err)
+			}
+		}()
+
+		// Write help text to terminal after a short delay
+		go func() {
+			time.Sleep(time.Millisecond * 200)
+			helpText := getUsageText()
+			// Convert newlines for terminal
+			helpText = strings.ReplaceAll(helpText, "\n", "\r\n")
+			fmt.Fprint(stdoutWriter, helpText)
+		}()
+
+		// --- Create Split Layout ---
+		split := container.NewHSplit(leftPanel, termWithInterceptor)
+		split.SetOffset(0.3) // 30% for file list, 70% for console
+
+		windowID := id
+		win.SetCloseIntercept(func() {
+			guiState.mu.Lock()
+			delete(guiState.windows, windowID)
+			guiState.mu.Unlock()
+			win.Close()
+		})
+
+		win.SetContent(split)
+		win.CenterOnScreen()
+		win.Show()
+
+		guiState.mu.Lock()
+		guiState.windows[id] = ws
+		guiState.mu.Unlock()
+
+		// Focus the terminal
+		canvas := win.Canvas()
+		if canvas != nil {
+			canvas.Focus(term)
+		}
+
+		close(done)
+	})
+
+	<-done
+}
+
+// getUsageText returns the help/usage text for display in the launcher console
+func getUsageText() string {
+	return fmt.Sprintf(`pawgui, the PawScript GUI interpreter version %s
+Copyright (c) 2025 Jeffrey R. Day
+License: MIT
+
+Usage: pawgui [options] [script.paw] [-- args...]
+       pawgui [options] < input.paw
+       echo "commands" | pawgui [options]
+
+Execute PawScript with GUI capabilities from a file, stdin, or pipe.
+
+Options:
+  --license           View license and exit
+  -d, -debug          Enable debug output
+  -v, -verbose        Enable verbose output (same as -debug)
+  --unrestricted      Disable all file/exec access restrictions
+  --sandbox DIR       Restrict all access to DIR only
+  --read-roots DIRS   Additional directories for reading
+  --write-roots DIRS  Additional directories for writing
+  --exec-roots DIRS   Additional directories for exec command
+
+GUI Options:
+  --scale FACTOR      GUI scale factor (default 1.5)
+  --window            Create console window for stdout/stdin/stderr
+
+Select a script from the list on the left and click "Run" to execute it,
+or click "Browse..." to find a script elsewhere.
+
+Use File > New Window to open another launcher window.
+Use File > Open... to open a script file.
+`, version)
 }
 
 // registerGuiCommands registers all GUI-related commands with PawScript
