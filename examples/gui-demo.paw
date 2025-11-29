@@ -2,8 +2,8 @@
 # PawScript GUI Demo with Split Layout
 # Run with: pawgui gui-demo.paw  OR  pawgui -demo
 
-gui_title "PawScript GUI Demo"
-gui_resize 900, 500
+# Create main window with handle
+#window: {gui_window "PawScript GUI Demo", 900, 500}
 
 # Enable split layout (40% left, 60% right)
 gui_split 0.4

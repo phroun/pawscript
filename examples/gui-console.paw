@@ -3,8 +3,8 @@
 # Shows terminal features using gui_console returned channels
 # Run with: pawgui gui-console.paw  OR  pawgui -console
 
-gui_title "PawScript Console Demo"
-gui_resize 700, 500
+# Create main window with handle
+#window: {gui_window "PawScript Console Demo", 700, 500}
 
 # Create console and unpack channels directly into #out, #in, #err
 # This makes echo, print, write, read automatically use them!
