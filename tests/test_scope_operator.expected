@@ -27,6 +27,6 @@ split result: ("a", "b", "c")
 [ERROR] Module not found: math
 [ERROR] Module not found: math
 [PawScript:command ERROR] Unknown command: math::sin
-  at line 46, column 1 in tests/test_scope_operator.paw
+  at line 46, column 1 in test_scope_operator.paw
 math::sin after restrict status: false
 ::math::sin after restrict = 0
