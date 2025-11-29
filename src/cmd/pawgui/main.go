@@ -870,13 +870,22 @@ func registerGuiCommands(ps *pawscript.PawScript) {
 
 			<-done
 
-			// Redirect #out, #in, #err to the console channels using SetInheritedObject
+			// Redirect #out, #in, #err to the console channels
+			// Set in both root environment (for future modules) and current module context
 			guiState.ps.SetInheritedObject("io", "#out", consoleOutCh)
 			guiState.ps.SetInheritedObject("io", "#stdout", consoleOutCh)
 			guiState.ps.SetInheritedObject("io", "#in", consoleInCh)
 			guiState.ps.SetInheritedObject("io", "#stdin", consoleInCh)
 			guiState.ps.SetInheritedObject("io", "#err", consoleOutCh)
 			guiState.ps.SetInheritedObject("io", "#stderr", consoleOutCh)
+
+			// Also set in current module's ObjectsModule for immediate effect
+			ctx.SetModuleObject("#out", consoleOutCh)
+			ctx.SetModuleObject("#stdout", consoleOutCh)
+			ctx.SetModuleObject("#in", consoleInCh)
+			ctx.SetModuleObject("#stdin", consoleInCh)
+			ctx.SetModuleObject("#err", consoleOutCh)
+			ctx.SetModuleObject("#stderr", consoleOutCh)
 		} else {
 			// Standard window (no console)
 			fyne.Do(func() {

@@ -150,6 +150,20 @@ func (c *Context) ResolveHashArg(name string) interface{} {
 	return nil
 }
 
+// SetModuleObject sets a value in the current module's ObjectsModule (copy-on-write layer).
+// This allows commands to override inherited objects for the current module context.
+func (c *Context) SetModuleObject(name string, value interface{}) {
+	if c.state.moduleEnv == nil {
+		return
+	}
+	c.state.moduleEnv.mu.Lock()
+	defer c.state.moduleEnv.mu.Unlock()
+	if c.state.moduleEnv.ObjectsModule == nil {
+		c.state.moduleEnv.ObjectsModule = make(map[string]interface{})
+	}
+	c.state.moduleEnv.ObjectsModule[name] = value
+}
+
 // Handler is a function that handles a command
 type Handler func(*Context) Result
 
