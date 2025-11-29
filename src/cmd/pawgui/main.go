@@ -37,6 +37,10 @@ type WindowState struct {
 	widgets      map[string]fyne.CanvasObject
 	containers   map[string]*fyne.Container
 	terminal     *terminal.Terminal
+	// Console IO channels (for launcher windows)
+	consoleOutCh  *pawscript.StoredChannel
+	consoleInCh   *pawscript.StoredChannel
+	stdoutWriter  *io.PipeWriter
 }
 
 // GuiState holds the current GUI state accessible to PawScript
@@ -839,7 +843,7 @@ func updateWindowMenu(menu *fyne.MainMenu) {
 	windowMenu.Refresh()
 }
 
-// showOpenFileDialog shows a file dialog to select a .paw file
+// showOpenFileDialog shows a file dialog to select a .paw file (opens in new window)
 func showOpenFileDialog(win fyne.Window) {
 	fd := dialog.NewFileOpen(func(reader fyne.URIReadCloser, err error) {
 		if err != nil || reader == nil {
@@ -848,7 +852,7 @@ func showOpenFileDialog(win fyne.Window) {
 		defer reader.Close()
 
 		filePath := reader.URI().Path()
-		runScriptFile(filePath)
+		go runScriptFile(filePath)
 	}, win)
 
 	fd.SetFilter(storage.NewExtensionFileFilter([]string{".paw"}))
@@ -864,6 +868,102 @@ func showOpenFileDialog(win fyne.Window) {
 	}
 
 	fd.Show()
+}
+
+// showOpenFileDialogForWindow shows a file dialog and runs the script in the given window's console
+func showOpenFileDialogForWindow(win fyne.Window, ws *WindowState) {
+	fd := dialog.NewFileOpen(func(reader fyne.URIReadCloser, err error) {
+		if err != nil || reader == nil {
+			return
+		}
+		defer reader.Close()
+
+		filePath := reader.URI().Path()
+		go runScriptInWindow(filePath, ws)
+	}, win)
+
+	fd.SetFilter(storage.NewExtensionFileFilter([]string{".paw"}))
+
+	// Try to set starting directory to cwd
+	cwd, err := os.Getwd()
+	if err == nil {
+		uri := storage.NewFileURI(cwd)
+		lister, err := storage.ListerForURI(uri)
+		if err == nil {
+			fd.SetLocation(lister)
+		}
+	}
+
+	fd.Show()
+}
+
+// runScriptInWindow runs a .paw script file in an existing window's console
+func runScriptInWindow(filePath string, ws *WindowState) {
+	if ws == nil || ws.consoleOutCh == nil || ws.consoleInCh == nil {
+		fmt.Fprintf(os.Stderr, "Error: Window does not have console channels\n")
+		return
+	}
+
+	content, err := os.ReadFile(filePath)
+	if err != nil {
+		// Write error to console
+		errMsg := fmt.Sprintf("\r\nError reading script file: %v\r\n", err)
+		fmt.Fprint(ws.stdoutWriter, errMsg)
+		return
+	}
+
+	scriptDir := filepath.Dir(filePath)
+	absScript, _ := filepath.Abs(filePath)
+	if absScript != "" {
+		scriptDir = filepath.Dir(absScript)
+	}
+
+	// Create file access config
+	cwd, _ := os.Getwd()
+	tmpDir := os.TempDir()
+	fileAccess := &pawscript.FileAccessConfig{
+		ReadRoots:  []string{scriptDir, cwd, tmpDir},
+		WriteRoots: []string{filepath.Join(scriptDir, "saves"), filepath.Join(scriptDir, "output"), filepath.Join(cwd, "saves"), filepath.Join(cwd, "output"), tmpDir},
+		ExecRoots:  []string{filepath.Join(scriptDir, "helpers"), filepath.Join(scriptDir, "bin")},
+	}
+
+	// Create a new PawScript instance for this script
+	ps := pawscript.New(&pawscript.Config{
+		Debug:                false,
+		AllowMacros:          true,
+		EnableSyntacticSugar: true,
+		ShowErrorContext:     true,
+		ContextLines:         2,
+		FileAccess:           fileAccess,
+		ScriptDir:            scriptDir,
+	})
+
+	// Register standard library with the window's console IO
+	ioConfig := &pawscript.IOChannelConfig{
+		Stdout: ws.consoleOutCh,
+		Stdin:  ws.consoleInCh,
+		Stderr: ws.consoleOutCh,
+	}
+	ps.RegisterStandardLibraryWithIO([]string{}, ioConfig)
+	registerGuiCommands(ps)
+
+	// Update window title
+	title := filepath.Base(filePath) + " - PawScript Launcher"
+	fyne.Do(func() {
+		ws.window.SetTitle(title)
+	})
+
+	// Print separator and run message
+	runMsg := fmt.Sprintf("\r\n--- Running: %s ---\r\n\r\n", filepath.Base(filePath))
+	fmt.Fprint(ws.stdoutWriter, runMsg)
+
+	// Run the script
+	result := ps.ExecuteFile(string(content), filePath)
+	if result == pawscript.BoolStatus(false) {
+		fmt.Fprint(ws.stdoutWriter, "\r\n--- Script execution failed ---\r\n")
+	} else {
+		fmt.Fprint(ws.stdoutWriter, "\r\n--- Script completed ---\r\n")
+	}
 }
 
 // runScriptFile runs a .paw script file in a new console window
@@ -1004,6 +1104,17 @@ func createLauncherWindow() {
 
 	done := make(chan struct{})
 
+	// Create pipes for console I/O outside fyne.Do so they're accessible
+	stdinWriter, stdinReader := io.Pipe()
+	stdoutReader, stdoutWriter := io.Pipe()
+
+	// Create console channels for script execution
+	charWidth := 80
+	charHeight := 25
+	consoleOutCh, consoleInCh, _ := createConsoleChannels(stdinWriter, stdoutWriter, charWidth, charHeight)
+
+	var ws *WindowState
+
 	fyne.Do(func() {
 		win := guiState.app.NewWindow("PawScript Launcher")
 		win.Resize(fyne.NewSize(900, 500))
@@ -1012,8 +1123,8 @@ func createLauncherWindow() {
 		mainMenu := createMainMenu(win)
 		win.SetMainMenu(mainMenu)
 
-		// Create window state
-		ws := &WindowState{
+		// Create window state with console channels
+		ws = &WindowState{
 			window:       win,
 			content:      container.NewVBox(),
 			leftContent:  container.NewVBox(),
@@ -1021,6 +1132,9 @@ func createLauncherWindow() {
 			usingSplit:   false,
 			widgets:      make(map[string]fyne.CanvasObject),
 			containers:   make(map[string]*fyne.Container),
+			consoleOutCh: consoleOutCh,
+			consoleInCh:  consoleInCh,
+			stdoutWriter: stdoutWriter,
 		}
 
 		// --- Left Panel: File Browser ---
@@ -1036,21 +1150,21 @@ func createLauncherWindow() {
 		)
 
 		var selectedFile string
-		fileList.OnSelected = func(id widget.ListItemID) {
-			if id >= 0 && id < len(pawFiles) {
-				selectedFile = pawFiles[id]
+		fileList.OnSelected = func(listID widget.ListItemID) {
+			if listID >= 0 && listID < len(pawFiles) {
+				selectedFile = pawFiles[listID]
 			}
 		}
 
 		runBtn := widget.NewButton("Run", func() {
 			if selectedFile != "" {
 				fullPath := filepath.Join(cwd, selectedFile)
-				runScriptFile(fullPath)
+				go runScriptInWindow(fullPath, ws)
 			}
 		})
 
 		browseBtn := widget.NewButton("Browse...", func() {
-			showOpenFileDialog(win)
+			showOpenFileDialogForWindow(win, ws)
 		})
 
 		buttonBox := container.NewHBox(runBtn, browseBtn)
@@ -1066,12 +1180,7 @@ func createLauncherWindow() {
 			fileList,   // center (fills remaining space)
 		)
 
-		// --- Right Panel: Console with Help ---
-		// Note: io.Pipe() returns (reader, writer) - variable names indicate usage direction
-		stdinWriter, stdinReader := io.Pipe()
-		stdoutReader, stdoutWriter := io.Pipe()
-		_ = stdinWriter // Not used for help-only console
-
+		// --- Right Panel: Console ---
 		term := terminal.New()
 		ws.terminal = term
 
