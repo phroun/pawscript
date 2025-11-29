@@ -761,6 +761,7 @@ func registerGuiCommands(ps *pawscript.PawScript) {
 		title := "PawScript Window"
 		width := float32(400)
 		height := float32(300)
+		sizeSpecified := false
 
 		if len(ctx.Args) >= 1 {
 			title = fmt.Sprintf("%v", ctx.Args[0])
@@ -768,9 +769,11 @@ func registerGuiCommands(ps *pawscript.PawScript) {
 		if len(ctx.Args) >= 3 {
 			if w, ok := toFloat(ctx.Args[1]); ok {
 				width = float32(w)
+				sizeSpecified = true
 			}
 			if h, ok := toFloat(ctx.Args[2]); ok {
 				height = float32(h)
+				sizeSpecified = true
 			}
 		}
 
@@ -782,6 +785,12 @@ func registerGuiCommands(ps *pawscript.PawScript) {
 			} else if s, ok := consoleArg.(string); ok && (s == "true" || s == "yes" || s == "1") {
 				isConsole = true
 			}
+		}
+
+		// Default to 80x25 character size for console windows (720x450 pixels)
+		if isConsole && !sizeSpecified {
+			width = 720
+			height = 450
 		}
 
 		// Create window state
