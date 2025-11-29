@@ -71,13 +71,13 @@ x: {random 100}           # 0-99 using default generator
 #random: {rng seed: 42}
 y: {random 100}           # Deterministic!
 
-# Use a custom named generator
+# Create a custom generator and pass via tilde
 myRng: {rng seed: 123}
-#myRng: ~myRng
-z: {random #myRng, 100}   # Uses custom generator
+a: {random ~myRng, 100}   # Tilde resolves the variable
 
-# Or pass the token directly
-a: {random ~myRng, 100}   # Same effect via tilde
+# To use bare symbol syntax, variable must have # in name
+#myRng: {rng seed: 456}
+b: {random #myRng, 100}   # Bare symbol, command resolves it
 ```
 
 The `random` command checks if its first argument is:
