@@ -39,11 +39,15 @@ func (e *Executor) RequestCompletionToken(
 		}
 	}()
 
-	suspendedResult, hasSuspendedResult := state.Snapshot()
-
-	// Ensure state has executor reference
-	if state.executor == nil {
-		state.executor = e
+	// Handle nil state for system-level tokens (e.g., #random in io module)
+	var suspendedResult interface{}
+	var hasSuspendedResult bool
+	if state != nil {
+		suspendedResult, hasSuspendedResult = state.Snapshot()
+		// Ensure state has executor reference
+		if state.executor == nil {
+			state.executor = e
+		}
 	}
 
 	tokenData := &TokenData{

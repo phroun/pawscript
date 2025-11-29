@@ -1,0 +1,31 @@
+=== Test 1: Create RNG with seed for reproducibility ===
+Created RNG with seed 12345
+
+=== Test 2: Generate random numbers with resume ===
+Three random 0-99: 98 46 29
+
+=== Test 3: Same seed produces same sequence ===
+Same seed again: 98 46 29
+Sequences match: true
+
+=== Test 4: Range with min and max ===
+Random 10-20: 20 13 11
+
+=== Test 5: Default #random exists and works ===
+Using inherited #random with seeded override below
+
+=== Test 6: Override #random with seeded generator ===
+Overridden #random: 62 90
+
+=== Test 7: Local #random override for reproducibility ===
+Local override: 75 11
+Same seed again: 75 11
+Local sequences match: true
+
+=== Test 8: Unseeded RNG generates different values ===
+Unseeded RNG produces different values: true
+
+=== Test 9: Full Int63 range (no args to resume) ===
+Full Int63: 2630686136689446574 2761839402383659414
+
+=== All RNG tests completed ===

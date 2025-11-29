@@ -1,0 +1,73 @@
+#!/usr/bin/env pawscript
+
+echo "=== Test 1: Create RNG with seed for reproducibility ==="
+myRng: {rng seed: 12345}
+echo "Created RNG with seed 12345"
+
+echo ""
+echo "=== Test 2: Generate random numbers with resume ==="
+r1: {resume ~myRng, 100}
+r2: {resume ~myRng, 100}
+r3: {resume ~myRng, 100}
+echo "Three random 0-99:", ~r1, ~r2, ~r3
+
+echo ""
+echo "=== Test 3: Same seed produces same sequence ==="
+myRng2: {rng seed: 12345}
+s1: {resume ~myRng2, 100}
+s2: {resume ~myRng2, 100}
+s3: {resume ~myRng2, 100}
+echo "Same seed again:", ~s1, ~s2, ~s3
+seqMatch: {::cmp::eq ~r1, ~s1}
+echo "Sequences match:", ~seqMatch
+
+echo ""
+echo "=== Test 4: Range with min and max ==="
+rangeRng: {rng seed: 99}
+v1: {resume ~rangeRng, 10, 20}
+v2: {resume ~rangeRng, 10, 20}
+v3: {resume ~rangeRng, 10, 20}
+echo "Random 10-20:", ~v1, ~v2, ~v3
+
+echo ""
+echo "=== Test 5: Default #random exists and works ==="
+echo "Using inherited #random with seeded override below"
+
+echo ""
+echo "=== Test 6: Override #random with seeded generator ==="
+#random: {rng seed: 555}
+over1: {resume ~#random, 100}
+over2: {resume ~#random, 100}
+echo "Overridden #random:", ~over1, ~over2
+
+echo ""
+echo "=== Test 7: Local #random override for reproducibility ==="
+#random: {rng seed: 42}
+local1: {resume ~#random, 100}
+local2: {resume ~#random, 100}
+echo "Local override:", ~local1, ~local2
+
+#random: {rng seed: 42}
+local3: {resume ~#random, 100}
+local4: {resume ~#random, 100}
+echo "Same seed again:", ~local3, ~local4
+localMatch: {::cmp::eq ~local1, ~local3}
+echo "Local sequences match:", ~localMatch
+
+echo ""
+echo "=== Test 8: Unseeded RNG generates different values ==="
+unseedRng: {rng}
+u1: {resume ~unseedRng, 1000000}
+u2: {resume ~unseedRng, 1000000}
+different: {::cmp::neq ~u1, ~u2}
+echo "Unseeded RNG produces different values:", ~different
+
+echo ""
+echo "=== Test 9: Full Int63 range (no args to resume) ==="
+fullRng: {rng seed: 777}
+big1: {resume ~fullRng}
+big2: {resume ~fullRng}
+echo "Full Int63:", ~big1, ~big2
+
+echo ""
+echo "=== All RNG tests completed ==="

@@ -879,7 +879,9 @@ func (l *Logger) ParseError(message string, position *SourcePosition, context []
 
 // UnknownCommandError logs an unknown command error (always visible)
 func (l *Logger) UnknownCommandError(commandName string, position *SourcePosition, context []string) {
-	l.Log(LevelFatal, CatCommand, fmt.Sprintf("Unknown command: %s", commandName), position, context)
+	// Convert internal scope marker back to :: for display
+	displayName := strings.ReplaceAll(commandName, ScopeMarker, "::")
+	l.Log(LevelFatal, CatCommand, fmt.Sprintf("Unknown command: %s", displayName), position, context)
 }
 
 // CommandError logs a command execution error with category

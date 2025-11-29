@@ -110,6 +110,12 @@ See the `examples/` directory for sample scripts and usage patterns.
 - Scope operator `::` for explicit module access
   - `module::item` searches LibraryRestricted (requires IMPORT first)
   - `::module::item` searches LibraryInherited (always available, bypasses restrictions)
+- Random number generation using token pattern:
+  - `rng` command creates RNG token, optional `seed:` parameter for reproducibility
+  - `resume ~token` returns full Int63 range, `resume ~token, max` returns 0 to max-1
+  - `resume ~token, min, max` returns random value in range min to max (inclusive)
+  - `#random` default RNG in io:: module, can be overridden locally for reproducible tests
+  - Uses Go's `math/rand` with `NewSource` for seeded generators
 
 ### 0.2.7 -- November 27, 2025
 - Move Makefile into a more standard location
