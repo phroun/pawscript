@@ -220,4 +220,5 @@ help:
 	@echo ""
 	@echo "GUI cross-compilation requires fyne-cross, fyne CLI, and Docker:"
 	@echo "  go install github.com/fyne-io/fyne-cross@latest"
-	@echo "  go install fyne.io/tools/cmd/fyne@latest"
+	@echo "  go install fyne.io/fyne/v2/cmd/fyne@latest"
+	@echo "See BUILDING.md for troubleshooting version compatibility issues."
