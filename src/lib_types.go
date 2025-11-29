@@ -2,6 +2,8 @@ package pawscript
 
 import (
 	"fmt"
+	"math"
+	"regexp"
 	"sort"
 	"strconv"
 	"strings"
@@ -1942,6 +1944,262 @@ func (ps *PawScript) RegisterTypesLib() {
 		return BoolStatus(true)
 	})
 
+	// Helper function to extract string content from various types for regex operations
+	extractStringContent := func(value interface{}, executor *Executor) (string, string) {
+		// Returns (content, sourceType) where sourceType is "string", "bytes", "block", "symbol"
+		if executor != nil {
+			value = executor.resolveValue(value)
+		}
+		switch v := value.(type) {
+		case string:
+			return v, "string"
+		case QuotedString:
+			return string(v), "string"
+		case StoredString:
+			return string(v), "string"
+		case StoredBytes:
+			return string(v.Data()), "bytes"
+		case []byte:
+			return string(v), "bytes"
+		case ParenGroup:
+			return string(v), "block"
+		case Symbol:
+			return string(v), "symbol"
+		default:
+			return fmt.Sprintf("%v", v), "string"
+		}
+	}
+
+	// Helper to return result in compatible type
+	returnCompatibleType := func(ctx *Context, result string, sourceType string) {
+		switch sourceType {
+		case "bytes":
+			ctx.SetResult(NewStoredBytes([]byte(result)))
+		case "block":
+			ctx.SetResult(ParenGroup(result))
+		case "symbol":
+			ctx.SetResult(Symbol(result))
+		default:
+			ctx.SetResult(result)
+		}
+	}
+
+	// Helper to extract regex pattern from various input types
+	extractPattern := func(value interface{}, executor *Executor) string {
+		if executor != nil {
+			value = executor.resolveValue(value)
+		}
+		switch v := value.(type) {
+		case string:
+			return v
+		case QuotedString:
+			return string(v)
+		case StoredString:
+			return string(v)
+		case ParenGroup:
+			return string(v)
+		case Symbol:
+			return string(v)
+		default:
+			return fmt.Sprintf("%v", v)
+		}
+	}
+
+	// match - test if a regex pattern matches the input
+	// Usage: match <input>, <pattern> [, case_insensitive: true]
+	// Returns true/false for match success
+	// Input can be string, bytes, block (ParenGroup), or symbol
+	// Pattern can be literal string, block, or symbol
+	ps.RegisterCommandInModule("strlist", "match", func(ctx *Context) Result {
+		if len(ctx.Args) < 2 {
+			ctx.LogError(CatCommand, "Usage: match <input>, <pattern> [, case_insensitive: true]")
+			ctx.SetResult(false)
+			return BoolStatus(false)
+		}
+
+		input, _ := extractStringContent(ctx.Args[0], ctx.executor)
+		pattern := extractPattern(ctx.Args[1], ctx.executor)
+
+		// Handle case_insensitive option
+		if ci, hasCi := ctx.NamedArgs["case_insensitive"]; hasCi && toBool(ci) {
+			pattern = "(?i)" + pattern
+		}
+
+		re, err := regexp.Compile(pattern)
+		if err != nil {
+			ctx.LogError(CatArgument, fmt.Sprintf("Invalid regex pattern: %v", err))
+			ctx.SetResult(false)
+			return BoolStatus(false)
+		}
+
+		matched := re.MatchString(input)
+		ctx.SetResult(matched)
+		return BoolStatus(matched)
+	})
+
+	// regex_find - find all matches and capture groups
+	// Usage: regex_find <input>, <pattern> [, all: true] [, case_insensitive: true]
+	// Returns: single match returns list of [fullMatch, group1, group2, ...]
+	//          all: true returns list of lists [[fullMatch, g1, g2], [fullMatch, g1, g2], ...]
+	// Returns nil if no match found
+	ps.RegisterCommandInModule("strlist", "regex_find", func(ctx *Context) Result {
+		if len(ctx.Args) < 2 {
+			ctx.LogError(CatCommand, "Usage: regex_find <input>, <pattern> [, all: true] [, case_insensitive: true]")
+			ctx.SetResult(nil)
+			return BoolStatus(false)
+		}
+
+		input, _ := extractStringContent(ctx.Args[0], ctx.executor)
+		pattern := extractPattern(ctx.Args[1], ctx.executor)
+
+		// Handle options
+		findAll := false
+		if allVal, hasAll := ctx.NamedArgs["all"]; hasAll {
+			findAll = toBool(allVal)
+		}
+		if ci, hasCi := ctx.NamedArgs["case_insensitive"]; hasCi && toBool(ci) {
+			pattern = "(?i)" + pattern
+		}
+
+		re, err := regexp.Compile(pattern)
+		if err != nil {
+			ctx.LogError(CatArgument, fmt.Sprintf("Invalid regex pattern: %v", err))
+			ctx.SetResult(nil)
+			return BoolStatus(false)
+		}
+
+		if findAll {
+			// Find all matches with capture groups
+			allMatches := re.FindAllStringSubmatch(input, -1)
+			if allMatches == nil || len(allMatches) == 0 {
+				ctx.SetResult(nil)
+				return BoolStatus(true)
+			}
+
+			// Convert to list of lists
+			var resultItems []interface{}
+			for _, match := range allMatches {
+				var matchItems []interface{}
+				for _, group := range match {
+					matchItems = append(matchItems, group)
+				}
+				matchList := NewStoredList(matchItems)
+				matchID := ctx.executor.storeObject(matchList, "list")
+				resultItems = append(resultItems, Symbol(fmt.Sprintf("\x00LIST:%d\x00", matchID)))
+			}
+			// Use NewStoredListWithRefs to properly claim references to nested lists
+			resultList := NewStoredListWithRefs(resultItems, nil, ctx.executor)
+			setListResult(ctx, resultList)
+			return BoolStatus(true)
+		} else {
+			// Find first match with capture groups
+			match := re.FindStringSubmatch(input)
+			if match == nil {
+				ctx.SetResult(nil)
+				return BoolStatus(true)
+			}
+
+			// Convert to list
+			var matchItems []interface{}
+			for _, group := range match {
+				matchItems = append(matchItems, group)
+			}
+			resultList := NewStoredList(matchItems)
+			setListResult(ctx, resultList)
+			return BoolStatus(true)
+		}
+	})
+
+	// regex_replace - replace matches with replacement string
+	// Usage: regex_replace <input>, <pattern>, <replacement> [, count: N] [, case_insensitive: true]
+	// Replacement can use $1, $2, etc. for capture groups, or ${name} for named groups
+	// count: 0 or omitted = replace all, positive = replace first N, negative = replace last N
+	// Returns modified string/bytes/block (same type as input)
+	ps.RegisterCommandInModule("strlist", "regex_replace", func(ctx *Context) Result {
+		if len(ctx.Args) < 3 {
+			ctx.LogError(CatCommand, "Usage: regex_replace <input>, <pattern>, <replacement> [, count: N] [, case_insensitive: true]")
+			ctx.SetResult(nil)
+			return BoolStatus(false)
+		}
+
+		input, sourceType := extractStringContent(ctx.Args[0], ctx.executor)
+		pattern := extractPattern(ctx.Args[1], ctx.executor)
+		replacement := extractPattern(ctx.Args[2], ctx.executor)
+
+		// Handle options
+		count := int64(0) // 0 = replace all
+		if countVal, hasCount := ctx.NamedArgs["count"]; hasCount {
+			if num, ok := toNumber(countVal); ok {
+				count = int64(num)
+			}
+		}
+		if ci, hasCi := ctx.NamedArgs["case_insensitive"]; hasCi && toBool(ci) {
+			pattern = "(?i)" + pattern
+		}
+
+		re, err := regexp.Compile(pattern)
+		if err != nil {
+			ctx.LogError(CatArgument, fmt.Sprintf("Invalid regex pattern: %v", err))
+			ctx.SetResult(nil)
+			return BoolStatus(false)
+		}
+
+		var result string
+		if count == 0 {
+			// Replace all
+			result = re.ReplaceAllString(input, replacement)
+		} else if count > 0 {
+			// Replace first N matches
+			replaced := 0
+			result = re.ReplaceAllStringFunc(input, func(match string) string {
+				if int64(replaced) < count {
+					replaced++
+					// Expand replacement with capture groups
+					return re.ReplaceAllString(match, replacement)
+				}
+				return match
+			})
+		} else {
+			// Replace last N matches (count is negative)
+			n := int(-count)
+			matches := re.FindAllStringIndex(input, -1)
+			if matches == nil || len(matches) == 0 {
+				result = input
+			} else {
+				// Determine which matches to replace (last N)
+				replaceSet := make(map[int]bool)
+				start := len(matches) - n
+				if start < 0 {
+					start = 0
+				}
+				for i := start; i < len(matches); i++ {
+					replaceSet[matches[i][0]] = true
+				}
+
+				// Replace only the selected matches
+				var builder strings.Builder
+				lastEnd := 0
+				for _, match := range matches {
+					matchStart, matchEnd := match[0], match[1]
+					builder.WriteString(input[lastEnd:matchStart])
+					if replaceSet[matchStart] {
+						// This match should be replaced
+						matchedStr := input[matchStart:matchEnd]
+						builder.WriteString(re.ReplaceAllString(matchedStr, replacement))
+					} else {
+						builder.WriteString(input[matchStart:matchEnd])
+					}
+					lastEnd = matchEnd
+				}
+				builder.WriteString(input[lastEnd:])
+				result = builder.String()
+			}
+		}
+
+		returnCompatibleType(ctx, result, sourceType)
+		return BoolStatus(true)
+	})
+
 	// string - convert any value to its string representation
 	// Usage: string 123      -> "123"
 	//        string 3.14     -> "3.14"
@@ -2461,12 +2719,24 @@ func (ps *PawScript) RegisterTypesLib() {
 				return BoolStatus(false)
 			}
 
-			// Validate mode
+			// Validate mode - supports extended modes for binary data handling
+			// Base modes: bytes, string, struct
+			// Integer modes: int/int_be (signed big-endian), int_le (signed little-endian)
+			//                uint/uint_be (unsigned big-endian), uint_le (unsigned little-endian)
+			// Float modes: float/float_be (big-endian IEEE 754), float_le (little-endian)
+			// Bit modes: bit0-bit7 for individual bits within a byte (use size=0 to share byte)
+			isBitMode := false
 			switch fieldMode {
-			case "bytes", "string", "int", "struct":
+			case "bytes", "string", "struct",
+				"int", "int_be", "int_le",
+				"uint", "uint_be", "uint_le",
+				"float", "float_be", "float_le":
 				// Valid modes
+			case "bit0", "bit1", "bit2", "bit3", "bit4", "bit5", "bit6", "bit7":
+				// Bit modes - size=0 means share byte with other fields
+				isBitMode = true
 			default:
-				ctx.LogError(CatArgument, fmt.Sprintf("Field %d has invalid mode '%s' (valid: bytes, string, int, struct)", i, fieldMode))
+				ctx.LogError(CatArgument, fmt.Sprintf("Field %d has invalid mode '%s' (valid: bytes, string, int, int_be, int_le, uint, uint_be, uint_le, float, float_be, float_le, bit0-bit7, struct)", i, fieldMode))
 				ctx.SetResult(nil)
 				return BoolStatus(false)
 			}
@@ -2474,7 +2744,12 @@ func (ps *PawScript) RegisterTypesLib() {
 			// Build field info list: [offset, length, mode] or [offset, length, "struct", nestedDefID, count]
 			var fieldInfoItems []interface{}
 			fieldInfoItems = append(fieldInfoItems, int64(currentOffset))
-			fieldInfoItems = append(fieldInfoItems, int64(fieldSize))
+			// For bit modes, always store length=1 (1 byte) even if size was 0
+			if isBitMode {
+				fieldInfoItems = append(fieldInfoItems, int64(1))
+			} else {
+				fieldInfoItems = append(fieldInfoItems, int64(fieldSize))
+			}
 			fieldInfoItems = append(fieldInfoItems, fieldMode)
 
 			// Get optional struct ref and count for nested structs
@@ -2753,25 +3028,131 @@ func setStructFieldValue(s *StoredStruct, fieldName string, value interface{}, d
 		s.ZeroPadAt(fieldOffset, copyLen, fieldLength)
 		return true
 
-	case "int":
-		var intVal int64
-		switch v := value.(type) {
-		case int64:
-			intVal = v
-		case int:
-			intVal = int64(v)
-		case float64:
-			intVal = int64(v)
-		default:
+	case "int", "int_be", "uint", "uint_be":
+		// Write as big-endian integer (signed/unsigned handled identically for storage)
+		numVal, ok := toNumber(value)
+		if !ok {
 			return false
 		}
-		// Write as big-endian
+		intVal := int64(numVal)
 		bytes := make([]byte, fieldLength)
 		for i := fieldLength - 1; i >= 0; i-- {
 			bytes[i] = byte(intVal & 0xFF)
 			intVal >>= 8
 		}
 		s.SetBytesAt(fieldOffset, bytes, fieldLength)
+		return true
+
+	case "int_le", "uint_le":
+		// Write as little-endian integer
+		numVal, ok := toNumber(value)
+		if !ok {
+			return false
+		}
+		intVal := int64(numVal)
+		bytes := make([]byte, fieldLength)
+		for i := 0; i < fieldLength; i++ {
+			bytes[i] = byte(intVal & 0xFF)
+			intVal >>= 8
+		}
+		s.SetBytesAt(fieldOffset, bytes, fieldLength)
+		return true
+
+	case "float", "float_be":
+		// Write as big-endian IEEE 754 float
+		var floatVal float64
+		switch v := value.(type) {
+		case float64:
+			floatVal = v
+		case int64:
+			floatVal = float64(v)
+		case int:
+			floatVal = float64(v)
+		default:
+			return false
+		}
+		var bytes []byte
+		if fieldLength == 4 {
+			bits := math.Float32bits(float32(floatVal))
+			bytes = []byte{byte(bits >> 24), byte(bits >> 16), byte(bits >> 8), byte(bits)}
+		} else if fieldLength == 8 {
+			bits := math.Float64bits(floatVal)
+			bytes = []byte{
+				byte(bits >> 56), byte(bits >> 48), byte(bits >> 40), byte(bits >> 32),
+				byte(bits >> 24), byte(bits >> 16), byte(bits >> 8), byte(bits),
+			}
+		} else {
+			return false // unsupported float size
+		}
+		s.SetBytesAt(fieldOffset, bytes, fieldLength)
+		return true
+
+	case "float_le":
+		// Write as little-endian IEEE 754 float
+		var floatVal float64
+		switch v := value.(type) {
+		case float64:
+			floatVal = v
+		case int64:
+			floatVal = float64(v)
+		case int:
+			floatVal = float64(v)
+		default:
+			return false
+		}
+		var bytes []byte
+		if fieldLength == 4 {
+			bits := math.Float32bits(float32(floatVal))
+			bytes = []byte{byte(bits), byte(bits >> 8), byte(bits >> 16), byte(bits >> 24)}
+		} else if fieldLength == 8 {
+			bits := math.Float64bits(floatVal)
+			bytes = []byte{
+				byte(bits), byte(bits >> 8), byte(bits >> 16), byte(bits >> 24),
+				byte(bits >> 32), byte(bits >> 40), byte(bits >> 48), byte(bits >> 56),
+			}
+		} else {
+			return false // unsupported float size
+		}
+		s.SetBytesAt(fieldOffset, bytes, fieldLength)
+		return true
+
+	case "bit0", "bit1", "bit2", "bit3", "bit4", "bit5", "bit6", "bit7":
+		// Set or clear specific bit (read-modify-write)
+		// Extract bit number from mode name
+		bitNum := int(fieldMode[3] - '0')
+		mask := byte(1 << bitNum)
+
+		// Determine boolean value
+		var setBit bool
+		switch v := value.(type) {
+		case bool:
+			setBit = v
+		case int64:
+			setBit = v != 0
+		case int:
+			setBit = v != 0
+		case float64:
+			setBit = v != 0
+		case string:
+			setBit = v == "true" || v == "1"
+		case Symbol:
+			setBit = string(v) == "true"
+		default:
+			return false
+		}
+
+		// Read current byte, modify bit, write back
+		currentBytes, ok := s.GetBytesAt(fieldOffset, 1)
+		if !ok {
+			currentBytes = []byte{0}
+		}
+		currentByte := currentBytes[0]
+		if setBit {
+			currentByte |= mask // Set bit using OR
+		} else {
+			currentByte &^= mask // Clear bit using AND NOT
+		}
+		s.SetBytesAt(fieldOffset, []byte{currentByte}, 1)
 		return true
 
 	case "struct":

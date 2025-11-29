@@ -2,6 +2,7 @@ package pawscript
 
 import (
 	"fmt"
+	"math"
 	"regexp"
 	"strconv"
 	"strings"
@@ -1158,13 +1159,86 @@ func (e *Executor) getStructFieldValue(ss StoredStruct, fieldName string) (inter
 		}
 		return string(bytes[:end]), true
 
-	case "int":
-		// Return as int64 (big-endian)
+	case "int", "int_be":
+		// Return as signed int64 (big-endian)
+		var result int64
+		for _, b := range bytes {
+			result = (result << 8) | int64(b)
+		}
+		// Sign extend if MSB is set
+		if len(bytes) > 0 && len(bytes) < 8 && bytes[0]&0x80 != 0 {
+			signBits := int64(-1) << (uint(len(bytes)) * 8)
+			result |= signBits
+		}
+		return result, true
+
+	case "int_le":
+		// Return as signed int64 (little-endian)
+		var result int64
+		for i := len(bytes) - 1; i >= 0; i-- {
+			result = (result << 8) | int64(bytes[i])
+		}
+		// Sign extend if MSB is set
+		if len(bytes) > 0 && len(bytes) < 8 && bytes[len(bytes)-1]&0x80 != 0 {
+			signBits := int64(-1) << (uint(len(bytes)) * 8)
+			result |= signBits
+		}
+		return result, true
+
+	case "uint", "uint_be":
+		// Return as unsigned int64 (big-endian)
 		var result int64
 		for _, b := range bytes {
 			result = (result << 8) | int64(b)
 		}
 		return result, true
+
+	case "uint_le":
+		// Return as unsigned int64 (little-endian)
+		var result int64
+		for i := len(bytes) - 1; i >= 0; i-- {
+			result = (result << 8) | int64(bytes[i])
+		}
+		return result, true
+
+	case "float", "float_be":
+		// Return as float64 (big-endian IEEE 754)
+		if len(bytes) == 4 {
+			bits := uint32(bytes[0])<<24 | uint32(bytes[1])<<16 | uint32(bytes[2])<<8 | uint32(bytes[3])
+			return float64(math.Float32frombits(bits)), true
+		} else if len(bytes) == 8 {
+			bits := uint64(bytes[0])<<56 | uint64(bytes[1])<<48 | uint64(bytes[2])<<40 | uint64(bytes[3])<<32 |
+				uint64(bytes[4])<<24 | uint64(bytes[5])<<16 | uint64(bytes[6])<<8 | uint64(bytes[7])
+			return math.Float64frombits(bits), true
+		}
+		// Unsupported float size, return as bytes
+		result := make([]byte, len(bytes))
+		copy(result, bytes)
+		return NewStoredBytes(result), true
+
+	case "float_le":
+		// Return as float64 (little-endian IEEE 754)
+		if len(bytes) == 4 {
+			bits := uint32(bytes[3])<<24 | uint32(bytes[2])<<16 | uint32(bytes[1])<<8 | uint32(bytes[0])
+			return float64(math.Float32frombits(bits)), true
+		} else if len(bytes) == 8 {
+			bits := uint64(bytes[7])<<56 | uint64(bytes[6])<<48 | uint64(bytes[5])<<40 | uint64(bytes[4])<<32 |
+				uint64(bytes[3])<<24 | uint64(bytes[2])<<16 | uint64(bytes[1])<<8 | uint64(bytes[0])
+			return math.Float64frombits(bits), true
+		}
+		// Unsupported float size, return as bytes
+		result := make([]byte, len(bytes))
+		copy(result, bytes)
+		return NewStoredBytes(result), true
+
+	case "bit0", "bit1", "bit2", "bit3", "bit4", "bit5", "bit6", "bit7":
+		// Return boolean based on specific bit (use bitwise AND for retrieval)
+		if len(bytes) < 1 {
+			return false, true
+		}
+		bitNum := int(fieldMode[3] - '0') // Extract bit number from mode name
+		mask := byte(1 << bitNum)
+		return (bytes[0] & mask) != 0, true
 
 	case "struct":
 		// Return as nested StoredStruct

@@ -135,6 +135,36 @@ See the `examples/` directory for sample scripts and usage patterns.
   - `#random` default RNG in io:: module, can be overridden locally for
     reproducible tests
   - Uses Go's `math/rand` with `NewSource` for seeded generators
+- File system module (files::) with secure sandbox:
+  - `open`, `close`, `read`, `write`, `seek`, `flush`, `eof` for file handle operations
+  - `read_file`, `write_file`, `append_file` for one-shot file access
+  - `exists`, `is_file`, `is_dir`, `file_size`, `file_info` for file metadata
+  - `mkdir`, `remove`, `rename`, `copy`, `list_dir` for file system manipulation
+  - `temp_file`, `temp_dir` for temporary file creation
+  - Sandbox restricts file access to script directory + explicit allow paths
+  - CLI flags: `--allow-read`, `--allow-write`, `--allow-exec`, `--sandbox-dir`
+  - `script_dir` added to `#args` for reliable path resolution
+  - Exec restricted from running scripts in writable directories
+- StoredBytes type for binary data handling:
+  - `bytes` command creates byte arrays from integers, hex literals, or strings
+  - Byte accessor syntax: `~myBytes 0` returns byte at index as int64
+  - `slice`, `append`, `prepend`, `concat`, `compact` work on bytes
+  - `len` returns byte count, hex display format `<DEADBEEF>`
+- StoredStruct type for fixed-layout binary records:
+  - `struct_def` creates struct definition from field descriptors
+  - Field format: `("name", size, "mode")` for binary field specification
+  - `struct` creates instances from definitions, optional source data and count
+  - Struct arrays with `slice`, `compact`, index access (`~array 0`)
+  - Field access via dot notation: `~myStruct.fieldName`
+  - Struct definitions are StoredLists, enabling advanced customization
+  - Extended field modes for binary data:
+    - `bytes`, `string`, `struct` - basic modes
+    - `int`/`int_be`, `int_le` - signed integers, big/little-endian
+    - `uint`/`uint_be`, `uint_le` - unsigned integers, big/little-endian
+    - `float`/`float_be`, `float_le` - IEEE 754 floats (4 or 8 bytes)
+    - `bit0`-`bit7` - individual bits, size=0 to share byte with other bits
+  - Bit modes enable packing 8 booleans in one byte (OR to set, AND to read)
+- `pow` command added to math module: `pow base, exponent` for exponentiation
 
 ### 0.2.7 -- November 27, 2025
 - Move Makefile into a more standard location
