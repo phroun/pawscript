@@ -1,0 +1,126 @@
+#!/usr/bin/env paw
+# Test for struct field modes: endianness, unsigned, and floats
+
+echo "=== Struct Mode Tests ==="
+echo ""
+
+# Test 1: Big-endian vs little-endian integers
+echo "Test 1: Endianness - 16-bit integers"
+endianDesc: {list ("be16", 2, "int_be"), ("le16", 2, "int_le")}
+#EndianDef: {struct_def ~endianDesc}
+endianStruct: {struct #EndianDef, {list be16: 0x1234, le16: 0x1234}}
+echo "BE stored 0x1234, read back: {~endianStruct.be16}"
+echo "LE stored 0x1234, read back: {~endianStruct.le16}"
+echo "(Both should be: 4660)"
+echo ""
+
+# Test 2: 32-bit endianness
+echo "Test 2: Endianness - 32-bit integers"
+endianDesc32: {list ("be32", 4, "int_be"), ("le32", 4, "int_le")}
+#Endian32Def: {struct_def ~endianDesc32}
+endianStruct32: {struct #Endian32Def, {list be32: 0x12345678, le32: 0x12345678}}
+echo "BE stored 0x12345678, read back: {~endianStruct32.be32}"
+echo "LE stored 0x12345678, read back: {~endianStruct32.le32}"
+echo "(Both should be: 305419896)"
+echo ""
+
+# Test 3: Unsigned integers (no sign extension)
+echo "Test 3: Unsigned vs signed 8-bit"
+signDesc: {list ("signed", 1, "int"), ("unsigned", 1, "uint")}
+#SignDef: {struct_def ~signDesc}
+signStruct: {struct #SignDef, {list signed: 0xFF, unsigned: 0xFF}}
+echo "Signed 0xFF read back: {~signStruct.signed}"
+echo "Unsigned 0xFF read back: {~signStruct.unsigned}"
+echo "(Expected: -1, 255)"
+echo ""
+
+# Test 4: Unsigned 16-bit
+echo "Test 4: Unsigned 16-bit"
+sign16Desc: {list ("signed", 2, "int_be"), ("unsigned", 2, "uint_be")}
+#Sign16Def: {struct_def ~sign16Desc}
+sign16Struct: {struct #Sign16Def, {list signed: 0xFFFF, unsigned: 0xFFFF}}
+echo "Signed 0xFFFF read back: {~sign16Struct.signed}"
+echo "Unsigned 0xFFFF read back: {~sign16Struct.unsigned}"
+echo "(Expected: -1, 65535)"
+echo ""
+
+# Test 5: Little-endian unsigned
+echo "Test 5: Little-endian unsigned"
+leUnsignedDesc: {list ("value", 2, "uint_le")}
+#LEUnsignedDef: {struct_def ~leUnsignedDesc}
+leStruct: {struct #LEUnsignedDef, {list value: 0x1234}}
+echo "LE unsigned 0x1234 read back: {~leStruct.value}"
+echo "(Expected: 4660)"
+echo ""
+
+# Test 6: Float32 (4 bytes)
+echo "Test 6: Float32 big-endian"
+floatDesc: {list ("f32be", 4, "float_be"), ("f32le", 4, "float_le")}
+#Float32Def: {struct_def ~floatDesc}
+floatStruct: {struct #Float32Def, {list f32be: 3.14159, f32le: 3.14159}}
+echo "Float32 BE 3.14159 read back: {~floatStruct.f32be}"
+echo "Float32 LE 3.14159 read back: {~floatStruct.f32le}"
+echo "(Both should be approximately: 3.14159)"
+echo ""
+
+# Test 7: Float64 (8 bytes)
+echo "Test 7: Float64 big-endian and little-endian"
+float64Desc: {list ("f64be", 8, "float_be"), ("f64le", 8, "float_le")}
+#Float64Def: {struct_def ~float64Desc}
+float64Struct: {struct #Float64Def, {list f64be: 2.718281828, f64le: 2.718281828}}
+echo "Float64 BE 2.718281828 read back: {~float64Struct.f64be}"
+echo "Float64 LE 2.718281828 read back: {~float64Struct.f64le}"
+echo "(Both should be: 2.718281828)"
+echo ""
+
+# Test 8: Mixed modes in one struct
+echo "Test 8: Mixed modes"
+mixedDesc: {list ("id", 4, "uint_le"), ("temp", 4, "float_le"), ("name", 16, "string")}
+#MixedDef: {struct_def ~mixedDesc}
+mixedStruct: {struct #MixedDef, {list id: 12345, temp: 98.6, name: "Sensor1"}}
+echo "ID (uint_le): {~mixedStruct.id}"
+echo "Temp (float_le): {~mixedStruct.temp}"
+echo "Name (string): {~mixedStruct.name}"
+echo "(Expected: 12345, approx 98.6, Sensor1)"
+echo ""
+
+# Test 9: Negative signed integers
+echo "Test 9: Negative signed integers"
+negDesc: {list ("neg8", 1, "int"), ("neg16be", 2, "int_be"), ("neg32le", 4, "int_le")}
+#NegDef: {struct_def ~negDesc}
+negStruct: {struct #NegDef, {list neg8: -42, neg16be: -1000, neg32le: -123456}}
+echo "Neg 8-bit: {~negStruct.neg8}"
+echo "Neg 16-bit BE: {~negStruct.neg16be}"
+echo "Neg 32-bit LE: {~negStruct.neg32le}"
+echo "(Expected: -42, -1000, -123456)"
+echo ""
+
+# Test 10: Bit modes - individual bits sharing a byte
+echo "Test 10: Bit modes (booleans packed in 1 byte)"
+bitDesc: {list ("active", 0, "bit0"), ("visible", 0, "bit1"), ("selected", 0, "bit2"), ("enabled", 0, "bit7"), ("_flags", 1, "bytes")}
+#BitDef: {struct_def ~bitDesc}
+bitStruct: {struct #BitDef, {list active: true, visible: false, selected: true, enabled: true}}
+echo "active (bit0): {~bitStruct.active}"
+echo "visible (bit1): {~bitStruct.visible}"
+echo "selected (bit2): {~bitStruct.selected}"
+echo "enabled (bit7): {~bitStruct.enabled}"
+echo "(Expected: true, false, true, true)"
+echo ""
+
+# Test 11: Verify bit packing in single byte
+echo "Test 11: Verify bit packing"
+# bit0=1, bit1=0, bit2=1, bit7=1 = 0x85 = 133
+echo "Raw flags byte: {~bitStruct._flags}"
+echo "(Expected: <85> which is 133 decimal: bit0 + bit2 + bit7)"
+echo ""
+
+# Test 12: All 8 bits in one byte
+echo "Test 12: All 8 bits"
+allBitsDesc: {list ("b0", 0, "bit0"), ("b1", 0, "bit1"), ("b2", 0, "bit2"), ("b3", 0, "bit3"), ("b4", 0, "bit4"), ("b5", 0, "bit5"), ("b6", 0, "bit6"), ("b7", 0, "bit7"), ("_byte", 1, "bytes")}
+#AllBitsDef: {struct_def ~allBitsDesc}
+allBitsStruct: {struct #AllBitsDef, {list b0: true, b1: true, b2: true, b3: true, b4: true, b5: true, b6: true, b7: true}}
+echo "All bits set, raw byte: {~allBitsStruct._byte}"
+echo "(Expected: <FF> which is 255)"
+echo ""
+
+echo "=== All Struct Mode Tests Complete ==="

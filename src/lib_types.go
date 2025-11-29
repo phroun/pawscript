@@ -2,6 +2,7 @@ package pawscript
 
 import (
 	"fmt"
+	"math"
 	"sort"
 	"strconv"
 	"strings"
@@ -2461,12 +2462,24 @@ func (ps *PawScript) RegisterTypesLib() {
 				return BoolStatus(false)
 			}
 
-			// Validate mode
+			// Validate mode - supports extended modes for binary data handling
+			// Base modes: bytes, string, struct
+			// Integer modes: int/int_be (signed big-endian), int_le (signed little-endian)
+			//                uint/uint_be (unsigned big-endian), uint_le (unsigned little-endian)
+			// Float modes: float/float_be (big-endian IEEE 754), float_le (little-endian)
+			// Bit modes: bit0-bit7 for individual bits within a byte (use size=0 to share byte)
+			isBitMode := false
 			switch fieldMode {
-			case "bytes", "string", "int", "struct":
+			case "bytes", "string", "struct",
+				"int", "int_be", "int_le",
+				"uint", "uint_be", "uint_le",
+				"float", "float_be", "float_le":
 				// Valid modes
+			case "bit0", "bit1", "bit2", "bit3", "bit4", "bit5", "bit6", "bit7":
+				// Bit modes - size=0 means share byte with other fields
+				isBitMode = true
 			default:
-				ctx.LogError(CatArgument, fmt.Sprintf("Field %d has invalid mode '%s' (valid: bytes, string, int, struct)", i, fieldMode))
+				ctx.LogError(CatArgument, fmt.Sprintf("Field %d has invalid mode '%s' (valid: bytes, string, int, int_be, int_le, uint, uint_be, uint_le, float, float_be, float_le, bit0-bit7, struct)", i, fieldMode))
 				ctx.SetResult(nil)
 				return BoolStatus(false)
 			}
@@ -2474,7 +2487,12 @@ func (ps *PawScript) RegisterTypesLib() {
 			// Build field info list: [offset, length, mode] or [offset, length, "struct", nestedDefID, count]
 			var fieldInfoItems []interface{}
 			fieldInfoItems = append(fieldInfoItems, int64(currentOffset))
-			fieldInfoItems = append(fieldInfoItems, int64(fieldSize))
+			// For bit modes, always store length=1 (1 byte) even if size was 0
+			if isBitMode {
+				fieldInfoItems = append(fieldInfoItems, int64(1))
+			} else {
+				fieldInfoItems = append(fieldInfoItems, int64(fieldSize))
+			}
 			fieldInfoItems = append(fieldInfoItems, fieldMode)
 
 			// Get optional struct ref and count for nested structs
@@ -2753,25 +2771,131 @@ func setStructFieldValue(s *StoredStruct, fieldName string, value interface{}, d
 		s.ZeroPadAt(fieldOffset, copyLen, fieldLength)
 		return true
 
-	case "int":
-		var intVal int64
-		switch v := value.(type) {
-		case int64:
-			intVal = v
-		case int:
-			intVal = int64(v)
-		case float64:
-			intVal = int64(v)
-		default:
+	case "int", "int_be", "uint", "uint_be":
+		// Write as big-endian integer (signed/unsigned handled identically for storage)
+		numVal, ok := toNumber(value)
+		if !ok {
 			return false
 		}
-		// Write as big-endian
+		intVal := int64(numVal)
 		bytes := make([]byte, fieldLength)
 		for i := fieldLength - 1; i >= 0; i-- {
 			bytes[i] = byte(intVal & 0xFF)
 			intVal >>= 8
 		}
 		s.SetBytesAt(fieldOffset, bytes, fieldLength)
+		return true
+
+	case "int_le", "uint_le":
+		// Write as little-endian integer
+		numVal, ok := toNumber(value)
+		if !ok {
+			return false
+		}
+		intVal := int64(numVal)
+		bytes := make([]byte, fieldLength)
+		for i := 0; i < fieldLength; i++ {
+			bytes[i] = byte(intVal & 0xFF)
+			intVal >>= 8
+		}
+		s.SetBytesAt(fieldOffset, bytes, fieldLength)
+		return true
+
+	case "float", "float_be":
+		// Write as big-endian IEEE 754 float
+		var floatVal float64
+		switch v := value.(type) {
+		case float64:
+			floatVal = v
+		case int64:
+			floatVal = float64(v)
+		case int:
+			floatVal = float64(v)
+		default:
+			return false
+		}
+		var bytes []byte
+		if fieldLength == 4 {
+			bits := math.Float32bits(float32(floatVal))
+			bytes = []byte{byte(bits >> 24), byte(bits >> 16), byte(bits >> 8), byte(bits)}
+		} else if fieldLength == 8 {
+			bits := math.Float64bits(floatVal)
+			bytes = []byte{
+				byte(bits >> 56), byte(bits >> 48), byte(bits >> 40), byte(bits >> 32),
+				byte(bits >> 24), byte(bits >> 16), byte(bits >> 8), byte(bits),
+			}
+		} else {
+			return false // unsupported float size
+		}
+		s.SetBytesAt(fieldOffset, bytes, fieldLength)
+		return true
+
+	case "float_le":
+		// Write as little-endian IEEE 754 float
+		var floatVal float64
+		switch v := value.(type) {
+		case float64:
+			floatVal = v
+		case int64:
+			floatVal = float64(v)
+		case int:
+			floatVal = float64(v)
+		default:
+			return false
+		}
+		var bytes []byte
+		if fieldLength == 4 {
+			bits := math.Float32bits(float32(floatVal))
+			bytes = []byte{byte(bits), byte(bits >> 8), byte(bits >> 16), byte(bits >> 24)}
+		} else if fieldLength == 8 {
+			bits := math.Float64bits(floatVal)
+			bytes = []byte{
+				byte(bits), byte(bits >> 8), byte(bits >> 16), byte(bits >> 24),
+				byte(bits >> 32), byte(bits >> 40), byte(bits >> 48), byte(bits >> 56),
+			}
+		} else {
+			return false // unsupported float size
+		}
+		s.SetBytesAt(fieldOffset, bytes, fieldLength)
+		return true
+
+	case "bit0", "bit1", "bit2", "bit3", "bit4", "bit5", "bit6", "bit7":
+		// Set or clear specific bit (read-modify-write)
+		// Extract bit number from mode name
+		bitNum := int(fieldMode[3] - '0')
+		mask := byte(1 << bitNum)
+
+		// Determine boolean value
+		var setBit bool
+		switch v := value.(type) {
+		case bool:
+			setBit = v
+		case int64:
+			setBit = v != 0
+		case int:
+			setBit = v != 0
+		case float64:
+			setBit = v != 0
+		case string:
+			setBit = v == "true" || v == "1"
+		case Symbol:
+			setBit = string(v) == "true"
+		default:
+			return false
+		}
+
+		// Read current byte, modify bit, write back
+		currentBytes, ok := s.GetBytesAt(fieldOffset, 1)
+		if !ok {
+			currentBytes = []byte{0}
+		}
+		currentByte := currentBytes[0]
+		if setBit {
+			currentByte |= mask // Set bit using OR
+		} else {
+			currentByte &^= mask // Clear bit using AND NOT
+		}
+		s.SetBytesAt(fieldOffset, []byte{currentByte}, 1)
 		return true
 
 	case "struct":
