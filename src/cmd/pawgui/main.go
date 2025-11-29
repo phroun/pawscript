@@ -720,6 +720,22 @@ func getWindowFromContext(ctx *pawscript.Context) *WindowState {
 	return getFirstWindow()
 }
 
+// resolveWindowWithContext tries to resolve a window in this order:
+// 1. Explicit #window argument (first arg)
+// 2. Inherited #window from context
+// 3. First available window
+// Returns the WindowState and remaining args (with explicit window arg consumed if present)
+func resolveWindowWithContext(ctx *pawscript.Context) (*WindowState, []interface{}) {
+	// First try explicit window handle as first argument
+	ws, remainingArgs := resolveWindow(ctx)
+	if ws != nil {
+		return ws, remainingArgs
+	}
+
+	// Fall back to inherited #window or first window
+	return getWindowFromContext(ctx), ctx.Args
+}
+
 // createConsoleWindowWithPipes creates a window with a terminal console connected to the provided pipes
 // stdinReader: reads user input from terminal, stdinWriter writes to this
 // stdoutReader: reads output to display, stdoutWriter writes to this
@@ -1483,8 +1499,7 @@ func registerGuiCommands(ps *pawscript.PawScript) {
 	// gui_split - Enable split layout with left/right panels
 	// Usage: gui_split [offset] or gui_split #window, [offset]
 	ps.RegisterCommand("gui_split", func(ctx *pawscript.Context) pawscript.Result {
-		ws, args := resolveWindow(ctx)
-		ws = getWindowOrFirst(ws)
+		ws, args := resolveWindowWithContext(ctx)
 		if ws == nil {
 			ctx.LogError(pawscript.CatCommand, "No window available - create one with gui_window first")
 			return pawscript.BoolStatus(false)
@@ -1516,8 +1531,7 @@ func registerGuiCommands(ps *pawscript.PawScript) {
 	// gui_title - Set window title
 	// Usage: gui_title <title> or gui_title #window, <title>
 	ps.RegisterCommand("gui_title", func(ctx *pawscript.Context) pawscript.Result {
-		ws, args := resolveWindow(ctx)
-		ws = getWindowOrFirst(ws)
+		ws, args := resolveWindowWithContext(ctx)
 		if ws == nil {
 			ctx.LogError(pawscript.CatCommand, "No window available - create one with gui_window first")
 			return pawscript.BoolStatus(false)
@@ -1536,8 +1550,7 @@ func registerGuiCommands(ps *pawscript.PawScript) {
 	// gui_resize - Resize window
 	// Usage: gui_resize <w>, <h> or gui_resize #window, <w>, <h>
 	ps.RegisterCommand("gui_resize", func(ctx *pawscript.Context) pawscript.Result {
-		ws, args := resolveWindow(ctx)
-		ws = getWindowOrFirst(ws)
+		ws, args := resolveWindowWithContext(ctx)
 		if ws == nil {
 			ctx.LogError(pawscript.CatCommand, "No window available - create one with gui_window first")
 			return pawscript.BoolStatus(false)
@@ -1559,17 +1572,18 @@ func registerGuiCommands(ps *pawscript.PawScript) {
 	})
 
 	// gui_label - Create a label widget
+	// Usage: gui_label <text> or gui_label #window, <text>
 	ps.RegisterCommand("gui_label", func(ctx *pawscript.Context) pawscript.Result {
-		ws := getWindowFromContext(ctx)
+		ws, args := resolveWindowWithContext(ctx)
 		if ws == nil {
 			ctx.LogError(pawscript.CatCommand, "No window available - create one with gui_window first")
 			return pawscript.BoolStatus(false)
 		}
-		if len(ctx.Args) < 1 {
-			ctx.LogError(pawscript.CatCommand, "Usage: gui_label <text> [id: <name>] [panel: left|right]")
+		if len(args) < 1 {
+			ctx.LogError(pawscript.CatCommand, "Usage: gui_label [#window,] <text> [id: <name>] [panel: left|right]")
 			return pawscript.BoolStatus(false)
 		}
-		text := fmt.Sprintf("%v", ctx.Args[0])
+		text := fmt.Sprintf("%v", args[0])
 		lbl := widget.NewLabel(text)
 
 		id := ""
@@ -1589,17 +1603,18 @@ func registerGuiCommands(ps *pawscript.PawScript) {
 	})
 
 	// gui_button - Create a button widget with callback
+	// Usage: gui_button <text> or gui_button #window, <text>
 	ps.RegisterCommand("gui_button", func(ctx *pawscript.Context) pawscript.Result {
-		ws := getWindowFromContext(ctx)
+		ws, args := resolveWindowWithContext(ctx)
 		if ws == nil {
 			ctx.LogError(pawscript.CatCommand, "No window available - create one with gui_window first")
 			return pawscript.BoolStatus(false)
 		}
-		if len(ctx.Args) < 1 {
-			ctx.LogError(pawscript.CatCommand, "Usage: gui_button <text> [id: <name>] [onclick: <macro_name>]")
+		if len(args) < 1 {
+			ctx.LogError(pawscript.CatCommand, "Usage: gui_button [#window,] <text> [id: <name>] [onclick: <macro_name>]")
 			return pawscript.BoolStatus(false)
 		}
-		text := fmt.Sprintf("%v", ctx.Args[0])
+		text := fmt.Sprintf("%v", args[0])
 
 		var onclickMacro string
 		if onclick, ok := ctx.NamedArgs["onclick"]; ok {
@@ -1635,15 +1650,16 @@ func registerGuiCommands(ps *pawscript.PawScript) {
 	})
 
 	// gui_entry - Create a text entry widget
+	// Usage: gui_entry [placeholder] or gui_entry #window, [placeholder]
 	ps.RegisterCommand("gui_entry", func(ctx *pawscript.Context) pawscript.Result {
-		ws := getWindowFromContext(ctx)
+		ws, args := resolveWindowWithContext(ctx)
 		if ws == nil {
 			ctx.LogError(pawscript.CatCommand, "No window available - create one with gui_window first")
 			return pawscript.BoolStatus(false)
 		}
 		placeholder := ""
-		if len(ctx.Args) >= 1 {
-			placeholder = fmt.Sprintf("%v", ctx.Args[0])
+		if len(args) >= 1 {
+			placeholder = fmt.Sprintf("%v", args[0])
 		}
 
 		entry := widget.NewEntry()
@@ -1739,8 +1755,9 @@ func registerGuiCommands(ps *pawscript.PawScript) {
 	})
 
 	// gui_clear - Clear all widgets from content
+	// Usage: gui_clear or gui_clear #window
 	ps.RegisterCommand("gui_clear", func(ctx *pawscript.Context) pawscript.Result {
-		ws := getWindowFromContext(ctx)
+		ws, _ := resolveWindowWithContext(ctx)
 		if ws == nil {
 			ctx.LogError(pawscript.CatCommand, "No window available - create one with gui_window first")
 			return pawscript.BoolStatus(false)
@@ -1813,17 +1830,18 @@ func registerGuiCommands(ps *pawscript.PawScript) {
 	})
 
 	// gui_msgbox - Show a message dialog
+	// Usage: gui_msgbox <message> or gui_msgbox #window, <message>
 	ps.RegisterCommand("gui_msgbox", func(ctx *pawscript.Context) pawscript.Result {
-		ws := getWindowFromContext(ctx)
+		ws, args := resolveWindowWithContext(ctx)
 		if ws == nil {
 			ctx.LogError(pawscript.CatCommand, "No window available - create one with gui_window first")
 			return pawscript.BoolStatus(false)
 		}
-		if len(ctx.Args) < 1 {
-			ctx.LogError(pawscript.CatCommand, "Usage: gui_msgbox <message> [title: <title>]")
+		if len(args) < 1 {
+			ctx.LogError(pawscript.CatCommand, "Usage: gui_msgbox [#window,] <message> [title: <title>]")
 			return pawscript.BoolStatus(false)
 		}
-		message := fmt.Sprintf("%v", ctx.Args[0])
+		message := fmt.Sprintf("%v", args[0])
 		title := "Message"
 		if t, ok := ctx.NamedArgs["title"]; ok {
 			title = fmt.Sprintf("%v", t)
@@ -1845,8 +1863,9 @@ func registerGuiCommands(ps *pawscript.PawScript) {
 	})
 
 	// gui_console - Create a terminal console widget
+	// Usage: gui_console [w], [h] or gui_console #window, [w], [h]
 	ps.RegisterCommand("gui_console", func(ctx *pawscript.Context) pawscript.Result {
-		ws := getWindowFromContext(ctx)
+		ws, args := resolveWindowWithContext(ctx)
 		if ws == nil {
 			ctx.LogError(pawscript.CatCommand, "No window available - create one with gui_window first")
 			return pawscript.BoolStatus(false)
@@ -1855,11 +1874,11 @@ func registerGuiCommands(ps *pawscript.PawScript) {
 		width := float32(600)
 		height := float32(400)
 
-		if len(ctx.Args) >= 2 {
-			if w, ok := toFloat(ctx.Args[0]); ok {
+		if len(args) >= 2 {
+			if w, ok := toFloat(args[0]); ok {
 				width = float32(w)
 			}
-			if h, ok := toFloat(ctx.Args[1]); ok {
+			if h, ok := toFloat(args[1]); ok {
 				height = float32(h)
 			}
 		}
