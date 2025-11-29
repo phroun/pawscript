@@ -55,14 +55,7 @@ func (e *Executor) maybeStoreValue(value interface{}, state *ExecutionState) int
 		// Not found, store as new object
 		id := e.storeObject(v, "struct")
 		return Symbol(fmt.Sprintf("\x00STRUCT:%d\x00", id))
-	case *StructDef:
-		// StructDef objects - convert to marker
-		if id := e.findStructDefID(v); id >= 0 {
-			return Symbol(fmt.Sprintf("\x00STRUCTDEF:%d\x00", id))
-		}
-		// Not found, store as new object
-		id := e.storeObject(v, "structdef")
-		return Symbol(fmt.Sprintf("\x00STRUCTDEF:%d\x00", id))
+	// Note: StructDef is now a StoredList, no special handling needed
 	default:
 		return value
 	}
@@ -329,24 +322,4 @@ func (e *Executor) findStoredStructID(ss StoredStruct) int {
 	return -1
 }
 
-// findStructDefID finds the ID of a StructDef by searching storedObjects
-// Returns -1 if not found
-func (e *Executor) findStructDefID(sd *StructDef) int {
-	if sd == nil {
-		return -1
-	}
-
-	e.mu.RLock()
-	defer e.mu.RUnlock()
-
-	for id, obj := range e.storedObjects {
-		if objSD, ok := obj.Value.(*StructDef); ok {
-			// Compare by pointer identity
-			if objSD == sd {
-				return id
-			}
-		}
-	}
-
-	return -1
-}
+// Note: StructDef is now a StoredList, so findStructDefID is no longer needed

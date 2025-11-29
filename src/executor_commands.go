@@ -886,8 +886,8 @@ func (e *Executor) applyAccessorChain(value interface{}, accessors string, posit
 			key := accessors[keyStart:i]
 
 			if isStruct {
-				// Struct field access
-				val, exists := structVal.GetFieldValue(key)
+				// Struct field access using definition list
+				val, exists := e.getStructFieldValue(structVal, key)
 				if !exists {
 					e.logger.DebugCat(CatList, "Field '%s' not found in struct", key)
 					return Symbol(UndefinedMarker)
@@ -1011,7 +1011,7 @@ func (e *Executor) accessorChainExists(value interface{}, accessors string) bool
 			key := accessors[keyStart:i]
 
 			if isStruct {
-				val, exists := structVal.GetFieldValue(key)
+				val, exists := e.getStructFieldValue(structVal, key)
 				if !exists {
 					return false
 				}
@@ -1082,6 +1082,141 @@ func (e *Executor) accessorChainExists(value interface{}, accessors string) bool
 	}
 
 	return true
+}
+
+// getStructFieldValue retrieves a field value from a struct using the definition list
+// This replaces the old GetFieldValue method that required *StructDef
+func (e *Executor) getStructFieldValue(ss StoredStruct, fieldName string) (interface{}, bool) {
+	// Look up the definition list by defID
+	defObj, ok := e.getObject(ss.DefID())
+	if !ok {
+		return nil, false
+	}
+	defList, ok := defObj.(StoredList)
+	if !ok {
+		return nil, false
+	}
+
+	// Look up field info from definition list
+	defNamedArgs := defList.NamedArgs()
+	if defNamedArgs == nil {
+		return nil, false
+	}
+	fieldInfoVal, hasField := defNamedArgs[fieldName]
+	if !hasField {
+		return nil, false
+	}
+
+	// Resolve the field info list
+	fieldInfo := e.resolveValue(fieldInfoVal)
+	fieldInfoList, ok := fieldInfo.(StoredList)
+	if !ok {
+		return nil, false
+	}
+
+	// Field info format: [offset, length, mode, optionalNestedDefID, optionalCount]
+	if fieldInfoList.Len() < 3 {
+		return nil, false
+	}
+
+	offsetNum, _ := toNumber(fieldInfoList.Get(0))
+	lengthNum, _ := toNumber(fieldInfoList.Get(1))
+	modeVal := fieldInfoList.Get(2)
+
+	fieldOffset := int(offsetNum)
+	fieldLength := int(lengthNum)
+	var fieldMode string
+	switch m := modeVal.(type) {
+	case string:
+		fieldMode = m
+	case QuotedString:
+		fieldMode = string(m)
+	case Symbol:
+		fieldMode = string(m)
+	default:
+		fieldMode = "bytes" // default to bytes
+	}
+
+	// Get the raw bytes for this field
+	bytes, ok := ss.GetBytesAt(fieldOffset, fieldLength)
+	if !ok {
+		return nil, false
+	}
+
+	switch fieldMode {
+	case "bytes":
+		// Return as StoredBytes
+		result := make([]byte, len(bytes))
+		copy(result, bytes)
+		return NewStoredBytes(result), true
+
+	case "string":
+		// Return as string, trimmed of trailing nulls
+		end := len(bytes)
+		for end > 0 && bytes[end-1] == 0 {
+			end--
+		}
+		return string(bytes[:end]), true
+
+	case "int":
+		// Return as int64 (big-endian)
+		var result int64
+		for _, b := range bytes {
+			result = (result << 8) | int64(b)
+		}
+		return result, true
+
+	case "struct":
+		// Return as nested StoredStruct
+		// Get optional nested def ID and count
+		var nestedDefID int
+		var nestedCount int = -1 // -1 for single struct
+		if fieldInfoList.Len() >= 4 {
+			nestedIDNum, _ := toNumber(fieldInfoList.Get(3))
+			nestedDefID = int(nestedIDNum)
+		}
+		if fieldInfoList.Len() >= 5 {
+			countNum, _ := toNumber(fieldInfoList.Get(4))
+			nestedCount = int(countNum)
+		}
+
+		if nestedDefID == 0 {
+			return nil, false
+		}
+
+		nestedData := make([]byte, fieldLength)
+		copy(nestedData, bytes)
+
+		// Get nested struct size from its definition
+		nestedDefObj, ok := e.getObject(nestedDefID)
+		if !ok {
+			return nil, false
+		}
+		nestedDefList, ok := nestedDefObj.(StoredList)
+		if !ok {
+			return nil, false
+		}
+		nestedDefNamedArgs := nestedDefList.NamedArgs()
+		var nestedSizeVal interface{}
+		if nestedDefNamedArgs != nil {
+			nestedSizeVal = nestedDefNamedArgs["__size"]
+		}
+		nestedSizeNum, _ := toNumber(nestedSizeVal)
+		nestedSize := int(nestedSizeNum)
+
+		if nestedCount > 0 {
+			// Nested struct array
+			return NewStoredStructFromData(nestedDefID, nestedData, nestedSize, nestedCount), true
+		}
+		// Single nested struct
+		return NewStoredStructFromData(nestedDefID, nestedData, nestedSize, -1), true
+
+	default:
+		// Unknown mode, return as bytes
+		result := make([]byte, len(bytes))
+		copy(result, bytes)
+		return NewStoredBytes(result), true
+	}
 }
 
 // processArguments processes arguments array to resolve object markers and tilde expressions
@@ -1238,10 +1373,7 @@ func (e *Executor) processArguments(args []interface{}, state *ExecutionState, s
 						}
 						result[i] = finalValue
 						e.logger.DebugCat(CatCommand,"processArguments[%d]: Resolved struct marker to StoredStruct", i)
-					case "structdef":
-						// Return as *StructDef - this passes the definition by reference
-						result[i] = value
-						e.logger.DebugCat(CatCommand,"processArguments[%d]: Resolved structdef marker to *StructDef", i)
+					// Note: struct definitions are now just lists (handled by "list" case)
 					default:
 						// For unknown types, keep the marker to preserve reference semantics
 						result[i] = arg

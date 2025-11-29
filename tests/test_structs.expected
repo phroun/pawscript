@@ -1,8 +1,8 @@
 === Struct Tests ===
 
 Test 1: Create struct definition
-Type of def: structdef
-(Expected: structdef)
+Type of def: list
+(Expected: list)
 
 Test 2: Create single struct
 Type of struct: struct
@@ -19,9 +19,9 @@ age: 25
 (Expected: John bytes, 25)
 
 Test 5: Create struct array
-Type of array: struct
+Type of array: structarray
 Length: 5
-(Expected: struct, 5)
+(Expected: structarray, 5)
 
 Test 6: Access array element
 Type of element: struct

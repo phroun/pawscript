@@ -513,6 +513,7 @@ func getTypeName(val interface{}) string {
 	case *StoredFile:
 		return "file"
 	case StoredList:
+		// Struct definitions are just lists with __size
 		return "list"
 	case StoredBytes:
 		return "bytes"
@@ -521,8 +522,6 @@ func getTypeName(val interface{}) string {
 			return "structarray"
 		}
 		return "struct"
-	case *StructDef:
-		return "structdef"
 	case StoredString:
 		return "string"
 	case StoredBlock:

@@ -184,12 +184,7 @@ func (ps *PawScript) RegisterTypesLib() {
 		ctx.state.SetResultWithoutClaim(Symbol(marker))
 	}
 
-	// Helper function to set a StructDef as result with proper reference counting
-	setStructDefResult := func(ctx *Context, def *StructDef) {
-		id := ctx.executor.storeObject(def, "structdef")
-		marker := fmt.Sprintf("\x00STRUCTDEF:%d\x00", id)
-		ctx.state.SetResultWithoutClaim(Symbol(marker))
-	}
+	// Note: struct definitions are now just StoredLists, so use setListResult for them
 
 	// bytes - creates a byte array from numbers, strings, or hex literals
 	// Usage: bytes 72, 101, 108, 108, 111           - from numbers
@@ -2371,7 +2366,10 @@ func (ps *PawScript) RegisterTypesLib() {
 	// struct_def - creates a struct definition from a descriptor list
 	// Usage: struct_def ~descriptor
 	// Descriptor format: {list ("name", size, "mode"), ("name2", size2, "mode2"), ..., metaKey: "metaValue"}
-	// Returns a StructDef that can be used with the struct command
+	// Returns a StoredList that can be used with the struct command:
+	//   __size: total size in bytes
+	//   __named: StoredList of metadata
+	//   fieldName: StoredList [offset, length, mode] or [offset, length, "struct", nestedDefID, count]
 	ps.RegisterCommandInModule("strlist", "struct_def", func(ctx *Context) Result {
 		if len(ctx.Args) < 1 {
 			ctx.LogError(CatCommand, "Usage: struct_def <descriptor_list>")
@@ -2387,7 +2385,8 @@ func (ps *PawScript) RegisterTypesLib() {
 			return BoolStatus(false)
 		}
 
-		fields := make(map[string]StructFieldDef)
+		// Build the result list with named args for fields
+		resultNamedArgs := make(map[string]interface{})
 		var currentOffset int
 
 		// Process positional entries (field definitions)
@@ -2472,45 +2471,63 @@ func (ps *PawScript) RegisterTypesLib() {
 				return BoolStatus(false)
 			}
 
+			// Build field info list: [offset, length, mode] or [offset, length, "struct", nestedDefID, count]
+			var fieldInfoItems []interface{}
+			fieldInfoItems = append(fieldInfoItems, int64(currentOffset))
+			fieldInfoItems = append(fieldInfoItems, int64(fieldSize))
+			fieldInfoItems = append(fieldInfoItems, fieldMode)
+
 			// Get optional struct ref and count for nested structs
-			var structRef *StructDef
-			var count int
 			if fieldMode == "struct" && len(fieldItems) >= 4 {
 				refVal := ctx.executor.resolveValue(fieldItems[3])
-				if ref, ok := refVal.(*StructDef); ok {
-					structRef = ref
+				// The nested struct def should be a list marker - extract its ID
+				if sym, ok := refVal.(Symbol); ok {
+					markerType, id := parseObjectMarker(string(sym))
+					if markerType == "list" {
+						fieldInfoItems = append(fieldInfoItems, int64(id))
+					}
+				} else if nestedList, ok := refVal.(StoredList); ok {
+					// Store it and get the ID
+					nestedID := ctx.executor.storeObject(nestedList, "list")
+					fieldInfoItems = append(fieldInfoItems, int64(nestedID))
 				}
 				if len(fieldItems) >= 5 {
 					countVal := ctx.executor.resolveValue(fieldItems[4])
 					if countNum, ok := toNumber(countVal); ok {
-						count = int(countNum)
+						fieldInfoItems = append(fieldInfoItems, int64(countNum))
 					}
 				}
 			}
 
-			// Add field
-			fields[fieldName] = StructFieldDef{
-				Offset:    currentOffset,
-				Length:    fieldSize,
-				Mode:      fieldMode,
-				StructRef: structRef,
-				Count:     count,
-			}
+			// Create field info as a StoredList and store it
+			fieldInfoList := NewStoredList(fieldInfoItems)
+			fieldInfoID := ctx.executor.storeObject(fieldInfoList, "list")
+			fieldInfoMarker := fmt.Sprintf("\x00LIST:%d\x00", fieldInfoID)
+
+			// Add to result named args
+			resultNamedArgs[fieldName] = Symbol(fieldInfoMarker)
 
 			currentOffset += fieldSize
 		}
 
-		// Get named metadata
-		namedMeta := make(map[string]interface{})
-		if desc.NamedArgs() != nil {
+		// Add __size to named args
+		resultNamedArgs["__size"] = int64(currentOffset)
+
+		// Create __named list from descriptor's named args (metadata)
+		if desc.NamedArgs() != nil && len(desc.NamedArgs()) > 0 {
+			namedMeta := make(map[string]interface{})
 			for k, v := range desc.NamedArgs() {
 				namedMeta[k] = v
 			}
+			namedList := NewStoredListWithNamed(nil, namedMeta)
+			namedID := ctx.executor.storeObject(namedList, "list")
+			namedMarker := fmt.Sprintf("\x00LIST:%d\x00", namedID)
+			resultNamedArgs["__named"] = Symbol(namedMarker)
 		}
 
-		// Create the struct definition
-		def := NewStructDef(fields, currentOffset, namedMeta, ctx.Position)
-		setStructDefResult(ctx, def)
+		// Create the result list (no positional items, only named args)
+		resultList := NewStoredListWithNamed(nil, resultNamedArgs)
+		setListResult(ctx, resultList)
 		return BoolStatus(true)
 	})
 
@@ -2518,6 +2535,7 @@ func (ps *PawScript) RegisterTypesLib() {
 	// Usage: struct ~def                        - create empty single struct
 	//        struct ~def, ~sourceList           - create single struct, fill from source
 	//        struct ~def, ~sourceList, 10       - create array of 10 structs, fill from source
+	// The definition is now a StoredList with __size and field info
 	ps.RegisterCommandInModule("strlist", "struct", func(ctx *Context) Result {
 		if len(ctx.Args) < 1 {
 			ctx.LogError(CatCommand, "Usage: struct <def> [, <source_list> [, <count>]]")
@@ -2548,12 +2566,49 @@ func (ps *PawScript) RegisterTypesLib() {
 			}
 		}
 
+		// Resolve the definition - it should be a StoredList
 		defVal := ctx.executor.resolveValue(defArg)
-		def, ok := defVal.(*StructDef)
+
+		// Get the defID from the marker if it's a symbol
+		var defID int
+		if sym, ok := defArg.(Symbol); ok {
+			markerType, id := parseObjectMarker(string(sym))
+			if markerType == "list" {
+				defID = id
+			}
+		}
+
+		defList, ok := defVal.(StoredList)
 		if !ok {
-			ctx.LogError(CatType, fmt.Sprintf("struct requires a StructDef as first argument, got %T", defVal))
+			ctx.LogError(CatType, fmt.Sprintf("struct requires a struct definition list as first argument, got %T", defVal))
 			ctx.SetResult(nil)
 			return BoolStatus(false)
+		}
+
+		// Get __size from the definition
+		defNamedArgs := defList.NamedArgs()
+		if defNamedArgs == nil {
+			ctx.LogError(CatType, "struct definition missing named args")
+			ctx.SetResult(nil)
+			return BoolStatus(false)
+		}
+		sizeVal, hasSize := defNamedArgs["__size"]
+		if !hasSize {
+			ctx.LogError(CatType, "struct definition missing __size")
+			ctx.SetResult(nil)
+			return BoolStatus(false)
+		}
+		sizeNum, ok := toNumber(ctx.executor.resolveValue(sizeVal))
+		if !ok {
+			ctx.LogError(CatType, "struct definition __size must be a number")
+			ctx.SetResult(nil)
+			return BoolStatus(false)
+		}
+		structSize := int(sizeNum)
+
+		// If we didn't get defID from marker, store the def list now
+		if defID == 0 {
+			defID = ctx.executor.storeObject(defList, "list")
 		}
 
 		// Check for count (array vs single)
@@ -2577,9 +2632,9 @@ func (ps *PawScript) RegisterTypesLib() {
 		// Create the struct
 		var result StoredStruct
 		if count >= 0 {
-			result = NewStoredStructArray(def, count)
+			result = NewStoredStructArray(defID, structSize, count)
 		} else {
-			result = NewStoredStruct(def)
+			result = NewStoredStruct(defID, structSize)
 		}
 
 		// Fill from source list if provided
@@ -2591,14 +2646,14 @@ func (ps *PawScript) RegisterTypesLib() {
 					for i := 0; i < sourceList.Len() && i < count; i++ {
 						itemVal := ctx.executor.resolveValue(sourceList.Get(i))
 						record := result.Get(i)
-						fillStructFromSource(&record, itemVal, ctx)
+						fillStructFromSource(&record, itemVal, defList, ctx)
 					}
 					if sourceList.Len() > count {
 						ctx.LogWarning(CatArgument, fmt.Sprintf("Source list has %d items but struct array only has %d slots", sourceList.Len(), count))
 					}
 				} else {
 					// Single struct mode: fill from the source list directly
-					fillStructFromSource(&result, sourceVal, ctx)
+					fillStructFromSource(&result, sourceVal, defList, ctx)
 				}
 			}
 		}
@@ -2608,8 +2663,8 @@ func (ps *PawScript) RegisterTypesLib() {
 	})
 }
 
-// fillStructFromSource fills a struct from a source list
-func fillStructFromSource(s *StoredStruct, source interface{}, ctx *Context) {
+// fillStructFromSource fills a struct from a source list using the definition list
+func fillStructFromSource(s *StoredStruct, source interface{}, defList StoredList, ctx *Context) {
 	sourceList, ok := source.(StoredList)
 	if !ok {
 		return
@@ -2619,12 +2674,121 @@ func fillStructFromSource(s *StoredStruct, source interface{}, ctx *Context) {
 	if sourceList.NamedArgs() != nil {
 		for name, value := range sourceList.NamedArgs() {
 			resolved := ctx.executor.resolveValue(value)
-			s.SetFieldValue(name, resolved)
+			setStructFieldValue(s, name, resolved, defList, ctx)
 		}
 	}
+}
 
-	// Note: Positional items in the source could be used for nested struct arrays
-	// This would require more complex handling based on field definitions
+// setStructFieldValue sets a field value in a struct using the definition list
+func setStructFieldValue(s *StoredStruct, fieldName string, value interface{}, defList StoredList, ctx *Context) bool {
+	// Look up field info from definition list
+	defNamedArgs := defList.NamedArgs()
+	if defNamedArgs == nil {
+		return false
+	}
+	fieldInfoVal, hasField := defNamedArgs[fieldName]
+	if !hasField {
+		return false
+	}
+
+	// Resolve the field info list
+	fieldInfo := ctx.executor.resolveValue(fieldInfoVal)
+	fieldInfoList, ok := fieldInfo.(StoredList)
+	if !ok {
+		return false
+	}
+
+	// Field info format: [offset, length, mode, ...]
+	if fieldInfoList.Len() < 3 {
+		return false
+	}
+
+	offsetNum, _ := toNumber(fieldInfoList.Get(0))
+	lengthNum, _ := toNumber(fieldInfoList.Get(1))
+	modeVal := fieldInfoList.Get(2)
+
+	fieldOffset := int(offsetNum)
+	fieldLength := int(lengthNum)
+	var fieldMode string
+	switch m := modeVal.(type) {
+	case string:
+		fieldMode = m
+	case QuotedString:
+		fieldMode = string(m)
+	case Symbol:
+		fieldMode = string(m)
+	default:
+		fieldMode = fmt.Sprintf("%v", m)
+	}
+
+	switch fieldMode {
+	case "bytes":
+		switch v := value.(type) {
+		case StoredBytes:
+			s.SetBytesAt(fieldOffset, v.Data(), fieldLength)
+		case []byte:
+			s.SetBytesAt(fieldOffset, v, fieldLength)
+		default:
+			return false
+		}
+		return true
+
+	case "string":
+		var str string
+		switch v := value.(type) {
+		case string:
+			str = v
+		case QuotedString:
+			str = string(v)
+		case Symbol:
+			str = string(v)
+		default:
+			str = fmt.Sprintf("%v", value)
+		}
+		copyLen := len(str)
+		if copyLen > fieldLength {
+			copyLen = fieldLength
+		}
+		s.SetBytesAt(fieldOffset, []byte(str[:copyLen]), fieldLength)
+		s.ZeroPadAt(fieldOffset, copyLen, fieldLength)
+		return true
+
+	case "int":
+		var intVal int64
+		switch v := value.(type) {
+		case int64:
+			intVal = v
+		case int:
+			intVal = int64(v)
+		case float64:
+			intVal = int64(v)
+		default:
+			return false
+		}
+		// Write as big-endian
+		bytes := make([]byte, fieldLength)
+		for i := fieldLength - 1; i >= 0; i-- {
+			bytes[i] = byte(intVal & 0xFF)
+			intVal >>= 8
+		}
+		s.SetBytesAt(fieldOffset, bytes, fieldLength)
+		return true
+
+	case "struct":
+		// For nested structs, copy bytes directly
+		switch v := value.(type) {
+		case StoredStruct:
+			s.SetBytesAt(fieldOffset, v.Data(), fieldLength)
+		case StoredBytes:
+			s.SetBytesAt(fieldOffset, v.Data(), fieldLength)
+		default:
+			return false
+		}
+		return true
+
+	default:
+		return false
+	}
 }
 
 // sortItemsDefault sorts items using the default PawScript ordering:
