@@ -106,13 +106,19 @@ GUI cross-compilation requires [fyne-cross](https://github.com/fyne-io/fyne-cros
 
 ## Build All Releases
 
-To build CLI and GUI for all platforms:
+To build CLI for all platforms:
 
 ```bash
 make build-all
 ```
 
-This creates release archives in the `releases/` directory.
+To build GUI for all platforms (requires Docker and fyne-cross):
+
+```bash
+make build-all-gui
+```
+
+Both create release archives in the `releases/` directory.
 
 ## Installation
 
