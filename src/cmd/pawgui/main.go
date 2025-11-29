@@ -1,15 +1,17 @@
 // pawgui - PawScript with Fyne GUI support
-// A proof of concept for running PawScript with GUI capabilities
+// A drop-in replacement for paw with additional GUI capabilities
 package main
 
 import (
+	"flag"
 	"fmt"
 	"io"
 	"os"
+	"path/filepath"
+	"strconv"
 	"strings"
 	"sync"
 	"time"
-	"strconv"
 
 	"fyne.io/fyne/v2"
 	"fyne.io/fyne/v2/app"
@@ -18,6 +20,8 @@ import (
 	"github.com/fyne-io/terminal"
 	pawscript "github.com/phroun/pawscript"
 )
+
+var version = "dev" // set via -ldflags at build time
 
 // GuiState holds the current GUI state accessible to PawScript
 type GuiState struct {
@@ -42,32 +46,236 @@ type GuiState struct {
 var guiState *GuiState
 
 func main() {
-	if len(os.Args) < 2 {
-		fmt.Println("Usage: pawgui <script.paw>")
-		fmt.Println("       pawgui -demo")
-		fmt.Println("       pawgui -console")
-		fmt.Println("       pawgui -d <script.paw>  (debug mode)")
-		fmt.Println("       pawgui -d -demo         (debug mode)")
-		os.Exit(1)
+	// Define command line flags (same as paw)
+	licenseFlag := flag.Bool("license", false, "Show license")
+	debugFlag := flag.Bool("debug", false, "Enable debug output")
+	verboseFlag := flag.Bool("verbose", false, "Enable verbose output (alias for -debug)")
+	flag.BoolVar(debugFlag, "d", false, "Enable debug output (short)")
+	flag.BoolVar(verboseFlag, "v", false, "Enable verbose output (short, alias for -debug)")
+
+	// File access control flags
+	unrestrictedFlag := flag.Bool("unrestricted", false, "Disable all file/exec access restrictions")
+	readRootsFlag := flag.String("read-roots", "", "Additional directories for file reading")
+	writeRootsFlag := flag.String("write-roots", "", "Additional directories for file writing")
+	execRootsFlag := flag.String("exec-roots", "", "Additional directories for exec command")
+	sandboxFlag := flag.String("sandbox", "", "Restrict all access to this directory only")
+
+	// GUI-specific flags
+	scaleFlag := flag.Float64("scale", 1.5, "GUI scale factor (default 1.5)")
+	demoFlag := flag.Bool("demo", false, "Run built-in GUI demo")
+	consoleFlag := flag.Bool("console", false, "Run built-in console demo")
+
+	// Custom usage function
+	flag.Usage = showUsage
+
+	// Parse flags
+	flag.Parse()
+
+	if *licenseFlag {
+		showLicense()
+		os.Exit(0)
 	}
 
-	// Check for debug flag
-	debugMode := false
-	args := os.Args[1:]
-	if len(args) > 0 && args[0] == "-d" {
-		debugMode = true
-		args = args[1:]
+	// Verbose is an alias for debug
+	debug := *debugFlag || *verboseFlag
+
+	// Get remaining arguments after flags
+	args := flag.Args()
+
+	var scriptFile string
+	var scriptContent string
+	var scriptArgs []string
+
+	// Handle -demo and -console special modes
+	if *demoFlag {
+		scriptContent = demoScript
+		scriptFile = "gui-demo.paw"
+	} else if *consoleFlag {
+		scriptContent = consoleDemo
+		scriptFile = "gui-console.paw"
+	} else {
+		// Check for -- separator
+		separatorIndex := -1
+		for i, arg := range args {
+			if arg == "--" {
+				separatorIndex = i
+				break
+			}
+		}
+
+		var fileArgs []string
+		if separatorIndex != -1 {
+			fileArgs = args[:separatorIndex]
+			scriptArgs = args[separatorIndex+1:]
+		} else {
+			fileArgs = args
+		}
+
+		// Check if stdin is redirected/piped
+		stdinInfo, _ := os.Stdin.Stat()
+		isStdinRedirected := (stdinInfo.Mode() & os.ModeCharDevice) == 0
+
+		if len(fileArgs) > 0 {
+			// Filename provided
+			requestedFile := fileArgs[0]
+			foundFile := findScriptFile(requestedFile)
+
+			if foundFile == "" {
+				errorPrintf("Error: Script file not found: %s\n", requestedFile)
+				if !strings.Contains(requestedFile, ".") {
+					errorPrintf("Also tried: %s.paw\n", requestedFile)
+				}
+				os.Exit(1)
+			}
+
+			scriptFile = foundFile
+
+			content, err := os.ReadFile(scriptFile)
+			if err != nil {
+				errorPrintf("Error reading script file: %v\n", err)
+				os.Exit(1)
+			}
+			scriptContent = string(content)
+
+			// Remaining fileArgs become script arguments (if no separator was used)
+			if separatorIndex == -1 && len(fileArgs) > 1 {
+				scriptArgs = fileArgs[1:]
+			}
+
+		} else if isStdinRedirected {
+			// No filename, but stdin is redirected - read from stdin
+			content, err := io.ReadAll(os.Stdin)
+			if err != nil {
+				errorPrintf("Error reading from stdin: %v\n", err)
+				os.Exit(1)
+			}
+			scriptContent = string(content)
+
+		} else {
+			// No filename and stdin is not redirected - show usage
+			showCopyright()
+			showUsage()
+			os.Exit(1)
+		}
 	}
-	if len(args) < 1 {
-		fmt.Println("Usage: pawgui [-d] <script.paw>")
-		os.Exit(1)
+
+	// Build file access configuration (same as paw)
+	var fileAccess *pawscript.FileAccessConfig
+	var scriptDir string
+	if scriptFile != "" {
+		absScript, err := filepath.Abs(scriptFile)
+		if err == nil {
+			scriptDir = filepath.Dir(absScript)
+		}
 	}
-	
-	// Set the FYNE_SCALE environment variable dynamically.
-	// For example, set it to 1.5. You can get this value from
-	// a config file, command-line argument, or some other logic.
-	scaleValue := 1.5
-	err := os.Setenv("FYNE_SCALE", strconv.FormatFloat(scaleValue, 'f', -1, 64))
+
+	if !*unrestrictedFlag {
+		fileAccess = &pawscript.FileAccessConfig{}
+		cwd, _ := os.Getwd()
+		tmpDir := os.TempDir()
+
+		// Helper to expand SCRIPT_DIR placeholder and resolve path
+		expandPath := func(path string) string {
+			path = strings.TrimSpace(path)
+			if path == "" {
+				return ""
+			}
+			if strings.HasPrefix(path, "SCRIPT_DIR/") {
+				if scriptDir != "" {
+					path = filepath.Join(scriptDir, path[11:])
+				} else {
+					return ""
+				}
+			} else if path == "SCRIPT_DIR" {
+				if scriptDir != "" {
+					path = scriptDir
+				} else {
+					return ""
+				}
+			}
+			absPath, err := filepath.Abs(path)
+			if err != nil {
+				return ""
+			}
+			return absPath
+		}
+
+		// Helper to parse comma-separated roots with SCRIPT_DIR expansion
+		parseRoots := func(rootsStr string) []string {
+			var roots []string
+			for _, root := range strings.Split(rootsStr, ",") {
+				if expanded := expandPath(root); expanded != "" {
+					roots = append(roots, expanded)
+				}
+			}
+			return roots
+		}
+
+		if *sandboxFlag != "" {
+			absPath, err := filepath.Abs(*sandboxFlag)
+			if err != nil {
+				errorPrintf("Error resolving sandbox path: %v\n", err)
+				os.Exit(1)
+			}
+			fileAccess.ReadRoots = []string{absPath}
+			fileAccess.WriteRoots = []string{absPath}
+			fileAccess.ExecRoots = []string{absPath}
+		} else {
+			// Check environment variables first
+			envReadRoots := os.Getenv("PAW_READ_ROOTS")
+			envWriteRoots := os.Getenv("PAW_WRITE_ROOTS")
+			envExecRoots := os.Getenv("PAW_EXEC_ROOTS")
+
+			if envReadRoots != "" {
+				fileAccess.ReadRoots = parseRoots(envReadRoots)
+			} else {
+				if scriptDir != "" {
+					fileAccess.ReadRoots = append(fileAccess.ReadRoots, scriptDir)
+				}
+				if cwd != "" && cwd != scriptDir {
+					fileAccess.ReadRoots = append(fileAccess.ReadRoots, cwd)
+				}
+				fileAccess.ReadRoots = append(fileAccess.ReadRoots, tmpDir)
+			}
+
+			if envWriteRoots != "" {
+				fileAccess.WriteRoots = parseRoots(envWriteRoots)
+			} else {
+				if scriptDir != "" {
+					fileAccess.WriteRoots = append(fileAccess.WriteRoots, filepath.Join(scriptDir, "saves"))
+					fileAccess.WriteRoots = append(fileAccess.WriteRoots, filepath.Join(scriptDir, "output"))
+				}
+				if cwd != "" {
+					fileAccess.WriteRoots = append(fileAccess.WriteRoots, filepath.Join(cwd, "saves"))
+					fileAccess.WriteRoots = append(fileAccess.WriteRoots, filepath.Join(cwd, "output"))
+				}
+				fileAccess.WriteRoots = append(fileAccess.WriteRoots, tmpDir)
+			}
+
+			if envExecRoots != "" {
+				fileAccess.ExecRoots = parseRoots(envExecRoots)
+			} else {
+				if scriptDir != "" {
+					fileAccess.ExecRoots = append(fileAccess.ExecRoots, filepath.Join(scriptDir, "helpers"))
+					fileAccess.ExecRoots = append(fileAccess.ExecRoots, filepath.Join(scriptDir, "bin"))
+				}
+			}
+
+			// Add command-line flags
+			if *readRootsFlag != "" {
+				fileAccess.ReadRoots = append(fileAccess.ReadRoots, parseRoots(*readRootsFlag)...)
+			}
+			if *writeRootsFlag != "" {
+				fileAccess.WriteRoots = append(fileAccess.WriteRoots, parseRoots(*writeRootsFlag)...)
+			}
+			if *execRootsFlag != "" {
+				fileAccess.ExecRoots = append(fileAccess.ExecRoots, parseRoots(*execRootsFlag)...)
+			}
+		}
+	}
+
+	// Set the FYNE_SCALE environment variable
+	err := os.Setenv("FYNE_SCALE", strconv.FormatFloat(*scaleFlag, 'f', -1, 64))
 	if err != nil {
 		fmt.Println("Error setting FYNE_SCALE:", err)
 	}
@@ -77,11 +285,17 @@ func main() {
 	mainWindow := fyneApp.NewWindow("PawScript GUI")
 	mainWindow.Resize(fyne.NewSize(400, 300))
 
-	// Create PawScript instance with debug mode if requested
-	config := pawscript.DefaultConfig()
-	config.Debug = debugMode
-	ps := pawscript.New(config)
-	ps.RegisterStandardLibrary(nil)
+	// Create PawScript instance with full configuration
+	ps := pawscript.New(&pawscript.Config{
+		Debug:                debug,
+		AllowMacros:          true,
+		EnableSyntacticSugar: true,
+		ShowErrorContext:     true,
+		ContextLines:         2,
+		FileAccess:           fileAccess,
+		ScriptDir:            scriptDir,
+	})
+	ps.RegisterStandardLibrary(scriptArgs)
 
 	// Initialize GUI state with left/right panel support
 	guiState = &GuiState{
@@ -102,36 +316,22 @@ func main() {
 	// Set initial content
 	mainWindow.SetContent(guiState.content)
 
-	// Handle script path
-	scriptPath := args[0]
-	var script string
-
-	if scriptPath == "-demo" {
-		script = demoScript
-	} else if scriptPath == "-console" {
-		script = consoleDemo
-	} else {
-		// Read the script file
-		data, err := os.ReadFile(scriptPath)
-		if err != nil {
-			fmt.Fprintf(os.Stderr, "Error reading script: %v\n", err)
-			os.Exit(1)
-		}
-		script = string(data)
-	}
-
 	// Run the script in a goroutine so the GUI can start
-	// Use ExecuteFile to ensure exports (including macros) persist to root
 	go func() {
-		result := ps.ExecuteFile(script, scriptPath)
+		var result pawscript.Result
+		if scriptFile != "" {
+			result = ps.ExecuteFile(scriptContent, scriptFile)
+		} else {
+			result = ps.Execute(scriptContent)
+		}
 		if result == pawscript.BoolStatus(false) {
 			fmt.Fprintf(os.Stderr, "Script execution failed\n")
 		}
 		// Import exports module directly into root so macros are callable
 		if ps.ImportModuleToRoot("exports") {
-			fmt.Fprintf(os.Stderr, "Successfully imported exports module to root\n")
-		} else {
-			fmt.Fprintf(os.Stderr, "Failed to import exports module (may not exist)\n")
+			if debug {
+				fmt.Fprintf(os.Stderr, "Successfully imported exports module to root\n")
+			}
 		}
 	}()
 
@@ -139,8 +339,150 @@ func main() {
 	mainWindow.ShowAndRun()
 }
 
+// ANSI color codes for terminal output
+const (
+	colorYellow = "\x1b[93m"
+	colorReset  = "\x1b[0m"
+)
+
+// stderrSupportsColor checks if stderr is a terminal that supports color output
+func stderrSupportsColor() bool {
+	stderrInfo, err := os.Stderr.Stat()
+	if err != nil {
+		return false
+	}
+	if (stderrInfo.Mode() & os.ModeCharDevice) == 0 {
+		return false
+	}
+	if _, exists := os.LookupEnv("NO_COLOR"); exists {
+		return false
+	}
+	if term := os.Getenv("TERM"); term == "dumb" {
+		return false
+	}
+	return true
+}
+
+// errorPrintf prints an error message to stderr, using color if supported
+func errorPrintf(format string, args ...interface{}) {
+	message := fmt.Sprintf(format, args...)
+	if stderrSupportsColor() {
+		fmt.Fprintf(os.Stderr, "%s%s%s", colorYellow, message, colorReset)
+	} else {
+		fmt.Fprint(os.Stderr, message)
+	}
+}
+
+func findScriptFile(filename string) string {
+	if _, err := os.Stat(filename); err == nil {
+		return filename
+	}
+	if filepath.Ext(filename) == "" {
+		pawFile := filename + ".paw"
+		if _, err := os.Stat(pawFile); err == nil {
+			return pawFile
+		}
+	}
+	return ""
+}
+
+func showCopyright() {
+	fmt.Fprintf(os.Stderr, "pawgui, the PawScript GUI interpreter version %s\nCopyright (c) 2025 Jeffrey R. Day\nLicense: MIT\n\n", version)
+}
+
+func showLicense() {
+	fmt.Fprintf(os.Stdout, "pawgui, the PawScript GUI interpreter version %s", version)
+	license := `
+
+MIT License
+
+Copyright (c) 2025 Jeffrey R. Day
+
+Permission is hereby granted, free of charge, to any person
+obtaining a copy of this software and associated documentation
+files (the "Software"), to deal in the Software without
+restriction, including without limitation the rights to use,
+copy, modify, merge, publish, distribute, sublicense, and/or
+sell copies of the Software, and to permit persons to whom the
+Software is furnished to do so, subject to the following
+conditions:
+
+The above copyright notice and this permission notice
+(including the next paragraph) shall be included in all copies
+or substantial portions of the Software.
+
+THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND,
+EXPRESS OR IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES
+OF MERCHANTABILITY, FITNESS FOR A PARTICULAR PURPOSE AND
+NONINFRINGEMENT. IN NO EVENT SHALL THE AUTHORS OR COPYRIGHT
+HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER LIABILITY,
+WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING
+FROM, OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR
+OTHER DEALINGS IN THE SOFTWARE.
+`
+	fmt.Fprint(os.Stdout, license)
+}
+
+func showUsage() {
+	usage := `Usage: pawgui [options] [script.paw] [-- args...]
+       pawgui [options] < input.paw
+       echo "commands" | pawgui [options]
+
+Execute PawScript with GUI capabilities from a file, stdin, or pipe.
+
+Options:
+  --license           View license and exit
+  -d, -debug          Enable debug output
+  -v, -verbose        Enable verbose output (same as -debug)
+  --unrestricted      Disable all file/exec access restrictions
+  --sandbox DIR       Restrict all access to DIR only
+  --read-roots DIRS   Additional directories for reading
+  --write-roots DIRS  Additional directories for writing
+  --exec-roots DIRS   Additional directories for exec command
+
+GUI Options:
+  --scale FACTOR      GUI scale factor (default 1.5)
+  --demo              Run built-in GUI demo
+  --console           Run built-in console demo
+
+Arguments:
+  script.paw          Script file to execute (adds .paw extension if needed)
+  --                  Separates script filename from arguments
+
+Default Security Sandbox:
+  Read:   SCRIPT_DIR, CWD, /tmp
+  Write:  SCRIPT_DIR/saves, SCRIPT_DIR/output, CWD/saves, CWD/output, /tmp
+  Exec:   SCRIPT_DIR/helpers, SCRIPT_DIR/bin
+
+Environment Variables (use SCRIPT_DIR as placeholder):
+  PAW_READ_ROOTS      Override default read roots
+  PAW_WRITE_ROOTS     Override default write roots
+  PAW_EXEC_ROOTS      Override default exec roots
+
+GUI Commands (available in scripts):
+  gui_title <text>              Set window title
+  gui_resize <w>, <h>           Resize window
+  gui_split [offset]            Enable split layout (0.0-1.0)
+  gui_label <text>              Create label widget
+  gui_button <text>             Create button widget
+  gui_entry [placeholder]       Create text entry widget
+  gui_get <id>                  Get widget value
+  gui_set <id>, <value>         Set widget value
+  gui_clear                     Clear all widgets
+  gui_msgbox <message>          Show message dialog
+  gui_console [w], [h]          Create terminal console
+
+Examples:
+  pawgui hello.paw                   # Execute with GUI support
+  pawgui --demo                      # Run built-in GUI demo
+  pawgui --console                   # Run console demo
+  pawgui --unrestricted script.paw   # No file/exec restrictions
+  pawgui --scale 2.0 script.paw      # Use 2x GUI scale
+`
+	fmt.Fprint(os.Stderr, usage)
+}
+
 // addToPanel adds a widget to the appropriate panel based on named args
-// Returns the target container
 func addToPanel(ctx *pawscript.Context, widget fyne.CanvasObject) {
 	panel := "default"
 	if p, ok := ctx.NamedArgs["panel"]; ok {
@@ -174,11 +516,10 @@ func ensureSplitLayout() {
 		return
 	}
 
-	// Create the split view with scrollable panels
 	leftScroll := container.NewVScroll(guiState.leftContent)
 	rightScroll := container.NewVScroll(guiState.rightContent)
 	guiState.splitView = container.NewHSplit(leftScroll, rightScroll)
-	guiState.splitView.SetOffset(0.4) // 40% left, 60% right
+	guiState.splitView.SetOffset(0.4)
 
 	guiState.mainWindow.SetContent(guiState.splitView)
 	guiState.usingSplit = true
@@ -188,7 +529,6 @@ func ensureSplitLayout() {
 func registerGuiCommands(ps *pawscript.PawScript) {
 	// gui_split - Enable split layout with left/right panels
 	ps.RegisterCommand("gui_split", func(ctx *pawscript.Context) pawscript.Result {
-		// Optional offset (0.0-1.0, default 0.5)
 		offset := 0.5
 		if len(ctx.Args) >= 1 {
 			if o, ok := toFloat(ctx.Args[0]); ok {
@@ -252,7 +592,6 @@ func registerGuiCommands(ps *pawscript.PawScript) {
 		text := fmt.Sprintf("%v", ctx.Args[0])
 		lbl := widget.NewLabel(text)
 
-		// Get optional ID
 		id := ""
 		if idVal, ok := ctx.NamedArgs["id"]; ok {
 			id = fmt.Sprintf("%v", idVal)
@@ -261,7 +600,6 @@ func registerGuiCommands(ps *pawscript.PawScript) {
 			guiState.mu.Unlock()
 		}
 
-		// Add to appropriate panel
 		addToPanel(ctx, lbl)
 
 		if id != "" {
@@ -278,7 +616,6 @@ func registerGuiCommands(ps *pawscript.PawScript) {
 		}
 		text := fmt.Sprintf("%v", ctx.Args[0])
 
-		// Get optional onclick handler
 		var onclickMacro string
 		if onclick, ok := ctx.NamedArgs["onclick"]; ok {
 			onclickMacro = fmt.Sprintf("%v", onclick)
@@ -286,7 +623,6 @@ func registerGuiCommands(ps *pawscript.PawScript) {
 
 		btn := widget.NewButton(text, func() {
 			if onclickMacro != "" {
-				// Execute the macro when button is clicked
 				go func() {
 					result := guiState.ps.Execute(onclickMacro)
 					if result == pawscript.BoolStatus(false) {
@@ -296,7 +632,6 @@ func registerGuiCommands(ps *pawscript.PawScript) {
 			}
 		})
 
-		// Get optional ID
 		id := ""
 		if idVal, ok := ctx.NamedArgs["id"]; ok {
 			id = fmt.Sprintf("%v", idVal)
@@ -305,7 +640,6 @@ func registerGuiCommands(ps *pawscript.PawScript) {
 			guiState.mu.Unlock()
 		}
 
-		// Add to appropriate panel
 		addToPanel(ctx, btn)
 
 		if id != "" {
@@ -324,7 +658,6 @@ func registerGuiCommands(ps *pawscript.PawScript) {
 		entry := widget.NewEntry()
 		entry.SetPlaceHolder(placeholder)
 
-		// Get optional ID (required to read value later)
 		id := ""
 		if idVal, ok := ctx.NamedArgs["id"]; ok {
 			id = fmt.Sprintf("%v", idVal)
@@ -333,7 +666,6 @@ func registerGuiCommands(ps *pawscript.PawScript) {
 			guiState.mu.Unlock()
 		}
 
-		// Add to appropriate panel
 		addToPanel(ctx, entry)
 
 		if id != "" {
@@ -359,7 +691,6 @@ func registerGuiCommands(ps *pawscript.PawScript) {
 			return pawscript.BoolStatus(false)
 		}
 
-		// Get value based on widget type
 		switch widget := w.(type) {
 		case *widget.Entry:
 			ctx.SetResult(widget.Text)
@@ -389,7 +720,6 @@ func registerGuiCommands(ps *pawscript.PawScript) {
 			return pawscript.BoolStatus(false)
 		}
 
-		// Set value based on widget type (thread-safe)
 		fyne.Do(func() {
 			switch widget := w.(type) {
 			case *widget.Entry:
@@ -425,7 +755,6 @@ func registerGuiCommands(ps *pawscript.PawScript) {
 			title = fmt.Sprintf("%v", t)
 		}
 
-		// Show info dialog (thread-safe)
 		fyne.Do(func() {
 			dialog := widget.NewLabel(message)
 			popup := widget.NewModalPopUp(
@@ -442,17 +771,10 @@ func registerGuiCommands(ps *pawscript.PawScript) {
 	})
 
 	// gui_console - Create a terminal console widget
-	// Returns a list: [out_channel, in_channel, err_channel]
-	// - out_channel: send to display text in the terminal
-	// - in_channel: recv to read keyboard input
-	// - err_channel: same as out_channel (for compatibility)
-	// You can have multiple consoles, each with their own channels
 	ps.RegisterCommand("gui_console", func(ctx *pawscript.Context) pawscript.Result {
-		// Default size
 		width := float32(600)
 		height := float32(400)
 
-		// Get optional dimensions
 		if len(ctx.Args) >= 2 {
 			if w, ok := toFloat(ctx.Args[0]); ok {
 				width = float32(w)
@@ -462,14 +784,11 @@ func registerGuiCommands(ps *pawscript.PawScript) {
 			}
 		}
 
-		// Create IO pipes for the console
 		stdinReader, stdinWriter := io.Pipe()
 		stdoutReader, stdoutWriter := io.Pipe()
 
-		// Estimate character dimensions from pixel dimensions
-		// Typical terminal font: ~8-10px wide, ~16-18px tall
-		charWidth := int(width / 9)  // rough estimate
-		charHeight := int(height / 18) // rough estimate
+		charWidth := int(width / 9)
+		charHeight := int(height / 18)
 		if charWidth < 1 {
 			charWidth = 80
 		}
@@ -477,26 +796,16 @@ func registerGuiCommands(ps *pawscript.PawScript) {
 			charHeight = 24
 		}
 
-		// Create console channels backed by pipes, with terminal capabilities
 		consoleOutCh, consoleInCh, termCaps := createConsoleChannels(stdinReader, stdoutWriter, charWidth, charHeight)
-		_ = termCaps // Terminal capabilities can be updated on resize if needed
+		_ = termCaps
 
-		// Create terminal widget
 		term := terminal.New()
 		guiState.terminal = term
 
-		// Create a click interceptor that sits on top of the terminal
-		// This works around slow focus handling in fyne-io/terminal
 		clickInterceptor := newClickInterceptor(term)
-
-		// Stack the terminal with the click interceptor on top
-		// The interceptor is transparent but catches clicks first
 		termWithInterceptor := container.NewStack(term, clickInterceptor)
-
-		// Wrap in sizedWidget to enforce minimum size
 		sizedTerm := newSizedWidget(termWithInterceptor, fyne.NewSize(width, height))
 
-		// Get optional ID
 		id := ""
 		if idVal, ok := ctx.NamedArgs["id"]; ok {
 			id = fmt.Sprintf("%v", idVal)
@@ -505,16 +814,9 @@ func registerGuiCommands(ps *pawscript.PawScript) {
 			guiState.mu.Unlock()
 		}
 
-		// Add to appropriate panel
 		addToPanel(ctx, sizedTerm)
 
-		// Connect the terminal to our pipes
-		// RunWithConnection expects: in = where to write keyboard input, out = what to display
-		// We need to wait for the terminal to be rendered before starting the connection,
-		// otherwise the terminal's content TextGrid won't be initialized yet.
 		go func() {
-			// Wait for the widget to be rendered (CreateRenderer to be called)
-			// This happens when the widget is added to a visible canvas
 			time.Sleep(time.Millisecond * 100)
 			err := term.RunWithConnection(stdinWriter, stdoutReader)
 			if err != nil {
@@ -522,26 +824,20 @@ func registerGuiCommands(ps *pawscript.PawScript) {
 			}
 		}()
 
-		// Store channels and create markers
 		outID := ctx.StoreObject(consoleOutCh, "channel")
 		inID := ctx.StoreObject(consoleInCh, "channel")
 
-		// Explicitly claim ownership - these channels are long-lived GUI resources
 		ctx.ClaimObjectReference(outID)
 		ctx.ClaimObjectReference(inID)
 
-		// Use outCh for err as well (same channel)
 		outMarker := pawscript.Symbol(fmt.Sprintf("\x00CHANNEL:%d\x00", outID))
 		inMarker := pawscript.Symbol(fmt.Sprintf("\x00CHANNEL:%d\x00", inID))
-		errMarker := outMarker // err uses same channel as out
+		errMarker := outMarker
 
-		// Create a StoredList with the channel markers
-		// NewStoredListWithRefs claims references to the channels via their markers
 		channelList := ctx.NewStoredListWithRefs([]interface{}{outMarker, inMarker, errMarker}, nil)
 		listID := ctx.StoreObject(channelList, "list")
 		listMarker := fmt.Sprintf("\x00LIST:%d\x00", listID)
 
-		// Return the list marker so unpacking works correctly
 		ctx.SetResult(pawscript.Symbol(listMarker))
 		return pawscript.BoolStatus(true)
 	})
@@ -551,17 +847,17 @@ func registerGuiCommands(ps *pawscript.PawScript) {
 type consoleInputHandler struct {
 	stdinReader  *io.PipeReader
 	stdoutWriter *io.PipeWriter
-	lines        chan string   // Completed lines ready to be read
-	readActive   chan struct{} // Signals when a read is waiting
+	lines        chan string
+	readActive   chan struct{}
 	mu           sync.Mutex
-	waiting      bool // True if NativeRecv is waiting for input
+	waiting      bool
 }
 
 func newConsoleInputHandler(stdinReader *io.PipeReader, stdoutWriter *io.PipeWriter) *consoleInputHandler {
 	h := &consoleInputHandler{
 		stdinReader:  stdinReader,
 		stdoutWriter: stdoutWriter,
-		lines:        make(chan string, 10), // Buffer up to 10 lines
+		lines:        make(chan string, 10),
 		readActive:   make(chan struct{}, 1),
 	}
 	go h.readLoop()
@@ -593,7 +889,6 @@ func (h *consoleInputHandler) readLoop() {
 	for {
 		n, err := h.stdinReader.Read(buf)
 		if err != nil {
-			// Pipe closed, exit loop
 			close(h.lines)
 			return
 		}
@@ -603,20 +898,16 @@ func (h *consoleInputHandler) readLoop() {
 
 		b := buf[0]
 
-		// Only echo and process if a read is waiting
 		if !h.isWaiting() {
-			// Discard input when no read is active
 			continue
 		}
 
 		switch {
 		case b == '\r' || b == '\n':
-			// Enter pressed - echo newline and send line
 			h.writeToTerminal("\n")
 			select {
 			case h.lines <- string(line):
 			default:
-				// Buffer full, drop oldest
 				select {
 				case <-h.lines:
 				default:
@@ -626,14 +917,12 @@ func (h *consoleInputHandler) readLoop() {
 			line = line[:0]
 
 		case b == 0x7F || b == 0x08:
-			// Backspace (DEL or BS)
 			if len(line) > 0 {
 				line = line[:len(line)-1]
 				fmt.Fprint(h.stdoutWriter, "\b \b")
 			}
 
 		case b == 0x03:
-			// Ctrl+C - send empty line to unblock
 			h.writeToTerminal("^C\n")
 			select {
 			case h.lines <- "":
@@ -642,19 +931,16 @@ func (h *consoleInputHandler) readLoop() {
 			line = line[:0]
 
 		case b == 0x15:
-			// Ctrl+U - clear line
 			for range line {
 				fmt.Fprint(h.stdoutWriter, "\b \b")
 			}
 			line = line[:0]
 
 		case b >= 32 && b < 127:
-			// Printable ASCII - echo and append
 			line = append(line, b)
 			fmt.Fprint(h.stdoutWriter, string(b))
 
 		case b >= 0xC0:
-			// UTF-8 multi-byte sequence
 			var utf8Bytes []byte
 			utf8Bytes = append(utf8Bytes, b)
 
@@ -693,19 +979,15 @@ func (h *consoleInputHandler) readLine() (string, error) {
 }
 
 // createConsoleChannels creates StoredChannels for the console terminal
-// Returns: out channel, in channel, and shared terminal capabilities
 func createConsoleChannels(stdinReader *io.PipeReader, stdoutWriter *io.PipeWriter, width, height int) (*pawscript.StoredChannel, *pawscript.StoredChannel, *pawscript.TerminalCapabilities) {
-	// Create input handler with background goroutine
 	inputHandler := newConsoleInputHandler(stdinReader, stdoutWriter)
 
-	// Create terminal capabilities for this GUI console
-	// All channels from this console share the same capabilities instance
 	termCaps := &pawscript.TerminalCapabilities{
 		TermType:      "gui-console",
 		IsTerminal:    true,
 		SupportsANSI:  true,
 		SupportsColor: true,
-		ColorDepth:    256, // GUI terminal supports 256 colors
+		ColorDepth:    256,
 		Width:         width,
 		Height:        height,
 		SupportsInput: true,
@@ -714,7 +996,6 @@ func createConsoleChannels(stdinReader *io.PipeReader, stdoutWriter *io.PipeWrit
 		Metadata:      make(map[string]interface{}),
 	}
 
-	// Console output channel - write to terminal display
 	consoleOutCh := &pawscript.StoredChannel{
 		BufferSize:       0,
 		Messages:         make([]pawscript.ChannelMessage, 0),
@@ -724,10 +1005,9 @@ func createConsoleChannels(stdinReader *io.PipeReader, stdoutWriter *io.PipeWrit
 		Timestamp:        time.Now(),
 		Terminal:         termCaps,
 		NativeSend: func(v interface{}) error {
-			// Convert \n to \r\n for proper terminal line endings
 			text := fmt.Sprintf("%v", v)
-			text = strings.ReplaceAll(text, "\r\n", "\n") // Normalize first
-			text = strings.ReplaceAll(text, "\n", "\r\n") // Then convert to CRLF
+			text = strings.ReplaceAll(text, "\r\n", "\n")
+			text = strings.ReplaceAll(text, "\n", "\r\n")
 			_, err := fmt.Fprint(stdoutWriter, text)
 			return err
 		},
@@ -736,7 +1016,6 @@ func createConsoleChannels(stdinReader *io.PipeReader, stdoutWriter *io.PipeWrit
 		},
 	}
 
-	// Console input channel - read from input handler
 	consoleInCh := &pawscript.StoredChannel{
 		BufferSize:       0,
 		Messages:         make([]pawscript.ChannelMessage, 0),
@@ -744,7 +1023,7 @@ func createConsoleChannels(stdinReader *io.PipeReader, stdoutWriter *io.PipeWrit
 		NextSubscriberID: 1,
 		IsClosed:         false,
 		Timestamp:        time.Now(),
-		Terminal:         termCaps, // Share the same capabilities
+		Terminal:         termCaps,
 		NativeRecv: func() (interface{}, error) {
 			return inputHandler.readLine()
 		},
@@ -757,7 +1036,6 @@ func createConsoleChannels(stdinReader *io.PipeReader, stdoutWriter *io.PipeWrit
 }
 
 // clickInterceptor is a transparent widget that sits on top of the terminal
-// to intercept clicks and handle focus immediately (works around slow focus in fyne-io/terminal)
 type clickInterceptor struct {
 	widget.BaseWidget
 	terminal *terminal.Terminal
@@ -774,10 +1052,7 @@ func newClickInterceptor(term *terminal.Terminal) *clickInterceptor {
 }
 
 func (c *clickInterceptor) Tapped(_ *fyne.PointEvent) {
-	// Directly call FocusGained to show cursor immediately
 	c.terminal.FocusGained()
-
-	// Also request focus through Fyne's system for keyboard input
 	fyne.CurrentApp().Driver().CanvasForObject(c.terminal).Focus(c.terminal)
 }
 
@@ -860,8 +1135,7 @@ func toFloat(v interface{}) (float64, bool) {
 }
 
 // demoScript is a built-in demo that shows basic GUI capabilities
-const demoScript = `
-# PawScript GUI Demo with Split Layout
+const demoScript = `# PawScript GUI Demo with Split Layout
 
 gui_title "PawScript GUI Demo"
 gui_resize 900, 500
@@ -956,12 +1230,10 @@ EXPORT greet_user, increment_counter, console_loop
 # Run console interaction in a fiber, passing the channels as arguments
 msleep 300
 fiber console_loop, ~#out, ~#in, ~#err
-
 `
 
 // consoleDemo is a demo script that shows terminal/console capabilities
-const consoleDemo = `
-# PawScript Console Demo
+const consoleDemo = `# PawScript Console Demo
 # Shows terminal features using gui_console returned channels
 
 gui_title "PawScript Console Demo"
