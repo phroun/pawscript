@@ -847,10 +847,10 @@ func updateWindowMenu(menu *fyne.MainMenu) {
 // showOpenFileDialog shows a native file dialog to select a .paw file (opens in new window)
 func showOpenFileDialog(win fyne.Window) {
 	// Use native OS file dialog via sqweek/dialog
+	// No filter applied - allow any file type (the left panel already shows .paw files)
 	go func() {
 		cwd, _ := os.Getwd()
 		filePath, err := dialog.File().
-			Filter("PawScript files", "paw").
 			SetStartDir(cwd).
 			Title("Open PawScript File").
 			Load()
@@ -865,10 +865,10 @@ func showOpenFileDialog(win fyne.Window) {
 // showOpenFileDialogForWindow shows a native file dialog and runs the script in the given window's console
 func showOpenFileDialogForWindow(win fyne.Window, ws *WindowState) {
 	// Use native OS file dialog via sqweek/dialog
+	// No filter applied - allow any file type
 	go func() {
 		cwd, _ := os.Getwd()
 		filePath, err := dialog.File().
-			Filter("PawScript files", "paw").
 			SetStartDir(cwd).
 			Title("Open PawScript File").
 			Load()
@@ -1386,12 +1386,13 @@ func registerGuiCommands(ps *pawscript.PawScript) {
 
 			// Redirect #out, #in, #err to the console channels
 			// Set in both root environment (for future modules) and current module context
-			guiState.ps.SetInheritedObject("io", "#out", consoleOutCh)
-			guiState.ps.SetInheritedObject("io", "#stdout", consoleOutCh)
-			guiState.ps.SetInheritedObject("io", "#in", consoleInCh)
-			guiState.ps.SetInheritedObject("io", "#stdin", consoleInCh)
-			guiState.ps.SetInheritedObject("io", "#err", consoleOutCh)
-			guiState.ps.SetInheritedObject("io", "#stderr", consoleOutCh)
+			// Use the ps instance that registered these commands, not guiState.ps (which may be nil)
+			ps.SetInheritedObject("io", "#out", consoleOutCh)
+			ps.SetInheritedObject("io", "#stdout", consoleOutCh)
+			ps.SetInheritedObject("io", "#in", consoleInCh)
+			ps.SetInheritedObject("io", "#stdin", consoleInCh)
+			ps.SetInheritedObject("io", "#err", consoleOutCh)
+			ps.SetInheritedObject("io", "#stderr", consoleOutCh)
 
 			// Also set in current module's ObjectsModule for immediate effect
 			ctx.SetModuleObject("#out", consoleOutCh)
@@ -1574,7 +1575,8 @@ func registerGuiCommands(ps *pawscript.PawScript) {
 		btn := widget.NewButton(text, func() {
 			if onclickMacro != "" {
 				go func() {
-					result := guiState.ps.Execute(onclickMacro)
+					// Use the ps instance that registered these commands, not guiState.ps (which may be nil)
+					result := ps.Execute(onclickMacro)
 					if result == pawscript.BoolStatus(false) {
 						fmt.Fprintf(os.Stderr, "Button callback error: %s\n", onclickMacro)
 					}
