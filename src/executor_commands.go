@@ -864,13 +864,14 @@ func (e *Executor) applyAccessorChain(value interface{}, accessors string, posit
 			break
 		}
 
-		// Resolve current to get the actual list or bytes
+		// Resolve current to get the actual list, bytes, or struct
 		resolved := e.resolveValue(current)
 		list, isList := resolved.(StoredList)
 		bytes, isBytes := resolved.(StoredBytes)
+		structVal, isStruct := resolved.(StoredStruct)
 
 		if accessors[i] == '.' {
-			// Dot accessor for named argument
+			// Dot accessor for named argument or struct field
 			i++ // skip the dot
 			if i >= len(accessors) {
 				e.logger.ErrorCat(CatList, "Expected key name after dot")
@@ -884,22 +885,30 @@ func (e *Executor) applyAccessorChain(value interface{}, accessors string, posit
 			}
 			key := accessors[keyStart:i]
 
-			if !isList {
-				e.logger.ErrorCat(CatList, "Cannot use dot accessor on non-list value")
+			if isStruct {
+				// Struct field access
+				val, exists := structVal.GetFieldValue(key)
+				if !exists {
+					e.logger.DebugCat(CatList, "Field '%s' not found in struct", key)
+					return Symbol(UndefinedMarker)
+				}
+				current = val
+			} else if isList {
+				namedArgs := list.NamedArgs()
+				if namedArgs == nil {
+					e.logger.DebugCat(CatList, "List has no named arguments, cannot access .%s", key)
+					return Symbol(UndefinedMarker)
+				}
+				val, exists := namedArgs[key]
+				if !exists {
+					e.logger.DebugCat(CatList, "Named argument '%s' not found in list", key)
+					return Symbol(UndefinedMarker)
+				}
+				current = val
+			} else {
+				e.logger.ErrorCat(CatList, "Cannot use dot accessor on non-list/non-struct value")
 				return Symbol(UndefinedMarker)
 			}
-
-			namedArgs := list.NamedArgs()
-			if namedArgs == nil {
-				e.logger.DebugCat(CatList, "List has no named arguments, cannot access .%s", key)
-				return Symbol(UndefinedMarker)
-			}
-			val, exists := namedArgs[key]
-			if !exists {
-				e.logger.DebugCat(CatList, "Named argument '%s' not found in list", key)
-				return Symbol(UndefinedMarker)
-			}
-			current = val
 
 		} else if accessors[i] >= '0' && accessors[i] <= '9' {
 			// Integer index accessor
@@ -935,8 +944,20 @@ func (e *Executor) applyAccessorChain(value interface{}, accessors string, posit
 				}
 				// Return byte as int64
 				current = bytes.Get(idx)
+			} else if isStruct {
+				// Struct array index access
+				if !structVal.IsArray() {
+					e.logger.ErrorCat(CatList, "Cannot use index accessor on single struct (use dot accessor for fields)")
+					return Symbol(UndefinedMarker)
+				}
+				if idx < 0 || idx >= structVal.Len() {
+					e.logger.DebugCat(CatList, "Index %d out of bounds (struct array has %d items)", idx, structVal.Len())
+					return Symbol(UndefinedMarker)
+				}
+				// Return a single struct from the array
+				current = structVal.Get(idx)
 			} else {
-				e.logger.ErrorCat(CatList, "Cannot use index accessor on non-list/non-bytes value")
+				e.logger.ErrorCat(CatList, "Cannot use index accessor on non-list/non-bytes/non-struct value")
 				return Symbol(UndefinedMarker)
 			}
 
@@ -969,13 +990,14 @@ func (e *Executor) accessorChainExists(value interface{}, accessors string) bool
 			break
 		}
 
-		// Resolve current to get the actual list or bytes
+		// Resolve current to get the actual list, bytes, or struct
 		resolved := e.resolveValue(current)
 		list, isList := resolved.(StoredList)
 		bytes, isBytes := resolved.(StoredBytes)
+		structVal, isStruct := resolved.(StoredStruct)
 
 		if accessors[i] == '.' {
-			// Dot accessor for named argument
+			// Dot accessor for named argument or struct field
 			i++ // skip the dot
 			if i >= len(accessors) {
 				return false
@@ -988,19 +1010,25 @@ func (e *Executor) accessorChainExists(value interface{}, accessors string) bool
 			}
 			key := accessors[keyStart:i]
 
-			if !isList {
+			if isStruct {
+				val, exists := structVal.GetFieldValue(key)
+				if !exists {
+					return false
+				}
+				current = val
+			} else if isList {
+				namedArgs := list.NamedArgs()
+				if namedArgs == nil {
+					return false
+				}
+				val, exists := namedArgs[key]
+				if !exists {
+					return false
+				}
+				current = val
+			} else {
 				return false
 			}
-
-			namedArgs := list.NamedArgs()
-			if namedArgs == nil {
-				return false
-			}
-			val, exists := namedArgs[key]
-			if !exists {
-				return false
-			}
-			current = val
 
 		} else if accessors[i] >= '0' && accessors[i] <= '9' {
 			// Integer index accessor
@@ -1031,6 +1059,11 @@ func (e *Executor) accessorChainExists(value interface{}, accessors string) bool
 					return false
 				}
 				current = bytes.Get(idx)
+			} else if isStruct {
+				if !structVal.IsArray() || idx < 0 || idx >= structVal.Len() {
+					return false
+				}
+				current = structVal.Get(idx)
 			} else {
 				return false
 			}
@@ -1195,6 +1228,20 @@ func (e *Executor) processArguments(args []interface{}, state *ExecutionState, s
 						}
 						result[i] = finalValue
 						e.logger.DebugCat(CatCommand,"processArguments[%d]: Resolved bytes marker to StoredBytes", i)
+					case "struct":
+						// Return as StoredStruct - this passes the struct by reference
+						finalValue := value
+						// Apply any accessors (index and field)
+						if accessors != "" {
+							finalValue = e.applyAccessorChain(value, accessors, position)
+							e.logger.DebugCat(CatCommand,"processArguments[%d]: After accessors %q: %v", i, accessors, finalValue)
+						}
+						result[i] = finalValue
+						e.logger.DebugCat(CatCommand,"processArguments[%d]: Resolved struct marker to StoredStruct", i)
+					case "structdef":
+						// Return as *StructDef - this passes the definition by reference
+						result[i] = value
+						e.logger.DebugCat(CatCommand,"processArguments[%d]: Resolved structdef marker to *StructDef", i)
 					default:
 						// For unknown types, keep the marker to preserve reference semantics
 						result[i] = arg

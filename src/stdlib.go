@@ -516,6 +516,13 @@ func getTypeName(val interface{}) string {
 		return "list"
 	case StoredBytes:
 		return "bytes"
+	case StoredStruct:
+		if v.IsArray() {
+			return "structarray"
+		}
+		return "struct"
+	case *StructDef:
+		return "structdef"
 	case StoredString:
 		return "string"
 	case StoredBlock:

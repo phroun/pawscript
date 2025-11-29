@@ -177,6 +177,20 @@ func (ps *PawScript) RegisterTypesLib() {
 		ctx.state.SetResultWithoutClaim(Symbol(marker))
 	}
 
+	// Helper function to set a StoredStruct as result with proper reference counting
+	setStructResult := func(ctx *Context, s StoredStruct) {
+		id := ctx.executor.storeObject(s, "struct")
+		marker := fmt.Sprintf("\x00STRUCT:%d\x00", id)
+		ctx.state.SetResultWithoutClaim(Symbol(marker))
+	}
+
+	// Helper function to set a StructDef as result with proper reference counting
+	setStructDefResult := func(ctx *Context, def *StructDef) {
+		id := ctx.executor.storeObject(def, "structdef")
+		marker := fmt.Sprintf("\x00STRUCTDEF:%d\x00", id)
+		ctx.state.SetResultWithoutClaim(Symbol(marker))
+	}
+
 	// bytes - creates a byte array from numbers, strings, or hex literals
 	// Usage: bytes 72, 101, 108, 108, 111           - from numbers
 	//        bytes "Hello"                           - from ASCII string
@@ -351,6 +365,19 @@ func (ps *PawScript) RegisterTypesLib() {
 				end = v.Len()
 			}
 			setBytesResult(ctx, v.Slice(start, end))
+			return BoolStatus(true)
+		case StoredStruct:
+			// Struct arrays can be sliced
+			if !v.IsArray() {
+				ctx.LogError(CatType, "Cannot slice a single struct (only struct arrays)")
+				ctx.SetResult(nil)
+				return BoolStatus(false)
+			}
+			// Handle negative indices
+			if end < 0 {
+				end = v.Len()
+			}
+			setStructResult(ctx, v.Slice(start, end))
 			return BoolStatus(true)
 		case string, QuotedString, Symbol:
 			// Resolve in case it's a string marker
@@ -562,6 +589,9 @@ func (ps *PawScript) RegisterTypesLib() {
 			return BoolStatus(true)
 		case StoredBytes:
 			setBytesResult(ctx, v.Compact())
+			return BoolStatus(true)
+		case StoredStruct:
+			setStructResult(ctx, v.Compact())
 			return BoolStatus(true)
 		default:
 			ctx.LogError(CatType, fmt.Sprintf("Cannot compact type %s\n", getTypeName(v)))
@@ -2337,6 +2367,264 @@ func (ps *PawScript) RegisterTypesLib() {
 			return BoolStatus(false)
 		}
 	})
+
+	// struct_def - creates a struct definition from a descriptor list
+	// Usage: struct_def ~descriptor
+	// Descriptor format: {list ("name", size, "mode"), ("name2", size2, "mode2"), ..., metaKey: "metaValue"}
+	// Returns a StructDef that can be used with the struct command
+	ps.RegisterCommandInModule("strlist", "struct_def", func(ctx *Context) Result {
+		if len(ctx.Args) < 1 {
+			ctx.LogError(CatCommand, "Usage: struct_def <descriptor_list>")
+			ctx.SetResult(nil)
+			return BoolStatus(false)
+		}
+
+		// Get the descriptor list
+		desc, ok := ctx.Args[0].(StoredList)
+		if !ok {
+			ctx.LogError(CatType, "struct_def requires a list descriptor")
+			ctx.SetResult(nil)
+			return BoolStatus(false)
+		}
+
+		fields := make(map[string]StructFieldDef)
+		var currentOffset int
+
+		// Process positional entries (field definitions)
+		for i := 0; i < desc.Len(); i++ {
+			item := desc.Get(i)
+			// Resolve if it's a marker
+			item = ctx.executor.resolveValue(item)
+
+			// Each field should be a tuple/list: (name, size, mode, [structref, [count]])
+			// Handle both StoredList and ParenGroup (tuples)
+			var fieldItems []interface{}
+			switch ft := item.(type) {
+			case StoredList:
+				for j := 0; j < ft.Len(); j++ {
+					fieldItems = append(fieldItems, ft.Get(j))
+				}
+			case ParenGroup:
+				// Parse the paren group to extract arguments
+				args, _ := parseArguments(string(ft))
+				fieldItems = args
+			default:
+				ctx.LogError(CatArgument, fmt.Sprintf("Field %d must be a tuple (name, size, mode), got %T", i, item))
+				ctx.SetResult(nil)
+				return BoolStatus(false)
+			}
+
+			if len(fieldItems) < 3 {
+				ctx.LogError(CatArgument, fmt.Sprintf("Field %d tuple must have at least 3 elements (name, size, mode)", i))
+				ctx.SetResult(nil)
+				return BoolStatus(false)
+			}
+
+			// Get field name
+			nameVal := ctx.executor.resolveValue(fieldItems[0])
+			var fieldName string
+			switch n := nameVal.(type) {
+			case string:
+				fieldName = n
+			case QuotedString:
+				fieldName = string(n)
+			case Symbol:
+				fieldName = string(n)
+			default:
+				ctx.LogError(CatArgument, fmt.Sprintf("Field %d name must be a string, got %T", i, nameVal))
+				ctx.SetResult(nil)
+				return BoolStatus(false)
+			}
+
+			// Get field size
+			sizeVal := ctx.executor.resolveValue(fieldItems[1])
+			sizeNum, ok := toNumber(sizeVal)
+			if !ok {
+				ctx.LogError(CatArgument, fmt.Sprintf("Field %d size must be a number, got %v", i, sizeVal))
+				ctx.SetResult(nil)
+				return BoolStatus(false)
+			}
+			fieldSize := int(sizeNum)
+
+			// Get field mode
+			modeVal := ctx.executor.resolveValue(fieldItems[2])
+			var fieldMode string
+			switch m := modeVal.(type) {
+			case string:
+				fieldMode = m
+			case QuotedString:
+				fieldMode = string(m)
+			case Symbol:
+				fieldMode = string(m)
+			default:
+				ctx.LogError(CatArgument, fmt.Sprintf("Field %d mode must be a string, got %T", i, modeVal))
+				ctx.SetResult(nil)
+				return BoolStatus(false)
+			}
+
+			// Validate mode
+			switch fieldMode {
+			case "bytes", "string", "int", "struct":
+				// Valid modes
+			default:
+				ctx.LogError(CatArgument, fmt.Sprintf("Field %d has invalid mode '%s' (valid: bytes, string, int, struct)", i, fieldMode))
+				ctx.SetResult(nil)
+				return BoolStatus(false)
+			}
+
+			// Get optional struct ref and count for nested structs
+			var structRef *StructDef
+			var count int
+			if fieldMode == "struct" && len(fieldItems) >= 4 {
+				refVal := ctx.executor.resolveValue(fieldItems[3])
+				if ref, ok := refVal.(*StructDef); ok {
+					structRef = ref
+				}
+				if len(fieldItems) >= 5 {
+					countVal := ctx.executor.resolveValue(fieldItems[4])
+					if countNum, ok := toNumber(countVal); ok {
+						count = int(countNum)
+					}
+				}
+			}
+
+			// Add field
+			fields[fieldName] = StructFieldDef{
+				Offset:    currentOffset,
+				Length:    fieldSize,
+				Mode:      fieldMode,
+				StructRef: structRef,
+				Count:     count,
+			}
+
+			currentOffset += fieldSize
+		}
+
+		// Get named metadata
+		namedMeta := make(map[string]interface{})
+		if desc.NamedArgs() != nil {
+			for k, v := range desc.NamedArgs() {
+				namedMeta[k] = v
+			}
+		}
+
+		// Create the struct definition
+		def := NewStructDef(fields, currentOffset, namedMeta, ctx.Position)
+		setStructDefResult(ctx, def)
+		return BoolStatus(true)
+	})
+
+	// struct - creates a struct instance from a definition
+	// Usage: struct ~def                        - create empty single struct
+	//        struct ~def, ~sourceList           - create single struct, fill from source
+	//        struct ~def, ~sourceList, 10       - create array of 10 structs, fill from source
+	ps.RegisterCommandInModule("strlist", "struct", func(ctx *Context) Result {
+		if len(ctx.Args) < 1 {
+			ctx.LogError(CatCommand, "Usage: struct <def> [, <source_list> [, <count>]]")
+			ctx.SetResult(nil)
+			return BoolStatus(false)
+		}
+
+		// Get the struct definition - handle #-prefixed symbols
+		defArg := ctx.Args[0]
+
+		// Check for #-prefixed symbol (resolve like tilde would)
+		if sym, ok := defArg.(Symbol); ok {
+			symStr := string(sym)
+			if strings.HasPrefix(symStr, "#") {
+				// First check local variables
+				if localVal, exists := ctx.state.GetVariable(symStr); exists {
+					defArg = localVal
+				} else if ctx.state.moduleEnv != nil {
+					// Then check ObjectsModule
+					ctx.state.moduleEnv.mu.RLock()
+					if ctx.state.moduleEnv.ObjectsModule != nil {
+						if obj, exists := ctx.state.moduleEnv.ObjectsModule[symStr]; exists {
+							defArg = obj
+						}
+					}
+					ctx.state.moduleEnv.mu.RUnlock()
+				}
+			}
+		}
+
+		defVal := ctx.executor.resolveValue(defArg)
+		def, ok := defVal.(*StructDef)
+		if !ok {
+			ctx.LogError(CatType, fmt.Sprintf("struct requires a StructDef as first argument, got %T", defVal))
+			ctx.SetResult(nil)
+			return BoolStatus(false)
+		}
+
+		// Check for count (array vs single)
+		var count int = -1 // -1 means single struct
+		if len(ctx.Args) >= 3 {
+			countVal := ctx.executor.resolveValue(ctx.Args[2])
+			countNum, ok := toNumber(countVal)
+			if !ok {
+				ctx.LogError(CatArgument, "Third argument (count) must be a number")
+				ctx.SetResult(nil)
+				return BoolStatus(false)
+			}
+			count = int(countNum)
+			if count < 0 {
+				ctx.LogError(CatArgument, "Count must be non-negative")
+				ctx.SetResult(nil)
+				return BoolStatus(false)
+			}
+		}
+
+		// Create the struct
+		var result StoredStruct
+		if count >= 0 {
+			result = NewStoredStructArray(def, count)
+		} else {
+			result = NewStoredStruct(def)
+		}
+
+		// Fill from source list if provided
+		if len(ctx.Args) >= 2 {
+			sourceVal := ctx.executor.resolveValue(ctx.Args[1])
+			if sourceList, ok := sourceVal.(StoredList); ok {
+				if count >= 0 {
+					// Array mode: each positional item fills one record
+					for i := 0; i < sourceList.Len() && i < count; i++ {
+						itemVal := ctx.executor.resolveValue(sourceList.Get(i))
+						record := result.Get(i)
+						fillStructFromSource(&record, itemVal, ctx)
+					}
+					if sourceList.Len() > count {
+						ctx.LogWarning(CatArgument, fmt.Sprintf("Source list has %d items but struct array only has %d slots", sourceList.Len(), count))
+					}
+				} else {
+					// Single struct mode: fill from the source list directly
+					fillStructFromSource(&result, sourceVal, ctx)
+				}
+			}
+		}
+
+		setStructResult(ctx, result)
+		return BoolStatus(true)
+	})
+}
+
+// fillStructFromSource fills a struct from a source list
+func fillStructFromSource(s *StoredStruct, source interface{}, ctx *Context) {
+	sourceList, ok := source.(StoredList)
+	if !ok {
+		return
+	}
+
+	// Fill from named arguments
+	if sourceList.NamedArgs() != nil {
+		for name, value := range sourceList.NamedArgs() {
+			resolved := ctx.executor.resolveValue(value)
+			s.SetFieldValue(name, resolved)
+		}
+	}
+
+	// Note: Positional items in the source could be used for nested struct arrays
+	// This would require more complex handling based on field definitions
 }
 
 // sortItemsDefault sorts items using the default PawScript ordering:
