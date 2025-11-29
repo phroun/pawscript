@@ -1,4 +1,4 @@
-# Compiling PawScript
+# Building PawScript
 
 This document covers building PawScript from source.
 
