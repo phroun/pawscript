@@ -9,7 +9,7 @@ echo "Test 1: Create struct definition"
 desc: {list ("name", 8, "bytes"), ("text", 32, "string"), ("age", 1, "int"), metaStuff: "Thing"}
 #MyDef: {struct_def ~desc}
 echo "Type of def: {type #MyDef}"
-echo "(Expected: structdef)"
+echo "(Expected: list)"
 echo ""
 
 # Test 2: Create a single struct
@@ -41,7 +41,7 @@ emptySource: {list}
 myArray: {struct #MyDef, ~emptySource, 5}
 echo "Type of array: {type myArray}"
 echo "Length: {len ~myArray}"
-echo "(Expected: struct, 5)"
+echo "(Expected: structarray, 5)"
 echo ""
 
 # Test 6: Access struct array element

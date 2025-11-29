@@ -1109,116 +1109,67 @@ func (sb StoredBytes) ToASCIIString() string {
 }
 
 // ========================================
-// StructDef - Definition of a struct layout
+// Struct Definitions are now StoredLists
 // ========================================
-
-// StructFieldDef defines a single field within a struct
-type StructFieldDef struct {
-	Offset    int         // Byte offset within the struct
-	Length    int         // Size in bytes
-	Mode      string      // Type mode: "bytes", "string", "int", "struct"
-	StructRef *StructDef  // Reference to nested struct def (if Mode == "struct")
-	Count     int         // Number of nested struct copies (for struct arrays, 0 = single)
-}
-
-// StructDef defines the layout of a struct type
-type StructDef struct {
-	Fields         map[string]StructFieldDef // Field name -> field definition
-	Size           int                        // Total size in bytes
-	NamedMeta      map[string]interface{}     // Named metadata from descriptor
-	SourcePosition *SourcePosition            // For debugging
-}
-
-// NewStructDef creates a new struct definition
-func NewStructDef(fields map[string]StructFieldDef, size int, namedMeta map[string]interface{}, pos *SourcePosition) *StructDef {
-	return &StructDef{
-		Fields:         fields,
-		Size:           size,
-		NamedMeta:      namedMeta,
-		SourcePosition: pos,
-	}
-}
-
-// GetField returns the field definition for a given name
-func (sd *StructDef) GetField(name string) (StructFieldDef, bool) {
-	field, ok := sd.Fields[name]
-	return field, ok
-}
-
-// FieldNames returns a sorted list of field names
-func (sd *StructDef) FieldNames() []string {
-	names := make([]string, 0, len(sd.Fields))
-	for name := range sd.Fields {
-		names = append(names, name)
-	}
-	// Sort alphabetically
-	for i := 0; i < len(names)-1; i++ {
-		for j := i + 1; j < len(names); j++ {
-			if names[i] > names[j] {
-				names[i], names[j] = names[j], names[i]
-			}
-		}
-	}
-	return names
-}
-
-// String returns a human-readable representation of the struct definition
-func (sd *StructDef) String() string {
-	var sb strings.Builder
-	sb.WriteString(fmt.Sprintf("<StructDef size=%d fields={", sd.Size))
-	first := true
-	for _, name := range sd.FieldNames() {
-		if !first {
-			sb.WriteString(", ")
-		}
-		first = false
-		field := sd.Fields[name]
-		sb.WriteString(fmt.Sprintf("%s:(%d,%d,%s)", name, field.Offset, field.Length, field.Mode))
-	}
-	sb.WriteString("}>")
-	return sb.String()
-}
+// A struct definition is a StoredList with the following format:
+//   __size: int (total size in bytes)
+//   __named: StoredList (metadata from descriptor)
+//   fieldName: StoredList [offset, length, mode] or [offset, length, "struct", nestedDefID, count]
+//
+// This allows advanced users to customize union types and overlapping fields.
 
 // ========================================
 // StoredStruct - Instance of a struct
 // ========================================
 
 // StoredStruct represents an instance of a struct or struct array
+// The definition is now a StoredList, referenced by its object ID
 type StoredStruct struct {
-	def        *StructDef // Reference to the struct definition
-	data       []byte     // Backing byte array
-	offset     int        // Offset into the backing array (for slices)
-	recordSize int        // Size of each record (from def.Size)
-	length     int        // Number of records (-1 for single struct, >= 0 for array)
+	defID      int    // Object ID of the definition StoredList
+	data       []byte // Backing byte array
+	offset     int    // Offset into the backing array (for slices)
+	recordSize int    // Size of each record
+	length     int    // Number of records (-1 for single struct, >= 0 for array)
 }
 
 // NewStoredStruct creates a new single struct instance
-func NewStoredStruct(def *StructDef) StoredStruct {
-	data := make([]byte, def.Size)
+func NewStoredStruct(defID int, size int) StoredStruct {
+	data := make([]byte, size)
 	return StoredStruct{
-		def:        def,
+		defID:      defID,
 		data:       data,
 		offset:     0,
-		recordSize: def.Size,
+		recordSize: size,
 		length:     -1, // Single struct
 	}
 }
 
 // NewStoredStructArray creates a new struct array with n elements
-func NewStoredStructArray(def *StructDef, n int) StoredStruct {
-	data := make([]byte, def.Size*n)
+func NewStoredStructArray(defID int, size int, n int) StoredStruct {
+	data := make([]byte, size*n)
 	return StoredStruct{
-		def:        def,
+		defID:      defID,
 		data:       data,
 		offset:     0,
-		recordSize: def.Size,
+		recordSize: size,
 		length:     n,
 	}
 }
 
-// Def returns the struct definition
-func (ss StoredStruct) Def() *StructDef {
-	return ss.def
+// NewStoredStructFromData creates a struct from existing data (for nested structs)
+func NewStoredStructFromData(defID int, data []byte, recordSize int, length int) StoredStruct {
+	return StoredStruct{
+		defID:      defID,
+		data:       data,
+		offset:     0,
+		recordSize: recordSize,
+		length:     length,
+	}
+}
+
+// DefID returns the object ID of the struct definition list
+func (ss StoredStruct) DefID() int {
+	return ss.defID
 }
 
 // IsArray returns true if this is a struct array
@@ -1257,7 +1208,7 @@ func (ss StoredStruct) Get(index int) StoredStruct {
 		return StoredStruct{} // Invalid index
 	}
 	return StoredStruct{
-		def:        ss.def,
+		defID:      ss.defID,
 		data:       ss.data,
 		offset:     ss.offset + index*ss.recordSize,
 		recordSize: ss.recordSize,
@@ -1282,7 +1233,7 @@ func (ss StoredStruct) Slice(start, end int) StoredStruct {
 		start = end
 	}
 	return StoredStruct{
-		def:        ss.def,
+		defID:      ss.defID,
 		data:       ss.data,
 		offset:     ss.offset + start*ss.recordSize,
 		recordSize: ss.recordSize,
@@ -1296,7 +1247,7 @@ func (ss StoredStruct) Compact() StoredStruct {
 	newData := make([]byte, len(oldData))
 	copy(newData, oldData)
 	return StoredStruct{
-		def:        ss.def,
+		defID:      ss.defID,
 		data:       newData,
 		offset:     0,
 		recordSize: ss.recordSize,
@@ -1304,224 +1255,39 @@ func (ss StoredStruct) Compact() StoredStruct {
 	}
 }
 
-// GetFieldBytes returns the raw bytes for a field
-func (ss StoredStruct) GetFieldBytes(fieldName string) ([]byte, bool) {
-	field, ok := ss.def.GetField(fieldName)
-	if !ok {
-		return nil, false
-	}
-	start := ss.offset + field.Offset
-	end := start + field.Length
+// GetBytesAt returns raw bytes at the given offset and length
+func (ss StoredStruct) GetBytesAt(fieldOffset, fieldLength int) ([]byte, bool) {
+	start := ss.offset + fieldOffset
+	end := start + fieldLength
 	if end > len(ss.data) {
 		return nil, false
 	}
 	return ss.data[start:end], true
 }
 
-// SetFieldBytes sets the raw bytes for a field
-func (ss StoredStruct) SetFieldBytes(fieldName string, value []byte) bool {
-	field, ok := ss.def.GetField(fieldName)
-	if !ok {
-		return false
-	}
-	start := ss.offset + field.Offset
-	// Copy up to field.Length bytes
+// SetBytesAt sets raw bytes at the given offset
+func (ss StoredStruct) SetBytesAt(fieldOffset int, value []byte, maxLen int) bool {
+	start := ss.offset + fieldOffset
 	copyLen := len(value)
-	if copyLen > field.Length {
-		copyLen = field.Length
+	if copyLen > maxLen {
+		copyLen = maxLen
 	}
 	copy(ss.data[start:start+copyLen], value[:copyLen])
 	return true
 }
 
-// GetFieldValue returns the field value coerced to the appropriate type
-func (ss StoredStruct) GetFieldValue(fieldName string) (interface{}, bool) {
-	field, ok := ss.def.GetField(fieldName)
-	if !ok {
-		return nil, false
-	}
-
-	bytes, ok := ss.GetFieldBytes(fieldName)
-	if !ok {
-		return nil, false
-	}
-
-	switch field.Mode {
-	case "bytes":
-		// Return as StoredBytes
-		result := make([]byte, len(bytes))
-		copy(result, bytes)
-		return NewStoredBytes(result), true
-
-	case "string":
-		// Return as string, trimmed of trailing nulls
-		end := len(bytes)
-		for end > 0 && bytes[end-1] == 0 {
-			end--
-		}
-		return string(bytes[:end]), true
-
-	case "int":
-		// Return as int64 (big-endian)
-		var result int64
-		for _, b := range bytes {
-			result = (result << 8) | int64(b)
-		}
-		return result, true
-
-	case "struct":
-		// Return as nested StoredStruct
-		if field.StructRef == nil {
-			return nil, false
-		}
-		nestedData := make([]byte, field.Length)
-		copy(nestedData, bytes)
-		if field.Count > 0 {
-			// Nested struct array
-			return StoredStruct{
-				def:        field.StructRef,
-				data:       nestedData,
-				offset:     0,
-				recordSize: field.StructRef.Size,
-				length:     field.Count,
-			}, true
-		}
-		// Single nested struct
-		return StoredStruct{
-			def:        field.StructRef,
-			data:       nestedData,
-			offset:     0,
-			recordSize: field.StructRef.Size,
-			length:     -1,
-		}, true
-
-	default:
-		// Unknown mode, return as bytes
-		result := make([]byte, len(bytes))
-		copy(result, bytes)
-		return NewStoredBytes(result), true
-	}
-}
-
-// SetFieldValue sets a field value, coercing from the given type
-func (ss StoredStruct) SetFieldValue(fieldName string, value interface{}) bool {
-	field, ok := ss.def.GetField(fieldName)
-	if !ok {
-		return false
-	}
-
-	start := ss.offset + field.Offset
-
-	switch field.Mode {
-	case "bytes":
-		switch v := value.(type) {
-		case StoredBytes:
-			copyLen := v.Len()
-			if copyLen > field.Length {
-				copyLen = field.Length
-			}
-			copy(ss.data[start:start+copyLen], v.Data()[:copyLen])
-		case []byte:
-			copyLen := len(v)
-			if copyLen > field.Length {
-				copyLen = field.Length
-			}
-			copy(ss.data[start:start+copyLen], v[:copyLen])
-		default:
-			return false
-		}
-		return true
-
-	case "string":
-		var str string
-		switch v := value.(type) {
-		case string:
-			str = v
-		case QuotedString:
-			str = string(v)
-		case Symbol:
-			str = string(v)
-		default:
-			str = fmt.Sprintf("%v", value)
-		}
-		// Copy string bytes, pad with nulls
-		copyLen := len(str)
-		if copyLen > field.Length {
-			copyLen = field.Length
-		}
-		copy(ss.data[start:start+copyLen], str[:copyLen])
-		// Zero out the rest
-		for i := copyLen; i < field.Length; i++ {
-			ss.data[start+i] = 0
-		}
-		return true
-
-	case "int":
-		var intVal int64
-		switch v := value.(type) {
-		case int64:
-			intVal = v
-		case int:
-			intVal = int64(v)
-		case float64:
-			intVal = int64(v)
-		default:
-			return false
-		}
-		// Write as big-endian
-		for i := field.Length - 1; i >= 0; i-- {
-			ss.data[start+i] = byte(intVal & 0xFF)
-			intVal >>= 8
-		}
-		return true
-
-	case "struct":
-		// For nested structs, copy bytes directly
-		switch v := value.(type) {
-		case StoredStruct:
-			srcData := v.Data()
-			copyLen := len(srcData)
-			if copyLen > field.Length {
-				copyLen = field.Length
-			}
-			copy(ss.data[start:start+copyLen], srcData[:copyLen])
-		case StoredBytes:
-			copyLen := v.Len()
-			if copyLen > field.Length {
-				copyLen = field.Length
-			}
-			copy(ss.data[start:start+copyLen], v.Data()[:copyLen])
-		default:
-			return false
-		}
-		return true
-
-	default:
-		return false
+// ZeroPadAt zero-pads from the given position to the end of the field
+func (ss StoredStruct) ZeroPadAt(fieldOffset, startPos, fieldLength int) {
+	start := ss.offset + fieldOffset
+	for i := startPos; i < fieldLength; i++ {
+		ss.data[start+i] = 0
 	}
 }
 
 // String returns a human-readable representation
 func (ss StoredStruct) String() string {
-	if ss.def == nil {
-		return "<Struct nil>"
-	}
 	if ss.length < 0 {
-		// Single struct
-		var sb strings.Builder
-		sb.WriteString("<Struct {")
-		first := true
-		for _, name := range ss.def.FieldNames() {
-			if !first {
-				sb.WriteString(", ")
-			}
-			first = false
-			val, _ := ss.GetFieldValue(name)
-			sb.WriteString(fmt.Sprintf("%s: %v", name, val))
-		}
-		sb.WriteString("}>")
-		return sb.String()
+		return fmt.Sprintf("<Struct defID=%d size=%d>", ss.defID, ss.recordSize)
 	}
-	// Array
-	return fmt.Sprintf("<StructArray[%d] def=%s>", ss.length, ss.def.String())
+	return fmt.Sprintf("<StructArray[%d] defID=%d>", ss.length, ss.defID)
 }

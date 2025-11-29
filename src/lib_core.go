@@ -114,7 +114,9 @@ func (ps *PawScript) RegisterCoreLib() {
 			return BoolStatus(true)
 		}
 
-		typeName := getTypeName(value)
+		// Resolve the value to get the actual object (for correct struct def detection)
+		resolved := ctx.executor.resolveValue(value)
+		typeName := getTypeName(resolved)
 		ctx.SetResult(typeName)
 		return BoolStatus(true)
 	})
@@ -163,10 +165,7 @@ func (ps *PawScript) RegisterCoreLib() {
 							if s, ok := obj.(StoredStruct); ok {
 								return s
 							}
-						case "structdef":
-							if sd, ok := obj.(*StructDef); ok {
-								return sd
-							}
+						// Note: structdef is now a StoredList, handled by "list" case
 						}
 						return obj
 					}
@@ -196,10 +195,7 @@ func (ps *PawScript) RegisterCoreLib() {
 							if s, ok := obj.(StoredStruct); ok {
 								return s
 							}
-						case "structdef":
-							if sd, ok := obj.(*StructDef); ok {
-								return sd
-							}
+						// Note: structdef is now a StoredList, handled by "list" case
 						}
 						return obj
 					}
@@ -245,7 +241,21 @@ func (ps *PawScript) RegisterCoreLib() {
 			if v.IsArray() {
 				ctx.SetResult(int64(v.Len()))
 			} else {
-				ctx.SetResult(int64(len(v.Def().Fields)))
+				// Count fields from the definition list
+				// Fields are named args that don't start with __
+				fieldCount := 0
+				if defObj, ok := ctx.executor.getObject(v.DefID()); ok {
+					if defList, ok := defObj.(StoredList); ok {
+						if namedArgs := defList.NamedArgs(); namedArgs != nil {
+							for key := range namedArgs {
+								if !strings.HasPrefix(key, "__") {
+									fieldCount++
+								}
+							}
+						}
+					}
+				}
+				ctx.SetResult(int64(fieldCount))
 			}
 			return BoolStatus(true)
 		case *StoredChannel:
