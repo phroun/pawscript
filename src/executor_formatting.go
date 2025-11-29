@@ -208,6 +208,59 @@ func (e *Executor) formatArgumentForSubstitution(arg interface{}) string {
 	return result
 }
 
+// formatArgumentForQuotedContext formats an argument for substitution inside quotes
+// This extracts just the content without adding extra quotes, but escapes internal quotes/backslashes
+func (e *Executor) formatArgumentForQuotedContext(arg interface{}) string {
+	var content string
+	switch v := arg.(type) {
+	case ParenGroup:
+		content = string(v)
+	case QuotedString:
+		content = string(v)
+	case Symbol:
+		content = string(v)
+	case string:
+		content = v
+	case int64, float64, bool:
+		return fmt.Sprintf("%v", v)
+	case *StoredChannel:
+		if id := e.findStoredChannelID(v); id >= 0 {
+			return fmt.Sprintf("\x00CHANNEL:%d\x00", id)
+		}
+		id := e.storeObject(v, "channel")
+		return fmt.Sprintf("\x00CHANNEL:%d\x00", id)
+	case *FiberHandle:
+		if id := e.findStoredFiberID(v); id >= 0 {
+			return fmt.Sprintf("\x00FIBER:%d\x00", id)
+		}
+		id := e.storeObject(v, "fiber")
+		return fmt.Sprintf("\x00FIBER:%d\x00", id)
+	case StoredMacro:
+		id := e.storeObject(v, "macro")
+		return fmt.Sprintf("\x00MACRO:%d\x00", id)
+	case *StoredMacro:
+		id := e.storeObject(*v, "macro")
+		return fmt.Sprintf("\x00MACRO:%d\x00", id)
+	case *StoredCommand:
+		id := e.storeObject(v, "command")
+		return fmt.Sprintf("\x00COMMAND:%d\x00", id)
+	default:
+		content = fmt.Sprintf("%v", v)
+	}
+
+	// Escape backslashes first, then quotes to prevent breaking out of quoted context
+	content = strings.ReplaceAll(content, `\`, `\\`)
+	content = strings.ReplaceAll(content, `"`, `\"`)
+
+	// Escape tildes to prevent tilde injection
+	if strings.Contains(content, "~") {
+		const escapedTildePlaceholder = "\x00TILDE\x00"
+		content = strings.ReplaceAll(content, "~", escapedTildePlaceholder)
+	}
+
+	return content
+}
+
 // isSafeIdentifier checks if a string can be used as a bare identifier
 func (e *Executor) isSafeIdentifier(s string) bool {
 	// Empty or keywords are not safe
