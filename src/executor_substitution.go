@@ -1008,6 +1008,7 @@ func (e *Executor) isInsideQuotes(str string, pos int) bool {
 // substituteDollarArgs substitutes $1, $2, etc. with quote-awareness
 // When $N is inside quotes, just insert the content (no extra quotes)
 // When $N is outside quotes, preserve quotes around strings with spaces
+// Properly tracks braces, parentheses, and escape sequences like the parser
 func (e *Executor) substituteDollarArgs(str string, ctx *SubstitutionContext) string {
 	runes := []rune(str)
 	var result strings.Builder
@@ -1015,12 +1016,14 @@ func (e *Executor) substituteDollarArgs(str string, ctx *SubstitutionContext) st
 
 	inQuote := false
 	var quoteChar rune
+	braceDepth := 0
+	parenDepth := 0
 	i := 0
 
 	for i < len(runes) {
 		char := runes[i]
 
-		// Handle escape sequences
+		// Handle escape sequences - skip the escaped character
 		if char == '\\' && i+1 < len(runes) {
 			result.WriteRune(char)
 			result.WriteRune(runes[i+1])
@@ -1028,7 +1031,8 @@ func (e *Executor) substituteDollarArgs(str string, ctx *SubstitutionContext) st
 			continue
 		}
 
-		// Track quote state
+		// Track quote state - quotes inside parens still count as "in quote" for $N context
+		// But quotes inside braces don't affect our tracking (braces are already resolved)
 		if !inQuote && (char == '"' || char == '\'') {
 			inQuote = true
 			quoteChar = char
@@ -1042,6 +1046,36 @@ func (e *Executor) substituteDollarArgs(str string, ctx *SubstitutionContext) st
 			result.WriteRune(char)
 			i++
 			continue
+		}
+
+		// Track parentheses (only when not in quotes)
+		if !inQuote {
+			if char == '(' {
+				parenDepth++
+				result.WriteRune(char)
+				i++
+				continue
+			} else if char == ')' {
+				parenDepth--
+				result.WriteRune(char)
+				i++
+				continue
+			}
+		}
+
+		// Track braces (only when not in quotes and not inside parens)
+		if !inQuote && parenDepth == 0 {
+			if char == '{' {
+				braceDepth++
+				result.WriteRune(char)
+				i++
+				continue
+			} else if char == '}' {
+				braceDepth--
+				result.WriteRune(char)
+				i++
+				continue
+			}
 		}
 
 		// Check for $N pattern
