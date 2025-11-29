@@ -155,6 +155,10 @@ func (ps *PawScript) RegisterCoreLib() {
 							if str, ok := obj.(StoredString); ok {
 								return str
 							}
+						case "bytes":
+							if bytes, ok := obj.(StoredBytes); ok {
+								return bytes
+							}
 						}
 						return obj
 					}
@@ -175,6 +179,10 @@ func (ps *PawScript) RegisterCoreLib() {
 						case "string":
 							if str, ok := obj.(StoredString); ok {
 								return str
+							}
+						case "bytes":
+							if bytes, ok := obj.(StoredBytes); ok {
+								return bytes
 							}
 						}
 						return obj
@@ -210,6 +218,9 @@ func (ps *PawScript) RegisterCoreLib() {
 
 		switch v := value.(type) {
 		case StoredList:
+			ctx.SetResult(int64(v.Len()))
+			return BoolStatus(true)
+		case StoredBytes:
 			ctx.SetResult(int64(v.Len()))
 			return BoolStatus(true)
 		case *StoredChannel:

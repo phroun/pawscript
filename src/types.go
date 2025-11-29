@@ -6,6 +6,7 @@ import (
 	"io"
 	"math/rand"
 	"os"
+	"strings"
 	"sync"
 	"time"
 )
@@ -715,6 +716,41 @@ func (f *StoredFile) Truncate() error {
 	return f.File.Truncate(pos)
 }
 
+// ReadBytes reads up to n bytes from the file
+// If n <= 0, reads all remaining bytes
+func (f *StoredFile) ReadBytes(n int) ([]byte, error) {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	if f.IsClosed || f.File == nil {
+		return nil, fmt.Errorf("file is closed")
+	}
+	if n <= 0 {
+		// Read all remaining bytes
+		return io.ReadAll(f.File)
+	}
+	buf := make([]byte, n)
+	bytesRead, err := io.ReadFull(f.File, buf)
+	if err == io.EOF || err == io.ErrUnexpectedEOF {
+		// Return what was read
+		return buf[:bytesRead], nil
+	}
+	if err != nil {
+		return buf[:bytesRead], err
+	}
+	return buf, nil
+}
+
+// WriteBytes writes raw bytes to the file
+func (f *StoredFile) WriteBytes(data []byte) error {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	if f.IsClosed || f.File == nil {
+		return fmt.Errorf("file is closed")
+	}
+	_, err := f.File.Write(data)
+	return err
+}
+
 // ResumeData contains information for resuming a suspended fiber
 type ResumeData struct {
 	TokenID string
@@ -922,4 +958,152 @@ func (pl StoredList) String() string {
 		return "(list)"
 	}
 	return "(list with named args)"
+}
+
+// StoredBytes represents an immutable byte array
+// All operations return new StoredBytes instances (copy-on-write)
+// Slicing shares the backing array for memory efficiency
+// When elements are extracted, they are converted to int64
+type StoredBytes struct {
+	data []byte
+}
+
+// NewStoredBytes creates a new StoredBytes from a byte slice
+func NewStoredBytes(data []byte) StoredBytes {
+	return StoredBytes{data: data}
+}
+
+// NewStoredBytesFromInts creates StoredBytes from int64 values
+// Values are masked to byte range (0-255)
+func NewStoredBytesFromInts(values []int64) StoredBytes {
+	data := make([]byte, len(values))
+	for i, v := range values {
+		data[i] = byte(v & 0xFF)
+	}
+	return StoredBytes{data: data}
+}
+
+// Data returns the underlying byte slice (direct reference)
+func (sb StoredBytes) Data() []byte {
+	return sb.data
+}
+
+// Len returns the number of bytes
+func (sb StoredBytes) Len() int {
+	return len(sb.data)
+}
+
+// Get returns the byte at the given index as int64
+// Returns 0 if index is out of bounds
+func (sb StoredBytes) Get(index int) int64 {
+	if index < 0 || index >= len(sb.data) {
+		return 0
+	}
+	return int64(sb.data[index])
+}
+
+// Slice returns a new StoredBytes with bytes from start to end (end exclusive)
+// Shares the backing array for memory efficiency (O(1) time, O(1) space)
+func (sb StoredBytes) Slice(start, end int) StoredBytes {
+	if start < 0 {
+		start = 0
+	}
+	if end > len(sb.data) {
+		end = len(sb.data)
+	}
+	if start > end {
+		start = end
+	}
+	return StoredBytes{data: sb.data[start:end]}
+}
+
+// Append returns a new StoredBytes with the byte appended (O(n) copy-on-write)
+// Value is masked to byte range
+func (sb StoredBytes) Append(value int64) StoredBytes {
+	newData := make([]byte, len(sb.data)+1)
+	copy(newData, sb.data)
+	newData[len(sb.data)] = byte(value & 0xFF)
+	return StoredBytes{data: newData}
+}
+
+// AppendBytes returns a new StoredBytes with other bytes appended
+func (sb StoredBytes) AppendBytes(other StoredBytes) StoredBytes {
+	newData := make([]byte, len(sb.data)+len(other.data))
+	copy(newData, sb.data)
+	copy(newData[len(sb.data):], other.data)
+	return StoredBytes{data: newData}
+}
+
+// Prepend returns a new StoredBytes with the byte prepended (O(n) copy-on-write)
+// Value is masked to byte range
+func (sb StoredBytes) Prepend(value int64) StoredBytes {
+	newData := make([]byte, len(sb.data)+1)
+	newData[0] = byte(value & 0xFF)
+	copy(newData[1:], sb.data)
+	return StoredBytes{data: newData}
+}
+
+// Concat returns a new StoredBytes with bytes from both (O(n+m) copy)
+func (sb StoredBytes) Concat(other StoredBytes) StoredBytes {
+	newData := make([]byte, len(sb.data)+len(other.data))
+	copy(newData, sb.data)
+	copy(newData[len(sb.data):], other.data)
+	return StoredBytes{data: newData}
+}
+
+// Compact returns a new StoredBytes with a new backing array
+// Use this to free memory if you've sliced a large byte array
+func (sb StoredBytes) Compact() StoredBytes {
+	newData := make([]byte, len(sb.data))
+	copy(newData, sb.data)
+	return StoredBytes{data: newData}
+}
+
+// String returns a hex string representation with spaces every 4 bytes
+// Format: <08AEC7FF 0810CD00 24EE>
+func (sb StoredBytes) String() string {
+	if len(sb.data) == 0 {
+		return "<>"
+	}
+
+	var result strings.Builder
+	result.WriteByte('<')
+
+	for i, b := range sb.data {
+		if i > 0 && i%4 == 0 {
+			result.WriteByte(' ')
+		}
+		result.WriteString(fmt.Sprintf("%02X", b))
+	}
+
+	result.WriteByte('>')
+	return result.String()
+}
+
+// ToInt64 converts the bytes to an int64 (big-endian)
+// Used when bytes are coerced to a number
+func (sb StoredBytes) ToInt64() int64 {
+	var result int64
+	for _, b := range sb.data {
+		result = (result << 8) | int64(b)
+	}
+	return result
+}
+
+// FromString creates StoredBytes from a string (low-ASCII only)
+// Returns error if any character is >= 128
+func StoredBytesFromString(s string) (StoredBytes, error) {
+	data := make([]byte, len(s))
+	for i := 0; i < len(s); i++ {
+		if s[i] >= 128 {
+			return StoredBytes{}, fmt.Errorf("non-ASCII character at position %d", i)
+		}
+		data[i] = s[i]
+	}
+	return StoredBytes{data: data}, nil
+}
+
+// ToASCIIString converts bytes to string (for display/debugging)
+func (sb StoredBytes) ToASCIIString() string {
+	return string(sb.data)
 }

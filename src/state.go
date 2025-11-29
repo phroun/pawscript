@@ -149,6 +149,15 @@ func (s *ExecutionState) SetResult(value interface{}) {
 				id := s.executor.storeObject(v, "file")
 				value = Symbol(fmt.Sprintf("\x00FILE:%d\x00", id))
 			}
+		case StoredBytes:
+			// Find existing bytes ID
+			if id := s.executor.findStoredBytesID(v); id >= 0 {
+				value = Symbol(fmt.Sprintf("\x00BYTES:%d\x00", id))
+			} else {
+				// Store the bytes
+				id := s.executor.storeObject(v, "bytes")
+				value = Symbol(fmt.Sprintf("\x00BYTES:%d\x00", id))
+			}
 		case []interface{}:
 			// Convert raw slice to StoredList
 			list := NewStoredList(v)
@@ -217,7 +226,7 @@ func (s *ExecutionState) SetResultWithoutClaim(value interface{}) {
 // extractObjectReferencesLocked is like ExtractObjectReferences but assumes lock is held
 func (s *ExecutionState) extractObjectReferencesLocked(value interface{}) []int {
 	var refs []int
-	
+
 	switch v := value.(type) {
 	case Symbol:
 		if _, id := parseObjectMarker(string(v)); id >= 0 {
@@ -234,8 +243,15 @@ func (s *ExecutionState) extractObjectReferencesLocked(value interface{}) []int 
 				refs = append(refs, id)
 			}
 		}
+	case StoredBytes:
+		// The bytes object is stored - find its ID
+		if s.executor != nil {
+			if id := s.executor.findStoredBytesID(v); id >= 0 {
+				refs = append(refs, id)
+			}
+		}
 	}
-	
+
 	return refs
 }
 

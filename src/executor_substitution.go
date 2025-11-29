@@ -484,9 +484,11 @@ func (e *Executor) substituteTildeExpressions(str string, state *ExecutionState,
 				// Resolve any object markers to get display value
 				resolved := e.resolveValue(value)
 				var valueStr string
-				// Handle StoredList specially to format contents
+				// Handle StoredList and StoredBytes specially to format contents
 				if list, ok := resolved.(StoredList); ok {
 					valueStr = formatListForDisplay(list)
+				} else if bytes, ok := resolved.(StoredBytes); ok {
+					valueStr = bytes.String()
 				} else {
 					valueStr = fmt.Sprintf("%v", resolved)
 				}
@@ -946,6 +948,19 @@ func (e *Executor) formatBraceResult(value interface{}, originalString string, b
 			state.ClaimObjectReference(id)
 		}
 		return fmt.Sprintf("\x00LIST:%d\x00", id)
+	case StoredBytes:
+		if insideQuotes {
+			// Inside quotes: format as hex display
+			return v.String()
+		}
+		// Outside quotes: use a special marker that preserves the object
+		// Format: \x00BYTES:index\x00 where index is stored in the execution state
+		id := e.storeObject(value, "bytes")
+		// The creating context claims the first reference
+		if state != nil {
+			state.ClaimObjectReference(id)
+		}
+		return fmt.Sprintf("\x00BYTES:%d\x00", id)
 	case *StoredFile:
 		if insideQuotes {
 			// Inside quotes: show file path

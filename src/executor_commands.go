@@ -1171,6 +1171,16 @@ func (e *Executor) processArguments(args []interface{}, state *ExecutionState, s
 						// Return as *StoredFile - this passes the file handle by reference
 						result[i] = value
 						e.logger.DebugCat(CatCommand,"processArguments[%d]: Resolved file marker to *StoredFile", i)
+					case "bytes":
+						// Return as StoredBytes - this passes the bytes by reference
+						finalValue := value
+						// Apply any accessors
+						if accessors != "" {
+							finalValue = e.applyAccessorChain(value, accessors, position)
+							e.logger.DebugCat(CatCommand,"processArguments[%d]: After accessors %q: %v", i, accessors, finalValue)
+						}
+						result[i] = finalValue
+						e.logger.DebugCat(CatCommand,"processArguments[%d]: Resolved bytes marker to StoredBytes", i)
 					default:
 						// For unknown types, keep the marker to preserve reference semantics
 						result[i] = arg

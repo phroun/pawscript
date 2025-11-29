@@ -839,6 +839,113 @@ func (ps *PawScript) RegisterSystemLib(scriptArgs []string) {
 		return BoolStatus(true)
 	})
 
+	// read_bytes - read binary data from a file
+	// Usage: read_bytes <file> [count] or read_bytes <file>, all: true
+	// Returns a StoredBytes object
+	ps.RegisterCommandInModule("io", "read_bytes", func(ctx *Context) Result {
+		if len(ctx.Args) < 1 {
+			ctx.LogError(CatIO, "read_bytes: file required")
+			return BoolStatus(false)
+		}
+
+		// Get file handle
+		var file *StoredFile
+		if f, ok := ctx.Args[0].(*StoredFile); ok {
+			file = f
+		} else if sym, ok := ctx.Args[0].(Symbol); ok {
+			symStr := string(sym)
+			if strings.HasPrefix(symStr, "#") {
+				file = resolveFile(ctx, symStr)
+			}
+		}
+
+		if file == nil {
+			ctx.LogError(CatIO, "read_bytes: not a file handle")
+			return BoolStatus(false)
+		}
+
+		// Determine how many bytes to read
+		count := 0 // 0 means read all
+
+		// Check named args first
+		if _, ok := ctx.NamedArgs["all"]; ok {
+			count = 0 // Read all remaining bytes
+		}
+
+		// Check positional count argument
+		if len(ctx.Args) > 1 {
+			if n, ok := toInt64(ctx.Args[1]); ok {
+				count = int(n)
+			}
+		}
+
+		// Read bytes from file
+		data, err := file.ReadBytes(count)
+		if err != nil {
+			if err.Error() == "EOF" || strings.Contains(err.Error(), "EOF") {
+				// Return empty bytes on EOF
+				result := NewStoredBytes(nil)
+				id := ctx.executor.storeObject(result, "bytes")
+				marker := fmt.Sprintf("\x00BYTES:%d\x00", id)
+				ctx.state.SetResultWithoutClaim(Symbol(marker))
+				return BoolStatus(false)
+			}
+			ctx.LogError(CatIO, fmt.Sprintf("read_bytes: %v", err))
+			return BoolStatus(false)
+		}
+
+		// Create StoredBytes result
+		result := NewStoredBytes(data)
+		id := ctx.executor.storeObject(result, "bytes")
+		marker := fmt.Sprintf("\x00BYTES:%d\x00", id)
+		ctx.state.SetResultWithoutClaim(Symbol(marker))
+		return BoolStatus(true)
+	})
+
+	// write_bytes - write binary data to a file
+	// Usage: write_bytes <file>, <bytes>
+	ps.RegisterCommandInModule("io", "write_bytes", func(ctx *Context) Result {
+		if len(ctx.Args) < 2 {
+			ctx.LogError(CatIO, "write_bytes: file and bytes required")
+			return BoolStatus(false)
+		}
+
+		// Get file handle
+		var file *StoredFile
+		if f, ok := ctx.Args[0].(*StoredFile); ok {
+			file = f
+		} else if sym, ok := ctx.Args[0].(Symbol); ok {
+			symStr := string(sym)
+			if strings.HasPrefix(symStr, "#") {
+				file = resolveFile(ctx, symStr)
+			}
+		}
+
+		if file == nil {
+			ctx.LogError(CatIO, "write_bytes: not a file handle")
+			return BoolStatus(false)
+		}
+
+		// Get bytes to write
+		var data []byte
+		switch v := ctx.Args[1].(type) {
+		case StoredBytes:
+			data = v.Data()
+		default:
+			ctx.LogError(CatIO, fmt.Sprintf("write_bytes: expected bytes, got %s", getTypeName(v)))
+			return BoolStatus(false)
+		}
+
+		// Write bytes to file
+		err := file.WriteBytes(data)
+		if err != nil {
+			ctx.LogError(CatIO, fmt.Sprintf("write_bytes: %v", err))
+			return BoolStatus(false)
+		}
+
+		return BoolStatus(true)
+	})
+
 	// rune - convert integer to Unicode character
 	ps.RegisterCommandInModule("io", "rune", func(ctx *Context) Result {
 		if len(ctx.Args) < 1 {

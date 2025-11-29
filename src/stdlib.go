@@ -135,6 +135,9 @@ func formatArgForDisplay(arg interface{}, executor *Executor) string {
 			}
 		}
 		return "<file>"
+	case StoredBytes:
+		// Display as hex string with angle brackets: <08AEC7FF 0810CD00 24EE>
+		return v.String()
 	default:
 		// Check if the original value was an unresolved marker (string or Symbol form)
 		// This handles cases where the object was garbage collected or not found
@@ -260,6 +263,66 @@ func estimateItemSize(value interface{}) int {
 	}
 }
 
+// parseHexToInt64 parses a hex string like "0xF0A1B2" to int64
+// Handles odd digit count by assuming leading zero
+func parseHexToInt64(s string) (int64, bool) {
+	if !strings.HasPrefix(strings.ToLower(s), "0x") {
+		return 0, false
+	}
+	hexPart := s[2:]
+	if len(hexPart) == 0 {
+		return 0, false
+	}
+	// Odd number of digits - assume leading zero
+	if len(hexPart)%2 == 1 {
+		hexPart = "0" + hexPart
+	}
+	val, err := strconv.ParseInt(hexPart, 16, 64)
+	if err != nil {
+		return 0, false
+	}
+	return val, true
+}
+
+// parseHexToBytes parses a hex string like "0xF0A1B2" to StoredBytes
+// Handles odd digit count by assuming leading zero
+func parseHexToBytes(s string) (StoredBytes, bool) {
+	if !strings.HasPrefix(strings.ToLower(s), "0x") {
+		return StoredBytes{}, false
+	}
+	hexPart := strings.ToUpper(s[2:])
+	if len(hexPart) == 0 {
+		return StoredBytes{}, false
+	}
+	// Odd number of digits - assume leading zero
+	if len(hexPart)%2 == 1 {
+		hexPart = "0" + hexPart
+	}
+	// Parse each pair of hex digits
+	data := make([]byte, len(hexPart)/2)
+	for i := 0; i < len(hexPart); i += 2 {
+		var b byte
+		for j := 0; j < 2; j++ {
+			c := hexPart[i+j]
+			b <<= 4
+			if c >= '0' && c <= '9' {
+				b |= c - '0'
+			} else if c >= 'A' && c <= 'F' {
+				b |= c - 'A' + 10
+			} else {
+				return StoredBytes{}, false
+			}
+		}
+		data[i/2] = b
+	}
+	return NewStoredBytes(data), true
+}
+
+// isHexLiteral checks if a string is a hex literal (starts with 0x)
+func isHexLiteral(s string) bool {
+	return strings.HasPrefix(strings.ToLower(s), "0x")
+}
+
 // toNumber converts values to numbers
 func toNumber(val interface{}) (float64, bool) {
 	switch v := val.(type) {
@@ -269,9 +332,16 @@ func toNumber(val interface{}) (float64, bool) {
 		return v, true
 	case int:
 		return float64(v), true
+	case StoredBytes:
+		// Coerce bytes to int64 (big-endian)
+		return float64(v.ToInt64()), true
 	case Symbol:
 		// Try to parse symbol as number
 		str := string(v)
+		// Check for hex literal first
+		if i, ok := parseHexToInt64(str); ok {
+			return float64(i), true
+		}
 		// Try to parse as float
 		if f, err := strconv.ParseFloat(str, 64); err == nil {
 			return f, true
@@ -284,6 +354,10 @@ func toNumber(val interface{}) (float64, bool) {
 	case QuotedString:
 		// QuotedString behaves like string for parsing
 		str := string(v)
+		// Check for hex literal first
+		if i, ok := parseHexToInt64(str); ok {
+			return float64(i), true
+		}
 		if f, err := strconv.ParseFloat(str, 64); err == nil {
 			return f, true
 		}
@@ -295,6 +369,10 @@ func toNumber(val interface{}) (float64, bool) {
 		// ParenGroup (code block) is not a number
 		return 0, false
 	case string:
+		// Check for hex literal first
+		if i, ok := parseHexToInt64(v); ok {
+			return float64(i), true
+		}
 		// Try to parse as float
 		if f, err := strconv.ParseFloat(v, 64); err == nil {
 			return f, true
@@ -436,6 +514,8 @@ func getTypeName(val interface{}) string {
 		return "file"
 	case StoredList:
 		return "list"
+	case StoredBytes:
+		return "bytes"
 	case StoredString:
 		return "string"
 	case StoredBlock:

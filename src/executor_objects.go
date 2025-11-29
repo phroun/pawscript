@@ -39,6 +39,14 @@ func (e *Executor) maybeStoreValue(value interface{}, state *ExecutionState) int
 		// Store it as a new object
 		id := e.storeObject(v, "list")
 		return Symbol(fmt.Sprintf("\x00LIST:%d\x00", id))
+	case StoredBytes:
+		// StoredBytes objects - convert to marker
+		if id := e.findStoredBytesID(v); id >= 0 {
+			return Symbol(fmt.Sprintf("\x00BYTES:%d\x00", id))
+		}
+		// Not found, store as new object
+		id := e.storeObject(v, "bytes")
+		return Symbol(fmt.Sprintf("\x00BYTES:%d\x00", id))
 	default:
 		return value
 	}
@@ -180,6 +188,31 @@ func (e *Executor) findStoredListID(list StoredList) int {
 				}
 				// Check if they point to the same backing array
 				if &objList.items[0] == &list.items[0] {
+					return id
+				}
+			}
+		}
+	}
+
+	return -1
+}
+
+// findStoredBytesID finds the ID of a StoredBytes by searching storedObjects
+// Returns -1 if not found
+func (e *Executor) findStoredBytesID(sb StoredBytes) int {
+	e.mu.RLock()
+	defer e.mu.RUnlock()
+
+	// Compare by checking if they share the same backing array
+	for id, obj := range e.storedObjects {
+		if objBytes, ok := obj.Value.(StoredBytes); ok {
+			if len(objBytes.data) == len(sb.data) {
+				if len(objBytes.data) == 0 {
+					// Both empty - match any empty bytes for now
+					return id
+				}
+				// Check if they point to the same backing array
+				if &objBytes.data[0] == &sb.data[0] {
 					return id
 				}
 			}
