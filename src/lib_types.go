@@ -170,6 +170,142 @@ func (ps *PawScript) RegisterTypesLib() {
 		ctx.state.SetResultWithoutClaim(Symbol(marker))
 	}
 
+	// Helper function to set a StoredBytes as result with proper reference counting
+	setBytesResult := func(ctx *Context, bytes StoredBytes) {
+		id := ctx.executor.storeObject(bytes, "bytes")
+		marker := fmt.Sprintf("\x00BYTES:%d\x00", id)
+		ctx.state.SetResultWithoutClaim(Symbol(marker))
+	}
+
+	// bytes - creates a byte array from numbers, strings, or hex literals
+	// Usage: bytes 72, 101, 108, 108, 111           - from numbers
+	//        bytes "Hello"                           - from ASCII string
+	//        bytes 0xDEADBEEF                        - from hex literal
+	//        bytes 72, "ello", 0x21                  - mixed
+	//        bytes 256, single: true                 - masks to byte (256 -> 0)
+	ps.RegisterCommandInModule("strlist", "bytes", func(ctx *Context) Result {
+		if len(ctx.Args) == 0 {
+			// Empty bytes
+			setBytesResult(ctx, NewStoredBytes(nil))
+			return BoolStatus(true)
+		}
+
+		// Check for single: true named argument (mask each arg to single byte)
+		singleMode := false
+		if ctx.NamedArgs != nil {
+			if val, ok := ctx.NamedArgs["single"]; ok {
+				singleMode = isTruthy(val)
+			}
+		}
+
+		var result []byte
+
+		for _, arg := range ctx.Args {
+			resolved := ctx.executor.resolveValue(arg)
+
+			switch v := resolved.(type) {
+			case int64:
+				if singleMode {
+					result = append(result, byte(v&0xFF))
+				} else {
+					// Check range
+					if v < -128 || v > 255 {
+						ctx.LogError(CatArgument, fmt.Sprintf("Value %d out of byte range (-128 to 255)", v))
+						return BoolStatus(false)
+					}
+					result = append(result, byte(v&0xFF))
+				}
+			case float64:
+				intVal := int64(v)
+				if singleMode {
+					result = append(result, byte(intVal&0xFF))
+				} else {
+					if intVal < -128 || intVal > 255 {
+						ctx.LogError(CatArgument, fmt.Sprintf("Value %v out of byte range (-128 to 255)", v))
+						return BoolStatus(false)
+					}
+					result = append(result, byte(intVal&0xFF))
+				}
+			case string:
+				// Check if it's a hex literal
+				if isHexLiteral(v) {
+					if hexBytes, ok := parseHexToBytes(v); ok {
+						result = append(result, hexBytes.Data()...)
+					} else {
+						ctx.LogError(CatArgument, fmt.Sprintf("Invalid hex literal: %s", v))
+						return BoolStatus(false)
+					}
+				} else {
+					// ASCII string
+					for i := 0; i < len(v); i++ {
+						if v[i] >= 128 {
+							ctx.LogError(CatArgument, fmt.Sprintf("Non-ASCII character at position %d in string", i))
+							return BoolStatus(false)
+						}
+						result = append(result, v[i])
+					}
+				}
+			case QuotedString:
+				str := string(v)
+				// Check if it's a hex literal
+				if isHexLiteral(str) {
+					if hexBytes, ok := parseHexToBytes(str); ok {
+						result = append(result, hexBytes.Data()...)
+					} else {
+						ctx.LogError(CatArgument, fmt.Sprintf("Invalid hex literal: %s", str))
+						return BoolStatus(false)
+					}
+				} else {
+					// ASCII string
+					for i := 0; i < len(str); i++ {
+						if str[i] >= 128 {
+							ctx.LogError(CatArgument, fmt.Sprintf("Non-ASCII character at position %d in string", i))
+							return BoolStatus(false)
+						}
+						result = append(result, str[i])
+					}
+				}
+			case Symbol:
+				str := string(v)
+				// Check if it's a hex literal
+				if isHexLiteral(str) {
+					if hexBytes, ok := parseHexToBytes(str); ok {
+						result = append(result, hexBytes.Data()...)
+					} else {
+						ctx.LogError(CatArgument, fmt.Sprintf("Invalid hex literal: %s", str))
+						return BoolStatus(false)
+					}
+				} else {
+					// Try to parse as number
+					if num, ok := toNumber(v); ok {
+						intVal := int64(num)
+						if singleMode {
+							result = append(result, byte(intVal&0xFF))
+						} else {
+							if intVal < -128 || intVal > 255 {
+								ctx.LogError(CatArgument, fmt.Sprintf("Value %v out of byte range (-128 to 255)", num))
+								return BoolStatus(false)
+							}
+							result = append(result, byte(intVal&0xFF))
+						}
+					} else {
+						ctx.LogError(CatArgument, fmt.Sprintf("Cannot convert %v to bytes", v))
+						return BoolStatus(false)
+					}
+				}
+			case StoredBytes:
+				// Append existing bytes
+				result = append(result, v.Data()...)
+			default:
+				ctx.LogError(CatArgument, fmt.Sprintf("Cannot convert %T to bytes", v))
+				return BoolStatus(false)
+			}
+		}
+
+		setBytesResult(ctx, NewStoredBytes(result))
+		return BoolStatus(true)
+	})
+
 	// slice - returns a slice of a list or string (end exclusive)
 	// Usage: slice ~mylist, 0, 3    - items 0, 1, 2
 	//        slice ~mylist, 1, -1   - from index 1 to end
@@ -208,6 +344,13 @@ func (ps *PawScript) RegisterTypesLib() {
 				end = v.Len()
 			}
 			setListResult(ctx, v.Slice(start, end))
+			return BoolStatus(true)
+		case StoredBytes:
+			// Handle negative indices
+			if end < 0 {
+				end = v.Len()
+			}
+			setBytesResult(ctx, v.Slice(start, end))
 			return BoolStatus(true)
 		case string, QuotedString, Symbol:
 			// Resolve in case it's a string marker
@@ -259,6 +402,33 @@ func (ps *PawScript) RegisterTypesLib() {
 		case StoredList:
 			setListResult(ctx, v.Append(item))
 			return BoolStatus(true)
+		case StoredBytes:
+			// Bytes mode: append byte(s)
+			resolvedItem := ctx.executor.resolveValue(item)
+			switch bi := resolvedItem.(type) {
+			case int64:
+				setBytesResult(ctx, v.Append(bi))
+			case float64:
+				setBytesResult(ctx, v.Append(int64(bi)))
+			case StoredBytes:
+				setBytesResult(ctx, v.AppendBytes(bi))
+			case string:
+				if isHexLiteral(bi) {
+					if hexBytes, ok := parseHexToBytes(bi); ok {
+						setBytesResult(ctx, v.AppendBytes(hexBytes))
+					} else {
+						ctx.LogError(CatArgument, fmt.Sprintf("Invalid hex literal: %s", bi))
+						return BoolStatus(false)
+					}
+				} else {
+					ctx.LogError(CatArgument, "Cannot append string to bytes (use bytes command)")
+					return BoolStatus(false)
+				}
+			default:
+				ctx.LogError(CatArgument, fmt.Sprintf("Cannot append %T to bytes", bi))
+				return BoolStatus(false)
+			}
+			return BoolStatus(true)
 		case string, QuotedString, Symbol, StoredString:
 			// String mode: concatenate suffix
 			resolved := ctx.executor.resolveValue(v)
@@ -296,6 +466,34 @@ func (ps *PawScript) RegisterTypesLib() {
 		case StoredList:
 			setListResult(ctx, v.Prepend(item))
 			return BoolStatus(true)
+		case StoredBytes:
+			// Bytes mode: prepend byte(s)
+			resolvedItem := ctx.executor.resolveValue(item)
+			switch bi := resolvedItem.(type) {
+			case int64:
+				setBytesResult(ctx, v.Prepend(bi))
+			case float64:
+				setBytesResult(ctx, v.Prepend(int64(bi)))
+			case StoredBytes:
+				// Prepend: other bytes come first
+				setBytesResult(ctx, bi.AppendBytes(v))
+			case string:
+				if isHexLiteral(bi) {
+					if hexBytes, ok := parseHexToBytes(bi); ok {
+						setBytesResult(ctx, hexBytes.AppendBytes(v))
+					} else {
+						ctx.LogError(CatArgument, fmt.Sprintf("Invalid hex literal: %s", bi))
+						return BoolStatus(false)
+					}
+				} else {
+					ctx.LogError(CatArgument, "Cannot prepend string to bytes (use bytes command)")
+					return BoolStatus(false)
+				}
+			default:
+				ctx.LogError(CatArgument, fmt.Sprintf("Cannot prepend %T to bytes", bi))
+				return BoolStatus(false)
+			}
+			return BoolStatus(true)
 		case string, QuotedString, Symbol, StoredString:
 			// String mode: prepend prefix
 			resolved := ctx.executor.resolveValue(v)
@@ -316,12 +514,12 @@ func (ps *PawScript) RegisterTypesLib() {
 		}
 	})
 
-	// compact - returns a new list with a fresh backing array
+	// compact - returns a new list/bytes with a fresh backing array
 	// Usage: compact ~mylist
-	// Use this to free memory after slicing a large list
+	// Use this to free memory after slicing a large list or bytes
 	ps.RegisterCommandInModule("strlist", "compact", func(ctx *Context) Result {
 		if len(ctx.Args) < 1 {
-			ctx.LogError(CatCommand, "Usage: compact <list>")
+			ctx.LogError(CatCommand, "Usage: compact <list|bytes>")
 			ctx.SetResult(nil)
 			return BoolStatus(false)
 		}
@@ -331,6 +529,9 @@ func (ps *PawScript) RegisterTypesLib() {
 		switch v := value.(type) {
 		case StoredList:
 			setListResult(ctx, v.Compact())
+			return BoolStatus(true)
+		case StoredBytes:
+			setBytesResult(ctx, v.Compact())
 			return BoolStatus(true)
 		default:
 			ctx.LogError(CatType, fmt.Sprintf("Cannot compact type %s\n", getTypeName(v)))
@@ -344,6 +545,8 @@ func (ps *PawScript) RegisterTypesLib() {
 	//        concat ~list1, ~list2                   -> combined list (lists)
 	//        concat ~list, "item1", "item2"          -> list with items appended
 	//        concat ~list1, ~list2, "extra"          -> lists concatenated + item appended
+	//        concat ~bytes1, ~bytes2                 -> combined bytes
+	//        concat ~bytes, 0x0A, 255                -> bytes with values appended
 	ps.RegisterCommandInModule("strlist", "concat", func(ctx *Context) Result {
 		if len(ctx.Args) < 2 {
 			ctx.LogError(CatCommand, "Usage: concat <value1>, <value2>, ...")
@@ -369,6 +572,45 @@ func (ps *PawScript) RegisterTypesLib() {
 			}
 
 			setListResult(ctx, result)
+			return BoolStatus(true)
+		}
+
+		// Check if first argument is StoredBytes
+		if bytes, ok := ctx.Args[0].(StoredBytes); ok {
+			// Bytes mode: concatenate bytes and append other values
+			result := bytes
+
+			for i := 1; i < len(ctx.Args); i++ {
+				arg := ctx.Args[i]
+
+				if otherBytes, ok := arg.(StoredBytes); ok {
+					// Concatenate bytes
+					result = result.Concat(otherBytes)
+				} else {
+					// Try to append as single byte value
+					switch v := arg.(type) {
+					case int64:
+						result = result.Append(v)
+					case float64:
+						result = result.Append(int64(v))
+					case Symbol:
+						// Check for hex literal
+						if hexBytes, ok := parseHexToBytes(string(v)); ok {
+							result = result.Concat(hexBytes)
+						} else {
+							ctx.LogError(CatType, fmt.Sprintf("Cannot append %s to bytes", getTypeName(arg)))
+							ctx.SetResult(nil)
+							return BoolStatus(false)
+						}
+					default:
+						ctx.LogError(CatType, fmt.Sprintf("Cannot append %s to bytes", getTypeName(arg)))
+						ctx.SetResult(nil)
+						return BoolStatus(false)
+					}
+				}
+			}
+
+			setBytesResult(ctx, result)
 			return BoolStatus(true)
 		}
 

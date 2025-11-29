@@ -864,9 +864,10 @@ func (e *Executor) applyAccessorChain(value interface{}, accessors string, posit
 			break
 		}
 
-		// Resolve current to get the actual list
+		// Resolve current to get the actual list or bytes
 		resolved := e.resolveValue(current)
 		list, isList := resolved.(StoredList)
+		bytes, isBytes := resolved.(StoredBytes)
 
 		if accessors[i] == '.' {
 			// Dot accessor for named argument
@@ -921,16 +922,23 @@ func (e *Executor) applyAccessorChain(value interface{}, accessors string, posit
 				return Symbol(UndefinedMarker)
 			}
 
-			if !isList {
-				e.logger.ErrorCat(CatList, "Cannot use index accessor on non-list value")
+			if isList {
+				if idx < 0 || idx >= list.Len() {
+					e.logger.DebugCat(CatList, "Index %d out of bounds (list has %d items)", idx, list.Len())
+					return Symbol(UndefinedMarker)
+				}
+				current = list.Get(idx)
+			} else if isBytes {
+				if idx < 0 || idx >= bytes.Len() {
+					e.logger.DebugCat(CatList, "Index %d out of bounds (bytes has %d items)", idx, bytes.Len())
+					return Symbol(UndefinedMarker)
+				}
+				// Return byte as int64
+				current = bytes.Get(idx)
+			} else {
+				e.logger.ErrorCat(CatList, "Cannot use index accessor on non-list/non-bytes value")
 				return Symbol(UndefinedMarker)
 			}
-
-			if idx < 0 || idx >= list.Len() {
-				e.logger.DebugCat(CatList, "Index %d out of bounds (list has %d items)", idx, list.Len())
-				return Symbol(UndefinedMarker)
-			}
-			current = list.Get(idx)
 
 		} else {
 			// Unknown accessor character, stop
@@ -961,9 +969,10 @@ func (e *Executor) accessorChainExists(value interface{}, accessors string) bool
 			break
 		}
 
-		// Resolve current to get the actual list
+		// Resolve current to get the actual list or bytes
 		resolved := e.resolveValue(current)
 		list, isList := resolved.(StoredList)
+		bytes, isBytes := resolved.(StoredBytes)
 
 		if accessors[i] == '.' {
 			// Dot accessor for named argument
@@ -1012,14 +1021,19 @@ func (e *Executor) accessorChainExists(value interface{}, accessors string) bool
 				return false
 			}
 
-			if !isList {
+			if isList {
+				if idx < 0 || idx >= list.Len() {
+					return false
+				}
+				current = list.Get(idx)
+			} else if isBytes {
+				if idx < 0 || idx >= bytes.Len() {
+					return false
+				}
+				current = bytes.Get(idx)
+			} else {
 				return false
 			}
-
-			if idx < 0 || idx >= list.Len() {
-				return false
-			}
-			current = list.Get(idx)
 
 		} else {
 			// Unknown accessor character, stop
@@ -1171,6 +1185,16 @@ func (e *Executor) processArguments(args []interface{}, state *ExecutionState, s
 						// Return as *StoredFile - this passes the file handle by reference
 						result[i] = value
 						e.logger.DebugCat(CatCommand,"processArguments[%d]: Resolved file marker to *StoredFile", i)
+					case "bytes":
+						// Return as StoredBytes - this passes the bytes by reference
+						finalValue := value
+						// Apply any accessors
+						if accessors != "" {
+							finalValue = e.applyAccessorChain(value, accessors, position)
+							e.logger.DebugCat(CatCommand,"processArguments[%d]: After accessors %q: %v", i, accessors, finalValue)
+						}
+						result[i] = finalValue
+						e.logger.DebugCat(CatCommand,"processArguments[%d]: Resolved bytes marker to StoredBytes", i)
 					default:
 						// For unknown types, keep the marker to preserve reference semantics
 						result[i] = arg

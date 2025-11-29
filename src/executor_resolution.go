@@ -90,13 +90,16 @@ func (e *Executor) resolveValueDeep(value interface{}) interface{} {
 }
 
 // resolveTildeExpression resolves a tilde expression like ~x or ~"varname" or ~{expr}
+// Also handles accessors like ~x.0 or ~x.key
 // Returns the resolved value and success status
 func (e *Executor) resolveTildeExpression(expr string, state *ExecutionState, substitutionCtx *SubstitutionContext, position *SourcePosition) (interface{}, bool) {
 	if !strings.HasPrefix(expr, "~") {
 		return nil, false
 	}
 
-	rest := expr[1:] // Remove the tilde
+	// Split off any accessors first
+	base, accessors := splitAccessors(expr)
+	rest := base[1:] // Remove the tilde from base
 
 	var varName string
 
@@ -125,7 +128,7 @@ func (e *Executor) resolveTildeExpression(expr string, state *ExecutionState, su
 		varName = rest[1 : len(rest)-1]
 	} else if strings.HasPrefix(rest, "~") {
 		// ~~x - chained tilde (resolve x, use result as varname, resolve that)
-		innerValue, ok := e.resolveTildeExpression(rest, state, substitutionCtx, position)
+		innerValue, ok := e.resolveTildeExpression("~"+rest, state, substitutionCtx, position)
 		if !ok {
 			return nil, false
 		}
@@ -137,31 +140,38 @@ func (e *Executor) resolveTildeExpression(expr string, state *ExecutionState, su
 
 	// First, check local macro variables
 	value, exists := state.GetVariable(varName)
-	if exists {
-		return value, true
-	}
-
-	// Then, check for objects with matching name in module environment
-	// If varName already starts with #, use it as-is; otherwise add # prefix
-	objName := varName
-	if !strings.HasPrefix(varName, "#") {
-		objName = "#" + varName
-	}
-	if state.moduleEnv != nil {
-		state.moduleEnv.mu.RLock()
-		// ObjectsModule either points to Inherited or is a COW copy - just check Module
-		if state.moduleEnv.ObjectsModule != nil {
-			if obj, exists := state.moduleEnv.ObjectsModule[objName]; exists {
-				state.moduleEnv.mu.RUnlock()
-				return obj, true
-			}
+	if !exists {
+		// Then, check for objects with matching name in module environment
+		// If varName already starts with #, use it as-is; otherwise add # prefix
+		objName := varName
+		if !strings.HasPrefix(varName, "#") {
+			objName = "#" + varName
 		}
-		state.moduleEnv.mu.RUnlock()
+		if state.moduleEnv != nil {
+			state.moduleEnv.mu.RLock()
+			// ObjectsModule either points to Inherited or is a COW copy - just check Module
+			if state.moduleEnv.ObjectsModule != nil {
+				if obj, found := state.moduleEnv.ObjectsModule[objName]; found {
+					value = obj
+					exists = true
+				}
+			}
+			state.moduleEnv.mu.RUnlock()
+		}
 	}
 
-	// Nothing found
-	e.logger.CommandError(CatVariable, "", fmt.Sprintf("Variable not found: %s", varName), position)
-	return nil, true
+	if !exists {
+		// Nothing found
+		e.logger.CommandError(CatVariable, "", fmt.Sprintf("Variable not found: %s", varName), position)
+		return nil, true
+	}
+
+	// Apply any accessors
+	if accessors != "" {
+		value = e.applyAccessorChain(value, accessors, position)
+	}
+
+	return value, true
 }
 
 // resolveQuestionExpression resolves a question expression like ?x or ?list.key
@@ -201,13 +211,16 @@ func (e *Executor) resolveQuestionExpression(expr string, state *ExecutionState,
 }
 
 // resolveTildeExpressionSilent resolves a tilde expression without logging errors
+// Also handles accessors like ~x.0 or ~x.key
 // Returns the resolved value and whether it exists
 func (e *Executor) resolveTildeExpressionSilent(expr string, state *ExecutionState, substitutionCtx *SubstitutionContext) (interface{}, bool) {
 	if !strings.HasPrefix(expr, "~") {
 		return nil, false
 	}
 
-	rest := expr[1:] // Remove the tilde
+	// Split off any accessors first
+	base, accessors := splitAccessors(expr)
+	rest := base[1:] // Remove the tilde from base
 
 	var varName string
 
@@ -233,7 +246,7 @@ func (e *Executor) resolveTildeExpressionSilent(expr string, state *ExecutionSta
 	} else if strings.HasPrefix(rest, "'") && strings.HasSuffix(rest, "'") {
 		varName = rest[1 : len(rest)-1]
 	} else if strings.HasPrefix(rest, "~") {
-		innerValue, ok := e.resolveTildeExpressionSilent(rest, state, substitutionCtx)
+		innerValue, ok := e.resolveTildeExpressionSilent("~"+rest, state, substitutionCtx)
 		if !ok {
 			return nil, false
 		}
@@ -244,28 +257,35 @@ func (e *Executor) resolveTildeExpressionSilent(expr string, state *ExecutionSta
 
 	// First, check local macro variables
 	value, exists := state.GetVariable(varName)
-	if exists {
-		return value, true
-	}
-
-	// Then, check for objects with matching name in module environment
-	objName := varName
-	if !strings.HasPrefix(varName, "#") {
-		objName = "#" + varName
-	}
-	if state.moduleEnv != nil {
-		state.moduleEnv.mu.RLock()
-		if state.moduleEnv.ObjectsModule != nil {
-			if obj, exists := state.moduleEnv.ObjectsModule[objName]; exists {
-				state.moduleEnv.mu.RUnlock()
-				return obj, true
-			}
+	if !exists {
+		// Then, check for objects with matching name in module environment
+		objName := varName
+		if !strings.HasPrefix(varName, "#") {
+			objName = "#" + varName
 		}
-		state.moduleEnv.mu.RUnlock()
+		if state.moduleEnv != nil {
+			state.moduleEnv.mu.RLock()
+			if state.moduleEnv.ObjectsModule != nil {
+				if obj, found := state.moduleEnv.ObjectsModule[objName]; found {
+					value = obj
+					exists = true
+				}
+			}
+			state.moduleEnv.mu.RUnlock()
+		}
 	}
 
-	// Nothing found - but don't log an error
-	return nil, false
+	if !exists {
+		// Nothing found - but don't log an error
+		return nil, false
+	}
+
+	// Apply any accessors
+	if accessors != "" {
+		value = e.applyAccessorChain(value, accessors, nil)
+	}
+
+	return value, true
 }
 
 // resolveTildesInValue resolves any tilde or question expressions in a value
