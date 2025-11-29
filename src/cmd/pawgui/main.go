@@ -62,8 +62,6 @@ func main() {
 
 	// GUI-specific flags
 	scaleFlag := flag.Float64("scale", 1.5, "GUI scale factor (default 1.5)")
-	demoFlag := flag.Bool("demo", false, "Run built-in GUI demo")
-	consoleFlag := flag.Bool("console", false, "Run built-in console demo")
 
 	// Custom usage function
 	flag.Usage = showUsage
@@ -86,77 +84,68 @@ func main() {
 	var scriptContent string
 	var scriptArgs []string
 
-	// Handle -demo and -console special modes
-	if *demoFlag {
-		scriptContent = demoScript
-		scriptFile = "gui-demo.paw"
-	} else if *consoleFlag {
-		scriptContent = consoleDemo
-		scriptFile = "gui-console.paw"
+	// Check for -- separator
+	separatorIndex := -1
+	for i, arg := range args {
+		if arg == "--" {
+			separatorIndex = i
+			break
+		}
+	}
+
+	var fileArgs []string
+	if separatorIndex != -1 {
+		fileArgs = args[:separatorIndex]
+		scriptArgs = args[separatorIndex+1:]
 	} else {
-		// Check for -- separator
-		separatorIndex := -1
-		for i, arg := range args {
-			if arg == "--" {
-				separatorIndex = i
-				break
+		fileArgs = args
+	}
+
+	// Check if stdin is redirected/piped
+	stdinInfo, _ := os.Stdin.Stat()
+	isStdinRedirected := (stdinInfo.Mode() & os.ModeCharDevice) == 0
+
+	if len(fileArgs) > 0 {
+		// Filename provided
+		requestedFile := fileArgs[0]
+		foundFile := findScriptFile(requestedFile)
+
+		if foundFile == "" {
+			errorPrintf("Error: Script file not found: %s\n", requestedFile)
+			if !strings.Contains(requestedFile, ".") {
+				errorPrintf("Also tried: %s.paw\n", requestedFile)
 			}
-		}
-
-		var fileArgs []string
-		if separatorIndex != -1 {
-			fileArgs = args[:separatorIndex]
-			scriptArgs = args[separatorIndex+1:]
-		} else {
-			fileArgs = args
-		}
-
-		// Check if stdin is redirected/piped
-		stdinInfo, _ := os.Stdin.Stat()
-		isStdinRedirected := (stdinInfo.Mode() & os.ModeCharDevice) == 0
-
-		if len(fileArgs) > 0 {
-			// Filename provided
-			requestedFile := fileArgs[0]
-			foundFile := findScriptFile(requestedFile)
-
-			if foundFile == "" {
-				errorPrintf("Error: Script file not found: %s\n", requestedFile)
-				if !strings.Contains(requestedFile, ".") {
-					errorPrintf("Also tried: %s.paw\n", requestedFile)
-				}
-				os.Exit(1)
-			}
-
-			scriptFile = foundFile
-
-			content, err := os.ReadFile(scriptFile)
-			if err != nil {
-				errorPrintf("Error reading script file: %v\n", err)
-				os.Exit(1)
-			}
-			scriptContent = string(content)
-
-			// Remaining fileArgs become script arguments (if no separator was used)
-			if separatorIndex == -1 && len(fileArgs) > 1 {
-				scriptArgs = fileArgs[1:]
-			}
-
-		} else if isStdinRedirected {
-			// No filename, but stdin is redirected - read from stdin
-			content, err := io.ReadAll(os.Stdin)
-			if err != nil {
-				errorPrintf("Error reading from stdin: %v\n", err)
-				os.Exit(1)
-			}
-			scriptContent = string(content)
-
-		} else {
-			// No filename and stdin is not redirected - show usage
-			showCopyright()
-			showUsage()
 			os.Exit(1)
 		}
+
+		scriptFile = foundFile
+
+		content, err := os.ReadFile(scriptFile)
+		if err != nil {
+			errorPrintf("Error reading script file: %v\n", err)
+			os.Exit(1)
+		}
+		scriptContent = string(content)
+
+		// Remaining fileArgs become script arguments (if no separator was used)
+		if separatorIndex == -1 && len(fileArgs) > 1 {
+			scriptArgs = fileArgs[1:]
+		}
+
+	} else if isStdinRedirected {
+		// No filename, but stdin is redirected - read from stdin
+		content, err := io.ReadAll(os.Stdin)
+		if err != nil {
+			errorPrintf("Error reading from stdin: %v\n", err)
+			os.Exit(1)
+		}
+		scriptContent = string(content)
+
+	} else {
+		// No filename and stdin is not redirected - show usage
+		showCopyright()
+		showUsage()
+		os.Exit(1)
 	}
 
 	// Build file access configuration (same as paw)
@@ -442,8 +431,6 @@ Options:
 
 GUI Options:
   --scale FACTOR      GUI scale factor (default 1.5)
-  --demo              Run built-in GUI demo
-  --console           Run built-in console demo
 
 Arguments:
   script.paw          Script file to execute (adds .paw extension if needed)
@@ -473,9 +460,8 @@ GUI Commands (available in scripts):
   gui_console [w], [h]          Create terminal console
 
 Examples:
-  pawgui hello.paw                   # Execute with GUI support
-  pawgui --demo                      # Run built-in GUI demo
-  pawgui --console                   # Run console demo
+  pawgui examples/gui-demo.paw       # Run the GUI demo
+  pawgui examples/gui-console.paw    # Run the console demo
   pawgui --unrestricted script.paw   # No file/exec restrictions
   pawgui --scale 2.0 script.paw      # Use 2x GUI scale
 `
@@ -1133,150 +1119,3 @@ func toFloat(v interface{}) (float64, bool) {
 	}
 	return 0, false
 }
-
-// demoScript is a built-in demo that shows basic GUI capabilities
-const demoScript = `# PawScript GUI Demo with Split Layout
-
-gui_title "PawScript GUI Demo"
-gui_resize 900, 500
-
-# Enable split layout (40% left, 60% right)
-gui_split 0.4
-
-# === LEFT PANEL: GUI Controls ===
-gui_label "=== GUI Controls ===", panel: "left"
-gui_label "", panel: "left"
-
-gui_label "Enter your name:", panel: "left"
-gui_entry "Type here...", id: "nameEntry", panel: "left"
-
-# Greeting handler - reads from entry widget, writes to label
-macro greet_user (
-    name: {gui_get nameEntry}
-    gui_set welcome, "Hello, ~name;!"
-)
-
-gui_button "Greet Me", onclick: "greet_user", panel: "left"
-gui_label "Welcome!", id: "welcome", panel: "left"
-
-gui_label "", panel: "left"
-gui_label "--- Counter ---", panel: "left"
-
-# Counter demo - state stored in hidden widget
-gui_entry "", id: "counterState", panel: "left"
-gui_set counterState, "0"
-gui_label "Counter: 0", id: "counterLabel", panel: "left"
-
-macro increment_counter (
-    current: {gui_get counterState}
-    newval: {add ~current, 1}
-    gui_set counterState, "~newval"
-    gui_set counterLabel, "Counter: ~newval"
-)
-
-gui_button "Increment", onclick: "increment_counter", panel: "left"
-
-gui_label "", panel: "left"
-gui_label "GUI remains responsive", panel: "left"
-gui_label "while console runs!", panel: "left"
-
-# === RIGHT PANEL: Console Terminal ===
-# Create console on right panel, unpack to #out/#in/#err for print/read
-(#out, #in, #err): {gui_console 400, 400, panel: "right"}
-
-# Define console interaction macro
-# Receives channels as $1, $2, $3 from fiber
-macro console_loop (
-    # Initialize IO channels from arguments
-    #out: $1
-    #in: $2
-    #err: $3
-    print "out:", ~#out
-    print #out, "To console"
-
-    # Clear and show welcome
-    clear
-    print "{color cyan}=== PawScript Console ==={color reset: true}"
-    print ""
-    print "This console runs in a {color yellow}fiber{color reset: true},"
-    print "so it doesn't block the GUI!"
-    print ""
-
-    # Show color capabilities - inline colors for each word
-    print "{color green}Colors work:{color reset: true} {color red}red{color reset: true} {color yellow}yellow{color reset: true} {color blue}blue{color reset: true}"
-    print ""
-
-    # Interactive loop
-    count: 0
-    while (true), (
-        count: {add ~count, 1}
-        write "{color magenta}[{color reset: true}~count{color magenta}]{color reset: true} Enter text (or 'quit'): "
-        input: {read}
-
-        {eq ~input, "quit"} & (
-            print "{color red}Goodbye!{color reset: true}"
-            ret
-        )
-
-        print "You said: {color cyan}~input{color reset: true}"
-        print ""
-    )
-)
-
-# Export macros for callbacks
-MODULE exports
-EXPORT greet_user, increment_counter, console_loop
-
-# Run console interaction in a fiber, passing the channels as arguments
-msleep 300
-fiber console_loop, ~#out, ~#in, ~#err
-`
-
-// consoleDemo is a demo script that shows terminal/console capabilities
-const consoleDemo = `# PawScript Console Demo
-# Shows terminal features using gui_console returned channels
-
-gui_title "PawScript Console Demo"
-gui_resize 700, 500
-
-# Create console and unpack channels directly into #out, #in, #err
-# This makes echo, print, write, read automatically use them!
-(#out, #in, #err): {gui_console 680, 450}
-
-# Give the terminal a moment to initialize
-msleep 200
-
-# Now we can use standard print and echo commands!
-# Clear screen and show title - use inline color for the header
-clear
-print "{color cyan}=== PawScript Console Demo ==={color reset: true}"
-echo ""
-print "This terminal supports colors!"
-echo ""
-
-echo #stdout, "Regular output"
-
-# Show colors - mix of styles for demonstration
-# Standalone color command when multiple lines share the same color
-color red
-print "This is red text"
-
-# Inline colors for single-line styling
-print "{color green}This is green text{color reset: true}"
-print "{color yellow}This is yellow text{color reset: true}"
-print "{color blue}This is blue text{color reset: true}"
-echo ""
-
-# Mixed inline colors in one line
-print "Rainbow: {color red}R{color yellow}a{color green}i{color cyan}n{color blue}b{color magenta}o{color white}w{color reset: true}"
-echo ""
-
-write "Type something and press Enter: "
-
-# Read from console using the standard read command
-input: {read}
-print "You typed: {color cyan}~input{color reset: true}"
-suppress: true
-MODULE exports
-EXPORT suppress
-`
