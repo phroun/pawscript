@@ -2,6 +2,7 @@ package pawscript
 
 import (
 	"fmt"
+	"math/rand"
 	"sort"
 	"strings"
 	"time"
@@ -337,6 +338,56 @@ func (ps *PawScript) RegisterGeneratorLib() {
 				ctx.executor.mu.Unlock()
 
 				ctx.SetResult(Symbol(pairMarker))
+				return BoolStatus(true)
+
+			case "rng":
+				// Random number generator - never exhausts
+				if iterState.Rng == nil {
+					ctx.LogError(CatCommand, "resume: RNG state is nil")
+					ctx.executor.mu.Lock()
+					delete(ctx.executor.activeTokens, tokenID)
+					ctx.executor.mu.Unlock()
+					return BoolStatus(false)
+				}
+
+				// Get extra arguments (skip first arg which is the token)
+				extraArgs := ctx.Args[1:]
+
+				// Parse arguments to determine range
+				// resume ~rng         -> random int64
+				// resume ~rng, max    -> 0 to max-1
+				// resume ~rng, min, max -> min to max (inclusive)
+				var result int64
+				switch len(extraArgs) {
+				case 0:
+					// No args - return full range random int64
+					result = iterState.Rng.Int63()
+				case 1:
+					// One arg: max (exclusive), range is 0 to max-1
+					max, ok := toInt64(extraArgs[0])
+					if !ok || max <= 0 {
+						ctx.LogError(CatCommand, "resume: rng max must be a positive number")
+						return BoolStatus(false)
+					}
+					result = iterState.Rng.Int63n(max)
+				default:
+					// Two+ args: min, max (inclusive)
+					min, ok1 := toInt64(extraArgs[0])
+					max, ok2 := toInt64(extraArgs[1])
+					if !ok1 || !ok2 {
+						ctx.LogError(CatCommand, "resume: rng min and max must be numbers")
+						return BoolStatus(false)
+					}
+					if max < min {
+						ctx.LogError(CatCommand, "resume: rng max must be >= min")
+						return BoolStatus(false)
+					}
+					// Generate in range [min, max] inclusive
+					rangeSize := max - min + 1
+					result = min + iterState.Rng.Int63n(rangeSize)
+				}
+
+				ctx.SetResult(result)
 				return BoolStatus(true)
 			}
 		}
@@ -1059,6 +1110,198 @@ func (ps *PawScript) RegisterGeneratorLib() {
 		// Return the token marker
 		tokenMarker := fmt.Sprintf("\x00TOKEN:%s\x00", tokenID)
 		ctx.SetResult(Symbol(tokenMarker))
+		return BoolStatus(true)
+	})
+
+	// rng - Create a random number generator token
+	// Usage: rng [seed: <number>]
+	// Returns a token that can be used with resume to generate random numbers
+	// If seed is provided, the generator is reproducible; otherwise uses current time
+	ps.RegisterCommandInModule("coroutines", "rng", func(ctx *Context) Result {
+		var rngSource *rand.Rand
+
+		// Check for seed in named args
+		if seedVal, hasSeed := ctx.NamedArgs["seed"]; hasSeed {
+			seed, ok := toInt64(seedVal)
+			if !ok {
+				ctx.LogError(CatCommand, "rng: seed must be a number")
+				return BoolStatus(false)
+			}
+			rngSource = rand.New(rand.NewSource(seed))
+		} else {
+			// Use current time for unseeded generator
+			rngSource = rand.New(rand.NewSource(time.Now().UnixNano()))
+		}
+
+		// Create a token for the RNG
+		tokenID := ctx.executor.RequestCompletionToken(
+			nil,
+			"",
+			30*time.Minute, // Long-lived like other iterators
+			ctx.state,
+			ctx.Position,
+		)
+
+		// Store RNG state in the token
+		ctx.executor.mu.Lock()
+		if tokenData, exists := ctx.executor.activeTokens[tokenID]; exists {
+			tokenData.IteratorState = &IteratorState{
+				Type: "rng",
+				Rng:  rngSource,
+			}
+		}
+		ctx.executor.mu.Unlock()
+
+		// Return the token marker
+		tokenMarker := fmt.Sprintf("\x00TOKEN:%s\x00", tokenID)
+		ctx.SetResult(Symbol(tokenMarker))
+		return BoolStatus(true)
+	})
+
+	// Helper to resolve an RNG token from a value
+	resolveRngToken := func(ctx *Context, value interface{}) string {
+		var tokenStr string
+		switch v := value.(type) {
+		case Symbol:
+			tokenStr = string(v)
+		case string:
+			tokenStr = v
+		default:
+			return ""
+		}
+		if strings.HasPrefix(tokenStr, "\x00TOKEN:") && strings.HasSuffix(tokenStr, "\x00") {
+			return tokenStr
+		}
+		return ""
+	}
+
+	// Helper to resolve #random from local vars -> ObjectsModule -> ObjectsInherited
+	resolveRandomToken := func(ctx *Context, name string) string {
+		// First, check local macro variables
+		if value, exists := ctx.state.GetVariable(name); exists {
+			if token := resolveRngToken(ctx, value); token != "" {
+				return token
+			}
+		}
+
+		// Then, check ObjectsModule and ObjectsInherited
+		if ctx.state.moduleEnv != nil {
+			ctx.state.moduleEnv.mu.RLock()
+			defer ctx.state.moduleEnv.mu.RUnlock()
+
+			// Check ObjectsModule (copy-on-write layer)
+			if ctx.state.moduleEnv.ObjectsModule != nil {
+				if obj, exists := ctx.state.moduleEnv.ObjectsModule[name]; exists {
+					if token := resolveRngToken(ctx, obj); token != "" {
+						return token
+					}
+				}
+			}
+
+			// Check ObjectsInherited (root layer where io::#random lives)
+			if ctx.state.moduleEnv.ObjectsInherited != nil {
+				if obj, exists := ctx.state.moduleEnv.ObjectsInherited[name]; exists {
+					if token := resolveRngToken(ctx, obj); token != "" {
+						return token
+					}
+				}
+			}
+		}
+
+		return ""
+	}
+
+	// random - Generate a random number
+	// Usage: random [max] or random min, max - uses default #random
+	//        random <token> [max] or random <token> min, max - uses custom generator
+	ps.RegisterCommandInModule("coroutines", "random", func(ctx *Context) Result {
+		var tokenStr string
+		var rangeArgs []interface{}
+
+		// Check if first arg is an RNG token or a #-prefixed name
+		if len(ctx.Args) > 0 {
+			// Try to extract as token marker directly
+			if token := resolveRngToken(ctx, ctx.Args[0]); token != "" {
+				tokenStr = token
+				rangeArgs = ctx.Args[1:]
+			} else if sym, ok := ctx.Args[0].(Symbol); ok && strings.HasPrefix(string(sym), "#") {
+				// It's a #-prefixed symbol, resolve it like echo resolves channels
+				if token := resolveRandomToken(ctx, string(sym)); token != "" {
+					tokenStr = token
+					rangeArgs = ctx.Args[1:]
+				} else {
+					// Could not resolve as RNG, treat as range arg
+					rangeArgs = ctx.Args
+				}
+			} else {
+				// First arg is not a token or #-symbol, treat as range arg
+				rangeArgs = ctx.Args
+			}
+		}
+
+		// If no token provided, use default #random
+		if tokenStr == "" {
+			tokenStr = resolveRandomToken(ctx, "#random")
+			if tokenStr == "" {
+				ctx.LogError(CatCommand, "random: #random not found in environment")
+				return BoolStatus(false)
+			}
+		}
+
+		// Extract token ID
+		tokenID := tokenStr[len("\x00TOKEN:") : len(tokenStr)-1]
+
+		// Get the token data
+		ctx.executor.mu.Lock()
+		tokenData, exists := ctx.executor.activeTokens[tokenID]
+		if !exists {
+			ctx.executor.mu.Unlock()
+			ctx.LogError(CatCommand, "random: RNG token has expired")
+			return BoolStatus(false)
+		}
+
+		iterState := tokenData.IteratorState
+		if iterState == nil || iterState.Type != "rng" || iterState.Rng == nil {
+			ctx.executor.mu.Unlock()
+			ctx.LogError(CatCommand, "random: invalid RNG token state")
+			return BoolStatus(false)
+		}
+
+		// Generate the random number based on range args
+		var result int64
+		switch len(rangeArgs) {
+		case 0:
+			// Full Int63 range
+			result = iterState.Rng.Int63()
+		case 1:
+			// 0 to max-1
+			max, ok := toInt64(rangeArgs[0])
+			if !ok || max <= 0 {
+				ctx.executor.mu.Unlock()
+				ctx.LogError(CatCommand, "random: max must be a positive number")
+				return BoolStatus(false)
+			}
+			result = iterState.Rng.Int63n(max)
+		default:
+			// min to max (inclusive)
+			min, ok1 := toInt64(rangeArgs[0])
+			max, ok2 := toInt64(rangeArgs[1])
+			if !ok1 || !ok2 {
+				ctx.executor.mu.Unlock()
+				ctx.LogError(CatCommand, "random: min and max must be numbers")
+				return BoolStatus(false)
+			}
+			if max < min {
+				ctx.executor.mu.Unlock()
+				ctx.LogError(CatCommand, "random: max must be >= min")
+				return BoolStatus(false)
+			}
+			rangeSize := max - min + 1
+			result = min + iterState.Rng.Int63n(rangeSize)
+		}
+		ctx.executor.mu.Unlock()
+
+		ctx.SetResult(result)
 		return BoolStatus(true)
 	})
 }

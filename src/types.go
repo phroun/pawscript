@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 	"io"
+	"math/rand"
 	"os"
 	"sync"
 	"time"
@@ -182,11 +183,12 @@ type RepeatContinuation struct {
 
 // IteratorState stores state for Go-backed iterators (each, pair)
 type IteratorState struct {
-	Type       string        // "each" or "pair"
+	Type       string        // "each", "pair", or "rng"
 	ListID     int           // Object ID of the list being iterated
 	Index      int           // Current position (for "each")
 	Keys       []string      // Keys to iterate (for "pair")
 	KeyIndex   int           // Current key position (for "pair")
+	Rng        *rand.Rand    // Random number generator (for "rng")
 }
 
 // ParsedCommand represents a parsed command with metadata

@@ -4,6 +4,7 @@ import (
 	"bufio"
 	"fmt"
 	"io"
+	"math/rand"
 	"os"
 	"time"
 )
@@ -206,6 +207,24 @@ func (env *ModuleEnvironment) PopulateIOModule(config *IOChannelConfig, executor
 	// Debug output channel (alias to stdout, allows separate redirection of debug output)
 	ioModule["#debug"] = &ModuleItem{Type: "object", Value: stdoutCh}
 
+	// Create default random number generator
+	// Uses current time as seed for non-reproducible random numbers
+	if executor != nil {
+		rngSource := rand.New(rand.NewSource(time.Now().UnixNano()))
+		// Use very long timeout (effectively permanent)
+		tokenID := executor.RequestCompletionToken(nil, "", 100*365*24*time.Hour, nil, nil)
+		executor.mu.Lock()
+		if tokenData, exists := executor.activeTokens[tokenID]; exists {
+			tokenData.IteratorState = &IteratorState{
+				Type: "rng",
+				Rng:  rngSource,
+			}
+		}
+		executor.mu.Unlock()
+		tokenMarker := fmt.Sprintf("\x00TOKEN:%s\x00", tokenID)
+		ioModule["#random"] = &ModuleItem{Type: "object", Value: Symbol(tokenMarker)}
+	}
+
 	// Register any custom channels from config
 	if config != nil && config.CustomChannels != nil {
 		for name, ch := range config.CustomChannels {
@@ -230,6 +249,9 @@ func (env *ModuleEnvironment) PopulateIOModule(config *IOChannelConfig, executor
 	env.LibraryRestricted["io"]["#err"] = ioModule["#err"]
 	env.LibraryRestricted["io"]["#io"] = ioModule["#io"]
 	env.LibraryRestricted["io"]["#debug"] = ioModule["#debug"]
+	if ioModule["#random"] != nil {
+		env.LibraryRestricted["io"]["#random"] = ioModule["#random"]
+	}
 
 	// Add custom channels to LibraryRestricted as well
 	if config != nil && config.CustomChannels != nil {
@@ -277,6 +299,13 @@ func (env *ModuleEnvironment) PopulateIOModule(config *IOChannelConfig, executor
 	env.ObjectsInherited["#err"] = stderrCh
 	env.ObjectsInherited["#io"] = stdioCh
 	env.ObjectsInherited["#debug"] = stdoutCh
+
+	// Add #random token to ObjectsInherited if it exists
+	if ioModule["#random"] != nil {
+		if item, ok := ioModule["#random"].Value.(Symbol); ok {
+			env.ObjectsInherited["#random"] = item
+		}
+	}
 
 	// Add custom channels to ObjectsInherited as well
 	if config != nil && config.CustomChannels != nil {
