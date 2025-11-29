@@ -722,6 +722,7 @@ func createConsoleWindowWithPipes(scriptFile string, stdinReader *io.PipeWriter,
 		clickInterceptor := newClickInterceptor(term)
 		termWithInterceptor := container.NewStack(term, clickInterceptor)
 		newWindow.SetContent(termWithInterceptor)
+		newWindow.CenterOnScreen()
 		newWindow.Show()
 
 		guiState.mu.Lock()
@@ -842,6 +843,7 @@ func registerGuiCommands(ps *pawscript.PawScript) {
 				clickInterceptor := newClickInterceptor(term)
 				termWithInterceptor := container.NewStack(term, clickInterceptor)
 				newWindow.SetContent(termWithInterceptor)
+				newWindow.CenterOnScreen()
 				newWindow.Show()
 
 				guiState.mu.Lock()
@@ -901,6 +903,7 @@ func registerGuiCommands(ps *pawscript.PawScript) {
 				})
 
 				newWindow.SetContent(ws.content)
+				newWindow.CenterOnScreen()
 				newWindow.Show()
 
 				guiState.mu.Lock()
