@@ -940,8 +940,11 @@ func runScriptInWindow(filePath string, ws *WindowState) {
 	runMsg := fmt.Sprintf("\r\n--- Running: %s ---\r\n\r\n", filepath.Base(filePath))
 	fmt.Fprint(ws.stdoutWriter, runMsg)
 
-	// Run the script
-	result := ps.ExecuteFile(string(content), filePath)
+	// Create an isolated snapshot for execution so scripts don't impact each other
+	snapshot := ps.CreateRestrictedSnapshot()
+
+	// Run the script in the isolated environment
+	result := ps.ExecuteWithEnvironment(string(content), snapshot, filePath, 0, 0)
 	if result == pawscript.BoolStatus(false) {
 		fmt.Fprint(ws.stdoutWriter, "\r\n--- Script execution failed ---\r\n")
 	} else {
@@ -1068,10 +1071,11 @@ func runScriptFile(filePath string) {
 
 	<-done
 
-	// Run the script
+	// Run the script in an isolated snapshot
 	go func() {
 		time.Sleep(200 * time.Millisecond)
-		result := ps.ExecuteFile(string(content), filePath)
+		snapshot := ps.CreateRestrictedSnapshot()
+		result := ps.ExecuteWithEnvironment(string(content), snapshot, filePath, 0, 0)
 		if result == pawscript.BoolStatus(false) {
 			fmt.Fprintf(os.Stderr, "Script execution failed\n")
 		}
