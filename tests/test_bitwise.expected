@@ -1,0 +1,100 @@
+=== Bitwise Module Tests ===
+
+Test 1: bitwise_and with integers
+0xFF AND 0x0F = 15
+(Expected: 15)
+
+Test 2: bitwise_or with integers
+0xF0 OR 0x0F = 255
+(Expected: 255)
+
+Test 3: bitwise_xor with integers
+0xFF XOR 0xAA = 85
+(Expected: 85)
+
+Test 4: bitwise_not with integer
+NOT 0 = -1
+(Expected: -1)
+
+Test 5: bitwise_shl with integer
+1 << 4 = 16
+(Expected: 16)
+
+Test 6: bitwise_shr with integer
+256 >> 4 = 16
+(Expected: 16)
+
+Test 7: bitwise_rol 8-bit
+0x81 ROL 1 (8-bit) = 3
+(Expected: 3, because 10000001 -> 00000011)
+
+Test 8: bitwise_ror 8-bit
+0x81 ROR 1 (8-bit) = 192
+(Expected: 192, because 10000001 -> 11000000)
+
+Test 9: bitwise_and with bytes
+AND result: <0F0A05>
+(Expected: <0F0A05>)
+
+Test 10: bitwise_or with bytes
+OR result: <FFAA55>
+(Expected: <FFAA55>)
+
+Test 11: bitwise_xor with bytes
+XOR result: <55AAFF>
+(Expected: <55AAFF>)
+
+Test 12: bitwise_not with bytes
+NOT result: <FF0055>
+(Expected: <FF0055>)
+
+Test 13: bitwise_shl with bytes
+Bytes << 4: <001000>
+(Expected: <001000>)
+
+Test 14: bitwise_shr with bytes
+Bytes >> 4: <0100>
+(Expected: <0100>)
+
+Test 15: bitwise_xor with repeat
+XOR cipher: <1D101919 1A>
+XOR decipher: <48454C4C 4F>
+(Expected: reversible cipher)
+
+Test 16: bitwise_and with align left
+Align left AND: <0F0F0000>
+(Expected: <0F0F0000>)
+
+Test 17: bitwise_and with align right
+Align right AND: <00000F0F>
+(Expected: <00000F0F>)
+
+Test 18: bitwise operations on lists
+List shifted left: (20, 40, 60)
+(Expected: (20, 40, 60))
+
+Test 19: bitwise_rol with bitlength 16
+0x8001 ROL 1 (16-bit) = 3
+(Expected: 3, because high bit wraps)
+
+Test 20: bitwise_ror with bitlength 16
+0x8001 ROR 1 (16-bit) = 49152
+(Expected: 49152, 0xC000)
+
+Test 21: XOR with longer second operand
+Short XOR long: <55AA>
+(Expected: <55AA>, takes rightmost portion of longer)
+
+Test 22: XOR bytes with int, repeat
+All zeros XOR 0xFF repeat: <FFFFFFFF>
+(Expected: <FFFFFFFF>)
+
+Test 23: OR preserves bits in non-overlap
+OR with short mask: <AABBCCDF>
+(Expected: <AABBCCDF>, only last byte affected)
+
+Test 24: AND clears bits in non-overlap
+AND with short mask: <0000000D>
+(Expected: <0000000D>, non-overlap cleared)
+
+=== All bitwise tests complete ===

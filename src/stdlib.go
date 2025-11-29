@@ -211,8 +211,9 @@ func (ps *PawScript) RegisterStandardLibraryWithIO(scriptArgs []string, ioConfig
 
 	// Register auxiliary libraries AFTER PopulateDefaultImports
 	// These are available via IMPORT but not auto-imported
-	ps.RegisterMathLib()  // math:: (trig functions, constants)
-	ps.RegisterFilesLib() // files:: (file system operations)
+	ps.RegisterMathLib()    // math:: (trig functions, constants)
+	ps.RegisterFilesLib()   // files:: (file system operations)
+	ps.RegisterBitwiseLib() // bitwise:: (bitwise operations)
 
 	// Populate IO module with native stdin/stdout/stderr/stdio channels
 	// Uses custom channels from ioConfig if provided
