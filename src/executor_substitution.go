@@ -2,7 +2,6 @@ package pawscript
 
 import (
 	"fmt"
-	"regexp"
 	"strconv"
 	"strings"
 	"unicode"
@@ -91,42 +90,8 @@ func (e *Executor) applySubstitution(str string, ctx *SubstitutionContext) strin
 		}
 
 		// Apply $1, $2, etc (indexed args) - pull from $@ list using argv
-		re := regexp.MustCompile(`\$(\d+)`)
-		result = re.ReplaceAllStringFunc(result, func(match string) string {
-			indexStr := match[1:] // Remove $
-			index, err := strconv.Atoi(indexStr)
-			if err != nil {
-				return match
-			}
-
-			// Get from $@ list
-			if ctx.ExecutionState != nil {
-				if argsVar, exists := ctx.ExecutionState.GetVariable("$@"); exists {
-					// Get the LIST object
-					if sym, ok := argsVar.(Symbol); ok {
-						marker := string(sym)
-						if objType, objID := parseObjectMarker(marker); objType == "list" && objID >= 0 {
-							if listObj, exists := e.getObject(objID); exists {
-								if storedList, ok := listObj.(StoredList); ok {
-									// index is 1-based, convert to 0-based
-									item := storedList.Get(index - 1)
-									if item != nil {
-										return e.formatArgumentForSubstitution(item)
-									}
-								}
-							}
-						}
-					}
-				}
-			}
-
-			// Fallback to old behavior
-			index-- // Convert to 0-based
-			if index >= 0 && index < len(ctx.Args) {
-				return e.formatArgumentForSubstitution(ctx.Args[index])
-			}
-			return match
-		})
+		// Use position-aware substitution to handle quote context correctly
+		result = e.substituteDollarArgs(result, ctx)
 	}
 
 	// Finally, restore escaped dollar signs
@@ -1038,4 +1003,123 @@ func (e *Executor) isInsideQuotes(str string, pos int) bool {
 	}
 
 	return inQuote
+}
+
+// substituteDollarArgs substitutes $1, $2, etc. with quote-awareness
+// When $N is inside quotes, just insert the content (no extra quotes)
+// When $N is outside quotes, preserve quotes around strings with spaces
+func (e *Executor) substituteDollarArgs(str string, ctx *SubstitutionContext) string {
+	runes := []rune(str)
+	var result strings.Builder
+	result.Grow(len(str))
+
+	inQuote := false
+	var quoteChar rune
+	i := 0
+
+	for i < len(runes) {
+		char := runes[i]
+
+		// Handle escape sequences
+		if char == '\\' && i+1 < len(runes) {
+			result.WriteRune(char)
+			result.WriteRune(runes[i+1])
+			i += 2
+			continue
+		}
+
+		// Track quote state
+		if !inQuote && (char == '"' || char == '\'') {
+			inQuote = true
+			quoteChar = char
+			result.WriteRune(char)
+			i++
+			continue
+		}
+		if inQuote && char == quoteChar {
+			inQuote = false
+			quoteChar = 0
+			result.WriteRune(char)
+			i++
+			continue
+		}
+
+		// Check for $N pattern
+		if char == '$' && i+1 < len(runes) && runes[i+1] >= '0' && runes[i+1] <= '9' {
+			// Parse the number
+			numStart := i + 1
+			numEnd := numStart
+			for numEnd < len(runes) && runes[numEnd] >= '0' && runes[numEnd] <= '9' {
+				numEnd++
+			}
+
+			indexStr := string(runes[numStart:numEnd])
+			index, err := strconv.Atoi(indexStr)
+			if err != nil {
+				// Not a valid number, output as-is
+				result.WriteRune(char)
+				i++
+				continue
+			}
+
+			// Get the argument value
+			var argValue interface{}
+			found := false
+
+			// Try to get from $@ list first
+			if ctx.ExecutionState != nil {
+				if argsVar, exists := ctx.ExecutionState.GetVariable("$@"); exists {
+					if sym, ok := argsVar.(Symbol); ok {
+						marker := string(sym)
+						if objType, objID := parseObjectMarker(marker); objType == "list" && objID >= 0 {
+							if listObj, exists := e.getObject(objID); exists {
+								if storedList, ok := listObj.(StoredList); ok {
+									// index is 1-based, convert to 0-based
+									item := storedList.Get(index - 1)
+									if item != nil {
+										argValue = item
+										found = true
+									}
+								}
+							}
+						}
+					}
+				}
+			}
+
+			// Fallback to ctx.Args
+			if !found {
+				idx := index - 1 // Convert to 0-based
+				if idx >= 0 && idx < len(ctx.Args) {
+					argValue = ctx.Args[idx]
+					found = true
+				}
+			}
+
+			if found {
+				// Format based on quote context
+				var substitution string
+				if inQuote {
+					// Inside quotes: just insert content, no extra quotes
+					substitution = e.formatArgumentForQuotedContext(argValue)
+				} else {
+					// Outside quotes: may need to add quotes to preserve token boundaries
+					substitution = e.formatArgumentForSubstitution(argValue)
+				}
+				result.WriteString(substitution)
+			} else {
+				// Argument not found, leave $N as-is
+				result.WriteString(string(runes[i:numEnd]))
+			}
+
+			i = numEnd
+			continue
+		}
+
+		// Regular character
+		result.WriteRune(char)
+		i++
+	}
+
+	return result.String()
 }
