@@ -101,38 +101,69 @@ build-linux-arm64:
 build-linux-x64:
 	$(call build-release,linux,amd64,linux,x64,paw,tar -czf,.tar.gz)
 
-# GUI release build macro (requires CGO - use fyne-cross for cross-compilation)
-# Args: 1=GOOS, 2=GOARCH, 3=platform-name, 4=arch-name, 5=binary-name, 6=archive-cmd, 7=archive-ext
-define build-release-gui
-	@echo "Building and packaging pawgui $(3) $(4)..."
-	@mkdir -p $(RELEASE_DIR)/pawgui-$(VERSION)-$(3)-$(4)
-	@cp -r examples $(RELEASE_DIR)/pawgui-$(VERSION)-$(3)-$(4)/examples
-	@cp README.md $(RELEASE_DIR)/pawgui-$(VERSION)-$(3)-$(4)/README.md
-	@cp LICENSE $(RELEASE_DIR)/pawgui-$(VERSION)-$(3)-$(4)/LICENSE
-	cd $(SRC_DIR) && CGO_ENABLED=1 GOOS=$(1) GOARCH=$(2) go build -ldflags "-X main.version=$(VERSION)" -o ../$(RELEASE_DIR)/pawgui-$(VERSION)-$(3)-$(4)/$(5) ./cmd/pawgui
-	@cd $(RELEASE_DIR) && $(6) pawgui-$(VERSION)-$(3)-$(4)$(7) pawgui-$(VERSION)-$(3)-$(4)
-	@rm -rf $(RELEASE_DIR)/pawgui-$(VERSION)-$(3)-$(4)
-	@echo "Created: $(RELEASE_DIR)/pawgui-$(VERSION)-$(3)-$(4)$(7)"
-endef
-
-# GUI builds (require CGO cross-compilation toolchain or fyne-cross)
+# GUI cross-compilation using fyne-cross (requires Docker)
+# Install: go install github.com/fyne-io/fyne-cross@latest
 build-gui-macos-arm64:
-	$(call build-release-gui,darwin,arm64,macos,arm64,pawgui,tar -czf,.tar.gz)
+	@echo "Building pawgui for macOS arm64 using fyne-cross..."
+	cd $(SRC_DIR) && fyne-cross darwin -arch arm64 -app-id com.pawscript.pawgui -output pawgui ./cmd/pawgui
+	@mkdir -p $(RELEASE_DIR)
+	@mv $(SRC_DIR)/fyne-cross/dist/darwin-arm64/pawgui.app $(RELEASE_DIR)/pawgui-$(VERSION)-macos-arm64.app 2>/dev/null || true
+	@cd $(RELEASE_DIR) && tar -czf pawgui-$(VERSION)-macos-arm64.tar.gz pawgui-$(VERSION)-macos-arm64.app 2>/dev/null || true
+	@rm -rf $(SRC_DIR)/fyne-cross
+	@echo "Created: $(RELEASE_DIR)/pawgui-$(VERSION)-macos-arm64.tar.gz"
 
 build-gui-macos-x64:
-	$(call build-release-gui,darwin,amd64,macos,x64,pawgui,tar -czf,.tar.gz)
+	@echo "Building pawgui for macOS x64 using fyne-cross..."
+	cd $(SRC_DIR) && fyne-cross darwin -arch amd64 -app-id com.pawscript.pawgui -output pawgui ./cmd/pawgui
+	@mkdir -p $(RELEASE_DIR)
+	@mv $(SRC_DIR)/fyne-cross/dist/darwin-amd64/pawgui.app $(RELEASE_DIR)/pawgui-$(VERSION)-macos-x64.app 2>/dev/null || true
+	@cd $(RELEASE_DIR) && tar -czf pawgui-$(VERSION)-macos-x64.tar.gz pawgui-$(VERSION)-macos-x64.app 2>/dev/null || true
+	@rm -rf $(SRC_DIR)/fyne-cross
+	@echo "Created: $(RELEASE_DIR)/pawgui-$(VERSION)-macos-x64.tar.gz"
 
 build-gui-ms-arm64:
-	$(call build-release-gui,windows,arm64,windows,arm64,pawgui.exe,zip -r,.zip)
+	@echo "Building pawgui for Windows arm64 using fyne-cross..."
+	cd $(SRC_DIR) && fyne-cross windows -arch arm64 -app-id com.pawscript.pawgui -output pawgui ./cmd/pawgui
+	@mkdir -p $(RELEASE_DIR)/pawgui-$(VERSION)-windows-arm64
+	@cp -r examples $(RELEASE_DIR)/pawgui-$(VERSION)-windows-arm64/examples
+	@cp README.md LICENSE $(RELEASE_DIR)/pawgui-$(VERSION)-windows-arm64/
+	@mv $(SRC_DIR)/fyne-cross/dist/windows-arm64/pawgui.exe $(RELEASE_DIR)/pawgui-$(VERSION)-windows-arm64/ 2>/dev/null || true
+	@cd $(RELEASE_DIR) && zip -r pawgui-$(VERSION)-windows-arm64.zip pawgui-$(VERSION)-windows-arm64
+	@rm -rf $(RELEASE_DIR)/pawgui-$(VERSION)-windows-arm64 $(SRC_DIR)/fyne-cross
+	@echo "Created: $(RELEASE_DIR)/pawgui-$(VERSION)-windows-arm64.zip"
 
 build-gui-ms-x64:
-	$(call build-release-gui,windows,amd64,windows,x64,pawgui.exe,zip -r,.zip)
+	@echo "Building pawgui for Windows x64 using fyne-cross..."
+	cd $(SRC_DIR) && fyne-cross windows -arch amd64 -app-id com.pawscript.pawgui -output pawgui ./cmd/pawgui
+	@mkdir -p $(RELEASE_DIR)/pawgui-$(VERSION)-windows-x64
+	@cp -r examples $(RELEASE_DIR)/pawgui-$(VERSION)-windows-x64/examples
+	@cp README.md LICENSE $(RELEASE_DIR)/pawgui-$(VERSION)-windows-x64/
+	@mv $(SRC_DIR)/fyne-cross/dist/windows-amd64/pawgui.exe $(RELEASE_DIR)/pawgui-$(VERSION)-windows-x64/ 2>/dev/null || true
+	@cd $(RELEASE_DIR) && zip -r pawgui-$(VERSION)-windows-x64.zip pawgui-$(VERSION)-windows-x64
+	@rm -rf $(RELEASE_DIR)/pawgui-$(VERSION)-windows-x64 $(SRC_DIR)/fyne-cross
+	@echo "Created: $(RELEASE_DIR)/pawgui-$(VERSION)-windows-x64.zip"
 
 build-gui-linux-arm64:
-	$(call build-release-gui,linux,arm64,linux,arm64,pawgui,tar -czf,.tar.gz)
+	@echo "Building pawgui for Linux arm64 using fyne-cross..."
+	cd $(SRC_DIR) && fyne-cross linux -arch arm64 -app-id com.pawscript.pawgui -output pawgui ./cmd/pawgui
+	@mkdir -p $(RELEASE_DIR)/pawgui-$(VERSION)-linux-arm64
+	@cp -r examples $(RELEASE_DIR)/pawgui-$(VERSION)-linux-arm64/examples
+	@cp README.md LICENSE $(RELEASE_DIR)/pawgui-$(VERSION)-linux-arm64/
+	@mv $(SRC_DIR)/fyne-cross/dist/linux-arm64/pawgui $(RELEASE_DIR)/pawgui-$(VERSION)-linux-arm64/ 2>/dev/null || true
+	@cd $(RELEASE_DIR) && tar -czf pawgui-$(VERSION)-linux-arm64.tar.gz pawgui-$(VERSION)-linux-arm64
+	@rm -rf $(RELEASE_DIR)/pawgui-$(VERSION)-linux-arm64 $(SRC_DIR)/fyne-cross
+	@echo "Created: $(RELEASE_DIR)/pawgui-$(VERSION)-linux-arm64.tar.gz"
 
 build-gui-linux-x64:
-	$(call build-release-gui,linux,amd64,linux,x64,pawgui,tar -czf,.tar.gz)
+	@echo "Building pawgui for Linux x64 using fyne-cross..."
+	cd $(SRC_DIR) && fyne-cross linux -arch amd64 -app-id com.pawscript.pawgui -output pawgui ./cmd/pawgui
+	@mkdir -p $(RELEASE_DIR)/pawgui-$(VERSION)-linux-x64
+	@cp -r examples $(RELEASE_DIR)/pawgui-$(VERSION)-linux-x64/examples
+	@cp README.md LICENSE $(RELEASE_DIR)/pawgui-$(VERSION)-linux-x64/
+	@mv $(SRC_DIR)/fyne-cross/dist/linux-amd64/pawgui $(RELEASE_DIR)/pawgui-$(VERSION)-linux-x64/ 2>/dev/null || true
+	@cd $(RELEASE_DIR) && tar -czf pawgui-$(VERSION)-linux-x64.tar.gz pawgui-$(VERSION)-linux-x64
+	@rm -rf $(RELEASE_DIR)/pawgui-$(VERSION)-linux-x64 $(SRC_DIR)/fyne-cross
+	@echo "Created: $(RELEASE_DIR)/pawgui-$(VERSION)-linux-x64.tar.gz"
 
 build-wasm:
 	@echo "Building paw WASM..."
@@ -184,4 +215,5 @@ help:
 	@echo "  lint           - Run linter"
 	@echo "  help           - Show this help"
 	@echo ""
-	@echo "GUI cross-compilation requires CGO toolchains or fyne-cross."
+	@echo "GUI cross-compilation requires fyne-cross and Docker:"
+	@echo "  go install github.com/fyne-io/fyne-cross@latest"
