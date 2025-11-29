@@ -508,7 +508,13 @@ func (ps *PawScript) RegisterSystemLib(scriptArgs []string) {
 				// Use case-insensitive comparison on Windows/macOS
 				allowed := false
 				for _, root := range fileAccess.ExecRoots {
-					if pathHasPrefix(cmdPath, root+string(filepath.Separator)) || pathEquals(cmdPath, root) {
+					// Normalize root path to handle any .. sequences
+					absRoot, err := filepath.Abs(root)
+					if err != nil {
+						continue
+					}
+					absRoot = filepath.Clean(absRoot)
+					if pathHasPrefix(cmdPath, absRoot+string(filepath.Separator)) || pathEquals(cmdPath, absRoot) {
 						allowed = true
 						break
 					}
