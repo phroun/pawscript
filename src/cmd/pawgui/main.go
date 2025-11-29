@@ -17,11 +17,10 @@ import (
 	"fyne.io/fyne/v2"
 	"fyne.io/fyne/v2/app"
 	"fyne.io/fyne/v2/container"
-	"fyne.io/fyne/v2/dialog"
-	"fyne.io/fyne/v2/storage"
 	"fyne.io/fyne/v2/widget"
 	"github.com/fyne-io/terminal"
 	pawscript "github.com/phroun/pawscript"
+	"github.com/sqweek/dialog"
 )
 
 var version = "dev" // set via -ldflags at build time
@@ -845,58 +844,40 @@ func updateWindowMenu(menu *fyne.MainMenu) {
 	windowMenu.Refresh()
 }
 
-// showOpenFileDialog shows a file dialog to select a .paw file (opens in new window)
+// showOpenFileDialog shows a native file dialog to select a .paw file (opens in new window)
 func showOpenFileDialog(win fyne.Window) {
-	fd := dialog.NewFileOpen(func(reader fyne.URIReadCloser, err error) {
-		if err != nil || reader == nil {
+	// Use native OS file dialog via sqweek/dialog
+	go func() {
+		cwd, _ := os.Getwd()
+		filePath, err := dialog.File().
+			Filter("PawScript files", "paw").
+			SetStartDir(cwd).
+			Title("Open PawScript File").
+			Load()
+		if err != nil {
+			// User cancelled or error occurred
 			return
 		}
-		defer reader.Close()
-
-		filePath := reader.URI().Path()
 		go runScriptFile(filePath)
-	}, win)
-
-	fd.SetFilter(storage.NewExtensionFileFilter([]string{".paw"}))
-
-	// Try to set starting directory to cwd
-	cwd, err := os.Getwd()
-	if err == nil {
-		uri := storage.NewFileURI(cwd)
-		lister, err := storage.ListerForURI(uri)
-		if err == nil {
-			fd.SetLocation(lister)
-		}
-	}
-
-	fd.Show()
+	}()
 }
 
-// showOpenFileDialogForWindow shows a file dialog and runs the script in the given window's console
+// showOpenFileDialogForWindow shows a native file dialog and runs the script in the given window's console
 func showOpenFileDialogForWindow(win fyne.Window, ws *WindowState) {
-	fd := dialog.NewFileOpen(func(reader fyne.URIReadCloser, err error) {
-		if err != nil || reader == nil {
+	// Use native OS file dialog via sqweek/dialog
+	go func() {
+		cwd, _ := os.Getwd()
+		filePath, err := dialog.File().
+			Filter("PawScript files", "paw").
+			SetStartDir(cwd).
+			Title("Open PawScript File").
+			Load()
+		if err != nil {
+			// User cancelled or error occurred
 			return
 		}
-		defer reader.Close()
-
-		filePath := reader.URI().Path()
 		go runScriptInWindow(filePath, ws)
-	}, win)
-
-	fd.SetFilter(storage.NewExtensionFileFilter([]string{".paw"}))
-
-	// Try to set starting directory to cwd
-	cwd, err := os.Getwd()
-	if err == nil {
-		uri := storage.NewFileURI(cwd)
-		lister, err := storage.ListerForURI(uri)
-		if err == nil {
-			fd.SetLocation(lister)
-		}
-	}
-
-	fd.Show()
+	}()
 }
 
 // runScriptInWindow runs a .paw script file in an existing window's console
