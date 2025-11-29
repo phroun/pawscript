@@ -697,6 +697,29 @@ func getWindowOrFirst(ws *WindowState) *WindowState {
 	return getFirstWindow()
 }
 
+// getWindowFromContext checks for #window in the context's inherited objects
+// and returns the corresponding WindowState. Falls back to getFirstWindow() if not found.
+func getWindowFromContext(ctx *pawscript.Context) *WindowState {
+	// Try to get #window from context (inherited or module object)
+	if windowObj := ctx.ResolveHashArg("#window"); windowObj != nil {
+		if marker, ok := windowObj.(pawscript.Symbol); ok {
+			markerStr := string(marker)
+			if strings.HasPrefix(markerStr, "\x00WINDOW:") && strings.HasSuffix(markerStr, "\x00") {
+				idStr := markerStr[len("\x00WINDOW:") : len(markerStr)-1]
+				if id, err := strconv.Atoi(idStr); err == nil {
+					guiState.mu.RLock()
+					ws, exists := guiState.windows[id]
+					guiState.mu.RUnlock()
+					if exists {
+						return ws
+					}
+				}
+			}
+		}
+	}
+	return getFirstWindow()
+}
+
 // createConsoleWindowWithPipes creates a window with a terminal console connected to the provided pipes
 // stdinReader: reads user input from terminal, stdinWriter writes to this
 // stdoutReader: reads output to display, stdoutWriter writes to this
@@ -1446,7 +1469,14 @@ func registerGuiCommands(ps *pawscript.PawScript) {
 
 		// Return window marker
 		marker := fmt.Sprintf("\x00WINDOW:%d\x00", id)
-		ctx.SetResult(pawscript.Symbol(marker))
+		windowSymbol := pawscript.Symbol(marker)
+
+		// Set #window as an inherited object so macros can access it
+		// This allows scripts to define macros that implicitly use the window
+		ps.SetInheritedObject("gui", "#window", windowSymbol)
+		ctx.SetModuleObject("#window", windowSymbol)
+
+		ctx.SetResult(windowSymbol)
 		return pawscript.BoolStatus(true)
 	})
 
@@ -1530,7 +1560,7 @@ func registerGuiCommands(ps *pawscript.PawScript) {
 
 	// gui_label - Create a label widget
 	ps.RegisterCommand("gui_label", func(ctx *pawscript.Context) pawscript.Result {
-		ws := getFirstWindow()
+		ws := getWindowFromContext(ctx)
 		if ws == nil {
 			ctx.LogError(pawscript.CatCommand, "No window available - create one with gui_window first")
 			return pawscript.BoolStatus(false)
@@ -1560,7 +1590,7 @@ func registerGuiCommands(ps *pawscript.PawScript) {
 
 	// gui_button - Create a button widget with callback
 	ps.RegisterCommand("gui_button", func(ctx *pawscript.Context) pawscript.Result {
-		ws := getFirstWindow()
+		ws := getWindowFromContext(ctx)
 		if ws == nil {
 			ctx.LogError(pawscript.CatCommand, "No window available - create one with gui_window first")
 			return pawscript.BoolStatus(false)
@@ -1606,7 +1636,7 @@ func registerGuiCommands(ps *pawscript.PawScript) {
 
 	// gui_entry - Create a text entry widget
 	ps.RegisterCommand("gui_entry", func(ctx *pawscript.Context) pawscript.Result {
-		ws := getFirstWindow()
+		ws := getWindowFromContext(ctx)
 		if ws == nil {
 			ctx.LogError(pawscript.CatCommand, "No window available - create one with gui_window first")
 			return pawscript.BoolStatus(false)
@@ -1710,7 +1740,7 @@ func registerGuiCommands(ps *pawscript.PawScript) {
 
 	// gui_clear - Clear all widgets from content
 	ps.RegisterCommand("gui_clear", func(ctx *pawscript.Context) pawscript.Result {
-		ws := getFirstWindow()
+		ws := getWindowFromContext(ctx)
 		if ws == nil {
 			ctx.LogError(pawscript.CatCommand, "No window available - create one with gui_window first")
 			return pawscript.BoolStatus(false)
@@ -1784,7 +1814,7 @@ func registerGuiCommands(ps *pawscript.PawScript) {
 
 	// gui_msgbox - Show a message dialog
 	ps.RegisterCommand("gui_msgbox", func(ctx *pawscript.Context) pawscript.Result {
-		ws := getFirstWindow()
+		ws := getWindowFromContext(ctx)
 		if ws == nil {
 			ctx.LogError(pawscript.CatCommand, "No window available - create one with gui_window first")
 			return pawscript.BoolStatus(false)
@@ -1816,7 +1846,7 @@ func registerGuiCommands(ps *pawscript.PawScript) {
 
 	// gui_console - Create a terminal console widget
 	ps.RegisterCommand("gui_console", func(ctx *pawscript.Context) pawscript.Result {
-		ws := getFirstWindow()
+		ws := getWindowFromContext(ctx)
 		if ws == nil {
 			ctx.LogError(pawscript.CatCommand, "No window available - create one with gui_window first")
 			return pawscript.BoolStatus(false)
