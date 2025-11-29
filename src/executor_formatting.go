@@ -133,13 +133,26 @@ func (e *Executor) formatArgumentForSubstitution(arg interface{}) string {
 		// Unwrap parentheses - just the content
 		result = string(v)
 	case QuotedString:
-		// Unwrap quotes - just the content (already unescaped)
-		result = string(v)
+		// QuotedString needs to preserve quotes if it contains spaces or special chars
+		// This ensures "YOUR NAME" stays as a single argument when substituted
+		content := string(v)
+		if strings.ContainsAny(content, " \t\n,(){}[]") || content == "" {
+			// Preserve as quoted string - escape internal quotes and backslashes
+			escaped := strings.ReplaceAll(content, `\`, `\\`)
+			escaped = strings.ReplaceAll(escaped, `"`, `\"`)
+			return `"` + escaped + `"`
+		}
+		result = content
 	case Symbol:
 		// Symbol as-is (bare identifier)
 		result = string(v)
 	case string:
-		// Bare string as-is
+		// Bare string - if it contains spaces, wrap in quotes
+		if strings.ContainsAny(v, " \t\n,(){}[]") || v == "" {
+			escaped := strings.ReplaceAll(v, `\`, `\\`)
+			escaped = strings.ReplaceAll(escaped, `"`, `\"`)
+			return `"` + escaped + `"`
+		}
 		result = v
 	case int64, float64, bool:
 		// Numbers and booleans as-is
