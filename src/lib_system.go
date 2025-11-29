@@ -694,72 +694,83 @@ func (ps *PawScript) RegisterSystemLib(scriptArgs []string) {
 	// read - read a line from stdin, channel, or file
 	// For files: read <file> or read <file>, eof: true
 	ps.RegisterCommandInModule("io", "read", func(ctx *Context) Result {
-		// Check if first arg is a file handle
+		// Helper to read from file with eof option
+		readFromFile := func(f *StoredFile) Result {
+			readToEof := false
+			if eof, ok := ctx.NamedArgs["eof"]; ok {
+				if b, ok := eof.(bool); ok {
+					readToEof = b
+				} else if s, ok := eof.(string); ok {
+					readToEof = s == "true"
+				}
+			}
+			var content string
+			var err error
+			if readToEof {
+				content, err = f.ReadAll()
+			} else {
+				content, err = f.ReadLine()
+			}
+			if err != nil {
+				if err.Error() == "EOF" || strings.Contains(err.Error(), "EOF") {
+					ctx.SetResult("")
+					return BoolStatus(false)
+				}
+				ctx.LogError(CatIO, fmt.Sprintf("read: %v", err))
+				return BoolStatus(false)
+			}
+			ctx.SetResult(content)
+			return BoolStatus(true)
+		}
+
+		// Check if first arg is provided
 		if len(ctx.Args) > 0 {
 			// Direct file handle
 			if f, ok := ctx.Args[0].(*StoredFile); ok {
-				readToEof := false
-				if eof, ok := ctx.NamedArgs["eof"]; ok {
-					if b, ok := eof.(bool); ok {
-						readToEof = b
-					} else if s, ok := eof.(string); ok {
-						readToEof = s == "true"
-					}
-				}
-				var content string
-				var err error
-				if readToEof {
-					content, err = f.ReadAll()
-				} else {
-					content, err = f.ReadLine()
-				}
+				return readFromFile(f)
+			}
+
+			// Check for channel
+			if ch, ok := ctx.Args[0].(*StoredChannel); ok {
+				_, value, err := ChannelRecv(ch)
 				if err != nil {
-					if err.Error() == "EOF" || strings.Contains(err.Error(), "EOF") {
-						ctx.SetResult("")
-						return BoolStatus(false)
-					}
 					ctx.LogError(CatIO, fmt.Sprintf("read: %v", err))
 					return BoolStatus(false)
 				}
-				ctx.SetResult(content)
+				ctx.SetResult(value)
 				return BoolStatus(true)
 			}
-			// Check for #-prefixed symbol that might be a file
+
+			// Check for #-prefixed symbol that might be a file or channel
 			if sym, ok := ctx.Args[0].(Symbol); ok {
 				symStr := string(sym)
 				if strings.HasPrefix(symStr, "#") {
+					// Try to resolve as file
 					if f := resolveFile(ctx, symStr); f != nil {
-						readToEof := false
-						if eof, ok := ctx.NamedArgs["eof"]; ok {
-							if b, ok := eof.(bool); ok {
-								readToEof = b
-							} else if s, ok := eof.(string); ok {
-								readToEof = s == "true"
-							}
-						}
-						var content string
-						var err error
-						if readToEof {
-							content, err = f.ReadAll()
-						} else {
-							content, err = f.ReadLine()
-						}
-						if err != nil {
-							if err.Error() == "EOF" || strings.Contains(err.Error(), "EOF") {
-								ctx.SetResult("")
+						return readFromFile(f)
+					}
+					// Try to resolve as channel (check if it's #in or similar)
+					if symStr == "#in" {
+						ch, found := getInputChannel(ctx, "#in")
+						if found {
+							_, value, err := ChannelRecv(ch)
+							if err != nil {
+								ctx.LogError(CatIO, fmt.Sprintf("read: %v", err))
 								return BoolStatus(false)
 							}
-							ctx.LogError(CatIO, fmt.Sprintf("read: %v", err))
-							return BoolStatus(false)
+							ctx.SetResult(value)
+							return BoolStatus(true)
 						}
-						ctx.SetResult(content)
-						return BoolStatus(true)
 					}
 				}
 			}
+
+			// Argument provided but not a valid file or channel - error out
+			ctx.LogError(CatIO, "read: invalid argument - expected file handle or channel")
+			return BoolStatus(false)
 		}
 
-		// Fall back to channel handling
+		// No arguments - fall back to channel handling or stdin
 		ch, found := getInputChannel(ctx, "#in")
 		if !found {
 			token := ctx.RequestToken(nil)
