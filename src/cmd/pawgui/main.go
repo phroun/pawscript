@@ -790,9 +790,10 @@ func registerGuiCommands(ps *pawscript.PawScript) {
 		// Default to 80x25 character size for console windows
 		// Base character size: 9 pixels wide, 18 pixels tall
 		// Note: Fyne's scale affects rendering density, not logical dimensions
+		// Dimensions reduced ~8% to account for terminal widget overhead
 		if isConsole && !sizeSpecified {
-			width = 720  // 80 * 9
-			height = 450 // 25 * 18
+			width = 662  // 80 * 9 - 58 (adjustment for terminal overhead)
+			height = 414 // 25 * 18 - 36 (adjustment for terminal overhead)
 		}
 
 		// Create window state
