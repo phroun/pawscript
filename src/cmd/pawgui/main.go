@@ -531,6 +531,7 @@ Environment Variables (use SCRIPT_DIR as placeholder):
 
 GUI Commands (available in scripts):
   gui_window <title> [w], [h]   Create new window, returns handle
+                                Use console: true for easy print/read mode
   gui_title [#win,] <text>      Set window title
   gui_resize [#win,] <w>, <h>   Resize window
   gui_close #win                Close a window
@@ -550,6 +551,11 @@ Window Handle Usage:
   gui_title #window, "New Title"
   gui_resize #window, 400, 300
   gui_close #window
+
+Easy Console Mode (beginners):
+  gui_window "My App", 800, 600, console: true
+  print "Hello World!"       # Prints to the console window
+  $name: {read}              # Reads from user input
 
 Examples:
   pawgui examples/gui-demo.paw       # Run the GUI demo
@@ -749,6 +755,7 @@ func createConsoleWindowWithPipes(scriptFile string, stdinReader *io.PipeWriter,
 func registerGuiCommands(ps *pawscript.PawScript) {
 	// gui_window - Create a new window and return a handle
 	// Usage: #mywin: {gui_window "Title"} or #mywin: {gui_window "Title", 800, 600}
+	// With console: true, creates a console window and redirects stdout/stdin/stderr
 	ps.RegisterCommand("gui_window", func(ctx *pawscript.Context) pawscript.Result {
 		title := "PawScript Window"
 		width := float32(400)
@@ -766,6 +773,16 @@ func registerGuiCommands(ps *pawscript.PawScript) {
 			}
 		}
 
+		// Check for console: true named argument
+		isConsole := false
+		if consoleArg, ok := ctx.NamedArgs["console"]; ok {
+			if b, ok := consoleArg.(bool); ok && b {
+				isConsole = true
+			} else if s, ok := consoleArg.(string); ok && (s == "true" || s == "yes" || s == "1") {
+				isConsole = true
+			}
+		}
+
 		// Create window state
 		guiState.mu.Lock()
 		id := guiState.nextID
@@ -775,40 +792,126 @@ func registerGuiCommands(ps *pawscript.PawScript) {
 		var ws *WindowState
 		done := make(chan struct{})
 
-		fyne.Do(func() {
-			newWindow := guiState.app.NewWindow(title)
-			newWindow.Resize(fyne.NewSize(width, height))
+		// For console mode, we need to set up pipes and channels
+		var consoleOutCh, consoleInCh *pawscript.StoredChannel
 
-			ws = &WindowState{
-				window:       newWindow,
-				content:      container.NewVBox(),
-				leftContent:  container.NewVBox(),
-				rightContent: container.NewVBox(),
-				usingSplit:   false,
-				widgets:      make(map[string]fyne.CanvasObject),
-				containers:   make(map[string]*fyne.Container),
+		if isConsole {
+			// Create pipes for console I/O
+			stdinWriter, stdinReader := io.Pipe()
+			stdoutReader, stdoutWriter := io.Pipe()
+
+			// Create console channels
+			charWidth := int(width / 9)
+			charHeight := int(height / 18)
+			if charWidth < 1 {
+				charWidth = 80
+			}
+			if charHeight < 1 {
+				charHeight = 24
 			}
 
-			// Add close handler to remove window from tracking
-			windowID := id // Capture for closure
-			newWindow.SetCloseIntercept(func() {
+			consoleOutCh, consoleInCh, _ = createConsoleChannels(stdinWriter, stdoutWriter, charWidth, charHeight)
+
+			fyne.Do(func() {
+				newWindow := guiState.app.NewWindow(title)
+				newWindow.Resize(fyne.NewSize(width, height))
+
+				ws = &WindowState{
+					window:       newWindow,
+					content:      container.NewVBox(),
+					leftContent:  container.NewVBox(),
+					rightContent: container.NewVBox(),
+					usingSplit:   false,
+					widgets:      make(map[string]fyne.CanvasObject),
+					containers:   make(map[string]*fyne.Container),
+				}
+
+				term := terminal.New()
+				ws.terminal = term
+
+				// Add close handler to remove window from tracking
+				windowID := id // Capture for closure
+				newWindow.SetCloseIntercept(func() {
+					guiState.mu.Lock()
+					delete(guiState.windows, windowID)
+					guiState.mu.Unlock()
+					newWindow.Close()
+				})
+
+				// Set the terminal as the window content (full size)
+				clickInterceptor := newClickInterceptor(term)
+				termWithInterceptor := container.NewStack(term, clickInterceptor)
+				newWindow.SetContent(termWithInterceptor)
+				newWindow.Show()
+
 				guiState.mu.Lock()
-				delete(guiState.windows, windowID)
+				guiState.windows[id] = ws
 				guiState.mu.Unlock()
-				newWindow.Close()
+
+				// Start the terminal connection
+				go func() {
+					time.Sleep(time.Millisecond * 100)
+					err := term.RunWithConnection(stdinReader, stdoutReader)
+					if err != nil {
+						fmt.Fprintf(os.Stderr, "Terminal error: %v\n", err)
+					}
+				}()
+
+				// Auto-focus the terminal
+				canvas := newWindow.Canvas()
+				if canvas != nil {
+					canvas.Focus(term)
+				}
+
+				close(done)
 			})
 
-			newWindow.SetContent(ws.content)
-			newWindow.Show()
+			<-done
 
-			guiState.mu.Lock()
-			guiState.windows[id] = ws
-			guiState.mu.Unlock()
+			// Redirect #out, #in, #err to the console channels using SetInheritedObject
+			guiState.ps.SetInheritedObject("io", "#out", consoleOutCh)
+			guiState.ps.SetInheritedObject("io", "#stdout", consoleOutCh)
+			guiState.ps.SetInheritedObject("io", "#in", consoleInCh)
+			guiState.ps.SetInheritedObject("io", "#stdin", consoleInCh)
+			guiState.ps.SetInheritedObject("io", "#err", consoleOutCh)
+			guiState.ps.SetInheritedObject("io", "#stderr", consoleOutCh)
+		} else {
+			// Standard window (no console)
+			fyne.Do(func() {
+				newWindow := guiState.app.NewWindow(title)
+				newWindow.Resize(fyne.NewSize(width, height))
 
-			close(done)
-		})
+				ws = &WindowState{
+					window:       newWindow,
+					content:      container.NewVBox(),
+					leftContent:  container.NewVBox(),
+					rightContent: container.NewVBox(),
+					usingSplit:   false,
+					widgets:      make(map[string]fyne.CanvasObject),
+					containers:   make(map[string]*fyne.Container),
+				}
 
-		<-done
+				// Add close handler to remove window from tracking
+				windowID := id // Capture for closure
+				newWindow.SetCloseIntercept(func() {
+					guiState.mu.Lock()
+					delete(guiState.windows, windowID)
+					guiState.mu.Unlock()
+					newWindow.Close()
+				})
+
+				newWindow.SetContent(ws.content)
+				newWindow.Show()
+
+				guiState.mu.Lock()
+				guiState.windows[id] = ws
+				guiState.mu.Unlock()
+
+				close(done)
+			})
+
+			<-done
+		}
 
 		// Return window marker
 		marker := fmt.Sprintf("\x00WINDOW:%d\x00", id)
