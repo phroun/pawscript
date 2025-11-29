@@ -16,7 +16,7 @@ else
     BINARY_NAME := paw
 endif
 
-.PHONY: build-all clean-releases build build-gui install test test-coverage run-example clean fmt lint help \
+.PHONY: build-all build-all-gui clean-releases build build-gui install test test-coverage run-example clean fmt lint help \
 	build-gui-macos-arm64 build-gui-macos-x64 build-gui-ms-arm64 build-gui-ms-x64 build-gui-linux-arm64 build-gui-linux-x64
 
 # Build native version for local use
@@ -63,9 +63,11 @@ else
 	fi
 endif
 
-# Build and package all platforms (CLI and GUI)
-build-all: build-wasm build-macos-arm64 build-macos-x64 build-ms-arm64 build-ms-x64 build-linux-arm64 build-linux-x64 \
-	build-gui-macos-arm64 build-gui-macos-x64 build-gui-ms-arm64 build-gui-ms-x64 build-gui-linux-arm64 build-gui-linux-x64
+# Build and package CLI for all platforms
+build-all: build-wasm build-macos-arm64 build-macos-x64 build-ms-arm64 build-ms-x64 build-linux-arm64 build-linux-x64
+
+# Build and package GUI for all platforms (requires fyne-cross and Docker)
+build-all-gui: build-gui-macos-arm64 build-gui-macos-x64 build-gui-ms-arm64 build-gui-ms-x64 build-gui-linux-arm64 build-gui-linux-x64
 
 # Clean release artifacts
 clean-releases:
@@ -204,7 +206,8 @@ help:
 	@echo "Targets:"
 	@echo "  build          - Build paw for native platform"
 	@echo "  build-gui      - Build pawgui (Fyne GUI) for native platform"
-	@echo "  build-all      - Build and package paw+pawgui for all platforms"
+	@echo "  build-all      - Build and package paw CLI for all platforms"
+	@echo "  build-all-gui  - Build and package pawgui for all platforms (requires Docker)"
 	@echo "  run-example    - Run hello.paw example"
 	@echo "  test           - Run regression tests"
 	@echo "  test-coverage  - Run tests with coverage report"
@@ -215,5 +218,6 @@ help:
 	@echo "  lint           - Run linter"
 	@echo "  help           - Show this help"
 	@echo ""
-	@echo "GUI cross-compilation requires fyne-cross and Docker:"
+	@echo "GUI cross-compilation requires fyne-cross, fyne CLI, and Docker:"
 	@echo "  go install github.com/fyne-io/fyne-cross@latest"
+	@echo "  go install fyne.io/tools/cmd/fyne@latest"
