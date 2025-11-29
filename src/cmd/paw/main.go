@@ -64,6 +64,11 @@ func main() {
 	flag.BoolVar(debugFlag, "d", false, "Enable debug output (short)")
 	flag.BoolVar(verboseFlag, "v", false, "Enable verbose output (short, alias for -debug)")
 
+	// File access control flags
+	readRootsFlag := flag.String("read-roots", "", "Comma-separated directories allowed for file reading")
+	writeRootsFlag := flag.String("write-roots", "", "Comma-separated directories allowed for file writing")
+	sandboxFlag := flag.String("sandbox", "", "Restrict both read and write to this directory")
+
 	// Custom usage function
 	flag.Usage = showUsage
 
@@ -149,6 +154,53 @@ func main() {
 		os.Exit(1)
 	}
 
+	// Build file access configuration from flags
+	var fileAccess *pawscript.FileAccessConfig
+	if *sandboxFlag != "" || *readRootsFlag != "" || *writeRootsFlag != "" {
+		fileAccess = &pawscript.FileAccessConfig{}
+
+		// Sandbox overrides individual roots
+		if *sandboxFlag != "" {
+			absPath, err := filepath.Abs(*sandboxFlag)
+			if err != nil {
+				errorPrintf("Error resolving sandbox path: %v\n", err)
+				os.Exit(1)
+			}
+			fileAccess.ReadRoots = []string{absPath}
+			fileAccess.WriteRoots = []string{absPath}
+		} else {
+			// Parse individual roots
+			if *readRootsFlag != "" {
+				roots := strings.Split(*readRootsFlag, ",")
+				for _, root := range roots {
+					root = strings.TrimSpace(root)
+					if root != "" {
+						absPath, err := filepath.Abs(root)
+						if err != nil {
+							errorPrintf("Error resolving read root path %s: %v\n", root, err)
+							os.Exit(1)
+						}
+						fileAccess.ReadRoots = append(fileAccess.ReadRoots, absPath)
+					}
+				}
+			}
+			if *writeRootsFlag != "" {
+				roots := strings.Split(*writeRootsFlag, ",")
+				for _, root := range roots {
+					root = strings.TrimSpace(root)
+					if root != "" {
+						absPath, err := filepath.Abs(root)
+						if err != nil {
+							errorPrintf("Error resolving write root path %s: %v\n", root, err)
+							os.Exit(1)
+						}
+						fileAccess.WriteRoots = append(fileAccess.WriteRoots, absPath)
+					}
+				}
+			}
+		}
+	}
+
 	// Create PawScript interpreter
 	ps := pawscript.New(&pawscript.Config{
 		Debug:                debug, // Use the flag value
@@ -156,6 +208,7 @@ func main() {
 		EnableSyntacticSugar: true,
 		ShowErrorContext:     true,
 		ContextLines:         2,
+		FileAccess:           fileAccess,
 	})
 
 	// Register standard library commands
@@ -273,11 +326,14 @@ Options:
   --license           View license and exit
   -d, -debug          Enable debug output
   -v, -verbose        Enable verbose output (same as -debug)
-  
+  --sandbox DIR       Restrict file read/write to DIR only
+  --read-roots DIRS   Comma-separated directories allowed for reading
+  --write-roots DIRS  Comma-separated directories allowed for writing
+
 Arguments:
   script.paw          Script file to execute (adds .paw extension if needed)
   --                  Separates script filename from arguments (for stdin input)
-  
+
 Examples:
   paw hello.paw               # Execute hello.paw
   paw hello                   # Execute hello.paw (adds .paw extension)
@@ -286,6 +342,8 @@ Examples:
   paw script.paw -- a b       # Execute script.paw with args "a" and "b"
   echo "echo Hello" | paw     # Execute commands from pipe
   paw -d -- a ab < my.paw     # Execute from stdin with arguments and debug
+  paw --sandbox /tmp test.paw # Restrict file access to /tmp
+  paw --read-roots /data,/config --write-roots /tmp test.paw
 `
 	fmt.Fprint(os.Stderr, usage)
 }
