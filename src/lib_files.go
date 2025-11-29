@@ -5,9 +5,29 @@ import (
 	"io"
 	"os"
 	"path/filepath"
+	"runtime"
 	"strings"
 	"time"
 )
+
+// pathHasPrefix checks if path starts with prefix, handling case sensitivity
+// based on the operating system's file system conventions
+func pathHasPrefix(path, prefix string) bool {
+	// Windows and macOS (darwin) typically have case-insensitive file systems
+	if runtime.GOOS == "windows" || runtime.GOOS == "darwin" {
+		return strings.HasPrefix(strings.ToLower(path), strings.ToLower(prefix))
+	}
+	return strings.HasPrefix(path, prefix)
+}
+
+// pathEquals checks if two paths are equal, handling case sensitivity
+// based on the operating system's file system conventions
+func pathEquals(path1, path2 string) bool {
+	if runtime.GOOS == "windows" || runtime.GOOS == "darwin" {
+		return strings.EqualFold(path1, path2)
+	}
+	return path1 == path2
+}
 
 // RegisterFilesLib registers file system commands
 // Module: files
@@ -61,7 +81,8 @@ func (ps *PawScript) RegisterFilesLib() {
 					continue
 				}
 				absRoot = filepath.Clean(absRoot)
-				if strings.HasPrefix(absPath, absRoot+string(filepath.Separator)) || absPath == absRoot {
+				// Use case-insensitive comparison on Windows/macOS
+				if pathHasPrefix(absPath, absRoot+string(filepath.Separator)) || pathEquals(absPath, absRoot) {
 					allowed = true
 					break
 				}
@@ -86,7 +107,8 @@ func (ps *PawScript) RegisterFilesLib() {
 					continue
 				}
 				absRoot = filepath.Clean(absRoot)
-				if strings.HasPrefix(absPath, absRoot+string(filepath.Separator)) || absPath == absRoot {
+				// Use case-insensitive comparison on Windows/macOS
+				if pathHasPrefix(absPath, absRoot+string(filepath.Separator)) || pathEquals(absPath, absRoot) {
 					allowed = true
 					break
 				}

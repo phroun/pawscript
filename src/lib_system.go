@@ -505,9 +505,10 @@ func (ps *PawScript) RegisterSystemLib(scriptArgs []string) {
 				cmdPath = filepath.Clean(cmdPath)
 
 				// Check if command is within allowed exec roots
+				// Use case-insensitive comparison on Windows/macOS
 				allowed := false
 				for _, root := range fileAccess.ExecRoots {
-					if strings.HasPrefix(cmdPath, root+string(filepath.Separator)) || cmdPath == root {
+					if pathHasPrefix(cmdPath, root+string(filepath.Separator)) || pathEquals(cmdPath, root) {
 						allowed = true
 						break
 					}
@@ -519,6 +520,7 @@ func (ps *PawScript) RegisterSystemLib(scriptArgs []string) {
 
 				// Security: exec roots must not overlap with write roots
 				// This prevents write-then-execute attacks
+				// Use case-insensitive comparison on Windows/macOS
 				if len(fileAccess.WriteRoots) > 0 {
 					for _, writeRoot := range fileAccess.WriteRoots {
 						absWriteRoot, err := filepath.Abs(writeRoot)
@@ -526,7 +528,7 @@ func (ps *PawScript) RegisterSystemLib(scriptArgs []string) {
 							continue
 						}
 						absWriteRoot = filepath.Clean(absWriteRoot)
-						if strings.HasPrefix(cmdPath, absWriteRoot+string(filepath.Separator)) || cmdPath == absWriteRoot {
+						if pathHasPrefix(cmdPath, absWriteRoot+string(filepath.Separator)) || pathEquals(cmdPath, absWriteRoot) {
 							ctx.LogError(CatIO, "exec: access denied: cannot execute from writable directory (security restriction)")
 							return BoolStatus(false)
 						}
