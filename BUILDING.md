@@ -86,10 +86,13 @@ GUI cross-compilation requires [fyne-cross](https://github.com/fyne-io/fyne-cros
 
 1. Install Docker and ensure it's running
 
-2. Install fyne-cross:
+2. Install fyne-cross and the fyne CLI:
    ```bash
    go install github.com/fyne-io/fyne-cross@latest
+   go install fyne.io/tools/cmd/fyne@latest
    ```
+
+   Note: You may see a deprecation warning about the old fyne tool location - this is expected and the build will still complete.
 
 3. Build for specific platforms:
    ```bash

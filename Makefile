@@ -215,5 +215,6 @@ help:
 	@echo "  lint           - Run linter"
 	@echo "  help           - Show this help"
 	@echo ""
-	@echo "GUI cross-compilation requires fyne-cross and Docker:"
+	@echo "GUI cross-compilation requires fyne-cross, fyne CLI, and Docker:"
 	@echo "  go install github.com/fyne-io/fyne-cross@latest"
+	@echo "  go install fyne.io/tools/cmd/fyne@latest"
