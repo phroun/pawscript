@@ -1598,8 +1598,23 @@ func newClickInterceptor(term *terminal.Terminal) *clickInterceptor {
 }
 
 func (c *clickInterceptor) Tapped(_ *fyne.PointEvent) {
+	if c == nil || c.terminal == nil {
+		return
+	}
 	c.terminal.FocusGained()
-	fyne.CurrentApp().Driver().CanvasForObject(c.terminal).Focus(c.terminal)
+	app := fyne.CurrentApp()
+	if app == nil {
+		return
+	}
+	driver := app.Driver()
+	if driver == nil {
+		return
+	}
+	canvas := driver.CanvasForObject(c.terminal)
+	if canvas == nil {
+		return
+	}
+	canvas.Focus(c.terminal)
 }
 
 func (c *clickInterceptor) CreateRenderer() fyne.WidgetRenderer {
