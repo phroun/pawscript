@@ -579,8 +579,8 @@ Window Handle Usage:
 
 Easy Console Mode (beginners):
   gui_window "My App", 800, 600, console: true
-  print "Hello World!"       # Prints to the console window
-  $name: {read}              # Reads from user input
+  print "Hello World!"      # Prints to the console window
+  name: {read}              # Reads from user input
 
 Examples:
   pawgui examples/gui-demo.paw       # Run the GUI demo

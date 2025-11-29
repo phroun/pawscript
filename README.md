@@ -75,7 +75,7 @@ See the `examples/` directory for sample scripts and usage patterns.
 
 ## Changelog
 
-### 0.2.8 -- November 28, 2025
+### 0.2.8 -- November 28-29, 2025 - Thanksgiving Alpha
 - Polymorphic commands: `append`, `prepend`, `contains`, `index` now work on
   both strings and lists
 - `trim`, `trim_left`, `trim_right` accept optional character sets and work
@@ -113,10 +113,10 @@ See the `examples/` directory for sample scripts and usage patterns.
 - Added documentation for COW (copy-on-write) inheritance system
 - Added documentation for result passing system (result-flow.md)
 - Added Fibonacci benchmark examples
-- Auxiliary math library (math::) with trig functions (sin, cos, tan,
-  atan2, deg, rad, log, log10, ln) and constants (#tau, #e, #phi, #root2,
-  #root3, #root5, #ln2) - requires `IMPORT math`
 - Renamed basic math module from math:: to basicmath:: (auto-imported)
+- Auxiliary math library (math::) with trig functions (sin, cos, tan,
+  atan2, deg, rad, log, log10, ln, pow) and constants (#tau, #e, #phi,
+  #root2, #root3, #root5, #ln2) - requires `IMPORT math`
 - Named argument tilde resolution: both keys (`~dynKey:`) and values
   (`: ~dynVal`) now resolve
 - Accessor syntax support in named argument keys (`~obj.field:`, `~list 0:`)
@@ -164,7 +164,50 @@ See the `examples/` directory for sample scripts and usage patterns.
     - `float`/`float_be`, `float_le` - IEEE 754 floats (4 or 8 bytes)
     - `bit0`-`bit7` - individual bits, size=0 to share byte with other bits
   - Bit modes enable packing 8 booleans in one byte (OR to set, AND to read)
-- `pow` command added to math module: `pow base, exponent` for exponentiation
+  - Added extended struct field modes: endianness, unsigned, float, and bitfields
+    - Endianness modes: int_be/int_le, uint_be/uint_le for big/little-endian
+    - Unsigned integers: uint/uint_be/uint_le (no sign extension on read)
+    - Float modes: float_be/float_le for IEEE 754 (4 or 8 byte) conversion
+    - Bit modes: bit0-bit7 for individual bits, size=0 to share byte
+    - Bit packing: up to 8 booleans in one byte (OR to set, AND to read)
+    - Use toNumber for int field assignment (handles hex literals)
+- New bitwise:: module with operations for int64 and bytes types:
+  - bitwise_and, bitwise_or, bitwise_xor: binary ops with align/repeat options
+  - bitwise_not: unary complement operation
+  - bitwise_shl, bitwise_shr: shift left/right by N bits
+  - bitwise_rol, bitwise_ror: rotate with configurable bitlength (default 8)
+  - Output type matches first argument (int64 or bytes, preserving length)
+  - align: left|right option for bytes of different lengths
+  - repeat: true option for cyclic application (cipher-like XOR)
+  - List support: operations applied element-wise when first arg is list
+  - Handles both StoredList and ParenGroup inputs
+- Implement `for` command with multiple forms:
+  - Numeric ranges: `for 1, 10, i, (body)` with optional `by:` step
+  - List iteration: `for ~list, item, (body)` with `order: descending`
+  - Key-value pairs: `for ~list, key, value, (body)` over named args
+  - Struct fields: `for ~struct, fieldname, value, (body)`
+  - Generator/iterator: `for ~generator, x, (body)`
+  - Unpack mode: `for ~list, (a, b, c), (body)`
+- Add `iter:` and `index:` named args for iteration tracking
+- Implement `range` command for explicit range generators
+- Add ForContinuation type for resuming for loops after yield
+- Full support for yield inside for loops in generators
+- Support for async operations (msleep) inside for loops
+- Add toFloat64 helper for numeric range parsing
+- Added full CLI support to pawgui, run with --help
+- Removed assumption of a single window in pawgui.
+  - Creating a window with console: true will populate it with a terminal
+    and grab #out/#in/#err to allow regular CLI-style PawScript interactions.
+  - When all windows are closed, and all fibers have ended, the application
+    will close itself.
+- Added a primitive launcher to pawgui when invoked with no arguments.
+  - CLI scripts will run directly inside the launcher's console window.
+  - File -> New will create additional launcher instances.
+- Explicit focus and autofocus of pawgui controls.
+- Better default sizing and centering of pawgui console or launcher windows.
+- Added automatic build process for pawgui for all platforms in Makefile
+- Fixed a macro argument substitution bug for short string types.
+- Native OS dialogs for File -> Open using sqweek.
 
 ### 0.2.7 -- November 27, 2025
 - Move Makefile into a more standard location
@@ -191,14 +234,12 @@ See the `examples/` directory for sample scripts and usage patterns.
 - Updated pawgui demos to use inline brace color expressions.
 - Added generator/coroutine support with yield inside while loops.
 - Added each and pair iterators for efficient list iteration.
-- Added comprehensive generator test suite with expected output.
 - Fixed terminal color handling when output is redirected.
 - Fixed async generator interleaving and iterator termination bugs.
 - Generator completion now returns status false.
 - Propagated brace expression status through assignment.
 - Fixed nested while loops in generators.
 - Added get_status command to core module.
-- Added tests for empty generator and mid-generator error handling
 - Added if command validation and warnings for improper usages.
 - Added get_substatus command to check brace expression failures.
 - Added proper undefined result handling for unknown commands.
@@ -212,7 +253,6 @@ See the `examples/` directory for sample scripts and usage patterns.
 - Extended log_print to support multiple categories for a single entry.
 - Add #debug channel for separate debug output redirection.
 - Added list accessor syntax (~list.key for named args, ~list N for index)
-- Added multidimensional and mixed accessor tests
 - Support for index-then-dot accessor syntax (~students 1.firstName)
 - Stricter number parsing: dots only in floats when digit before and after.
 
