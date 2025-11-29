@@ -127,6 +127,14 @@ func formatArgForDisplay(arg interface{}, executor *Executor) string {
 			}
 		}
 		return "<fiber>"
+	case *StoredFile:
+		// Display as <file N> to avoid leaking internal representation
+		if executor != nil {
+			if id := executor.findStoredFileID(v); id >= 0 {
+				return fmt.Sprintf("<file %d>", id)
+			}
+		}
+		return "<file>"
 	default:
 		// Check if the original value was an unresolved marker (string or Symbol form)
 		// This handles cases where the object was garbage collected or not found
@@ -200,7 +208,8 @@ func (ps *PawScript) RegisterStandardLibraryWithIO(scriptArgs []string, ioConfig
 
 	// Register auxiliary libraries AFTER PopulateDefaultImports
 	// These are available via IMPORT but not auto-imported
-	ps.RegisterMathLib() // math:: (trig functions, constants)
+	ps.RegisterMathLib()  // math:: (trig functions, constants)
+	ps.RegisterFilesLib() // files:: (file system operations)
 
 	// Populate IO module with native stdin/stdout/stderr/stdio channels
 	// Uses custom channels from ioConfig if provided
@@ -419,6 +428,8 @@ func getTypeName(val interface{}) string {
 		return "channel"
 	case *FiberHandle:
 		return "fiber"
+	case *StoredFile:
+		return "file"
 	case StoredList:
 		return "list"
 	case StoredString:

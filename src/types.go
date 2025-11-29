@@ -310,6 +310,12 @@ type SubstitutionContext struct {
 	BracesEvaluated int
 }
 
+// FileAccessConfig controls file system access permissions
+type FileAccessConfig struct {
+	ReadRoots  []string // Directories allowed for read access (nil = unrestricted)
+	WriteRoots []string // Directories allowed for write access (nil = unrestricted)
+}
+
 // Config holds configuration for PawScript
 type Config struct {
 	Debug                bool
@@ -318,9 +324,10 @@ type Config struct {
 	AllowMacros          bool
 	ShowErrorContext     bool
 	ContextLines         int
-	Stdin                io.Reader // Custom stdin reader (default: os.Stdin)
-	Stdout               io.Writer // Custom stdout writer (default: os.Stdout)
-	Stderr               io.Writer // Custom stderr writer (default: os.Stderr)
+	Stdin                io.Reader        // Custom stdin reader (default: os.Stdin)
+	Stdout               io.Writer        // Custom stdout writer (default: os.Stdout)
+	Stderr               io.Writer        // Custom stderr writer (default: os.Stderr)
+	FileAccess           *FileAccessConfig // File system access control (nil = unrestricted)
 }
 
 // DefaultConfig returns default configuration
@@ -561,6 +568,149 @@ func (ch *StoredChannel) String() string {
 		return fmt.Sprintf("(channel-sub:%d)", ch.SubscriberID)
 	}
 	return "(channel)"
+}
+
+// StoredFile represents an open file handle
+// Files act like channels for read/write but support additional operations
+type StoredFile struct {
+	mu       sync.RWMutex
+	File     *os.File  // The underlying OS file handle
+	Path     string    // Original path used to open the file
+	Mode     string    // "r", "w", "a", "rw"
+	IsClosed bool
+}
+
+// NewStoredFile creates a new file handle
+func NewStoredFile(file *os.File, path, mode string) *StoredFile {
+	return &StoredFile{
+		File:     file,
+		Path:     path,
+		Mode:     mode,
+		IsClosed: false,
+	}
+}
+
+// Close closes the file handle
+func (f *StoredFile) Close() error {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	if f.IsClosed {
+		return nil
+	}
+	f.IsClosed = true
+	if f.File != nil {
+		return f.File.Close()
+	}
+	return nil
+}
+
+// String returns a string representation for debugging
+func (f *StoredFile) String() string {
+	if f.IsClosed {
+		return "(file:closed)"
+	}
+	return fmt.Sprintf("(file:%s)", f.Path)
+}
+
+// ReadLine reads a single line from the file
+func (f *StoredFile) ReadLine() (string, error) {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	if f.IsClosed || f.File == nil {
+		return "", fmt.Errorf("file is closed")
+	}
+	// Use a simple byte-by-byte read to get a line
+	var line []byte
+	buf := make([]byte, 1)
+	for {
+		n, err := f.File.Read(buf)
+		if n > 0 {
+			if buf[0] == '\n' {
+				break
+			}
+			line = append(line, buf[0])
+		}
+		if err != nil {
+			if err == io.EOF && len(line) > 0 {
+				break
+			}
+			return string(line), err
+		}
+	}
+	// Strip trailing \r if present (Windows line endings)
+	if len(line) > 0 && line[len(line)-1] == '\r' {
+		line = line[:len(line)-1]
+	}
+	return string(line), nil
+}
+
+// ReadAll reads the entire remaining content of the file
+func (f *StoredFile) ReadAll() (string, error) {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	if f.IsClosed || f.File == nil {
+		return "", fmt.Errorf("file is closed")
+	}
+	content, err := io.ReadAll(f.File)
+	if err != nil {
+		return "", err
+	}
+	return string(content), nil
+}
+
+// Write writes a string to the file
+func (f *StoredFile) Write(s string) error {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	if f.IsClosed || f.File == nil {
+		return fmt.Errorf("file is closed")
+	}
+	_, err := f.File.WriteString(s)
+	return err
+}
+
+// Seek moves the file position
+func (f *StoredFile) Seek(offset int64, whence int) (int64, error) {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	if f.IsClosed || f.File == nil {
+		return 0, fmt.Errorf("file is closed")
+	}
+	return f.File.Seek(offset, whence)
+}
+
+// Tell returns the current file position
+func (f *StoredFile) Tell() (int64, error) {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	if f.IsClosed || f.File == nil {
+		return 0, fmt.Errorf("file is closed")
+	}
+	return f.File.Seek(0, io.SeekCurrent)
+}
+
+// Flush flushes the file buffers
+func (f *StoredFile) Flush() error {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	if f.IsClosed || f.File == nil {
+		return fmt.Errorf("file is closed")
+	}
+	return f.File.Sync()
+}
+
+// Truncate truncates the file at the current position
+func (f *StoredFile) Truncate() error {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	if f.IsClosed || f.File == nil {
+		return fmt.Errorf("file is closed")
+	}
+	pos, err := f.File.Seek(0, io.SeekCurrent)
+	if err != nil {
+		return err
+	}
+	return f.File.Truncate(pos)
 }
 
 // ResumeData contains information for resuming a suspended fiber

@@ -232,3 +232,25 @@ func (e *Executor) findStoredFiberID(fh *FiberHandle) int {
 
 	return -1
 }
+
+// findStoredFileID finds the ID of a StoredFile by searching storedObjects
+// Returns -1 if not found
+func (e *Executor) findStoredFileID(f *StoredFile) int {
+	if f == nil {
+		return -1
+	}
+
+	e.mu.RLock()
+	defer e.mu.RUnlock()
+
+	for id, obj := range e.storedObjects {
+		if objF, ok := obj.Value.(*StoredFile); ok {
+			// Compare by pointer identity
+			if objF == f {
+				return id
+			}
+		}
+	}
+
+	return -1
+}

@@ -1167,6 +1167,10 @@ func (e *Executor) processArguments(args []interface{}, state *ExecutionState, s
 						// Keep as marker (pass-by-reference) - fiber identity must be preserved
 						result[i] = arg
 						e.logger.DebugCat(CatCommand,"processArguments[%d]: Preserved fiber marker (pass-by-reference)", i)
+					case "file":
+						// Return as *StoredFile - this passes the file handle by reference
+						result[i] = value
+						e.logger.DebugCat(CatCommand,"processArguments[%d]: Resolved file marker to *StoredFile", i)
 					default:
 						// For unknown types, keep the marker to preserve reference semantics
 						result[i] = arg
