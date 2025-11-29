@@ -1,0 +1,191 @@
+#!/usr/bin/env paw
+# Comprehensive test for StoredBytes type
+
+echo "=== StoredBytes Tests ==="
+echo ""
+
+# Test 1: Creating bytes from integers
+echo "Test 1: Creating bytes from integers"
+b1: {bytes 255, 128, 64, 0}
+echo "Bytes from ints: ~b1"
+echo "(Expected: <FF804000>)"
+echo ""
+
+# Test 2: Creating bytes from hex literals
+echo "Test 2: Creating bytes from hex literals"
+b2: {bytes 0xDEADBEEF}
+echo "Bytes from hex: ~b2"
+echo "(Expected: <DEADBEEF>)"
+echo ""
+
+# Test 3: Creating bytes from string
+echo "Test 3: Creating bytes from string"
+b3: {bytes "ABC"}
+echo "Bytes from string: ~b3"
+echo "(Expected: <414243>)"
+echo ""
+
+# Test 4: Type detection
+echo "Test 4: Type detection"
+echo "Type of b1: {type b1}"
+echo "Type of b2: {type b2}"
+echo "(Expected: bytes for all)"
+echo ""
+
+# Test 5: Length of bytes
+echo "Test 5: Length of bytes"
+echo "Length of b1: {len ~b1}"
+echo "Length of b2: {len ~b2}"
+echo "Length of b3: {len ~b3}"
+echo "(Expected: 4, 4, 3)"
+echo ""
+
+# Test 6: Byte accessor (0-indexed)
+echo "Test 6: Byte accessor (0-indexed)"
+data: {bytes 0x01, 0x02, 0x03, 0x04}
+echo "First byte: {~data 0}"
+echo "Second byte: {~data 1}"
+echo "Third byte: {~data 2}"
+echo "Fourth byte: {~data 3}"
+echo "(Expected: 1, 2, 3, 4)"
+echo ""
+
+# Test 7: Slicing bytes
+echo "Test 7: Slicing bytes"
+full: {bytes 0xAABBCCDDEEFF}
+slice1: {slice ~full, 0, 2}
+slice2: {slice ~full, 2, 4}
+slice3: {slice ~full, 4, -1}
+echo "Full bytes: ~full"
+echo "Slice [0:2]: ~slice1"
+echo "Slice [2:4]: ~slice2"
+echo "Slice [4:end]: ~slice3"
+echo "(Expected: <AABBCCDD EEFF>, <AABB>, <CCDD>, <EEFF>)"
+echo ""
+
+# Test 8: Appending bytes
+echo "Test 8: Appending bytes"
+base: {bytes 0x11, 0x22}
+appended: {append ~base, 0x33}
+echo "Base: ~base"
+echo "After append: ~appended"
+echo "Base unchanged: ~base"
+echo "(Expected: <1122>, <112233>, <1122>)"
+echo ""
+
+# Test 9: Prepending bytes
+echo "Test 9: Prepending bytes"
+prep: {bytes 0x88, 0x99}
+prepended: {prepend ~prep, 0x77}
+echo "Original: ~prep"
+echo "After prepend: ~prepended"
+echo "(Expected: <8899>, <778899>)"
+echo ""
+
+# Test 10: Concatenating bytes
+echo "Test 10: Concatenating bytes"
+first: {bytes 0xAA, 0xBB}
+second: {bytes 0xCC, 0xDD}
+combined: {concat ~first, ~second}
+echo "First: ~first"
+echo "Second: ~second"
+echo "Combined: ~combined"
+echo "Combined length: {len ~combined}"
+echo "(Expected: <AABB>, <CCDD>, <AABBCCDD>, 4)"
+echo ""
+
+# Test 11: Compact bytes
+echo "Test 11: Compact bytes"
+large: {bytes 0x01, 0x02, 0x03, 0x04, 0x05, 0x06, 0x07, 0x08}
+small: {slice ~large, 2, 4}
+compacted: {compact ~small}
+echo "Small slice: ~small"
+echo "Compacted: ~compacted"
+echo "(Expected: <0304>, <0304>)"
+echo ""
+
+# Test 12: Empty bytes
+echo "Test 12: Empty bytes"
+empty: {bytes}
+echo "Empty bytes: ~empty"
+echo "Empty length: {len ~empty}"
+echo "(Expected: <>, 0)"
+echo ""
+
+# Test 13: Mixed creation modes
+echo "Test 13: Mixed creation modes"
+mixed: {bytes 65, 0x42, 67}
+echo "Mixed (65, 0x42, 67): ~mixed"
+echo "(Expected: <414243> - same as ABC)"
+echo ""
+
+# Test 14: Bytes in brace expressions
+echo "Test 14: Bytes in brace expressions"
+src: {bytes 0xFF, 0xEE, 0xDD}
+result: {slice ~src, 1, 3}
+echo "Sliced result: ~result"
+echo "Length: {len ~result}"
+echo "(Expected: <EEDD>, 2)"
+echo ""
+
+# Test 15: Hex literal handling (odd digits)
+echo "Test 15: Hex literal handling"
+odd: {bytes 0xF}
+echo "Single hex digit 0xF: ~odd"
+triple: {bytes 0xABC}
+echo "Triple hex 0xABC: ~triple"
+echo "(Expected: <0F>, <0ABC>)"
+echo ""
+
+# Test 16: Byte value boundaries
+echo "Test 16: Byte value boundaries"
+bounds: {bytes 0, 127, 128, 255}
+echo "Boundary values (0, 127, 128, 255): ~bounds"
+echo "First (0): {~bounds 0}"
+echo "Last (255): {~bounds 3}"
+echo "(Expected: <007F80FF>, 0, 255)"
+echo ""
+
+# Test 17: Functional style - building up bytes
+echo "Test 17: Functional style (rebinding)"
+mybytes: {bytes}
+echo "Starting with empty: {len ~mybytes} bytes"
+
+mybytes: {append ~mybytes, 0x10}
+echo "After append 0x10: {len ~mybytes} bytes"
+
+mybytes: {append ~mybytes, 0x20}
+echo "After append 0x20: {len ~mybytes} bytes"
+
+mybytes: {append ~mybytes, 0x30}
+echo "After append 0x30: {len ~mybytes} bytes"
+
+echo "Final bytes: ~mybytes"
+echo "(Expected: 0, 1, 2, 3, <102030>)"
+echo ""
+
+# Test 18: Nested byte operations
+echo "Test 18: Nested operations"
+source: {bytes 0x01, 0x02, 0x03, 0x04}
+nested: {append {slice ~source, 0, 2}, 0xFF}
+echo "Nested result: ~nested"
+echo "Length: {len ~nested}"
+echo "(Expected: <0102FF>, 3)"
+echo ""
+
+# Test 19: Longer bytes with spacing
+echo "Test 19: Longer bytes display (spaces every 4 bytes)"
+longbytes: {bytes 0x0102030405060708090A0B0C}
+echo "12 bytes: ~longbytes"
+echo "(Expected: <01020304 05060708 090A0B0C>)"
+echo ""
+
+# Test 20: Append with integer
+echo "Test 20: Append with plain integer"
+intbase: {bytes 0xAA}
+intappended: {append ~intbase, 187}
+echo "Appended decimal 187 (0xBB): ~intappended"
+echo "(Expected: <AABB>)"
+echo ""
+
+echo "=== All Bytes Tests Complete ==="

@@ -1,0 +1,109 @@
+=== StoredBytes Tests ===
+
+Test 1: Creating bytes from integers
+Bytes from ints: <FF804000>
+(Expected: <FF804000>)
+
+Test 2: Creating bytes from hex literals
+Bytes from hex: <DEADBEEF>
+(Expected: <DEADBEEF>)
+
+Test 3: Creating bytes from string
+Bytes from string: <414243>
+(Expected: <414243>)
+
+Test 4: Type detection
+Type of b1: bytes
+Type of b2: bytes
+(Expected: bytes for all)
+
+Test 5: Length of bytes
+Length of b1: 4
+Length of b2: 4
+Length of b3: 3
+(Expected: 4, 4, 3)
+
+Test 6: Byte accessor (0-indexed)
+First byte: 1
+Second byte: 2
+Third byte: 3
+Fourth byte: 4
+(Expected: 1, 2, 3, 4)
+
+Test 7: Slicing bytes
+Full bytes: <AABBCCDD EEFF>
+Slice [0:2]: <AABB>
+Slice [2:4]: <CCDD>
+Slice [4:end]: <EEFF>
+(Expected: <AABBCCDD EEFF>, <AABB>, <CCDD>, <EEFF>)
+
+Test 8: Appending bytes
+Base: <1122>
+After append: <112233>
+Base unchanged: <1122>
+(Expected: <1122>, <112233>, <1122>)
+
+Test 9: Prepending bytes
+Original: <8899>
+After prepend: <778899>
+(Expected: <8899>, <778899>)
+
+Test 10: Concatenating bytes
+First: <AABB>
+Second: <CCDD>
+Combined: <AABBCCDD>
+Combined length: 4
+(Expected: <AABB>, <CCDD>, <AABBCCDD>, 4)
+
+Test 11: Compact bytes
+Small slice: <0304>
+Compacted: <0304>
+(Expected: <0304>, <0304>)
+
+Test 12: Empty bytes
+Empty bytes: <>
+Empty length: 0
+(Expected: <>, 0)
+
+Test 13: Mixed creation modes
+Mixed (65, 0x42, 67): <414243>
+(Expected: <414243> - same as ABC)
+
+Test 14: Bytes in brace expressions
+Sliced result: <EEDD>
+Length: 2
+(Expected: <EEDD>, 2)
+
+Test 15: Hex literal handling
+Single hex digit 0xF: <0F>
+Triple hex 0xABC: <0ABC>
+(Expected: <0F>, <0ABC>)
+
+Test 16: Byte value boundaries
+Boundary values (0, 127, 128, 255): <007F80FF>
+First (0): 0
+Last (255): 255
+(Expected: <007F80FF>, 0, 255)
+
+Test 17: Functional style (rebinding)
+Starting with empty: 0 bytes
+After append 0x10: 1 bytes
+After append 0x20: 2 bytes
+After append 0x30: 3 bytes
+Final bytes: <102030>
+(Expected: 0, 1, 2, 3, <102030>)
+
+Test 18: Nested operations
+Nested result: <0102FF>
+Length: 3
+(Expected: <0102FF>, 3)
+
+Test 19: Longer bytes display (spaces every 4 bytes)
+12 bytes: <01020304 05060708 090A0B0C>
+(Expected: <01020304 05060708 090A0B0C>)
+
+Test 20: Append with plain integer
+Appended decimal 187 (0xBB): <AABB>
+(Expected: <AABB>)
+
+=== All Bytes Tests Complete ===

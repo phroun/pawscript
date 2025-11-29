@@ -424,6 +424,21 @@ func (ps *PawScript) RegisterTypesLib() {
 					ctx.LogError(CatArgument, "Cannot append string to bytes (use bytes command)")
 					return BoolStatus(false)
 				}
+			case Symbol:
+				str := string(bi)
+				if isHexLiteral(str) {
+					if hexBytes, ok := parseHexToBytes(str); ok {
+						setBytesResult(ctx, v.AppendBytes(hexBytes))
+					} else {
+						ctx.LogError(CatArgument, fmt.Sprintf("Invalid hex literal: %s", str))
+						return BoolStatus(false)
+					}
+				} else if num, ok := toNumber(bi); ok {
+					setBytesResult(ctx, v.Append(int64(num)))
+				} else {
+					ctx.LogError(CatArgument, fmt.Sprintf("Cannot append %v to bytes", bi))
+					return BoolStatus(false)
+				}
 			default:
 				ctx.LogError(CatArgument, fmt.Sprintf("Cannot append %T to bytes", bi))
 				return BoolStatus(false)
@@ -487,6 +502,21 @@ func (ps *PawScript) RegisterTypesLib() {
 					}
 				} else {
 					ctx.LogError(CatArgument, "Cannot prepend string to bytes (use bytes command)")
+					return BoolStatus(false)
+				}
+			case Symbol:
+				str := string(bi)
+				if isHexLiteral(str) {
+					if hexBytes, ok := parseHexToBytes(str); ok {
+						setBytesResult(ctx, hexBytes.AppendBytes(v))
+					} else {
+						ctx.LogError(CatArgument, fmt.Sprintf("Invalid hex literal: %s", str))
+						return BoolStatus(false)
+					}
+				} else if num, ok := toNumber(bi); ok {
+					setBytesResult(ctx, v.Prepend(int64(num)))
+				} else {
+					ctx.LogError(CatArgument, fmt.Sprintf("Cannot prepend %v to bytes", bi))
 					return BoolStatus(false)
 				}
 			default:
