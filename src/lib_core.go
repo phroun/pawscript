@@ -994,6 +994,892 @@ func (ps *PawScript) RegisterCoreLib() {
 		return BoolStatus(true)
 	})
 
+	// for - loop over a range, list, generator, or key/value pairs
+	// Forms:
+	//   for <start>, <end>, <var>, (body)           - numeric range (inclusive)
+	//   for <start>, <end>, by: <step>, <var>, (body) - numeric range with step
+	//   for ~<iterator>, <var>, (body)              - iterate a generator/list iterator
+	//   for ~<list>, <var>, (body)                  - iterate list items
+	//   for ~<list>, <var>, order: descending, (body) - iterate in reverse
+	//   for ~<list>, <key>, <value>, (body)         - key/value pairs (named args)
+	//   for ~<struct>, <key>, <value>, (body)       - struct field names and values
+	//   for ~<list>, (<unpack vars>), (body)        - unpack each item
+	// Named args:
+	//   by: <step>        - step value for numeric ranges
+	//   order: ascending|descending - iteration order for lists
+	//   iter: <var>       - variable for 1-based iteration number
+	//   index: <var>      - variable for 0-based index
+	ps.RegisterCommandInModule("flow", "for", func(ctx *Context) Result {
+		if len(ctx.Args) < 3 {
+			ctx.LogError(CatCommand, "Usage: for <range|iterator>, <var>, (body)")
+			return BoolStatus(false)
+		}
+
+		// Helper to extract code from a block argument
+		extractCode := func(arg interface{}) string {
+			switch v := arg.(type) {
+			case ParenGroup:
+				return string(v)
+			case Symbol:
+				markerType, objectID := parseObjectMarker(string(v))
+				if markerType == "block" && objectID >= 0 {
+					if obj, exists := ctx.executor.getObject(objectID); exists {
+						if storedBlock, ok := obj.(StoredBlock); ok {
+							return string(storedBlock)
+						}
+					}
+				}
+				return string(v)
+			default:
+				return fmt.Sprintf("%v", arg)
+			}
+		}
+
+		// Helper to check if arg is a token (generator/iterator)
+		isToken := func(arg interface{}) bool {
+			switch v := arg.(type) {
+			case Symbol:
+				return strings.HasPrefix(string(v), "\x00TOKEN:")
+			case string:
+				return strings.HasPrefix(v, "\x00TOKEN:")
+			}
+			return false
+		}
+
+		// Helper to check if arg is a list
+		isList := func(arg interface{}) (StoredList, int, bool) {
+			switch v := arg.(type) {
+			case StoredList:
+				id := ctx.executor.storeObject(v, "list")
+				return v, id, true
+			case ParenGroup:
+				// Convert ParenGroup to StoredList
+				items, namedArgs := parseArguments(string(v))
+				list := NewStoredListWithNamed(items, namedArgs)
+				id := ctx.executor.storeObject(list, "list")
+				return list, id, true
+			case Symbol:
+				markerType, objectID := parseObjectMarker(string(v))
+				if markerType == "list" && objectID >= 0 {
+					if obj, exists := ctx.executor.getObject(objectID); exists {
+						if list, ok := obj.(StoredList); ok {
+							return list, objectID, true
+						}
+					}
+				}
+			case string:
+				markerType, objectID := parseObjectMarker(v)
+				if markerType == "list" && objectID >= 0 {
+					if obj, exists := ctx.executor.getObject(objectID); exists {
+						if list, ok := obj.(StoredList); ok {
+							return list, objectID, true
+						}
+					}
+				}
+			}
+			return StoredList{}, -1, false
+		}
+
+		// Helper to check if arg is a struct
+		isStruct := func(arg interface{}) (StoredStruct, bool) {
+			switch v := arg.(type) {
+			case StoredStruct:
+				return v, true
+			case Symbol:
+				markerType, objectID := parseObjectMarker(string(v))
+				if markerType == "struct" && objectID >= 0 {
+					if obj, exists := ctx.executor.getObject(objectID); exists {
+						if s, ok := obj.(StoredStruct); ok {
+							return s, true
+						}
+					}
+				}
+			case string:
+				markerType, objectID := parseObjectMarker(v)
+				if markerType == "struct" && objectID >= 0 {
+					if obj, exists := ctx.executor.getObject(objectID); exists {
+						if s, ok := obj.(StoredStruct); ok {
+							return s, true
+						}
+					}
+				}
+			}
+			return StoredStruct{}, false
+		}
+
+		// Helper to check if arg is a ParenGroup (for unpack pattern)
+		isParenGroup := func(arg interface{}) (string, bool) {
+			if pg, ok := arg.(ParenGroup); ok {
+				return string(pg), true
+			}
+			return "", false
+		}
+
+		// Get named args for iter: and index:
+		iterVar := ""
+		indexVar := ""
+		if v, ok := ctx.NamedArgs["iter"]; ok {
+			iterVar = fmt.Sprintf("%v", v)
+		}
+		if v, ok := ctx.NamedArgs["index"]; ok {
+			indexVar = fmt.Sprintf("%v", v)
+		}
+
+		// Determine which form we're using
+		var bodyBlock string
+		var iteratorToken string
+		var iterVarName string
+		var keyVar, valueVar string
+		var unpackVars []string
+		var isKeyValue bool
+		var isUnpack bool
+		var iteratorType string
+		var isDescending bool
+
+		firstArg := ctx.Args[0]
+
+		// Check for numeric range: two numbers as first args
+		startNum, isStart := toFloat64(firstArg)
+		if isStart && len(ctx.Args) >= 4 {
+			endNum, isEnd := toFloat64(ctx.Args[1])
+			if isEnd {
+				// Numeric range form: for <start>, <end>, <var>, (body)
+				// Or with step: for <start>, <end>, by: <step>, <var>, (body)
+				iterVarName = fmt.Sprintf("%v", ctx.Args[2])
+				bodyBlock = extractCode(ctx.Args[3])
+
+				// Get step from named args
+				step := 1.0
+				ascending := endNum >= startNum
+				if stepVal, hasStep := ctx.NamedArgs["by"]; hasStep {
+					step, _ = toFloat64(stepVal)
+					if step == 0 {
+						ctx.LogWarning(CatCommand, "for: step is zero; loop will iterate until max iterations")
+					} else if (ascending && step < 0) || (!ascending && step > 0) {
+						ctx.LogWarning(CatCommand, "for: step direction doesn't match range direction")
+					}
+				} else if !ascending {
+					step = -1
+				}
+
+				// Parse body
+				parser := NewParser(bodyBlock, "")
+				cleanedBody := parser.RemoveComments(bodyBlock)
+				normalizedBody := parser.NormalizeKeywords(cleanedBody)
+				bodyCommands, err := parser.ParseCommandSequence(normalizedBody)
+				if err != nil {
+					ctx.LogError(CatCommand, fmt.Sprintf("for: failed to parse body: %v", err))
+					return BoolStatus(false)
+				}
+
+				// Execute the loop
+				maxIterations := 100000
+				iterations := 0
+				iterNum := 1
+				current := startNum
+
+				for iterations < maxIterations {
+					// Check termination
+					if ascending && step > 0 {
+						if current > endNum {
+							break
+						}
+					} else if !ascending && step < 0 {
+						if current < endNum {
+							break
+						}
+					} else if step == 0 {
+						// Infinite loop potential - will hit max iterations
+					}
+
+					// Set iteration variable
+					if current == float64(int64(current)) {
+						ctx.state.SetVariable(iterVarName, int64(current))
+					} else {
+						ctx.state.SetVariable(iterVarName, current)
+					}
+
+					// Set iter: and index: variables if requested
+					if iterVar != "" {
+						ctx.state.SetVariable(iterVar, int64(iterNum))
+					}
+					if indexVar != "" {
+						ctx.state.SetVariable(indexVar, int64(iterNum-1))
+					}
+
+					// Execute body
+					lastStatus := true
+					for cmdIdx, cmd := range bodyCommands {
+						if strings.TrimSpace(cmd.Command) == "" {
+							continue
+						}
+
+						shouldExecute := true
+						switch cmd.Separator {
+						case "&":
+							shouldExecute = lastStatus
+						case "|":
+							shouldExecute = !lastStatus
+						}
+
+						if !shouldExecute {
+							continue
+						}
+
+						result := ctx.executor.executeParsedCommand(cmd, ctx.state, nil)
+
+						// Handle yield - this would require ForContinuation
+						if yieldResult, ok := result.(YieldResult); ok {
+							// Create continuation for resuming
+							outerCont := &ForContinuation{
+								BodyBlock:         bodyBlock,
+								RemainingBodyCmds: bodyCommands[cmdIdx+1:],
+								BodyCmdIndex:      cmdIdx,
+								IterationNumber:   iterNum,
+								IterVar:           iterVarName,
+								IterNumVar:        iterVar,
+								IndexVar:          indexVar,
+								IteratorType:      "numrange",
+								State:             ctx.state,
+								RangeStart:        startNum,
+								RangeEnd:          endNum,
+								RangeStep:         step,
+								RangeCurrent:      current,
+							}
+							if yieldResult.ForContinuation == nil {
+								yieldResult.ForContinuation = outerCont
+							} else {
+								yieldResult.ForContinuation.ParentContinuation = outerCont
+							}
+							return yieldResult
+						}
+
+						if earlyReturn, ok := result.(EarlyReturn); ok {
+							// Propagate early return up to calling context
+							return earlyReturn
+						}
+
+						if asyncToken, isToken := result.(TokenResult); isToken {
+							tokenID := string(asyncToken)
+							waitChan := make(chan ResumeData, 1)
+							ctx.executor.attachWaitChan(tokenID, waitChan)
+							resumeData := <-waitChan
+							lastStatus = resumeData.Status
+							continue
+						}
+
+						if boolRes, ok := result.(BoolStatus); ok {
+							lastStatus = bool(boolRes)
+						}
+					}
+
+					current += step
+					iterNum++
+					iterations++
+				}
+
+				if iterations >= maxIterations {
+					ctx.LogError(CatFlow, "Maximum iterations (100000) exceeded")
+					return BoolStatus(false)
+				}
+
+				return BoolStatus(true)
+			}
+		}
+
+		// Check for iterator/generator/list/struct forms
+		if isToken(firstArg) {
+			// Generator/iterator form: for ~<token>, <var>, (body)
+			iteratorToken = fmt.Sprintf("%v", firstArg)
+			iteratorType = "generator"
+
+			// Check if second arg is a ParenGroup (unpack) or variable name
+			if unpackPattern, ok := isParenGroup(ctx.Args[1]); ok {
+				// Unpack form
+				isUnpack = true
+				unpackArgs, _ := parseArguments(unpackPattern)
+				for _, arg := range unpackArgs {
+					unpackVars = append(unpackVars, fmt.Sprintf("%v", arg))
+				}
+				bodyBlock = extractCode(ctx.Args[2])
+			} else if len(ctx.Args) >= 4 {
+				// Check for key-value form: for ~<token>, <key>, <value>, (body)
+				// Last arg must be the body
+				lastArg := ctx.Args[len(ctx.Args)-1]
+				if _, ok := lastArg.(ParenGroup); ok {
+					if len(ctx.Args) == 4 {
+						// key-value form
+						isKeyValue = true
+						keyVar = fmt.Sprintf("%v", ctx.Args[1])
+						valueVar = fmt.Sprintf("%v", ctx.Args[2])
+						bodyBlock = extractCode(ctx.Args[3])
+					}
+				}
+			}
+
+			if !isKeyValue && !isUnpack {
+				// Simple iteration: for ~<token>, <var>, (body)
+				iterVarName = fmt.Sprintf("%v", ctx.Args[1])
+				bodyBlock = extractCode(ctx.Args[2])
+			}
+		} else if list, listID, ok := isList(firstArg); ok {
+			// List form
+			_ = list
+			_ = listID
+
+			// Check order
+			if orderVal, hasOrder := ctx.NamedArgs["order"]; hasOrder {
+				orderStr := fmt.Sprintf("%v", orderVal)
+				isDescending = (orderStr == "descending" || orderStr == "desc")
+			}
+
+			// Check if second arg is a ParenGroup (unpack) or variable name
+			if unpackPattern, ok := isParenGroup(ctx.Args[1]); ok {
+				// Unpack form
+				isUnpack = true
+				unpackArgs, _ := parseArguments(unpackPattern)
+				for _, arg := range unpackArgs {
+					unpackVars = append(unpackVars, fmt.Sprintf("%v", arg))
+				}
+				bodyBlock = extractCode(ctx.Args[2])
+				iteratorType = "list"
+			} else if len(ctx.Args) >= 4 {
+				// Check for key-value form
+				lastArg := ctx.Args[len(ctx.Args)-1]
+				if _, ok := lastArg.(ParenGroup); ok {
+					if len(ctx.Args) == 4 {
+						isKeyValue = true
+						keyVar = fmt.Sprintf("%v", ctx.Args[1])
+						valueVar = fmt.Sprintf("%v", ctx.Args[2])
+						bodyBlock = extractCode(ctx.Args[3])
+						iteratorType = "keys"
+					}
+				}
+			}
+
+			if !isKeyValue && !isUnpack {
+				iterVarName = fmt.Sprintf("%v", ctx.Args[1])
+				bodyBlock = extractCode(ctx.Args[2])
+				iteratorType = "list"
+			}
+
+			// Create the iterator based on type
+			if iteratorType == "keys" {
+				// Key-value iteration over named args
+				namedArgs := list.NamedArgs()
+				keys := make([]string, 0, len(namedArgs))
+				for k := range namedArgs {
+					keys = append(keys, k)
+				}
+				sort.Strings(keys)
+				if isDescending {
+					// Reverse keys
+					for i, j := 0, len(keys)-1; i < j; i, j = i+1, j-1 {
+						keys[i], keys[j] = keys[j], keys[i]
+					}
+				}
+
+				// Parse body
+				parser := NewParser(bodyBlock, "")
+				cleanedBody := parser.RemoveComments(bodyBlock)
+				normalizedBody := parser.NormalizeKeywords(cleanedBody)
+				bodyCommands, err := parser.ParseCommandSequence(normalizedBody)
+				if err != nil {
+					ctx.LogError(CatCommand, fmt.Sprintf("for: failed to parse body: %v", err))
+					return BoolStatus(false)
+				}
+
+				// Execute key-value loop
+				iterNum := 1
+				for idx, key := range keys {
+					ctx.state.SetVariable(keyVar, key)
+					ctx.state.SetVariable(valueVar, namedArgs[key])
+
+					if iterVar != "" {
+						ctx.state.SetVariable(iterVar, int64(iterNum))
+					}
+					if indexVar != "" {
+						ctx.state.SetVariable(indexVar, int64(idx))
+					}
+
+					lastStatus := true
+					for _, cmd := range bodyCommands {
+						if strings.TrimSpace(cmd.Command) == "" {
+							continue
+						}
+						shouldExecute := true
+						switch cmd.Separator {
+						case "&":
+							shouldExecute = lastStatus
+						case "|":
+							shouldExecute = !lastStatus
+						}
+						if !shouldExecute {
+							continue
+						}
+
+						result := ctx.executor.executeParsedCommand(cmd, ctx.state, nil)
+
+						if earlyReturn, ok := result.(EarlyReturn); ok {
+							// Propagate early return up to calling context
+							return earlyReturn
+						}
+
+						if asyncToken, isToken := result.(TokenResult); isToken {
+							tokenID := string(asyncToken)
+							waitChan := make(chan ResumeData, 1)
+							ctx.executor.attachWaitChan(tokenID, waitChan)
+							resumeData := <-waitChan
+							lastStatus = resumeData.Status
+							continue
+						}
+
+						if boolRes, ok := result.(BoolStatus); ok {
+							lastStatus = bool(boolRes)
+						}
+					}
+					iterNum++
+				}
+				return BoolStatus(true)
+			}
+
+			// List iteration (items)
+			items := list.Items()
+			if isDescending {
+				// Reverse items
+				reversed := make([]interface{}, len(items))
+				for i, item := range items {
+					reversed[len(items)-1-i] = item
+				}
+				items = reversed
+			}
+
+			// Parse body
+			parser := NewParser(bodyBlock, "")
+			cleanedBody := parser.RemoveComments(bodyBlock)
+			normalizedBody := parser.NormalizeKeywords(cleanedBody)
+			bodyCommands, err := parser.ParseCommandSequence(normalizedBody)
+			if err != nil {
+				ctx.LogError(CatCommand, fmt.Sprintf("for: failed to parse body: %v", err))
+				return BoolStatus(false)
+			}
+
+			// Execute list loop
+			iterNum := 1
+			for idx, item := range items {
+				if isUnpack {
+					// Unpack the item into multiple variables
+					var itemList []interface{}
+					switch v := item.(type) {
+					case StoredList:
+						itemList = v.Items()
+					case Symbol:
+						markerType, objectID := parseObjectMarker(string(v))
+						if markerType == "list" && objectID >= 0 {
+							if obj, exists := ctx.executor.getObject(objectID); exists {
+								if sl, ok := obj.(StoredList); ok {
+									itemList = sl.Items()
+								}
+							}
+						}
+					case ParenGroup:
+						// Parse as list
+						args, _ := parseArguments(string(v))
+						itemList = args
+					}
+
+					for i, varName := range unpackVars {
+						if i < len(itemList) {
+							ctx.state.SetVariable(varName, itemList[i])
+						} else {
+							ctx.state.SetVariable(varName, nil)
+						}
+					}
+				} else {
+					ctx.state.SetVariable(iterVarName, item)
+				}
+
+				if iterVar != "" {
+					ctx.state.SetVariable(iterVar, int64(iterNum))
+				}
+				if indexVar != "" {
+					ctx.state.SetVariable(indexVar, int64(idx))
+				}
+
+				lastStatus := true
+				for _, cmd := range bodyCommands {
+					if strings.TrimSpace(cmd.Command) == "" {
+						continue
+					}
+					shouldExecute := true
+					switch cmd.Separator {
+					case "&":
+						shouldExecute = lastStatus
+					case "|":
+						shouldExecute = !lastStatus
+					}
+					if !shouldExecute {
+						continue
+					}
+
+					result := ctx.executor.executeParsedCommand(cmd, ctx.state, nil)
+
+					if earlyReturn, ok := result.(EarlyReturn); ok {
+						// Propagate early return up to calling context
+						return earlyReturn
+					}
+
+					if asyncToken, isToken := result.(TokenResult); isToken {
+						tokenID := string(asyncToken)
+						waitChan := make(chan ResumeData, 1)
+						ctx.executor.attachWaitChan(tokenID, waitChan)
+						resumeData := <-waitChan
+						lastStatus = resumeData.Status
+						continue
+					}
+
+					if boolRes, ok := result.(BoolStatus); ok {
+						lastStatus = bool(boolRes)
+					}
+				}
+				iterNum++
+			}
+			return BoolStatus(true)
+
+		} else if struc, ok := isStruct(firstArg); ok {
+			// Struct form - iterate over field names and values
+			if len(ctx.Args) < 4 {
+				ctx.LogError(CatCommand, "for: struct iteration requires key and value variables")
+				return BoolStatus(false)
+			}
+
+			keyVar = fmt.Sprintf("%v", ctx.Args[1])
+			valueVar = fmt.Sprintf("%v", ctx.Args[2])
+			bodyBlock = extractCode(ctx.Args[3])
+
+			// Check if it's a struct array
+			if struc.IsArray() {
+				// Struct array - iterate over elements
+				parser := NewParser(bodyBlock, "")
+				cleanedBody := parser.RemoveComments(bodyBlock)
+				normalizedBody := parser.NormalizeKeywords(cleanedBody)
+				bodyCommands, err := parser.ParseCommandSequence(normalizedBody)
+				if err != nil {
+					ctx.LogError(CatCommand, fmt.Sprintf("for: failed to parse body: %v", err))
+					return BoolStatus(false)
+				}
+
+				iterNum := 1
+				for idx := 0; idx < struc.Len(); idx++ {
+					elem := struc.Get(idx)
+					ctx.state.SetVariable(keyVar, int64(idx))
+
+					// Store element and create marker
+					elemID := ctx.executor.storeObject(elem, "struct")
+					elemMarker := fmt.Sprintf("\x00STRUCT:%d\x00", elemID)
+					ctx.state.SetVariable(valueVar, Symbol(elemMarker))
+
+					if iterVar != "" {
+						ctx.state.SetVariable(iterVar, int64(iterNum))
+					}
+					if indexVar != "" {
+						ctx.state.SetVariable(indexVar, int64(idx))
+					}
+
+					lastStatus := true
+					for _, cmd := range bodyCommands {
+						if strings.TrimSpace(cmd.Command) == "" {
+							continue
+						}
+						shouldExecute := true
+						switch cmd.Separator {
+						case "&":
+							shouldExecute = lastStatus
+						case "|":
+							shouldExecute = !lastStatus
+						}
+						if !shouldExecute {
+							continue
+						}
+
+						result := ctx.executor.executeParsedCommand(cmd, ctx.state, nil)
+
+						if earlyReturn, ok := result.(EarlyReturn); ok {
+							// Propagate early return up to calling context
+							return earlyReturn
+						}
+
+						if asyncToken, isToken := result.(TokenResult); isToken {
+							tokenID := string(asyncToken)
+							waitChan := make(chan ResumeData, 1)
+							ctx.executor.attachWaitChan(tokenID, waitChan)
+							resumeData := <-waitChan
+							lastStatus = resumeData.Status
+							continue
+						}
+
+						if boolRes, ok := result.(BoolStatus); ok {
+							lastStatus = bool(boolRes)
+						}
+					}
+					iterNum++
+				}
+				return BoolStatus(true)
+			}
+
+			// Single struct - iterate over fields
+			// Get field names from definition
+			defObj, ok := ctx.executor.getObject(struc.DefID())
+			if !ok {
+				ctx.LogError(CatCommand, "for: could not get struct definition")
+				return BoolStatus(false)
+			}
+			defList, ok := defObj.(StoredList)
+			if !ok {
+				ctx.LogError(CatCommand, "for: invalid struct definition")
+				return BoolStatus(false)
+			}
+
+			namedArgs := defList.NamedArgs()
+			keys := make([]string, 0)
+			for k := range namedArgs {
+				if !strings.HasPrefix(k, "__") {
+					keys = append(keys, k)
+				}
+			}
+			sort.Strings(keys)
+
+			parser := NewParser(bodyBlock, "")
+			cleanedBody := parser.RemoveComments(bodyBlock)
+			normalizedBody := parser.NormalizeKeywords(cleanedBody)
+			bodyCommands, err := parser.ParseCommandSequence(normalizedBody)
+			if err != nil {
+				ctx.LogError(CatCommand, fmt.Sprintf("for: failed to parse body: %v", err))
+				return BoolStatus(false)
+			}
+
+			iterNum := 1
+			for idx, fieldName := range keys {
+				ctx.state.SetVariable(keyVar, fieldName)
+				fieldValue, _ := ctx.executor.getStructFieldValue(struc, fieldName)
+				ctx.state.SetVariable(valueVar, fieldValue)
+
+				if iterVar != "" {
+					ctx.state.SetVariable(iterVar, int64(iterNum))
+				}
+				if indexVar != "" {
+					ctx.state.SetVariable(indexVar, int64(idx))
+				}
+
+				lastStatus := true
+				for _, cmd := range bodyCommands {
+					if strings.TrimSpace(cmd.Command) == "" {
+						continue
+					}
+					shouldExecute := true
+					switch cmd.Separator {
+					case "&":
+						shouldExecute = lastStatus
+					case "|":
+						shouldExecute = !lastStatus
+					}
+					if !shouldExecute {
+						continue
+					}
+
+					result := ctx.executor.executeParsedCommand(cmd, ctx.state, nil)
+
+					if earlyReturn, ok := result.(EarlyReturn); ok {
+						// Propagate early return up to calling context
+						return earlyReturn
+					}
+
+					if asyncToken, isToken := result.(TokenResult); isToken {
+						tokenID := string(asyncToken)
+						waitChan := make(chan ResumeData, 1)
+						ctx.executor.attachWaitChan(tokenID, waitChan)
+						resumeData := <-waitChan
+						lastStatus = resumeData.Status
+						continue
+					}
+
+					if boolRes, ok := result.(BoolStatus); ok {
+						lastStatus = bool(boolRes)
+					}
+				}
+				iterNum++
+			}
+			return BoolStatus(true)
+		}
+
+		// Generator/iterator token form
+		if iteratorToken != "" {
+			parser := NewParser(bodyBlock, "")
+			cleanedBody := parser.RemoveComments(bodyBlock)
+			normalizedBody := parser.NormalizeKeywords(cleanedBody)
+			bodyCommands, err := parser.ParseCommandSequence(normalizedBody)
+			if err != nil {
+				ctx.LogError(CatCommand, fmt.Sprintf("for: failed to parse body: %v", err))
+				return BoolStatus(false)
+			}
+
+			maxIterations := 100000
+			iterations := 0
+			iterNum := 1
+
+			for iterations < maxIterations {
+				// Resume the iterator to get next value
+				resumeCode := fmt.Sprintf("resume %s", iteratorToken)
+				resumeResult := ctx.executor.ExecuteWithState(resumeCode, ctx.state, nil, "", 0, 0)
+
+				// Check if iterator is exhausted
+				if boolRes, ok := resumeResult.(BoolStatus); ok && !bool(boolRes) {
+					break
+				}
+
+				// Get the yielded value
+				var value interface{}
+				if ctx.state.HasResult() {
+					value = ctx.state.GetResult()
+				}
+
+				// Set variables
+				if isUnpack {
+					var itemList []interface{}
+					switch v := value.(type) {
+					case StoredList:
+						itemList = v.Items()
+					case Symbol:
+						markerType, objectID := parseObjectMarker(string(v))
+						if markerType == "list" && objectID >= 0 {
+							if obj, exists := ctx.executor.getObject(objectID); exists {
+								if sl, ok := obj.(StoredList); ok {
+									itemList = sl.Items()
+								}
+							}
+						}
+					}
+					for i, varName := range unpackVars {
+						if i < len(itemList) {
+							ctx.state.SetVariable(varName, itemList[i])
+						} else {
+							ctx.state.SetVariable(varName, nil)
+						}
+					}
+				} else if isKeyValue {
+					// For key-value with generator, expect list [key, value]
+					switch v := value.(type) {
+					case StoredList:
+						items := v.Items()
+						if len(items) >= 2 {
+							ctx.state.SetVariable(keyVar, items[0])
+							ctx.state.SetVariable(valueVar, items[1])
+						}
+					case Symbol:
+						markerType, objectID := parseObjectMarker(string(v))
+						if markerType == "list" && objectID >= 0 {
+							if obj, exists := ctx.executor.getObject(objectID); exists {
+								if sl, ok := obj.(StoredList); ok {
+									items := sl.Items()
+									if len(items) >= 2 {
+										ctx.state.SetVariable(keyVar, items[0])
+										ctx.state.SetVariable(valueVar, items[1])
+									}
+								}
+							}
+						}
+					}
+				} else {
+					ctx.state.SetVariable(iterVarName, value)
+				}
+
+				if iterVar != "" {
+					ctx.state.SetVariable(iterVar, int64(iterNum))
+				}
+				if indexVar != "" {
+					ctx.state.SetVariable(indexVar, int64(iterNum-1))
+				}
+
+				// Execute body
+				lastStatus := true
+				for cmdIdx, cmd := range bodyCommands {
+					if strings.TrimSpace(cmd.Command) == "" {
+						continue
+					}
+					shouldExecute := true
+					switch cmd.Separator {
+					case "&":
+						shouldExecute = lastStatus
+					case "|":
+						shouldExecute = !lastStatus
+					}
+					if !shouldExecute {
+						continue
+					}
+
+					result := ctx.executor.executeParsedCommand(cmd, ctx.state, nil)
+
+					// Handle yield
+					if yieldResult, ok := result.(YieldResult); ok {
+						outerCont := &ForContinuation{
+							BodyBlock:         bodyBlock,
+							RemainingBodyCmds: bodyCommands[cmdIdx+1:],
+							BodyCmdIndex:      cmdIdx,
+							IterationNumber:   iterNum,
+							IterVar:           iterVarName,
+							IterNumVar:        iterVar,
+							IndexVar:          indexVar,
+							KeyVar:            keyVar,
+							ValueVar:          valueVar,
+							UnpackVars:        unpackVars,
+							IteratorToken:     iteratorToken,
+							IteratorType:      iteratorType,
+							IsDescending:      isDescending,
+							State:             ctx.state,
+						}
+						if yieldResult.ForContinuation == nil {
+							yieldResult.ForContinuation = outerCont
+						} else {
+							yieldResult.ForContinuation.ParentContinuation = outerCont
+						}
+						return yieldResult
+					}
+
+					if earlyReturn, ok := result.(EarlyReturn); ok {
+						// Propagate early return up to calling context
+						return earlyReturn
+					}
+
+					if asyncToken, isToken := result.(TokenResult); isToken {
+						tokenID := string(asyncToken)
+						waitChan := make(chan ResumeData, 1)
+						ctx.executor.attachWaitChan(tokenID, waitChan)
+						resumeData := <-waitChan
+						lastStatus = resumeData.Status
+						continue
+					}
+
+					if boolRes, ok := result.(BoolStatus); ok {
+						lastStatus = bool(boolRes)
+					}
+				}
+
+				iterNum++
+				iterations++
+			}
+
+			if iterations >= maxIterations {
+				ctx.LogError(CatFlow, "Maximum iterations (100000) exceeded")
+				return BoolStatus(false)
+			}
+
+			return BoolStatus(true)
+		}
+
+		ctx.LogError(CatCommand, "for: could not determine iteration form")
+		return BoolStatus(false)
+	})
+
 	// include - include another source file
 	ps.RegisterCommandInModule("core", "include", func(ctx *Context) Result {
 		if len(ctx.Args) == 0 {

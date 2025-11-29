@@ -146,6 +146,7 @@ type YieldResult struct {
 	TokenID            string               // Token to update (empty = use #token from state)
 	WhileContinuation  *WhileContinuation   // Optional - set when yielding from inside while loop
 	RepeatContinuation *RepeatContinuation  // Optional - set when yielding from inside repeat loop
+	ForContinuation    *ForContinuation     // Optional - set when yielding from inside for loop
 }
 
 func (YieldResult) isResult() {}
@@ -182,14 +183,45 @@ type RepeatContinuation struct {
 	ParentContinuation  *RepeatContinuation  // For nested repeat loops
 }
 
-// IteratorState stores state for Go-backed iterators (each, pair)
+// ForContinuation stores state for resuming a for loop after yield
+type ForContinuation struct {
+	BodyBlock         string              // The for body
+	RemainingBodyCmds []*ParsedCommand    // Commands remaining in current iteration after yield
+	BodyCmdIndex      int                 // Which command in body yielded
+	IterationNumber   int                 // Current iteration number (1-based for iter:)
+	IterVar           string              // Variable for iteration value
+	IterNumVar        string              // Variable for iter: (iteration number)
+	IndexVar          string              // Variable for index: (0-based index)
+	KeyVar            string              // Variable for key (key-value iteration)
+	ValueVar          string              // Variable for value (key-value iteration)
+	UnpackVars        []string            // Variables for unpack mode
+	// Iterator state
+	IteratorToken     string              // Token marker for the iterator
+	IteratorType      string              // "range", "list", "keys", "generator", "channel", "structarray"
+	IsDescending      bool                // Whether iterating in descending order
+	State             *ExecutionState     // Execution state at time of yield
+	ParentContinuation *ForContinuation   // For nested for loops
+	// Numeric range state
+	RangeStart        float64             // Start value for numeric range
+	RangeEnd          float64             // End value for numeric range
+	RangeStep         float64             // Step value for numeric range
+	RangeCurrent      float64             // Current value in numeric range
+}
+
+// IteratorState stores state for Go-backed iterators (each, pair, range, rng)
 type IteratorState struct {
-	Type       string        // "each", "pair", or "rng"
+	Type       string        // "each", "pair", "range", or "rng"
 	ListID     int           // Object ID of the list being iterated
 	Index      int           // Current position (for "each")
 	Keys       []string      // Keys to iterate (for "pair")
 	KeyIndex   int           // Current key position (for "pair")
 	Rng        *rand.Rand    // Random number generator (for "rng")
+	// Range iterator fields
+	RangeStart   float64 // Start value (for "range")
+	RangeEnd     float64 // End value (for "range")
+	RangeStep    float64 // Step value (for "range")
+	RangeCurrent float64 // Current value (for "range")
+	RangeStarted bool    // Whether iteration has started (for "range")
 }
 
 // ParsedCommand represents a parsed command with metadata
@@ -280,6 +312,7 @@ type TokenData struct {
 	WaitChan           chan ResumeData    // For synchronous blocking (e.g., in while loops)
 	SubstitutionCtx    *SubstitutionContext // For generator macro argument substitution
 	WhileContinuation  *WhileContinuation // For resuming while loops after yield
+	ForContinuation    *ForContinuation   // For resuming for loops after yield
 	IteratorState      *IteratorState     // For Go-backed iterators (each, pair)
 }
 

@@ -236,6 +236,7 @@ func (ps *PawScript) RegisterGeneratorLib() {
 		state := tokenData.ExecutionState
 		substCtx := tokenData.SubstitutionCtx
 		whileCont := tokenData.WhileContinuation
+		forCont := tokenData.ForContinuation
 		iterState := tokenData.IteratorState
 		ctx.executor.mu.Unlock()
 
@@ -388,6 +389,58 @@ func (ps *PawScript) RegisterGeneratorLib() {
 				}
 
 				ctx.SetResult(result)
+				return BoolStatus(true)
+
+			case "range":
+				// Range iterator - advances through numeric sequence
+				if !iterState.RangeStarted {
+					// First call - return start value
+					iterState.RangeCurrent = iterState.RangeStart
+					ctx.executor.mu.Lock()
+					if td, exists := ctx.executor.activeTokens[tokenID]; exists {
+						td.IteratorState.RangeStarted = true
+						td.IteratorState.RangeCurrent = iterState.RangeStart
+					}
+					ctx.executor.mu.Unlock()
+				}
+
+				// Check if we've reached the end
+				step := iterState.RangeStep
+				ascending := step > 0
+				current := iterState.RangeCurrent
+				end := iterState.RangeEnd
+
+				exhausted := false
+				if ascending {
+					exhausted = current > end
+				} else {
+					exhausted = current < end
+				}
+
+				if exhausted {
+					// Iterator exhausted - delete token
+					ctx.executor.mu.Lock()
+					delete(ctx.executor.activeTokens, tokenID)
+					ctx.executor.mu.Unlock()
+
+					ctx.SetResult(nil)
+					return BoolStatus(false)
+				}
+
+				// Return current value and advance
+				result := current
+				ctx.executor.mu.Lock()
+				if td, exists := ctx.executor.activeTokens[tokenID]; exists {
+					td.IteratorState.RangeCurrent = current + step
+				}
+				ctx.executor.mu.Unlock()
+
+				// Return as int64 if it's a whole number, otherwise float64
+				if result == float64(int64(result)) {
+					ctx.SetResult(int64(result))
+				} else {
+					ctx.SetResult(result)
+				}
 				return BoolStatus(true)
 			}
 		}
@@ -697,6 +750,401 @@ func (ps *PawScript) RegisterGeneratorLib() {
 			break
 		}
 
+		// Handle for continuation if present
+		for forCont != nil {
+			ps.logger.DebugCat(CatAsync,"resume: handling for continuation, %d remaining body commands", len(forCont.RemainingBodyCmds))
+
+			// Clear the continuation from the token (we're handling it now)
+			ctx.executor.mu.Lock()
+			if td, exists := ctx.executor.activeTokens[tokenID]; exists {
+				td.ForContinuation = nil
+			}
+			ctx.executor.mu.Unlock()
+
+			// Execute remaining body commands from where we left off
+			lastStatus := true
+			for cmdIdx, cmd := range forCont.RemainingBodyCmds {
+				if strings.TrimSpace(cmd.Command) == "" {
+					continue
+				}
+
+				// Apply flow control
+				shouldExecute := true
+				switch cmd.Separator {
+				case "&":
+					shouldExecute = lastStatus
+				case "|":
+					shouldExecute = !lastStatus
+				}
+
+				if !shouldExecute {
+					continue
+				}
+
+				result := ctx.executor.executeParsedCommand(cmd, forCont.State, substCtx)
+
+				// Check for yield within remaining body
+				if yieldResult, ok := result.(YieldResult); ok {
+					ps.logger.DebugCat(CatAsync,"resume: yield in for continuation body, value: %v", yieldResult.Value)
+
+					// Store new continuation for next resume
+					ctx.executor.mu.Lock()
+					if td, exists := ctx.executor.activeTokens[tokenID]; exists {
+						nextIdx := cmdIdx + 1
+						var remainingCmds []*ParsedCommand
+						if nextIdx < len(forCont.RemainingBodyCmds) {
+							remainingCmds = forCont.RemainingBodyCmds[nextIdx:]
+						}
+						td.ForContinuation = &ForContinuation{
+							BodyBlock:          forCont.BodyBlock,
+							RemainingBodyCmds:  remainingCmds,
+							BodyCmdIndex:       forCont.BodyCmdIndex + nextIdx,
+							IterationNumber:    forCont.IterationNumber,
+							IterVar:            forCont.IterVar,
+							IterNumVar:         forCont.IterNumVar,
+							IndexVar:           forCont.IndexVar,
+							KeyVar:             forCont.KeyVar,
+							ValueVar:           forCont.ValueVar,
+							UnpackVars:         forCont.UnpackVars,
+							IteratorToken:      forCont.IteratorToken,
+							IteratorType:       forCont.IteratorType,
+							IsDescending:       forCont.IsDescending,
+							State:              forCont.State,
+							ParentContinuation: forCont.ParentContinuation,
+						}
+					}
+					ctx.executor.mu.Unlock()
+
+					// Merge bubbles from generator state to caller state
+					ctx.state.MergeBubbles(forCont.State)
+					forCont.State.mu.Lock()
+					forCont.State.bubbleMap = make(map[string][]*BubbleEntry)
+					forCont.State.mu.Unlock()
+
+					ctx.SetResult(yieldResult.Value)
+					return BoolStatus(true)
+				}
+
+				// Check for early return
+				if earlyReturn, ok := result.(EarlyReturn); ok {
+					ctx.executor.mu.Lock()
+					delete(ctx.executor.activeTokens, tokenID)
+					ctx.executor.mu.Unlock()
+
+					ctx.state.MergeBubbles(forCont.State)
+					forCont.State.mu.Lock()
+					forCont.State.bubbleMap = make(map[string][]*BubbleEntry)
+					forCont.State.mu.Unlock()
+
+					if earlyReturn.HasResult {
+						ctx.SetResult(earlyReturn.Result)
+					}
+					return BoolStatus(false)
+				}
+
+				// Handle async
+				if asyncToken, isToken := result.(TokenResult); isToken {
+					asyncTokenID := string(asyncToken)
+					waitChan := make(chan ResumeData, 1)
+					ctx.executor.attachWaitChan(asyncTokenID, waitChan)
+					resumeData := <-waitChan
+					lastStatus = resumeData.Status
+					continue
+				}
+
+				if boolRes, ok := result.(BoolStatus); ok {
+					lastStatus = bool(boolRes)
+				}
+			}
+
+			// Finished remaining body commands - continue to next iteration
+			// Handle numeric range continuation
+			if forCont.IteratorType == "numrange" {
+				// Re-parse body for next iteration
+				parser := NewParser(forCont.BodyBlock, "")
+				cleanedBody := parser.RemoveComments(forCont.BodyBlock)
+				normalizedBody := parser.NormalizeKeywords(cleanedBody)
+				bodyCommands, err := parser.ParseCommandSequence(normalizedBody)
+				if err != nil {
+					ctx.LogError(CatCommand, fmt.Sprintf("resume: failed to parse for body: %v", err))
+					return BoolStatus(false)
+				}
+
+				startNum := forCont.RangeStart
+				endNum := forCont.RangeEnd
+				step := forCont.RangeStep
+				current := forCont.RangeCurrent + step
+				ascending := endNum >= startNum
+
+				maxIterations := 100000
+				iterations := 0
+				iterNum := forCont.IterationNumber + 1
+
+				for iterations < maxIterations {
+					// Check termination
+					if ascending && step > 0 {
+						if current > endNum {
+							break
+						}
+					} else if !ascending && step < 0 {
+						if current < endNum {
+							break
+						}
+					}
+
+					// Set iteration variable
+					if current == float64(int64(current)) {
+						forCont.State.SetVariable(forCont.IterVar, int64(current))
+					} else {
+						forCont.State.SetVariable(forCont.IterVar, current)
+					}
+
+					if forCont.IterNumVar != "" {
+						forCont.State.SetVariable(forCont.IterNumVar, int64(iterNum))
+					}
+					if forCont.IndexVar != "" {
+						forCont.State.SetVariable(forCont.IndexVar, int64(iterNum-1))
+					}
+
+					// Execute body
+					for cmdIdx, cmd := range bodyCommands {
+						if strings.TrimSpace(cmd.Command) == "" {
+							continue
+						}
+						shouldExecute := true
+						switch cmd.Separator {
+						case "&":
+							shouldExecute = lastStatus
+						case "|":
+							shouldExecute = !lastStatus
+						}
+						if !shouldExecute {
+							continue
+						}
+
+						result := ctx.executor.executeParsedCommand(cmd, forCont.State, substCtx)
+
+						// Check for yield
+						if yieldResult, ok := result.(YieldResult); ok {
+							// Store continuation
+							ctx.executor.mu.Lock()
+							if td, exists := ctx.executor.activeTokens[tokenID]; exists {
+								nextIdx := cmdIdx + 1
+								var remainingCmds []*ParsedCommand
+								if nextIdx < len(bodyCommands) {
+									remainingCmds = bodyCommands[nextIdx:]
+								}
+								td.ForContinuation = &ForContinuation{
+									BodyBlock:          forCont.BodyBlock,
+									RemainingBodyCmds:  remainingCmds,
+									BodyCmdIndex:       cmdIdx,
+									IterationNumber:    iterNum,
+									IterVar:            forCont.IterVar,
+									IterNumVar:         forCont.IterNumVar,
+									IndexVar:           forCont.IndexVar,
+									IteratorType:       "numrange",
+									State:              forCont.State,
+									ParentContinuation: forCont.ParentContinuation,
+									RangeStart:         startNum,
+									RangeEnd:           endNum,
+									RangeStep:          step,
+									RangeCurrent:       current,
+								}
+							}
+							ctx.executor.mu.Unlock()
+
+							ctx.state.MergeBubbles(forCont.State)
+							forCont.State.mu.Lock()
+							forCont.State.bubbleMap = make(map[string][]*BubbleEntry)
+							forCont.State.mu.Unlock()
+
+							ctx.SetResult(yieldResult.Value)
+							return BoolStatus(true)
+						}
+
+						// Check for early return
+						if earlyReturn, ok := result.(EarlyReturn); ok {
+							ctx.executor.mu.Lock()
+							delete(ctx.executor.activeTokens, tokenID)
+							ctx.executor.mu.Unlock()
+
+							ctx.state.MergeBubbles(forCont.State)
+							forCont.State.mu.Lock()
+							forCont.State.bubbleMap = make(map[string][]*BubbleEntry)
+							forCont.State.mu.Unlock()
+
+							if earlyReturn.HasResult {
+								ctx.SetResult(earlyReturn.Result)
+							}
+							return BoolStatus(false)
+						}
+
+						// Handle async
+						if asyncToken, isToken := result.(TokenResult); isToken {
+							asyncTokenID := string(asyncToken)
+							waitChan := make(chan ResumeData, 1)
+							ctx.executor.attachWaitChan(asyncTokenID, waitChan)
+							resumeData := <-waitChan
+							lastStatus = resumeData.Status
+							continue
+						}
+
+						if boolRes, ok := result.(BoolStatus); ok {
+							lastStatus = bool(boolRes)
+						}
+					}
+
+					current += step
+					iterNum++
+					iterations++
+				}
+			} else if forCont.IteratorToken != "" {
+				// Re-parse body for next iteration
+				parser := NewParser(forCont.BodyBlock, "")
+				cleanedBody := parser.RemoveComments(forCont.BodyBlock)
+				normalizedBody := parser.NormalizeKeywords(cleanedBody)
+				bodyCommands, err := parser.ParseCommandSequence(normalizedBody)
+				if err != nil {
+					ctx.LogError(CatCommand, fmt.Sprintf("resume: failed to parse for body: %v", err))
+					return BoolStatus(false)
+				}
+
+				maxIterations := 100000
+				iterations := 0
+				iterNum := forCont.IterationNumber + 1
+
+				for iterations < maxIterations {
+					// Resume the iterator to get next value
+					resumeCode := fmt.Sprintf("resume %s", forCont.IteratorToken)
+					resumeResult := ctx.executor.ExecuteWithState(resumeCode, forCont.State, nil, "", 0, 0)
+
+					// Check if iterator is exhausted
+					if boolRes, ok := resumeResult.(BoolStatus); ok && !bool(boolRes) {
+						break
+					}
+
+					// Get the yielded value
+					var value interface{}
+					if forCont.State.HasResult() {
+						value = forCont.State.GetResult()
+					}
+
+					// Set variables
+					if forCont.IterVar != "" {
+						forCont.State.SetVariable(forCont.IterVar, value)
+					}
+					if forCont.IterNumVar != "" {
+						forCont.State.SetVariable(forCont.IterNumVar, int64(iterNum))
+					}
+					if forCont.IndexVar != "" {
+						forCont.State.SetVariable(forCont.IndexVar, int64(iterNum-1))
+					}
+
+					// Execute body
+					for cmdIdx, cmd := range bodyCommands {
+						if strings.TrimSpace(cmd.Command) == "" {
+							continue
+						}
+						shouldExecute := true
+						switch cmd.Separator {
+						case "&":
+							shouldExecute = lastStatus
+						case "|":
+							shouldExecute = !lastStatus
+						}
+						if !shouldExecute {
+							continue
+						}
+
+						result := ctx.executor.executeParsedCommand(cmd, forCont.State, substCtx)
+
+						// Check for yield
+						if yieldResult, ok := result.(YieldResult); ok {
+							// Store continuation
+							ctx.executor.mu.Lock()
+							if td, exists := ctx.executor.activeTokens[tokenID]; exists {
+								nextIdx := cmdIdx + 1
+								var remainingCmds []*ParsedCommand
+								if nextIdx < len(bodyCommands) {
+									remainingCmds = bodyCommands[nextIdx:]
+								}
+								td.ForContinuation = &ForContinuation{
+									BodyBlock:          forCont.BodyBlock,
+									RemainingBodyCmds:  remainingCmds,
+									BodyCmdIndex:       cmdIdx,
+									IterationNumber:    iterNum,
+									IterVar:            forCont.IterVar,
+									IterNumVar:         forCont.IterNumVar,
+									IndexVar:           forCont.IndexVar,
+									KeyVar:             forCont.KeyVar,
+									ValueVar:           forCont.ValueVar,
+									UnpackVars:         forCont.UnpackVars,
+									IteratorToken:      forCont.IteratorToken,
+									IteratorType:       forCont.IteratorType,
+									IsDescending:       forCont.IsDescending,
+									State:              forCont.State,
+									ParentContinuation: forCont.ParentContinuation,
+								}
+							}
+							ctx.executor.mu.Unlock()
+
+							ctx.state.MergeBubbles(forCont.State)
+							forCont.State.mu.Lock()
+							forCont.State.bubbleMap = make(map[string][]*BubbleEntry)
+							forCont.State.mu.Unlock()
+
+							ctx.SetResult(yieldResult.Value)
+							return BoolStatus(true)
+						}
+
+						// Check for early return
+						if earlyReturn, ok := result.(EarlyReturn); ok {
+							ctx.executor.mu.Lock()
+							delete(ctx.executor.activeTokens, tokenID)
+							ctx.executor.mu.Unlock()
+
+							ctx.state.MergeBubbles(forCont.State)
+							forCont.State.mu.Lock()
+							forCont.State.bubbleMap = make(map[string][]*BubbleEntry)
+							forCont.State.mu.Unlock()
+
+							if earlyReturn.HasResult {
+								ctx.SetResult(earlyReturn.Result)
+							}
+							return BoolStatus(false)
+						}
+
+						// Handle async
+						if asyncToken, isToken := result.(TokenResult); isToken {
+							asyncTokenID := string(asyncToken)
+							waitChan := make(chan ResumeData, 1)
+							ctx.executor.attachWaitChan(asyncTokenID, waitChan)
+							resumeData := <-waitChan
+							lastStatus = resumeData.Status
+							continue
+						}
+
+						if boolRes, ok := result.(BoolStatus); ok {
+							lastStatus = bool(boolRes)
+						}
+					}
+
+					iterNum++
+					iterations++
+				}
+			}
+
+			// Check for parent continuation
+			if forCont.ParentContinuation != nil {
+				ps.logger.DebugCat(CatAsync,"resume: inner for finished, resuming parent continuation")
+				forCont = forCont.ParentContinuation
+				continue
+			}
+
+			// No parent - break out
+			break
+		}
+
 		if seq == nil || len(seq.RemainingCommands) == 0 {
 			// Generator is exhausted
 			ctx.executor.mu.Lock()
@@ -751,12 +1199,14 @@ func (ps *PawScript) RegisterGeneratorLib() {
 						remaining = nil
 					}
 
-					// If this yield came from a while loop, store the continuation
+					// If this yield came from a while or for loop, store the continuation
 					if yieldResult.WhileContinuation != nil {
 						tokenData.WhileContinuation = yieldResult.WhileContinuation
 						tokenData.WhileContinuation.SubstitutionCtx = substCtx
-						// Keep the while command in remaining (don't advance past it)
-						// so that when continuation finishes, we continue after the while
+						tokenData.CommandSequence.RemainingCommands = remaining
+						tokenData.CommandSequence.CurrentIndex += nextIndex
+					} else if yieldResult.ForContinuation != nil {
+						tokenData.ForContinuation = yieldResult.ForContinuation
 						tokenData.CommandSequence.RemainingCommands = remaining
 						tokenData.CommandSequence.CurrentIndex += nextIndex
 					} else {
@@ -1103,6 +1553,79 @@ func (ps *PawScript) RegisterGeneratorLib() {
 				ListID:   listID,
 				Keys:     keys,
 				KeyIndex: 0,
+			}
+		}
+		ctx.executor.mu.Unlock()
+
+		// Return the token marker
+		tokenMarker := fmt.Sprintf("\x00TOKEN:%s\x00", tokenID)
+		ctx.SetResult(Symbol(tokenMarker))
+		return BoolStatus(true)
+	})
+
+	// range - Create a range iterator that yields numeric values
+	// Usage: range <start>, <end> [by: <step>]
+	// Returns a token that can be used with resume to iterate through the range
+	// If end > start, step defaults to 1; if end < start, step defaults to -1
+	// The step sign is validated against direction, with a warning if mismatched
+	ps.RegisterCommandInModule("coroutines", "range", func(ctx *Context) Result {
+		if len(ctx.Args) < 2 {
+			ctx.LogError(CatCommand, "Usage: range <start>, <end> [by: <step>]")
+			return BoolStatus(false)
+		}
+
+		// Parse start and end values
+		startVal, ok1 := toFloat64(ctx.Args[0])
+		endVal, ok2 := toFloat64(ctx.Args[1])
+		if !ok1 || !ok2 {
+			ctx.LogError(CatCommand, "range: start and end must be numbers")
+			return BoolStatus(false)
+		}
+
+		// Determine step
+		var step float64
+		ascending := endVal >= startVal
+		if stepVal, hasStep := ctx.NamedArgs["by"]; hasStep {
+			var ok bool
+			step, ok = toFloat64(stepVal)
+			if !ok {
+				ctx.LogError(CatCommand, "range: step must be a number")
+				return BoolStatus(false)
+			}
+			// Warn if step direction doesn't match range direction
+			if step == 0 {
+				ctx.LogWarning(CatCommand, "range: step is zero; loop will iterate until max iterations")
+			} else if (ascending && step < 0) || (!ascending && step > 0) {
+				ctx.LogWarning(CatCommand, "range: step direction doesn't match range direction; loop will iterate until max iterations")
+			}
+		} else {
+			// Default step based on direction
+			if ascending {
+				step = 1
+			} else {
+				step = -1
+			}
+		}
+
+		// Create a token for the range iterator
+		tokenID := ctx.executor.RequestCompletionToken(
+			nil,
+			"",
+			30*time.Minute,
+			ctx.state,
+			ctx.Position,
+		)
+
+		// Store range state in the token
+		ctx.executor.mu.Lock()
+		if tokenData, exists := ctx.executor.activeTokens[tokenID]; exists {
+			tokenData.IteratorState = &IteratorState{
+				Type:         "range",
+				RangeStart:   startVal,
+				RangeEnd:     endVal,
+				RangeStep:    step,
+				RangeCurrent: startVal,
+				RangeStarted: false,
 			}
 		}
 		ctx.executor.mu.Unlock()
