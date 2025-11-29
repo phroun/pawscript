@@ -43,8 +43,24 @@ else
 	@echo "Created: pawgui"
 endif
 
-# Alias for build
+# Default install prefix
+PREFIX ?= /usr/local
+
+# Install paw (and pawgui if built) to system
 install: build
+ifeq ($(NATIVE_OS),windows)
+	@echo "Built: $(BINARY_NAME)"
+	@if [ -f pawgui.exe ]; then echo "Built: pawgui.exe (from 'make build-gui')"; fi
+	@echo "Note: On Windows, manually copy to a directory in your PATH."
+else
+	@mkdir -p $(PREFIX)/bin
+	@install -m 755 $(BINARY_NAME) $(PREFIX)/bin/paw
+	@echo "Installed: $(PREFIX)/bin/paw"
+	@if [ -f pawgui ]; then \
+		install -m 755 pawgui $(PREFIX)/bin/pawgui && \
+		echo "Installed: $(PREFIX)/bin/pawgui"; \
+	fi
+endif
 
 # Build and package all platforms
 build-all: build-wasm build-macos-arm64 build-macos-x64 build-ms-arm64 build-ms-x64 build-linux-arm64 build-linux-x64
@@ -128,7 +144,7 @@ help:
 	@echo "  test-coverage  - Run tests with coverage report"
 	@echo "  clean          - Remove build artifacts"
 	@echo "  clean-releases - Clean release artifacts"
-	@echo "  install        - Alias for build"
+	@echo "  install        - Build and install paw (and pawgui if built) to PREFIX"
 	@echo "  fmt            - Format code"
 	@echo "  lint           - Run linter"
 	@echo "  help           - Show this help"
