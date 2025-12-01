@@ -1,0 +1,29 @@
+Test 1:
+Treacle on everything, thank you.
+Expected: Treacle on everything, thank you.
+
+Test 2 - Stored Block Execution
+And everything twinkled after that.
+Expected: And everything twinkled after that.
+
+Test 3 - Immediate Parenthetic Block:
+Twinkle, twinkle, little bat
+Expected: Twinkle, twinkle, little bat
+
+Test 4 - Stored Block in List
+And everything twinkled after that.
+Expected: And everything twinkled after that.
+
+Test 5 - Anonymous Macro:
+Good day, sir
+Expected: Good day, sir
+
+Test 6 - Stored Macro:
+G'day, mate
+
+Test 7 - List with Macro:
+G'day, mate
+
+Test 8 - List with Parenthetic Block:
+Yes.
+

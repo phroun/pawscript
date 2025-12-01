@@ -61,7 +61,7 @@ macro m6(
   while (eq ~y, 1), (
     msleep 10   # if i comment out this line, it works
     if {len ~myCh} then (
-      print "receiving from ", ~myCh
+      print "receiving from ", {type ~myCh}
       x: {channel_recv ~myCh}   # for some reason this gives error after msleep
       print "done receiving"
     )
