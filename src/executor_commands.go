@@ -1794,6 +1794,16 @@ func (e *Executor) executeMacro(
 	result := e.ExecuteWithState(macro.Commands, macroState, substitutionContext,
 		macro.DefinitionFile, macro.DefinitionLine-1, macro.DefinitionColumn-1)
 
+	// Handle EarlyReturn - extract the result and convert to normal status
+	// The EarlyReturn should terminate the macro, not propagate to the caller
+	if earlyReturn, ok := result.(EarlyReturn); ok {
+		e.logger.DebugCat(CatCommand, "Macro received EarlyReturn, extracting result")
+		if earlyReturn.HasResult {
+			macroState.SetResult(earlyReturn.Result)
+		}
+		result = earlyReturn.Status
+	}
+
 	// Merge macro exports into parent's LibraryInherited under "exports" module
 	macroState.moduleEnv.mu.RLock()
 	if exportsSection, exists := macroState.moduleEnv.ModuleExports["exports"]; exists && len(exportsSection) > 0 {
