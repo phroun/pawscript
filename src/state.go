@@ -15,6 +15,7 @@ type BubbleEntry struct {
 	Microtime  int64         // Microseconds since epoch when created
 	Memo       string        // Optional memo string
 	StackTrace []interface{} // Optional stack trace (nil if trace was false)
+	Flavors    []string      // All flavors this bubble belongs to (for cross-referencing)
 }
 
 // ExecutionState manages the result state during command execution
@@ -558,9 +559,65 @@ func (s *ExecutionState) AddBubble(flavor string, content interface{}, trace boo
 		Microtime:  time.Now().UnixMicro(),
 		Memo:       memo,
 		StackTrace: stackTrace,
+		Flavors:    []string{flavor}, // Single flavor for this entry
 	}
 
 	s.bubbleMap[flavor] = append(s.bubbleMap[flavor], entry)
+}
+
+// AddBubbleMultiFlavor adds the SAME bubble entry to multiple flavors
+// This allows the same entry to be found under different flavor keys,
+// enabling efficient "burst" operations that can remove from all related flavors
+func (s *ExecutionState) AddBubbleMultiFlavor(flavors []string, content interface{}, trace bool, memo string) {
+	if len(flavors) == 0 {
+		return
+	}
+
+	// For single flavor, delegate to AddBubble
+	if len(flavors) == 1 {
+		s.AddBubble(flavors[0], content, trace, memo)
+		return
+	}
+
+	s.mu.Lock()
+	defer s.mu.Unlock()
+
+	if s.bubbleMap == nil {
+		s.bubbleMap = make(map[string][]*BubbleEntry)
+	}
+
+	// Build stack trace if requested
+	var stackTrace []interface{}
+	if trace && s.macroContext != nil {
+		for mc := s.macroContext; mc != nil; mc = mc.ParentMacro {
+			frame := map[string]interface{}{
+				"macro":    mc.MacroName,
+				"file":     mc.InvocationFile,
+				"line":     int64(mc.InvocationLine),
+				"column":   int64(mc.InvocationColumn),
+				"def_file": mc.DefinitionFile,
+				"def_line": int64(mc.DefinitionLine),
+			}
+			stackTrace = append(stackTrace, frame)
+		}
+	}
+
+	// Create ONE entry and add it to ALL flavors (shared reference)
+	// Copy flavors slice to avoid external modification
+	flavorsCopy := make([]string, len(flavors))
+	copy(flavorsCopy, flavors)
+
+	entry := &BubbleEntry{
+		Content:    content,
+		Microtime:  time.Now().UnixMicro(),
+		Memo:       memo,
+		StackTrace: stackTrace,
+		Flavors:    flavorsCopy, // All flavors this entry belongs to
+	}
+
+	for _, flavor := range flavors {
+		s.bubbleMap[flavor] = append(s.bubbleMap[flavor], entry)
+	}
 }
 
 // MergeBubbles merges bubbles from a child state into this state

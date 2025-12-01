@@ -551,6 +551,7 @@ func (e *Executor) executeSingleCommand(
 				}
 
 				// Command not found
+				e.logger.SetOutputContext(NewOutputContext(capturedState, e))
 				e.logger.UnknownCommandError(cmdName, capturedPosition, nil)
 				result := BoolStatus(false)
 				if capturedShouldInvert {
@@ -858,6 +859,7 @@ func (e *Executor) executeSingleCommand(
 	// Command not found - set result to undefined marker and return false status
 	// Note: Using UndefinedMarker not Symbol("undefined") because the bare
 	// symbol has special handling in SetResult that clears the result
+	e.logger.SetOutputContext(NewOutputContext(state, e))
 	e.logger.UnknownCommandError(cmdName, position, nil)
 	state.SetResult(Symbol(UndefinedMarker))
 	if shouldInvert {

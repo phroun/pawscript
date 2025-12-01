@@ -312,18 +312,65 @@ func (ps *PawScript) RegisterCoreLib() {
 
 	// bubble - add a bubble to the bubble map
 	// Usage: bubble flavor, content [, trace [, memo]]
-	// flavor: string key for categorizing bubbles
+	//        bubble (flavor1, flavor2, ...), content [, trace [, memo]]
+	// flavor: string key for categorizing bubbles (or list/paren group of flavors)
 	// content: any PawScript value
 	// trace: boolean (default true) - whether to include stack trace
 	// memo: optional string memo
+	// When multiple flavors are provided, the SAME bubble entry is added to all flavor lists
 	ps.RegisterCommandInModule("core", "bubble", func(ctx *Context) Result {
 		if len(ctx.Args) < 2 {
-			ctx.LogError(CatCommand, "bubble requires at least 2 arguments: flavor, content")
+			ctx.LogError(CatCommand, "bubble requires at least 2 arguments: flavor(s), content")
 			return BoolStatus(false)
 		}
 
-		// Get flavor (convert to string)
-		flavor := fmt.Sprintf("%v", ctx.Args[0])
+		// Get flavor(s) - can be single string, list, or parenthetic group
+		var flavors []string
+		flavorArg := ctx.Args[0]
+
+		// Check if it's a stored list (either as Symbol marker or resolved StoredList)
+		if storedList, ok := flavorArg.(StoredList); ok {
+			for _, item := range storedList.Items() {
+				flavors = append(flavors, fmt.Sprintf("%v", item))
+			}
+		} else if sym, ok := flavorArg.(Symbol); ok {
+			markerType, objectID := parseObjectMarker(string(sym))
+			if markerType == "list" && objectID >= 0 {
+				if obj, exists := ctx.executor.getObject(objectID); exists {
+					if storedList, ok := obj.(StoredList); ok {
+						for _, item := range storedList.Items() {
+							flavors = append(flavors, fmt.Sprintf("%v", item))
+						}
+					}
+				}
+			}
+		} else if str, ok := flavorArg.(string); ok {
+			// Check if it's a marker string
+			markerType, objectID := parseObjectMarker(str)
+			if markerType == "list" && objectID >= 0 {
+				if obj, exists := ctx.executor.getObject(objectID); exists {
+					if storedList, ok := obj.(StoredList); ok {
+						for _, item := range storedList.Items() {
+							flavors = append(flavors, fmt.Sprintf("%v", item))
+						}
+					}
+				}
+			}
+		}
+
+		// Check if it's a paren group
+		if pg, ok := flavorArg.(ParenGroup); ok {
+			// Parse the paren group contents as comma-separated values
+			items, _ := parseArguments(string(pg))
+			for _, item := range items {
+				flavors = append(flavors, fmt.Sprintf("%v", item))
+			}
+		}
+
+		// If no flavors extracted yet, treat as single flavor
+		if len(flavors) == 0 {
+			flavors = []string{fmt.Sprintf("%v", flavorArg)}
+		}
 
 		// Get content
 		content := ctx.Args[1]
@@ -357,7 +404,8 @@ func (ps *PawScript) RegisterCoreLib() {
 			}
 		}
 
-		ctx.state.AddBubble(flavor, content, trace, memo)
+		// Add bubble to all flavors (same entry shared across all)
+		ctx.state.AddBubbleMultiFlavor(flavors, content, trace, memo)
 		return BoolStatus(true)
 	})
 
