@@ -20,7 +20,7 @@ print
 
 echo "Test 4 - Stored Block in List"
 z: {list 0, 1, ~x}
-{~z 2}
+{~z 2} "twinkled"
 echo "Expected: And everything twinkled after that."
 print
 
