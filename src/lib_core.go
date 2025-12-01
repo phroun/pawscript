@@ -280,6 +280,171 @@ func (ps *PawScript) RegisterCoreLib() {
 		}
 	})
 
+	// Helper function to resolve a list argument (shared by type info commands)
+	resolveListArg := func(ctx *Context, arg interface{}) (StoredList, bool) {
+		value := arg
+
+		// Helper to resolve a value (handles markers to get actual objects)
+		resolveValue := func(val interface{}) interface{} {
+			switch v := val.(type) {
+			case Symbol:
+				markerType, objectID := parseObjectMarker(string(v))
+				if objectID >= 0 {
+					if obj, exists := ctx.executor.getObject(objectID); exists {
+						if markerType == "list" {
+							if list, ok := obj.(StoredList); ok {
+								return list
+							}
+						}
+						return obj
+					}
+				}
+			case string:
+				markerType, objectID := parseObjectMarker(v)
+				if objectID >= 0 {
+					if obj, exists := ctx.executor.getObject(objectID); exists {
+						if markerType == "list" {
+							if list, ok := obj.(StoredList); ok {
+								return list
+							}
+						}
+						return obj
+					}
+				}
+			}
+			return val
+		}
+
+		// Check for #-prefixed symbol (resolve like tilde would)
+		if sym, ok := value.(Symbol); ok {
+			symStr := string(sym)
+			if strings.HasPrefix(symStr, "#") {
+				if localVal, exists := ctx.state.GetVariable(symStr); exists {
+					value = resolveValue(localVal)
+				} else if ctx.state.moduleEnv != nil {
+					ctx.state.moduleEnv.mu.RLock()
+					if ctx.state.moduleEnv.ObjectsModule != nil {
+						if obj, exists := ctx.state.moduleEnv.ObjectsModule[symStr]; exists {
+							value = resolveValue(obj)
+						}
+					}
+					ctx.state.moduleEnv.mu.RUnlock()
+				}
+			} else {
+				value = resolveValue(value)
+			}
+		} else if _, ok := value.(string); ok {
+			value = resolveValue(value)
+		}
+
+		if list, ok := value.(StoredList); ok {
+			return list, true
+		}
+		return StoredList{}, false
+	}
+
+	// arrtype - returns the type of positional items in a list
+	ps.RegisterCommandInModule("types", "arrtype", func(ctx *Context) Result {
+		if len(ctx.Args) < 1 {
+			ctx.LogError(CatCommand, "Usage: arrtype <list>")
+			ctx.SetResult("")
+			return BoolStatus(false)
+		}
+		list, ok := resolveListArg(ctx, ctx.Args[0])
+		if !ok {
+			ctx.LogError(CatType, "arrtype requires a list argument")
+			ctx.SetResult("")
+			return BoolStatus(false)
+		}
+		ctx.SetResult(list.ArrType())
+		return BoolStatus(true)
+	})
+
+	// maptype - returns the type of named argument values in a list
+	ps.RegisterCommandInModule("types", "maptype", func(ctx *Context) Result {
+		if len(ctx.Args) < 1 {
+			ctx.LogError(CatCommand, "Usage: maptype <list>")
+			ctx.SetResult("")
+			return BoolStatus(false)
+		}
+		list, ok := resolveListArg(ctx, ctx.Args[0])
+		if !ok {
+			ctx.LogError(CatType, "maptype requires a list argument")
+			ctx.SetResult("")
+			return BoolStatus(false)
+		}
+		ctx.SetResult(list.MapType())
+		return BoolStatus(true)
+	})
+
+	// arrsolid - returns true if positional items have no nil/undefined values
+	ps.RegisterCommandInModule("types", "arrsolid", func(ctx *Context) Result {
+		if len(ctx.Args) < 1 {
+			ctx.LogError(CatCommand, "Usage: arrsolid <list>")
+			ctx.SetResult(false)
+			return BoolStatus(false)
+		}
+		list, ok := resolveListArg(ctx, ctx.Args[0])
+		if !ok {
+			ctx.LogError(CatType, "arrsolid requires a list argument")
+			ctx.SetResult(false)
+			return BoolStatus(false)
+		}
+		ctx.SetResult(list.ArrSolid())
+		return BoolStatus(true)
+	})
+
+	// mapsolid - returns true if named argument values have no nil/undefined values
+	ps.RegisterCommandInModule("types", "mapsolid", func(ctx *Context) Result {
+		if len(ctx.Args) < 1 {
+			ctx.LogError(CatCommand, "Usage: mapsolid <list>")
+			ctx.SetResult(false)
+			return BoolStatus(false)
+		}
+		list, ok := resolveListArg(ctx, ctx.Args[0])
+		if !ok {
+			ctx.LogError(CatType, "mapsolid requires a list argument")
+			ctx.SetResult(false)
+			return BoolStatus(false)
+		}
+		ctx.SetResult(list.MapSolid())
+		return BoolStatus(true)
+	})
+
+	// arrser - returns true if all positional items are serializable types
+	ps.RegisterCommandInModule("types", "arrser", func(ctx *Context) Result {
+		if len(ctx.Args) < 1 {
+			ctx.LogError(CatCommand, "Usage: arrser <list>")
+			ctx.SetResult(false)
+			return BoolStatus(false)
+		}
+		list, ok := resolveListArg(ctx, ctx.Args[0])
+		if !ok {
+			ctx.LogError(CatType, "arrser requires a list argument")
+			ctx.SetResult(false)
+			return BoolStatus(false)
+		}
+		ctx.SetResult(list.ArrSerializable())
+		return BoolStatus(true)
+	})
+
+	// mapser - returns true if all named argument values are serializable types
+	ps.RegisterCommandInModule("types", "mapser", func(ctx *Context) Result {
+		if len(ctx.Args) < 1 {
+			ctx.LogError(CatCommand, "Usage: mapser <list>")
+			ctx.SetResult(false)
+			return BoolStatus(false)
+		}
+		list, ok := resolveListArg(ctx, ctx.Args[0])
+		if !ok {
+			ctx.LogError(CatType, "mapser requires a list argument")
+			ctx.SetResult(false)
+			return BoolStatus(false)
+		}
+		ctx.SetResult(list.MapSerializable())
+		return BoolStatus(true)
+	})
+
 	// stack_trace - returns the current macro call stack as a list
 	ps.RegisterCommandInModule("core", "stack_trace", func(ctx *Context) Result {
 		macroCtx := ctx.GetMacroContext()

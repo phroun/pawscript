@@ -1,0 +1,60 @@
+=== List Type Info Tests ===
+Test 1: Empty list
+  arrtype: empty
+  maptype: empty
+  arrsolid: true
+  mapsolid: true
+  arrser: true
+  mapser: true
+
+Test 2: List of integers
+  arrtype: int
+  arrsolid: true
+  arrser: true
+
+Test 3: Mixed types (int, string, float)
+  arrtype: mixed
+  arrsolid: true
+  arrser: true
+
+Test 4: List with nil
+  arrtype: int
+  arrsolid: false
+  arrser: true
+
+Test 5: Only nil values
+  arrtype: nil
+  arrsolid: false
+  arrser: true
+
+Test 6: Named args
+  arrtype: empty
+  maptype: mixed
+  arrsolid: true
+  mapsolid: true
+
+Test 7: Named args with nil
+  maptype: int
+  mapsolid: false
+
+Test 8: Nested list
+  arrtype: mixed
+  arrser: true
+
+Test 9: List with channel
+  arrtype: mixed
+  arrser: false
+
+Test 10: List of symbols
+  arrtype: symbol
+  arrser: true
+
+Test 11: List of booleans
+  arrtype: bool
+  arrser: true
+
+Test 12: List of blocks
+  arrtype: block
+  arrser: true
+
+=== Tests Complete ===

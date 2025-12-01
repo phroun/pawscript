@@ -879,24 +879,299 @@ type FiberHandle struct {
 // All operations return new StoredList instances (copy-on-write)
 // Slicing shares the backing array for memory efficiency
 // Named arguments (key-value pairs) are stored separately from positional items
+//
+// Type tracking fields are maintained for both positional items (arr) and named args (map):
+// - Type: "empty" (nothing added), "nil", a specific type name, or "mixed"
+// - Solid: true if no nil/undefined values have been added
+// - Serializable: true if all values are serializable types
 type StoredList struct {
 	items      []interface{}
 	namedArgs  map[string]interface{} // Named arguments (key: value)
+
+	// Type tracking for positional items
+	arrType         string // "empty", "nil", "undefined", specific type, or "mixed"
+	arrSolid        bool   // true if no nil/undefined values
+	arrSerializable bool   // true if all values are serializable
+
+	// Type tracking for named arguments (map values)
+	mapType         string // "empty", "nil", "undefined", specific type, or "mixed"
+	mapSolid        bool   // true if no nil/undefined values
+	mapSerializable bool   // true if all values are serializable
+}
+
+// ListTypeInfo holds type tracking information for a collection of values
+type ListTypeInfo struct {
+	Type         string // "empty", "nil", "undefined", specific type, or "mixed"
+	Solid        bool   // true if no nil/undefined values
+	Serializable bool   // true if all values are serializable
+}
+
+// NewEmptyTypeInfo returns initial type info for an empty collection
+func NewEmptyTypeInfo() ListTypeInfo {
+	return ListTypeInfo{
+		Type:         "empty",
+		Solid:        true,
+		Serializable: true,
+	}
+}
+
+// classifyValue returns (typeName, isSerializable, isNilOrUndefined) for a value
+// If the value is a marker, it resolves it first (requires executor)
+// Note: Token type is treated as serializable for now (may revisit later)
+func classifyValue(value interface{}, executor *Executor) (typeName string, isSerializable bool, isNilOrUndefined bool) {
+	// Handle nil
+	if value == nil {
+		return "nil", true, true
+	}
+
+	// Check for markers and resolve them
+	var markerStr string
+	switch v := value.(type) {
+	case Symbol:
+		markerStr = string(v)
+		// Check for undefined symbol
+		if markerStr == "undefined" || markerStr == UndefinedMarker {
+			return "undefined", true, true
+		}
+	case string:
+		markerStr = v
+		// Check for undefined marker
+		if markerStr == UndefinedMarker {
+			return "undefined", true, true
+		}
+	}
+
+	if markerStr != "" {
+		markerType, objectID := parseObjectMarker(markerStr)
+		if objectID >= 0 && executor != nil {
+			// Resolve the marker to get the actual object
+			if obj, exists := executor.getObject(objectID); exists {
+				// Classify based on the resolved object type
+				switch markerType {
+				case "list":
+					if list, ok := obj.(StoredList); ok {
+						// List is serializable only if its contents are serializable
+						return "list", list.arrSerializable && list.mapSerializable, false
+					}
+					return "list", true, false
+				case "bytes":
+					return "bytes", true, false
+				case "block":
+					return "block", true, false
+				case "channel":
+					return "channel", false, false
+				case "fiber":
+					return "fiber", false, false
+				case "command":
+					return "command", false, false
+				case "macro":
+					return "macro", false, false
+				case "struct":
+					// StoredStruct can be a single struct or struct array
+					if ss, ok := obj.(*StoredStruct); ok && ss.IsArray() {
+						return "structarray", false, false
+					}
+					return "struct", false, false
+				case "token":
+					// Token type: treating as serializable for now (may revisit)
+					return "token", true, false
+				default:
+					// Unknown marker type, assume not serializable
+					return markerType, false, false
+				}
+			}
+		}
+	}
+
+	// Classify by Go type
+	switch v := value.(type) {
+	case bool:
+		return "bool", true, false
+	case int64:
+		return "int", true, false
+	case float64:
+		return "float", true, false
+	case string:
+		return "string", true, false
+	case QuotedString:
+		return "string", true, false
+	case StoredString:
+		return "string", true, false
+	case Symbol:
+		return "symbol", true, false
+	case StoredList:
+		return "list", v.arrSerializable && v.mapSerializable, false
+	case StoredBytes:
+		return "bytes", true, false
+	case StoredBlock:
+		return "block", true, false
+	case ParenGroup:
+		return "block", true, false
+	case *StoredChannel:
+		return "channel", false, false
+	case *FiberHandle:
+		return "fiber", false, false
+	case *StoredStruct:
+		if v.IsArray() {
+			return "structarray", false, false
+		}
+		return "struct", false, false
+	default:
+		// Unknown type - be conservative
+		return "unknown", false, false
+	}
+}
+
+// mergeTypeInfo updates type info when adding a new value
+// This implements the rules for combining type tracking
+func mergeTypeInfo(info ListTypeInfo, typeName string, isSerializable bool, isNilOrUndefined bool) ListTypeInfo {
+	result := info
+
+	// Handle nil/undefined: they set solid to false
+	if isNilOrUndefined {
+		result.Solid = false
+	}
+
+	// Handle serializable flag
+	if !isSerializable {
+		result.Serializable = false
+	}
+
+	// Handle type tracking
+	switch info.Type {
+	case "empty":
+		// First item determines the type
+		result.Type = typeName
+	case "nil", "undefined":
+		// If only nil/undefined so far, a new type takes over (unless also nil/undefined)
+		if !isNilOrUndefined {
+			result.Type = typeName
+		} else if info.Type != typeName {
+			// nil and undefined are different, so mixed
+			result.Type = "mixed"
+		}
+	case "mixed":
+		// Already mixed, stays mixed
+	default:
+		// We have a specific type
+		if isNilOrUndefined {
+			// nil/undefined doesn't change the type, just solid
+		} else if typeName != info.Type {
+			// Different type, becomes mixed
+			result.Type = "mixed"
+		}
+	}
+
+	return result
+}
+
+// computeTypeInfoForSlice computes type info for a slice of values
+func computeTypeInfoForSlice(items []interface{}, executor *Executor) ListTypeInfo {
+	info := NewEmptyTypeInfo()
+	for _, item := range items {
+		typeName, isSerializable, isNilOrUndefined := classifyValue(item, executor)
+		info = mergeTypeInfo(info, typeName, isSerializable, isNilOrUndefined)
+	}
+	return info
+}
+
+// computeTypeInfoForMap computes type info for a map's values
+func computeTypeInfoForMap(m map[string]interface{}, executor *Executor) ListTypeInfo {
+	info := NewEmptyTypeInfo()
+	for _, value := range m {
+		typeName, isSerializable, isNilOrUndefined := classifyValue(value, executor)
+		info = mergeTypeInfo(info, typeName, isSerializable, isNilOrUndefined)
+	}
+	return info
+}
+
+// mergeTypeInfos combines two TypeInfo structs (used for Concat)
+func mergeTypeInfos(a, b ListTypeInfo) ListTypeInfo {
+	result := a
+
+	// Merge solid flags
+	if !b.Solid {
+		result.Solid = false
+	}
+
+	// Merge serializable flags
+	if !b.Serializable {
+		result.Serializable = false
+	}
+
+	// Merge types
+	if a.Type == "empty" {
+		result.Type = b.Type
+	} else if b.Type == "empty" {
+		// Keep a.Type
+	} else if a.Type == "mixed" || b.Type == "mixed" {
+		result.Type = "mixed"
+	} else if a.Type != b.Type {
+		// Special case: nil/undefined with specific type
+		if (a.Type == "nil" || a.Type == "undefined") && b.Type != "nil" && b.Type != "undefined" {
+			result.Type = b.Type
+		} else if (b.Type == "nil" || b.Type == "undefined") && a.Type != "nil" && a.Type != "undefined" {
+			result.Type = a.Type
+		} else {
+			result.Type = "mixed"
+		}
+	}
+
+	return result
 }
 
 // NewStoredList creates a new StoredList from a slice of items
+// Type info is computed without executor (markers won't be fully resolved)
 func NewStoredList(items []interface{}) StoredList {
-	return StoredList{items: items, namedArgs: nil}
+	arrInfo := computeTypeInfoForSlice(items, nil)
+	mapInfo := NewEmptyTypeInfo()
+	return StoredList{
+		items:           items,
+		namedArgs:       nil,
+		arrType:         arrInfo.Type,
+		arrSolid:        arrInfo.Solid,
+		arrSerializable: arrInfo.Serializable,
+		mapType:         mapInfo.Type,
+		mapSolid:        mapInfo.Solid,
+		mapSerializable: mapInfo.Serializable,
+	}
 }
 
 // NewStoredListWithNamed creates a new StoredList with both positional items and named arguments
+// Type info is computed without executor (markers won't be fully resolved)
 func NewStoredListWithNamed(items []interface{}, namedArgs map[string]interface{}) StoredList {
-	return StoredList{items: items, namedArgs: namedArgs}
+	arrInfo := computeTypeInfoForSlice(items, nil)
+	mapInfo := computeTypeInfoForMap(namedArgs, nil)
+	return StoredList{
+		items:           items,
+		namedArgs:       namedArgs,
+		arrType:         arrInfo.Type,
+		arrSolid:        arrInfo.Solid,
+		arrSerializable: arrInfo.Serializable,
+		mapType:         mapInfo.Type,
+		mapSolid:        mapInfo.Solid,
+		mapSerializable: mapInfo.Serializable,
+	}
 }
 
 // NewStoredListWithRefs creates a new StoredList and claims references to any nested objects
+// Type info is computed with the executor for full marker resolution
 func NewStoredListWithRefs(items []interface{}, namedArgs map[string]interface{}, executor *Executor) StoredList {
-	list := StoredList{items: items, namedArgs: namedArgs}
+	// Compute type info with executor for full resolution
+	arrInfo := computeTypeInfoForSlice(items, executor)
+	mapInfo := computeTypeInfoForMap(namedArgs, executor)
+
+	list := StoredList{
+		items:           items,
+		namedArgs:       namedArgs,
+		arrType:         arrInfo.Type,
+		arrSolid:        arrInfo.Solid,
+		arrSerializable: arrInfo.Serializable,
+		mapType:         mapInfo.Type,
+		mapSolid:        mapInfo.Solid,
+		mapSerializable: mapInfo.Serializable,
+	}
+
 	// Claim references to any nested objects in positional items
 	if executor != nil {
 		for _, item := range items {
@@ -988,7 +1263,8 @@ func (pl StoredList) Get(index int) interface{} {
 
 // Slice returns a new StoredList with items from start to end (end exclusive)
 // Shares the backing array for memory efficiency (O(1) time, O(1) space)
-// Preserves named arguments from the original list
+// Preserves named arguments and type info from the original list
+// (Type info is conservative - slice might be more specific but we preserve parent's info)
 func (pl StoredList) Slice(start, end int) StoredList {
 	if start < 0 {
 		start = 0
@@ -999,34 +1275,84 @@ func (pl StoredList) Slice(start, end int) StoredList {
 	if start > end {
 		start = end
 	}
-	return StoredList{items: pl.items[start:end], namedArgs: pl.namedArgs}
+	return StoredList{
+		items:           pl.items[start:end],
+		namedArgs:       pl.namedArgs,
+		arrType:         pl.arrType,
+		arrSolid:        pl.arrSolid,
+		arrSerializable: pl.arrSerializable,
+		mapType:         pl.mapType,
+		mapSolid:        pl.mapSolid,
+		mapSerializable: pl.mapSerializable,
+	}
 }
 
 // Append returns a new StoredList with the item appended (O(n) copy-on-write)
 // Preserves named arguments from the original list
+// Type info is updated incrementally based on the new item
 func (pl StoredList) Append(item interface{}) StoredList {
 	newItems := make([]interface{}, len(pl.items)+1)
 	copy(newItems, pl.items)
 	newItems[len(pl.items)] = item
-	return StoredList{items: newItems, namedArgs: pl.namedArgs}
+
+	// Update type info for positional items
+	currentInfo := ListTypeInfo{
+		Type:         pl.arrType,
+		Solid:        pl.arrSolid,
+		Serializable: pl.arrSerializable,
+	}
+	typeName, isSerializable, isNilOrUndefined := classifyValue(item, nil)
+	newInfo := mergeTypeInfo(currentInfo, typeName, isSerializable, isNilOrUndefined)
+
+	return StoredList{
+		items:           newItems,
+		namedArgs:       pl.namedArgs,
+		arrType:         newInfo.Type,
+		arrSolid:        newInfo.Solid,
+		arrSerializable: newInfo.Serializable,
+		mapType:         pl.mapType,
+		mapSolid:        pl.mapSolid,
+		mapSerializable: pl.mapSerializable,
+	}
 }
 
 // Prepend returns a new StoredList with the item prepended (O(n) copy-on-write)
 // Preserves named arguments from the original list
+// Type info is updated incrementally based on the new item
 func (pl StoredList) Prepend(item interface{}) StoredList {
 	newItems := make([]interface{}, len(pl.items)+1)
 	newItems[0] = item
 	copy(newItems[1:], pl.items)
-	return StoredList{items: newItems, namedArgs: pl.namedArgs}
+
+	// Update type info for positional items
+	currentInfo := ListTypeInfo{
+		Type:         pl.arrType,
+		Solid:        pl.arrSolid,
+		Serializable: pl.arrSerializable,
+	}
+	typeName, isSerializable, isNilOrUndefined := classifyValue(item, nil)
+	newInfo := mergeTypeInfo(currentInfo, typeName, isSerializable, isNilOrUndefined)
+
+	return StoredList{
+		items:           newItems,
+		namedArgs:       pl.namedArgs,
+		arrType:         newInfo.Type,
+		arrSolid:        newInfo.Solid,
+		arrSerializable: newInfo.Serializable,
+		mapType:         pl.mapType,
+		mapSolid:        pl.mapSolid,
+		mapSerializable: pl.mapSerializable,
+	}
 }
 
 // Concat returns a new StoredList with items from both lists (O(n+m) copy)
 // Named arguments are merged, with keys from 'other' replacing keys from 'pl' when both contain the same key
+// Type info is merged from both lists
 func (pl StoredList) Concat(other StoredList) StoredList {
 	newItems := make([]interface{}, len(pl.items)+len(other.items))
 	copy(newItems, pl.items)
 	copy(newItems[len(pl.items):], other.items)
-	
+
 	// Merge named arguments
 	var newNamedArgs map[string]interface{}
 	if pl.namedArgs != nil || other.namedArgs != nil {
@@ -1040,17 +1366,61 @@ func (pl StoredList) Concat(other StoredList) StoredList {
 			newNamedArgs[k] = v
 		}
 	}
-	
-	return StoredList{items: newItems, namedArgs: newNamedArgs}
+
+	// Merge type info for positional items
+	plArrInfo := ListTypeInfo{
+		Type:         pl.arrType,
+		Solid:        pl.arrSolid,
+		Serializable: pl.arrSerializable,
+	}
+	otherArrInfo := ListTypeInfo{
+		Type:         other.arrType,
+		Solid:        other.arrSolid,
+		Serializable: other.arrSerializable,
+	}
+	newArrInfo := mergeTypeInfos(plArrInfo, otherArrInfo)
+
+	// Merge type info for map (named args)
+	plMapInfo := ListTypeInfo{
+		Type:         pl.mapType,
+		Solid:        pl.mapSolid,
+		Serializable: pl.mapSerializable,
+	}
+	otherMapInfo := ListTypeInfo{
+		Type:         other.mapType,
+		Solid:        other.mapSolid,
+		Serializable: other.mapSerializable,
+	}
+	newMapInfo := mergeTypeInfos(plMapInfo, otherMapInfo)
+
+	return StoredList{
+		items:           newItems,
+		namedArgs:       newNamedArgs,
+		arrType:         newArrInfo.Type,
+		arrSolid:        newArrInfo.Solid,
+		arrSerializable: newArrInfo.Serializable,
+		mapType:         newMapInfo.Type,
+		mapSolid:        newMapInfo.Solid,
+		mapSerializable: newMapInfo.Serializable,
+	}
 }
 
 // Compact returns a new StoredList with a new backing array
 // Use this to free memory if you've sliced a large list
-// Preserves named arguments from the original list
+// Preserves named arguments and type info from the original list
 func (pl StoredList) Compact() StoredList {
 	newItems := make([]interface{}, len(pl.items))
 	copy(newItems, pl.items)
-	return StoredList{items: newItems, namedArgs: pl.namedArgs}
+	return StoredList{
+		items:           newItems,
+		namedArgs:       pl.namedArgs,
+		arrType:         pl.arrType,
+		arrSolid:        pl.arrSolid,
+		arrSerializable: pl.arrSerializable,
+		mapType:         pl.mapType,
+		mapSolid:        pl.mapSolid,
+		mapSerializable: pl.mapSerializable,
+	}
 }
 
 // String returns a string representation for debugging
@@ -1060,6 +1430,58 @@ func (pl StoredList) String() string {
 		return "(list)"
 	}
 	return "(list with named args)"
+}
+
+// ArrType returns the type of positional items: "empty", "nil", "undefined", a specific type, or "mixed"
+func (pl StoredList) ArrType() string {
+	if pl.arrType == "" {
+		return "empty"
+	}
+	return pl.arrType
+}
+
+// MapType returns the type of named arg values: "empty", "nil", "undefined", a specific type, or "mixed"
+func (pl StoredList) MapType() string {
+	if pl.mapType == "" {
+		return "empty"
+	}
+	return pl.mapType
+}
+
+// ArrSolid returns true if no nil/undefined values are in the positional items
+func (pl StoredList) ArrSolid() bool {
+	// Empty lists with uninitialized fields should be solid
+	if pl.arrType == "" {
+		return true
+	}
+	return pl.arrSolid
+}
+
+// MapSolid returns true if no nil/undefined values are in the named args
+func (pl StoredList) MapSolid() bool {
+	// Empty maps with uninitialized fields should be solid
+	if pl.mapType == "" {
+		return true
+	}
+	return pl.mapSolid
+}
+
+// ArrSerializable returns true if all positional items are serializable types
+func (pl StoredList) ArrSerializable() bool {
+	// Empty lists with uninitialized fields should be serializable
+	if pl.arrType == "" {
+		return true
+	}
+	return pl.arrSerializable
+}
+
+// MapSerializable returns true if all named arg values are serializable types
+func (pl StoredList) MapSerializable() bool {
+	// Empty maps with uninitialized fields should be serializable
+	if pl.mapType == "" {
+		return true
+	}
+	return pl.mapSerializable
 }
 
 // StoredBytes represents an immutable byte array

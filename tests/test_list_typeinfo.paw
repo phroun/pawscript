@@ -1,0 +1,99 @@
+echo "=== List Type Info Tests ==="
+
+# Test 1: Empty list
+echo "Test 1: Empty list"
+mylist: {list}
+echo "  arrtype: {arrtype ~mylist}"
+echo "  maptype: {maptype ~mylist}"
+echo "  arrsolid: {arrsolid ~mylist}"
+echo "  mapsolid: {mapsolid ~mylist}"
+echo "  arrser: {arrser ~mylist}"
+echo "  mapser: {mapser ~mylist}"
+echo ""
+
+# Test 2: List with integers only (solid, serializable)
+echo "Test 2: List of integers"
+intlist: {list 1, 2, 3, 4, 5}
+echo "  arrtype: {arrtype ~intlist}"
+echo "  arrsolid: {arrsolid ~intlist}"
+echo "  arrser: {arrser ~intlist}"
+echo ""
+
+# Test 3: List with mixed types (mixed, still serializable)
+echo "Test 3: Mixed types (int, string, float)"
+mixlist: {list 1, "hello", 3.14}
+echo "  arrtype: {arrtype ~mixlist}"
+echo "  arrsolid: {arrsolid ~mixlist}"
+echo "  arrser: {arrser ~mixlist}"
+echo ""
+
+# Test 4: List with nil (not solid)
+echo "Test 4: List with nil"
+nillist: {list 1, nil, 3}
+echo "  arrtype: {arrtype ~nillist}"
+echo "  arrsolid: {arrsolid ~nillist}"
+echo "  arrser: {arrser ~nillist}"
+echo ""
+
+# Test 5: List with only nil values
+echo "Test 5: Only nil values"
+allnil: {list nil, nil, nil}
+echo "  arrtype: {arrtype ~allnil}"
+echo "  arrsolid: {arrsolid ~allnil}"
+echo "  arrser: {arrser ~allnil}"
+echo ""
+
+# Test 6: Named args with mixed types
+echo "Test 6: Named args"
+namedlist: {list a: 1, b: "hello", c: 3.14}
+echo "  arrtype: {arrtype ~namedlist}"
+echo "  maptype: {maptype ~namedlist}"
+echo "  arrsolid: {arrsolid ~namedlist}"
+echo "  mapsolid: {mapsolid ~namedlist}"
+echo ""
+
+# Test 7: Named args with nil
+echo "Test 7: Named args with nil"
+namednil: {list a: 1, b: nil, c: 3}
+echo "  maptype: {maptype ~namednil}"
+echo "  mapsolid: {mapsolid ~namednil}"
+echo ""
+
+# Test 8: Nested list (serializable if inner is serializable)
+echo "Test 8: Nested list"
+inner: {list 1, 2, 3}
+outer: {list ~inner, 4, 5}
+echo "  arrtype: {arrtype ~outer}"
+echo "  arrser: {arrser ~outer}"
+echo ""
+
+# Test 9: List with channel (not serializable)
+echo "Test 9: List with channel"
+ch: {channel}
+chanlist: {list 1, ~ch, 3}
+echo "  arrtype: {arrtype ~chanlist}"
+echo "  arrser: {arrser ~chanlist}"
+echo ""
+
+# Test 10: Symbols (bare identifiers)
+echo "Test 10: List of symbols"
+symlist: {list foo, bar, baz}
+echo "  arrtype: {arrtype ~symlist}"
+echo "  arrser: {arrser ~symlist}"
+echo ""
+
+# Test 11: Booleans
+echo "Test 11: List of booleans"
+boollist: {list true, false, true}
+echo "  arrtype: {arrtype ~boollist}"
+echo "  arrser: {arrser ~boollist}"
+echo ""
+
+# Test 12: Blocks
+echo "Test 12: List of blocks"
+blocklist: {list (echo "a"), (echo "b")}
+echo "  arrtype: {arrtype ~blocklist}"
+echo "  arrser: {arrser ~blocklist}"
+echo ""
+
+echo "=== Tests Complete ==="
