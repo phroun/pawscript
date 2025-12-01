@@ -2,6 +2,7 @@ package pawscript
 
 import (
 	"fmt"
+	"sort"
 	"strconv"
 	"strings"
 	"sync"
@@ -663,4 +664,89 @@ func (s *ExecutionState) GetBubbleMap() map[string][]*BubbleEntry {
 		result[k] = v
 	}
 	return result
+}
+
+// RemoveBubble removes a bubble entry from ALL flavors it belongs to
+// Uses the Flavors field on the entry to find all flavor lists to remove from
+func (s *ExecutionState) RemoveBubble(entry *BubbleEntry) {
+	if entry == nil {
+		return
+	}
+
+	s.mu.Lock()
+	defer s.mu.Unlock()
+
+	if s.bubbleMap == nil {
+		return
+	}
+
+	// Remove from all flavors listed in the entry
+	for _, flavor := range entry.Flavors {
+		entries := s.bubbleMap[flavor]
+		if entries == nil {
+			continue
+		}
+
+		// Find and remove the entry (by pointer equality)
+		newEntries := make([]*BubbleEntry, 0, len(entries))
+		for _, e := range entries {
+			if e != entry {
+				newEntries = append(newEntries, e)
+			}
+		}
+
+		if len(newEntries) == 0 {
+			delete(s.bubbleMap, flavor)
+		} else {
+			s.bubbleMap[flavor] = newEntries
+		}
+	}
+}
+
+// GetBubblesForFlavors returns all unique bubbles from the specified flavors,
+// sorted by microtime (oldest first). Duplicates are removed.
+func (s *ExecutionState) GetBubblesForFlavors(flavors []string) []*BubbleEntry {
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+
+	if s.bubbleMap == nil || len(flavors) == 0 {
+		return nil
+	}
+
+	// Use a map to track seen entries (by pointer) to avoid duplicates
+	seen := make(map[*BubbleEntry]bool)
+	var allEntries []*BubbleEntry
+
+	for _, flavor := range flavors {
+		entries := s.bubbleMap[flavor]
+		for _, entry := range entries {
+			if !seen[entry] {
+				seen[entry] = true
+				allEntries = append(allEntries, entry)
+			}
+		}
+	}
+
+	// Sort by microtime (oldest first)
+	sort.Slice(allEntries, func(i, j int) bool {
+		return allEntries[i].Microtime < allEntries[j].Microtime
+	})
+
+	return allEntries
+}
+
+// GetAllFlavorNames returns all flavor names that currently have bubbles
+func (s *ExecutionState) GetAllFlavorNames() []string {
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+
+	if s.bubbleMap == nil {
+		return nil
+	}
+
+	names := make([]string, 0, len(s.bubbleMap))
+	for name := range s.bubbleMap {
+		names = append(names, name)
+	}
+	return names
 }

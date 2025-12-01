@@ -613,3 +613,59 @@ func getTypeName(val interface{}) string {
 		return fmt.Sprintf("unknown(%T)", v)
 	}
 }
+
+// stringSliceToInterface converts a []string to []interface{}
+func stringSliceToInterface(strs []string) []interface{} {
+	result := make([]interface{}, len(strs))
+	for i, s := range strs {
+		result[i] = s
+	}
+	return result
+}
+
+// matchWildcard checks if a string matches a wildcard pattern (using * for any sequence)
+// Supports patterns like "error_*", "*_async", "*", "prefix*suffix"
+func matchWildcard(pattern, str string) bool {
+	if pattern == "*" {
+		return true
+	}
+
+	// Handle simple cases without wildcards
+	if !strings.Contains(pattern, "*") {
+		return pattern == str
+	}
+
+	// Split pattern by * and check parts match in order
+	parts := strings.Split(pattern, "*")
+
+	// If pattern starts with *, str can start with anything
+	// If pattern doesn't start with *, str must start with first part
+	pos := 0
+	for i, part := range parts {
+		if part == "" {
+			continue
+		}
+
+		idx := strings.Index(str[pos:], part)
+		if idx < 0 {
+			return false
+		}
+
+		// If this is the first part and pattern doesn't start with *, must match at start
+		if i == 0 && !strings.HasPrefix(pattern, "*") && idx != 0 {
+			return false
+		}
+
+		pos += idx + len(part)
+	}
+
+	// If pattern doesn't end with *, str must end with last part
+	if !strings.HasSuffix(pattern, "*") {
+		lastPart := parts[len(parts)-1]
+		if lastPart != "" && !strings.HasSuffix(str, lastPart) {
+			return false
+		}
+	}
+
+	return true
+}

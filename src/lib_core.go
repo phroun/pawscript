@@ -491,6 +491,303 @@ func (ps *PawScript) RegisterCoreLib() {
 		return BoolStatus(true)
 	})
 
+	// fizz - iterate over bubbles from specified flavors
+	// Usage: fizz ~flavorList, contentVar, (body)
+	//        fizz (flavor_a, flavor_b), contentVar, metaVar, (body)
+	// Iterates over all unique bubbles from the specified flavors, sorted by microtime.
+	// For each bubble, sets contentVar to the bubble's content.
+	// If metaVar is provided (not a ParenGroup), creates a StoredList with bubble metadata:
+	//   microtime, memo, stack_trace, flavors
+	// Supports break and continue.
+	// Use 'burst' inside the body to remove the current bubble from all its flavors.
+	ps.RegisterCommandInModule("flow", "fizz", func(ctx *Context) Result {
+		if len(ctx.Args) < 3 {
+			ctx.LogError(CatCommand, "Usage: fizz <flavor(s)>, <contentVar>, [(metaVar),] (body)")
+			return BoolStatus(false)
+		}
+
+		// Helper to extract code from a block argument
+		extractCode := func(arg interface{}) string {
+			switch v := arg.(type) {
+			case ParenGroup:
+				return string(v)
+			case Symbol:
+				markerType, objectID := parseObjectMarker(string(v))
+				if markerType == "block" && objectID >= 0 {
+					if obj, exists := ctx.executor.getObject(objectID); exists {
+						if storedBlock, ok := obj.(StoredBlock); ok {
+							return string(storedBlock)
+						}
+					}
+				}
+				return string(v)
+			default:
+				return fmt.Sprintf("%v", arg)
+			}
+		}
+
+		// Parse flavors from first argument
+		var flavors []string
+		flavorArg := ctx.Args[0]
+
+		// Check if it's a stored list (either as Symbol marker or resolved StoredList)
+		if storedList, ok := flavorArg.(StoredList); ok {
+			for _, item := range storedList.Items() {
+				flavors = append(flavors, fmt.Sprintf("%v", item))
+			}
+		} else if sym, ok := flavorArg.(Symbol); ok {
+			markerType, objectID := parseObjectMarker(string(sym))
+			if markerType == "list" && objectID >= 0 {
+				if obj, exists := ctx.executor.getObject(objectID); exists {
+					if storedList, ok := obj.(StoredList); ok {
+						for _, item := range storedList.Items() {
+							flavors = append(flavors, fmt.Sprintf("%v", item))
+						}
+					}
+				}
+			}
+		} else if str, ok := flavorArg.(string); ok {
+			markerType, objectID := parseObjectMarker(str)
+			if markerType == "list" && objectID >= 0 {
+				if obj, exists := ctx.executor.getObject(objectID); exists {
+					if storedList, ok := obj.(StoredList); ok {
+						for _, item := range storedList.Items() {
+							flavors = append(flavors, fmt.Sprintf("%v", item))
+						}
+					}
+				}
+			}
+		}
+
+		// Check if it's a paren group for flavors
+		if pg, ok := flavorArg.(ParenGroup); ok {
+			items, _ := parseArguments(string(pg))
+			for _, item := range items {
+				flavors = append(flavors, fmt.Sprintf("%v", item))
+			}
+		}
+
+		// If no flavors extracted yet, treat as single flavor
+		if len(flavors) == 0 {
+			flavors = []string{fmt.Sprintf("%v", flavorArg)}
+		}
+
+		// Expand wildcard patterns in flavors
+		// Get all existing flavor names from the bubble map
+		allFlavorNames := ctx.state.GetAllFlavorNames()
+		var expandedFlavors []string
+		seen := make(map[string]bool)
+
+		for _, pattern := range flavors {
+			if strings.Contains(pattern, "*") {
+				// Wildcard pattern - expand against all existing flavors
+				for _, name := range allFlavorNames {
+					if matchWildcard(pattern, name) && !seen[name] {
+						seen[name] = true
+						expandedFlavors = append(expandedFlavors, name)
+					}
+				}
+			} else {
+				// Exact match
+				if !seen[pattern] {
+					seen[pattern] = true
+					expandedFlavors = append(expandedFlavors, pattern)
+				}
+			}
+		}
+		flavors = expandedFlavors
+
+		// Determine if we have a meta variable (3 args = no meta, 4 args = with meta)
+		var contentVarName string
+		var metaVarName string
+		var bodyBlock string
+		hasMetaVar := false
+
+		// The body is always the last argument and must be a ParenGroup
+		lastArg := ctx.Args[len(ctx.Args)-1]
+		if _, ok := lastArg.(ParenGroup); !ok {
+			ctx.LogError(CatCommand, "fizz: body must be a code block (parentheses)")
+			return BoolStatus(false)
+		}
+		bodyBlock = extractCode(lastArg)
+
+		if len(ctx.Args) == 3 {
+			// fizz flavors, contentVar, (body)
+			contentVarName = fmt.Sprintf("%v", ctx.Args[1])
+		} else if len(ctx.Args) >= 4 {
+			// Check if arg[2] is a ParenGroup (then it's the body, not a meta var)
+			if _, ok := ctx.Args[2].(ParenGroup); ok {
+				// fizz flavors, contentVar, (body) - arg[2] is body
+				contentVarName = fmt.Sprintf("%v", ctx.Args[1])
+				bodyBlock = extractCode(ctx.Args[2])
+			} else {
+				// fizz flavors, contentVar, metaVar, (body)
+				contentVarName = fmt.Sprintf("%v", ctx.Args[1])
+				metaVarName = fmt.Sprintf("%v", ctx.Args[2])
+				hasMetaVar = true
+			}
+		}
+
+		// Get all unique bubbles sorted by microtime
+		bubbles := ctx.state.GetBubblesForFlavors(flavors)
+
+		if len(bubbles) == 0 {
+			return BoolStatus(true)
+		}
+
+		// Parse body
+		parser := NewParser(bodyBlock, "")
+		cleanedBody := parser.RemoveComments(bodyBlock)
+		normalizedBody := parser.NormalizeKeywords(cleanedBody)
+		bodyCommands, err := parser.ParseCommandSequence(normalizedBody)
+		if err != nil {
+			ctx.LogError(CatCommand, fmt.Sprintf("fizz: failed to parse body: %v", err))
+			return BoolStatus(false)
+		}
+
+		// Internal variable name to track current bubble for 'burst' command
+		const currentBubbleVar = "__fizz_current_bubble__"
+
+		// Iterate over bubbles
+		for _, bubble := range bubbles {
+			// Set content variable
+			ctx.state.SetVariable(contentVarName, bubble.Content)
+
+			// Set meta variable if requested
+			if hasMetaVar {
+				// Create a StoredList with bubble metadata
+				metaNamedArgs := map[string]interface{}{
+					"microtime": bubble.Microtime,
+					"memo":      bubble.Memo,
+					"flavors":   NewStoredList(stringSliceToInterface(bubble.Flavors)),
+				}
+
+				// Add stack trace if present
+				if len(bubble.StackTrace) > 0 {
+					// Convert stack trace to list of lists
+					var traceList []interface{}
+					for _, frame := range bubble.StackTrace {
+						if frameMap, ok := frame.(map[string]interface{}); ok {
+							frameList := NewStoredListWithNamed(nil, frameMap)
+							frameID := ctx.executor.storeObject(frameList, "list")
+							traceList = append(traceList, Symbol(fmt.Sprintf("\x00LIST:%d\x00", frameID)))
+						}
+					}
+					stackList := NewStoredList(traceList)
+					stackID := ctx.executor.storeObject(stackList, "list")
+					metaNamedArgs["stack_trace"] = Symbol(fmt.Sprintf("\x00LIST:%d\x00", stackID))
+				}
+
+				metaList := NewStoredListWithNamed(nil, metaNamedArgs)
+				metaID := ctx.executor.storeObject(metaList, "list")
+				ctx.state.SetVariable(metaVarName, Symbol(fmt.Sprintf("\x00LIST:%d\x00", metaID)))
+			}
+
+			// Store current bubble pointer for 'burst' command
+			ctx.state.mu.Lock()
+			if ctx.state.variables == nil {
+				ctx.state.variables = make(map[string]interface{})
+			}
+			ctx.state.variables[currentBubbleVar] = bubble
+			ctx.state.mu.Unlock()
+
+			// Execute body
+			lastStatus := true
+			for _, cmd := range bodyCommands {
+				if strings.TrimSpace(cmd.Command) == "" {
+					continue
+				}
+
+				shouldExecute := true
+				switch cmd.Separator {
+				case "&":
+					shouldExecute = lastStatus
+				case "|":
+					shouldExecute = !lastStatus
+				}
+
+				if !shouldExecute {
+					continue
+				}
+
+				result := ctx.executor.executeParsedCommand(cmd, ctx.state, nil)
+
+				// Check for early return
+				if earlyReturn, ok := result.(EarlyReturn); ok {
+					// Clean up current bubble var
+					ctx.state.DeleteVariable(currentBubbleVar)
+					return earlyReturn
+				}
+
+				// Check for break - exit this loop
+				if breakResult, ok := result.(BreakResult); ok {
+					// Clean up current bubble var
+					ctx.state.DeleteVariable(currentBubbleVar)
+					if breakResult.Levels <= 1 {
+						return BoolStatus(true)
+					}
+					return BreakResult{Levels: breakResult.Levels - 1}
+				}
+
+				// Check for continue - skip to next bubble
+				if continueResult, ok := result.(ContinueResult); ok {
+					if continueResult.Levels <= 1 {
+						break // Break inner command loop, continue to next bubble
+					}
+					// Clean up current bubble var
+					ctx.state.DeleteVariable(currentBubbleVar)
+					return ContinueResult{Levels: continueResult.Levels - 1}
+				}
+
+				// Handle async
+				if asyncToken, isToken := result.(TokenResult); isToken {
+					tokenID := string(asyncToken)
+					waitChan := make(chan ResumeData, 1)
+					ctx.executor.attachWaitChan(tokenID, waitChan)
+					resumeData := <-waitChan
+					lastStatus = resumeData.Status
+					continue
+				}
+
+				if boolRes, ok := result.(BoolStatus); ok {
+					lastStatus = bool(boolRes)
+				}
+			}
+		}
+
+		// Clean up current bubble var
+		ctx.state.DeleteVariable(currentBubbleVar)
+
+		return BoolStatus(true)
+	})
+
+	// burst - remove the current bubble from all its flavor maps
+	// Only valid inside a fizz loop
+	ps.RegisterCommandInModule("flow", "burst", func(ctx *Context) Result {
+		const currentBubbleVar = "__fizz_current_bubble__"
+
+		// Get the current bubble from the internal variable
+		ctx.state.mu.RLock()
+		bubbleVal, exists := ctx.state.variables[currentBubbleVar]
+		ctx.state.mu.RUnlock()
+
+		if !exists {
+			ctx.LogError(CatCommand, "burst: can only be used inside a fizz loop")
+			return BoolStatus(false)
+		}
+
+		bubble, ok := bubbleVal.(*BubbleEntry)
+		if !ok {
+			ctx.LogError(CatCommand, "burst: internal error - invalid bubble reference")
+			return BoolStatus(false)
+		}
+
+		// Remove the bubble from all its flavors
+		ctx.state.RemoveBubble(bubble)
+
+		return BoolStatus(true)
+	})
+
 	// ==================== macros:: module ====================
 
 	// macro - define a macro
