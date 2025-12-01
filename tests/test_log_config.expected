@@ -2,7 +2,7 @@
 error_logging config: (default: "warn", floor: "trace", force: "fatal")
 
 === Testing debug_logging defaults ===
-debug_logging config: (default: "none", floor: "trace", force: "fatal")
+debug_logging config: (default: "none", floor: "trace", force: "none")
 
 === Testing log_print with error level (goes to stderr by default) ===
 [PawScript:user ERROR] Test error message
@@ -13,7 +13,7 @@ debug_logging config: (default: "none", floor: "trace", force: "fatal")
   at line 18, column 1 in test_log_config.paw
 
 === Enable debug output for 'math' category ===
-debug_logging after change: (default: "debug", floor: "trace", force: "fatal", math: "trace")
+debug_logging after change: (default: "debug", floor: "trace", force: "none", math: "trace")
 
 === Testing log_print with debug level and math category ===
 [DEBUG:math] Math debug message

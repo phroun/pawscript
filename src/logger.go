@@ -289,10 +289,18 @@ const LevelNone LogLevel = LevelFatal + 1
 // NewLogConfig creates a new LogConfig with default settings
 // ErrorLog defaults to showing Warn and above; DebugLog defaults to showing nothing
 // BubbleLog defaults to capturing nothing (must be explicitly enabled)
+// Force threshold: ErrorLog keeps Fatal (mandatory stderr), DebugLog/BubbleLog have None
+// (so fatal errors aren't forced to debug/bubble outputs - they'll bubble up anyway)
 func NewLogConfig() *LogConfig {
 	errorFilter := NewLogFilter(LevelWarn)  // Default: show Warn and above on #err
 	debugFilter := NewLogFilter(LevelNone)  // Default: show nothing on #debug
 	bubbleFilter := NewLogFilter(LevelNone) // Default: capture nothing as bubbles
+
+	// Override Force threshold for debug and bubble logs
+	// Fatal errors should only be mandatory on stderr (ErrorLog)
+	// They'll still be captured as bubbles if BubbleLog is enabled, just not forced
+	debugFilter.Force = LevelNone
+	bubbleFilter.Force = LevelNone
 
 	return &LogConfig{
 		ErrorLog:  errorFilter,
