@@ -591,8 +591,7 @@ const (
 	unitSymbol
 	unitNil
 	unitBool
-	unitParen
-	unitBrace
+	unitBlock
 	unitComplex // object markers, etc.
 )
 
@@ -764,7 +763,7 @@ func parseArguments(argsStr string) ([]interface{}, map[string]interface{}) {
 				}
 				currentValue = QuotedString(s)
 				lastWasNumber = false
-			case unitParen:
+			case unitBlock:
 				// Imply comma, start new arg, set sugar
 				finalizeArg()
 				currentValue = newValue
@@ -823,7 +822,7 @@ func parseArguments(argsStr string) ([]interface{}, map[string]interface{}) {
 				currentValue = QuotedString(s)
 				currentType = unitString // Treat as string for further combinations
 				lastWasNumber = (newType == unitNumber)
-			case unitParen:
+			case unitBlock:
 				if currentType == unitSymbol {
 					// Symbol + paren: symbol becomes string, imply comma, paren is block
 					strVal := QuotedString(string(currentValue.(Symbol)))
@@ -856,7 +855,7 @@ func parseArguments(argsStr string) ([]interface{}, map[string]interface{}) {
 				return false
 			}
 
-		case unitParen:
+		case unitBlock:
 			// Paren + something (without comma) - only named args allowed
 			if newType != unitNone {
 				// Start tracking pending positional for error
@@ -1152,12 +1151,14 @@ func parseNextUnit(runes []rune, i int) (interface{}, argUnitType, int) {
 		}
 		raw := string(runes[start:i])
 		if len(raw) >= 2 {
-			return ParenGroup(raw[1 : len(raw)-1]), unitParen, i
+			return ParenGroup(raw[1 : len(raw)-1]), unitBlock, i
 		}
-		return ParenGroup(""), unitParen, i
+		return ParenGroup(""), unitBlock, i
 	}
 
 	// Brace expression (already resolved, but handle syntax)
+        // I SUSPECT THIS BLOCK IS UNNECESSARY AND IMPOSSIBLE TO REACH, AS THESE ARE ALREADY REMOVED?
+        /*
 	if char == '{' {
 		start := i
 		depth := 1
@@ -1194,6 +1195,7 @@ func parseNextUnit(runes []rune, i int) (interface{}, argUnitType, int) {
 		// Brace expressions are treated as strings (they're already resolved)
 		return QuotedString(raw), unitString, i
 	}
+	*/
 
 	// Single dot as its own symbol (for list accessor syntax)
 	// This allows list.key to parse as: list, ., key
@@ -1346,7 +1348,7 @@ func combineValueUnit(
 			}
 			s += valueToStr(newValue)
 			return QuotedString(s), unitString, false, nil, false
-		case unitParen:
+		case unitBlock:
 			// For values, paren just becomes part of string? Or error?
 			// Treating as separate would be weird in value context
 			// Let's treat paren in value as error/ignored
@@ -1374,7 +1376,7 @@ func combineValueUnit(
 			}
 			s += valueToStr(newValue)
 			return QuotedString(s), unitString, potentialString, originalItem, (newType == unitNumber)
-		case unitParen:
+		case unitBlock:
 			// Error in value context
 			if potentialString {
 				return originalItem, curType, false, nil, false

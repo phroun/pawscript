@@ -1,0 +1,130 @@
+#
+#  Testing various async situations to see if ret values hold up.
+
+macro fiber1(
+  #s1: {channel_subscribe $1}
+  x: 0
+  for 1,10,i, (
+    channel_send #s1, ~x
+    x: {add ~x, 1}
+  )
+)
+macro m1(
+  set_result "bad"
+  msleep 50
+  ret "good"
+)
+macro m2(
+  set_result "bad"
+  for 1,1,i, (
+    msleep 50
+    ret "good"
+  )
+)
+macro m3(
+  set_result "bad"
+  x: 1
+  while (eq ~x, 1), (
+     msleep 50
+     ret "good"
+     x: 0
+  )
+)
+macro m4(
+  listx: {list "a","b","c"}
+  set_result "bad"
+  for ~listx, x, (
+    msleep 50
+    ret "good"
+    echo ~x
+  )
+)
+macro m5(
+  #ch: {channel 10}
+  fiber fiber1, ~#ch
+  for 1,20,i, (
+    if {len ~#ch} then (
+      x: {channel_recv #ch}
+      | (
+        ret "failed"
+      )
+    ) else (
+      ret "good"
+    )
+  )
+  ret "bad"
+)
+macro m6(
+  myCh: {channel 10}
+  fiber fiber1, ~myCh
+  y: 1
+  while (eq ~y, 1), (
+    msleep 10   # if i comment out this line, it works
+    if {len ~myCh} then (
+      print "receiving from ", ~myCh
+      x: {channel_recv ~myCh}   # for some reason this gives error after msleep
+      print "done receiving"
+    )
+    y: 0
+  )
+  ret "good"
+)
+macro m7(
+   x: 1
+   set_result "bad"
+   while (eq ~x, 1), (
+     repeat (
+       for 1,1,i, (
+           msleep 100
+       )
+       ret "good"
+     ), 1
+     x: 0
+     ret "bad"
+   )
+)
+macro m8(
+   x: 1
+   set_result "bad"
+   while (eq ~x, 1), (
+     repeat (
+       for 1,1,i, (
+           msleep 50
+       )
+       ret "good"
+     ), 1
+     x: 0
+   )
+)
+macro m9(
+   x: 1
+   set_result "bad"
+   repeat (
+     for 1,1,i, (
+       while (eq ~x, 1), (
+         msleep 100
+         x: 0
+         ret "good"
+       )
+       ret "bad"
+     )
+   ), 1
+   ret "bad"
+)
+
+
+echo "m1 =", {m1}
+echo "m2 =", {m2}
+echo "m3 =", {m3}
+echo "m4 =", {m4}
+echo "m5 =", {m5}
+echo "m6 =", {m6}
+echo "m7 =", {m7}
+echo "m8 =", {m8}
+echo "m9 =", {m9}
+
+# echo {m1}   # if I uncomment this, it freezes?
+
+# i'll save these for later:
+# echo {m2}, {m3}, {m4}, {m5}, {m6}, {m7}, {m8}, {m9}
+# echo "{m1}, {m2}, {m3}, {m4}, {m5}, {m6}, {m7}, {m8}, {m9}"
