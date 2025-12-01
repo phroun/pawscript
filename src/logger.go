@@ -645,9 +645,9 @@ func (l *Logger) Log(level LogLevel, cat LogCategory, message string, position *
 		}
 		flavor := fmt.Sprintf("%s_%s", levelStr, catStr)
 
-		// Create bubble with the log message as content
-		// Use trace=true to capture stack trace, memo is the raw message
-		state.AddBubble(flavor, output, true, message)
+		// Create bubble with the raw message as content, formatted output as memo
+		// Content is the specific message, memo is the full formatted version for display
+		state.AddBubble(flavor, message, true, output)
 	}
 }
 
@@ -771,7 +771,8 @@ func (l *Logger) LogMulti(level LogLevel, cats []LogCategory, message string, po
 			flavors = append(flavors, fmt.Sprintf("%s_%s", levelStr, catStr))
 		}
 		// Use AddBubbleMultiFlavor to share the same entry across all flavors
-		state.AddBubbleMultiFlavor(flavors, output, true, message)
+		// Content is the raw message, memo is the formatted output
+		state.AddBubbleMultiFlavor(flavors, message, true, output)
 	}
 }
 
