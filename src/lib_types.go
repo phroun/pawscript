@@ -1764,12 +1764,35 @@ func (ps *PawScript) RegisterTypesLib() {
 						return yieldResult
 					}
 
-					// Check for early return
+					// Check for early return - propagate up to calling context
 					if earlyReturn, ok := result.(EarlyReturn); ok {
-						if earlyReturn.HasResult {
-							ctx.SetResult(earlyReturn.Result)
+						return earlyReturn
+					}
+
+					// Check for break - exit this loop
+					if breakResult, ok := result.(BreakResult); ok {
+						if breakResult.Levels <= 1 {
+							// Return current results collected so far
+							var namedArgs map[string]interface{}
+							if len(failures) > 0 {
+								namedArgs = map[string]interface{}{
+									"failures": NewStoredList(failures),
+								}
+							}
+							resultList := NewStoredListWithNamed(results, namedArgs)
+							setListResult(ctx, resultList)
+							return BoolStatus(true)
 						}
-						return earlyReturn.Status
+						return BreakResult{Levels: breakResult.Levels - 1}
+					}
+
+					// Check for continue - skip to next iteration
+					if continueResult, ok := result.(ContinueResult); ok {
+						if continueResult.Levels <= 1 {
+							// Break out of inner command loop to go to next iteration
+							break
+						}
+						return ContinueResult{Levels: continueResult.Levels - 1}
 					}
 
 					// Handle async in body

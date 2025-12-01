@@ -349,20 +349,15 @@ func (e *Executor) PopAndResumeCommandSequence(tokenID string, status bool) bool
 	}
 
 	// Check if this token's parent is a brace coordinator
+	// We need to record this now but forward the result AFTER resumeCommandSequence runs
+	// so that remaining commands (like `ret "good"`) can update the result
+	var isBraceCoordinatorChild bool
+	var coordinatorToken string
 	if tokenData.ParentToken != "" {
 		if parentData, parentExists := e.activeTokens[tokenData.ParentToken]; parentExists {
 			if parentData.BraceCoordinator != nil {
-				// This is a child of a brace coordinator
-				coordinatorToken := tokenData.ParentToken
-				var resultValue interface{}
-				if tokenData.ExecutionState != nil && tokenData.ExecutionState.HasResult() {
-					resultValue = tokenData.ExecutionState.GetResult()
-				}
-				e.mu.Unlock()
-
-				e.logger.DebugCat(CatAsync,"Token %s is child of brace coordinator %s, forwarding result", tokenID, coordinatorToken)
-				e.ResumeBraceEvaluation(coordinatorToken, tokenID, resultValue, effectiveStatus)
-				return effectiveStatus
+				isBraceCoordinatorChild = true
+				coordinatorToken = tokenData.ParentToken
 			}
 		}
 	}
@@ -391,6 +386,35 @@ func (e *Executor) PopAndResumeCommandSequence(tokenID string, status bool) bool
 		e.mu.Lock()
 	}
 
+	// Now that remaining commands have been executed, forward result to brace coordinator if needed
+	// This MUST happen after resumeCommandSequence so that commands like `ret "good"` have run
+	if isBraceCoordinatorChild && newChainedToken == "" {
+		// No more async pending - we have the final result
+		var resultValue interface{}
+		if state != nil && state.HasResult() {
+			resultValue = state.GetResult()
+		}
+
+		// Clean up before forwarding
+		e.cleanupTokenChildrenLocked(tokenID)
+		if tokenData.CancelFunc != nil {
+			tokenData.CancelFunc()
+		}
+		delete(e.activeTokens, tokenID)
+
+		e.mu.Unlock()
+
+		e.logger.DebugCat(CatAsync,"Token %s is child of brace coordinator %s, forwarding result: %v", tokenID, coordinatorToken, resultValue)
+		e.ResumeBraceEvaluation(coordinatorToken, tokenID, resultValue, success)
+
+		// Release state references
+		if state != nil {
+			state.ReleaseAllReferences()
+		}
+
+		return success
+	}
+
 	// If resume created a new chained token, it means an async operation was encountered.
 	// That new token is chained FROM the async operation's token, and will be triggered
 	// when the async completes. We should NOT immediately resume it - just propagate
@@ -403,6 +427,18 @@ func (e *Executor) PopAndResumeCommandSequence(tokenID string, status bool) bool
 		// newChainedToken will be triggered by its parent async token when it completes.
 		// Just propagate the waitChan to it.
 		chainedToken = newChainedToken
+
+		// If we're a brace coordinator child, propagate that relationship to the new token
+		if isBraceCoordinatorChild {
+			if newTokenData, exists := e.activeTokens[newChainedToken]; exists {
+				newTokenData.ParentToken = coordinatorToken
+				// Also register as child of the coordinator
+				if coordData, coordExists := e.activeTokens[coordinatorToken]; coordExists {
+					coordData.Children[newChainedToken] = true
+				}
+				e.logger.DebugCat(CatAsync,"Propagated brace coordinator parent %s to new token %s", coordinatorToken, newChainedToken)
+			}
+		}
 	}
 	parentToken := tokenData.ParentToken
 	fiberID := tokenData.FiberID
@@ -473,6 +509,13 @@ func (e *Executor) PopAndResumeCommandSequence(tokenID string, status bool) bool
 	}
 
 	// No chained token - this is the final token in the chain
+
+	// If this token has a parent state (from macro async), transfer the result now
+	if tokenData.ParentState != nil && state != nil && state.HasResult() {
+		tokenData.ParentState.SetResult(state.GetResult())
+		e.logger.DebugCat(CatAsync,"Transferred async macro result to parent state: %v", state.GetResult())
+	}
+
 	// If this token has a wait channel (synchronous blocking), send to it now
 	if waitChan != nil {
 		e.logger.DebugCat(CatAsync,"Sending resume data to wait channel for token %s (final in chain)", tokenID)

@@ -816,6 +816,32 @@ func (ps *PawScript) RegisterCoreLib() {
 
 	// ==================== flow:: module ====================
 
+	// break - exit from a loop
+	// Usage: break        - exit the innermost loop
+	// Usage: break <n>    - exit n levels of nested loops
+	ps.RegisterCommandInModule("flow", "break", func(ctx *Context) Result {
+		levels := 1
+		if len(ctx.Args) > 0 {
+			if n, ok := toNumber(ctx.Args[0]); ok && n >= 1 {
+				levels = int(n)
+			}
+		}
+		return BreakResult{Levels: levels}
+	})
+
+	// continue - skip to the next iteration of a loop
+	// Usage: continue     - skip to next iteration of innermost loop
+	// Usage: continue <n> - skip to next iteration n levels up
+	ps.RegisterCommandInModule("flow", "continue", func(ctx *Context) Result {
+		levels := 1
+		if len(ctx.Args) > 0 {
+			if n, ok := toNumber(ctx.Args[0]); ok && n >= 1 {
+				levels = int(n)
+			}
+		}
+		return ContinueResult{Levels: levels}
+	})
+
 	// while - loop while condition is true
 	// Generator-aware: catches YieldResult and attaches WhileContinuation
 	ps.RegisterCommandInModule("flow", "while", func(ctx *Context) Result {
@@ -873,10 +899,25 @@ func (ps *PawScript) RegisterCoreLib() {
 			)
 
 			if earlyReturn, ok := condResult.(EarlyReturn); ok {
-				if earlyReturn.HasResult {
-					ctx.SetResult(earlyReturn.Result)
+				return earlyReturn
+			}
+
+			// Check for break in condition - exit loop
+			if breakResult, ok := condResult.(BreakResult); ok {
+				if breakResult.Levels <= 1 {
+					return BoolStatus(true)
 				}
-				return earlyReturn.Status
+				return BreakResult{Levels: breakResult.Levels - 1}
+			}
+
+			// Check for continue in condition - treated as continuing to next iteration
+			if continueResult, ok := condResult.(ContinueResult); ok {
+				if continueResult.Levels <= 1 {
+					// Continue in condition doesn't make sense - treat as no-op
+					// and continue checking condition
+					continue
+				}
+				return ContinueResult{Levels: continueResult.Levels - 1}
 			}
 
 			// Check for yield in condition (unusual but possible)
@@ -955,12 +996,29 @@ func (ps *PawScript) RegisterCoreLib() {
 					return yieldResult
 				}
 
-				// Check for early return
+				// Check for early return - propagate up to calling context
 				if earlyReturn, ok := result.(EarlyReturn); ok {
-					if earlyReturn.HasResult {
-						ctx.SetResult(earlyReturn.Result)
+					return earlyReturn
+				}
+
+				// Check for break - exit this loop
+				if breakResult, ok := result.(BreakResult); ok {
+					if breakResult.Levels <= 1 {
+						// Break out of this loop
+						return BoolStatus(true)
 					}
-					return earlyReturn.Status
+					// Propagate break with decremented level
+					return BreakResult{Levels: breakResult.Levels - 1}
+				}
+
+				// Check for continue - skip to next iteration
+				if continueResult, ok := result.(ContinueResult); ok {
+					if continueResult.Levels <= 1 {
+						// Continue this loop - break inner command loop to go to next iteration
+						break
+					}
+					// Propagate continue with decremented level
+					return ContinueResult{Levels: continueResult.Levels - 1}
 				}
 
 				// Handle async in body
@@ -1259,6 +1317,26 @@ func (ps *PawScript) RegisterCoreLib() {
 							return earlyReturn
 						}
 
+						// Check for break - exit this loop
+						if breakResult, ok := result.(BreakResult); ok {
+							if breakResult.Levels <= 1 {
+								// Break out of this loop
+								return BoolStatus(true)
+							}
+							// Propagate break with decremented level
+							return BreakResult{Levels: breakResult.Levels - 1}
+						}
+
+						// Check for continue - skip to next iteration
+						if continueResult, ok := result.(ContinueResult); ok {
+							if continueResult.Levels <= 1 {
+								// Continue this loop - break inner command loop to go to next iteration
+								break
+							}
+							// Propagate continue with decremented level
+							return ContinueResult{Levels: continueResult.Levels - 1}
+						}
+
 						if asyncToken, isToken := result.(TokenResult); isToken {
 							tokenID := string(asyncToken)
 							waitChan := make(chan ResumeData, 1)
@@ -1425,6 +1503,22 @@ func (ps *PawScript) RegisterCoreLib() {
 							return earlyReturn
 						}
 
+						// Check for break - exit this loop
+						if breakResult, ok := result.(BreakResult); ok {
+							if breakResult.Levels <= 1 {
+								return BoolStatus(true)
+							}
+							return BreakResult{Levels: breakResult.Levels - 1}
+						}
+
+						// Check for continue - skip to next iteration
+						if continueResult, ok := result.(ContinueResult); ok {
+							if continueResult.Levels <= 1 {
+								break
+							}
+							return ContinueResult{Levels: continueResult.Levels - 1}
+						}
+
 						if asyncToken, isToken := result.(TokenResult); isToken {
 							tokenID := string(asyncToken)
 							waitChan := make(chan ResumeData, 1)
@@ -1529,6 +1623,22 @@ func (ps *PawScript) RegisterCoreLib() {
 						return earlyReturn
 					}
 
+					// Check for break - exit this loop
+					if breakResult, ok := result.(BreakResult); ok {
+						if breakResult.Levels <= 1 {
+							return BoolStatus(true)
+						}
+						return BreakResult{Levels: breakResult.Levels - 1}
+					}
+
+					// Check for continue - skip to next iteration
+					if continueResult, ok := result.(ContinueResult); ok {
+						if continueResult.Levels <= 1 {
+							break
+						}
+						return ContinueResult{Levels: continueResult.Levels - 1}
+					}
+
 					if asyncToken, isToken := result.(TokenResult); isToken {
 						tokenID := string(asyncToken)
 						waitChan := make(chan ResumeData, 1)
@@ -1607,6 +1717,22 @@ func (ps *PawScript) RegisterCoreLib() {
 						if earlyReturn, ok := result.(EarlyReturn); ok {
 							// Propagate early return up to calling context
 							return earlyReturn
+						}
+
+						// Check for break - exit this loop
+						if breakResult, ok := result.(BreakResult); ok {
+							if breakResult.Levels <= 1 {
+								return BoolStatus(true)
+							}
+							return BreakResult{Levels: breakResult.Levels - 1}
+						}
+
+						// Check for continue - skip to next iteration
+						if continueResult, ok := result.(ContinueResult); ok {
+							if continueResult.Levels <= 1 {
+								break
+							}
+							return ContinueResult{Levels: continueResult.Levels - 1}
 						}
 
 						if asyncToken, isToken := result.(TokenResult); isToken {
@@ -1692,6 +1818,22 @@ func (ps *PawScript) RegisterCoreLib() {
 					if earlyReturn, ok := result.(EarlyReturn); ok {
 						// Propagate early return up to calling context
 						return earlyReturn
+					}
+
+					// Check for break - exit this loop
+					if breakResult, ok := result.(BreakResult); ok {
+						if breakResult.Levels <= 1 {
+							return BoolStatus(true)
+						}
+						return BreakResult{Levels: breakResult.Levels - 1}
+					}
+
+					// Check for continue - skip to next iteration
+					if continueResult, ok := result.(ContinueResult); ok {
+						if continueResult.Levels <= 1 {
+							break
+						}
+						return ContinueResult{Levels: continueResult.Levels - 1}
 					}
 
 					if asyncToken, isToken := result.(TokenResult); isToken {
@@ -1848,6 +1990,22 @@ func (ps *PawScript) RegisterCoreLib() {
 					if earlyReturn, ok := result.(EarlyReturn); ok {
 						// Propagate early return up to calling context
 						return earlyReturn
+					}
+
+					// Check for break - exit this loop
+					if breakResult, ok := result.(BreakResult); ok {
+						if breakResult.Levels <= 1 {
+							return BoolStatus(true)
+						}
+						return BreakResult{Levels: breakResult.Levels - 1}
+					}
+
+					// Check for continue - skip to next iteration
+					if continueResult, ok := result.(ContinueResult); ok {
+						if continueResult.Levels <= 1 {
+							break
+						}
+						return ContinueResult{Levels: continueResult.Levels - 1}
 					}
 
 					if asyncToken, isToken := result.(TokenResult); isToken {
