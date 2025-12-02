@@ -63,4 +63,17 @@ Test 15: Colored JSON (ANSI stripped)
   colored json (raw bytes follow)
   parsed: (name: "Test", value: 42)
 
+Test 16: merge: 0 (array_1 mode)
+  json: [{"name":"test","value":42},"a","b","c"]
+  parsed: (name: "test", value: 42, "a", "b", "c")
+
+Test 17: merge: 0 with nested structures
+  json: [{"user":[{"name":"Alice","role":"admin"},"x","y","z"]}]
+  parsed: (user: (name: "Alice", role: "admin", "x", "y", "z"))
+
+Test 18: merge: 0 round-trip
+  original: (title: "Doc", version: 1, item1, item2, item3)
+  json:     [{"title":"Doc","version":1},"item1","item2","item3"]
+  back:     (title: "Doc", version: 1, "item1", "item2", "item3")
+
 === Tests Complete ===

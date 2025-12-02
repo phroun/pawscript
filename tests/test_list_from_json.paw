@@ -129,4 +129,32 @@ echo "  colored json (raw bytes follow)"
 echo "  parsed: {string ~#fromColor}"
 echo ""
 
+# Test 16: merge: 0 (array_1 mode) - index 0 object becomes named args
+echo "Test 16: merge: 0 (array_1 mode)"
+#arr1Data: {list name: "test", value: 42, a, b, c}
+#arr1Json: {json ~#arr1Data, mode: array_1}
+echo "  json: ~#arr1Json"
+#arr1Parsed: {list ~#arr1Json, from: json, merge: 0}
+echo "  parsed: {string ~#arr1Parsed}"
+echo ""
+
+# Test 17: merge: 0 with nested structures
+echo "Test 17: merge: 0 with nested structures"
+#nestedArr1: {list user: {list name: "Alice", role: "admin", x, y, z}}
+#nestedArr1Json: {json ~#nestedArr1, mode: array_1}
+echo "  json: ~#nestedArr1Json"
+#nestedArr1Parsed: {list ~#nestedArr1Json, from: json, merge: 0}
+echo "  parsed: {string ~#nestedArr1Parsed}"
+echo ""
+
+# Test 18: merge: 0 round-trip
+echo "Test 18: merge: 0 round-trip"
+#original18: {list title: "Doc", version: 1, item1, item2, item3}
+#json18: {json ~#original18, mode: array_1}
+echo "  original: {string ~#original18}"
+echo "  json:     ~#json18"
+#back18: {list ~#json18, from: json, merge: 0}
+echo "  back:     {string ~#back18}"
+echo ""
+
 echo "=== Tests Complete ==="

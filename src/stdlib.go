@@ -150,6 +150,7 @@ func stripANSIOutsideQuotes(s string) string {
 //   - mergeChildren == nil: omit children entirely
 //   - mergeChildren == false: keep as separate named key with positional-only list
 //   - mergeChildren == true (default): merge children into positional args of parent
+//   - mergeChildren == int64(0): array_1 mode - index 0 object becomes named args, rest become positional
 func JSONToStoredList(value interface{}, childrenKey string, mergeChildren interface{}, executor *Executor) interface{} {
 	switch v := value.(type) {
 	case nil:
@@ -157,7 +158,24 @@ func JSONToStoredList(value interface{}, childrenKey string, mergeChildren inter
 	case bool, float64, string:
 		return v
 	case []interface{}:
-		// Array -> list with positional items only
+		// Check for merge: 0 (array_1 mode) on top-level arrays
+		if mergeInt, ok := mergeChildren.(int64); ok && mergeInt == 0 && len(v) > 0 {
+			// If index 0 is an object, its keys become named args, rest become positional
+			if firstObj, ok := v[0].(map[string]interface{}); ok {
+				namedArgs := make(map[string]interface{})
+				var positionalItems []interface{}
+				// Index 0 object keys become named args
+				for objKey, objVal := range firstObj {
+					namedArgs[objKey] = JSONToStoredList(objVal, childrenKey, mergeChildren, executor)
+				}
+				// Items after index 0 become positional
+				for i := 1; i < len(v); i++ {
+					positionalItems = append(positionalItems, JSONToStoredList(v[i], childrenKey, mergeChildren, executor))
+				}
+				return NewStoredListWithRefs(positionalItems, namedArgs, executor)
+			}
+		}
+		// Default: Array -> list with positional items only
 		items := make([]interface{}, len(v))
 		for i, item := range v {
 			items[i] = JSONToStoredList(item, childrenKey, mergeChildren, executor)
@@ -188,7 +206,26 @@ func JSONToStoredList(value interface{}, childrenKey string, mergeChildren inter
 					}
 					continue
 				}
-				// Default: merge children into positional args
+				// Check for merge: 0 (array_1 mode)
+				if mergeInt, ok := mergeChildren.(int64); ok && mergeInt == 0 {
+					if childArr, ok := val.([]interface{}); ok && len(childArr) > 0 {
+						// Index 0: if it's an object, merge its keys into parent's named args
+						if firstObj, ok := childArr[0].(map[string]interface{}); ok {
+							for objKey, objVal := range firstObj {
+								namedArgs[objKey] = JSONToStoredList(objVal, childrenKey, mergeChildren, executor)
+							}
+						} else {
+							// Index 0 is not an object, treat as positional
+							positionalItems = append(positionalItems, JSONToStoredList(childArr[0], childrenKey, mergeChildren, executor))
+						}
+						// Items after index 0 become positional
+						for i := 1; i < len(childArr); i++ {
+							positionalItems = append(positionalItems, JSONToStoredList(childArr[i], childrenKey, mergeChildren, executor))
+						}
+					}
+					continue
+				}
+				// Default (merge: true): merge children into positional args
 				if childArr, ok := val.([]interface{}); ok {
 					for _, item := range childArr {
 						positionalItems = append(positionalItems, JSONToStoredList(item, childrenKey, mergeChildren, executor))

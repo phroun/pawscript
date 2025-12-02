@@ -194,6 +194,10 @@ func (ps *PawScript) RegisterCoreLib() {
 				}
 
 				// Determine merge behavior (default true)
+				// merge: true - merge children into positional args
+				// merge: false - keep children as separate named key
+				// merge: nil - omit children entirely
+				// merge: 0 - array_1 mode: index 0 object becomes named args, rest positional
 				var mergeChildren interface{} = true
 				if mergeArg, hasMerge := ctx.NamedArgs["merge"]; hasMerge {
 					switch v := mergeArg.(type) {
@@ -201,11 +205,25 @@ func (ps *PawScript) RegisterCoreLib() {
 						mergeChildren = v
 					case nil:
 						mergeChildren = nil
+					case int64:
+						if v == 0 {
+							mergeChildren = int64(0) // array_1 mode
+						} else {
+							mergeChildren = true
+						}
+					case int:
+						if v == 0 {
+							mergeChildren = int64(0) // array_1 mode
+						} else {
+							mergeChildren = true
+						}
 					case Symbol:
 						s := string(v)
 						if s == "nil" || s == "null" {
 							mergeChildren = nil
-						} else if s == "false" || s == "0" {
+						} else if s == "0" {
+							mergeChildren = int64(0) // array_1 mode
+						} else if s == "false" {
 							mergeChildren = false
 						} else {
 							mergeChildren = true
@@ -213,7 +231,9 @@ func (ps *PawScript) RegisterCoreLib() {
 					case string:
 						if v == "nil" || v == "null" {
 							mergeChildren = nil
-						} else if v == "false" || v == "0" {
+						} else if v == "0" {
+							mergeChildren = int64(0) // array_1 mode
+						} else if v == "false" {
 							mergeChildren = false
 						} else {
 							mergeChildren = true
