@@ -1790,7 +1790,12 @@ func createLauncherWindow() {
 		}()
 
 		// --- Create Split Layout ---
-		split := container.NewHSplit(leftPanel, termWithInterceptor)
+		// Add small spacer to the right of the divider so console text doesn't touch it
+		spacer := canvas.NewRectangle(color.Transparent)
+		spacer.SetMinSize(fyne.NewSize(8, 0))
+		rightWithPadding := container.NewBorder(nil, nil, spacer, nil, termWithInterceptor)
+
+		split := container.NewHSplit(leftPanel, rightWithPadding)
 		split.SetOffset(0.3) // 30% for file list, 70% for console
 
 		windowID := id
@@ -2087,7 +2092,13 @@ func registerGuiCommands(ps *pawscript.PawScript) {
 			if !ws.usingSplit {
 				leftScroll := container.NewVScroll(ws.leftContent)
 				rightScroll := container.NewVScroll(ws.rightContent)
-				ws.splitView = container.NewHSplit(leftScroll, rightScroll)
+
+				// Add small spacer to the right of the divider
+				spacer := canvas.NewRectangle(color.Transparent)
+				spacer.SetMinSize(fyne.NewSize(8, 0))
+				rightWithPadding := container.NewBorder(nil, nil, spacer, nil, rightScroll)
+
+				ws.splitView = container.NewHSplit(leftScroll, rightWithPadding)
 				ws.window.SetContent(ws.splitView)
 				ws.usingSplit = true
 			}
