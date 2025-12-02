@@ -9,6 +9,30 @@ import (
 	"time"
 )
 
+// Object pools for reducing allocation overhead
+var (
+	executionStatePool = sync.Pool{
+		New: func() interface{} {
+			return &ExecutionState{}
+		},
+	}
+	variablesMapPool = sync.Pool{
+		New: func() interface{} {
+			return make(map[string]interface{}, 8) // Pre-size for common case
+		},
+	}
+	ownedObjectsMapPool = sync.Pool{
+		New: func() interface{} {
+			return make(map[int]int, 4)
+		},
+	}
+	bubbleMapPool = sync.Pool{
+		New: func() interface{} {
+			return make(map[string][]*BubbleEntry, 2)
+		},
+	}
+)
+
 // BubbleEntry represents a single bubble in the bubble system
 // Bubbles are out-of-band values that accumulate and "bubble up" through the call stack
 type BubbleEntry struct {
@@ -59,17 +83,29 @@ func NewExecutionStateFrom(parent *ExecutionState) *ExecutionState {
 		return NewExecutionState()
 	}
 
-	return &ExecutionState{
-		currentResult: nil,                                         // Fresh result storage for this child
-		hasResult:     false,                                       // Child starts with no result
-		lastStatus:    true,                                        // Child starts with success status
-		variables:     make(map[string]interface{}),                // Create fresh map
-		ownedObjects:  make(map[int]int),                           // Fresh owned objects counter
-		executor:      parent.executor,                             // Share executor reference
-		fiberID:       parent.fiberID,                              // Inherit fiber ID
-		moduleEnv:     NewChildModuleEnvironment(parent.moduleEnv), // Create child module environment
-		bubbleMap:     make(map[string][]*BubbleEntry),             // Fresh bubble map (will merge on return)
-	}
+	// Get state from pool
+	state := executionStatePool.Get().(*ExecutionState)
+
+	// Get maps from pools
+	variables := variablesMapPool.Get().(map[string]interface{})
+	ownedObjects := ownedObjectsMapPool.Get().(map[int]int)
+	bubbleMap := bubbleMapPool.Get().(map[string][]*BubbleEntry)
+
+	// Initialize state
+	state.currentResult = nil
+	state.hasResult = false
+	state.lastStatus = true
+	state.lastBraceFailureCount = 0
+	state.variables = variables
+	state.ownedObjects = ownedObjects
+	state.executor = parent.executor
+	state.fiberID = parent.fiberID
+	state.moduleEnv = NewChildModuleEnvironment(parent.moduleEnv)
+	state.macroContext = nil
+	state.bubbleMap = bubbleMap
+	state.InBraceExpression = false
+
+	return state
 }
 
 // NewExecutionStateFromSharedVars creates a child that shares variables but has its own result storage
@@ -83,19 +119,74 @@ func NewExecutionStateFromSharedVars(parent *ExecutionState) *ExecutionState {
 	parent.mu.RLock()
 	defer parent.mu.RUnlock()
 
-	return &ExecutionState{
-		currentResult:         parent.currentResult,         // Inherit parent's result for get_result
-		hasResult:             parent.hasResult,             // Inherit parent's result state
-		lastStatus:            parent.lastStatus,            // Inherit parent's last status
-		lastBraceFailureCount: parent.lastBraceFailureCount, // Inherit parent's brace failure count for get_substatus
-		variables:             parent.variables,             // Share the variables map with parent
-		ownedObjects:          make(map[int]int),            // Fresh owned objects counter (will clean up separately)
-		executor:              parent.executor,              // Share executor reference
-		fiberID:               parent.fiberID,               // Inherit fiber ID
-		moduleEnv:             parent.moduleEnv,             // Share module environment with parent
-		macroContext:          parent.macroContext,          // Inherit macro context for stack traces
-		bubbleMap:             parent.bubbleMap,             // Share bubble map with parent (bubbles survive into/out of braces)
+	// Get state and ownedObjects map from pools
+	state := executionStatePool.Get().(*ExecutionState)
+	ownedObjects := ownedObjectsMapPool.Get().(map[int]int)
+
+	// Initialize state - shares most things with parent
+	state.currentResult = parent.currentResult
+	state.hasResult = parent.hasResult
+	state.lastStatus = parent.lastStatus
+	state.lastBraceFailureCount = parent.lastBraceFailureCount
+	state.variables = parent.variables // Shared with parent
+	state.ownedObjects = ownedObjects
+	state.executor = parent.executor
+	state.fiberID = parent.fiberID
+	state.moduleEnv = parent.moduleEnv // Shared with parent
+	state.macroContext = parent.macroContext
+	state.bubbleMap = parent.bubbleMap // Shared with parent
+	state.InBraceExpression = true
+
+	return state
+}
+
+// Recycle returns the state and its maps to the object pools for reuse.
+// Call this when the state is no longer needed (e.g., after macro execution).
+// ownsVariables indicates whether this state owns its variables map (true for macro states,
+// false for brace states that share variables with parent).
+// ownsBubbleMap indicates whether this state owns its bubbleMap (true for macro states,
+// false for brace states that share bubbleMap with parent).
+func (s *ExecutionState) Recycle(ownsVariables, ownsBubbleMap bool) {
+	if s == nil {
+		return
 	}
+
+	// Clear and return owned maps to pools
+	if ownsVariables && s.variables != nil {
+		// Clear the map
+		for k := range s.variables {
+			delete(s.variables, k)
+		}
+		variablesMapPool.Put(s.variables)
+	}
+
+	if s.ownedObjects != nil {
+		// Clear the map
+		for k := range s.ownedObjects {
+			delete(s.ownedObjects, k)
+		}
+		ownedObjectsMapPool.Put(s.ownedObjects)
+	}
+
+	if ownsBubbleMap && s.bubbleMap != nil {
+		// Clear the map
+		for k := range s.bubbleMap {
+			delete(s.bubbleMap, k)
+		}
+		bubbleMapPool.Put(s.bubbleMap)
+	}
+
+	// Clear references to help GC
+	s.currentResult = nil
+	s.variables = nil
+	s.ownedObjects = nil
+	s.executor = nil
+	s.moduleEnv = nil
+	s.macroContext = nil
+	s.bubbleMap = nil
+
+	// Return state to pool
+	executionStatePool.Put(s)
 }
 
 // SetResult sets the result value

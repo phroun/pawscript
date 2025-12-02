@@ -1811,6 +1811,7 @@ func (e *Executor) executeMacro(
 	if parseErr != nil {
 		e.logger.ErrorCat(CatCommand, "Failed to parse macro commands: %v", parseErr)
 		macroState.ReleaseAllReferences()
+		macroState.Recycle(true, true) // Owns variables and bubbleMap
 		return BoolStatus(false)
 	}
 
@@ -1859,6 +1860,7 @@ func (e *Executor) executeMacro(
 
 	// Clean up macro state
 	macroState.ReleaseAllReferences()
+	macroState.Recycle(true, true) // Owns variables and bubbleMap
 
 	e.logger.DebugCat(CatCommand,"Macro execution completed with result: %v", result)
 	return result
