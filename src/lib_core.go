@@ -1513,8 +1513,8 @@ func (ps *PawScript) RegisterCoreLib() {
 		// Internal variable name to track current bubble for 'burst' command
 		const currentBubbleVar = "__fizz_current_bubble__"
 
-		// Iterate over bubbles
-		for _, bubble := range bubbles {
+		// Iterate over bubbles (with index for continuation support)
+		for bubbleIdx, bubble := range bubbles {
 			// Set content variable
 			ctx.state.SetVariable(contentVarName, bubble.Content)
 
@@ -1558,7 +1558,7 @@ func (ps *PawScript) RegisterCoreLib() {
 
 			// Execute body
 			lastStatus := true
-			for _, cmd := range bodyCommands {
+			for cmdIdx, cmd := range bodyCommands {
 				if strings.TrimSpace(cmd.Command) == "" {
 					continue
 				}
@@ -1576,6 +1576,29 @@ func (ps *PawScript) RegisterCoreLib() {
 				}
 
 				result := ctx.executor.executeParsedCommand(cmd, ctx.state, nil)
+
+				// Check for yield - attach fizz continuation
+				if yieldResult, ok := result.(YieldResult); ok {
+					outerCont := &FizzContinuation{
+						BodyBlock:          bodyBlock,
+						CachedBodyCmds:     bodyCommands, // Cache full body for reuse
+						RemainingBodyCmds:  bodyCommands[cmdIdx+1:],
+						BodyCmdIndex:       cmdIdx,
+						ContentVarName:     contentVarName,
+						MetaVarName:        metaVarName,
+						HasMetaVar:         hasMetaVar,
+						Flavors:            flavors,
+						CurrentBubbleIndex: bubbleIdx,
+						Bubbles:            bubbles,
+						State:              ctx.state,
+					}
+					if yieldResult.FizzContinuation == nil {
+						yieldResult.FizzContinuation = outerCont
+					} else {
+						yieldResult.FizzContinuation.ParentContinuation = outerCont
+					}
+					return yieldResult
+				}
 
 				// Check for early return
 				if earlyReturn, ok := result.(EarlyReturn); ok {
@@ -2194,6 +2217,7 @@ func (ps *PawScript) RegisterCoreLib() {
 				outerCont := &WhileContinuation{
 					ConditionBlock:    conditionBlock,
 					BodyBlock:         bodyBlock,
+					CachedBodyCmds:    bodyCommands, // Cache full body for reuse across iterations
 					RemainingBodyCmds: bodyCommands, // Full body since we haven't started
 					BodyCmdIndex:      -1,           // -1 indicates yield was in condition
 					IterationCount:    iterations,
@@ -2251,6 +2275,7 @@ func (ps *PawScript) RegisterCoreLib() {
 					outerCont := &WhileContinuation{
 						ConditionBlock:    conditionBlock,
 						BodyBlock:         bodyBlock,
+						CachedBodyCmds:    bodyCommands, // Cache full body for reuse across iterations
 						RemainingBodyCmds: bodyCommands[cmdIdx+1:],
 						BodyCmdIndex:      cmdIdx,
 						IterationCount:    iterations,
@@ -2560,6 +2585,7 @@ func (ps *PawScript) RegisterCoreLib() {
 							// Create continuation for resuming
 							outerCont := &ForContinuation{
 								BodyBlock:         bodyBlock,
+								CachedBodyCmds:    bodyCommands, // Cache full body for reuse
 								RemainingBodyCmds: bodyCommands[cmdIdx+1:],
 								BodyCmdIndex:      cmdIdx,
 								IterationNumber:   iterNum,
@@ -3234,6 +3260,7 @@ func (ps *PawScript) RegisterCoreLib() {
 					if yieldResult, ok := result.(YieldResult); ok {
 						outerCont := &ForContinuation{
 							BodyBlock:         bodyBlock,
+							CachedBodyCmds:    bodyCommands, // Cache full body for reuse
 							RemainingBodyCmds: bodyCommands[cmdIdx+1:],
 							BodyCmdIndex:      cmdIdx,
 							IterationNumber:   iterNum,

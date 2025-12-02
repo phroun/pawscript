@@ -37,6 +37,9 @@ func New(config *Config) *PawScript {
 	logger := NewLoggerWithWriters(config.Debug, config.Stdout, config.Stderr)
 	executor := NewExecutor(logger)
 
+	// Set optimization level from config
+	executor.SetOptimizationLevel(config.OptLevel)
+
 	// Create root module environment for all execution states
 	rootModuleEnv := NewModuleEnvironment()
 

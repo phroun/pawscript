@@ -205,6 +205,7 @@ type YieldResult struct {
 	WhileContinuation  *WhileContinuation   // Optional - set when yielding from inside while loop
 	RepeatContinuation *RepeatContinuation  // Optional - set when yielding from inside repeat loop
 	ForContinuation    *ForContinuation     // Optional - set when yielding from inside for loop
+	FizzContinuation   *FizzContinuation    // Optional - set when yielding from inside fizz loop
 }
 
 func (YieldResult) isResult() {}
@@ -235,6 +236,7 @@ func (ContinueResult) isResult() {}
 type WhileContinuation struct {
 	ConditionBlock      string            // The while condition (re-evaluated each iteration)
 	BodyBlock           string            // The full while body
+	CachedBodyCmds      []*ParsedCommand  // Cached full parsed body for reuse across iterations
 	RemainingBodyCmds   []*ParsedCommand  // Commands remaining in current iteration after yield
 	BodyCmdIndex        int               // Which command in body yielded
 	IterationCount      int               // Current iteration number
@@ -246,6 +248,7 @@ type WhileContinuation struct {
 // RepeatContinuation stores state for resuming a repeat loop after yield
 type RepeatContinuation struct {
 	BodyBlock           string               // The repeat body
+	CachedBodyCmds      []*ParsedCommand     // Cached full parsed body for reuse across iterations
 	RemainingBodyCmds   []*ParsedCommand     // Commands remaining in current iteration after yield
 	BodyCmdIndex        int                  // Which command in body yielded
 	CurrentIteration    int                  // Current iteration number (0-based)
@@ -260,6 +263,7 @@ type RepeatContinuation struct {
 // ForContinuation stores state for resuming a for loop after yield
 type ForContinuation struct {
 	BodyBlock         string              // The for body
+	CachedBodyCmds    []*ParsedCommand    // Cached full parsed body for reuse across iterations
 	RemainingBodyCmds []*ParsedCommand    // Commands remaining in current iteration after yield
 	BodyCmdIndex      int                 // Which command in body yielded
 	IterationNumber   int                 // Current iteration number (1-based for iter:)
@@ -280,6 +284,22 @@ type ForContinuation struct {
 	RangeEnd          float64             // End value for numeric range
 	RangeStep         float64             // Step value for numeric range
 	RangeCurrent      float64             // Current value in numeric range
+}
+
+// FizzContinuation stores state for resuming a fizz loop after yield
+type FizzContinuation struct {
+	BodyBlock           string               // The fizz body
+	CachedBodyCmds      []*ParsedCommand     // Cached full parsed body for reuse across iterations
+	RemainingBodyCmds   []*ParsedCommand     // Commands remaining in current iteration after yield
+	BodyCmdIndex        int                  // Which command in body yielded
+	ContentVarName      string               // Variable name for bubble content
+	MetaVarName         string               // Variable name for bubble metadata (optional)
+	HasMetaVar          bool                 // Whether meta variable is being used
+	Flavors             []string             // Flavors being iterated
+	CurrentBubbleIndex  int                  // Current position in bubble list
+	Bubbles             []*BubbleEntry       // List of bubbles being iterated
+	State               *ExecutionState      // Execution state at time of yield
+	ParentContinuation  *FizzContinuation    // For nested fizz loops
 }
 
 // IteratorState stores state for Go-backed iterators (each, pair, range, rng)
@@ -384,11 +404,13 @@ type TokenData struct {
 	InvertStatus       bool               // If true, invert the success status when this token completes
 	FiberID            int                // ID of the fiber that created this token
 	WaitChan           chan ResumeData    // For synchronous blocking (e.g., in while loops)
-	SubstitutionCtx    *SubstitutionContext // For generator macro argument substitution
-	WhileContinuation  *WhileContinuation // For resuming while loops after yield
-	ForContinuation    *ForContinuation   // For resuming for loops after yield
-	IteratorState      *IteratorState     // For Go-backed iterators (each, pair)
-	ParentState        *ExecutionState    // For macro async: parent state for deferred result transfer
+	SubstitutionCtx      *SubstitutionContext  // For generator macro argument substitution
+	WhileContinuation    *WhileContinuation    // For resuming while loops after yield
+	ForContinuation      *ForContinuation      // For resuming for loops after yield
+	RepeatContinuation   *RepeatContinuation   // For resuming repeat loops after yield
+	FizzContinuation     *FizzContinuation     // For resuming fizz loops after yield
+	IteratorState        *IteratorState        // For Go-backed iterators (each, pair)
+	ParentState          *ExecutionState       // For macro async: parent state for deferred result transfer
 }
 
 // MacroDefinition stores a macro definition
@@ -427,6 +449,14 @@ type FileAccessConfig struct {
 }
 
 // Config holds configuration for PawScript
+// OptimizationLevel controls AST caching behavior
+type OptimizationLevel int
+
+const (
+	OptimizeNone  OptimizationLevel = 0 // -O0: No caching, always re-parse
+	OptimizeBasic OptimizationLevel = 1 // -O1: Cache macro bodies and loop bodies (default)
+)
+
 type Config struct {
 	Debug                bool
 	DefaultTokenTimeout  time.Duration
@@ -434,6 +464,7 @@ type Config struct {
 	AllowMacros          bool
 	ShowErrorContext     bool
 	ContextLines         int
+	OptLevel             OptimizationLevel // AST caching level (default: OptimizeBasic)
 	Stdin                io.Reader         // Custom stdin reader (default: os.Stdin)
 	Stdout               io.Writer         // Custom stdout writer (default: os.Stdout)
 	Stderr               io.Writer         // Custom stderr writer (default: os.Stderr)
@@ -450,6 +481,7 @@ func DefaultConfig() *Config {
 		AllowMacros:          true,
 		ShowErrorContext:     true,
 		ContextLines:         2,
+		OptLevel:             OptimizeBasic, // Enable AST caching by default
 		Stdin:                os.Stdin,
 		Stdout:               os.Stdout,
 		Stderr:               os.Stderr,
@@ -507,6 +539,7 @@ const (
 // This can be either a named macro (registered in the macro system) or anonymous
 type StoredMacro struct {
 	Commands         string
+	CachedCommands   []*ParsedCommand   // Lazily populated parsed form (nil until first use)
 	DefinitionFile   string
 	DefinitionLine   int
 	DefinitionColumn int

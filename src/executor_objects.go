@@ -153,6 +153,12 @@ func (e *Executor) decrementObjectRefCount(objectID int) {
 				storedFile.Close()
 			}
 
+			// Clean up cached parsed form for blocks
+			if _, ok := obj.Value.(StoredBlock); ok {
+				delete(e.blockCache, objectID)
+				e.logger.DebugCat(CatMemory, "Removed block %d from parse cache", objectID)
+			}
+
 			delete(e.storedObjects, objectID)
 			e.logger.DebugCat(CatMemory,"Object %d freed (refcount reached 0)", objectID)
 		}

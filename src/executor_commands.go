@@ -1802,9 +1802,17 @@ func (e *Executor) executeMacro(
 		Filename:            macro.DefinitionFile,
 	}
 
-	// Execute the macro commands
-	result := e.ExecuteWithState(macro.Commands, macroState, substitutionContext,
-		macro.DefinitionFile, macro.DefinitionLine-1, macro.DefinitionColumn-1)
+	// Get cached or freshly parsed commands for the macro
+	parsedCommands, parseErr := e.GetOrParseMacroCommands(macro, macro.DefinitionFile)
+	if parseErr != nil {
+		e.logger.ErrorCat(CatCommand, "Failed to parse macro commands: %v", parseErr)
+		macroState.ReleaseAllReferences()
+		return BoolStatus(false)
+	}
+
+	// Execute the parsed commands
+	result := e.ExecuteParsedCommands(parsedCommands, macroState, substitutionContext,
+		macro.DefinitionLine-1, macro.DefinitionColumn-1)
 
 	// Handle EarlyReturn - extract the result and convert to normal status
 	// The EarlyReturn should terminate the macro, not propagate to the caller

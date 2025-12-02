@@ -1661,6 +1661,7 @@ func (ps *PawScript) RegisterTypesLib() {
 					if yieldResult, ok := result.(YieldResult); ok {
 						outerCont := &RepeatContinuation{
 							BodyBlock:         bodyBlock,
+							CachedBodyCmds:    bodyCommands, // Cache full body for reuse
 							RemainingBodyCmds: bodyCommands[cmdIdx+1:],
 							BodyCmdIndex:      cmdIdx,
 							CurrentIteration:  iteration,
