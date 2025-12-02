@@ -2898,6 +2898,7 @@ type clickInterceptor struct {
 }
 
 var _ fyne.Tappable = (*clickInterceptor)(nil)
+var _ desktop.Mouseable = (*clickInterceptor)(nil)
 
 func newClickInterceptor(term *terminal.Terminal) *clickInterceptor {
 	c := &clickInterceptor{
@@ -2905,6 +2906,21 @@ func newClickInterceptor(term *terminal.Terminal) *clickInterceptor {
 	}
 	c.ExtendBaseWidget(c)
 	return c
+}
+
+func (c *clickInterceptor) MouseDown(ev *desktop.MouseEvent) {
+	if c == nil || c.terminal == nil {
+		return
+	}
+	// Forward mouse down to terminal - this clears any text selection
+	c.terminal.MouseDown(ev)
+}
+
+func (c *clickInterceptor) MouseUp(ev *desktop.MouseEvent) {
+	if c == nil || c.terminal == nil {
+		return
+	}
+	c.terminal.MouseUp(ev)
 }
 
 func (c *clickInterceptor) Tapped(_ *fyne.PointEvent) {
