@@ -18,6 +18,7 @@ import (
 	"fyne.io/fyne/v2"
 	"fyne.io/fyne/v2/app"
 	"fyne.io/fyne/v2/container"
+	"fyne.io/fyne/v2/driver/desktop"
 	"fyne.io/fyne/v2/layout"
 	"fyne.io/fyne/v2/theme"
 	"fyne.io/fyne/v2/widget"
@@ -1706,9 +1707,24 @@ func createLauncherWindow() {
 		guiState.windows[id] = ws
 		guiState.mu.Unlock()
 
-		// Focus the terminal
+		// Add Shift+Tab and Ctrl+Tab shortcuts to escape the terminal
 		canvas := win.Canvas()
 		if canvas != nil {
+			// Shift+Tab: Focus the filter entry
+			canvas.AddShortcut(&desktop.CustomShortcut{
+				KeyName:  fyne.KeyTab,
+				Modifier: fyne.KeyModifierShift,
+			}, func(_ fyne.Shortcut) {
+				canvas.Focus(filterEntry)
+			})
+			// Ctrl+Tab: Also focus the filter entry
+			canvas.AddShortcut(&desktop.CustomShortcut{
+				KeyName:  fyne.KeyTab,
+				Modifier: fyne.KeyModifierControl,
+			}, func(_ fyne.Shortcut) {
+				canvas.Focus(filterEntry)
+			})
+			// Focus the terminal initially
 			canvas.Focus(term)
 		}
 
