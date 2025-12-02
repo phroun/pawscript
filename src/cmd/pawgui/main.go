@@ -1406,7 +1406,7 @@ func createLauncherWindow() {
 		settingFilterFromSelection := false // Flag to prevent re-filtering on selection
 
 		// Forward declarations for mutual references
-		var runBtn *widget.Button
+		var runBtn *navButton
 		var performAction func()
 		var fileList *widget.List
 		var filterEntry *filterEntryWidget
@@ -1504,11 +1504,59 @@ func createLauncherWindow() {
 				applyFilter()
 			}
 		}
-		// Down arrow in filter box focuses first item in list
+		// Track current selection index for keyboard navigation
+		currentSelectionIndex := -1
+
+		// Update selection index when list selection changes
+		originalOnSelected := fileList.OnSelected
+		fileList.OnSelected = func(id widget.ListItemID) {
+			currentSelectionIndex = int(id)
+			if originalOnSelected != nil {
+				originalOnSelected(id)
+			}
+			// Focus Run button so arrow keys continue to work
+			win.Canvas().Focus(runBtn)
+		}
+
+		originalOnUnselected := fileList.OnUnselected
+		fileList.OnUnselected = func(id widget.ListItemID) {
+			currentSelectionIndex = -1
+			if originalOnUnselected != nil {
+				originalOnUnselected(id)
+			}
+		}
+
+		// Down arrow navigates to next item (or first if none selected)
 		filterEntry.onDownArrow = func() {
-			if len(filteredEntries) > 0 {
-				fileList.Select(0)
-				win.Canvas().Focus(runBtn)
+			if len(filteredEntries) == 0 {
+				return
+			}
+			nextIndex := currentSelectionIndex + 1
+			if nextIndex >= len(filteredEntries) {
+				nextIndex = len(filteredEntries) - 1
+			}
+			if nextIndex < 0 {
+				nextIndex = 0
+			}
+			fileList.Select(nextIndex)
+		}
+
+		// Up arrow navigates to previous item
+		filterEntry.onUpArrow = func() {
+			if len(filteredEntries) == 0 {
+				return
+			}
+			prevIndex := currentSelectionIndex - 1
+			if prevIndex < 0 {
+				prevIndex = 0
+			}
+			fileList.Select(prevIndex)
+		}
+
+		// Enter performs the action on selected item
+		filterEntry.onEnter = func() {
+			if selectedEntry != nil {
+				performAction()
 			}
 		}
 
@@ -1584,7 +1632,32 @@ func createLauncherWindow() {
 		)
 
 		// Run/Open button - text changes based on selection
-		runBtn = widget.NewButton("Run", nil)
+		runBtn = newNavButton("Run", nil)
+
+		// Wire up arrow key handlers for the button
+		runBtn.onDownArrow = func() {
+			if len(filteredEntries) == 0 {
+				return
+			}
+			nextIndex := currentSelectionIndex + 1
+			if nextIndex >= len(filteredEntries) {
+				nextIndex = len(filteredEntries) - 1
+			}
+			if nextIndex < 0 {
+				nextIndex = 0
+			}
+			fileList.Select(nextIndex)
+		}
+		runBtn.onUpArrow = func() {
+			if len(filteredEntries) == 0 {
+				return
+			}
+			prevIndex := currentSelectionIndex - 1
+			if prevIndex < 0 {
+				prevIndex = 0
+			}
+			fileList.Select(prevIndex)
+		}
 
 		// Function to perform the action (open dir or run script)
 		performAction = func() {
@@ -2697,10 +2770,12 @@ func (t *tappableLabel) MouseUp(_ *desktop.MouseEvent) {
 	// Required by Mouseable interface but we don't need it
 }
 
-// filterEntry is an entry that handles down arrow to focus the file list
+// filterEntry is an entry that handles arrow keys for list navigation
 type filterEntryWidget struct {
 	widget.Entry
-	onDownArrow func()
+	onDownArrow  func()
+	onUpArrow    func()
+	onEnter      func()
 }
 
 func newFilterEntry() *filterEntryWidget {
@@ -2710,11 +2785,55 @@ func newFilterEntry() *filterEntryWidget {
 }
 
 func (e *filterEntryWidget) TypedKey(key *fyne.KeyEvent) {
-	if key.Name == fyne.KeyDown && e.onDownArrow != nil {
-		e.onDownArrow()
-		return
+	switch key.Name {
+	case fyne.KeyDown:
+		if e.onDownArrow != nil {
+			e.onDownArrow()
+			return
+		}
+	case fyne.KeyUp:
+		if e.onUpArrow != nil {
+			e.onUpArrow()
+			return
+		}
+	case fyne.KeyReturn, fyne.KeyEnter:
+		if e.onEnter != nil {
+			e.onEnter()
+			return
+		}
 	}
 	e.Entry.TypedKey(key)
+}
+
+// navButton is a button that handles arrow keys for list navigation
+type navButton struct {
+	widget.Button
+	onDownArrow func()
+	onUpArrow   func()
+}
+
+func newNavButton(label string, onTapped func()) *navButton {
+	b := &navButton{}
+	b.ExtendBaseWidget(b)
+	b.SetText(label)
+	b.OnTapped = onTapped
+	return b
+}
+
+func (b *navButton) TypedKey(key *fyne.KeyEvent) {
+	switch key.Name {
+	case fyne.KeyDown:
+		if b.onDownArrow != nil {
+			b.onDownArrow()
+			return
+		}
+	case fyne.KeyUp:
+		if b.onUpArrow != nil {
+			b.onUpArrow()
+			return
+		}
+	}
+	b.Button.TypedKey(key)
 }
 
 // clickInterceptor is a transparent widget that sits on top of the terminal
