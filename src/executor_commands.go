@@ -146,6 +146,10 @@ func (e *Executor) executeCommandSequence(commands []*ParsedCommand, state *Exec
 
 // executeParsedCommand executes a single parsed command
 func (e *Executor) executeParsedCommand(parsedCmd *ParsedCommand, state *ExecutionState, substitutionCtx *SubstitutionContext) Result {
+	// Store the current parsed command for block caching
+	if substitutionCtx != nil {
+		substitutionCtx.CurrentParsedCommand = parsedCmd
+	}
 	return e.executeSingleCommand(parsedCmd.Command, state, substitutionCtx, parsedCmd.Position)
 }
 
@@ -539,7 +543,7 @@ func (e *Executor) executeSingleCommand(
 				// Check for commands in module environment
 				if handler, exists := capturedState.moduleEnv.GetCommand(cmdName); exists {
 					e.logger.DebugCat(CatCommand,"Found command \"%s\" in module environment", cmdName)
-					ctx := e.createContext(args, rawArgs, namedArgs, capturedState, capturedPosition)
+					ctx := e.createContext(args, rawArgs, namedArgs, capturedState, capturedPosition, capturedSubstitutionCtx)
 					result := handler(ctx)
 					if capturedShouldInvert {
 						return e.invertStatus(result, capturedState, capturedPosition)
@@ -845,7 +849,7 @@ func (e *Executor) executeSingleCommand(
 	// Check for commands in module environment
 	if handler, exists := state.moduleEnv.GetCommand(cmdName); exists {
 		e.logger.DebugCat(CatCommand,"Found command \"%s\" in module environment", cmdName)
-		ctx := e.createContext(args, rawArgs, namedArgs, state, position)
+		ctx := e.createContext(args, rawArgs, namedArgs, state, position, substitutionCtx)
 		result := handler(ctx)
 		if shouldInvert {
 			return e.invertStatus(result, state, position)

@@ -2,6 +2,7 @@ package pawscript
 
 import (
 	"fmt"
+	"regexp"
 	"sync"
 	"time"
 )
@@ -88,6 +89,57 @@ func (e *Executor) GetOrParseMacroCommands(macro *StoredMacro, filename string) 
 	}
 
 	return commands, nil
+}
+
+// dollarSubstitutionPattern matches $N (like $1, $2) and $* patterns
+var dollarSubstitutionPattern = regexp.MustCompile(`\$(\d+|\*)`)
+
+// GetOrCacheBlockArg returns cached parsed commands for a block argument, or parses and caches them.
+// This is called by loop commands (while, for, repeat, fizz) to cache their body blocks.
+// If the block contains $N patterns, it cannot be cached and nil is returned (caller should parse fresh).
+// If cmd is nil (not from cached macro), nil is returned and caller should parse fresh.
+func (e *Executor) GetOrCacheBlockArg(cmd *ParsedCommand, argIndex int, blockStr string, filename string) []*ParsedCommand {
+	if e.optLevel < OptimizeBasic || cmd == nil {
+		return nil // Caller should parse fresh
+	}
+
+	// Check if already cached
+	if cmd.CachedBlockArgs != nil {
+		if cached, exists := cmd.CachedBlockArgs[argIndex]; exists {
+			e.logger.DebugCat(CatCommand, "Using cached block at arg %d (%d commands)", argIndex, len(cached))
+			return cached
+		}
+	}
+
+	// Skip if the block contains $N substitution patterns (needs per-invocation parsing)
+	if dollarSubstitutionPattern.MatchString(blockStr) {
+		e.logger.DebugCat(CatCommand, "Block at arg %d contains $ pattern, cannot cache", argIndex)
+		return nil
+	}
+
+	// Parse the block
+	parser := NewParser(blockStr, filename)
+	cleanedBlock := parser.RemoveComments(blockStr)
+	normalizedBlock := parser.NormalizeKeywords(cleanedBlock)
+
+	parsedBlock, err := parser.ParseCommandSequence(normalizedBlock)
+	if err != nil {
+		e.logger.DebugCat(CatCommand, "Failed to parse block at arg %d: %v", argIndex, err)
+		return nil
+	}
+
+	if len(parsedBlock) == 0 {
+		return nil
+	}
+
+	// Store the cached parsed block
+	if cmd.CachedBlockArgs == nil {
+		cmd.CachedBlockArgs = make(map[int][]*ParsedCommand)
+	}
+	cmd.CachedBlockArgs[argIndex] = parsedBlock
+	e.logger.DebugCat(CatCommand, "Cached block at arg %d (%d commands)", argIndex, len(parsedBlock))
+
+	return parsedBlock
 }
 
 // ExecuteParsedCommands executes pre-parsed commands with the given state and context
@@ -220,7 +272,7 @@ func (e *Executor) Execute(commandStr string, args ...interface{}) Result {
 		e.mu.RUnlock()
 
 		if exists {
-			ctx := e.createContext(args, nil, nil, state, nil)
+			ctx := e.createContext(args, nil, nil, state, nil, nil)
 			result := handler(ctx)
 			// Only release state if not returning a token (async operation)
 			if _, isToken := result.(TokenResult); !isToken {
@@ -309,15 +361,20 @@ func (e *Executor) ExecuteWithState(
 }
 
 // createContext creates a command context
-func (e *Executor) createContext(args []interface{}, rawArgs []string, namedArgs map[string]interface{}, state *ExecutionState, position *SourcePosition) *Context {
+func (e *Executor) createContext(args []interface{}, rawArgs []string, namedArgs map[string]interface{}, state *ExecutionState, position *SourcePosition, substitutionCtx *SubstitutionContext) *Context {
+	var parsedCmd *ParsedCommand
+	if substitutionCtx != nil {
+		parsedCmd = substitutionCtx.CurrentParsedCommand
+	}
 	return &Context{
-		Args:      args,
-		RawArgs:   rawArgs,
-		NamedArgs: namedArgs,
-		Position:  position,
-		state:     state,
-		executor:  e,
-		logger:    e.logger,
+		Args:          args,
+		RawArgs:       rawArgs,
+		NamedArgs:     namedArgs,
+		Position:      position,
+		state:         state,
+		executor:      e,
+		logger:        e.logger,
+		ParsedCommand: parsedCmd,
 		requestToken: func(cleanup func(string)) string {
 			return e.RequestCompletionToken(cleanup, "", 5*time.Minute, state, position)
 		},
