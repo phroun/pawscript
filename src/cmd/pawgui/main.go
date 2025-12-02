@@ -1448,13 +1448,10 @@ func createLauncherWindow() {
 			func(i widget.ListItemID, o fyne.CanvasObject) {
 				lbl := o.(*tappableLabel)
 				lbl.SetText(filteredEntries[i].Name)
-				// Mouse down fires immediately - show focus right away
+				// Mouse down fires immediately - select and focus right away
 				lbl.onMouseDown = func() {
-					runBtn.FocusGained()
-				}
-				// Single-tap handler to trigger list selection
-				lbl.onTapped = func() {
 					fileList.Select(i)
+					runBtn.FocusGained()
 				}
 				// Double-tap handler to perform action
 				lbl.onDoubleTapped = func() {
