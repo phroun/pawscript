@@ -533,20 +533,10 @@ func (e *Executor) PopAndResumeCommandSequence(tokenID string, status bool) bool
 		e.logger.DebugCat(CatAsync,"Triggering chained token %s with result %v", chainedToken, success)
 		result := e.PopAndResumeCommandSequence(chainedToken, success)
 
-		// Release all object references held by this token's state
-		// But only if no other token is using the same state
-		if tokenData.ExecutionState != nil {
-			stateInUse := false
-			for otherID, otherData := range e.activeTokens {
-				if otherID != tokenID && otherData.ExecutionState == tokenData.ExecutionState {
-					stateInUse = true
-					break
-				}
-			}
-			if !stateInUse {
-				tokenData.ExecutionState.ReleaseAllReferences()
-			}
-		}
+		// Don't release state references here - the chained token (or its chain)
+		// will handle releasing the state when the final command completes.
+		// If we released here, we'd double-release since the chained token already
+		// released when it found no other tokens using the state.
 
 		return result
 	}
