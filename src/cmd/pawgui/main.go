@@ -1407,13 +1407,14 @@ func createLauncherWindow() {
 		// Truncate long paths from the start to show the end (more important)
 		const maxDirLabelLen = 40
 		dirLabel := widget.NewLabel(truncatePathFromStart(currentDir, maxDirLabelLen))
-		dirLabel.Truncation = fyne.TextTruncateEllipsis
 		dirLabel.TextStyle = fyne.TextStyle{Bold: true}
 
-		// Header with separator line below it
+		// Header with visual separation from file list
+		// Use padding and separator for clear distinction
 		dirHeader := container.NewVBox(
-			dirLabel,
+			container.NewPadded(dirLabel),
 			widget.NewSeparator(),
+			widget.NewSeparator(), // Double separator for more visibility
 		)
 
 		// Run/Open button - text changes based on selection
