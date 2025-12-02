@@ -671,7 +671,7 @@ func ensureSplitLayout(ws *WindowState) {
 
 	// Add small spacer to the right of the divider so content doesn't touch it
 	spacer := canvas.NewRectangle(color.Transparent)
-	spacer.SetMinSize(fyne.NewSize(8, 0))
+	spacer.SetMinSize(fyne.NewSize(4, 0))
 	rightWithPadding := container.NewBorder(nil, nil, spacer, nil, rightScroll)
 
 	ws.splitView = container.NewHSplit(leftScroll, rightWithPadding)
@@ -1792,7 +1792,7 @@ func createLauncherWindow() {
 		// --- Create Split Layout ---
 		// Add small spacer to the right of the divider so console text doesn't touch it
 		spacer := canvas.NewRectangle(color.Transparent)
-		spacer.SetMinSize(fyne.NewSize(8, 0))
+		spacer.SetMinSize(fyne.NewSize(4, 0))
 		rightWithPadding := container.NewBorder(nil, nil, spacer, nil, termWithInterceptor)
 
 		split := container.NewHSplit(leftPanel, rightWithPadding)
@@ -2095,7 +2095,7 @@ func registerGuiCommands(ps *pawscript.PawScript) {
 
 				// Add small spacer to the right of the divider
 				spacer := canvas.NewRectangle(color.Transparent)
-				spacer.SetMinSize(fyne.NewSize(8, 0))
+				spacer.SetMinSize(fyne.NewSize(4, 0))
 				rightWithPadding := container.NewBorder(nil, nil, spacer, nil, rightScroll)
 
 				ws.splitView = container.NewHSplit(leftScroll, rightWithPadding)
