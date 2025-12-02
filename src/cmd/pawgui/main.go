@@ -1453,6 +1453,37 @@ func createLauncherWindow() {
 			dirLabelScroll.ScrollToOffset(fyne.NewPos(10000, 0)) // Large value to scroll to end
 		}
 
+		// Helper to navigate to a directory
+		navigateToDir := func(newDir string) {
+			absDir, err := filepath.Abs(newDir)
+			if err != nil {
+				return
+			}
+			// Verify the directory exists
+			info, err := os.Stat(absDir)
+			if err != nil || !info.IsDir() {
+				return
+			}
+			currentDir = absDir
+			entries = getEntriesInDir(currentDir)
+			selectedEntry = nil
+			runBtn.SetText("Run")
+			updateDirLabel(currentDir)
+			fileList.UnselectAll()
+			fileList.Refresh()
+			// Save the current directory to config
+			go saveBrowseDir(currentDir)
+		}
+
+		// Home button to navigate to user's home directory
+		homeBtn := widget.NewButtonWithIcon("", theme.HomeIcon(), func() {
+			homeDir, err := os.UserHomeDir()
+			if err != nil {
+				return
+			}
+			navigateToDir(homeDir)
+		})
+
 		// Scroll to end on initial load (after a brief delay for layout)
 		go func() {
 			time.Sleep(100 * time.Millisecond)
@@ -1461,9 +1492,12 @@ func createLauncherWindow() {
 			})
 		}()
 
+		// Header row with home button and scrollable directory path
+		dirRow := container.NewBorder(nil, nil, homeBtn, nil, dirLabelScroll)
+
 		// Header with visual separation from file list
 		dirHeader := container.NewVBox(
-			dirLabelScroll,
+			dirRow,
 			widget.NewSeparator(),
 			widget.NewSeparator(), // Double separator for more visibility
 		)
@@ -1486,24 +1520,7 @@ func createLauncherWindow() {
 					dirName := strings.TrimSuffix(selectedEntry.Name, "/")
 					newDir = filepath.Join(currentDir, dirName)
 				}
-				absDir, err := filepath.Abs(newDir)
-				if err != nil {
-					return
-				}
-				// Verify the directory exists
-				info, err := os.Stat(absDir)
-				if err != nil || !info.IsDir() {
-					return
-				}
-				currentDir = absDir
-				entries = getEntriesInDir(currentDir)
-				selectedEntry = nil
-				runBtn.SetText("Run")
-				updateDirLabel(currentDir)
-				fileList.UnselectAll()
-				fileList.Refresh()
-				// Save the current directory to config
-				go saveBrowseDir(currentDir)
+				navigateToDir(newDir)
 			} else {
 				// Run the script
 				fullPath := filepath.Join(currentDir, selectedEntry.Name)
