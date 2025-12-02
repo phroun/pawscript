@@ -200,4 +200,14 @@ echo "  len keys_only: {len ~#namedonly, keys_only: true}"
 echo "  len keys: {len ~#namedonly, keys: true}"
 echo ""
 
+# Test 31: arrlen and maplen shortcuts
+echo "Test 31: arrlen and maplen"
+echo "  arrlen on mixed: {arrlen ~#lentest}"
+echo "  maplen on mixed: {maplen ~#lentest}"
+echo "  arrlen on posonly: {arrlen ~#posonly}"
+echo "  maplen on posonly: {maplen ~#posonly}"
+echo "  arrlen on namedonly: {arrlen ~#namedonly}"
+echo "  maplen on namedonly: {maplen ~#namedonly}"
+echo ""
+
 echo "=== Tests Complete ==="

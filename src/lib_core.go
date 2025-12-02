@@ -304,6 +304,105 @@ func (ps *PawScript) RegisterCoreLib() {
 		}
 	})
 
+	// arrlen - count positional items in a list (synonym for len without named args)
+	ps.RegisterCommandInModule("types", "arrlen", func(ctx *Context) Result {
+		if len(ctx.Args) < 1 {
+			ctx.LogError(CatCommand, "Usage: arrlen <list>")
+			ctx.SetResult(0)
+			return BoolStatus(false)
+		}
+
+		value := ctx.Args[0]
+
+		// Resolve list markers
+		switch v := value.(type) {
+		case Symbol:
+			markerType, objectID := parseObjectMarker(string(v))
+			if objectID >= 0 && markerType == "list" {
+				if obj, exists := ctx.executor.getObject(objectID); exists {
+					if list, ok := obj.(StoredList); ok {
+						ctx.SetResult(int64(list.Len()))
+						return BoolStatus(true)
+					}
+				}
+			}
+		case string:
+			markerType, objectID := parseObjectMarker(v)
+			if objectID >= 0 && markerType == "list" {
+				if obj, exists := ctx.executor.getObject(objectID); exists {
+					if list, ok := obj.(StoredList); ok {
+						ctx.SetResult(int64(list.Len()))
+						return BoolStatus(true)
+					}
+				}
+			}
+		case StoredList:
+			ctx.SetResult(int64(v.Len()))
+			return BoolStatus(true)
+		}
+
+		ctx.LogError(CatType, "arrlen requires a list argument")
+		ctx.SetResult(0)
+		return BoolStatus(false)
+	})
+
+	// maplen - count named keys in a list (synonym for len with keys_only: true)
+	ps.RegisterCommandInModule("types", "maplen", func(ctx *Context) Result {
+		if len(ctx.Args) < 1 {
+			ctx.LogError(CatCommand, "Usage: maplen <list>")
+			ctx.SetResult(0)
+			return BoolStatus(false)
+		}
+
+		value := ctx.Args[0]
+
+		// Resolve list markers
+		switch v := value.(type) {
+		case Symbol:
+			markerType, objectID := parseObjectMarker(string(v))
+			if objectID >= 0 && markerType == "list" {
+				if obj, exists := ctx.executor.getObject(objectID); exists {
+					if list, ok := obj.(StoredList); ok {
+						namedArgs := list.NamedArgs()
+						if namedArgs == nil {
+							ctx.SetResult(int64(0))
+						} else {
+							ctx.SetResult(int64(len(namedArgs)))
+						}
+						return BoolStatus(true)
+					}
+				}
+			}
+		case string:
+			markerType, objectID := parseObjectMarker(v)
+			if objectID >= 0 && markerType == "list" {
+				if obj, exists := ctx.executor.getObject(objectID); exists {
+					if list, ok := obj.(StoredList); ok {
+						namedArgs := list.NamedArgs()
+						if namedArgs == nil {
+							ctx.SetResult(int64(0))
+						} else {
+							ctx.SetResult(int64(len(namedArgs)))
+						}
+						return BoolStatus(true)
+					}
+				}
+			}
+		case StoredList:
+			namedArgs := v.NamedArgs()
+			if namedArgs == nil {
+				ctx.SetResult(int64(0))
+			} else {
+				ctx.SetResult(int64(len(namedArgs)))
+			}
+			return BoolStatus(true)
+		}
+
+		ctx.LogError(CatType, "maplen requires a list argument")
+		ctx.SetResult(0)
+		return BoolStatus(false)
+	})
+
 	// Helper function to resolve a list argument (shared by type info commands)
 	resolveListArg := func(ctx *Context, arg interface{}) (StoredList, bool) {
 		value := arg

@@ -110,4 +110,12 @@ Test 30: len on named-only list
   len keys_only: 3
   len keys: 3
 
+Test 31: arrlen and maplen
+  arrlen on mixed: 3
+  maplen on mixed: 3
+  arrlen on posonly: 5
+  maplen on posonly: 0
+  arrlen on namedonly: 0
+  maplen on namedonly: 3
+
 === Tests Complete ===
