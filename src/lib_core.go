@@ -2606,9 +2606,14 @@ func (ps *PawScript) RegisterCoreLib() {
 			execState := NewExecutionState()
 			execState.moduleEnv = restrictedEnv
 			execState.executor = ctx.executor
-			defer execState.ReleaseAllReferences()
 
 			result := ctx.executor.ExecuteWithState(string(content), execState, nil, filename, 0, 0)
+
+			// Handle async result - if TokenResult is returned, we need to wait for completion
+			// For now, release state only if not async (include with async is unusual)
+			if _, isToken := result.(TokenResult); !isToken {
+				defer execState.ReleaseAllReferences()
+			}
 
 			// Merge bubbles from included file's state to caller state
 			ctx.state.MergeBubbles(execState)
