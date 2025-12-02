@@ -2278,8 +2278,24 @@ func (ps *PawScript) RegisterTypesLib() {
 		case string:
 			result = v
 		case StoredList:
+			// Check for pretty parameter
+			pretty := false
+			if prettyArg, exists := ctx.NamedArgs["pretty"]; exists {
+				switch pv := prettyArg.(type) {
+				case bool:
+					pretty = pv
+				case Symbol:
+					pretty = string(pv) == "true" || string(pv) == "1"
+				case string:
+					pretty = pv == "true" || pv == "1"
+				}
+			}
 			// Use formatListForDisplay for lists
-			result = formatListForDisplay(v)
+			if pretty {
+				result = formatListForDisplayPretty(v, 0)
+			} else {
+				result = formatListForDisplay(v)
+			}
 		case ParenGroup:
 			// Block/code - return the block content
 			result = string(v)

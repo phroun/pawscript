@@ -825,8 +825,26 @@ func (ps *PawScript) RegisterCoreLib() {
 			return BoolStatus(false)
 		}
 
+		// Check for pretty parameter
+		pretty := false
+		if prettyArg, exists := ctx.NamedArgs["pretty"]; exists {
+			switch v := prettyArg.(type) {
+			case bool:
+				pretty = v
+			case Symbol:
+				pretty = string(v) == "true" || string(v) == "1"
+			case string:
+				pretty = v == "true" || v == "1"
+			}
+		}
+
 		// Serialize to JSON string
-		jsonBytes, err := json.Marshal(jsonVal)
+		var jsonBytes []byte
+		if pretty {
+			jsonBytes, err = json.MarshalIndent(jsonVal, "", "  ")
+		} else {
+			jsonBytes, err = json.Marshal(jsonVal)
+		}
 		if err != nil {
 			ctx.LogError(CatType, fmt.Sprintf("json: serialization error: %v", err))
 			ctx.SetResult("")

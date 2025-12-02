@@ -114,6 +114,138 @@ func formatListForDisplay(list StoredList) string {
 	return "(" + strings.Join(parts, ", ") + ")"
 }
 
+// formatListForDisplayPretty formats a StoredList with indentation for readability
+func formatListForDisplayPretty(list StoredList, indent int) string {
+	indentStr := strings.Repeat("  ", indent)
+	innerIndent := strings.Repeat("  ", indent+1)
+	var parts []string
+
+	// First, add named arguments (key: value pairs)
+	namedArgs := list.NamedArgs()
+	if len(namedArgs) > 0 {
+		// Get keys in sorted order for consistent output
+		keys := make([]string, 0, len(namedArgs))
+		for k := range namedArgs {
+			keys = append(keys, k)
+		}
+		sort.Strings(keys)
+
+		for _, key := range keys {
+			value := namedArgs[key]
+			var valueStr string
+			switch v := value.(type) {
+			case StoredList:
+				valueStr = formatListForDisplayPretty(v, indent+1)
+			case ParenGroup:
+				valueStr = "(" + string(v) + ")"
+			case StoredBlock:
+				valueStr = "(" + string(v) + ")"
+			case QuotedString:
+				escaped := strings.ReplaceAll(string(v), "\\", "\\\\")
+				escaped = strings.ReplaceAll(escaped, "\"", "\\\"")
+				valueStr = "\"" + escaped + "\""
+			case Symbol:
+				if objType, objID := parseObjectMarker(string(v)); objID >= 0 {
+					valueStr = fmt.Sprintf("<%s %d>", objType, objID)
+				} else {
+					valueStr = string(v)
+				}
+			case string:
+				if objType, objID := parseObjectMarker(v); objID >= 0 {
+					valueStr = fmt.Sprintf("<%s %d>", objType, objID)
+				} else {
+					escaped := strings.ReplaceAll(v, "\\", "\\\\")
+					escaped = strings.ReplaceAll(escaped, "\"", "\\\"")
+					valueStr = "\"" + escaped + "\""
+				}
+			case int64, float64, bool:
+				valueStr = fmt.Sprintf("%v", v)
+			case nil:
+				valueStr = "nil"
+			default:
+				valueStr = fmt.Sprintf("%v", v)
+			}
+			parts = append(parts, key+": "+valueStr)
+		}
+	}
+
+	// Then, add positional items
+	items := list.Items()
+	for _, item := range items {
+		switch v := item.(type) {
+		case StoredList:
+			parts = append(parts, formatListForDisplayPretty(v, indent+1))
+		case ParenGroup:
+			parts = append(parts, "("+string(v)+")")
+		case StoredBlock:
+			parts = append(parts, "("+string(v)+")")
+		case QuotedString:
+			escaped := strings.ReplaceAll(string(v), "\\", "\\\\")
+			escaped = strings.ReplaceAll(escaped, "\"", "\\\"")
+			parts = append(parts, "\""+escaped+"\"")
+		case Symbol:
+			if objType, objID := parseObjectMarker(string(v)); objID >= 0 {
+				parts = append(parts, fmt.Sprintf("<%s %d>", objType, objID))
+			} else {
+				parts = append(parts, string(v))
+			}
+		case string:
+			if objType, objID := parseObjectMarker(v); objID >= 0 {
+				parts = append(parts, fmt.Sprintf("<%s %d>", objType, objID))
+			} else {
+				escaped := strings.ReplaceAll(v, "\\", "\\\\")
+				escaped = strings.ReplaceAll(escaped, "\"", "\\\"")
+				parts = append(parts, "\""+escaped+"\"")
+			}
+		case int64, float64, bool:
+			parts = append(parts, fmt.Sprintf("%v", v))
+		case nil:
+			parts = append(parts, "nil")
+		default:
+			parts = append(parts, fmt.Sprintf("%v", v))
+		}
+	}
+
+	if len(parts) == 0 {
+		return "()"
+	}
+
+	// For simple lists (no nested structures), use single-line format
+	hasNested := false
+	for _, item := range items {
+		if _, ok := item.(StoredList); ok {
+			hasNested = true
+			break
+		}
+	}
+	for _, value := range namedArgs {
+		if _, ok := value.(StoredList); ok {
+			hasNested = true
+			break
+		}
+	}
+
+	if !hasNested && len(parts) <= 3 {
+		// Short simple lists stay on one line
+		return "(" + strings.Join(parts, ", ") + ")"
+	}
+
+	// Multi-line format for complex lists
+	var sb strings.Builder
+	sb.WriteString("(\n")
+	for i, part := range parts {
+		sb.WriteString(innerIndent)
+		sb.WriteString(part)
+		if i < len(parts)-1 {
+			sb.WriteString(",")
+		}
+		sb.WriteString("\n")
+	}
+	sb.WriteString(indentStr)
+	sb.WriteString(")")
+	return sb.String()
+}
+
 // formatArgForDisplay formats any argument for display, handling StoredList specially
 // Also resolves any object markers (LIST/STRING/BLOCK) before displaying
 // For object types that shouldn't leak internal representation, displays as <type N>
