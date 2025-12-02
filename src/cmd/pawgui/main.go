@@ -55,6 +55,21 @@ type GuiState struct {
 var guiState *GuiState
 
 func main() {
+	// Recover from panics during initialization (e.g., OpenGL failures)
+	defer func() {
+		if r := recover(); r != nil {
+			errorPrintf("Fatal error during initialization: %v\n", r)
+			errorPrintf("\nThis often occurs when your system's graphics driver doesn't support OpenGL.\n")
+			errorPrintf("Possible solutions:\n")
+			errorPrintf("  1. Update your graphics drivers\n")
+			errorPrintf("  2. Download Mesa3D software renderer from:\n")
+			errorPrintf("     https://github.com/pal1000/mesa-dist-win/releases\n")
+			errorPrintf("     and place opengl32.dll in the same directory as pawgui.exe\n")
+			errorPrintf("  3. Try setting environment variable: GALLIUM_DRIVER=llvmpipe\n")
+			os.Exit(1)
+		}
+	}()
+
 	// Define command line flags (same as paw)
 	licenseFlag := flag.Bool("license", false, "Show license")
 	debugFlag := flag.Bool("debug", false, "Enable debug output")
@@ -159,8 +174,16 @@ func main() {
 			fmt.Println("Error setting FYNE_SCALE:", err)
 		}
 
+		if debug {
+			fmt.Fprintln(os.Stderr, "Debug: Initializing Fyne application...")
+		}
+
 		// Create the Fyne application
 		fyneApp := app.New()
+
+		if debug {
+			fmt.Fprintln(os.Stderr, "Debug: Fyne application created successfully")
+		}
 
 		// Initialize GUI state
 		guiState = &GuiState{
@@ -298,8 +321,16 @@ func main() {
 		fmt.Println("Error setting FYNE_SCALE:", err)
 	}
 
+	if debug {
+		fmt.Fprintln(os.Stderr, "Debug: Initializing Fyne application...")
+	}
+
 	// Create the Fyne application
 	fyneApp := app.New()
+
+	if debug {
+		fmt.Fprintln(os.Stderr, "Debug: Fyne application created successfully")
+	}
 
 	// Create PawScript instance with full configuration
 	ps := pawscript.New(&pawscript.Config{
