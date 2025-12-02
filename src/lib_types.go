@@ -1611,13 +1611,10 @@ func (ps *PawScript) RegisterTypesLib() {
 				counterVar = fmt.Sprintf("%v", ctx.Args[2])
 			}
 
-			// Parse body into commands once
-			parser := NewParser(bodyBlock, "")
-			cleanedBody := parser.RemoveComments(bodyBlock)
-			normalizedBody := parser.NormalizeKeywords(cleanedBody)
-			bodyCommands, err := parser.ParseCommandSequence(normalizedBody)
-			if err != nil {
-				ctx.LogError(CatCommand, fmt.Sprintf("repeat: failed to parse body: %v", err))
+			// Parse body (with caching - body is at arg index 0)
+			bodyCommands, parseErr := ctx.GetOrParseBlock(0, bodyBlock)
+			if parseErr != "" {
+				ctx.LogError(CatCommand, fmt.Sprintf("repeat: failed to parse body: %s", parseErr))
 				ctx.SetResult(nil)
 				return BoolStatus(false)
 			}

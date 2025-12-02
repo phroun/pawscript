@@ -35,15 +35,16 @@ type MacroContext struct {
 
 // Context is passed to command handlers
 type Context struct {
-	Args         []interface{}
-	RawArgs      []string               // Original argument strings before resolution (for diagnostics)
-	NamedArgs    map[string]interface{} // Named arguments (key: value)
-	Position     *SourcePosition
-	state        *ExecutionState
-	executor     *Executor
-	logger       *Logger
-	requestToken func(cleanup func(string)) string
-	resumeToken  func(tokenID string, status bool) bool
+	Args          []interface{}
+	RawArgs       []string               // Original argument strings before resolution (for diagnostics)
+	NamedArgs     map[string]interface{} // Named arguments (key: value)
+	Position      *SourcePosition
+	state         *ExecutionState
+	executor      *Executor
+	logger        *Logger
+	requestToken  func(cleanup func(string)) string
+	resumeToken   func(tokenID string, status bool) bool
+	ParsedCommand *ParsedCommand // Source parsed command (for block caching)
 }
 
 // LogError logs a command error with position, routing through execution state channels
@@ -80,6 +81,24 @@ func (c *Context) HasResult() bool {
 // ClearResult clears the result value
 func (c *Context) ClearResult() {
 	c.state.ClearResult()
+}
+
+// GetOrParseBlock returns cached parsed commands for a block argument at the given index,
+// or parses the block string if not cached. Returns nil and error string if parsing fails.
+func (c *Context) GetOrParseBlock(argIndex int, blockStr string) ([]*ParsedCommand, string) {
+	// Try to get cached version
+	if cachedCmds := c.executor.GetOrCacheBlockArg(c.ParsedCommand, argIndex, blockStr, ""); cachedCmds != nil {
+		return cachedCmds, ""
+	}
+	// Parse fresh
+	parser := NewParser(blockStr, "")
+	cleanedBody := parser.RemoveComments(blockStr)
+	normalizedBody := parser.NormalizeKeywords(cleanedBody)
+	cmds, err := parser.ParseCommandSequence(normalizedBody)
+	if err != nil {
+		return nil, err.Error()
+	}
+	return cmds, ""
 }
 
 // RequestToken requests an async completion token
@@ -320,13 +339,15 @@ type IteratorState struct {
 
 // ParsedCommand represents a parsed command with metadata
 type ParsedCommand struct {
-	Command      string
-	Arguments    []interface{}
-	NamedArgs    map[string]interface{} // Named arguments (key: value)
-	Position     *SourcePosition
-	OriginalLine string
-	Separator    string // "none", ";", "&", "|"
-	ChainType    string // "none", "chain" (~>), "chain_append" (~~>), "assign" (=>)
+	Command         string
+	Arguments       []interface{}
+	NamedArgs       map[string]interface{} // Named arguments (key: value)
+	Position        *SourcePosition
+	OriginalLine    string
+	Separator       string // "none", ";", "&", "|"
+	ChainType       string // "none", "chain" (~>), "chain_append" (~~>), "assign" (=>)
+	CachedBlockArgs map[int][]*ParsedCommand    // Pre-parsed block arguments (for blocks without $N substitution)
+	CachedBraces    map[string][]*ParsedCommand // Pre-parsed brace expressions by content string
 }
 
 // CommandSequence represents suspended command execution
@@ -439,6 +460,8 @@ type SubstitutionContext struct {
 	// BracesEvaluated tracks how many brace expressions were evaluated during substitution
 	// Used to know whether to update lastBraceFailureCount (only if braces were present)
 	BracesEvaluated int
+	// CurrentParsedCommand is the current command being executed (for block caching)
+	CurrentParsedCommand *ParsedCommand
 }
 
 // FileAccessConfig controls file system access permissions

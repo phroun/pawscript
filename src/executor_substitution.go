@@ -180,14 +180,35 @@ func (e *Executor) substituteBraceExpressions(str string, ctx *SubstitutionConte
 		}
 
 		// Execute the brace content with the child state (isolated result storage, shared variables)
-		executeResult := e.ExecuteWithState(
-			brace.Content,
-			braceState,
-			braceSubstitutionCtx,
-			ctx.Filename, // Pass filename for error reporting
-			newLineOffset,
-			newColumnOffset,
-		)
+		var executeResult Result
+
+		// Check for cached parsed commands for this brace content
+		var cachedCmds []*ParsedCommand
+		if ctx.CurrentParsedCommand != nil && ctx.CurrentParsedCommand.CachedBraces != nil {
+			cachedCmds = ctx.CurrentParsedCommand.CachedBraces[brace.Content]
+		}
+
+		if cachedCmds != nil {
+			// Use cached parsed commands
+			e.logger.DebugCat(CatCommand, "Using cached brace: {%s}", brace.Content)
+			executeResult = e.ExecuteParsedCommands(
+				cachedCmds,
+				braceState,
+				braceSubstitutionCtx,
+				newLineOffset,
+				newColumnOffset,
+			)
+		} else {
+			// Parse and execute fresh
+			executeResult = e.ExecuteWithState(
+				brace.Content,
+				braceState,
+				braceSubstitutionCtx,
+				ctx.Filename,
+				newLineOffset,
+				newColumnOffset,
+			)
+		}
 
 		// Track that a brace was evaluated (for get_substatus)
 		ctx.BracesEvaluated++

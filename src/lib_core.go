@@ -1500,13 +1500,11 @@ func (ps *PawScript) RegisterCoreLib() {
 			return BoolStatus(true)
 		}
 
-		// Parse body
-		parser := NewParser(bodyBlock, "")
-		cleanedBody := parser.RemoveComments(bodyBlock)
-		normalizedBody := parser.NormalizeKeywords(cleanedBody)
-		bodyCommands, err := parser.ParseCommandSequence(normalizedBody)
-		if err != nil {
-			ctx.LogError(CatCommand, fmt.Sprintf("fizz: failed to parse body: %v", err))
+		// Parse body (with caching - body is last argument)
+		bodyArgIndex := len(ctx.Args) - 1
+		bodyCommands, parseErr := ctx.GetOrParseBlock(bodyArgIndex, bodyBlock)
+		if parseErr != "" {
+			ctx.LogError(CatCommand, fmt.Sprintf("fizz: failed to parse body: %s", parseErr))
 			return BoolStatus(false)
 		}
 
@@ -2168,13 +2166,10 @@ func (ps *PawScript) RegisterCoreLib() {
 		conditionBlock := fmt.Sprintf("%v", ctx.Args[0])
 		bodyBlock := fmt.Sprintf("%v", ctx.Args[1])
 
-		// Parse body into commands once so we can track position for yields
-		parser := NewParser(bodyBlock, "")
-		cleanedBody := parser.RemoveComments(bodyBlock)
-		normalizedBody := parser.NormalizeKeywords(cleanedBody)
-		bodyCommands, err := parser.ParseCommandSequence(normalizedBody)
-		if err != nil {
-			ctx.LogError(CatCommand, fmt.Sprintf("while: failed to parse body: %v", err))
+		// Parse body (with caching if possible - body is at arg index 1)
+		bodyCommands, parseErr := ctx.GetOrParseBlock(1, bodyBlock)
+		if parseErr != "" {
+			ctx.LogError(CatCommand, fmt.Sprintf("while: failed to parse body: %s", parseErr))
 			return BoolStatus(false)
 		}
 
@@ -2514,13 +2509,10 @@ func (ps *PawScript) RegisterCoreLib() {
 					step = -1
 				}
 
-				// Parse body
-				parser := NewParser(bodyBlock, "")
-				cleanedBody := parser.RemoveComments(bodyBlock)
-				normalizedBody := parser.NormalizeKeywords(cleanedBody)
-				bodyCommands, err := parser.ParseCommandSequence(normalizedBody)
-				if err != nil {
-					ctx.LogError(CatCommand, fmt.Sprintf("for: failed to parse body: %v", err))
+				// Parse body (with caching - body is at arg index 3)
+				bodyCommands, parseErr := ctx.GetOrParseBlock(3, bodyBlock)
+				if parseErr != "" {
+					ctx.LogError(CatCommand, fmt.Sprintf("for: failed to parse body: %s", parseErr))
 					return BoolStatus(false)
 				}
 
@@ -2752,13 +2744,10 @@ func (ps *PawScript) RegisterCoreLib() {
 					}
 				}
 
-				// Parse body
-				parser := NewParser(bodyBlock, "")
-				cleanedBody := parser.RemoveComments(bodyBlock)
-				normalizedBody := parser.NormalizeKeywords(cleanedBody)
-				bodyCommands, err := parser.ParseCommandSequence(normalizedBody)
-				if err != nil {
-					ctx.LogError(CatCommand, fmt.Sprintf("for: failed to parse body: %v", err))
+				// Parse body (with caching - body is at last arg index)
+				bodyCommands, parseErr := ctx.GetOrParseBlock(len(ctx.Args)-1, bodyBlock)
+				if parseErr != "" {
+					ctx.LogError(CatCommand, fmt.Sprintf("for: failed to parse body: %s", parseErr))
 					return BoolStatus(false)
 				}
 
@@ -2843,13 +2832,10 @@ func (ps *PawScript) RegisterCoreLib() {
 				items = reversed
 			}
 
-			// Parse body
-			parser := NewParser(bodyBlock, "")
-			cleanedBody := parser.RemoveComments(bodyBlock)
-			normalizedBody := parser.NormalizeKeywords(cleanedBody)
-			bodyCommands, err := parser.ParseCommandSequence(normalizedBody)
-			if err != nil {
-				ctx.LogError(CatCommand, fmt.Sprintf("for: failed to parse body: %v", err))
+			// Parse body (with caching - body is at last arg index)
+			bodyCommands, parseErr := ctx.GetOrParseBlock(len(ctx.Args)-1, bodyBlock)
+			if parseErr != "" {
+				ctx.LogError(CatCommand, fmt.Sprintf("for: failed to parse body: %s", parseErr))
 				return BoolStatus(false)
 			}
 
@@ -2964,13 +2950,10 @@ func (ps *PawScript) RegisterCoreLib() {
 
 			// Check if it's a struct array
 			if struc.IsArray() {
-				// Struct array - iterate over elements
-				parser := NewParser(bodyBlock, "")
-				cleanedBody := parser.RemoveComments(bodyBlock)
-				normalizedBody := parser.NormalizeKeywords(cleanedBody)
-				bodyCommands, err := parser.ParseCommandSequence(normalizedBody)
-				if err != nil {
-					ctx.LogError(CatCommand, fmt.Sprintf("for: failed to parse body: %v", err))
+				// Struct array - iterate over elements (body at last arg index)
+				bodyCommands, parseErr := ctx.GetOrParseBlock(len(ctx.Args)-1, bodyBlock)
+				if parseErr != "" {
+					ctx.LogError(CatCommand, fmt.Sprintf("for: failed to parse body: %s", parseErr))
 					return BoolStatus(false)
 				}
 
@@ -3070,12 +3053,9 @@ func (ps *PawScript) RegisterCoreLib() {
 			}
 			sort.Strings(keys)
 
-			parser := NewParser(bodyBlock, "")
-			cleanedBody := parser.RemoveComments(bodyBlock)
-			normalizedBody := parser.NormalizeKeywords(cleanedBody)
-			bodyCommands, err := parser.ParseCommandSequence(normalizedBody)
-			if err != nil {
-				ctx.LogError(CatCommand, fmt.Sprintf("for: failed to parse body: %v", err))
+			bodyCommands, parseErr := ctx.GetOrParseBlock(len(ctx.Args)-1, bodyBlock)
+			if parseErr != "" {
+				ctx.LogError(CatCommand, fmt.Sprintf("for: failed to parse body: %s", parseErr))
 				return BoolStatus(false)
 			}
 
@@ -3151,12 +3131,9 @@ func (ps *PawScript) RegisterCoreLib() {
 
 		// Generator/iterator token form
 		if iteratorToken != "" {
-			parser := NewParser(bodyBlock, "")
-			cleanedBody := parser.RemoveComments(bodyBlock)
-			normalizedBody := parser.NormalizeKeywords(cleanedBody)
-			bodyCommands, err := parser.ParseCommandSequence(normalizedBody)
-			if err != nil {
-				ctx.LogError(CatCommand, fmt.Sprintf("for: failed to parse body: %v", err))
+			bodyCommands, parseErr := ctx.GetOrParseBlock(len(ctx.Args)-1, bodyBlock)
+			if parseErr != "" {
+				ctx.LogError(CatCommand, fmt.Sprintf("for: failed to parse body: %s", parseErr))
 				return BoolStatus(false)
 			}
 
