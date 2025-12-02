@@ -156,15 +156,52 @@ func (ps *PawScript) RegisterCoreLib() {
 				jsonStr := ""
 				switch v := ctx.Args[0].(type) {
 				case string:
-					jsonStr = v
+					// Check if it's an object marker
+					markerType, objectID := parseObjectMarker(v)
+					if markerType == "str" && objectID >= 0 {
+						if obj, exists := ctx.executor.getObject(objectID); exists {
+							if ss, ok := obj.(StoredString); ok {
+								jsonStr = string(ss)
+							} else {
+								ctx.LogError(CatType, "list from: json: stored object is not a string")
+								setListResult(ctx, NewStoredList(nil))
+								return BoolStatus(false)
+							}
+						} else {
+							ctx.LogError(CatType, "list from: json: stored string not found")
+							setListResult(ctx, NewStoredList(nil))
+							return BoolStatus(false)
+						}
+					} else {
+						jsonStr = v
+					}
 				case Symbol:
-					jsonStr = string(v)
+					str := string(v)
+					// Check if it's an object marker
+					markerType, objectID := parseObjectMarker(str)
+					if markerType == "str" && objectID >= 0 {
+						if obj, exists := ctx.executor.getObject(objectID); exists {
+							if ss, ok := obj.(StoredString); ok {
+								jsonStr = string(ss)
+							} else {
+								ctx.LogError(CatType, "list from: json: stored object is not a string")
+								setListResult(ctx, NewStoredList(nil))
+								return BoolStatus(false)
+							}
+						} else {
+							ctx.LogError(CatType, "list from: json: stored string not found")
+							setListResult(ctx, NewStoredList(nil))
+							return BoolStatus(false)
+						}
+					} else {
+						jsonStr = str
+					}
 				case QuotedString:
 					jsonStr = string(v)
 				case StoredString:
 					jsonStr = string(v)
 				default:
-					ctx.LogError(CatType, "list from: json requires a string argument")
+					ctx.LogError(CatType, fmt.Sprintf("list from: json requires a string argument, got %T: %v", ctx.Args[0], ctx.Args[0]))
 					setListResult(ctx, NewStoredList(nil))
 					return BoolStatus(false)
 				}

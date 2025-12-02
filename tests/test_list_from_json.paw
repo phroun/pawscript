@@ -157,4 +157,219 @@ echo "  json:     ~#json18"
 echo "  back:     {string ~#back18}"
 echo ""
 
-echo "=== Tests Complete ==="
+# === Edge Cases: Special Characters ===
+echo "=== Edge Cases: Special Characters ==="
+echo ""
+
+# Test 19: Strings with escaped quotes
+echo "Test 19: Strings with escaped quotes"
+#escQuote: {list message: "He said \"Hello\"", note: "It's fine"}
+#escQuoteJson: {json ~#escQuote}
+echo "  json: ~#escQuoteJson"
+#escQuoteParsed: {list ~#escQuoteJson, from: json}
+echo "  parsed: {string ~#escQuoteParsed}"
+echo ""
+
+# Test 20: Strings with backslashes
+echo "Test 20: Strings with backslashes"
+#backslash: {list path: "C:\\Users\\Name", regex: "\\d+\\.\\d+"}
+#backslashJson: {json ~#backslash}
+echo "  json: ~#backslashJson"
+#backslashParsed: {list ~#backslashJson, from: json}
+echo "  parsed: {string ~#backslashParsed}"
+echo ""
+
+# Test 21: Strings with newlines and tabs
+echo "Test 21: Strings with newlines and tabs"
+#whitespace: {list text: "line1\nline2\ttabbed", code: "a\r\nb"}
+#whitespaceJson: {json ~#whitespace}
+echo "  json: ~#whitespaceJson"
+#whitespaceParsed: {list ~#whitespaceJson, from: json}
+echo "  parsed: {string ~#whitespaceParsed}"
+echo ""
+
+# Test 22: Unicode characters
+echo "Test 22: Unicode characters"
+#unicode: {list emoji: "Hello 🌍!", chinese: "你好", math: "∑∏∫"}
+#unicodeJson: {json ~#unicode}
+echo "  json: ~#unicodeJson"
+#unicodeParsed: {list ~#unicodeJson, from: json}
+echo "  parsed: {string ~#unicodeParsed}"
+echo ""
+
+# Test 23: Empty strings
+echo "Test 23: Empty strings"
+#emptyStr: {list name: "", value: "", data: "nonempty"}
+#emptyStrJson: {json ~#emptyStr}
+echo "  json: ~#emptyStrJson"
+#emptyStrParsed: {list ~#emptyStrJson, from: json}
+echo "  parsed: {string ~#emptyStrParsed}"
+echo ""
+
+# Test 24: Very long string
+echo "Test 24: Very long string"
+#longStr: {list text: "abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789!@#$%^&*()"}
+#longStrJson: {json ~#longStr}
+echo "  json: ~#longStrJson"
+#longStrParsed: {list ~#longStrJson, from: json}
+echo "  parsed: {string ~#longStrParsed}"
+echo ""
+
+# === Edge Cases: Numbers ===
+echo "=== Edge Cases: Numbers ==="
+echo ""
+
+# Test 25: Large integers
+echo "Test 25: Large integers"
+#bigInt: {list big: 9223372036854775807, neg: -9223372036854775808}
+#bigIntJson: {json ~#bigInt}
+echo "  json: ~#bigIntJson"
+#bigIntParsed: {list ~#bigIntJson, from: json}
+echo "  parsed: {string ~#bigIntParsed}"
+echo ""
+
+# Test 26: Float precision
+echo "Test 26: Float precision"
+#floats: {list pi: 3.14159265358979, tiny: 0.000001, sci: 1.23e10}
+#floatsJson: {json ~#floats}
+echo "  json: ~#floatsJson"
+#floatsParsed: {list ~#floatsJson, from: json}
+echo "  parsed: {string ~#floatsParsed}"
+echo ""
+
+# Test 27: Zero values
+echo "Test 27: Zero values"
+#zeros: {list int0: 0, float0: 0.0, negZero: -0}
+#zerosJson: {json ~#zeros}
+echo "  json: ~#zerosJson"
+#zerosParsed: {list ~#zerosJson, from: json}
+echo "  parsed: {string ~#zerosParsed}"
+echo ""
+
+# === Edge Cases: Binary Data (as byte arrays) ===
+echo "=== Edge Cases: Binary Data ==="
+echo ""
+
+# Test 28: Bytes with binary values
+echo "Test 28: Bytes with various values"
+#bytesData: {list data: {bytes 0, 1, 127, 128, 255, 65, 66, 67}}
+#bytesJson: {json ~#bytesData}
+echo "  json: ~#bytesJson"
+#bytesParsed: {list ~#bytesJson, from: json}
+echo "  parsed: {string ~#bytesParsed}"
+echo ""
+
+# Test 29: Bytes with control characters
+echo "Test 29: Bytes including control chars (0, 10, 13)"
+#ctrlBytes: {list ctrl: {bytes 0, 9, 10, 13, 27, 32}}
+#ctrlBytesJson: {json ~#ctrlBytes}
+echo "  json: ~#ctrlBytesJson"
+#ctrlBytesParsed: {list ~#ctrlBytesJson, from: json}
+echo "  parsed: {string ~#ctrlBytesParsed}"
+echo ""
+
+# === Edge Cases: Deeply Nested Structures ===
+echo "=== Edge Cases: Deeply Nested ==="
+echo ""
+
+# Test 30: 5 levels deep
+echo "Test 30: 5 levels deep"
+#deep5: {list a: {list b: {list c: {list d: {list e: "deep"}}}}}
+#deep5Json: {json ~#deep5}
+echo "  json: ~#deep5Json"
+#deep5Parsed: {list ~#deep5Json, from: json}
+echo "  parsed: {string ~#deep5Parsed}"
+echo ""
+
+# Test 31: Mixed nesting with arrays and objects
+echo "Test 31: Mixed nesting"
+#mixedNest: {list arr: {list {list x: 1}, {list y: 2}}, obj: {list items: {list a, b, c}}}
+#mixedNestJson: {json ~#mixedNest, mode: explicit}
+echo "  json: ~#mixedNestJson"
+#mixedNestParsed: {list ~#mixedNestJson, from: json}
+echo "  parsed: {string ~#mixedNestParsed}"
+echo ""
+
+# === Edge Cases: Special JSON Values ===
+echo "=== Edge Cases: Special Values ==="
+echo ""
+
+# Test 32: All special values together
+echo "Test 32: All special values"
+#special: {list t: true, f: false, n: nil, zero: 0, empty: ""}
+#specialJson: {json ~#special}
+echo "  json: ~#specialJson"
+#specialParsed: {list ~#specialJson, from: json}
+echo "  parsed: {string ~#specialParsed}"
+echo ""
+
+# Test 33: Array of nulls
+echo "Test 33: Array of nulls"
+#nullArr: {list nil, nil, nil}
+#nullArrJson: {json ~#nullArr, mode: array}
+echo "  json: ~#nullArrJson"
+#nullArrParsed: {list ~#nullArrJson, from: json}
+echo "  parsed: {string ~#nullArrParsed}"
+echo ""
+
+# Test 34: Nested empty structures
+echo "Test 34: Nested empty structures"
+#nestedEmpty: {list arr: {list}, obj: {list}}
+#nestedEmptyJson: {json ~#nestedEmpty}
+echo "  json: ~#nestedEmptyJson"
+#nestedEmptyParsed: {list ~#nestedEmptyJson, from: json}
+echo "  parsed: {string ~#nestedEmptyParsed}"
+echo ""
+
+# === Edge Cases: Merge Modes with Complex Data ===
+echo "=== Edge Cases: Merge Modes ==="
+echo ""
+
+# Test 35: merge: 0 with empty _children
+echo "Test 35: merge: 0 with single object (no extra items)"
+#singleObj: {list name: "only"}
+#singleObjJson: {json ~#singleObj, mode: array_1}
+echo "  json: ~#singleObjJson"
+#singleObjParsed: {list ~#singleObjJson, from: json, merge: 0}
+echo "  parsed: {string ~#singleObjParsed}"
+echo ""
+
+# Test 36: merge: false with nested children
+echo "Test 36: merge: false preserves _children structure"
+#nestedChildrenData: {list name: "parent", {list a: 1}, {list b: 2}}
+#nestedChildrenJson: {json ~#nestedChildrenData, mode: explicit}
+echo "  json: ~#nestedChildrenJson"
+#nestedChildrenParsed: {list ~#nestedChildrenJson, from: json, merge: false}
+echo "  parsed: {string ~#nestedChildrenParsed}"
+echo ""
+
+# Test 37: Custom children key with special characters
+echo "Test 37: Custom children key"
+#customKey: {list title: "test", x, y, z}
+#customKeyJson: {json ~#customKey, mode: explicit, children: "my_items"}
+echo "  json: ~#customKeyJson"
+#customKeyParsed: {list ~#customKeyJson, from: json, children: "my_items"}
+echo "  parsed: {string ~#customKeyParsed}"
+echo ""
+
+# === Colored JSON Stripping Tests ===
+echo "=== Colored JSON Stripping ==="
+echo ""
+
+# Test 38: Colored pretty JSON round-trip
+echo "Test 38: Colored pretty JSON"
+#colorPretty: {list name: "Alice", score: 100, tags: {list a, b, c}}
+#colorPrettyJson: {json ~#colorPretty, color: true, pretty: true, mode: explicit}
+#colorPrettyParsed: {list ~#colorPrettyJson, from: json}
+echo "  parsed: {string ~#colorPrettyParsed}"
+echo ""
+
+# Test 39: Colored compact JSON round-trip
+echo "Test 39: Colored compact JSON"
+#colorCompact: {list x: 1, y: 2, data: {list 10, 20, 30}}
+#colorCompactJson: {json ~#colorCompact, color: true, mode: explicit}
+#colorCompactParsed: {list ~#colorCompactJson, from: json}
+echo "  parsed: {string ~#colorCompactParsed}"
+echo ""
+
+echo "=== All Tests Complete ==="

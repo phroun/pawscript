@@ -982,6 +982,9 @@ func classifyValue(value interface{}, executor *Executor) (typeName string, isSe
 				case "token":
 					// Token type: treating as serializable for now (may revisit)
 					return "token", true, false
+				case "str":
+					// StoredString - definitely serializable
+					return "string", true, false
 				default:
 					// Unknown marker type, assume not serializable
 					return markerType, false, false

@@ -1,0 +1,177 @@
+=== List from: json Tests ===
+
+Test 1: Simple array
+  json: [1,2,3,"hello"]
+  parsed: (1, 2, 3, "hello")
+
+Test 2: Simple object (named args only)
+  json: {"age":30,"name":"Alice"}
+  parsed: (age: 30, name: "Alice")
+
+Test 3: Object with _children - default merge (merge: true)
+  json: {"_children":[1,2,3],"name":"test"}
+  parsed: (name: "test", 1, 2, 3)
+
+Test 4: Object with _children - merge: false
+  parsed: (_children: (1, 2, 3), name: "test")
+
+Test 5: Object with _children - merge: nil (omit)
+  parsed: (name: "test")
+
+Test 6: Custom children key (children: items)
+  json: {"items":["a","b","c"],"name":"test"}
+  parsed: (name: "test", "a", "b", "c")
+
+Test 7: Custom children key - merge: false
+  parsed: (items: ("a", "b", "c"), name: "test")
+
+Test 8: Nested objects
+  json: {"user":{"name":"Bob","profile":{"age":25}}}
+  parsed: (user: (name: "Bob", profile: (age: 25)))
+
+Test 9: Nested with _children at multiple levels
+  json: {"root":{"_children":[{"x":1},{"y":2}]}}
+  parsed: (root: ((x: 1), (y: 2)))
+
+Test 10: Mixed types in array
+  json: [1,"hello",true,null,3.14]
+  parsed: (1, "hello", true, nil, 3.14)
+
+Test 11: Round-trip test (list -> json -> list)
+  original: (name: "Alice", score: 95, 1, 2, 3)
+  json:     {"_children":[1,2,3],"name":"Alice","score":95}
+  back:     (name: "Alice", score: 95, 1, 2, 3)
+
+Test 12: Deep nesting with children merge
+  json: {"root":{"_children":[{"_children":[1,2],"name":"a"},{"_children":[3,4],"name":"b"}]}}
+  parsed: (
+  root: (
+    (name: "a", 1, 2),
+    (name: "b", 3, 4)
+  )
+)
+
+Test 13: Empty array
+  json: []
+  parsed: ()
+
+Test 14: Boolean and null values
+  json: {"active":true,"data":null,"deleted":false}
+  parsed: (active: true, data: nil, deleted: false)
+
+Test 15: Colored JSON (ANSI stripped)
+  colored json (raw bytes follow)
+  parsed: (name: "Test", value: 42)
+
+Test 16: merge: 0 (array_1 mode)
+  json: [{"name":"test","value":42},"a","b","c"]
+  parsed: (name: "test", value: 42, "a", "b", "c")
+
+Test 17: merge: 0 with nested structures
+  json: [{"user":[{"name":"Alice","role":"admin"},"x","y","z"]}]
+  parsed: (user: (name: "Alice", role: "admin", "x", "y", "z"))
+
+Test 18: merge: 0 round-trip
+  original: (title: "Doc", version: 1, item1, item2, item3)
+  json:     [{"title":"Doc","version":1},"item1","item2","item3"]
+  back:     (title: "Doc", version: 1, "item1", "item2", "item3")
+
+=== Edge Cases: Special Characters ===
+
+Test 19: Strings with escaped quotes
+  json: {"message":"He said \"Hello\"","note":"It's fine"}
+  parsed: (message: "He said \"Hello\"", note: "It's fine")
+
+Test 20: Strings with backslashes
+  json: {"path":"C:\\Users\\Name","regex":"\\d+\\.\\d+"}
+  parsed: (path: "C:\\Users\\Name", regex: "\\d+\\.\\d+")
+
+Test 21: Strings with newlines and tabs
+  json: {"code":"a\r\nb","text":"line1\nline2\ttabbed"}
+  parsed: (code: "a
+b", text: "line1
+line2	tabbed")
+
+Test 22: Unicode characters
+  json: {"chinese":"你好","emoji":"Hello 🌍!","math":"∑∏∫"}
+  parsed: (chinese: "你好", emoji: "Hello 🌍!", math: "∑∏∫")
+
+Test 23: Empty strings
+  json: {"data":"nonempty","name":"","value":""}
+  parsed: (data: "nonempty", name: "", value: "")
+
+Test 24: Very long string
+  json: {"text":"abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789!@#$%^\u0026*()"}
+  parsed: (text: "abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789!@#$%^&*()")
+
+=== Edge Cases: Numbers ===
+
+Test 25: Large integers
+  json: {"big":9223372036854775807,"neg":-9223372036854775808}
+  parsed: (big: 9.223372036854776e+18, neg: -9.223372036854776e+18)
+
+Test 26: Float precision
+  json: {"pi":3.14159265358979,"sci":12300000000,"tiny":0.000001}
+  parsed: (pi: 3.14159265358979, sci: 1.23e+10, tiny: 1e-06)
+
+Test 27: Zero values
+  json: {"float0":0,"int0":0,"negZero":0}
+  parsed: (float0: 0, int0: 0, negZero: 0)
+
+=== Edge Cases: Binary Data ===
+
+Test 28: Bytes with various values
+  json: {"data":[0,1,127,128,255,65,66,67]}
+  parsed: (data: (0, 1, 127, 128, 255, 65, 66, 67))
+
+Test 29: Bytes including control chars (0, 10, 13)
+  json: {"ctrl":[0,9,10,13,27,32]}
+  parsed: (ctrl: (0, 9, 10, 13, 27, 32))
+
+=== Edge Cases: Deeply Nested ===
+
+Test 30: 5 levels deep
+  json: {"a":{"b":{"c":{"d":{"e":"deep"}}}}}
+  parsed: (a: (b: (c: (d: (e: "deep")))))
+
+Test 31: Mixed nesting
+  json: {"arr":{"_children":[{"x":1},{"y":2}]},"obj":{"items":{"_children":["a","b","c"]}}}
+  parsed: (arr: ((x: 1), (y: 2)), obj: (items: ("a", "b", "c")))
+
+=== Edge Cases: Special Values ===
+
+Test 32: All special values
+  json: {"empty":"","f":false,"n":null,"t":true,"zero":0}
+  parsed: (empty: "", f: false, n: nil, t: true, zero: 0)
+
+Test 33: Array of nulls
+  json: [null,null,null]
+  parsed: (nil, nil, nil)
+
+Test 34: Nested empty structures
+  json: {"arr":[],"obj":[]}
+  parsed: (arr: (), obj: ())
+
+=== Edge Cases: Merge Modes ===
+
+Test 35: merge: 0 with single object (no extra items)
+  json: [{"name":"only"}]
+  parsed: (name: "only")
+
+Test 36: merge: false preserves _children structure
+  json: {"_children":[{"a":1},{"b":2}],"name":"parent"}
+  parsed: (_children: ((a: 1), (b: 2)), name: "parent")
+
+Test 37: Custom children key
+  json: {"my_items":["x","y","z"],"title":"test"}
+  parsed: (title: "test", "x", "y", "z")
+
+=== Colored JSON Stripping ===
+
+Test 38: Colored pretty JSON
+  parsed: (name: "Alice", score: 100, tags: ("a", "b", "c"))
+
+Test 39: Colored compact JSON
+  parsed: (data: (10, 20, 30), x: 1, y: 2)
+
+=== All Tests Complete ===
