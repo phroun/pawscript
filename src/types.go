@@ -483,10 +483,10 @@ type MacroDefinition struct {
 
 // SubstitutionContext provides context for macro argument substitution
 type SubstitutionContext struct {
-	Args                []interface{}
-	ExecutionState      *ExecutionState
-	ParentContext       *SubstitutionContext
-	MacroContext        *MacroContext
+	Args           []interface{}
+	ExecutionState *ExecutionState
+	// ParentContext was assigned but never read - removed to reduce struct size
+	MacroContext *MacroContext
 	CurrentLineOffset   int
 	CurrentColumnOffset int
 	Filename            string // Filename for error reporting
