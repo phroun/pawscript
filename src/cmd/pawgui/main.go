@@ -894,9 +894,13 @@ func getEntriesInDir(dir string) []FileEntry {
 		}
 	}
 
-	// Sort directories and files
-	sort.Strings(dirs)
-	sort.Strings(files)
+	// Sort directories and files (case-insensitive)
+	sort.Slice(dirs, func(i, j int) bool {
+		return strings.ToLower(dirs[i]) < strings.ToLower(dirs[j])
+	})
+	sort.Slice(files, func(i, j int) bool {
+		return strings.ToLower(files[i]) < strings.ToLower(files[j])
+	})
 
 	// Add directories with "/" suffix
 	for _, d := range dirs {
