@@ -1511,8 +1511,18 @@ func createLauncherWindow() {
 			guiState.app.Settings().SetTheme(&lightTheme{})
 		}
 
-		// Theme toggle button
-		themeBtn := widget.NewButton("💡", func() {
+		// Theme toggle button - sun to switch to light, moon to switch to dark
+		themeBtn := widget.NewButton("", nil)
+		themeBtn.Importance = widget.LowImportance
+
+		// Set initial icon based on current theme
+		if isLightMode {
+			themeBtn.SetText("🌙") // In light mode, show moon to switch to dark
+		} else {
+			themeBtn.SetText("☀️") // In dark mode, show sun to switch to light
+		}
+
+		themeBtn.OnTapped = func() {
 			cfg := loadConfig()
 			lightMode := cfg.GetBool("light_mode", false)
 			lightMode = !lightMode
@@ -1521,11 +1531,12 @@ func createLauncherWindow() {
 
 			if lightMode {
 				guiState.app.Settings().SetTheme(&lightTheme{})
+				themeBtn.SetText("🌙") // Now in light mode, show moon
 			} else {
 				guiState.app.Settings().SetTheme(&darkTheme{})
+				themeBtn.SetText("☀️") // Now in dark mode, show sun
 			}
-		})
-		themeBtn.Importance = widget.LowImportance
+		}
 
 		// Use HBox with spacer to push theme button to the right
 		buttonBox := container.NewHBox(
