@@ -63,11 +63,13 @@ func New(config *Config) *PawScript {
 
 			// Look up macro in module environment (COW - only check MacrosModule)
 			var macro *StoredMacro
-			state.moduleEnv.mu.RLock()
-			if m, exists := state.moduleEnv.MacrosModule[cmdName]; exists && m != nil {
-				macro = m
+			if state.moduleEnv != nil {
+				state.moduleEnv.mu.RLock()
+				if m, exists := state.moduleEnv.MacrosModule[cmdName]; exists && m != nil {
+					macro = m
+				}
+				state.moduleEnv.mu.RUnlock()
 			}
-			state.moduleEnv.mu.RUnlock()
 
 			if macro != nil {
 				ps.logger.DebugCat(CatMacro, "Found macro: %s", cmdName)

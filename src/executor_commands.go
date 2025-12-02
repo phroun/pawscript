@@ -276,7 +276,34 @@ func (e *Executor) executeSingleCommand(
 	}
 
 	// Apply substitution (which includes brace expressions)
-	commandStr = e.applySubstitution(commandStr, substitutionCtx)
+	// Use pre-parsed template if available for better performance
+	var isAsync bool
+	if substitutionCtx != nil && substitutionCtx.CurrentParsedCommand != nil &&
+		substitutionCtx.CurrentParsedCommand.CommandTemplate != nil {
+		commandStr, isAsync = e.ApplyTemplate(substitutionCtx.CurrentParsedCommand.CommandTemplate, substitutionCtx)
+		if isAsync {
+			// Handle async from template - for now fall through to marker handling below
+		}
+		// After template application, run dollar and tilde substitution on the result
+		// This handles patterns introduced by brace expressions (e.g., ${...} produces $1)
+		if !isAsync && substitutionCtx != nil && substitutionCtx.MacroContext != nil {
+			// Run dollar substitution on any $N patterns produced by brace expressions
+			commandStr = e.substituteDollarArgs(commandStr, substitutionCtx)
+		}
+		if !isAsync && substitutionCtx != nil {
+			tildePosition := &SourcePosition{
+				Line:     substitutionCtx.CurrentLineOffset + 1,
+				Column:   substitutionCtx.CurrentColumnOffset + 1,
+				Filename: substitutionCtx.Filename,
+			}
+			commandStr = e.substituteTildeExpressions(commandStr, substitutionCtx.ExecutionState, tildePosition)
+			// Restore escaped tildes
+			commandStr = strings.ReplaceAll(commandStr, "\x00TILDE\x00", "~")
+			commandStr = strings.ReplaceAll(commandStr, `\~`, "~")
+		}
+	} else {
+		commandStr = e.applySubstitution(commandStr, substitutionCtx)
+	}
 
 	// Store the brace failure count for get_substatus, but only if:
 	// 1. Braces were evaluated in this command
@@ -837,24 +864,28 @@ func (e *Executor) executeSingleCommand(
 	}
 
 	// Check for macros in module environment
-	if macro, exists := state.moduleEnv.GetMacro(cmdName); exists {
-		e.logger.DebugCat(CatCommand,"Found macro \"%s\" in module environment", cmdName)
-		result := e.executeMacro(macro, args, namedArgs, state, position)
-		if shouldInvert {
-			return e.invertStatus(result, state, position)
+	if state.moduleEnv != nil {
+		if macro, exists := state.moduleEnv.GetMacro(cmdName); exists {
+			e.logger.DebugCat(CatCommand,"Found macro \"%s\" in module environment", cmdName)
+			result := e.executeMacro(macro, args, namedArgs, state, position)
+			if shouldInvert {
+				return e.invertStatus(result, state, position)
+			}
+			return result
 		}
-		return result
 	}
 
 	// Check for commands in module environment
-	if handler, exists := state.moduleEnv.GetCommand(cmdName); exists {
-		e.logger.DebugCat(CatCommand,"Found command \"%s\" in module environment", cmdName)
-		ctx := e.createContext(args, rawArgs, namedArgs, state, position, substitutionCtx)
-		result := handler(ctx)
-		if shouldInvert {
-			return e.invertStatus(result, state, position)
+	if state.moduleEnv != nil {
+		if handler, exists := state.moduleEnv.GetCommand(cmdName); exists {
+			e.logger.DebugCat(CatCommand,"Found command \"%s\" in module environment", cmdName)
+			ctx := e.createContext(args, rawArgs, namedArgs, state, position, substitutionCtx)
+			result := handler(ctx)
+			if shouldInvert {
+				return e.invertStatus(result, state, position)
+			}
+			return result
 		}
-		return result
 	}
 
 	// Try fallback handler if command not found
