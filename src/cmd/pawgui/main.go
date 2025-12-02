@@ -1399,13 +1399,23 @@ func createLauncherWindow() {
 		var performAction func()
 		var fileList *widget.List
 
+		// Create list with tappable labels for double-click support
 		fileList = widget.NewList(
 			func() int { return len(entries) },
 			func() fyne.CanvasObject {
-				return widget.NewLabel("template")
+				// Create a tappable label that will handle double-taps
+				lbl := newTappableLabel("template", nil, nil)
+				return lbl
 			},
 			func(i widget.ListItemID, o fyne.CanvasObject) {
-				o.(*widget.Label).SetText(entries[i].Name)
+				lbl := o.(*tappableLabel)
+				lbl.SetText(entries[i].Name)
+				// Update the double-tap handler for this specific item
+				lbl.onDoubleTapped = func() {
+					selectedEntry = &entries[i]
+					fileList.Select(i)
+					performAction()
+				}
 			},
 		)
 
@@ -1424,15 +1434,6 @@ func createLauncherWindow() {
 		fileList.OnUnselected = func(id widget.ListItemID) {
 			selectedEntry = nil
 			runBtn.SetText("Run")
-		}
-
-		// Double-tap handler for the list (using extension)
-		fileList.OnDoubleTapped = func(id widget.ListItemID) {
-			if id >= 0 && int(id) < len(entries) {
-				selectedEntry = &entries[id]
-				fileList.Select(id)
-				performAction()
-			}
 		}
 
 		// Label for the file list - will be updated when navigating
