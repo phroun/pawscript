@@ -57,6 +57,23 @@ type GuiState struct {
 	scriptCompleted bool                 // True when main script execution is done
 }
 
+// selectAllEntry is a custom Entry widget that selects all text when focused
+type selectAllEntry struct {
+	widget.Entry
+}
+
+func newSelectAllEntry() *selectAllEntry {
+	e := &selectAllEntry{}
+	e.ExtendBaseWidget(e)
+	return e
+}
+
+func (e *selectAllEntry) FocusGained() {
+	e.Entry.FocusGained()
+	// Select all text when entry gains focus
+	e.TypedShortcut(&fyne.ShortcutSelectAll{})
+}
+
 var guiState *GuiState
 
 func main() {
@@ -2244,7 +2261,7 @@ func registerGuiCommands(ps *pawscript.PawScript) {
 			placeholder = fmt.Sprintf("%v", args[0])
 		}
 
-		entry := widget.NewEntry()
+		entry := newSelectAllEntry()
 		entry.SetPlaceHolder(placeholder)
 
 		id := ""
