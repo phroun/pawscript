@@ -371,6 +371,31 @@ func (ps *PawScript) RegisterFilesLib() {
 		return BoolStatus(true)
 	})
 
+	// file_close - Explicitly close a file handle
+	// Usage: file_close <file>
+	// Closes the file immediately, even if other threads hold references.
+	// After closing, the handle becomes invalid and further operations will fail.
+	ps.RegisterCommandInModule("files", "file_close", func(ctx *Context) Result {
+		if len(ctx.Args) < 1 {
+			ctx.LogError(CatCommand, "file_close: file required")
+			return BoolStatus(false)
+		}
+
+		file := resolveFile(ctx, ctx.Args[0])
+		if file == nil {
+			ctx.LogError(CatCommand, "file_close: not a file handle")
+			return BoolStatus(false)
+		}
+
+		err := file.Close()
+		if err != nil {
+			ctx.LogError(CatCommand, fmt.Sprintf("file_close: %v", err))
+			return BoolStatus(false)
+		}
+
+		return BoolStatus(true)
+	})
+
 	// ==================== Path/Directory Operations (no handle needed) ====================
 
 	// file_exists - Check if a path exists

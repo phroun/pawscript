@@ -146,6 +146,13 @@ func (e *Executor) decrementObjectRefCount(objectID int) {
 				}
 			}
 
+			// Auto-close file handles when their last reference is released
+			// This allows files to be passed between threads/macros without premature closing
+			if storedFile, ok := obj.Value.(*StoredFile); ok {
+				e.logger.DebugCat(CatMemory, "Auto-closing file handle %s (refcount reached 0)", storedFile.Path)
+				storedFile.Close()
+			}
+
 			delete(e.storedObjects, objectID)
 			e.logger.DebugCat(CatMemory,"Object %d freed (refcount reached 0)", objectID)
 		}
