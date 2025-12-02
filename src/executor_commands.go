@@ -1809,9 +1809,8 @@ func (e *Executor) executeMacro(
 
 	// Set default module name to "exports" so any EXPORT calls in the macro
 	// will export to the "exports" module, which can be merged into caller
-	macroState.moduleEnv.mu.Lock()
+	// No lock needed - moduleEnv was just created and isn't shared yet
 	macroState.moduleEnv.DefaultName = "exports"
-	macroState.moduleEnv.mu.Unlock()
 
 	// Ensure macro state has executor reference
 	macroState.executor = e
@@ -1822,7 +1821,7 @@ func (e *Executor) executeMacro(
 	// Create a LIST from the arguments (both positional and named) and store it as $@
 	argsList := NewStoredListWithRefs(args, namedArgs, e)
 	argsListID := e.storeObject(argsList, "list")
-	argsMarker := fmt.Sprintf("\x00LIST:%d\x00", argsListID)
+	argsMarker := "\x00LIST:" + strconv.Itoa(argsListID) + "\x00"
 
 	// Store the list marker in the macro state's variables as $@
 	macroState.SetVariable("$@", Symbol(argsMarker))
