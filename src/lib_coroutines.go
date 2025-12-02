@@ -237,6 +237,8 @@ func (ps *PawScript) RegisterGeneratorLib() {
 		substCtx := tokenData.SubstitutionCtx
 		whileCont := tokenData.WhileContinuation
 		forCont := tokenData.ForContinuation
+		repeatCont := tokenData.RepeatContinuation
+		fizzCont := tokenData.FizzContinuation
 		iterState := tokenData.IteratorState
 		ctx.executor.mu.Unlock()
 
@@ -495,6 +497,7 @@ func (ps *PawScript) RegisterGeneratorLib() {
 						td.WhileContinuation = &WhileContinuation{
 							ConditionBlock:     whileCont.ConditionBlock,
 							BodyBlock:          whileCont.BodyBlock,
+							CachedBodyCmds:     whileCont.CachedBodyCmds, // Preserve cached body
 							RemainingBodyCmds:  remainingCmds,
 							BodyCmdIndex:       whileCont.BodyCmdIndex + nextIdx,
 							IterationCount:     whileCont.IterationCount,
@@ -584,14 +587,21 @@ func (ps *PawScript) RegisterGeneratorLib() {
 			}
 
 			// Finished remaining body commands, now continue the while loop
-			// Re-parse body for fresh iteration
-			parser := NewParser(whileCont.BodyBlock, "")
-			cleanedBody := parser.RemoveComments(whileCont.BodyBlock)
-			normalizedBody := parser.NormalizeKeywords(cleanedBody)
-			bodyCommands, err := parser.ParseCommandSequence(normalizedBody)
-			if err != nil {
-				ctx.LogError(CatCommand, fmt.Sprintf("resume: failed to parse while body: %v", err))
-				return BoolStatus(false)
+			// Use cached body commands if available, otherwise re-parse
+			var bodyCommands []*ParsedCommand
+			if whileCont.CachedBodyCmds != nil {
+				bodyCommands = whileCont.CachedBodyCmds
+			} else {
+				// Fallback: re-parse body (shouldn't happen with new code)
+				parser := NewParser(whileCont.BodyBlock, "")
+				cleanedBody := parser.RemoveComments(whileCont.BodyBlock)
+				normalizedBody := parser.NormalizeKeywords(cleanedBody)
+				var err error
+				bodyCommands, err = parser.ParseCommandSequence(normalizedBody)
+				if err != nil {
+					ctx.LogError(CatCommand, fmt.Sprintf("resume: failed to parse while body: %v", err))
+					return BoolStatus(false)
+				}
 			}
 
 			maxIterations := 10000
@@ -630,6 +640,7 @@ func (ps *PawScript) RegisterGeneratorLib() {
 						td.WhileContinuation = &WhileContinuation{
 							ConditionBlock:     whileCont.ConditionBlock,
 							BodyBlock:          whileCont.BodyBlock,
+							CachedBodyCmds:     bodyCommands, // Use bodyCommands as cached (same reference)
 							RemainingBodyCmds:  bodyCommands,
 							BodyCmdIndex:       -1,
 							IterationCount:     iterations,
@@ -702,6 +713,7 @@ func (ps *PawScript) RegisterGeneratorLib() {
 						outerCont := &WhileContinuation{
 							ConditionBlock:     whileCont.ConditionBlock,
 							BodyBlock:          whileCont.BodyBlock,
+							CachedBodyCmds:     bodyCommands, // Preserve cached body
 							RemainingBodyCmds:  remainingCmds,
 							BodyCmdIndex:       cmdIdx,
 							IterationCount:     iterations,
@@ -857,6 +869,7 @@ func (ps *PawScript) RegisterGeneratorLib() {
 						}
 						td.ForContinuation = &ForContinuation{
 							BodyBlock:          forCont.BodyBlock,
+							CachedBodyCmds:     forCont.CachedBodyCmds, // Preserve cached body
 							RemainingBodyCmds:  remainingCmds,
 							BodyCmdIndex:       forCont.BodyCmdIndex + nextIdx,
 							IterationNumber:    forCont.IterationNumber,
@@ -951,14 +964,21 @@ func (ps *PawScript) RegisterGeneratorLib() {
 			// Finished remaining body commands - continue to next iteration
 			// Handle numeric range continuation
 			if forCont.IteratorType == "numrange" {
-				// Re-parse body for next iteration
-				parser := NewParser(forCont.BodyBlock, "")
-				cleanedBody := parser.RemoveComments(forCont.BodyBlock)
-				normalizedBody := parser.NormalizeKeywords(cleanedBody)
-				bodyCommands, err := parser.ParseCommandSequence(normalizedBody)
-				if err != nil {
-					ctx.LogError(CatCommand, fmt.Sprintf("resume: failed to parse for body: %v", err))
-					return BoolStatus(false)
+				// Use cached body commands if available, otherwise re-parse
+				var bodyCommands []*ParsedCommand
+				if forCont.CachedBodyCmds != nil {
+					bodyCommands = forCont.CachedBodyCmds
+				} else {
+					// Fallback: re-parse body (shouldn't happen with new code)
+					parser := NewParser(forCont.BodyBlock, "")
+					cleanedBody := parser.RemoveComments(forCont.BodyBlock)
+					normalizedBody := parser.NormalizeKeywords(cleanedBody)
+					var err error
+					bodyCommands, err = parser.ParseCommandSequence(normalizedBody)
+					if err != nil {
+						ctx.LogError(CatCommand, fmt.Sprintf("resume: failed to parse for body: %v", err))
+						return BoolStatus(false)
+					}
 				}
 
 				startNum := forCont.RangeStart
@@ -1028,6 +1048,7 @@ func (ps *PawScript) RegisterGeneratorLib() {
 								}
 								td.ForContinuation = &ForContinuation{
 									BodyBlock:          forCont.BodyBlock,
+									CachedBodyCmds:     bodyCommands, // Use bodyCommands as cached
 									RemainingBodyCmds:  remainingCmds,
 									BodyCmdIndex:       cmdIdx,
 									IterationNumber:    iterNum,
@@ -1117,14 +1138,21 @@ func (ps *PawScript) RegisterGeneratorLib() {
 					iterations++
 				}
 			} else if forCont.IteratorToken != "" {
-				// Re-parse body for next iteration
-				parser := NewParser(forCont.BodyBlock, "")
-				cleanedBody := parser.RemoveComments(forCont.BodyBlock)
-				normalizedBody := parser.NormalizeKeywords(cleanedBody)
-				bodyCommands, err := parser.ParseCommandSequence(normalizedBody)
-				if err != nil {
-					ctx.LogError(CatCommand, fmt.Sprintf("resume: failed to parse for body: %v", err))
-					return BoolStatus(false)
+				// Use cached body commands if available, otherwise re-parse
+				var bodyCommands []*ParsedCommand
+				if forCont.CachedBodyCmds != nil {
+					bodyCommands = forCont.CachedBodyCmds
+				} else {
+					// Fallback: re-parse body (shouldn't happen with new code)
+					parser := NewParser(forCont.BodyBlock, "")
+					cleanedBody := parser.RemoveComments(forCont.BodyBlock)
+					normalizedBody := parser.NormalizeKeywords(cleanedBody)
+					var err error
+					bodyCommands, err = parser.ParseCommandSequence(normalizedBody)
+					if err != nil {
+						ctx.LogError(CatCommand, fmt.Sprintf("resume: failed to parse for body: %v", err))
+						return BoolStatus(false)
+					}
 				}
 
 				maxIterations := 100000
@@ -1189,6 +1217,7 @@ func (ps *PawScript) RegisterGeneratorLib() {
 								}
 								td.ForContinuation = &ForContinuation{
 									BodyBlock:          forCont.BodyBlock,
+									CachedBodyCmds:     bodyCommands, // Use bodyCommands as cached
 									RemainingBodyCmds:  remainingCmds,
 									BodyCmdIndex:       cmdIdx,
 									IterationNumber:    iterNum,
@@ -1288,6 +1317,609 @@ func (ps *PawScript) RegisterGeneratorLib() {
 
 			// No parent - break out
 			break
+		}
+
+		// Handle repeat continuation if present
+		for repeatCont != nil {
+			ps.logger.DebugCat(CatAsync, "resume: handling repeat continuation, iteration %d/%d, %d remaining body commands",
+				repeatCont.CurrentIteration, repeatCont.TotalIterations, len(repeatCont.RemainingBodyCmds))
+
+			// Clear the continuation from the token (we're handling it now)
+			ctx.executor.mu.Lock()
+			if td, exists := ctx.executor.activeTokens[tokenID]; exists {
+				td.RepeatContinuation = nil
+			}
+			ctx.executor.mu.Unlock()
+
+			results := repeatCont.Results
+			failures := repeatCont.Failures
+
+			// Execute remaining body commands from where we left off
+			lastStatus := true
+			for cmdIdx, cmd := range repeatCont.RemainingBodyCmds {
+				if strings.TrimSpace(cmd.Command) == "" {
+					continue
+				}
+
+				shouldExecute := true
+				switch cmd.Separator {
+				case "&":
+					shouldExecute = lastStatus
+				case "|":
+					shouldExecute = !lastStatus
+				}
+
+				if !shouldExecute {
+					continue
+				}
+
+				result := ctx.executor.executeParsedCommand(cmd, repeatCont.State, nil)
+
+				// Check for yield
+				if yieldResult, ok := result.(YieldResult); ok {
+					ps.logger.DebugCat(CatAsync, "resume: yield in repeat continuation body, value: %v", yieldResult.Value)
+
+					// Update remaining commands and store new continuation
+					ctx.executor.mu.Lock()
+					if td, exists := ctx.executor.activeTokens[tokenID]; exists {
+						nextIdx := cmdIdx + 1
+						var remainingCmds []*ParsedCommand
+						if nextIdx < len(repeatCont.RemainingBodyCmds) {
+							remainingCmds = repeatCont.RemainingBodyCmds[nextIdx:]
+						}
+						td.RepeatContinuation = &RepeatContinuation{
+							BodyBlock:         repeatCont.BodyBlock,
+							CachedBodyCmds:    repeatCont.CachedBodyCmds,
+							RemainingBodyCmds: remainingCmds,
+							BodyCmdIndex:      repeatCont.BodyCmdIndex + nextIdx,
+							CurrentIteration:  repeatCont.CurrentIteration,
+							TotalIterations:   repeatCont.TotalIterations,
+							CounterVar:        repeatCont.CounterVar,
+							Results:           results,
+							Failures:          failures,
+							State:             repeatCont.State,
+							ParentContinuation: repeatCont.ParentContinuation,
+						}
+					}
+					ctx.executor.mu.Unlock()
+
+					ctx.state.MergeBubbles(repeatCont.State)
+					repeatCont.State.mu.Lock()
+					repeatCont.State.bubbleMap = make(map[string][]*BubbleEntry)
+					repeatCont.State.mu.Unlock()
+
+					ctx.SetResult(yieldResult.Value)
+					return BoolStatus(true)
+				}
+
+				// Check for early return
+				if earlyReturn, ok := result.(EarlyReturn); ok {
+					ctx.executor.mu.Lock()
+					delete(ctx.executor.activeTokens, tokenID)
+					ctx.executor.mu.Unlock()
+
+					ctx.state.MergeBubbles(repeatCont.State)
+					repeatCont.State.mu.Lock()
+					repeatCont.State.bubbleMap = make(map[string][]*BubbleEntry)
+					repeatCont.State.mu.Unlock()
+
+					if earlyReturn.HasResult {
+						ctx.SetResult(earlyReturn.Result)
+					}
+					return earlyReturn.Status
+				}
+
+				// Check for break
+				if breakResult, ok := result.(BreakResult); ok {
+					if breakResult.Levels <= 1 {
+						// Return current results
+						var namedArgs map[string]interface{}
+						if len(failures) > 0 {
+							namedArgs = map[string]interface{}{
+								"failures": NewStoredList(failures),
+							}
+						}
+						resultList := NewStoredListWithNamed(results, namedArgs)
+						listID := ctx.executor.storeObject(resultList, "list")
+						ctx.executor.incrementObjectRefCount(listID)
+						ctx.SetResult(Symbol(fmt.Sprintf("\x00LIST:%d\x00", listID)))
+						return BoolStatus(true)
+					}
+					return BreakResult{Levels: breakResult.Levels - 1}
+				}
+
+				// Check for continue
+				if continueResult, ok := result.(ContinueResult); ok {
+					if continueResult.Levels <= 1 {
+						break // Skip to next iteration
+					}
+					return ContinueResult{Levels: continueResult.Levels - 1}
+				}
+
+				// Handle async
+				if asyncToken, isToken := result.(TokenResult); isToken {
+					tokenStr := string(asyncToken)
+					waitChan := make(chan ResumeData, 1)
+					ctx.executor.attachWaitChan(tokenStr, waitChan)
+					resumeData := <-waitChan
+					lastStatus = resumeData.Status
+					continue
+				}
+
+				if boolRes, ok := result.(BoolStatus); ok {
+					lastStatus = bool(boolRes)
+				}
+			}
+
+			// Collect result from this iteration
+			if repeatCont.State.HasResult() {
+				results = append(results, repeatCont.State.GetResult())
+			} else {
+				results = append(results, nil)
+			}
+			if !lastStatus {
+				failures = append(failures, repeatCont.CurrentIteration)
+			}
+
+			// Move to next iteration
+			iteration := repeatCont.CurrentIteration + 1
+			if iteration >= repeatCont.TotalIterations {
+				// All iterations complete - return results
+				var namedArgs map[string]interface{}
+				if len(failures) > 0 {
+					namedArgs = map[string]interface{}{
+						"failures": NewStoredList(failures),
+					}
+				}
+				resultList := NewStoredListWithNamed(results, namedArgs)
+				listID := ctx.executor.storeObject(resultList, "list")
+				ctx.executor.incrementObjectRefCount(listID)
+				ctx.SetResult(Symbol(fmt.Sprintf("\x00LIST:%d\x00", listID)))
+
+				ctx.state.MergeBubbles(repeatCont.State)
+				repeatCont.State.mu.Lock()
+				repeatCont.State.bubbleMap = make(map[string][]*BubbleEntry)
+				repeatCont.State.mu.Unlock()
+
+				break // Exit repeat loop
+			}
+
+			// Use cached body commands if available
+			var bodyCommands []*ParsedCommand
+			if repeatCont.CachedBodyCmds != nil {
+				bodyCommands = repeatCont.CachedBodyCmds
+			} else {
+				parser := NewParser(repeatCont.BodyBlock, "")
+				cleanedBody := parser.RemoveComments(repeatCont.BodyBlock)
+				normalizedBody := parser.NormalizeKeywords(cleanedBody)
+				var err error
+				bodyCommands, err = parser.ParseCommandSequence(normalizedBody)
+				if err != nil {
+					ctx.LogError(CatCommand, fmt.Sprintf("resume: failed to parse repeat body: %v", err))
+					return BoolStatus(false)
+				}
+			}
+
+			// Set counter variable if present
+			if repeatCont.CounterVar != "" {
+				repeatCont.State.SetVariable(repeatCont.CounterVar, iteration)
+			}
+
+			// Execute next iteration
+			lastStatus = true
+			for cmdIdx, cmd := range bodyCommands {
+				if strings.TrimSpace(cmd.Command) == "" {
+					continue
+				}
+
+				shouldExecute := true
+				switch cmd.Separator {
+				case "&":
+					shouldExecute = lastStatus
+				case "|":
+					shouldExecute = !lastStatus
+				}
+
+				if !shouldExecute {
+					continue
+				}
+
+				result := ctx.executor.executeParsedCommand(cmd, repeatCont.State, nil)
+
+				// Check for yield
+				if yieldResult, ok := result.(YieldResult); ok {
+					ctx.executor.mu.Lock()
+					if td, exists := ctx.executor.activeTokens[tokenID]; exists {
+						nextIdx := cmdIdx + 1
+						var remainingCmds []*ParsedCommand
+						if nextIdx < len(bodyCommands) {
+							remainingCmds = bodyCommands[nextIdx:]
+						}
+						td.RepeatContinuation = &RepeatContinuation{
+							BodyBlock:         repeatCont.BodyBlock,
+							CachedBodyCmds:    bodyCommands,
+							RemainingBodyCmds: remainingCmds,
+							BodyCmdIndex:      cmdIdx,
+							CurrentIteration:  iteration,
+							TotalIterations:   repeatCont.TotalIterations,
+							CounterVar:        repeatCont.CounterVar,
+							Results:           results,
+							Failures:          failures,
+							State:             repeatCont.State,
+							ParentContinuation: repeatCont.ParentContinuation,
+						}
+					}
+					ctx.executor.mu.Unlock()
+
+					ctx.state.MergeBubbles(repeatCont.State)
+					repeatCont.State.mu.Lock()
+					repeatCont.State.bubbleMap = make(map[string][]*BubbleEntry)
+					repeatCont.State.mu.Unlock()
+
+					ctx.SetResult(yieldResult.Value)
+					return BoolStatus(true)
+				}
+
+				// Handle other control flow same as above
+				if earlyReturn, ok := result.(EarlyReturn); ok {
+					ctx.executor.mu.Lock()
+					delete(ctx.executor.activeTokens, tokenID)
+					ctx.executor.mu.Unlock()
+
+					if earlyReturn.HasResult {
+						ctx.SetResult(earlyReturn.Result)
+					}
+					return earlyReturn.Status
+				}
+
+				if breakResult, ok := result.(BreakResult); ok {
+					if breakResult.Levels <= 1 {
+						var namedArgs map[string]interface{}
+						if len(failures) > 0 {
+							namedArgs = map[string]interface{}{
+								"failures": NewStoredList(failures),
+							}
+						}
+						resultList := NewStoredListWithNamed(results, namedArgs)
+						listID := ctx.executor.storeObject(resultList, "list")
+						ctx.executor.incrementObjectRefCount(listID)
+						ctx.SetResult(Symbol(fmt.Sprintf("\x00LIST:%d\x00", listID)))
+						repeatCont = nil // Exit outer loop
+						break
+					}
+					return BreakResult{Levels: breakResult.Levels - 1}
+				}
+
+				if continueResult, ok := result.(ContinueResult); ok {
+					if continueResult.Levels <= 1 {
+						break
+					}
+					return ContinueResult{Levels: continueResult.Levels - 1}
+				}
+
+				if asyncToken, isToken := result.(TokenResult); isToken {
+					tokenStr := string(asyncToken)
+					waitChan := make(chan ResumeData, 1)
+					ctx.executor.attachWaitChan(tokenStr, waitChan)
+					resumeData := <-waitChan
+					lastStatus = resumeData.Status
+					continue
+				}
+
+				if boolRes, ok := result.(BoolStatus); ok {
+					lastStatus = bool(boolRes)
+				}
+			}
+
+			if repeatCont == nil {
+				break // Was set to nil by break handling
+			}
+
+			// Collect result and check for next iteration
+			if repeatCont.State.HasResult() {
+				results = append(results, repeatCont.State.GetResult())
+			} else {
+				results = append(results, nil)
+			}
+			if !lastStatus {
+				failures = append(failures, iteration)
+			}
+
+			iteration++
+			if iteration >= repeatCont.TotalIterations {
+				var namedArgs map[string]interface{}
+				if len(failures) > 0 {
+					namedArgs = map[string]interface{}{
+						"failures": NewStoredList(failures),
+					}
+				}
+				resultList := NewStoredListWithNamed(results, namedArgs)
+				listID := ctx.executor.storeObject(resultList, "list")
+				ctx.executor.incrementObjectRefCount(listID)
+				ctx.SetResult(Symbol(fmt.Sprintf("\x00LIST:%d\x00", listID)))
+				break
+			}
+
+			// Update repeatCont for next iteration
+			repeatCont.CurrentIteration = iteration
+			repeatCont.Results = results
+			repeatCont.Failures = failures
+		}
+
+		// Handle fizz continuation if present
+		for fizzCont != nil {
+			ps.logger.DebugCat(CatAsync, "resume: handling fizz continuation, bubble %d/%d, %d remaining body commands",
+				fizzCont.CurrentBubbleIndex, len(fizzCont.Bubbles), len(fizzCont.RemainingBodyCmds))
+
+			// Clear the continuation from the token
+			ctx.executor.mu.Lock()
+			if td, exists := ctx.executor.activeTokens[tokenID]; exists {
+				td.FizzContinuation = nil
+			}
+			ctx.executor.mu.Unlock()
+
+			const currentBubbleVar = "__fizz_current_bubble__"
+
+			// Execute remaining body commands for current bubble
+			lastStatus := true
+			for cmdIdx, cmd := range fizzCont.RemainingBodyCmds {
+				if strings.TrimSpace(cmd.Command) == "" {
+					continue
+				}
+
+				shouldExecute := true
+				switch cmd.Separator {
+				case "&":
+					shouldExecute = lastStatus
+				case "|":
+					shouldExecute = !lastStatus
+				}
+
+				if !shouldExecute {
+					continue
+				}
+
+				result := ctx.executor.executeParsedCommand(cmd, fizzCont.State, nil)
+
+				// Check for yield
+				if yieldResult, ok := result.(YieldResult); ok {
+					ctx.executor.mu.Lock()
+					if td, exists := ctx.executor.activeTokens[tokenID]; exists {
+						nextIdx := cmdIdx + 1
+						var remainingCmds []*ParsedCommand
+						if nextIdx < len(fizzCont.RemainingBodyCmds) {
+							remainingCmds = fizzCont.RemainingBodyCmds[nextIdx:]
+						}
+						td.FizzContinuation = &FizzContinuation{
+							BodyBlock:          fizzCont.BodyBlock,
+							CachedBodyCmds:     fizzCont.CachedBodyCmds,
+							RemainingBodyCmds:  remainingCmds,
+							BodyCmdIndex:       fizzCont.BodyCmdIndex + nextIdx,
+							ContentVarName:     fizzCont.ContentVarName,
+							MetaVarName:        fizzCont.MetaVarName,
+							HasMetaVar:         fizzCont.HasMetaVar,
+							Flavors:            fizzCont.Flavors,
+							CurrentBubbleIndex: fizzCont.CurrentBubbleIndex,
+							Bubbles:            fizzCont.Bubbles,
+							State:              fizzCont.State,
+							ParentContinuation: fizzCont.ParentContinuation,
+						}
+					}
+					ctx.executor.mu.Unlock()
+
+					ctx.state.MergeBubbles(fizzCont.State)
+					fizzCont.State.mu.Lock()
+					fizzCont.State.bubbleMap = make(map[string][]*BubbleEntry)
+					fizzCont.State.mu.Unlock()
+
+					ctx.SetResult(yieldResult.Value)
+					return BoolStatus(true)
+				}
+
+				// Handle early return
+				if earlyReturn, ok := result.(EarlyReturn); ok {
+					fizzCont.State.DeleteVariable(currentBubbleVar)
+					ctx.executor.mu.Lock()
+					delete(ctx.executor.activeTokens, tokenID)
+					ctx.executor.mu.Unlock()
+
+					if earlyReturn.HasResult {
+						ctx.SetResult(earlyReturn.Result)
+					}
+					return earlyReturn.Status
+				}
+
+				// Handle break
+				if breakResult, ok := result.(BreakResult); ok {
+					fizzCont.State.DeleteVariable(currentBubbleVar)
+					if breakResult.Levels <= 1 {
+						return BoolStatus(true)
+					}
+					return BreakResult{Levels: breakResult.Levels - 1}
+				}
+
+				// Handle continue
+				if continueResult, ok := result.(ContinueResult); ok {
+					if continueResult.Levels <= 1 {
+						break // Skip to next bubble
+					}
+					fizzCont.State.DeleteVariable(currentBubbleVar)
+					return ContinueResult{Levels: continueResult.Levels - 1}
+				}
+
+				// Handle async
+				if asyncToken, isToken := result.(TokenResult); isToken {
+					tokenStr := string(asyncToken)
+					waitChan := make(chan ResumeData, 1)
+					ctx.executor.attachWaitChan(tokenStr, waitChan)
+					resumeData := <-waitChan
+					lastStatus = resumeData.Status
+					continue
+				}
+
+				if boolRes, ok := result.(BoolStatus); ok {
+					lastStatus = bool(boolRes)
+				}
+			}
+
+			// Move to next bubble
+			bubbleIdx := fizzCont.CurrentBubbleIndex + 1
+			if bubbleIdx >= len(fizzCont.Bubbles) {
+				// All bubbles processed
+				fizzCont.State.DeleteVariable(currentBubbleVar)
+				ctx.state.MergeBubbles(fizzCont.State)
+				fizzCont.State.mu.Lock()
+				fizzCont.State.bubbleMap = make(map[string][]*BubbleEntry)
+				fizzCont.State.mu.Unlock()
+				break
+			}
+
+			// Use cached body commands
+			var bodyCommands []*ParsedCommand
+			if fizzCont.CachedBodyCmds != nil {
+				bodyCommands = fizzCont.CachedBodyCmds
+			} else {
+				parser := NewParser(fizzCont.BodyBlock, "")
+				cleanedBody := parser.RemoveComments(fizzCont.BodyBlock)
+				normalizedBody := parser.NormalizeKeywords(cleanedBody)
+				var err error
+				bodyCommands, err = parser.ParseCommandSequence(normalizedBody)
+				if err != nil {
+					ctx.LogError(CatCommand, fmt.Sprintf("resume: failed to parse fizz body: %v", err))
+					return BoolStatus(false)
+				}
+			}
+
+			// Set up next bubble
+			bubble := fizzCont.Bubbles[bubbleIdx]
+			fizzCont.State.SetVariable(fizzCont.ContentVarName, bubble.Content)
+
+			if fizzCont.HasMetaVar {
+				metaNamedArgs := map[string]interface{}{
+					"microtime": bubble.Microtime,
+					"memo":      bubble.Memo,
+					"flavors":   NewStoredList(stringSliceToInterface(bubble.Flavors)),
+				}
+				metaList := NewStoredListWithNamed(nil, metaNamedArgs)
+				metaID := ctx.executor.storeObject(metaList, "list")
+				fizzCont.State.SetVariable(fizzCont.MetaVarName, Symbol(fmt.Sprintf("\x00LIST:%d\x00", metaID)))
+			}
+
+			fizzCont.State.mu.Lock()
+			if fizzCont.State.variables == nil {
+				fizzCont.State.variables = make(map[string]interface{})
+			}
+			fizzCont.State.variables[currentBubbleVar] = bubble
+			fizzCont.State.mu.Unlock()
+
+			// Execute body for next bubble
+			lastStatus = true
+			for cmdIdx, cmd := range bodyCommands {
+				if strings.TrimSpace(cmd.Command) == "" {
+					continue
+				}
+
+				shouldExecute := true
+				switch cmd.Separator {
+				case "&":
+					shouldExecute = lastStatus
+				case "|":
+					shouldExecute = !lastStatus
+				}
+
+				if !shouldExecute {
+					continue
+				}
+
+				result := ctx.executor.executeParsedCommand(cmd, fizzCont.State, nil)
+
+				if yieldResult, ok := result.(YieldResult); ok {
+					ctx.executor.mu.Lock()
+					if td, exists := ctx.executor.activeTokens[tokenID]; exists {
+						nextIdx := cmdIdx + 1
+						var remainingCmds []*ParsedCommand
+						if nextIdx < len(bodyCommands) {
+							remainingCmds = bodyCommands[nextIdx:]
+						}
+						td.FizzContinuation = &FizzContinuation{
+							BodyBlock:          fizzCont.BodyBlock,
+							CachedBodyCmds:     bodyCommands,
+							RemainingBodyCmds:  remainingCmds,
+							BodyCmdIndex:       cmdIdx,
+							ContentVarName:     fizzCont.ContentVarName,
+							MetaVarName:        fizzCont.MetaVarName,
+							HasMetaVar:         fizzCont.HasMetaVar,
+							Flavors:            fizzCont.Flavors,
+							CurrentBubbleIndex: bubbleIdx,
+							Bubbles:            fizzCont.Bubbles,
+							State:              fizzCont.State,
+							ParentContinuation: fizzCont.ParentContinuation,
+						}
+					}
+					ctx.executor.mu.Unlock()
+
+					ctx.state.MergeBubbles(fizzCont.State)
+					fizzCont.State.mu.Lock()
+					fizzCont.State.bubbleMap = make(map[string][]*BubbleEntry)
+					fizzCont.State.mu.Unlock()
+
+					ctx.SetResult(yieldResult.Value)
+					return BoolStatus(true)
+				}
+
+				if earlyReturn, ok := result.(EarlyReturn); ok {
+					fizzCont.State.DeleteVariable(currentBubbleVar)
+					ctx.executor.mu.Lock()
+					delete(ctx.executor.activeTokens, tokenID)
+					ctx.executor.mu.Unlock()
+					if earlyReturn.HasResult {
+						ctx.SetResult(earlyReturn.Result)
+					}
+					return earlyReturn.Status
+				}
+
+				if breakResult, ok := result.(BreakResult); ok {
+					fizzCont.State.DeleteVariable(currentBubbleVar)
+					if breakResult.Levels <= 1 {
+						fizzCont = nil
+						break
+					}
+					return BreakResult{Levels: breakResult.Levels - 1}
+				}
+
+				if continueResult, ok := result.(ContinueResult); ok {
+					if continueResult.Levels <= 1 {
+						break
+					}
+					fizzCont.State.DeleteVariable(currentBubbleVar)
+					return ContinueResult{Levels: continueResult.Levels - 1}
+				}
+
+				if asyncToken, isToken := result.(TokenResult); isToken {
+					tokenStr := string(asyncToken)
+					waitChan := make(chan ResumeData, 1)
+					ctx.executor.attachWaitChan(tokenStr, waitChan)
+					resumeData := <-waitChan
+					lastStatus = resumeData.Status
+					continue
+				}
+
+				if boolRes, ok := result.(BoolStatus); ok {
+					lastStatus = bool(boolRes)
+				}
+			}
+
+			if fizzCont == nil {
+				break
+			}
+
+			// Update for next iteration
+			bubbleIdx++
+			if bubbleIdx >= len(fizzCont.Bubbles) {
+				fizzCont.State.DeleteVariable(currentBubbleVar)
+				break
+			}
+			fizzCont.CurrentBubbleIndex = bubbleIdx
 		}
 
 		if seq == nil || len(seq.RemainingCommands) == 0 {

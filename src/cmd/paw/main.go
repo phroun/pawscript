@@ -71,6 +71,9 @@ func main() {
 	execRootsFlag := flag.String("exec-roots", "", "Additional directories for exec command")
 	sandboxFlag := flag.String("sandbox", "", "Restrict all access to this directory only")
 
+	// Optimization level flag
+	optLevelFlag := flag.Int("O", 1, "Optimization level (0=no caching, 1=cache macro/loop bodies)")
+
 	// Custom usage function
 	flag.Usage = showUsage
 
@@ -289,6 +292,7 @@ func main() {
 		ContextLines:         2,
 		FileAccess:           fileAccess,
 		ScriptDir:            scriptDir,
+		OptLevel:             pawscript.OptimizationLevel(*optLevelFlag),
 	})
 
 	// Register standard library commands
@@ -406,6 +410,7 @@ Options:
   --license           View license and exit
   -d, -debug          Enable debug output
   -v, -verbose        Enable verbose output (same as -debug)
+  -O N                Set optimization level (0=no caching, 1=cache macro/loop bodies, default: 1)
   --unrestricted      Disable all file/exec access restrictions
   --sandbox DIR       Restrict all access to DIR only
   --read-roots DIRS   Additional directories for reading

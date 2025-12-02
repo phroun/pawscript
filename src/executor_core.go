@@ -21,10 +21,12 @@ type Executor struct {
 	storedObjects    map[int]*StoredObject // Global reference-counted object store
 	activeFibers     map[int]*FiberHandle  // Currently running fibers
 	orphanedBubbles  map[string][]*BubbleEntry // Bubbles from abandoned fibers
+	blockCache       map[int][]*ParsedCommand  // Cached parsed forms for StoredBlock objects (by ID)
 	nextTokenID      int
 	nextObjectID     int
 	nextFiberID      int
 	logger           *Logger
+	optLevel         OptimizationLevel // AST caching level
 	fallbackHandler  func(cmdName string, args []interface{}, namedArgs map[string]interface{}, state *ExecutionState, position *SourcePosition) Result
 }
 
@@ -36,11 +38,99 @@ func NewExecutor(logger *Logger) *Executor {
 		storedObjects:   make(map[int]*StoredObject),
 		activeFibers:    make(map[int]*FiberHandle),
 		orphanedBubbles: make(map[string][]*BubbleEntry),
+		blockCache:      make(map[int][]*ParsedCommand),
 		nextTokenID:     1,
 		nextObjectID:    1,
 		nextFiberID:     1, // 0 is reserved for main fiber
 		logger:          logger,
+		optLevel:        OptimizeBasic, // Default to caching enabled
 	}
+}
+
+// SetOptimizationLevel sets the AST caching level
+func (e *Executor) SetOptimizationLevel(level OptimizationLevel) {
+	e.mu.Lock()
+	defer e.mu.Unlock()
+	e.optLevel = level
+}
+
+// GetOptimizationLevel returns the current AST caching level
+func (e *Executor) GetOptimizationLevel() OptimizationLevel {
+	e.mu.RLock()
+	defer e.mu.RUnlock()
+	return e.optLevel
+}
+
+// GetOrParseMacroCommands returns cached parsed commands for a macro, or parses and caches them
+// If caching is disabled (OptimizeNone), it parses fresh each time
+// The returned commands can be executed with ExecuteParsedCommands
+func (e *Executor) GetOrParseMacroCommands(macro *StoredMacro, filename string) ([]*ParsedCommand, error) {
+	// Check if we already have cached commands
+	if macro.CachedCommands != nil && e.optLevel >= OptimizeBasic {
+		e.logger.DebugCat(CatCommand, "Using cached parsed commands for macro")
+		return macro.CachedCommands, nil
+	}
+
+	// Parse the commands
+	parser := NewParser(macro.Commands, filename)
+	cleanedCommand := parser.RemoveComments(macro.Commands)
+	normalizedCommand := parser.NormalizeKeywords(cleanedCommand)
+
+	commands, err := parser.ParseCommandSequence(normalizedCommand)
+	if err != nil {
+		return nil, err
+	}
+
+	// Cache the parsed commands if optimization is enabled
+	if e.optLevel >= OptimizeBasic && len(commands) > 0 {
+		macro.CachedCommands = commands
+		e.logger.DebugCat(CatCommand, "Cached %d parsed commands for macro", len(commands))
+	}
+
+	return commands, nil
+}
+
+// ExecuteParsedCommands executes pre-parsed commands with the given state and context
+// This is the cached-command equivalent of ExecuteWithState
+func (e *Executor) ExecuteParsedCommands(
+	commands []*ParsedCommand,
+	state *ExecutionState,
+	substitutionCtx *SubstitutionContext,
+	lineOffset, columnOffset int,
+) Result {
+	// Ensure state has executor reference for object management
+	if state != nil && state.executor == nil {
+		state.executor = e
+	}
+
+	if len(commands) == 0 {
+		return BoolStatus(true)
+	}
+
+	// Apply position offsets to all commands (make copies to avoid mutating cached commands)
+	if lineOffset > 0 || columnOffset > 0 {
+		adjustedCommands := make([]*ParsedCommand, len(commands))
+		for i, cmd := range commands {
+			// Create a shallow copy with adjusted position
+			adjustedCmd := *cmd
+			if cmd.Position != nil {
+				adjustedPos := *cmd.Position
+				adjustedPos.Line += lineOffset
+				if adjustedPos.Line == lineOffset+1 {
+					adjustedPos.Column += columnOffset
+				}
+				adjustedCmd.Position = &adjustedPos
+			}
+			adjustedCommands[i] = &adjustedCmd
+		}
+		commands = adjustedCommands
+	}
+
+	if len(commands) == 1 {
+		return e.executeParsedCommand(commands[0], state, substitutionCtx)
+	}
+
+	return e.executeCommandSequence(commands, state, substitutionCtx)
 }
 
 // AddOrphanedBubbles merges bubbles from an abandoned fiber into orphanedBubbles
