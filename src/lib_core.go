@@ -5,6 +5,7 @@ import (
 	"os"
 	"sort"
 	"strings"
+	"time"
 )
 
 // RegisterCoreLib registers core language commands
@@ -1008,16 +1009,75 @@ func (ps *PawScript) RegisterCoreLib() {
 
 		ps.logger.DebugCat(CatMacro,"Defining macro '%s' with commands: %s", name, commands)
 
-		// Create the StoredMacro
-		macro := NewStoredMacroWithEnv(commands, ctx.Position, macroEnv)
-
 		// Store in module environment's MacrosModule (with COW)
 		ctx.state.moduleEnv.mu.Lock()
+		defer ctx.state.moduleEnv.mu.Unlock()
+
+		// Check if macro already exists
+		if existing, exists := ctx.state.moduleEnv.MacrosModule[name]; exists && existing != nil {
+			if existing.IsForward {
+				// Fill in the forward declaration by mutating the struct in place
+				// This preserves the pointer so all references see the update
+				existing.Commands = commands
+				existing.DefinitionFile = ctx.Position.Filename
+				existing.DefinitionLine = ctx.Position.Line
+				existing.DefinitionColumn = ctx.Position.Column
+				existing.Timestamp = time.Now()
+				existing.ModuleEnv = macroEnv
+				existing.IsForward = false // No longer a forward declaration
+
+				ps.logger.DebugCat(CatMacro, "Resolved forward declaration for macro '%s'", name)
+				return BoolStatus(true)
+			}
+			// Macro exists and is not a forward declaration - error
+			ps.logger.ErrorCat(CatMacro, "Cannot define macro '%s': already exists (use macro_delete first)", name)
+			return BoolStatus(false)
+		}
+
+		// Create new StoredMacro
+		macro := NewStoredMacroWithEnv(commands, ctx.Position, macroEnv)
+
 		ctx.state.moduleEnv.EnsureMacroRegistryCopied()
 		ctx.state.moduleEnv.MacrosModule[name] = &macro
-		ctx.state.moduleEnv.mu.Unlock()
 
 		ps.logger.DebugCat(CatMacro,"Successfully defined named macro '%s' in MacrosModule", name)
+		return BoolStatus(true)
+	})
+
+	// macro_forward - create a forward declaration for a macro
+	ps.RegisterCommandInModule("macros", "macro_forward", func(ctx *Context) Result {
+		if len(ctx.Args) != 1 {
+			ps.logger.ErrorCat(CatCommand, "Usage: macro_forward <name>")
+			return BoolStatus(false)
+		}
+
+		name := fmt.Sprintf("%v", ctx.Args[0])
+
+		ctx.state.moduleEnv.mu.Lock()
+		defer ctx.state.moduleEnv.mu.Unlock()
+
+		// Check if macro already exists
+		if existing, exists := ctx.state.moduleEnv.MacrosModule[name]; exists && existing != nil {
+			ps.logger.ErrorCat(CatMacro, "Cannot create forward declaration for '%s': macro already exists (use macro_delete first)", name)
+			return BoolStatus(false)
+		}
+
+		// Create forward declaration with placeholder
+		forward := &StoredMacro{
+			Commands:         "", // Empty - will be filled in by actual definition
+			DefinitionFile:   ctx.Position.Filename,
+			DefinitionLine:   ctx.Position.Line,
+			DefinitionColumn: ctx.Position.Column,
+			Timestamp:        time.Now(),
+			ModuleEnv:        nil, // Will be set by actual definition
+			IsForward:        true,
+		}
+
+		// Store in module environment's MacrosModule (with COW)
+		ctx.state.moduleEnv.EnsureMacroRegistryCopied()
+		ctx.state.moduleEnv.MacrosModule[name] = forward
+
+		ps.logger.DebugCat(CatMacro, "Created forward declaration for macro '%s'", name)
 		return BoolStatus(true)
 	})
 

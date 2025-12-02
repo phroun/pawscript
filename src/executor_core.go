@@ -261,6 +261,19 @@ func (e *Executor) executeStoredMacro(
 	invocationPosition *SourcePosition,
 	parentState *ExecutionState,
 ) Result {
+	// Check for unresolved forward declaration
+	if macro.IsForward {
+		macroDesc := name
+		if macroDesc == "" {
+			macroDesc = "<anonymous>"
+		}
+		e.logger.ErrorCat(CatMacro, "Cannot call macro '%s': forward declaration was never resolved with a macro definition", macroDesc)
+		if state != nil {
+			state.SetResult(Symbol("undefined"))
+		}
+		return BoolStatus(false)
+	}
+
 	// Create macro context for error tracking
 	macroContext := &MacroContext{
 		MacroName:        name, // Empty for anonymous macros

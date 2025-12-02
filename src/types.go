@@ -512,6 +512,7 @@ type StoredMacro struct {
 	DefinitionColumn int
 	Timestamp        time.Time
 	ModuleEnv        *ModuleEnvironment // Captured module environment
+	IsForward        bool               // True if this is an unresolved forward declaration
 }
 
 // NewStoredMacro creates a new StoredMacro
