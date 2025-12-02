@@ -76,34 +76,63 @@ See the `examples/` directory for sample scripts and usage patterns.
 ## Changelog
 
 ### 0.2.9 -- November 29 - December 2, 2025
+- `break` and `continue` commands for loop control, with async resumption fixes
+- Fixed command position execution for macros and parenthetic blocks
+- Fixed `ret` not propagating result from macro calls
+- `bubble_logging` system with multi-flavor bubble support for structured
+  logging during execution
+- `fizz` and `burst` commands for bubble iteration and consumption
+- Type tracking added to StoredList for optimization hints (`arrsolid`,
+  `mapsolid`, `arrlen`, `maplen`)
+- Dollar-brace `${}` operator now properly escapes quotes when inside quoted
+  strings
+- File handles auto-close moved from variable deletion to garbage collector
+  for more reliable cleanup
 - Quote-aware macro argument substitution: `$1`, `$2`, etc. now correctly
   handle context when appearing inside or outside quoted strings
   - Inside quotes: content inserted without extra quotes, internal
     quotes/backslashes escaped, tilde injection prevented
   - Outside quotes: strings with spaces properly quoted
 - Brace and parenthesis tracking in `$N` substitution: respects same
-  structural boundaries as the parser, preventing edge cases in nested
-  structures
+  structural boundaries as the parser
+- Fixed premature garbage collection of local variables during async
+  operations
+- Fixed double-release of state references in chained async tokens
+- Fixed GUI button callbacks to execute in correct module environment
+- `macro_forward` command for forward declarations, enabling mutual recursion
+- `LIBRARY` command enhancements:
+  - `LIBRARY "restrict module::item1,item2"` restricts specific items
+  - `LIBRARY "allow ::module::items"` supports scoped syntax
+- `json` command for list serialization with options:
+  - `pretty: true` for indented multi-line output
+  - `color: true` for ANSI-colored output
+- `string` command extended with `pretty:` and `color:` parameters
+- `list` command extended with `from: json` for JSON deserialization
+  - `merge: 0` option for array_1 format (no key merging)
+- `arrlen` and `maplen` commands for quick list length by type
+- `len` command enhanced with `keys: true` parameter
+- `eqs` and `neqs` commands for shallow (reference) equality comparison
+- `slice` command extended with `only: arr` or `only: map` to extract list
+  portions by entry type
+- `lib_dump` and `env_dump` headers now show command counts
+- Added library commands quick reference documentation
+- Pawgui launcher improvements:
+  - File browser with double-click, scroll, and case-insensitive sorting
+  - Filter box with keyboard navigation (arrows, Enter, Shift+Tab)
+  - Home button and visual directory/file separation
+  - Theme toggle (light/dark) with sun/moon indicators
+  - Auto-select all text when `gui_entry` gains focus
+  - Forward mouse events to terminal to clear selection on click
+  - 4px spacer added to `gui_split` right panels
 - Script isolation in launcher: scripts run in isolated snapshots using
-  `CreateRestrictedSnapshot` and `ExecuteWithEnvironment` so multiple scripts
-  don't impact each other's state
-- Automatic `#window` inheritance: when `gui_window` creates a window, it
-  automatically sets `#window` as an inherited object so macros defined
-  afterward can access the correct window
+  `CreateRestrictedSnapshot` and `ExecuteWithEnvironment`
 - Explicit window targeting in gui_ commands: all gui_ commands now support
   both explicit window handle as first argument (`gui_label #mywin, "text"`)
   and automatic inherited `#window` from context
-- Updated commands with window targeting: `gui_split`, `gui_title`,
-  `gui_resize`, `gui_label`, `gui_button`, `gui_entry`, `gui_clear`,
-  `gui_msgbox`, `gui_console`
 - Native OS dialog improvements: restored `.paw` file type filter, fixed nil
-  pointer crash in launcher mode, suppressed macOS deprecation warnings from
-  sqweek/dialog library
-- Fixed deadlock when opening new launcher window from File menu
-- Added BUILDING.md with comprehensive build instructions:
-  - Prerequisites and platform-specific dependencies for CLI and GUI builds
-  - Cross-compilation instructions using fyne-cross and Docker
-  - Installation targets with configurable PREFIX
+  pointer crash, suppressed macOS deprecation warnings
+- Added BUILDING.md with comprehensive build instructions
+- Split lib_types.go into logical smaller files for maintainability
 
 ### 0.2.8 -- November 28-29, 2025 - Thanksgiving Alpha
 - Polymorphic commands: `append`, `prepend`, `contains`, `index` now work on
