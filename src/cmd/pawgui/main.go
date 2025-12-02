@@ -1040,6 +1040,20 @@ func saveBrowseDir(dir string) {
 	saveConfig(config)
 }
 
+// truncatePathFromStart truncates a path from the beginning if it exceeds maxLen
+// Returns "...end/of/path" format to emphasize the final part
+func truncatePathFromStart(path string, maxLen int) string {
+	if len(path) <= maxLen {
+		return path
+	}
+	if maxLen < 4 {
+		return "..."
+	}
+	// Leave room for "..."
+	remaining := maxLen - 3
+	return "..." + path[len(path)-remaining:]
+}
+
 // createMainMenu creates the application main menu
 func createMainMenu(win fyne.Window) *fyne.MainMenu {
 	// File menu
@@ -1390,7 +1404,10 @@ func createLauncherWindow() {
 		)
 
 		// Label for the file list - will be updated when navigating
-		dirLabel := widget.NewLabel(currentDir)
+		// Truncate long paths from the start to show the end (more important)
+		const maxDirLabelLen = 40
+		dirLabel := widget.NewLabel(truncatePathFromStart(currentDir, maxDirLabelLen))
+		dirLabel.Truncation = fyne.TextTruncateEllipsis
 
 		// Run/Open button - text changes based on selection
 		runBtn := widget.NewButton("Run", nil)
@@ -1424,7 +1441,7 @@ func createLauncherWindow() {
 				selectedEntry = nil
 				lastClickID = -1
 				runBtn.SetText("Run")
-				dirLabel.SetText(currentDir)
+				dirLabel.SetText(truncatePathFromStart(currentDir, maxDirLabelLen))
 				fileList.UnselectAll()
 				fileList.Refresh()
 				// Save the current directory to config
