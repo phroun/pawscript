@@ -5,6 +5,7 @@ package main
 import (
 	"flag"
 	"fmt"
+	"image/color"
 	"io"
 	"os"
 	"path/filepath"
@@ -17,6 +18,7 @@ import (
 	"fyne.io/fyne/v2"
 	"fyne.io/fyne/v2/app"
 	"fyne.io/fyne/v2/container"
+	"fyne.io/fyne/v2/theme"
 	"fyne.io/fyne/v2/widget"
 	"github.com/fyne-io/terminal"
 	pawscript "github.com/phroun/pawscript"
@@ -1391,37 +1393,70 @@ func createLauncherWindow() {
 
 		// State variables for the file browser
 		var selectedEntry *FileEntry
-		var lastClickTime time.Time
-		var lastClickID widget.ListItemID = -1
-		const doubleClickThreshold = 400 * time.Millisecond
 
-		fileList := widget.NewList(
+		// Forward declarations for mutual references
+		var runBtn *widget.Button
+		var performAction func()
+		var fileList *widget.List
+
+		fileList = widget.NewList(
 			func() int { return len(entries) },
-			func() fyne.CanvasObject { return widget.NewLabel("template") },
+			func() fyne.CanvasObject {
+				return widget.NewLabel("template")
+			},
 			func(i widget.ListItemID, o fyne.CanvasObject) {
 				o.(*widget.Label).SetText(entries[i].Name)
 			},
 		)
 
+		// Handle selection
+		fileList.OnSelected = func(id widget.ListItemID) {
+			if id >= 0 && int(id) < len(entries) {
+				selectedEntry = &entries[id]
+				if selectedEntry.IsDir {
+					runBtn.SetText("Open")
+				} else {
+					runBtn.SetText("Run")
+				}
+			}
+		}
+
+		fileList.OnUnselected = func(id widget.ListItemID) {
+			selectedEntry = nil
+			runBtn.SetText("Run")
+		}
+
+		// Double-tap handler for the list (using extension)
+		fileList.OnDoubleTapped = func(id widget.ListItemID) {
+			if id >= 0 && int(id) < len(entries) {
+				selectedEntry = &entries[id]
+				fileList.Select(id)
+				performAction()
+			}
+		}
+
 		// Label for the file list - will be updated when navigating
 		// Truncate long paths from the start to show the end (more important)
-		const maxDirLabelLen = 40
+		const maxDirLabelLen = 50
 		dirLabel := widget.NewLabel(truncatePathFromStart(currentDir, maxDirLabelLen))
 		dirLabel.TextStyle = fyne.TextStyle{Bold: true}
 
+		// Wrap directory label in horizontal scroll so panel can shrink
+		dirLabelScroll := container.NewHScroll(dirLabel)
+		dirLabelScroll.SetMinSize(fyne.NewSize(50, 0)) // Allow shrinking to small size
+
 		// Header with visual separation from file list
-		// Use padding and separator for clear distinction
 		dirHeader := container.NewVBox(
-			container.NewPadded(dirLabel),
+			dirLabelScroll,
 			widget.NewSeparator(),
 			widget.NewSeparator(), // Double separator for more visibility
 		)
 
 		// Run/Open button - text changes based on selection
-		runBtn := widget.NewButton("Run", nil)
+		runBtn = widget.NewButton("Run", nil)
 
 		// Function to perform the action (open dir or run script)
-		performAction := func() {
+		performAction = func() {
 			if selectedEntry == nil {
 				return
 			}
@@ -1447,7 +1482,6 @@ func createLauncherWindow() {
 				currentDir = absDir
 				entries = getEntriesInDir(currentDir)
 				selectedEntry = nil
-				lastClickID = -1
 				runBtn.SetText("Run")
 				dirLabel.SetText(truncatePathFromStart(currentDir, maxDirLabelLen))
 				fileList.UnselectAll()
@@ -1461,42 +1495,6 @@ func createLauncherWindow() {
 			}
 		}
 
-		// Handle selection changes (including double-click detection)
-		fileList.OnSelected = func(listID widget.ListItemID) {
-			now := time.Now()
-
-			if listID >= 0 && listID < len(entries) {
-				// Check for double-click on same item
-				if listID == lastClickID && now.Sub(lastClickTime) < doubleClickThreshold {
-					// Double-click detected - perform action
-					selectedEntry = &entries[listID]
-					performAction()
-					lastClickID = -1
-					return
-				}
-
-				// Single click - update selection
-				selectedEntry = &entries[listID]
-				lastClickID = listID
-				lastClickTime = now
-
-				// Update button text based on selection type
-				if selectedEntry.IsDir {
-					runBtn.SetText("Open")
-				} else {
-					runBtn.SetText("Run")
-				}
-			}
-		}
-
-		// Handle deselection
-		fileList.OnUnselected = func(listID widget.ListItemID) {
-			// Clear selection state
-			selectedEntry = nil
-			lastClickID = -1
-			runBtn.SetText("Run")
-		}
-
 		// Run/Open button handler
 		runBtn.OnTapped = performAction
 
@@ -1504,7 +1502,35 @@ func createLauncherWindow() {
 			showOpenFileDialogForWindow(win, ws)
 		})
 
-		buttonBox := container.NewHBox(runBtn, browseBtn)
+		// Theme toggle button - load preference from config
+		config := loadConfig()
+		isLightMode := config.GetBool("light_mode", false)
+		if isLightMode {
+			guiState.app.Settings().SetTheme(&lightTheme{})
+		}
+
+		themeBtn := widget.NewButton("💡", func() {
+			cfg := loadConfig()
+			lightMode := cfg.GetBool("light_mode", false)
+			lightMode = !lightMode
+			cfg.Set("light_mode", lightMode)
+			saveConfig(cfg)
+
+			if lightMode {
+				guiState.app.Settings().SetTheme(&lightTheme{})
+			} else {
+				guiState.app.Settings().SetTheme(&darkTheme{})
+			}
+		})
+		themeBtn.Importance = widget.LowImportance
+
+		// Left side buttons, spacer, then theme toggle on right
+		buttonBox := container.NewBorder(
+			nil, nil, // top, bottom
+			container.NewHBox(runBtn, browseBtn), // left
+			themeBtn, // right
+			nil,      // center
+		)
 
 		// Wrap file list in scroll container for horizontal scrolling
 		fileListScroll := container.NewScroll(fileList)
@@ -2443,6 +2469,75 @@ func createConsoleChannels(stdinReader *io.PipeReader, stdoutWriter *io.PipeWrit
 	}
 
 	return consoleOutCh, consoleInCh, termCaps
+}
+
+// Custom themes for light/dark mode toggle
+type darkTheme struct{}
+
+func (d *darkTheme) Color(name fyne.ThemeColorName, variant fyne.ThemeVariant) color.Color {
+	return theme.DefaultTheme().Color(name, theme.VariantDark)
+}
+
+func (d *darkTheme) Font(style fyne.TextStyle) fyne.Resource {
+	return theme.DefaultTheme().Font(style)
+}
+
+func (d *darkTheme) Icon(name fyne.ThemeIconName) fyne.Resource {
+	return theme.DefaultTheme().Icon(name)
+}
+
+func (d *darkTheme) Size(name fyne.ThemeSizeName) float32 {
+	return theme.DefaultTheme().Size(name)
+}
+
+type lightTheme struct{}
+
+func (l *lightTheme) Color(name fyne.ThemeColorName, variant fyne.ThemeVariant) color.Color {
+	return theme.DefaultTheme().Color(name, theme.VariantLight)
+}
+
+func (l *lightTheme) Font(style fyne.TextStyle) fyne.Resource {
+	return theme.DefaultTheme().Font(style)
+}
+
+func (l *lightTheme) Icon(name fyne.ThemeIconName) fyne.Resource {
+	return theme.DefaultTheme().Icon(name)
+}
+
+func (l *lightTheme) Size(name fyne.ThemeSizeName) float32 {
+	return theme.DefaultTheme().Size(name)
+}
+
+// tappableLabel is a label that supports tap and double-tap events
+type tappableLabel struct {
+	widget.Label
+	onTapped       func()
+	onDoubleTapped func()
+}
+
+var _ fyne.Tappable = (*tappableLabel)(nil)
+var _ fyne.DoubleTappable = (*tappableLabel)(nil)
+
+func newTappableLabel(text string, onTapped, onDoubleTapped func()) *tappableLabel {
+	t := &tappableLabel{
+		onTapped:       onTapped,
+		onDoubleTapped: onDoubleTapped,
+	}
+	t.ExtendBaseWidget(t)
+	t.SetText(text)
+	return t
+}
+
+func (t *tappableLabel) Tapped(_ *fyne.PointEvent) {
+	if t.onTapped != nil {
+		t.onTapped()
+	}
+}
+
+func (t *tappableLabel) DoubleTapped(_ *fyne.PointEvent) {
+	if t.onDoubleTapped != nil {
+		t.onDoubleTapped()
+	}
 }
 
 // clickInterceptor is a transparent widget that sits on top of the terminal
