@@ -86,6 +86,11 @@ func (e *Executor) GetOrParseMacroCommands(macro *StoredMacro, filename string) 
 	if e.optLevel >= OptimizeBasic && len(commands) > 0 {
 		macro.CachedCommands = commands
 		e.logger.DebugCat(CatCommand, "Cached %d parsed commands for macro", len(commands))
+
+		// Pre-cache brace expressions in each command
+		for _, cmd := range commands {
+			e.preCacheBraceExpressions(cmd, cmd.Command, filename)
+		}
 	}
 
 	return commands, nil
@@ -140,6 +145,67 @@ func (e *Executor) GetOrCacheBlockArg(cmd *ParsedCommand, argIndex int, blockStr
 	e.logger.DebugCat(CatCommand, "Cached block at arg %d (%d commands)", argIndex, len(parsedBlock))
 
 	return parsedBlock
+}
+
+// preCacheBraceExpressions finds and pre-parses brace expressions in a command string.
+// It stores the parsed commands in cmd.CachedBraces keyed by brace content.
+// This is called during macro body caching to avoid re-parsing braces at runtime.
+func (e *Executor) preCacheBraceExpressions(cmd *ParsedCommand, commandStr string, filename string) {
+	if e.optLevel < OptimizeBasic || cmd == nil {
+		return
+	}
+
+	// Skip if the command string contains $N patterns (needs per-invocation parsing)
+	if dollarSubstitutionPattern.MatchString(commandStr) {
+		return
+	}
+
+	// Find all brace expressions in the command string
+	braces := e.findAllTopLevelBraces(commandStr, nil)
+	if len(braces) == 0 {
+		return
+	}
+
+	for _, brace := range braces {
+		// Skip ${...} unescape braces - they're not executed as code
+		if brace.IsUnescape {
+			continue
+		}
+
+		content := brace.Content
+
+		// Skip if content contains $N patterns
+		if dollarSubstitutionPattern.MatchString(content) {
+			continue
+		}
+
+		// Parse the brace content
+		parser := NewParser(content, filename)
+		cleanedContent := parser.RemoveComments(content)
+		normalizedContent := parser.NormalizeKeywords(cleanedContent)
+
+		parsedCmds, err := parser.ParseCommandSequence(normalizedContent)
+		if err != nil {
+			e.logger.DebugCat(CatCommand, "Failed to pre-parse brace content: %v", err)
+			continue
+		}
+
+		if len(parsedCmds) == 0 {
+			continue
+		}
+
+		// Store in cache
+		if cmd.CachedBraces == nil {
+			cmd.CachedBraces = make(map[string][]*ParsedCommand)
+		}
+		cmd.CachedBraces[content] = parsedCmds
+		e.logger.DebugCat(CatCommand, "Pre-cached brace expression: {%s} (%d commands)", content, len(parsedCmds))
+
+		// Recursively pre-cache braces in the parsed commands
+		for _, parsedCmd := range parsedCmds {
+			e.preCacheBraceExpressions(parsedCmd, parsedCmd.Command, filename)
+		}
+	}
 }
 
 // ExecuteParsedCommands executes pre-parsed commands with the given state and context

@@ -346,7 +346,8 @@ type ParsedCommand struct {
 	OriginalLine    string
 	Separator       string // "none", ";", "&", "|"
 	ChainType       string // "none", "chain" (~>), "chain_append" (~~>), "assign" (=>)
-	CachedBlockArgs map[int][]*ParsedCommand // Pre-parsed block arguments (for blocks without $N substitution)
+	CachedBlockArgs map[int][]*ParsedCommand    // Pre-parsed block arguments (for blocks without $N substitution)
+	CachedBraces    map[string][]*ParsedCommand // Pre-parsed brace expressions by content string
 }
 
 // CommandSequence represents suspended command execution
