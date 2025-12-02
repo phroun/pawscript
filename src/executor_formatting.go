@@ -252,11 +252,9 @@ func (e *Executor) formatArgumentForQuotedContext(arg interface{}) string {
 	content = strings.ReplaceAll(content, `\`, `\\`)
 	content = strings.ReplaceAll(content, `"`, `\"`)
 
-	// Escape tildes to prevent tilde injection
-	if strings.Contains(content, "~") {
-		const escapedTildePlaceholder = "\x00TILDE\x00"
-		content = strings.ReplaceAll(content, "~", escapedTildePlaceholder)
-	}
+	// Escape tildes to prevent tilde injection - use backslash escape
+	// This works because findAllTildeLocations skips escape sequences (\~)
+	content = strings.ReplaceAll(content, "~", `\~`)
 
 	return content
 }

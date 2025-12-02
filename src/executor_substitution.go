@@ -106,8 +106,9 @@ func (e *Executor) applySubstitution(str string, ctx *SubstitutionContext) strin
 	}
 	result = e.substituteTildeExpressions(result, ctx.ExecutionState, position)
 
-	// Restore escaped tildes
+	// Restore escaped tildes (both placeholder from original \~ and backslash escapes from $N substitution)
 	result = strings.ReplaceAll(result, escapedTildePlaceholder, "~")
+	result = strings.ReplaceAll(result, `\~`, "~")
 
 	return result
 }
