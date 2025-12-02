@@ -1483,6 +1483,8 @@ func createLauncherWindow() {
 				settingFilterFromSelection = true
 				filterEntry.SetText(selectedEntry.Name)
 				settingFilterFromSelection = false
+				// Move focus to Run button so filter box loses focus
+				win.Canvas().Focus(runBtn)
 			}
 		}
 
