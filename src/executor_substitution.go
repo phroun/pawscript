@@ -352,6 +352,7 @@ func (e *Executor) substituteBraceExpressions(str string, ctx *SubstitutionConte
 
 			// Clean up brace state references
 			braceState.ReleaseAllReferences()
+			braceState.Recycle(false, false) // Doesn't own variables or bubbleMap (shared with parent)
 		}
 	}
 
