@@ -1,48 +1,55 @@
-# Fibonacci Benchmark (Iterative)
-# Tests loop and arithmetic overhead
+# Fibonacci Benchmark (Recursive)
+# Tests recursion via macro_forward declarations
+#
+# Note: Recursive fibonacci is O(2^n), so values above 25 take a very long time.
+# This benchmark demonstrates macro recursion, not optimal fibonacci computation.
 
-echo "=== Fibonacci Benchmark ==="
+echo "=== Fibonacci Benchmark (Recursive) ==="
 
-# Benchmark fib(30)
-echo "Computing fib(30)..."
-start: {microtime}
+# Forward declare fib so it can call itself recursively
+macro_forward fib
 
-a: 0
-b: 1
-i: 0
-while (lt ~i, 30), (
-    temp: ~b
-    b: {add ~a, ~b}
-    a: ~temp
-    i: {add ~i, 1}
+# Define the recursive fibonacci macro
+macro fib, (
+    n: $1
+    if {lte ~n, 1} then (
+        ret ~n
+    )
+    a: {fib {sub ~n, 1}}
+    b: {fib {sub ~n, 2}}
+    ret {add ~a, ~b}
 )
 
+# Benchmark fib(15)
+echo "Computing fib(15) recursively..."
+start: {microtime}
+result: {fib 15}
 end: {microtime}
 elapsed: {idiv {sub ~end, ~start}, 1000}
-echo "fib(30) =", ~a, "in", ~elapsed, "ms"
+echo "fib(15) =", ~result, "in", ~elapsed, "ms"
 
-# Benchmark fib(40)
+# Benchmark fib(20)
 echo ""
-echo "Computing fib(40)..."
+echo "Computing fib(20) recursively..."
 start: {microtime}
-
-a: 0
-b: 1
-i: 0
-while (lt ~i, 40), (
-    temp: ~b
-    b: {add ~a, ~b}
-    a: ~temp
-    i: {add ~i, 1}
-)
-
+result: {fib 20}
 end: {microtime}
 elapsed: {idiv {sub ~end, ~start}, 1000}
-echo "fib(40) =", ~a, "in", ~elapsed, "ms"
+echo "fib(20) =", ~result, "in", ~elapsed, "ms"
+
+# Benchmark fib(25)
+echo ""
+echo "Computing fib(25) recursively (this may take a while)..."
+start: {microtime}
+result: {fib 25}
+end: {microtime}
+elapsed: {idiv {sub ~end, ~start}, 1000}
+echo "fib(25) =", ~result, "in", ~elapsed, "ms"
 
 echo ""
 echo "=== Benchmark Complete ==="
 
 # Reference values:
-# fib(30) = 832040
-# fib(40) = 102334155
+# fib(15) = 610
+# fib(20) = 6765
+# fib(25) = 75025
