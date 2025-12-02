@@ -1510,7 +1510,9 @@ func createLauncherWindow() {
 			guiState.app.Settings().SetTheme(&lightTheme{})
 		}
 
-		themeBtn := widget.NewButton("💡", func() {
+		// Theme toggle using a larger emoji via RichText in a button
+		themeBtnLabel := widget.NewRichTextFromMarkdown("# 💡")
+		themeBtn := widget.NewButton("", func() {
 			cfg := loadConfig()
 			lightMode := cfg.GetBool("light_mode", false)
 			lightMode = !lightMode
@@ -1524,13 +1526,15 @@ func createLauncherWindow() {
 			}
 		})
 		themeBtn.Importance = widget.LowImportance
+		// Stack the larger emoji label on top of the button
+		themeBtnWithIcon := container.NewStack(themeBtn, container.NewCenter(themeBtnLabel))
 
 		// Left side buttons, spacer, then theme toggle on right
 		buttonBox := container.NewBorder(
 			nil, nil, // top, bottom
 			container.NewHBox(runBtn, browseBtn), // left
-			themeBtn, // right
-			nil,      // center
+			themeBtnWithIcon, // right
+			nil,              // center
 		)
 
 		// Wrap file list in scroll container for horizontal scrolling
