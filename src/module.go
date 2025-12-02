@@ -166,7 +166,7 @@ func NewChildModuleEnvironment(parent *ModuleEnvironment) *ModuleEnvironment {
 		LogConfigInherited: effectiveLogConfig,
 		LogConfigModule:    effectiveLogConfig,
 
-		ModuleExports:           make(Library), // Start blank - caller merges after execution
+		ModuleExports:           nil, // Lazy-created on first EXPORT (rare)
 		libraryRestrictedCopied: false,
 		commandsModuleCopied:    false,
 		macrosModuleCopied:      false,
@@ -224,8 +224,8 @@ func NewMacroModuleEnvironment(parent *ModuleEnvironment) *ModuleEnvironment {
 		LogConfigInherited: effectiveLogConfig,
 		LogConfigModule:    effectiveLogConfig,
 
-		// ModuleExports starts blank - caller merges into their LibraryInherited after execution
-		ModuleExports: make(Library),
+		// ModuleExports starts nil - lazy-created on first EXPORT (rare)
+		ModuleExports: nil,
 
 		// COW flags reset - first modification triggers copy
 		libraryRestrictedCopied: false,

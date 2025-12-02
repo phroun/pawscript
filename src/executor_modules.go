@@ -706,7 +706,11 @@ func (e *Executor) handleEXPORT(args []interface{}, namedArgs map[string]interfa
 	moduleName := state.moduleEnv.DefaultName
 	e.logger.DebugCat(CatSystem,"EXPORT: module name is '%s'", moduleName)
 
-	// Ensure module section exists in ModuleExports
+	// Lazy-create ModuleExports map if nil (first EXPORT in this environment)
+	if state.moduleEnv.ModuleExports == nil {
+		state.moduleEnv.ModuleExports = make(Library)
+	}
+	// Ensure module section exists
 	if state.moduleEnv.ModuleExports[moduleName] == nil {
 		state.moduleEnv.ModuleExports[moduleName] = make(ModuleSection)
 	}
