@@ -2053,11 +2053,6 @@ func registerGuiCommands(ps *pawscript.PawScript) {
 		marker := fmt.Sprintf("\x00WINDOW:%d\x00", id)
 		windowSymbol := pawscript.Symbol(marker)
 
-		// Set #window as an inherited object so macros can access it
-		// This allows scripts to define macros that implicitly use the window
-		ps.SetInheritedObject("gui", "#window", windowSymbol)
-		ctx.SetModuleObject("#window", windowSymbol)
-
 		ctx.SetResult(windowSymbol)
 		return pawscript.BoolStatus(true)
 	})
