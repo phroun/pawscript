@@ -58,7 +58,8 @@ func (e *Executor) handleMODULE(args []interface{}, state *ExecutionState, posit
 //   "restrict *", "allow *", "restrict module", "allow module",
 //   "restrict module::item1,item2" - remove items by name in Restricted
 //   "restrict ::module::item1,item2" - find items in Inherited, remove matching items from Restricted by pointer
-//   "allow module::item1,item2", "allow dest=source"
+//   "allow module::item1,item2" or "allow ::module::item1,item2" - add items from Inherited to Restricted
+//   "allow dest=source" - copy module from Inherited to Restricted with new name
 // Patterns for LibraryInherited (using COW so LibraryRestricted is unaffected):
 //   "forget *", "forget module", "forget module::item1,item2"
 func (e *Executor) handleLIBRARY(args []interface{}, state *ExecutionState, position *SourcePosition) Result {
@@ -226,8 +227,14 @@ func (e *Executor) handleLIBRARY(args []interface{}, state *ExecutionState, posi
 				return BoolStatus(false)
 			}
 		} else if strings.Contains(target, "::") {
-			// Specific items: "module::item1,item2,#obj"
-			moduleParts := strings.SplitN(target, "::", 2)
+			// Specific items: "module::item1,item2,#obj" or "::module::item1,item2"
+			// Both forms refer to LibraryInherited (we're adding from Inherited to Restricted)
+			// Strip leading "::" if present for consistency with restrict syntax
+			targetStr := target
+			if strings.HasPrefix(targetStr, "::") {
+				targetStr = targetStr[2:]
+			}
+			moduleParts := strings.SplitN(targetStr, "::", 2)
 			if len(moduleParts) != 2 {
 				e.logger.CommandError(CatSystem, "LIBRARY", fmt.Sprintf("Invalid module::items pattern: %s", target), position)
 				return BoolStatus(false)
@@ -236,10 +243,10 @@ func (e *Executor) handleLIBRARY(args []interface{}, state *ExecutionState, posi
 			itemsStr := moduleParts[1]
 			items := strings.Split(itemsStr, ",")
 
-			// Find source module
+			// Find source module in LibraryInherited
 			sourceSection, exists := state.moduleEnv.LibraryInherited[moduleName]
 			if !exists {
-				e.logger.CommandError(CatSystem, "LIBRARY", fmt.Sprintf("Module not found: %s", moduleName), position)
+				e.logger.CommandError(CatSystem, "LIBRARY", fmt.Sprintf("Module not found in Inherited: %s", moduleName), position)
 				return BoolStatus(false)
 			}
 
@@ -257,7 +264,7 @@ func (e *Executor) handleLIBRARY(args []interface{}, state *ExecutionState, posi
 					state.moduleEnv.LibraryRestricted[moduleName][itemName] = item
 					e.logger.DebugCat(CatSystem,"LIBRARY: Allowed %s::%s", moduleName, itemName)
 				} else {
-					e.logger.CommandError(CatSystem, "LIBRARY", fmt.Sprintf("Item not found: %s::%s", moduleName, itemName), position)
+					e.logger.CommandError(CatSystem, "LIBRARY", fmt.Sprintf("Item not found in Inherited: %s::%s", moduleName, itemName), position)
 					return BoolStatus(false)
 				}
 			}
