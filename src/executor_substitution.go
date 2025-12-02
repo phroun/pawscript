@@ -741,6 +741,39 @@ func (e *Executor) substituteAllBraces(originalString string, evaluations []*Bra
 			// For StoredList, unwrap outer parens (just like ParenGroup)
 			if list, ok := rawValue.(StoredList); ok {
 				resultValue = e.formatListItems(list)
+			} else if sym, ok := rawValue.(Symbol); ok {
+				// Check if it's an object marker
+				if objType, objID := parseObjectMarker(string(sym)); objID >= 0 {
+					// Resolve and display the object
+					if actualValue, exists := e.getObject(objID); exists {
+						switch objType {
+						case "list":
+							if list, ok := actualValue.(StoredList); ok {
+								resultValue = e.formatListItems(list)
+							} else {
+								resultValue = fmt.Sprintf("<%s %d>", objType, objID)
+							}
+						case "block":
+							if storedBlock, ok := actualValue.(StoredBlock); ok {
+								resultValue = string(storedBlock)
+							} else {
+								resultValue = fmt.Sprintf("<%s %d>", objType, objID)
+							}
+						case "str":
+							if storedStr, ok := actualValue.(StoredString); ok {
+								resultValue = string(storedStr)
+							} else {
+								resultValue = fmt.Sprintf("<%s %d>", objType, objID)
+							}
+						default:
+							resultValue = fmt.Sprintf("<%s %d>", objType, objID)
+						}
+					} else {
+						resultValue = fmt.Sprintf("<invalid-%s-ref:%d>", objType, objID)
+					}
+				} else {
+					resultValue = string(sym)
+				}
 			} else {
 				resultValue = fmt.Sprintf("%v", rawValue)
 			}

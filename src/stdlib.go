@@ -29,16 +29,28 @@ func formatListForDisplay(list StoredList) string {
 				valueStr = formatListForDisplay(v)
 			case ParenGroup:
 				valueStr = "(" + string(v) + ")"
+			case StoredBlock:
+				valueStr = "(" + string(v) + ")"
 			case QuotedString:
 				escaped := strings.ReplaceAll(string(v), "\\", "\\\\")
 				escaped = strings.ReplaceAll(escaped, "\"", "\\\"")
 				valueStr = "\"" + escaped + "\""
 			case Symbol:
-				valueStr = string(v)
+				// Check if this is an object marker that should be formatted specially
+				if objType, objID := parseObjectMarker(string(v)); objID >= 0 {
+					valueStr = fmt.Sprintf("<%s %d>", objType, objID)
+				} else {
+					valueStr = string(v)
+				}
 			case string:
-				escaped := strings.ReplaceAll(v, "\\", "\\\\")
-				escaped = strings.ReplaceAll(escaped, "\"", "\\\"")
-				valueStr = "\"" + escaped + "\""
+				// Check if this is an object marker that should be formatted specially
+				if objType, objID := parseObjectMarker(v); objID >= 0 {
+					valueStr = fmt.Sprintf("<%s %d>", objType, objID)
+				} else {
+					escaped := strings.ReplaceAll(v, "\\", "\\\\")
+					escaped = strings.ReplaceAll(escaped, "\"", "\\\"")
+					valueStr = "\"" + escaped + "\""
+				}
 			case int64, float64, bool:
 				valueStr = fmt.Sprintf("%v", v)
 			case nil:
@@ -61,18 +73,31 @@ func formatListForDisplay(list StoredList) string {
 			parts = append(parts, formatListForDisplay(v))
 		case ParenGroup:
 			parts = append(parts, "("+string(v)+")")
+		case StoredBlock:
+			// Display block contents in parentheses
+			parts = append(parts, "("+string(v)+")")
 		case QuotedString:
 			// Escape internal quotes
 			escaped := strings.ReplaceAll(string(v), "\\", "\\\\")
 			escaped = strings.ReplaceAll(escaped, "\"", "\\\"")
 			parts = append(parts, "\""+escaped+"\"")
 		case Symbol:
-			parts = append(parts, string(v))
+			// Check if this is an object marker that should be formatted specially
+			if objType, objID := parseObjectMarker(string(v)); objID >= 0 {
+				parts = append(parts, fmt.Sprintf("<%s %d>", objType, objID))
+			} else {
+				parts = append(parts, string(v))
+			}
 		case string:
-			// Regular strings get quoted
-			escaped := strings.ReplaceAll(v, "\\", "\\\\")
-			escaped = strings.ReplaceAll(escaped, "\"", "\\\"")
-			parts = append(parts, "\""+escaped+"\"")
+			// Check if this is an object marker that should be formatted specially
+			if objType, objID := parseObjectMarker(v); objID >= 0 {
+				parts = append(parts, fmt.Sprintf("<%s %d>", objType, objID))
+			} else {
+				// Regular strings get quoted
+				escaped := strings.ReplaceAll(v, "\\", "\\\\")
+				escaped = strings.ReplaceAll(escaped, "\"", "\\\"")
+				parts = append(parts, "\""+escaped+"\"")
+			}
 		case int64, float64, bool:
 			parts = append(parts, fmt.Sprintf("%v", v))
 		case nil:
