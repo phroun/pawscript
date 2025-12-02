@@ -170,10 +170,9 @@ func (e *Executor) substituteBraceExpressions(str string, ctx *SubstitutionConte
 
 		// Create substitution context using the child state
 		braceSubstitutionCtx := &SubstitutionContext{
-			Args:                ctx.Args,
-			ExecutionState:      braceState,
-			ParentContext:       ctx,
-			MacroContext:        ctx.MacroContext,
+			Args:           ctx.Args,
+			ExecutionState: braceState,
+			MacroContext:   ctx.MacroContext,
 			CurrentLineOffset:   newLineOffset,
 			CurrentColumnOffset: newColumnOffset,
 			Filename:            ctx.Filename,
@@ -1817,10 +1816,9 @@ func (e *Executor) executeBraceFromTemplate(seg TemplateSegment, ctx *Substituti
 
 	// Create substitution context for the brace
 	braceSubCtx := &SubstitutionContext{
-		Args:                ctx.Args,
-		ExecutionState:      braceState,
-		ParentContext:       ctx,
-		MacroContext:        ctx.MacroContext,
+		Args:           ctx.Args,
+		ExecutionState: braceState,
+		MacroContext:   ctx.MacroContext,
 		CurrentLineOffset:   ctx.CurrentLineOffset,
 		CurrentColumnOffset: ctx.CurrentColumnOffset,
 		Filename:            ctx.Filename,

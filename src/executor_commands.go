@@ -6,8 +6,45 @@ import (
 	"regexp"
 	"strconv"
 	"strings"
+	"sync"
 	"time"
 )
+
+// Pool for SubstitutionContext to reduce allocations in macro execution
+var substitutionContextPool = sync.Pool{
+	New: func() interface{} {
+		return &SubstitutionContext{}
+	},
+}
+
+// getSubstitutionContext gets a SubstitutionContext from the pool and initializes it
+func getSubstitutionContext(args []interface{}, state *ExecutionState, macroCtx *MacroContext, lineOffset, colOffset int, filename string) *SubstitutionContext {
+	ctx := substitutionContextPool.Get().(*SubstitutionContext)
+	ctx.Args = args
+	ctx.ExecutionState = state
+	ctx.MacroContext = macroCtx
+	ctx.CurrentLineOffset = lineOffset
+	ctx.CurrentColumnOffset = colOffset
+	ctx.Filename = filename
+	ctx.BraceFailureCount = 0
+	ctx.BracesEvaluated = 0
+	ctx.CurrentParsedCommand = nil
+	return ctx
+}
+
+// recycleSubstitutionContext returns a SubstitutionContext to the pool
+func recycleSubstitutionContext(ctx *SubstitutionContext) {
+	if ctx == nil {
+		return
+	}
+	// Clear references to help GC
+	ctx.Args = nil
+	ctx.ExecutionState = nil
+	ctx.MacroContext = nil
+	ctx.Filename = ""
+	ctx.CurrentParsedCommand = nil
+	substitutionContextPool.Put(ctx)
+}
 
 // executeCommandSequence executes a sequence of commands
 func (e *Executor) executeCommandSequence(commands []*ParsedCommand, state *ExecutionState, substitutionCtx *SubstitutionContext) Result {
@@ -208,7 +245,6 @@ func (e *Executor) executeSingleCommand(
 					blockSubstCtx = &SubstitutionContext{
 						Args:                args,
 						ExecutionState:      state,
-						ParentContext:       substitutionCtx,
 						MacroContext:        blockMacroCtx,
 						CurrentLineOffset:   0,
 						CurrentColumnOffset: 0,
@@ -259,7 +295,6 @@ func (e *Executor) executeSingleCommand(
 		substitutionCtx = &SubstitutionContext{
 			Args:                []interface{}{},
 			ExecutionState:      state,
-			ParentContext:       nil,
 			MacroContext:        nil,
 			CurrentLineOffset:   lineOffset,
 			CurrentColumnOffset: columnOffset,
@@ -428,7 +463,6 @@ func (e *Executor) executeSingleCommand(
 										blockSubstCtx = &SubstitutionContext{
 											Args:                args,
 											ExecutionState:      capturedState,
-											ParentContext:       capturedSubstitutionCtx,
 											MacroContext:        blockMacroCtx,
 											CurrentLineOffset:   0,
 											CurrentColumnOffset: 0,
@@ -508,7 +542,6 @@ func (e *Executor) executeSingleCommand(
 								blockSubstCtx = &SubstitutionContext{
 									Args:                args,
 									ExecutionState:      capturedState,
-									ParentContext:       capturedSubstitutionCtx,
 									MacroContext:        blockMacroCtx,
 									CurrentLineOffset:   0,
 									CurrentColumnOffset: 0,
@@ -699,7 +732,6 @@ func (e *Executor) executeSingleCommand(
 							blockSubstCtx = &SubstitutionContext{
 								Args:                args,
 								ExecutionState:      state,
-								ParentContext:       substitutionCtx,
 								MacroContext:        blockMacroCtx,
 								CurrentLineOffset:   0,
 								CurrentColumnOffset: 0,
@@ -804,7 +836,6 @@ func (e *Executor) executeSingleCommand(
 					blockSubstCtx = &SubstitutionContext{
 						Args:                args,
 						ExecutionState:      state,
-						ParentContext:       substitutionCtx,
 						MacroContext:        blockMacroCtx,
 						CurrentLineOffset:   0,
 						CurrentColumnOffset: 0,
@@ -1826,20 +1857,18 @@ func (e *Executor) executeMacro(
 	// Store the list marker in the macro state's variables as $@
 	macroState.SetVariable("$@", Symbol(argsMarker))
 
-	// Create substitution context for macro arguments
-	substitutionContext := &SubstitutionContext{
-		Args:                args,
-		ExecutionState:      macroState,
-		MacroContext:        macroContext,
-		CurrentLineOffset:   macro.DefinitionLine - 1,
-		CurrentColumnOffset: macro.DefinitionColumn - 1,
-		Filename:            macro.DefinitionFile,
-	}
+	// Create substitution context for macro arguments (from pool)
+	substitutionContext := getSubstitutionContext(
+		args, macroState, macroContext,
+		macro.DefinitionLine-1, macro.DefinitionColumn-1,
+		macro.DefinitionFile,
+	)
 
 	// Get cached or freshly parsed commands for the macro
 	parsedCommands, parseErr := e.GetOrParseMacroCommands(macro, macro.DefinitionFile)
 	if parseErr != nil {
 		e.logger.ErrorCat(CatCommand, "Failed to parse macro commands: %v", parseErr)
+		recycleSubstitutionContext(substitutionContext)
 		macroState.ReleaseAllReferences()
 		macroState.Recycle(true, true) // Owns variables and bubbleMap
 		return BoolStatus(false)
@@ -1888,7 +1917,8 @@ func (e *Executor) executeMacro(
 	// Merge bubbles from macro state to parent state
 	state.MergeBubbles(macroState)
 
-	// Clean up macro state
+	// Clean up macro state and substitution context
+	recycleSubstitutionContext(substitutionContext)
 	macroState.ReleaseAllReferences()
 	macroState.Recycle(true, true) // Owns variables and bubbleMap
 
