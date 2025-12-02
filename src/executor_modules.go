@@ -258,7 +258,7 @@ func (e *Executor) handleLIBRARY(args []interface{}, state *ExecutionState, posi
 
 // handleIMPORT imports items from LibraryRestricted into module registries
 // Usage: IMPORT "module" or IMPORT "module::item1,item2" or IMPORT "module::orig=alias"
-// Multiple arguments can be provided: IMPORT "module1" "module2::item" "module3"
+// Multiple arguments can be provided: IMPORT "module1" "module2::item", "module3"
 func (e *Executor) handleIMPORT(args []interface{}, state *ExecutionState, position *SourcePosition) Result {
 	if len(args) == 0 {
 		e.logger.CommandError(CatSystem, "IMPORT", "Expected at least 1 argument (module spec)", position)

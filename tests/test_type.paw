@@ -246,25 +246,27 @@ macro safe_access(
 )
 
 echo "  Testing safe_access macro:"
-echo "    Result for undefined_var: {safe_access undefined_var}"
+echo "    Result for undefined_var: {safe_access ~undefined_var}"
 
 my_value: actual
-echo "    Result for my_value: {safe_access my_value}"
+echo "    Result for my_value: {safe_access ~my_value}"
 echo ""
 
-# Type-based dispatch
 macro type_dispatch(
     if {eq {type $1}, symbol} then (
-        echo "Got symbol: ~$1"
-    ) else if {eq {type $1}, string} then (
-        echo "Got string: ~$1"
-    ) else if {eq {type $1}, int} then (
-        echo "Got int: ~$1"
-    ) else if {eq {type $1}, undefined} then (
-        echo "Variable $1 is undefined"
-    ) else (
-        echo "Got {type $1}: ~$1"
+        echo "Got symbol: ~$1"; ret
     )
+    if {eq {type $1}, string} then (
+        echo "Got string: ~$1"; ret
+    )
+    if {eq {type $1}, int} then (
+        echo "Got int: ~$1"; ret
+    )
+    if {eq {type $1}, undefined} then (
+        echo "Variable $1 is undefined"; ret
+    )
+    echo "Got {type $1}: ~$1"
+    ret
 )
 
 test_sym: identifier

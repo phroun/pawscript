@@ -1,0 +1,47 @@
+et: "everything"
+
+echo "Test 1:"
+(echo "$1 on ~et, thank you.") "Treacle"
+echo "Expected: Treacle on everything, thank you."
+print
+
+echo "Test 2 - Stored Block Execution"
+x: {block "echo \"And \~et; \$1 after that.\""}
+{~x} "twinkled"
+echo "Expected: And everything twinkled after that."
+print
+
+echo "Test 3 - Immediate Parenthetic Block:"
+t: "twinkle"
+y: (echo "Twinkle, ~t, little $1")
+{~y} "bat"
+echo "Expected: Twinkle, twinkle, little bat"
+print
+
+echo "Test 4 - Stored Block in List"
+z: {list 0, 1, ~x}
+{~z 2}
+echo "Expected: And everything twinkled after that."
+print
+
+echo "Test 5 - Anonymous Macro:"
+{macro (
+  echo "Good day, $1"
+)} "sir"
+echo "Expected: Good day, sir"
+print
+
+echo "Test 6 - Stored Macro:"
+m: {macro (echo "G'day, $1")}
+{~m} "mate"
+print
+
+echo "Test 7 - List with Macro:"
+ml: {list ~m, (echo "Yes.")}
+{~ml 0} "mate"
+print
+
+echo "Test 8 - List with Parenthetic Block:"
+ml: {list ~m, (echo "Yes.")}
+{~ml 1}
+print

@@ -136,7 +136,7 @@ build-gui-ms-arm64:
 
 build-gui-ms-x64:
 	@echo "Building pawgui for Windows x64 using fyne-cross..."
-	cd $(SRC_DIR) && fyne-cross windows -arch amd64 -app-id com.pawscript.pawgui -output pawgui ./cmd/pawgui
+	cd $(SRC_DIR) && fyne-cross windows --console --tags "openglangle" -arch amd64 -app-id com.pawscript.pawgui -output pawgui ./cmd/pawgui
 	@mkdir -p $(RELEASE_DIR)/pawgui-$(VERSION)-windows-x64
 	@cp -r examples $(RELEASE_DIR)/pawgui-$(VERSION)-windows-x64/examples
 	@cp README.md LICENSE $(RELEASE_DIR)/pawgui-$(VERSION)-windows-x64/

@@ -209,6 +209,22 @@ type SuspendResult struct{}
 
 func (SuspendResult) isResult() {}
 
+// BreakResult signals that a loop should be exited
+// Levels indicates how many loop levels to break out of (1 = innermost)
+type BreakResult struct {
+	Levels int
+}
+
+func (BreakResult) isResult() {}
+
+// ContinueResult signals that a loop should skip to the next iteration
+// Levels indicates how many loop levels to skip (1 = innermost)
+type ContinueResult struct {
+	Levels int
+}
+
+func (ContinueResult) isResult() {}
+
 // WhileContinuation stores state for resuming a while loop after yield
 type WhileContinuation struct {
 	ConditionBlock      string            // The while condition (re-evaluated each iteration)
@@ -366,6 +382,7 @@ type TokenData struct {
 	WhileContinuation  *WhileContinuation // For resuming while loops after yield
 	ForContinuation    *ForContinuation   // For resuming for loops after yield
 	IteratorState      *IteratorState     // For Go-backed iterators (each, pair)
+	ParentState        *ExecutionState    // For macro async: parent state for deferred result transfer
 }
 
 // MacroDefinition stores a macro definition
