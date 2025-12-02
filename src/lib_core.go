@@ -1,6 +1,7 @@
 package pawscript
 
 import (
+	"encoding/json"
 	"fmt"
 	"os"
 	"sort"
@@ -231,6 +232,28 @@ func (ps *PawScript) RegisterCoreLib() {
 
 		switch v := value.(type) {
 		case StoredList:
+			// Check for keys_only or keys parameter
+			if keysOnly, exists := ctx.NamedArgs["keys_only"]; exists && isTruthy(keysOnly) {
+				// Count only named keys
+				namedArgs := v.NamedArgs()
+				if namedArgs == nil {
+					ctx.SetResult(int64(0))
+				} else {
+					ctx.SetResult(int64(len(namedArgs)))
+				}
+				return BoolStatus(true)
+			}
+			if keys, exists := ctx.NamedArgs["keys"]; exists && isTruthy(keys) {
+				// Count both positional and named together
+				namedCount := 0
+				namedArgs := v.NamedArgs()
+				if namedArgs != nil {
+					namedCount = len(namedArgs)
+				}
+				ctx.SetResult(int64(v.Len() + namedCount))
+				return BoolStatus(true)
+			}
+			// Default: count positional items only
 			ctx.SetResult(int64(v.Len()))
 			return BoolStatus(true)
 		case StoredBytes:
@@ -443,6 +466,273 @@ func (ps *PawScript) RegisterCoreLib() {
 			return BoolStatus(false)
 		}
 		ctx.SetResult(list.MapSerializable())
+		return BoolStatus(true)
+	})
+
+	// json - serialize a list to JSON string
+	// Modes: explicit, merge, named, array, array_1
+	ps.RegisterCommandInModule("types", "json", func(ctx *Context) Result {
+		if len(ctx.Args) < 1 {
+			ctx.LogError(CatCommand, "Usage: json <list>, [mode: explicit|merge|named|array|array_1], [children: name]")
+			ctx.SetResult("")
+			return BoolStatus(false)
+		}
+
+		list, ok := resolveListArg(ctx, ctx.Args[0])
+		if !ok {
+			ctx.LogError(CatType, "json requires a list argument")
+			ctx.SetResult("")
+			return BoolStatus(false)
+		}
+
+		// Check serializability first
+		if !list.ArrSerializable() {
+			ctx.LogError(CatType, "json: list contains unserializable positional items")
+			ctx.SetResult("")
+			return BoolStatus(false)
+		}
+		if !list.MapSerializable() {
+			ctx.LogError(CatType, "json: list contains unserializable named items")
+			ctx.SetResult("")
+			return BoolStatus(false)
+		}
+
+		// Get mode (default depends on list contents)
+		mode := "auto"
+		if modeArg, exists := ctx.NamedArgs["mode"]; exists {
+			mode = fmt.Sprintf("%v", modeArg)
+		}
+
+		// Get children property name
+		childrenName := "_children"
+		hasChildrenParam := false
+		if childrenArg, exists := ctx.NamedArgs["children"]; exists {
+			childrenName = fmt.Sprintf("%v", childrenArg)
+			hasChildrenParam = true
+		}
+
+		// Helper to convert a value to JSON-compatible form
+		var toJSONValue func(val interface{}) (interface{}, error)
+		toJSONValue = func(val interface{}) (interface{}, error) {
+			if val == nil {
+				return nil, nil
+			}
+
+			// Handle markers
+			switch v := val.(type) {
+			case Symbol:
+				str := string(v)
+				if str == "undefined" || str == UndefinedMarker {
+					return nil, nil
+				}
+				if str == "true" {
+					return true, nil
+				}
+				if str == "false" {
+					return false, nil
+				}
+				// Check for object markers
+				_, objectID := parseObjectMarker(str)
+				if objectID >= 0 {
+					if obj, exists := ctx.executor.getObject(objectID); exists {
+						return toJSONValue(obj)
+					}
+				}
+				return str, nil
+			case string:
+				if v == UndefinedMarker {
+					return nil, nil
+				}
+				_, objectID := parseObjectMarker(v)
+				if objectID >= 0 {
+					if obj, exists := ctx.executor.getObject(objectID); exists {
+						return toJSONValue(obj)
+					}
+				}
+				return v, nil
+			case QuotedString:
+				return string(v), nil
+			case int64:
+				return v, nil
+			case float64:
+				return v, nil
+			case bool:
+				return v, nil
+			case StoredString:
+				return string(v), nil
+			case StoredBlock:
+				return string(v), nil
+			case StoredBytes:
+				// Convert to array of integers
+				bytes := v.Bytes()
+				arr := make([]interface{}, len(bytes))
+				for i, b := range bytes {
+					arr[i] = int64(b)
+				}
+				return arr, nil
+			case StoredList:
+				return listToJSON(v, mode, childrenName, hasChildrenParam, toJSONValue)
+			default:
+				return fmt.Sprintf("%v", v), nil
+			}
+		}
+
+		// Helper to convert a list to JSON based on mode
+		var listToJSON func(l StoredList, m string, cn string, hcp bool, conv func(interface{}) (interface{}, error)) (interface{}, error)
+		listToJSON = func(l StoredList, m string, cn string, hcp bool, conv func(interface{}) (interface{}, error)) (interface{}, error) {
+			items := l.Items()
+			namedArgs := l.NamedArgs()
+			hasPositional := len(items) > 0
+			hasNamed := namedArgs != nil && len(namedArgs) > 0
+
+			// Auto-detect mode if not specified
+			effectiveMode := m
+			if effectiveMode == "auto" {
+				if hasPositional && !hasNamed {
+					effectiveMode = "array"
+				} else if hasNamed && !hasPositional {
+					effectiveMode = "named"
+				} else if hasPositional && hasNamed {
+					effectiveMode = "explicit"
+				} else {
+					effectiveMode = "array" // Empty list -> empty array
+				}
+			}
+
+			switch effectiveMode {
+			case "explicit":
+				// All lists become objects, positional items go into children array
+				obj := make(map[string]interface{})
+				if namedArgs != nil {
+					for k, v := range namedArgs {
+						converted, err := conv(v)
+						if err != nil {
+							return nil, err
+						}
+						obj[k] = converted
+					}
+				}
+				if len(items) > 0 {
+					arr := make([]interface{}, len(items))
+					for i, item := range items {
+						converted, err := conv(item)
+						if err != nil {
+							return nil, err
+						}
+						arr[i] = converted
+					}
+					obj[cn] = arr
+				}
+				return obj, nil
+
+			case "merge":
+				// Object with positional items as numeric keys
+				obj := make(map[string]interface{})
+				if namedArgs != nil {
+					for k, v := range namedArgs {
+						converted, err := conv(v)
+						if err != nil {
+							return nil, err
+						}
+						obj[k] = converted
+					}
+				}
+				for i, item := range items {
+					key := fmt.Sprintf("%d", i)
+					if _, exists := obj[key]; exists {
+						return nil, fmt.Errorf("json merge mode: numeric key '%s' conflicts with named key", key)
+					}
+					converted, err := conv(item)
+					if err != nil {
+						return nil, err
+					}
+					obj[key] = converted
+				}
+				return obj, nil
+
+			case "named":
+				// Named keys take priority, positional items to children property or discarded
+				obj := make(map[string]interface{})
+				if namedArgs != nil {
+					for k, v := range namedArgs {
+						converted, err := conv(v)
+						if err != nil {
+							return nil, err
+						}
+						obj[k] = converted
+					}
+				}
+				if hcp && len(items) > 0 {
+					arr := make([]interface{}, len(items))
+					for i, item := range items {
+						converted, err := conv(item)
+						if err != nil {
+							return nil, err
+						}
+						arr[i] = converted
+					}
+					obj[cn] = arr
+				}
+				// If no children param, positional items are discarded
+				return obj, nil
+
+			case "array":
+				// Only positional items, named discarded
+				arr := make([]interface{}, len(items))
+				for i, item := range items {
+					converted, err := conv(item)
+					if err != nil {
+						return nil, err
+					}
+					arr[i] = converted
+				}
+				return arr, nil
+
+			case "array_1":
+				// Named items in element 0 as object, positional items in following elements
+				arr := make([]interface{}, 0, len(items)+1)
+				if namedArgs != nil && len(namedArgs) > 0 {
+					obj := make(map[string]interface{})
+					for k, v := range namedArgs {
+						converted, err := conv(v)
+						if err != nil {
+							return nil, err
+						}
+						obj[k] = converted
+					}
+					arr = append(arr, obj)
+				}
+				for _, item := range items {
+					converted, err := conv(item)
+					if err != nil {
+						return nil, err
+					}
+					arr = append(arr, converted)
+				}
+				return arr, nil
+
+			default:
+				return nil, fmt.Errorf("json: unknown mode '%s'", effectiveMode)
+			}
+		}
+
+		// Convert list to JSON structure
+		jsonVal, err := listToJSON(list, mode, childrenName, hasChildrenParam, toJSONValue)
+		if err != nil {
+			ctx.LogError(CatType, err.Error())
+			ctx.SetResult("")
+			return BoolStatus(false)
+		}
+
+		// Serialize to JSON string
+		jsonBytes, err := json.Marshal(jsonVal)
+		if err != nil {
+			ctx.LogError(CatType, fmt.Sprintf("json: serialization error: %v", err))
+			ctx.SetResult("")
+			return BoolStatus(false)
+		}
+
+		ctx.SetResult(string(jsonBytes))
 		return BoolStatus(true)
 	})
 
