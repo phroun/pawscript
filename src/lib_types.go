@@ -93,7 +93,7 @@ func deepEqual(a, b interface{}, executor *Executor) bool {
 	case QuotedString:
 		return fmt.Sprintf("%v", va) == fmt.Sprintf("%v", resolvedB)
 	case StoredList:
-		// Compare lists element by element
+		// Compare lists element by element (both positional and named)
 		var listB StoredList
 		switch vb := resolvedB.(type) {
 		case StoredList:
@@ -105,15 +105,41 @@ func deepEqual(a, b interface{}, executor *Executor) bool {
 		default:
 			return false
 		}
+		// Compare positional items
 		itemsA := va.Items()
 		itemsB := listB.Items()
 		if len(itemsA) != len(itemsB) {
 			return false
 		}
-		// Bail on first difference
 		for i := range itemsA {
 			if !deepEqual(itemsA[i], itemsB[i], executor) {
 				return false
+			}
+		}
+		// Compare named arguments
+		namedA := va.NamedArgs()
+		namedB := listB.NamedArgs()
+		// Check for same number of named args
+		lenA, lenB := 0, 0
+		if namedA != nil {
+			lenA = len(namedA)
+		}
+		if namedB != nil {
+			lenB = len(namedB)
+		}
+		if lenA != lenB {
+			return false
+		}
+		// Compare each named arg (must exist in both with equal values)
+		if namedA != nil {
+			for key, valA := range namedA {
+				valB, exists := namedB[key]
+				if !exists {
+					return false
+				}
+				if !deepEqual(valA, valB, executor) {
+					return false
+				}
 			}
 		}
 		return true
