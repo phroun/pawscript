@@ -1394,19 +1394,51 @@ func createLauncherWindow() {
 
 		// --- Left Panel: File Browser ---
 		currentDir := getDefaultBrowseDir()
-		entries := getEntriesInDir(currentDir)
+		allEntries := getEntriesInDir(currentDir)       // All entries in current dir
+		filteredEntries := append([]FileEntry{}, allEntries...) // Currently displayed entries
+
+		// Special entry for "no matches"
+		noMatchesEntry := FileEntry{Name: "(no matches)", IsDir: false, IsParent: false}
 
 		// State variables for the file browser
 		var selectedEntry *FileEntry
+		settingFilterFromSelection := false // Flag to prevent re-filtering on selection
 
 		// Forward declarations for mutual references
 		var runBtn *widget.Button
 		var performAction func()
 		var fileList *widget.List
+		var filterEntry *widget.Entry
+		var applyFilter func()
+
+		// Filter function
+		applyFilter = func() {
+			filterText := strings.ToLower(strings.TrimSpace(filterEntry.Text))
+			if filterText == "" {
+				// No filter - show all entries
+				filteredEntries = append([]FileEntry{}, allEntries...)
+			} else {
+				// Filter entries by name (case-insensitive)
+				filteredEntries = nil
+				for _, entry := range allEntries {
+					if strings.Contains(strings.ToLower(entry.Name), filterText) {
+						filteredEntries = append(filteredEntries, entry)
+					}
+				}
+				// If no matches, show the special "(no matches)" entry
+				if len(filteredEntries) == 0 {
+					filteredEntries = []FileEntry{noMatchesEntry}
+				}
+			}
+			fileList.UnselectAll()
+			selectedEntry = nil
+			runBtn.SetText("Run")
+			fileList.Refresh()
+		}
 
 		// Create list with tappable labels for double-click support
 		fileList = widget.NewList(
-			func() int { return len(entries) },
+			func() int { return len(filteredEntries) },
 			func() fyne.CanvasObject {
 				// Create a tappable label that will handle double-taps
 				lbl := newTappableLabel("template", nil, nil)
@@ -1414,10 +1446,17 @@ func createLauncherWindow() {
 			},
 			func(i widget.ListItemID, o fyne.CanvasObject) {
 				lbl := o.(*tappableLabel)
-				lbl.SetText(entries[i].Name)
+				lbl.SetText(filteredEntries[i].Name)
 				// Update the double-tap handler for this specific item
 				lbl.onDoubleTapped = func() {
-					selectedEntry = &entries[i]
+					entry := &filteredEntries[i]
+					// Handle "(no matches)" - clear filter
+					if entry.Name == "(no matches)" {
+						filterEntry.SetText("")
+						applyFilter()
+						return
+					}
+					selectedEntry = entry
 					fileList.Select(i)
 					performAction()
 				}
@@ -1426,19 +1465,39 @@ func createLauncherWindow() {
 
 		// Handle selection
 		fileList.OnSelected = func(id widget.ListItemID) {
-			if id >= 0 && int(id) < len(entries) {
-				selectedEntry = &entries[id]
+			if id >= 0 && int(id) < len(filteredEntries) {
+				entry := &filteredEntries[id]
+				// Handle "(no matches)" - clear filter
+				if entry.Name == "(no matches)" {
+					filterEntry.SetText("")
+					applyFilter()
+					return
+				}
+				selectedEntry = entry
 				if selectedEntry.IsDir {
 					runBtn.SetText("Open")
 				} else {
 					runBtn.SetText("Run")
 				}
+				// Put the selected file name in the filter box without re-filtering
+				settingFilterFromSelection = true
+				filterEntry.SetText(selectedEntry.Name)
+				settingFilterFromSelection = false
 			}
 		}
 
 		fileList.OnUnselected = func(id widget.ListItemID) {
 			selectedEntry = nil
 			runBtn.SetText("Run")
+		}
+
+		// Filter entry box
+		filterEntry = widget.NewEntry()
+		filterEntry.SetPlaceHolder("Filter...")
+		filterEntry.OnChanged = func(text string) {
+			if !settingFilterFromSelection {
+				applyFilter()
+			}
 		}
 
 		// Label for the file list - will be updated when navigating
@@ -1469,9 +1528,14 @@ func createLauncherWindow() {
 				return
 			}
 			currentDir = absDir
-			entries = getEntriesInDir(currentDir)
+			allEntries = getEntriesInDir(currentDir)
+			filteredEntries = append([]FileEntry{}, allEntries...)
 			selectedEntry = nil
 			runBtn.SetText("Run")
+			// Clear the filter when navigating
+			settingFilterFromSelection = true
+			filterEntry.SetText("")
+			settingFilterFromSelection = false
 			updateDirLabel(currentDir)
 			fileList.UnselectAll()
 			fileList.Refresh()
@@ -1499,11 +1563,10 @@ func createLauncherWindow() {
 		// Header row with home button and scrollable directory path
 		dirRow := container.NewBorder(nil, nil, homeBtn, nil, dirLabelScroll)
 
-		// Header with visual separation from file list
+		// Header with filter entry box
 		dirHeader := container.NewVBox(
 			dirRow,
-			widget.NewSeparator(),
-			widget.NewSeparator(), // Double separator for more visibility
+			filterEntry,
 		)
 
 		// Run/Open button - text changes based on selection
@@ -1512,6 +1575,10 @@ func createLauncherWindow() {
 		// Function to perform the action (open dir or run script)
 		performAction = func() {
 			if selectedEntry == nil {
+				return
+			}
+			// Ignore "(no matches)" entry
+			if selectedEntry.Name == "(no matches)" {
 				return
 			}
 			if selectedEntry.IsDir {
