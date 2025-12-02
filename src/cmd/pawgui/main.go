@@ -1448,7 +1448,11 @@ func createLauncherWindow() {
 			func(i widget.ListItemID, o fyne.CanvasObject) {
 				lbl := o.(*tappableLabel)
 				lbl.SetText(filteredEntries[i].Name)
-				// Update the double-tap handler for this specific item
+				// Single-tap handler to trigger list selection
+				lbl.onTapped = func() {
+					fileList.Select(i)
+				}
+				// Double-tap handler to perform action
 				lbl.onDoubleTapped = func() {
 					entry := &filteredEntries[i]
 					// Handle "(no matches)" - clear filter
