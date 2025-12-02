@@ -1,0 +1,110 @@
+#!/usr/bin/env paw
+# Test quote-aware $N substitution and dollar-brace escaping
+
+echo "=== Test 1: Basic $N outside quotes ==="
+macro basic_echo, (echo $1)
+basic_echo "Hello World"
+basic_echo SimpleWord
+
+echo ""
+echo "=== Test 2: $N inside double quotes ==="
+macro quoted_echo, (echo "Message: $1")
+quoted_echo "Hello World"
+quoted_echo SimpleWord
+
+echo ""
+echo "=== Test 3: $N with quotes in argument ==="
+# When argument contains quotes, they should be escaped inside quoted context
+macro show_arg, (echo "Argument was: $1")
+show_arg 'single quoted'
+show_arg "double quoted"
+
+echo ""
+echo "=== Test 4: $N with special characters ==="
+macro special_chars, (echo "Value: $1")
+special_chars "has spaces"
+special_chars "has\ttab"
+special_chars "has\"quote"
+
+echo ""
+echo "=== Test 5: Multiple $N in same string ==="
+macro two_args, (echo "First: $1, Second: $2")
+two_args apple, banana
+two_args "red apple", "yellow banana"
+
+echo ""
+echo "=== Test 6: $N outside and inside quotes mixed ==="
+macro mixed_context, (
+    echo $1
+    echo "$1"
+    echo "The value is: $1"
+)
+mixed_context TestValue
+mixed_context "Value With Spaces"
+
+echo ""
+echo "=== Test 7: Tilde in argument (injection prevention) ==="
+macro tilde_test, (echo "Got: $1")
+tilde_test "~dangerous"
+tilde_test "value~with~tildes"
+
+echo ""
+echo "=== Test 8: $N in parentheses ==="
+macro paren_test, (
+    list: ($1, $2, $3)
+    echo "List: ~list"
+)
+paren_test one, two, three
+
+echo ""
+echo "=== Test 9: $N in braces ==="
+macro brace_test, (
+    result: {echo $1}
+    echo "Result was captured"
+)
+brace_test "brace content"
+
+echo ""
+echo "=== Test 10: Backslash in arguments ==="
+macro backslash_test, (echo "Path: $1")
+backslash_test "C:\\Users\\test"
+backslash_test "/path/to/file"
+
+echo ""
+echo "=== Test 11: $* (all args) in quoted context ==="
+macro all_args_quoted, (echo "All args: $*")
+all_args_quoted one, two, three, four
+
+echo ""
+echo "=== Test 12: Empty argument ==="
+macro empty_test, (echo "Got: [$1]")
+empty_test ""
+
+echo ""
+echo "=== Test 13: Nested quotes edge case ==="
+macro nested_quotes, (echo "Outer: $1")
+nested_quotes "inner \"nested\" quotes"
+
+echo ""
+echo "=== Dollar-brace tests ==="
+
+echo ""
+echo "=== Test 14: Dollar-brace basic unescape ==="
+block: (echo "Hello from block")
+echo "Unescaped: ${~block}"
+
+echo ""
+echo "=== Test 15: Dollar-brace inside quoted string ==="
+macro dollar_brace_in_quotes, (
+    val: $1
+    echo "The value is: ${~val}"
+)
+dollar_brace_in_quotes "test value"
+
+echo ""
+echo "=== Test 16: Dollar-brace with quotes in value ==="
+quoted_val: "has \"quotes\" inside"
+echo "Quoted value: ${~quoted_val}"
+
+echo ""
+echo "=== All dollar substitution tests complete ==="

@@ -1,0 +1,72 @@
+#!/usr/bin/env paw
+# Test macro_forward for forward declarations
+
+echo "=== Test 1: Basic forward declaration ==="
+macro_forward will_be_defined
+
+# Define a macro that references the forward-declared one
+macro caller, (
+    will_be_defined "from caller"
+)
+
+# Now define the forward-declared macro
+macro will_be_defined, (
+    echo "will_be_defined received: $1"
+)
+
+# Call the macro that uses the forward declaration
+caller
+
+echo ""
+echo "=== Test 2: Direct use of forward-then-defined macro ==="
+macro_forward greet
+macro greet, (echo "Hello, $1!")
+greet "World"
+
+echo ""
+echo "=== Test 3: Cannot forward declare existing macro ==="
+macro existing_macro, (echo "I exist")
+# This should fail
+macro_forward existing_macro | echo "Forward declaration of existing macro correctly failed"
+
+echo ""
+echo "=== Test 4: Simple mutual reference (shallow) ==="
+macro_forward func_b
+
+macro func_a, (
+    echo "func_a called with: $1"
+    if {eq $1, go_to_b} then (
+        func_b "from func_a"
+    )
+)
+
+macro func_b, (
+    echo "func_b called with: $1"
+)
+
+func_a "direct call"
+func_a go_to_b
+
+echo ""
+echo "=== Test 5: Forward declaration allows definition order independence ==="
+macro_forward step3
+macro_forward step2
+
+macro step1, (
+    echo "Step 1"
+    step2
+)
+
+macro step2, (
+    echo "Step 2"
+    step3
+)
+
+macro step3, (
+    echo "Step 3 - done!"
+)
+
+step1
+
+echo ""
+echo "=== All macro_forward tests complete ==="

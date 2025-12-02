@@ -1,0 +1,68 @@
+=== Test 1: Basic $N outside quotes ===
+Hello World
+SimpleWord
+
+=== Test 2: $N inside double quotes ===
+Message: Hello World
+Message: SimpleWord
+
+=== Test 3: $N with quotes in argument ===
+Argument was: single quoted
+Argument was: double quoted
+
+=== Test 4: $N with special characters ===
+Value: has spaces
+Value: has	tab
+Value: has"quote
+
+=== Test 5: Multiple $N in same string ===
+First: apple, Second: banana
+First: red apple, Second: yellow banana
+
+=== Test 6: $N outside and inside quotes mixed ===
+TestValue
+TestValue
+The value is: TestValue
+Value With Spaces
+Value With Spaces
+The value is: Value With Spaces
+
+=== Test 7: Tilde in argument (injection prevention) ===
+  at line 48, column 1 in tests/test_dollar_substitution.paw
+Got: 
+  at line 49, column 1 in tests/test_dollar_substitution.paw
+  at line 49, column 1 in tests/test_dollar_substitution.paw
+Got: value
+
+=== Test 8: $N in parentheses ===
+List: one, two, three
+
+=== Test 9: $N in braces ===
+brace content
+Result was captured
+
+=== Test 10: Backslash in arguments ===
+Path: C:\Users\test
+Path: /path/to/file
+
+=== Test 11: $* (all args) in quoted context ===
+All args: one, two, three, four
+
+=== Test 12: Empty argument ===
+Got: []
+
+=== Test 13: Nested quotes edge case ===
+Outer: inner "nested" quotes
+
+=== Dollar-brace tests ===
+
+=== Test 14: Dollar-brace basic unescape ===
+Unescaped: echo "Hello from block"
+
+=== Test 15: Dollar-brace inside quoted string ===
+The value is: test value
+
+=== Test 16: Dollar-brace with quotes in value ===
+Quoted value: has "quotes" inside
+
+=== All dollar substitution tests complete ===
