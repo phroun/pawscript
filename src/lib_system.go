@@ -1966,11 +1966,20 @@ func (ps *PawScript) RegisterSystemLib(scriptArgs []string) {
 		}
 
 		// LibraryRestricted (available modules)
-		output.WriteString(fmt.Sprintf("\n--- Library Restricted (%d) ---\n", len(env.LibraryRestricted)))
+		restrictedCmdCount := 0
+		for _, cmds := range env.LibraryRestricted {
+			restrictedCmdCount += len(cmds)
+		}
+		output.WriteString(fmt.Sprintf("\n--- Library Restricted (%d in %d modules) ---\n", restrictedCmdCount, len(env.LibraryRestricted)))
 		writeLibrarySectionWrapped(&output, env.LibraryRestricted)
 
 		// Item metadata (shows import info) - grouped by source module
-		output.WriteString(fmt.Sprintf("\n--- Imported (%d) ---\n", len(env.ItemMetadataModule)))
+		// First, group items by their source module to count modules
+		importedByModule := make(map[string][]string)
+		for name, meta := range env.ItemMetadataModule {
+			importedByModule[meta.ImportedFromModule] = append(importedByModule[meta.ImportedFromModule], name)
+		}
+		output.WriteString(fmt.Sprintf("\n--- Imported (%d in %d modules) ---\n", len(env.ItemMetadataModule), len(importedByModule)))
 		if len(env.ItemMetadataModule) == 0 {
 			output.WriteString("  (none)\n")
 		} else {
@@ -2075,7 +2084,11 @@ func (ps *PawScript) RegisterSystemLib(scriptArgs []string) {
 		defer env.mu.RUnlock()
 
 		output.WriteString("=== Library Inherited ===\n")
-		output.WriteString(fmt.Sprintf("\n--- Modules (%d) ---\n", len(env.LibraryInherited)))
+		inheritedCmdCount := 0
+		for _, cmds := range env.LibraryInherited {
+			inheritedCmdCount += len(cmds)
+		}
+		output.WriteString(fmt.Sprintf("\n--- Modules (%d in %d modules) ---\n", inheritedCmdCount, len(env.LibraryInherited)))
 		writeLibrarySectionWrapped(&output, env.LibraryInherited)
 
 		_ = outCtx.WriteToErr(output.String())
