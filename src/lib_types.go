@@ -524,8 +524,76 @@ func (ps *PawScript) RegisterTypesLib() {
 	//        slice ~mylist, 1, -1   - from index 1 to end
 	//        slice "hello", 0, 3          - "hel"
 	ps.RegisterCommandInModule("strlist", "slice", func(ctx *Context) Result {
+		// Check for only: parameter (extract arr or map portion of a list)
+		if onlyArg, hasOnly := ctx.NamedArgs["only"]; hasOnly {
+			if len(ctx.Args) < 1 {
+				ctx.LogError(CatCommand, "Usage: slice <list>, only: arr|map")
+				ctx.SetResult(nil)
+				return BoolStatus(false)
+			}
+
+			// Get the only value as string
+			onlyStr := ""
+			switch v := onlyArg.(type) {
+			case string:
+				onlyStr = v
+			case Symbol:
+				onlyStr = string(v)
+			case QuotedString:
+				onlyStr = string(v)
+			}
+
+			// Resolve the list argument
+			value := ctx.Args[0]
+			var list StoredList
+			switch v := value.(type) {
+			case StoredList:
+				list = v
+			case Symbol:
+				// Try to resolve marker
+				if resolved := ctx.executor.resolveValue(v); resolved != nil {
+					if l, ok := resolved.(StoredList); ok {
+						list = l
+					} else {
+						ctx.LogError(CatType, "slice only: requires a list argument")
+						ctx.SetResult(nil)
+						return BoolStatus(false)
+					}
+				}
+			default:
+				ctx.LogError(CatType, "slice only: requires a list argument")
+				ctx.SetResult(nil)
+				return BoolStatus(false)
+			}
+
+			// Handle the only: value
+			switch onlyStr {
+			case "arr", "array", "positional", "items":
+				// Extract only positional items
+				items := list.Items()
+				setListResult(ctx, NewStoredListWithRefs(items, nil, ctx.executor))
+				return BoolStatus(true)
+			case "map", "named":
+				// Extract only named args
+				namedArgs := list.NamedArgs()
+				newNamed := make(map[string]interface{})
+				if namedArgs != nil {
+					for k, v := range namedArgs {
+						newNamed[k] = v
+					}
+				}
+				setListResult(ctx, NewStoredListWithRefs(nil, newNamed, ctx.executor))
+				return BoolStatus(true)
+			default:
+				ctx.LogError(CatArgument, fmt.Sprintf("slice only: invalid value '%s', expected arr or map", onlyStr))
+				ctx.SetResult(nil)
+				return BoolStatus(false)
+			}
+		}
+
+		// Standard slice behavior: slice <list|string>, <start>, <end>
 		if len(ctx.Args) < 3 {
-			ctx.LogError(CatCommand, "Usage: slice <list|string>, <start>, <end>")
+			ctx.LogError(CatCommand, "Usage: slice <list|string>, <start>, <end> or slice <list>, only: arr|map")
 			ctx.SetResult(nil)
 			return BoolStatus(false)
 		}
