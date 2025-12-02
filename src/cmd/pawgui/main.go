@@ -1550,6 +1550,8 @@ func createLauncherWindow() {
 				// At top or nothing selected - focus filter and deselect
 				fileList.UnselectAll()
 				win.Canvas().Focus(filterEntry)
+				// Select all text in filter
+				filterEntry.TypedShortcut(&fyne.ShortcutSelectAll{})
 				return
 			}
 			fileList.Select(currentSelectionIndex - 1)
@@ -1658,6 +1660,8 @@ func createLauncherWindow() {
 				// At top or nothing selected - focus filter and deselect
 				fileList.UnselectAll()
 				win.Canvas().Focus(filterEntry)
+				// Select all text in filter
+				filterEntry.TypedShortcut(&fyne.ShortcutSelectAll{})
 				return
 			}
 			fileList.Select(currentSelectionIndex - 1)
