@@ -511,8 +511,11 @@ func (ps *PawScript) RegisterCoreLib() {
 			hasChildrenParam = true
 		}
 
-		// Helper to convert a value to JSON-compatible form
+		// Declare both functions first so they can reference each other
 		var toJSONValue func(val interface{}) (interface{}, error)
+		var listToJSON func(l StoredList, m string, cn string, hcp bool, conv func(interface{}) (interface{}, error)) (interface{}, error)
+
+		// Helper to convert a value to JSON-compatible form
 		toJSONValue = func(val interface{}) (interface{}, error) {
 			if val == nil {
 				return nil, nil
@@ -564,9 +567,9 @@ func (ps *PawScript) RegisterCoreLib() {
 				return string(v), nil
 			case StoredBytes:
 				// Convert to array of integers
-				bytes := v.Bytes()
-				arr := make([]interface{}, len(bytes))
-				for i, b := range bytes {
+				data := v.Data()
+				arr := make([]interface{}, len(data))
+				for i, b := range data {
 					arr[i] = int64(b)
 				}
 				return arr, nil
@@ -578,7 +581,6 @@ func (ps *PawScript) RegisterCoreLib() {
 		}
 
 		// Helper to convert a list to JSON based on mode
-		var listToJSON func(l StoredList, m string, cn string, hcp bool, conv func(interface{}) (interface{}, error)) (interface{}, error)
 		listToJSON = func(l StoredList, m string, cn string, hcp bool, conv func(interface{}) (interface{}, error)) (interface{}, error) {
 			items := l.Items()
 			namedArgs := l.NamedArgs()

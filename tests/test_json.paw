@@ -1,0 +1,203 @@
+# Test json command serialization modes and len keys parameters
+echo "=== JSON Serialization Tests ==="
+echo ""
+
+# Test 1: Simple array (positional only, auto mode)
+echo "Test 1: Simple array (auto mode)"
+#arr: {list 1, 2, 3, "hello", true}
+echo "  json: {json ~#arr}"
+echo ""
+
+# Test 2: Simple object (named only, auto mode)
+echo "Test 2: Simple object (auto mode)"
+#obj: {list name: "Alice", age: 30, active: true}
+echo "  json: {json ~#obj}"
+echo ""
+
+# Test 3: Mixed list - auto mode (should use explicit)
+echo "Test 3: Mixed list - auto mode"
+#mixed: {list 1, 2, 3, name: "test", value: 42}
+echo "  json: {json ~#mixed}"
+echo ""
+
+# Test 4: Mixed list - explicit mode
+echo "Test 4: Mixed list - explicit mode"
+echo "  json: {json ~#mixed, mode: explicit}"
+echo ""
+
+# Test 5: Mixed list - explicit with custom children name
+echo "Test 5: Explicit with custom children"
+echo "  json: {json ~#mixed, mode: explicit, children: items}"
+echo ""
+
+# Test 6: Mixed list - merge mode
+echo "Test 6: Mixed list - merge mode"
+#mergetest: {list a, b, c, x: 10, y: 20}
+echo "  json: {json ~#mergetest, mode: merge}"
+echo ""
+
+# Test 7: Mixed list - named mode (discards positional)
+echo "Test 7: Named mode (discards positional)"
+echo "  json: {json ~#mixed, mode: named}"
+echo ""
+
+# Test 8: Named mode with children parameter
+echo "Test 8: Named mode with children"
+echo "  json: {json ~#mixed, mode: named, children: data}"
+echo ""
+
+# Test 9: Array mode (discards named)
+echo "Test 9: Array mode (discards named)"
+echo "  json: {json ~#mixed, mode: array}"
+echo ""
+
+# Test 10: Array_1 mode
+echo "Test 10: Array_1 mode"
+echo "  json: {json ~#mixed, mode: array_1}"
+echo ""
+
+# Test 11: Nested lists
+echo "Test 11: Nested lists"
+#inner1: {list 1, 2, 3}
+#inner2: {list a: 1, b: 2}
+#nested: {list ~#inner1, ~#inner2, standalone}
+echo "  json: {json ~#nested}"
+echo ""
+
+# Test 12: Deeply nested with mixed content
+echo "Test 12: Deeply nested"
+#deep: {list {list 1, 2}, {list x: 10, y: 20}, {list nested: {list a, b, c}}}
+echo "  json: {json ~#deep, mode: explicit}"
+echo ""
+
+# Test 13: Empty list
+echo "Test 13: Empty list"
+#empty: {list}
+echo "  json: {json ~#empty}"
+echo ""
+
+# Test 14: Floats and special values
+echo "Test 14: Floats and special values"
+#floats: {list 3.14, 2.718, -1.5, 0.0}
+echo "  json: {json ~#floats}"
+echo ""
+
+# Test 15: Nil and undefined handling
+echo "Test 15: Nil values"
+#withnil: {list 1, nil, 3, value: nil}
+echo "  json: {json ~#withnil, mode: explicit}"
+echo ""
+
+# Test 16: Strings with special characters
+echo "Test 16: Strings with escapes"
+#escapes: {list "hello\"world", "back\\slash", "tab\there"}
+echo "  json: {json ~#escapes}"
+echo ""
+
+# Test 17: Bytes serialization
+echo "Test 17: Bytes"
+#bytes: {bytes 65, 66, 67, 68}
+#withbytes: {list ~#bytes, extra: "data"}
+echo "  json: {json ~#withbytes, mode: explicit}"
+echo ""
+
+# Test 18: More complex escaping
+echo "Test 18: Complex escapes in named args"
+#complexesc: {list title: "Say \"Hello\"", path: "C:\\Users\\Name", multi: "line1\nline2"}
+echo "  json: {json ~#complexesc}"
+echo ""
+
+# Test 19: Various string types
+echo "Test 19: Various string types"
+#various: {list "simple", 'single', bareword, 123, 45.67}
+echo "  json: {json ~#various}"
+echo ""
+
+# Test 20: Deeply nested with all types
+echo "Test 20: Complex nested structure"
+#level3: {list deep: "value", num: 42}
+#level2: {list ~#level3, items: {list 1, 2, 3}}
+#level1: {list name: "root", child: ~#level2, tags: {list a, b, c}}
+echo "  json: {json ~#level1, mode: explicit}"
+echo ""
+
+# Test 21: Bytes with special values
+echo "Test 21: Bytes including null and high values"
+#specialbytes: {bytes 0, 127, 128, 255, 10, 13}
+echo "  json: {json {list data: ~#specialbytes}, mode: named}"
+echo ""
+
+# Test 22: Merge mode conflict test - keys that would conflict
+echo "Test 22: Merge mode with numeric key conflict"
+#conflict: {list a, b, c, 0: "zero"}
+result: {json ~#conflict, mode: merge}
+echo "  result: ~result"
+echo "  status: {get_status}"
+echo ""
+
+# === Error cases ===
+echo "=== Error Cases ==="
+echo ""
+
+# Test 23: Unserializable - channel
+echo "Test 23: Channel in list (should error)"
+#ch: {channel}
+#withchan: {list 1, ~#ch, 3}
+result: {json ~#withchan}
+echo "  result: ~result"
+echo "  status: {get_status}"
+echo ""
+
+# Test 24: Unserializable - channel in named args
+echo "Test 24: Channel in named args (should error)"
+#withchan2: {list name: "test", chan: ~#ch}
+result: {json ~#withchan2}
+echo "  result: ~result"
+echo "  status: {get_status}"
+echo ""
+
+# Test 25: Unknown mode
+echo "Test 25: Unknown mode"
+#simple: {list 1, 2, 3}
+result: {json ~#simple, mode: badmode}
+echo "  result: ~result"
+echo "  status: {get_status}"
+echo ""
+
+# === len command enhancements ===
+echo "=== Len Command Keys Tests ==="
+echo ""
+
+# Test 26: len default (positional only)
+echo "Test 26: len default"
+#lentest: {list a, b, c, x: 1, y: 2, z: 3}
+echo "  len: {len ~#lentest}"
+echo ""
+
+# Test 27: len with keys_only
+echo "Test 27: len keys_only"
+echo "  len keys_only: {len ~#lentest, keys_only: true}"
+echo ""
+
+# Test 28: len with keys (both)
+echo "Test 28: len keys (both)"
+echo "  len keys: {len ~#lentest, keys: true}"
+echo ""
+
+# Test 29: len on list with only positional
+echo "Test 29: len on positional-only list"
+#posonly: {list 1, 2, 3, 4, 5}
+echo "  len: {len ~#posonly}"
+echo "  len keys_only: {len ~#posonly, keys_only: true}"
+echo "  len keys: {len ~#posonly, keys: true}"
+echo ""
+
+# Test 30: len on list with only named
+echo "Test 30: len on named-only list"
+#namedonly: {list a: 1, b: 2, c: 3}
+echo "  len: {len ~#namedonly}"
+echo "  len keys_only: {len ~#namedonly, keys_only: true}"
+echo "  len keys: {len ~#namedonly, keys: true}"
+echo ""
+
+echo "=== Tests Complete ==="
