@@ -1448,10 +1448,12 @@ func createLauncherWindow() {
 			func(i widget.ListItemID, o fyne.CanvasObject) {
 				lbl := o.(*tappableLabel)
 				lbl.SetText(filteredEntries[i].Name)
+				// Mouse down fires immediately - focus run button right away
+				lbl.onMouseDown = func() {
+					win.Canvas().Focus(runBtn)
+				}
 				// Single-tap handler to trigger list selection
 				lbl.onTapped = func() {
-					// Focus run button immediately to avoid delay
-					win.Canvas().Focus(runBtn)
 					fileList.Select(i)
 				}
 				// Double-tap handler to perform action
@@ -2657,15 +2659,17 @@ func (l *lightTheme) Size(name fyne.ThemeSizeName) float32 {
 	return theme.DefaultTheme().Size(name)
 }
 
-// tappableLabel is a label that supports tap and double-tap events
+// tappableLabel is a label that supports tap, double-tap, and mouse down events
 type tappableLabel struct {
 	widget.Label
 	onTapped       func()
 	onDoubleTapped func()
+	onMouseDown    func() // Fires immediately on mouse press
 }
 
 var _ fyne.Tappable = (*tappableLabel)(nil)
 var _ fyne.DoubleTappable = (*tappableLabel)(nil)
+var _ desktop.Mouseable = (*tappableLabel)(nil)
 
 func newTappableLabel(text string, onTapped, onDoubleTapped func()) *tappableLabel {
 	t := &tappableLabel{
@@ -2687,6 +2691,16 @@ func (t *tappableLabel) DoubleTapped(_ *fyne.PointEvent) {
 	if t.onDoubleTapped != nil {
 		t.onDoubleTapped()
 	}
+}
+
+func (t *tappableLabel) MouseDown(_ *desktop.MouseEvent) {
+	if t.onMouseDown != nil {
+		t.onMouseDown()
+	}
+}
+
+func (t *tappableLabel) MouseUp(_ *desktop.MouseEvent) {
+	// Required by Mouseable interface but we don't need it
 }
 
 // filterEntry is an entry that handles down arrow to focus the file list
