@@ -1450,6 +1450,8 @@ func createLauncherWindow() {
 				lbl.SetText(filteredEntries[i].Name)
 				// Single-tap handler to trigger list selection
 				lbl.onTapped = func() {
+					// Focus run button immediately to avoid delay
+					win.Canvas().Focus(runBtn)
 					fileList.Select(i)
 				}
 				// Double-tap handler to perform action
