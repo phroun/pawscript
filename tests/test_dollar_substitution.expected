@@ -28,10 +28,13 @@ Value With Spaces
 The value is: Value With Spaces
 
 === Test 7: Tilde in argument (injection prevention) ===
-  at line 48, column 1 in tests/test_dollar_substitution.paw
+[PawScript:variable ERROR] Variable not found: dangerous
+  at line 48, column 1 in test_dollar_substitution.paw
 Got: 
-  at line 49, column 1 in tests/test_dollar_substitution.paw
-  at line 49, column 1 in tests/test_dollar_substitution.paw
+[PawScript:variable ERROR] Variable not found: with
+  at line 49, column 1 in test_dollar_substitution.paw
+[PawScript:variable ERROR] Variable not found: tildes
+  at line 49, column 1 in test_dollar_substitution.paw
 Got: value
 
 === Test 8: $N in parentheses ===

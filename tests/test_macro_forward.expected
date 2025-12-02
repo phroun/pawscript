@@ -5,6 +5,7 @@ will_be_defined received: from caller
 Hello, World!
 
 === Test 3: Cannot forward declare existing macro ===
+[PawScript:macro ERROR] Cannot create forward declaration for 'existing_macro': macro already exists (use macro_delete first)
 Forward declaration of existing macro correctly failed
 
 === Test 4: Simple mutual reference (shallow) ===

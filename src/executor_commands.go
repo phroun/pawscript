@@ -127,6 +127,16 @@ func (e *Executor) executeCommandSequence(commands []*ParsedCommand, state *Exec
 			return result
 		}
 
+		// Check for break - propagate up to loop handler
+		if breakResult, ok := result.(BreakResult); ok {
+			return breakResult
+		}
+
+		// Check for continue - propagate up to loop handler
+		if continueResult, ok := result.(ContinueResult); ok {
+			return continueResult
+		}
+
 		lastStatus = bool(result.(BoolStatus))
 		state.SetLastStatus(lastStatus)
 	}

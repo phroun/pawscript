@@ -1,0 +1,91 @@
+=== Test 1: break in while loop with if ===
+i = 1
+i = 2
+i = 3
+i = 4
+Breaking at i=5
+After while: i = 5
+
+=== Test 2: continue in while loop ===
+Processing i = 1
+Processing i = 2
+Skipping i=3
+Processing i = 4
+Processing i = 5
+Skipping i=6
+Processing i = 7
+Processing i = 8
+
+=== Test 3: break in for loop (numeric range) ===
+n = 1
+n = 2
+n = 3
+Breaking at n=4
+
+=== Test 4: continue in for loop (numeric range) ===
+Processing n = 1
+Skipping n=2
+Processing n = 3
+Processing n = 4
+Skipping n=5
+Processing n = 6
+Processing n = 7
+Processing n = 8
+
+=== Test 5: break in for loop (list iteration) ===
+Item: apple
+Item: banana
+Breaking at cherry
+
+=== Test 6: continue in for loop (list iteration) ===
+Processing: apple
+Skipping banana
+Processing: cherry
+Skipping date
+Processing: elderberry
+
+=== Test 7: break with level (nested loops) ===
+Outer: 1
+  Inner: 1
+  Inner: 2
+  Inner: 3
+Outer: 2
+  Inner: 1
+  Inner: 2
+  Breaking both loops!
+After nested loops
+
+=== Test 8: continue with level (nested loops) ===
+Outer: 1
+  Inner: 1
+  Inner: 2
+  Inner: 3
+  End of outer iteration 1
+Outer: 2
+  Inner: 1
+  Continuing outer loop from inner
+Outer: 3
+  Inner: 1
+  Inner: 2
+  Inner: 3
+  End of outer iteration 3
+
+=== Test 9: break in while with true condition ===
+Count: 1
+Count: 2
+Count: 3
+Final count: 3
+
+=== Test 10: break via & operator ===
+x = 1
+x = 2
+x = 3
+Should have stopped at x=3
+
+=== Test 11: continue via & operator ===
+Processing x = 1
+Processing x = 3
+Processing x = 5
+Should have skipped x=2 and x=4
+
+=== All break/continue tests complete ===
