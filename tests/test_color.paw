@@ -1,0 +1,61 @@
+# Test json and string color output
+echo "=== Color Output Tests ==="
+echo ""
+
+# Test 1: JSON with default colors
+echo "Test 1: JSON with color: true"
+#data: {list name: "Alice", age: 30, active: true, score: 3.14, notes: nil}
+echo "{json ~#data, pretty: true, color: true}"
+echo ""
+
+# Test 2: String with default colors
+echo "Test 2: String with color: true"
+echo "{string ~#data, color: true}"
+echo ""
+
+# Test 3: JSON compact with color
+echo "Test 3: JSON compact with color"
+echo "{json ~#data, color: true}"
+echo ""
+
+# Test 4: Nested structure with color
+echo "Test 4: Nested structure - JSON colored"
+#nested: {list users: {list {list name: "Bob", id: 1}, {list name: "Carol", id: 2}}, count: 2}
+echo "{json ~#nested, pretty: true, color: true}"
+echo ""
+
+# Test 5: String pretty + color
+echo "Test 5: String pretty + color"
+echo "{string ~#nested, pretty: true, color: true}"
+echo ""
+
+# Test 6: Array with mixed types
+echo "Test 6: Array with mixed types - colored"
+#mixed: {list 1, "hello", true, nil, 3.14}
+echo "{json ~#mixed, color: true}"
+echo ""
+
+# Test 7: Custom colors - change key to blue
+echo "Test 7: Custom key color (blue)"
+#mycolors: {list key: "\033[34m"}
+echo "{json ~#data, pretty: true, color: ~#mycolors}"
+echo ""
+
+# Test 8: Custom colors - bright green strings
+echo "Test 8: Custom string color (bright green)"
+#mycolors2: {list string: "\033[92m"}
+echo "{json ~#data, color: ~#mycolors2}"
+echo ""
+
+# Test 9: Multiple custom colors
+echo "Test 9: Multiple custom colors"
+#mycolors3: {list key: "\033[94m", string: "\033[93m", number: "\033[95m"}
+echo "{json ~#data, pretty: true, color: ~#mycolors3}"
+echo ""
+
+# Test 10: String with custom colors
+echo "Test 10: String with custom colors"
+echo "{string ~#data, color: ~#mycolors3}"
+echo ""
+
+echo "=== Tests Complete ==="

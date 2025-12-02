@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"os"
 	"sort"
+	"strconv"
 	"strings"
 	"time"
 )
@@ -568,6 +569,102 @@ func (ps *PawScript) RegisterCoreLib() {
 		return BoolStatus(true)
 	})
 
+	// formatJSONColored formats a Go value as colored JSON
+	var formatJSONColored func(val interface{}, indent int, pretty bool, cfg DisplayColorConfig) string
+	formatJSONColored = func(val interface{}, indent int, pretty bool, cfg DisplayColorConfig) string {
+		indentStr := ""
+		innerIndent := ""
+		newline := ""
+		space := ""
+		if pretty {
+			indentStr = strings.Repeat("  ", indent)
+			innerIndent = strings.Repeat("  ", indent+1)
+			newline = "\n"
+			space = " "
+		}
+
+		switch v := val.(type) {
+		case nil:
+			return cfg.Nil + "null" + cfg.Reset
+		case bool:
+			if v {
+				return cfg.Bool + "true" + cfg.Reset
+			}
+			return cfg.Bool + "false" + cfg.Reset
+		case int64:
+			return cfg.Number + fmt.Sprintf("%d", v) + cfg.Reset
+		case int:
+			return cfg.Number + fmt.Sprintf("%d", v) + cfg.Reset
+		case float64:
+			return cfg.Number + strconv.FormatFloat(v, 'f', -1, 64) + cfg.Reset
+		case string:
+			// Escape the string properly for JSON
+			escaped, _ := json.Marshal(v)
+			return cfg.String + string(escaped) + cfg.Reset
+		case []interface{}:
+			if len(v) == 0 {
+				return cfg.Bracket + "[]" + cfg.Reset
+			}
+			var sb strings.Builder
+			sb.WriteString(cfg.Bracket + "[" + cfg.Reset + newline)
+			for i, item := range v {
+				if pretty {
+					sb.WriteString(innerIndent)
+				}
+				sb.WriteString(formatJSONColored(item, indent+1, pretty, cfg))
+				if i < len(v)-1 {
+					sb.WriteString(cfg.Colon + "," + cfg.Reset)
+				}
+				sb.WriteString(newline)
+			}
+			if pretty {
+				sb.WriteString(indentStr)
+			}
+			sb.WriteString(cfg.Bracket + "]" + cfg.Reset)
+			return sb.String()
+		case map[string]interface{}:
+			if len(v) == 0 {
+				return cfg.Bracket + "{}" + cfg.Reset
+			}
+			// Sort keys for consistent output
+			keys := make([]string, 0, len(v))
+			for k := range v {
+				keys = append(keys, k)
+			}
+			sort.Strings(keys)
+
+			var sb strings.Builder
+			sb.WriteString(cfg.Bracket + "{" + cfg.Reset + newline)
+			for i, k := range keys {
+				if pretty {
+					sb.WriteString(innerIndent)
+				}
+				// Key
+				keyJSON, _ := json.Marshal(k)
+				sb.WriteString(cfg.Key + string(keyJSON) + cfg.Reset)
+				sb.WriteString(cfg.Colon + ":" + cfg.Reset + space)
+				// Value
+				sb.WriteString(formatJSONColored(v[k], indent+1, pretty, cfg))
+				if i < len(keys)-1 {
+					sb.WriteString(cfg.Colon + "," + cfg.Reset)
+				}
+				sb.WriteString(newline)
+			}
+			if pretty {
+				sb.WriteString(indentStr)
+			}
+			sb.WriteString(cfg.Bracket + "}" + cfg.Reset)
+			return sb.String()
+		default:
+			// Fallback - use standard JSON encoding
+			encoded, err := json.Marshal(v)
+			if err != nil {
+				return fmt.Sprintf("%v", v)
+			}
+			return string(encoded)
+		}
+	}
+
 	// json - serialize a list to JSON string
 	// Modes: explicit, merge, named, array, array_1
 	ps.RegisterCommandInModule("types", "json", func(ctx *Context) Result {
@@ -838,20 +935,46 @@ func (ps *PawScript) RegisterCoreLib() {
 			}
 		}
 
-		// Serialize to JSON string
-		var jsonBytes []byte
-		if pretty {
-			jsonBytes, err = json.MarshalIndent(jsonVal, "", "  ")
-		} else {
-			jsonBytes, err = json.Marshal(jsonVal)
-		}
-		if err != nil {
-			ctx.LogError(CatType, fmt.Sprintf("json: serialization error: %v", err))
-			ctx.SetResult("")
-			return BoolStatus(false)
+		// Check for color parameter - can be true or a list with color overrides
+		var colorCfg *DisplayColorConfig
+		if colorArg, exists := ctx.NamedArgs["color"]; exists {
+			// Check if it's false/0 to explicitly disable
+			isDisabled := false
+			switch v := colorArg.(type) {
+			case bool:
+				isDisabled = !v
+			case Symbol:
+				s := string(v)
+				isDisabled = s == "false" || s == "0"
+			case string:
+				isDisabled = v == "false" || v == "0"
+			}
+			if !isDisabled {
+				cfg := ParseDisplayColorConfig(colorArg, ctx.executor)
+				colorCfg = &cfg
+			}
 		}
 
-		ctx.SetResult(string(jsonBytes))
+		// Serialize to JSON string
+		var result string
+		if colorCfg != nil {
+			result = formatJSONColored(jsonVal, 0, pretty, *colorCfg)
+		} else {
+			var jsonBytes []byte
+			if pretty {
+				jsonBytes, err = json.MarshalIndent(jsonVal, "", "  ")
+			} else {
+				jsonBytes, err = json.Marshal(jsonVal)
+			}
+			if err != nil {
+				ctx.LogError(CatType, fmt.Sprintf("json: serialization error: %v", err))
+				ctx.SetResult("")
+				return BoolStatus(false)
+			}
+			result = string(jsonBytes)
+		}
+
+		ctx.SetResult(result)
 		return BoolStatus(true)
 	})
 

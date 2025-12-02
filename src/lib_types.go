@@ -2290,8 +2290,29 @@ func (ps *PawScript) RegisterTypesLib() {
 					pretty = pv == "true" || pv == "1"
 				}
 			}
+			// Check for color parameter - can be true or a list with color overrides
+			var colorCfg *DisplayColorConfig
+			if colorArg, exists := ctx.NamedArgs["color"]; exists {
+				// Check if it's false/0 to explicitly disable
+				isDisabled := false
+				switch cv := colorArg.(type) {
+				case bool:
+					isDisabled = !cv
+				case Symbol:
+					s := string(cv)
+					isDisabled = s == "false" || s == "0"
+				case string:
+					isDisabled = cv == "false" || cv == "0"
+				}
+				if !isDisabled {
+					cfg := ParseDisplayColorConfig(colorArg, ctx.executor)
+					colorCfg = &cfg
+				}
+			}
 			// Use formatListForDisplay for lists
-			if pretty {
+			if colorCfg != nil {
+				result = formatListForDisplayColored(v, 0, pretty, *colorCfg)
+			} else if pretty {
 				result = formatListForDisplayPretty(v, 0)
 			} else {
 				result = formatListForDisplay(v)

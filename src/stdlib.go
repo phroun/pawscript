@@ -7,6 +7,97 @@ import (
 	"strings"
 )
 
+// DisplayColorConfig holds ANSI color codes for colored output
+type DisplayColorConfig struct {
+	Reset   string
+	Key     string
+	String  string
+	Number  string
+	Bool    string
+	Nil     string
+	Bracket string
+	Colon   string
+}
+
+// DefaultDisplayColors returns the default color configuration
+func DefaultDisplayColors() DisplayColorConfig {
+	return DisplayColorConfig{
+		Reset:   "\033[0m",
+		Key:     "\033[36m", // Cyan for keys
+		String:  "\033[32m", // Green for strings
+		Number:  "\033[33m", // Yellow for numbers
+		Bool:    "\033[35m", // Magenta for booleans
+		Nil:     "\033[31m", // Red for nil/null
+		Bracket: "\033[37m", // White for brackets
+		Colon:   "\033[90m", // Gray for colons/commas
+	}
+}
+
+// ParseDisplayColorConfig extracts color configuration from a list, using defaults for unspecified colors
+func ParseDisplayColorConfig(colorArg interface{}, executor *Executor) DisplayColorConfig {
+	cfg := DefaultDisplayColors()
+
+	// If it's just a boolean true, use all defaults
+	if b, ok := colorArg.(bool); ok && b {
+		return cfg
+	}
+	if sym, ok := colorArg.(Symbol); ok && (string(sym) == "true" || string(sym) == "1") {
+		return cfg
+	}
+	if s, ok := colorArg.(string); ok && (s == "true" || s == "1") {
+		return cfg
+	}
+
+	// Try to resolve as a list for custom colors
+	var colorList StoredList
+	hasColorList := false
+	switch v := colorArg.(type) {
+	case StoredList:
+		colorList = v
+		hasColorList = true
+	case Symbol:
+		if executor != nil {
+			if resolved := executor.resolveValue(v); resolved != nil {
+				if sl, ok := resolved.(StoredList); ok {
+					colorList = sl
+					hasColorList = true
+				}
+			}
+		}
+	}
+
+	if hasColorList {
+		namedArgs := colorList.NamedArgs()
+		if namedArgs != nil {
+			if v, ok := namedArgs["reset"]; ok {
+				cfg.Reset = fmt.Sprintf("%v", v)
+			}
+			if v, ok := namedArgs["key"]; ok {
+				cfg.Key = fmt.Sprintf("%v", v)
+			}
+			if v, ok := namedArgs["string"]; ok {
+				cfg.String = fmt.Sprintf("%v", v)
+			}
+			if v, ok := namedArgs["number"]; ok {
+				cfg.Number = fmt.Sprintf("%v", v)
+			}
+			if v, ok := namedArgs["bool"]; ok {
+				cfg.Bool = fmt.Sprintf("%v", v)
+			}
+			if v, ok := namedArgs["nil"]; ok {
+				cfg.Nil = fmt.Sprintf("%v", v)
+			}
+			if v, ok := namedArgs["bracket"]; ok {
+				cfg.Bracket = fmt.Sprintf("%v", v)
+			}
+			if v, ok := namedArgs["colon"]; ok {
+				cfg.Colon = fmt.Sprintf("%v", v)
+			}
+		}
+	}
+	return cfg
+}
+
 // formatListForDisplay formats a StoredList as a ParenGroup-like representation
 func formatListForDisplay(list StoredList) string {
 	var parts []string
@@ -243,6 +334,131 @@ func formatListForDisplayPretty(list StoredList, indent int) string {
 	}
 	sb.WriteString(indentStr)
 	sb.WriteString(")")
+	return sb.String()
+}
+
+// formatListForDisplayColored formats a StoredList with ANSI colors for type distinction
+func formatListForDisplayColored(list StoredList, indent int, pretty bool, cfg DisplayColorConfig) string {
+	indentStr := ""
+	innerIndent := ""
+	if pretty {
+		indentStr = strings.Repeat("  ", indent)
+		innerIndent = strings.Repeat("  ", indent+1)
+	}
+
+	var parts []string
+
+	// Helper to colorize a value based on its type
+	var colorizeValue func(value interface{}) string
+	colorizeValue = func(value interface{}) string {
+		switch v := value.(type) {
+		case StoredList:
+			return formatListForDisplayColored(v, indent+1, pretty, cfg)
+		case ParenGroup:
+			return cfg.Bracket + "(" + cfg.Reset + string(v) + cfg.Bracket + ")" + cfg.Reset
+		case StoredBlock:
+			return cfg.Bracket + "(" + cfg.Reset + string(v) + cfg.Bracket + ")" + cfg.Reset
+		case QuotedString:
+			escaped := strings.ReplaceAll(string(v), "\\", "\\\\")
+			escaped = strings.ReplaceAll(escaped, "\"", "\\\"")
+			return cfg.String + "\"" + escaped + "\"" + cfg.Reset
+		case Symbol:
+			s := string(v)
+			if objType, objID := parseObjectMarker(s); objID >= 0 {
+				return cfg.Nil + fmt.Sprintf("<%s %d>", objType, objID) + cfg.Reset
+			}
+			if s == "true" || s == "false" {
+				return cfg.Bool + s + cfg.Reset
+			}
+			if s == "nil" || s == "null" {
+				return cfg.Nil + s + cfg.Reset
+			}
+			return s
+		case string:
+			if objType, objID := parseObjectMarker(v); objID >= 0 {
+				return cfg.Nil + fmt.Sprintf("<%s %d>", objType, objID) + cfg.Reset
+			}
+			escaped := strings.ReplaceAll(v, "\\", "\\\\")
+			escaped = strings.ReplaceAll(escaped, "\"", "\\\"")
+			return cfg.String + "\"" + escaped + "\"" + cfg.Reset
+		case int64:
+			return cfg.Number + fmt.Sprintf("%d", v) + cfg.Reset
+		case float64:
+			return cfg.Number + strconv.FormatFloat(v, 'f', -1, 64) + cfg.Reset
+		case bool:
+			if v {
+				return cfg.Bool + "true" + cfg.Reset
+			}
+			return cfg.Bool + "false" + cfg.Reset
+		case nil:
+			return cfg.Nil + "nil" + cfg.Reset
+		default:
+			return fmt.Sprintf("%v", v)
+		}
+	}
+
+	// First, add named arguments (key: value pairs)
+	namedArgs := list.NamedArgs()
+	if len(namedArgs) > 0 {
+		keys := make([]string, 0, len(namedArgs))
+		for k := range namedArgs {
+			keys = append(keys, k)
+		}
+		sort.Strings(keys)
+
+		for _, key := range keys {
+			value := namedArgs[key]
+			valueStr := colorizeValue(value)
+			parts = append(parts, cfg.Key+key+cfg.Reset+cfg.Colon+": "+cfg.Reset+valueStr)
+		}
+	}
+
+	// Then, add positional items
+	items := list.Items()
+	for _, item := range items {
+		parts = append(parts, colorizeValue(item))
+	}
+
+	if len(parts) == 0 {
+		return cfg.Bracket + "()" + cfg.Reset
+	}
+
+	if !pretty {
+		return cfg.Bracket + "(" + cfg.Reset + strings.Join(parts, cfg.Colon+", "+cfg.Reset) + cfg.Bracket + ")" + cfg.Reset
+	}
+
+	// For simple lists (no nested structures), use single-line format
+	hasNested := false
+	for _, item := range items {
+		if _, ok := item.(StoredList); ok {
+			hasNested = true
+			break
+		}
+	}
+	for _, value := range namedArgs {
+		if _, ok := value.(StoredList); ok {
+			hasNested = true
+			break
+		}
+	}
+
+	if !hasNested && len(parts) <= 3 {
+		return cfg.Bracket + "(" + cfg.Reset + strings.Join(parts, cfg.Colon+", "+cfg.Reset) + cfg.Bracket + ")" + cfg.Reset
+	}
+
+	// Multi-line format for complex lists
+	var sb strings.Builder
+	sb.WriteString(cfg.Bracket + "(\n" + cfg.Reset)
+	for i, part := range parts {
+		sb.WriteString(innerIndent)
+		sb.WriteString(part)
+		if i < len(parts)-1 {
+			sb.WriteString(cfg.Colon + "," + cfg.Reset)
+		}
+		sb.WriteString("\n")
+	}
+	sb.WriteString(indentStr)
+	sb.WriteString(cfg.Bracket + ")" + cfg.Reset)
 	return sb.String()
 }
 
