@@ -43,10 +43,19 @@ mixed_context TestValue
 mixed_context "Value With Spaces"
 
 echo ""
-echo "=== Test 7: Tilde in argument (injection prevention) ==="
+echo "=== Test 7: Tilde in double-quoted argument (resolved at call) ==="
 macro tilde_test, (echo "Got: $1")
 tilde_test "~dangerous"
 tilde_test "value~with~tildes"
+
+echo ""
+echo "=== Test 7b: Tilde injection prevention (literal tilde in data) ==="
+# When data contains a literal tilde (via single quotes), it should NOT
+# be interpreted as a variable reference when substituted via $1
+secret: 'INJECTED'
+data_with_tilde: 'value~secret'
+macro safe_echo, (echo "Data: $1")
+safe_echo ~data_with_tilde
 
 echo ""
 echo "=== Test 8: $N in parentheses ==="
