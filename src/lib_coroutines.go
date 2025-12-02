@@ -458,6 +458,7 @@ func (ps *PawScript) RegisterGeneratorLib() {
 
 			// Execute remaining body commands from where we left off
 			lastStatus := true
+			hitBreak := false // Track if we need to exit the while loop
 			for cmdIdx, cmd := range whileCont.RemainingBodyCmds {
 				if strings.TrimSpace(cmd.Command) == "" {
 					continue
@@ -536,6 +537,27 @@ func (ps *PawScript) RegisterGeneratorLib() {
 					return BoolStatus(false)
 				}
 
+				// Check for break - exit the while loop
+				if breakResult, ok := result.(BreakResult); ok {
+					if breakResult.Levels <= 1 {
+						// Break this while loop, skip to after the loop
+						hitBreak = true
+						break
+					}
+					// Multi-level break - propagate to outer loops
+					return BreakResult{Levels: breakResult.Levels - 1}
+				}
+
+				// Check for continue - skip to next iteration
+				if continueResult, ok := result.(ContinueResult); ok {
+					if continueResult.Levels <= 1 {
+						// Continue to next iteration of this while loop
+						break
+					}
+					// Multi-level continue - propagate to outer loops
+					return ContinueResult{Levels: continueResult.Levels - 1}
+				}
+
 				// Handle async (TokenResult) - wait synchronously
 				if asyncToken, isToken := result.(TokenResult); isToken {
 					asyncTokenID := string(asyncToken)
@@ -549,6 +571,16 @@ func (ps *PawScript) RegisterGeneratorLib() {
 				if boolRes, ok := result.(BoolStatus); ok {
 					lastStatus = bool(boolRes)
 				}
+			}
+
+			// If break was hit, skip the loop continuation entirely
+			if hitBreak {
+				// Merge bubbles before returning
+				ctx.state.MergeBubbles(state)
+				state.mu.Lock()
+				state.bubbleMap = make(map[string][]*BubbleEntry)
+				state.mu.Unlock()
+				return BoolStatus(true)
 			}
 
 			// Finished remaining body commands, now continue the while loop
@@ -636,6 +668,7 @@ func (ps *PawScript) RegisterGeneratorLib() {
 				}
 
 				// Execute body commands
+				bodyBreak := false // Track if we need to break the outer while loop
 				for cmdIdx, cmd := range bodyCommands {
 					if strings.TrimSpace(cmd.Command) == "" {
 						continue
@@ -721,6 +754,27 @@ func (ps *PawScript) RegisterGeneratorLib() {
 						return BoolStatus(false)
 					}
 
+					// Check for break - exit the while loop
+					if breakResult, ok := result.(BreakResult); ok {
+						if breakResult.Levels <= 1 {
+							// Break this while loop
+							bodyBreak = true
+							break
+						}
+						// Multi-level break - propagate to outer loops
+						return BreakResult{Levels: breakResult.Levels - 1}
+					}
+
+					// Check for continue - skip to next iteration
+					if continueResult, ok := result.(ContinueResult); ok {
+						if continueResult.Levels <= 1 {
+							// Continue to next iteration of this while loop
+							break
+						}
+						// Multi-level continue - propagate to outer loops
+						return ContinueResult{Levels: continueResult.Levels - 1}
+					}
+
 					// Handle async (TokenResult) - wait synchronously
 					if asyncToken, isToken := result.(TokenResult); isToken {
 						asyncTokenID := string(asyncToken)
@@ -734,6 +788,11 @@ func (ps *PawScript) RegisterGeneratorLib() {
 					if boolRes, ok := result.(BoolStatus); ok {
 						lastStatus = bool(boolRes)
 					}
+				}
+
+				// If break was hit in body, exit the outer while loop
+				if bodyBreak {
+					break
 				}
 
 				iterations++
@@ -763,6 +822,7 @@ func (ps *PawScript) RegisterGeneratorLib() {
 
 			// Execute remaining body commands from where we left off
 			lastStatus := true
+			hitBreak := false // Track if we need to exit the for loop
 			for cmdIdx, cmd := range forCont.RemainingBodyCmds {
 				if strings.TrimSpace(cmd.Command) == "" {
 					continue
@@ -842,6 +902,27 @@ func (ps *PawScript) RegisterGeneratorLib() {
 					return BoolStatus(false)
 				}
 
+				// Check for break - exit the for loop
+				if breakResult, ok := result.(BreakResult); ok {
+					if breakResult.Levels <= 1 {
+						// Break this for loop
+						hitBreak = true
+						break
+					}
+					// Multi-level break - propagate to outer loops
+					return BreakResult{Levels: breakResult.Levels - 1}
+				}
+
+				// Check for continue - skip to next iteration
+				if continueResult, ok := result.(ContinueResult); ok {
+					if continueResult.Levels <= 1 {
+						// Continue to next iteration of this for loop
+						break
+					}
+					// Multi-level continue - propagate to outer loops
+					return ContinueResult{Levels: continueResult.Levels - 1}
+				}
+
 				// Handle async
 				if asyncToken, isToken := result.(TokenResult); isToken {
 					asyncTokenID := string(asyncToken)
@@ -855,6 +936,16 @@ func (ps *PawScript) RegisterGeneratorLib() {
 				if boolRes, ok := result.(BoolStatus); ok {
 					lastStatus = bool(boolRes)
 				}
+			}
+
+			// If break was hit, skip the loop continuation entirely
+			if hitBreak {
+				// Merge bubbles before returning
+				ctx.state.MergeBubbles(forCont.State)
+				forCont.State.mu.Lock()
+				forCont.State.bubbleMap = make(map[string][]*BubbleEntry)
+				forCont.State.mu.Unlock()
+				return BoolStatus(true)
 			}
 
 			// Finished remaining body commands - continue to next iteration
@@ -907,6 +998,7 @@ func (ps *PawScript) RegisterGeneratorLib() {
 					}
 
 					// Execute body
+					bodyBreak := false // Track if we need to break the outer for loop
 					for cmdIdx, cmd := range bodyCommands {
 						if strings.TrimSpace(cmd.Command) == "" {
 							continue
@@ -979,6 +1071,27 @@ func (ps *PawScript) RegisterGeneratorLib() {
 							return BoolStatus(false)
 						}
 
+						// Check for break - exit the for loop
+						if breakResult, ok := result.(BreakResult); ok {
+							if breakResult.Levels <= 1 {
+								// Break this for loop
+								bodyBreak = true
+								break
+							}
+							// Multi-level break - propagate to outer loops
+							return BreakResult{Levels: breakResult.Levels - 1}
+						}
+
+						// Check for continue - skip to next iteration
+						if continueResult, ok := result.(ContinueResult); ok {
+							if continueResult.Levels <= 1 {
+								// Continue to next iteration of this for loop
+								break
+							}
+							// Multi-level continue - propagate to outer loops
+							return ContinueResult{Levels: continueResult.Levels - 1}
+						}
+
 						// Handle async
 						if asyncToken, isToken := result.(TokenResult); isToken {
 							asyncTokenID := string(asyncToken)
@@ -992,6 +1105,11 @@ func (ps *PawScript) RegisterGeneratorLib() {
 						if boolRes, ok := result.(BoolStatus); ok {
 							lastStatus = bool(boolRes)
 						}
+					}
+
+					// If break was hit in body, exit the outer for loop
+					if bodyBreak {
+						break
 					}
 
 					current += step
@@ -1041,6 +1159,7 @@ func (ps *PawScript) RegisterGeneratorLib() {
 					}
 
 					// Execute body
+					bodyBreak := false // Track if we need to break the outer for loop
 					for cmdIdx, cmd := range bodyCommands {
 						if strings.TrimSpace(cmd.Command) == "" {
 							continue
@@ -1114,6 +1233,27 @@ func (ps *PawScript) RegisterGeneratorLib() {
 							return BoolStatus(false)
 						}
 
+						// Check for break - exit the for loop
+						if breakResult, ok := result.(BreakResult); ok {
+							if breakResult.Levels <= 1 {
+								// Break this for loop
+								bodyBreak = true
+								break
+							}
+							// Multi-level break - propagate to outer loops
+							return BreakResult{Levels: breakResult.Levels - 1}
+						}
+
+						// Check for continue - skip to next iteration
+						if continueResult, ok := result.(ContinueResult); ok {
+							if continueResult.Levels <= 1 {
+								// Continue to next iteration of this for loop
+								break
+							}
+							// Multi-level continue - propagate to outer loops
+							return ContinueResult{Levels: continueResult.Levels - 1}
+						}
+
 						// Handle async
 						if asyncToken, isToken := result.(TokenResult); isToken {
 							asyncTokenID := string(asyncToken)
@@ -1127,6 +1267,11 @@ func (ps *PawScript) RegisterGeneratorLib() {
 						if boolRes, ok := result.(BoolStatus); ok {
 							lastStatus = bool(boolRes)
 						}
+					}
+
+					// If break was hit in body, exit the outer for loop
+					if bodyBreak {
+						break
 					}
 
 					iterNum++
