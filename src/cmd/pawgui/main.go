@@ -17,6 +17,7 @@ import (
 
 	"fyne.io/fyne/v2"
 	"fyne.io/fyne/v2/app"
+	"fyne.io/fyne/v2/canvas"
 	"fyne.io/fyne/v2/container"
 	"fyne.io/fyne/v2/driver/desktop"
 	"fyne.io/fyne/v2/layout"
@@ -667,7 +668,13 @@ func ensureSplitLayout(ws *WindowState) {
 
 	leftScroll := container.NewVScroll(ws.leftContent)
 	rightScroll := container.NewVScroll(ws.rightContent)
-	ws.splitView = container.NewHSplit(leftScroll, rightScroll)
+
+	// Add small spacer to the right of the divider so content doesn't touch it
+	spacer := canvas.NewRectangle(color.Transparent)
+	spacer.SetMinSize(fyne.NewSize(8, 0))
+	rightWithPadding := container.NewBorder(nil, nil, spacer, nil, rightScroll)
+
+	ws.splitView = container.NewHSplit(leftScroll, rightWithPadding)
 	ws.splitView.SetOffset(0.4)
 
 	ws.window.SetContent(ws.splitView)
