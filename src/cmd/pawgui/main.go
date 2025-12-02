@@ -2305,11 +2305,13 @@ func registerGuiCommands(ps *pawscript.PawScript) {
 			return pawscript.BoolStatus(false)
 		}
 
-		switch widget := w.(type) {
+		switch w := w.(type) {
 		case *widget.Entry:
-			ctx.SetResult(widget.Text)
+			ctx.SetResult(w.Text)
+		case *selectAllEntry:
+			ctx.SetResult(w.Text)
 		case *widget.Label:
-			ctx.SetResult(widget.Text)
+			ctx.SetResult(w.Text)
 		default:
 			ctx.SetResult("")
 		}
@@ -2343,11 +2345,13 @@ func registerGuiCommands(ps *pawscript.PawScript) {
 		}
 
 		fyne.Do(func() {
-			switch widget := w.(type) {
+			switch w := w.(type) {
 			case *widget.Entry:
-				widget.SetText(value)
+				w.SetText(value)
+			case *selectAllEntry:
+				w.SetText(value)
 			case *widget.Label:
-				widget.SetText(value)
+				w.SetText(value)
 			}
 		})
 		return pawscript.BoolStatus(true)
