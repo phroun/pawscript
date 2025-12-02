@@ -2813,6 +2813,12 @@ func (e *filterEntryWidget) TypedKey(key *fyne.KeyEvent) {
 	e.Entry.TypedKey(key)
 }
 
+func (e *filterEntryWidget) FocusGained() {
+	e.Entry.FocusGained()
+	// Select all text when focus is gained
+	e.TypedShortcut(&fyne.ShortcutSelectAll{})
+}
+
 // navButton is a button that handles arrow keys for list navigation
 type navButton struct {
 	widget.Button
