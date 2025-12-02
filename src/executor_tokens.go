@@ -491,8 +491,18 @@ func (e *Executor) PopAndResumeCommandSequence(tokenID string, status bool) bool
 		if asyncPending {
 			e.logger.DebugCat(CatAsync,"Async operation pending, not immediately triggering chained token %s", chainedToken)
 			// Release our state references since we're done with this token
+			// But only if no other token is using the same state
 			if tokenData.ExecutionState != nil {
-				tokenData.ExecutionState.ReleaseAllReferences()
+				stateInUse := false
+				for otherID, otherData := range e.activeTokens {
+					if otherID != tokenID && otherData.ExecutionState == tokenData.ExecutionState {
+						stateInUse = true
+						break
+					}
+				}
+				if !stateInUse {
+					tokenData.ExecutionState.ReleaseAllReferences()
+				}
 			}
 			return success
 		}
@@ -501,8 +511,18 @@ func (e *Executor) PopAndResumeCommandSequence(tokenID string, status bool) bool
 		result := e.PopAndResumeCommandSequence(chainedToken, success)
 
 		// Release all object references held by this token's state
+		// But only if no other token is using the same state
 		if tokenData.ExecutionState != nil {
-			tokenData.ExecutionState.ReleaseAllReferences()
+			stateInUse := false
+			for otherID, otherData := range e.activeTokens {
+				if otherID != tokenID && otherData.ExecutionState == tokenData.ExecutionState {
+					stateInUse = true
+					break
+				}
+			}
+			if !stateInUse {
+				tokenData.ExecutionState.ReleaseAllReferences()
+			}
 		}
 
 		return result
@@ -530,8 +550,18 @@ func (e *Executor) PopAndResumeCommandSequence(tokenID string, status bool) bool
 	}
 
 	// No chain - safe to release now
+	// But only release if this state is not being used by any other active token
 	if tokenData.ExecutionState != nil {
-		tokenData.ExecutionState.ReleaseAllReferences()
+		stateInUse := false
+		for otherID, otherData := range e.activeTokens {
+			if otherID != tokenID && otherData.ExecutionState == tokenData.ExecutionState {
+				stateInUse = true
+				break
+			}
+		}
+		if !stateInUse {
+			tokenData.ExecutionState.ReleaseAllReferences()
+		}
 	}
 
 	return success
@@ -576,8 +606,18 @@ func (e *Executor) forceCleanupTokenLocked(tokenID string) {
 	e.cleanupTokenChildrenLocked(tokenID)
 
 	// Release all object references held by this token's state
+	// But only if no other token is using the same state
 	if tokenData.ExecutionState != nil {
-		tokenData.ExecutionState.ReleaseAllReferences()
+		stateInUse := false
+		for otherID, otherData := range e.activeTokens {
+			if otherID != tokenID && otherData.ExecutionState == tokenData.ExecutionState {
+				stateInUse = true
+				break
+			}
+		}
+		if !stateInUse {
+			tokenData.ExecutionState.ReleaseAllReferences()
+		}
 	}
 
 	delete(e.activeTokens, tokenID)
