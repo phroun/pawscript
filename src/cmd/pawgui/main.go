@@ -1448,10 +1448,6 @@ func createLauncherWindow() {
 			func(i widget.ListItemID, o fyne.CanvasObject) {
 				lbl := o.(*tappableLabel)
 				lbl.SetText(filteredEntries[i].Name)
-				// Mouse down fires immediately - focus run button right away
-				lbl.onMouseDown = func() {
-					win.Canvas().Focus(runBtn)
-				}
 				// Single-tap handler to trigger list selection
 				lbl.onTapped = func() {
 					fileList.Select(i)
@@ -1492,8 +1488,6 @@ func createLauncherWindow() {
 				settingFilterFromSelection = true
 				filterEntry.SetText(selectedEntry.Name)
 				settingFilterFromSelection = false
-				// Move focus to Run button so filter box loses focus
-				win.Canvas().Focus(runBtn)
 			}
 		}
 
