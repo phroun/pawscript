@@ -847,7 +847,68 @@ func createConsoleWindowWithPipes(scriptFile string, stdinReader *io.PipeWriter,
 	<-done
 }
 
-// getPawFilesInDir returns a sorted list of .paw files in the given directory
+// FileEntry represents a file or directory entry in the browser
+type FileEntry struct {
+	Name    string
+	IsDir   bool
+	IsParent bool // true for "../" entry
+}
+
+// getEntriesInDir returns a list of .paw files and directories in the given directory
+// Returns "../" at the top if not at root, then directories (with "/" suffix), then .paw files
+func getEntriesInDir(dir string) []FileEntry {
+	var entries []FileEntry
+
+	// Add parent directory option if not at filesystem root
+	absDir, err := filepath.Abs(dir)
+	if err == nil {
+		parent := filepath.Dir(absDir)
+		if parent != absDir {
+			entries = append(entries, FileEntry{Name: "../", IsDir: true, IsParent: true})
+		}
+	}
+
+	// Read directory entries
+	dirEntries, err := os.ReadDir(dir)
+	if err != nil {
+		return entries
+	}
+
+	// Separate directories and files
+	var dirs []string
+	var files []string
+
+	for _, entry := range dirEntries {
+		name := entry.Name()
+		// Skip hidden files/directories (starting with .)
+		if strings.HasPrefix(name, ".") {
+			continue
+		}
+		if entry.IsDir() {
+			dirs = append(dirs, name)
+		} else if strings.HasSuffix(strings.ToLower(name), ".paw") {
+			files = append(files, name)
+		}
+	}
+
+	// Sort directories and files
+	sort.Strings(dirs)
+	sort.Strings(files)
+
+	// Add directories with "/" suffix
+	for _, d := range dirs {
+		entries = append(entries, FileEntry{Name: d + "/", IsDir: true, IsParent: false})
+	}
+
+	// Add .paw files
+	for _, f := range files {
+		entries = append(entries, FileEntry{Name: f, IsDir: false, IsParent: false})
+	}
+
+	return entries
+}
+
+// getPawFilesInDir returns a sorted list of .paw files in the given directory (legacy compatibility)
 func getPawFilesInDir(dir string) []string {
 	var files []string
 	entries, err := os.ReadDir(dir)
@@ -861,6 +922,122 @@ func getPawFilesInDir(dir string) []string {
 	}
 	sort.Strings(files)
 	return files
+}
+
+// --- Configuration Management ---
+
+// getConfigDir returns the path to the .paw config directory in the user's home
+func getConfigDir() string {
+	home, err := os.UserHomeDir()
+	if err != nil {
+		return ""
+	}
+	return filepath.Join(home, ".paw")
+}
+
+// getConfigPath returns the path to the pawgui.psl config file
+func getConfigPath() string {
+	configDir := getConfigDir()
+	if configDir == "" {
+		return ""
+	}
+	return filepath.Join(configDir, "pawgui.psl")
+}
+
+// loadConfig loads the configuration from ~/.paw/pawgui.psl
+// Returns an empty config if the file doesn't exist or can't be read
+func loadConfig() pawscript.PSLConfig {
+	configPath := getConfigPath()
+	if configPath == "" {
+		return pawscript.PSLConfig{}
+	}
+
+	data, err := os.ReadFile(configPath)
+	if err != nil {
+		return pawscript.PSLConfig{}
+	}
+
+	config, err := pawscript.ParsePSL(string(data))
+	if err != nil {
+		return pawscript.PSLConfig{}
+	}
+
+	return config
+}
+
+// saveConfig saves the configuration to ~/.paw/pawgui.psl
+// Silently fails if there are any errors (graceful degradation)
+func saveConfig(config pawscript.PSLConfig) {
+	configPath := getConfigPath()
+	if configPath == "" {
+		return
+	}
+
+	// Ensure config directory exists
+	configDir := getConfigDir()
+	if err := os.MkdirAll(configDir, 0755); err != nil {
+		return
+	}
+
+	data := pawscript.SerializePSL(config)
+	_ = os.WriteFile(configPath, []byte(data), 0644)
+}
+
+// getExamplesDir returns the path to the examples directory relative to the executable
+func getExamplesDir() string {
+	exe, err := os.Executable()
+	if err != nil {
+		return ""
+	}
+	exeDir := filepath.Dir(exe)
+	return filepath.Join(exeDir, "examples")
+}
+
+// getDefaultBrowseDir returns the default directory for the file browser
+// Priority: saved last_browse_dir -> examples dir -> executable dir -> current dir
+func getDefaultBrowseDir() string {
+	// Try to load saved config
+	config := loadConfig()
+	savedDir := config.GetString("last_browse_dir", "")
+
+	// If saved directory exists, use it
+	if savedDir != "" {
+		if info, err := os.Stat(savedDir); err == nil && info.IsDir() {
+			return savedDir
+		}
+	}
+
+	// Try examples directory
+	examplesDir := getExamplesDir()
+	if examplesDir != "" {
+		if info, err := os.Stat(examplesDir); err == nil && info.IsDir() {
+			return examplesDir
+		}
+	}
+
+	// Try executable directory
+	exe, err := os.Executable()
+	if err == nil {
+		exeDir := filepath.Dir(exe)
+		if info, err := os.Stat(exeDir); err == nil && info.IsDir() {
+			return exeDir
+		}
+	}
+
+	// Fall back to current working directory
+	cwd, err := os.Getwd()
+	if err == nil {
+		return cwd
+	}
+
+	return "."
+}
+
+// saveBrowseDir saves the current browse directory to config
+func saveBrowseDir(dir string) {
+	config := loadConfig()
+	config.Set("last_browse_dir", dir)
+	saveConfig(config)
 }
 
 // createMainMenu creates the application main menu
@@ -1195,39 +1372,101 @@ func createLauncherWindow() {
 		}
 
 		// --- Left Panel: File Browser ---
-		cwd, _ := os.Getwd()
-		pawFiles := getPawFilesInDir(cwd)
+		currentDir := getDefaultBrowseDir()
+		entries := getEntriesInDir(currentDir)
+
+		// State variables for the file browser
+		var selectedEntry *FileEntry
 
 		fileList := widget.NewList(
-			func() int { return len(pawFiles) },
+			func() int { return len(entries) },
 			func() fyne.CanvasObject { return widget.NewLabel("template") },
 			func(i widget.ListItemID, o fyne.CanvasObject) {
-				o.(*widget.Label).SetText(pawFiles[i])
+				o.(*widget.Label).SetText(entries[i].Name)
 			},
 		)
 
-		var selectedFile string
+		// Label for the file list - will be updated when navigating
+		dirLabel := widget.NewLabel(currentDir)
+
+		// Run/Open button - text changes based on selection
+		runBtn := widget.NewButton("Run", nil)
+
+		// Function to refresh the file list when directory changes
+		refreshFileList := func() {
+			entries = getEntriesInDir(currentDir)
+			selectedEntry = nil
+			runBtn.SetText("Run")
+			dirLabel.SetText(currentDir)
+			fileList.UnselectAll()
+			fileList.Refresh()
+			// Save the current directory to config
+			go saveBrowseDir(currentDir)
+		}
+
+		// Function to navigate to a directory
+		navigateToDir := func(newDir string) {
+			absDir, err := filepath.Abs(newDir)
+			if err != nil {
+				return
+			}
+			// Verify the directory exists
+			info, err := os.Stat(absDir)
+			if err != nil || !info.IsDir() {
+				return
+			}
+			currentDir = absDir
+			refreshFileList()
+		}
+
+		// Handle selection changes
 		fileList.OnSelected = func(listID widget.ListItemID) {
-			if listID >= 0 && listID < len(pawFiles) {
-				selectedFile = pawFiles[listID]
+			if listID >= 0 && listID < len(entries) {
+				selectedEntry = &entries[listID]
+				// Update button text based on selection type
+				if selectedEntry.IsDir {
+					runBtn.SetText("Open")
+				} else {
+					runBtn.SetText("Run")
+				}
 			}
 		}
 
-		runBtn := widget.NewButton("Run", func() {
-			if selectedFile != "" {
-				fullPath := filepath.Join(cwd, selectedFile)
+		// Handle deselection
+		fileList.OnUnselected = func(listID widget.ListItemID) {
+			// Clear selection state
+			selectedEntry = nil
+			runBtn.SetText("Run")
+		}
+
+		// Run/Open button handler
+		runBtn.OnTapped = func() {
+			if selectedEntry == nil {
+				return
+			}
+			if selectedEntry.IsDir {
+				// Navigate to directory
+				var newDir string
+				if selectedEntry.IsParent {
+					newDir = filepath.Dir(currentDir)
+				} else {
+					// Remove the trailing "/" from directory name
+					dirName := strings.TrimSuffix(selectedEntry.Name, "/")
+					newDir = filepath.Join(currentDir, dirName)
+				}
+				navigateToDir(newDir)
+			} else {
+				// Run the script
+				fullPath := filepath.Join(currentDir, selectedEntry.Name)
 				go runScriptInWindow(fullPath, ws)
 			}
-		})
+		}
 
 		browseBtn := widget.NewButton("Browse...", func() {
 			showOpenFileDialogForWindow(win, ws)
 		})
 
 		buttonBox := container.NewHBox(runBtn, browseBtn)
-
-		// Label for the file list
-		dirLabel := widget.NewLabel("Scripts in current directory:")
 
 		leftPanel := container.NewBorder(
 			dirLabel,   // top
