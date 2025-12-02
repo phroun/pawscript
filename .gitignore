@@ -1,5 +1,6 @@
 .DS_Store
 /paw
+/src/paw
 /pawgui
 /token_example
 dist
