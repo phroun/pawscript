@@ -2850,6 +2850,11 @@ func (b *navButton) TypedKey(key *fyne.KeyEvent) {
 			b.onUpArrow()
 			return
 		}
+	case fyne.KeyReturn, fyne.KeyEnter:
+		if b.OnTapped != nil {
+			b.OnTapped()
+			return
+		}
 	}
 	b.Button.TypedKey(key)
 }
