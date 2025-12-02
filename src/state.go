@@ -77,7 +77,7 @@ func NewExecutionState() *ExecutionState {
 }
 
 // NewExecutionStateFrom creates a child state inheriting from parent
-// Used for macro calls - starts with fresh result and fresh bubbleMap
+// Used for macro calls - starts with fresh result and nil bubbleMap (lazy-created if needed)
 func NewExecutionStateFrom(parent *ExecutionState) *ExecutionState {
 	if parent == nil {
 		return NewExecutionState()
@@ -86,10 +86,9 @@ func NewExecutionStateFrom(parent *ExecutionState) *ExecutionState {
 	// Get state from pool
 	state := executionStatePool.Get().(*ExecutionState)
 
-	// Get maps from pools
+	// Get maps from pools (bubbleMap is nil - lazy-created only if AddBubble is called)
 	variables := variablesMapPool.Get().(map[string]interface{})
 	ownedObjects := ownedObjectsMapPool.Get().(map[int]int)
-	bubbleMap := bubbleMapPool.Get().(map[string][]*BubbleEntry)
 
 	// Initialize state
 	state.currentResult = nil
@@ -102,7 +101,7 @@ func NewExecutionStateFrom(parent *ExecutionState) *ExecutionState {
 	state.fiberID = parent.fiberID
 	state.moduleEnv = NewChildModuleEnvironment(parent.moduleEnv)
 	state.macroContext = nil
-	state.bubbleMap = bubbleMap
+	state.bubbleMap = nil // Lazy-created on first AddBubble (rare)
 	state.InBraceExpression = false
 
 	return state
@@ -716,6 +715,11 @@ func (s *ExecutionState) AddBubbleMultiFlavor(flavors []string, content interfac
 // Called when a macro returns to concatenate child's bubbles onto parent's
 func (s *ExecutionState) MergeBubbles(child *ExecutionState) {
 	if child == nil {
+		return
+	}
+
+	// Fast path: if child's bubbleMap is nil, nothing to merge (no lock needed)
+	if child.bubbleMap == nil {
 		return
 	}
 
