@@ -1,15 +1,22 @@
-# Test list serialization with {string ~list} and deserialization with ${~block}
+# Test list serialization with {string ~list} and deserialization with ${ret {block "(~ser)"}}
+#
+# Pattern:
+#   Serialize:   ser: {string ~myList}
+#   Deserialize: restored: ${ret {block "(~ser)"}}
+#
+# Or two-step:
+#   blk: {block "(~ser)"}
+#   restored: ${~blk}
 
 echo "=== List Serialization Tests ==="
 echo ""
 
-# Test 1: Simple list with mixed types
+# Test 1: Simple list with mixed types (using concise form)
 echo "Test 1: Simple mixed types"
 list1: (1, 2.5, hello, true, nil)
 ser1: {string ~list1}
 echo "Serialized: ~ser1"
-blk1: {block "(~ser1)"}
-restored1: ${~blk1}
+restored1: ${ret {block "(~ser1)"}}
 echo "Argc: {argc ~restored1}"
 echo "Restored: {string ~restored1}"
 echo ""
@@ -19,8 +26,7 @@ echo "Test 2: Quoted strings"
 list2: ("Hello World", "foo bar", "test")
 ser2: {string ~list2}
 echo "Serialized: ~ser2"
-blk2: {block "(~ser2)"}
-restored2: ${~blk2}
+restored2: ${ret {block "(~ser2)"}}
 echo "Argc: {argc ~restored2}"
 echo "Restored: {string ~restored2}"
 echo ""
@@ -30,13 +36,12 @@ echo "Test 3: Strings with escaping"
 list3: ("Hello \"quoted\"", "back\\slash")
 ser3: {string ~list3}
 echo "Serialized: ~ser3"
-blk3: {block "(~ser3)"}
-restored3: ${~blk3}
+restored3: ${ret {block "(~ser3)"}}
 echo "Argc: {argc ~restored3}"
 echo "Restored: {string ~restored3}"
 echo ""
 
-# Test 4: Nested lists
+# Test 4: Nested lists (using two-step form for variety)
 echo "Test 4: Nested lists"
 inner1: (a, b, c)
 inner2: (1, 2, 3)
@@ -55,8 +60,7 @@ echo "Test 5: Deeply nested"
 deep: ((a, (b, c)), (d, e))
 serDeep: {string ~deep}
 echo "Serialized: ~serDeep"
-blkDeep: {block "(~serDeep)"}
-restoredDeep: ${~blkDeep}
+restoredDeep: ${ret {block "(~serDeep)"}}
 echo "Argc: {argc ~restoredDeep}"
 echo "Restored: {string ~restoredDeep}"
 echo ""
@@ -66,8 +70,7 @@ echo "Test 6: Empty list"
 empty: ()
 serEmpty: {string ~empty}
 echo "Serialized: '~serEmpty'"
-blkEmpty: {block "(~serEmpty)"}
-restoredEmpty: ${~blkEmpty}
+restoredEmpty: ${ret {block "(~serEmpty)"}}
 echo "Argc: {argc ~restoredEmpty}"
 echo "Restored: {string ~restoredEmpty}"
 echo ""
@@ -77,8 +80,7 @@ echo "Test 7: Single item"
 single: (onlyone)
 serSingle: {string ~single}
 echo "Serialized: ~serSingle"
-blkSingle: {block "(~serSingle)"}
-restoredSingle: ${~blkSingle}
+restoredSingle: ${ret {block "(~serSingle)"}}
 echo "Argc: {argc ~restoredSingle}"
 echo "Restored: {string ~restoredSingle}"
 echo ""
@@ -88,8 +90,7 @@ echo "Test 8: Complex mixed"
 complex: ("Hello, World!", (nested, "with quotes"), 42, true, (a, b, c))
 serComplex: {string ~complex}
 echo "Serialized: ~serComplex"
-blkComplex: {block "(~serComplex)"}
-restoredComplex: ${~blkComplex}
+restoredComplex: ${ret {block "(~serComplex)"}}
 echo "Argc: {argc ~restoredComplex}"
 echo "Restored: {string ~restoredComplex}"
 echo ""
