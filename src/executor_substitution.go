@@ -299,31 +299,32 @@ func (e *Executor) substituteBraceExpressions(str string, ctx *SubstitutionConte
 			}
 			// end part that used to be in an else
 
-			// Handle ownership for result references
-			// Two cases:
-			// 1. Pass-through of shared variable: parent already owns it, child's claim is temporary
-			// 2. New object creation: parent doesn't own it yet, needs to take ownership
-			if hasCapturedResult {
-				resultRefs := braceState.ExtractObjectReferences(capturedResult)
-				for _, refID := range resultRefs {
-					braceState.mu.Lock()
-					childCount := braceState.ownedObjects[refID]
-					braceState.mu.Unlock()
+			// Handle ownership for ALL references owned by the brace state
+			// Since the brace shares variables with the parent, any objects stored in
+			// those variables need to be owned by the parent before we release the brace's claims.
+			// This includes:
+			// 1. Objects returned as results (e.g., from gui_console)
+			// 2. Objects stored in variables during the brace (e.g., #out from destructuring)
+			braceState.mu.Lock()
+			ownedByBrace := make(map[int]int)
+			for refID, count := range braceState.ownedObjects {
+				ownedByBrace[refID] = count
+			}
+			braceState.mu.Unlock()
 
-					if childCount > 0 {
-						// Check if parent already owns this object
-						ctx.ExecutionState.mu.Lock()
-						parentOwns := ctx.ExecutionState.ownedObjects[refID] > 0
-						ctx.ExecutionState.mu.Unlock()
+			for refID, childCount := range ownedByBrace {
+				if childCount > 0 {
+					// Check if parent already owns this object
+					ctx.ExecutionState.mu.Lock()
+					parentOwns := ctx.ExecutionState.ownedObjects[refID] > 0
+					ctx.ExecutionState.mu.Unlock()
 
-						if !parentOwns {
-							// New object - parent needs to claim it
-							// Claim for parent (increments global refcount)
-							ctx.ExecutionState.ClaimObjectReference(refID)
-						}
-						// If parent already owns it, don't add extra ownership
-						// The child's claim will be released below
+					if !parentOwns {
+						// Parent doesn't own it yet - transfer ownership
+						// Claim for parent (increments global refcount)
+						ctx.ExecutionState.ClaimObjectReference(refID)
 					}
+					// If parent already owns it, the child's claim will be released below
 				}
 			}
 

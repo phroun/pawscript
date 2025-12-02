@@ -190,8 +190,31 @@ func (e *Executor) ResumeBraceEvaluation(coordinatorToken, childToken string, re
 	targetEval.Result = result
 	coord.CompletedCount++
 
-	// Clean up the brace's state references
-	if targetEval.State != nil {
+	// Transfer owned references from brace state to parent before releasing
+	// Since the brace shares variables with the parent, any objects stored in
+	// those variables need to be owned by the parent before we release the brace's claims
+	if targetEval.State != nil && coord.SubstitutionCtx != nil && coord.SubstitutionCtx.ExecutionState != nil {
+		parentState := coord.SubstitutionCtx.ExecutionState
+		targetEval.State.mu.Lock()
+		ownedByBrace := make(map[int]int)
+		for refID, count := range targetEval.State.ownedObjects {
+			ownedByBrace[refID] = count
+		}
+		targetEval.State.mu.Unlock()
+
+		for refID, childCount := range ownedByBrace {
+			if childCount > 0 {
+				parentState.mu.Lock()
+				parentOwns := parentState.ownedObjects[refID] > 0
+				parentState.mu.Unlock()
+
+				if !parentOwns {
+					parentState.ClaimObjectReference(refID)
+				}
+			}
+		}
+		targetEval.State.ReleaseAllReferences()
+	} else if targetEval.State != nil {
 		targetEval.State.ReleaseAllReferences()
 	}
 
