@@ -1408,6 +1408,13 @@ func createLauncherWindow() {
 		const maxDirLabelLen = 40
 		dirLabel := widget.NewLabel(truncatePathFromStart(currentDir, maxDirLabelLen))
 		dirLabel.Truncation = fyne.TextTruncateEllipsis
+		dirLabel.TextStyle = fyne.TextStyle{Bold: true}
+
+		// Header with separator line below it
+		dirHeader := container.NewVBox(
+			dirLabel,
+			widget.NewSeparator(),
+		)
 
 		// Run/Open button - text changes based on selection
 		runBtn := widget.NewButton("Run", nil)
@@ -1502,7 +1509,7 @@ func createLauncherWindow() {
 		fileListScroll := container.NewScroll(fileList)
 
 		leftPanel := container.NewBorder(
-			dirLabel,       // top
+			dirHeader,      // top (label + separator)
 			buttonBox,      // bottom
 			nil,            // left
 			nil,            // right
