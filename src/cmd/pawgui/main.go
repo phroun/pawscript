@@ -1409,7 +1409,7 @@ func createLauncherWindow() {
 		var runBtn *widget.Button
 		var performAction func()
 		var fileList *widget.List
-		var filterEntry *widget.Entry
+		var filterEntry *filterEntryWidget
 		var applyFilter func()
 
 		// Filter function
@@ -1501,11 +1501,18 @@ func createLauncherWindow() {
 		}
 
 		// Filter entry box
-		filterEntry = widget.NewEntry()
+		filterEntry = newFilterEntry()
 		filterEntry.SetPlaceHolder("Filter...")
 		filterEntry.OnChanged = func(text string) {
 			if !settingFilterFromSelection {
 				applyFilter()
+			}
+		}
+		// Down arrow in filter box focuses first item in list
+		filterEntry.onDownArrow = func() {
+			if len(filteredEntries) > 0 {
+				fileList.Select(0)
+				win.Canvas().Focus(runBtn)
 			}
 		}
 
@@ -1550,6 +1557,8 @@ func createLauncherWindow() {
 			fileList.Refresh()
 			// Save the current directory to config
 			go saveBrowseDir(currentDir)
+			// Focus the filter entry after navigating
+			win.Canvas().Focus(filterEntry)
 		}
 
 		// Home button to navigate to user's home directory
@@ -2678,6 +2687,26 @@ func (t *tappableLabel) DoubleTapped(_ *fyne.PointEvent) {
 	if t.onDoubleTapped != nil {
 		t.onDoubleTapped()
 	}
+}
+
+// filterEntry is an entry that handles down arrow to focus the file list
+type filterEntryWidget struct {
+	widget.Entry
+	onDownArrow func()
+}
+
+func newFilterEntry() *filterEntryWidget {
+	e := &filterEntryWidget{}
+	e.ExtendBaseWidget(e)
+	return e
+}
+
+func (e *filterEntryWidget) TypedKey(key *fyne.KeyEvent) {
+	if key.Name == fyne.KeyDown && e.onDownArrow != nil {
+		e.onDownArrow()
+		return
+	}
+	e.Entry.TypedKey(key)
 }
 
 // clickInterceptor is a transparent widget that sits on top of the terminal
