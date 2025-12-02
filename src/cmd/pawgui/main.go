@@ -1438,14 +1438,28 @@ func createLauncherWindow() {
 		}
 
 		// Label for the file list - will be updated when navigating
-		// Truncate long paths from the start to show the end (more important)
-		const maxDirLabelLen = 50
-		dirLabel := widget.NewLabel(truncatePathFromStart(currentDir, maxDirLabelLen))
+		dirLabel := widget.NewLabel(currentDir)
 		dirLabel.TextStyle = fyne.TextStyle{Bold: true}
 
 		// Wrap directory label in horizontal scroll so panel can shrink
 		dirLabelScroll := container.NewHScroll(dirLabel)
 		dirLabelScroll.SetMinSize(fyne.NewSize(50, 0)) // Allow shrinking to small size
+
+		// Helper to update directory label and scroll to the right (show end of path)
+		updateDirLabel := func(path string) {
+			dirLabel.SetText(path)
+			dirLabel.Refresh()
+			// Scroll to show the end of the path (more important)
+			dirLabelScroll.ScrollToOffset(fyne.NewPos(10000, 0)) // Large value to scroll to end
+		}
+
+		// Scroll to end on initial load (after a brief delay for layout)
+		go func() {
+			time.Sleep(100 * time.Millisecond)
+			fyne.Do(func() {
+				dirLabelScroll.ScrollToOffset(fyne.NewPos(10000, 0))
+			})
+		}()
 
 		// Header with visual separation from file list
 		dirHeader := container.NewVBox(
@@ -1485,7 +1499,7 @@ func createLauncherWindow() {
 				entries = getEntriesInDir(currentDir)
 				selectedEntry = nil
 				runBtn.SetText("Run")
-				dirLabel.SetText(truncatePathFromStart(currentDir, maxDirLabelLen))
+				updateDirLabel(currentDir)
 				fileList.UnselectAll()
 				fileList.Refresh()
 				// Save the current directory to config
