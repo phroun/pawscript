@@ -122,8 +122,6 @@ func (e *Executor) Execute(commandStr string, args ...interface{}) Result {
 	e.logger.DebugCat(CatCommand, "Execute called with command: %s", commandStr)
 
 	state := NewExecutionState()
-	// Ensure cleanup happens when execution completes
-	defer state.ReleaseAllReferences()
 
 	// If args provided, execute as direct command call
 	if len(args) > 0 {
@@ -133,15 +131,27 @@ func (e *Executor) Execute(commandStr string, args ...interface{}) Result {
 
 		if exists {
 			ctx := e.createContext(args, nil, nil, state, nil)
-			return handler(ctx)
+			result := handler(ctx)
+			// Only release state if not returning a token (async operation)
+			if _, isToken := result.(TokenResult); !isToken {
+				state.ReleaseAllReferences()
+			}
+			return result
 		}
 
 		e.logger.UnknownCommandError(commandStr, nil, nil)
 		state.SetResult(Symbol(UndefinedMarker)) // Marker not bare Symbol - bare Symbol("undefined") clears the result
+		state.ReleaseAllReferences()
 		return BoolStatus(false)
 	}
 
-	return e.ExecuteWithState(commandStr, state, nil, "", 0, 0)
+	result := e.ExecuteWithState(commandStr, state, nil, "", 0, 0)
+	// Only release state if not returning a token (async operation)
+	// The token system will release the state when the async operation completes
+	if _, isToken := result.(TokenResult); !isToken {
+		state.ReleaseAllReferences()
+	}
+	return result
 }
 
 // ExecuteWithState executes with explicit state and substitution context
