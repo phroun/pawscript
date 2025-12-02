@@ -40,6 +40,12 @@ Got: value
 === Test 7b: Tilde injection prevention (literal tilde in data) ===
 Data: value~secret
 
+=== Test 7c: Block with tilde in statement position (pre-existing limitation) ===
+Attempting to run block with tilde via macro:
+[PawScript:command ERROR] Unknown command: 'echo "Block value: ~myvar"'
+  at line 70, column 5 in test_dollar_substitution.paw
+(block did not execute due to single-quote wrapping)
+
 === Test 8: $N in parentheses ===
 List: one, two, three
 

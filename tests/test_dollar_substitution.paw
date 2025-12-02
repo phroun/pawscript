@@ -58,6 +58,22 @@ macro safe_echo, (echo "Data: $1")
 safe_echo ~data_with_tilde
 
 echo ""
+echo "=== Test 7c: Block with tilde in statement position (pre-existing limitation) ==="
+# PRE-EXISTING BEHAVIOR: When a block containing tildes is passed through $1
+# in statement position, formatArgumentForSubstitution wraps it in single quotes
+# to prevent tilde injection. This prevents the block from executing.
+# TODO: Investigate if there's a way to allow legitimate tilde expressions in
+# blocks while still preventing injection in data values.
+myvar: "RESOLVED"
+tilde_block: (echo "Block value: ~myvar")
+macro run_block, (
+    $1
+)
+echo "Attempting to run block with tilde via macro:"
+run_block ~tilde_block
+echo "(block did not execute due to single-quote wrapping)"
+
+echo ""
 echo "=== Test 8: $N in parentheses ==="
 macro paren_test, (
     list: ($1, $2, $3)
