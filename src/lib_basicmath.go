@@ -532,6 +532,54 @@ func (ps *PawScript) RegisterBasicMathLib() {
 		return BoolStatus(false)
 	})
 
+	// eqs - shallow equality: all arguments are equal (shallow comparison)
+	// With 2+ args: eqs a, b, c -> a == b == c (shallow)
+	// With single list: eqs ~mylist -> all items equal (shallow)
+	// Shallow means: list members compared by identity, not recursively
+	ps.RegisterCommandInModule("cmp", "eqs", func(ctx *Context) Result {
+		items := getComparisonItems(ctx)
+		if len(items) < 2 {
+			ctx.LogError(CatCommand, "Usage: eqs <a>, <b> [, ...] or eqs <list>")
+			ctx.SetResult(false)
+			return BoolStatus(false)
+		}
+
+		// Compare all items with shallow equality
+		first := items[0]
+		for i := 1; i < len(items); i++ {
+			if !shallowEqual(first, items[i], ctx.executor) {
+				ctx.SetResult(false)
+				return BoolStatus(false)
+			}
+		}
+		ctx.SetResult(true)
+		return BoolStatus(true)
+	})
+
+	// neqs - shallow inequality: at least one argument differs (shallow comparison)
+	// With 2+ args: neqs a, b, c -> at least one differs (shallow)
+	// With single list: neqs ~mylist -> at least one item differs (shallow)
+	// Shallow means: list members compared by identity, not recursively
+	ps.RegisterCommandInModule("cmp", "neqs", func(ctx *Context) Result {
+		items := getComparisonItems(ctx)
+		if len(items) < 2 {
+			ctx.LogError(CatCommand, "Usage: neqs <a>, <b> [, ...] or neqs <list>")
+			ctx.SetResult(false)
+			return BoolStatus(false)
+		}
+
+		// Check if at least one pair is not equal (shallow)
+		first := items[0]
+		for i := 1; i < len(items); i++ {
+			if !shallowEqual(first, items[i], ctx.executor) {
+				ctx.SetResult(true)
+				return BoolStatus(true)
+			}
+		}
+		ctx.SetResult(false)
+		return BoolStatus(false)
+	})
+
 	// lt - all arguments are in strictly ascending order
 	// With 2+ args: lt a, b, c -> a < b < c
 	// With single list: lt ~mylist -> all items in ascending order
