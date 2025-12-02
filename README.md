@@ -75,6 +75,36 @@ See the `examples/` directory for sample scripts and usage patterns.
 
 ## Changelog
 
+### 0.2.9 -- November 29 - December 2, 2025
+- Quote-aware macro argument substitution: `$1`, `$2`, etc. now correctly
+  handle context when appearing inside or outside quoted strings
+  - Inside quotes: content inserted without extra quotes, internal
+    quotes/backslashes escaped, tilde injection prevented
+  - Outside quotes: strings with spaces properly quoted
+- Brace and parenthesis tracking in `$N` substitution: respects same
+  structural boundaries as the parser, preventing edge cases in nested
+  structures
+- Script isolation in launcher: scripts run in isolated snapshots using
+  `CreateRestrictedSnapshot` and `ExecuteWithEnvironment` so multiple scripts
+  don't impact each other's state
+- Automatic `#window` inheritance: when `gui_window` creates a window, it
+  automatically sets `#window` as an inherited object so macros defined
+  afterward can access the correct window
+- Explicit window targeting in gui_ commands: all gui_ commands now support
+  both explicit window handle as first argument (`gui_label #mywin, "text"`)
+  and automatic inherited `#window` from context
+- Updated commands with window targeting: `gui_split`, `gui_title`,
+  `gui_resize`, `gui_label`, `gui_button`, `gui_entry`, `gui_clear`,
+  `gui_msgbox`, `gui_console`
+- Native OS dialog improvements: restored `.paw` file type filter, fixed nil
+  pointer crash in launcher mode, suppressed macOS deprecation warnings from
+  sqweek/dialog library
+- Fixed deadlock when opening new launcher window from File menu
+- Added BUILDING.md with comprehensive build instructions:
+  - Prerequisites and platform-specific dependencies for CLI and GUI builds
+  - Cross-compilation instructions using fyne-cross and Docker
+  - Installation targets with configurable PREFIX
+
 ### 0.2.8 -- November 28-29, 2025 - Thanksgiving Alpha
 - Polymorphic commands: `append`, `prepend`, `contains`, `index` now work on
   both strings and lists
