@@ -1680,14 +1680,22 @@ func (ps *PawScript) RegisterSystemLib(scriptArgs []string) {
 	// Named args: default, floor, force (log levels), plus per-category levels
 	// Returns: current configuration as StoredList with named args
 	ps.RegisterCommandInModule("debug", "error_logging", func(ctx *Context) Result {
-		return configureLogFilter(ctx, ps, true)
+		return configureLogFilter(ctx, ps, "error")
 	})
 
 	// debug_logging - configure which log messages go to #out
 	// Named args: default, floor, force (log levels), plus per-category levels
 	// Returns: current configuration as StoredList with named args
 	ps.RegisterCommandInModule("debug", "debug_logging", func(ctx *Context) Result {
-		return configureLogFilter(ctx, ps, false)
+		return configureLogFilter(ctx, ps, "debug")
+	})
+
+	// bubble_logging - configure which log messages get captured as bubbles
+	// Named args: default, floor, force (log levels), plus per-category levels
+	// Bubbles are created with flavor "level_category" (e.g., "error_argument", "warn_io")
+	// Returns: current configuration as StoredList with named args
+	ps.RegisterCommandInModule("debug", "bubble_logging", func(ctx *Context) Result {
+		return configureLogFilter(ctx, ps, "bubble")
 	})
 
 	// datetime - format and convert date/time values
@@ -1958,11 +1966,20 @@ func (ps *PawScript) RegisterSystemLib(scriptArgs []string) {
 		}
 
 		// LibraryRestricted (available modules)
-		output.WriteString(fmt.Sprintf("\n--- Library Restricted (%d) ---\n", len(env.LibraryRestricted)))
+		restrictedCmdCount := 0
+		for _, cmds := range env.LibraryRestricted {
+			restrictedCmdCount += len(cmds)
+		}
+		output.WriteString(fmt.Sprintf("\n--- Library Restricted (%d in %d modules) ---\n", restrictedCmdCount, len(env.LibraryRestricted)))
 		writeLibrarySectionWrapped(&output, env.LibraryRestricted)
 
 		// Item metadata (shows import info) - grouped by source module
-		output.WriteString(fmt.Sprintf("\n--- Imported (%d) ---\n", len(env.ItemMetadataModule)))
+		// First, group items by their source module to count modules
+		importedByModule := make(map[string][]string)
+		for name, meta := range env.ItemMetadataModule {
+			importedByModule[meta.ImportedFromModule] = append(importedByModule[meta.ImportedFromModule], name)
+		}
+		output.WriteString(fmt.Sprintf("\n--- Imported (%d in %d modules) ---\n", len(env.ItemMetadataModule), len(importedByModule)))
 		if len(env.ItemMetadataModule) == 0 {
 			output.WriteString("  (none)\n")
 		} else {
@@ -2067,7 +2084,11 @@ func (ps *PawScript) RegisterSystemLib(scriptArgs []string) {
 		defer env.mu.RUnlock()
 
 		output.WriteString("=== Library Inherited ===\n")
-		output.WriteString(fmt.Sprintf("\n--- Modules (%d) ---\n", len(env.LibraryInherited)))
+		inheritedCmdCount := 0
+		for _, cmds := range env.LibraryInherited {
+			inheritedCmdCount += len(cmds)
+		}
+		output.WriteString(fmt.Sprintf("\n--- Modules (%d in %d modules) ---\n", inheritedCmdCount, len(env.LibraryInherited)))
 		writeLibrarySectionWrapped(&output, env.LibraryInherited)
 
 		_ = outCtx.WriteToErr(output.String())
@@ -2075,9 +2096,9 @@ func (ps *PawScript) RegisterSystemLib(scriptArgs []string) {
 	})
 }
 
-// configureLogFilter implements error_logging and debug_logging commands
-// isErrorLog=true for error_logging (#err), false for debug_logging (#out)
-func configureLogFilter(ctx *Context, ps *PawScript, isErrorLog bool) Result {
+// configureLogFilter implements error_logging, debug_logging, and bubble_logging commands
+// filterType: "error" for #err, "debug" for #out, "bubble" for bubble capture
+func configureLogFilter(ctx *Context, ps *PawScript, filterType string) Result {
 	if ctx.state.moduleEnv == nil {
 		ctx.LogError(CatSystem, "no module environment available")
 		return BoolStatus(false)
@@ -2090,17 +2111,23 @@ func configureLogFilter(ctx *Context, ps *PawScript, isErrorLog bool) Result {
 	var filter *LogFilter
 	if hasChanges {
 		logConfig := ctx.state.moduleEnv.GetLogConfigForModification()
-		if isErrorLog {
+		switch filterType {
+		case "error":
 			filter = logConfig.ErrorLog
-		} else {
+		case "debug":
 			filter = logConfig.DebugLog
+		case "bubble":
+			filter = logConfig.BubbleLog
 		}
 	} else {
 		logConfig := ctx.state.moduleEnv.LogConfigModule
-		if isErrorLog {
+		switch filterType {
+		case "error":
 			filter = logConfig.ErrorLog
-		} else {
+		case "debug":
 			filter = logConfig.DebugLog
+		case "bubble":
+			filter = logConfig.BubbleLog
 		}
 	}
 	ctx.state.moduleEnv.mu.Unlock()

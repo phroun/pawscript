@@ -1,0 +1,12 @@
+=== Bubble Logging Config Tests ===
+Test 1: Default config
+default: (default: "none", floor: "trace", force: "none")
+floor: (default: "none", floor: "trace", force: "none")
+force: (default: "none", floor: "trace", force: "none")
+Test 2: Set default to error
+default: (default: "error", floor: "trace", force: "none")
+Test 3: Set command category to warn
+command: (command: "warn", default: "error", floor: "trace", force: "none")
+Test 4: Set floor to info
+floor: (command: "warn", default: "error", floor: "info", force: "none")
+=== Config Tests Complete ===

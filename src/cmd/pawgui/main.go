@@ -5,6 +5,7 @@ package main
 import (
 	"flag"
 	"fmt"
+	"image/color"
 	"io"
 	"os"
 	"path/filepath"
@@ -16,7 +17,11 @@ import (
 
 	"fyne.io/fyne/v2"
 	"fyne.io/fyne/v2/app"
+	"fyne.io/fyne/v2/canvas"
 	"fyne.io/fyne/v2/container"
+	"fyne.io/fyne/v2/driver/desktop"
+	"fyne.io/fyne/v2/layout"
+	"fyne.io/fyne/v2/theme"
 	"fyne.io/fyne/v2/widget"
 	"github.com/fyne-io/terminal"
 	pawscript "github.com/phroun/pawscript"
@@ -52,9 +57,41 @@ type GuiState struct {
 	scriptCompleted bool                 // True when main script execution is done
 }
 
+// selectAllEntry is a custom Entry widget that selects all text when focused
+type selectAllEntry struct {
+	widget.Entry
+}
+
+func newSelectAllEntry() *selectAllEntry {
+	e := &selectAllEntry{}
+	e.ExtendBaseWidget(e)
+	return e
+}
+
+func (e *selectAllEntry) FocusGained() {
+	e.Entry.FocusGained()
+	// Select all text when entry gains focus
+	e.TypedShortcut(&fyne.ShortcutSelectAll{})
+}
+
 var guiState *GuiState
 
 func main() {
+	// Recover from panics during initialization (e.g., OpenGL failures)
+	defer func() {
+		if r := recover(); r != nil {
+			errorPrintf("Fatal error during initialization: %v\n", r)
+			errorPrintf("\nThis often occurs when your system's graphics driver doesn't support OpenGL.\n")
+			errorPrintf("Possible solutions:\n")
+			errorPrintf("  1. Update your graphics drivers\n")
+			errorPrintf("  2. Download Mesa3D software renderer from:\n")
+			errorPrintf("     https://github.com/pal1000/mesa-dist-win/releases\n")
+			errorPrintf("     and place opengl32.dll in the same directory as pawgui.exe\n")
+			errorPrintf("  3. Try setting environment variable: GALLIUM_DRIVER=llvmpipe\n")
+			os.Exit(1)
+		}
+	}()
+
 	// Define command line flags (same as paw)
 	licenseFlag := flag.Bool("license", false, "Show license")
 	debugFlag := flag.Bool("debug", false, "Enable debug output")
@@ -159,8 +196,16 @@ func main() {
 			fmt.Println("Error setting FYNE_SCALE:", err)
 		}
 
+		if debug {
+			fmt.Fprintln(os.Stderr, "Debug: Initializing Fyne application...")
+		}
+
 		// Create the Fyne application
 		fyneApp := app.New()
+
+		if debug {
+			fmt.Fprintln(os.Stderr, "Debug: Fyne application created successfully")
+		}
 
 		// Initialize GUI state
 		guiState = &GuiState{
@@ -298,8 +343,16 @@ func main() {
 		fmt.Println("Error setting FYNE_SCALE:", err)
 	}
 
+	if debug {
+		fmt.Fprintln(os.Stderr, "Debug: Initializing Fyne application...")
+	}
+
 	// Create the Fyne application
 	fyneApp := app.New()
+
+	if debug {
+		fmt.Fprintln(os.Stderr, "Debug: Fyne application created successfully")
+	}
 
 	// Create PawScript instance with full configuration
 	ps := pawscript.New(&pawscript.Config{
@@ -632,7 +685,13 @@ func ensureSplitLayout(ws *WindowState) {
 
 	leftScroll := container.NewVScroll(ws.leftContent)
 	rightScroll := container.NewVScroll(ws.rightContent)
-	ws.splitView = container.NewHSplit(leftScroll, rightScroll)
+
+	// Add small spacer to the right of the divider so content doesn't touch it
+	spacer := canvas.NewRectangle(color.Transparent)
+	spacer.SetMinSize(fyne.NewSize(4, 0))
+	rightWithPadding := container.NewBorder(nil, nil, spacer, nil, rightScroll)
+
+	ws.splitView = container.NewHSplit(leftScroll, rightWithPadding)
 	ws.splitView.SetOffset(0.4)
 
 	ws.window.SetContent(ws.splitView)
@@ -816,7 +875,72 @@ func createConsoleWindowWithPipes(scriptFile string, stdinReader *io.PipeWriter,
 	<-done
 }
 
-// getPawFilesInDir returns a sorted list of .paw files in the given directory
+// FileEntry represents a file or directory entry in the browser
+type FileEntry struct {
+	Name    string
+	IsDir   bool
+	IsParent bool // true for "../" entry
+}
+
+// getEntriesInDir returns a list of .paw files and directories in the given directory
+// Returns "../" at the top if not at root, then directories (with "/" suffix), then .paw files
+func getEntriesInDir(dir string) []FileEntry {
+	var entries []FileEntry
+
+	// Add parent directory option if not at filesystem root
+	absDir, err := filepath.Abs(dir)
+	if err == nil {
+		parent := filepath.Dir(absDir)
+		if parent != absDir {
+			entries = append(entries, FileEntry{Name: "../", IsDir: true, IsParent: true})
+		}
+	}
+
+	// Read directory entries
+	dirEntries, err := os.ReadDir(dir)
+	if err != nil {
+		return entries
+	}
+
+	// Separate directories and files
+	var dirs []string
+	var files []string
+
+	for _, entry := range dirEntries {
+		name := entry.Name()
+		// Skip hidden files/directories (starting with .)
+		if strings.HasPrefix(name, ".") {
+			continue
+		}
+		if entry.IsDir() {
+			dirs = append(dirs, name)
+		} else if strings.HasSuffix(strings.ToLower(name), ".paw") {
+			files = append(files, name)
+		}
+	}
+
+	// Sort directories and files (case-insensitive)
+	sort.Slice(dirs, func(i, j int) bool {
+		return strings.ToLower(dirs[i]) < strings.ToLower(dirs[j])
+	})
+	sort.Slice(files, func(i, j int) bool {
+		return strings.ToLower(files[i]) < strings.ToLower(files[j])
+	})
+
+	// Add directories with "/" suffix
+	for _, d := range dirs {
+		entries = append(entries, FileEntry{Name: d + "/", IsDir: true, IsParent: false})
+	}
+
+	// Add .paw files
+	for _, f := range files {
+		entries = append(entries, FileEntry{Name: f, IsDir: false, IsParent: false})
+	}
+
+	return entries
+}
+
+// getPawFilesInDir returns a sorted list of .paw files in the given directory (legacy compatibility)
 func getPawFilesInDir(dir string) []string {
 	var files []string
 	entries, err := os.ReadDir(dir)
@@ -830,6 +954,136 @@ func getPawFilesInDir(dir string) []string {
 	}
 	sort.Strings(files)
 	return files
+}
+
+// --- Configuration Management ---
+
+// getConfigDir returns the path to the .paw config directory in the user's home
+func getConfigDir() string {
+	home, err := os.UserHomeDir()
+	if err != nil {
+		return ""
+	}
+	return filepath.Join(home, ".paw")
+}
+
+// getConfigPath returns the path to the pawgui.psl config file
+func getConfigPath() string {
+	configDir := getConfigDir()
+	if configDir == "" {
+		return ""
+	}
+	return filepath.Join(configDir, "pawgui.psl")
+}
+
+// loadConfig loads the configuration from ~/.paw/pawgui.psl
+// Returns an empty config if the file doesn't exist or can't be read
+func loadConfig() pawscript.PSLConfig {
+	configPath := getConfigPath()
+	if configPath == "" {
+		return pawscript.PSLConfig{}
+	}
+
+	data, err := os.ReadFile(configPath)
+	if err != nil {
+		return pawscript.PSLConfig{}
+	}
+
+	config, err := pawscript.ParsePSL(string(data))
+	if err != nil {
+		return pawscript.PSLConfig{}
+	}
+
+	return config
+}
+
+// saveConfig saves the configuration to ~/.paw/pawgui.psl
+// Silently fails if there are any errors (graceful degradation)
+func saveConfig(config pawscript.PSLConfig) {
+	configPath := getConfigPath()
+	if configPath == "" {
+		return
+	}
+
+	// Ensure config directory exists
+	configDir := getConfigDir()
+	if err := os.MkdirAll(configDir, 0755); err != nil {
+		return
+	}
+
+	data := pawscript.SerializePSL(config)
+	_ = os.WriteFile(configPath, []byte(data), 0644)
+}
+
+// getExamplesDir returns the path to the examples directory relative to the executable
+func getExamplesDir() string {
+	exe, err := os.Executable()
+	if err != nil {
+		return ""
+	}
+	exeDir := filepath.Dir(exe)
+	return filepath.Join(exeDir, "examples")
+}
+
+// getDefaultBrowseDir returns the default directory for the file browser
+// Priority: saved last_browse_dir -> examples dir -> executable dir -> current dir
+func getDefaultBrowseDir() string {
+	// Try to load saved config
+	config := loadConfig()
+	savedDir := config.GetString("last_browse_dir", "")
+
+	// If saved directory exists, use it
+	if savedDir != "" {
+		if info, err := os.Stat(savedDir); err == nil && info.IsDir() {
+			return savedDir
+		}
+	}
+
+	// Try examples directory
+	examplesDir := getExamplesDir()
+	if examplesDir != "" {
+		if info, err := os.Stat(examplesDir); err == nil && info.IsDir() {
+			return examplesDir
+		}
+	}
+
+	// Try executable directory
+	exe, err := os.Executable()
+	if err == nil {
+		exeDir := filepath.Dir(exe)
+		if info, err := os.Stat(exeDir); err == nil && info.IsDir() {
+			return exeDir
+		}
+	}
+
+	// Fall back to current working directory
+	cwd, err := os.Getwd()
+	if err == nil {
+		return cwd
+	}
+
+	return "."
+}
+
+// saveBrowseDir saves the current browse directory to config
+func saveBrowseDir(dir string) {
+	config := loadConfig()
+	config.Set("last_browse_dir", dir)
+	saveConfig(config)
+}
+
+// truncatePathFromStart truncates a path from the beginning if it exceeds maxLen
+// Returns "...end/of/path" format to emphasize the final part
+func truncatePathFromStart(path string, maxLen int) string {
+	if len(path) <= maxLen {
+		return path
+	}
+	if maxLen < 4 {
+		return "..."
+	}
+	// Leave room for "..."
+	remaining := maxLen - 3
+	return "..." + path[len(path)-remaining:]
 }
 
 // createMainMenu creates the application main menu
@@ -1164,46 +1418,367 @@ func createLauncherWindow() {
 		}
 
 		// --- Left Panel: File Browser ---
-		cwd, _ := os.Getwd()
-		pawFiles := getPawFilesInDir(cwd)
+		currentDir := getDefaultBrowseDir()
+		allEntries := getEntriesInDir(currentDir)       // All entries in current dir
+		filteredEntries := append([]FileEntry{}, allEntries...) // Currently displayed entries
 
-		fileList := widget.NewList(
-			func() int { return len(pawFiles) },
-			func() fyne.CanvasObject { return widget.NewLabel("template") },
+		// Special entry for "no matches"
+		noMatchesEntry := FileEntry{Name: "(no matches)", IsDir: false, IsParent: false}
+
+		// State variables for the file browser
+		var selectedEntry *FileEntry
+		settingFilterFromSelection := false // Flag to prevent re-filtering on selection
+
+		// Forward declarations for mutual references
+		var runBtn *navButton
+		var performAction func()
+		var fileList *widget.List
+		var filterEntry *filterEntryWidget
+		var applyFilter func()
+
+		// Filter function
+		applyFilter = func() {
+			filterText := strings.ToLower(strings.TrimSpace(filterEntry.Text))
+			if filterText == "" {
+				// No filter - show all entries
+				filteredEntries = append([]FileEntry{}, allEntries...)
+			} else {
+				// Filter entries by name (case-insensitive)
+				filteredEntries = nil
+				for _, entry := range allEntries {
+					if strings.Contains(strings.ToLower(entry.Name), filterText) {
+						filteredEntries = append(filteredEntries, entry)
+					}
+				}
+				// If no matches, show the special "(no matches)" entry
+				if len(filteredEntries) == 0 {
+					filteredEntries = []FileEntry{noMatchesEntry}
+				}
+			}
+			fileList.UnselectAll()
+			selectedEntry = nil
+			runBtn.SetText("Run")
+			fileList.Refresh()
+		}
+
+		// Create list with tappable labels for double-click support
+		fileList = widget.NewList(
+			func() int { return len(filteredEntries) },
+			func() fyne.CanvasObject {
+				// Create a tappable label that will handle double-taps
+				lbl := newTappableLabel("template", nil, nil)
+				return lbl
+			},
 			func(i widget.ListItemID, o fyne.CanvasObject) {
-				o.(*widget.Label).SetText(pawFiles[i])
+				lbl := o.(*tappableLabel)
+				lbl.SetText(filteredEntries[i].Name)
+				// Mouse down fires immediately - select and focus right away
+				lbl.onMouseDown = func() {
+					fileList.Select(i)
+					runBtn.FocusGained()
+				}
+				// Double-tap handler to perform action
+				lbl.onDoubleTapped = func() {
+					entry := &filteredEntries[i]
+					// Handle "(no matches)" - clear filter
+					if entry.Name == "(no matches)" {
+						filterEntry.SetText("")
+						applyFilter()
+						return
+					}
+					selectedEntry = entry
+					fileList.Select(i)
+					performAction()
+				}
 			},
 		)
 
-		var selectedFile string
-		fileList.OnSelected = func(listID widget.ListItemID) {
-			if listID >= 0 && listID < len(pawFiles) {
-				selectedFile = pawFiles[listID]
+		// Handle selection
+		fileList.OnSelected = func(id widget.ListItemID) {
+			if id >= 0 && int(id) < len(filteredEntries) {
+				entry := &filteredEntries[id]
+				// Handle "(no matches)" - clear filter
+				if entry.Name == "(no matches)" {
+					filterEntry.SetText("")
+					applyFilter()
+					return
+				}
+				selectedEntry = entry
+				if selectedEntry.IsDir {
+					runBtn.SetText("Open")
+				} else {
+					runBtn.SetText("Run")
+				}
+				// Put the selected file name in the filter box without re-filtering
+				settingFilterFromSelection = true
+				filterEntry.SetText(selectedEntry.Name)
+				settingFilterFromSelection = false
 			}
 		}
 
-		runBtn := widget.NewButton("Run", func() {
-			if selectedFile != "" {
-				fullPath := filepath.Join(cwd, selectedFile)
+		fileList.OnUnselected = func(id widget.ListItemID) {
+			selectedEntry = nil
+			runBtn.SetText("Run")
+		}
+
+		// Filter entry box
+		filterEntry = newFilterEntry()
+		filterEntry.SetPlaceHolder("Filter...")
+		filterEntry.OnChanged = func(text string) {
+			if !settingFilterFromSelection {
+				applyFilter()
+			}
+		}
+		// Track current selection index for keyboard navigation
+		currentSelectionIndex := -1
+
+		// Update selection index when list selection changes
+		originalOnSelected := fileList.OnSelected
+		fileList.OnSelected = func(id widget.ListItemID) {
+			currentSelectionIndex = int(id)
+			if originalOnSelected != nil {
+				originalOnSelected(id)
+			}
+			// Focus Run button so arrow keys continue to work
+			win.Canvas().Focus(runBtn)
+		}
+
+		originalOnUnselected := fileList.OnUnselected
+		fileList.OnUnselected = func(id widget.ListItemID) {
+			currentSelectionIndex = -1
+			if originalOnUnselected != nil {
+				originalOnUnselected(id)
+			}
+		}
+
+		// Down arrow navigates to next item (or first if none selected)
+		filterEntry.onDownArrow = func() {
+			if len(filteredEntries) == 0 {
+				return
+			}
+			nextIndex := currentSelectionIndex + 1
+			if nextIndex >= len(filteredEntries) {
+				nextIndex = len(filteredEntries) - 1
+			}
+			if nextIndex < 0 {
+				nextIndex = 0
+			}
+			fileList.Select(nextIndex)
+		}
+
+		// Up arrow navigates to previous item, or focuses filter if at top
+		filterEntry.onUpArrow = func() {
+			if len(filteredEntries) == 0 {
+				return
+			}
+			if currentSelectionIndex <= 0 {
+				// At top or nothing selected - focus filter and deselect
+				fileList.UnselectAll()
+				win.Canvas().Focus(filterEntry)
+				// Select all text in filter
+				filterEntry.TypedShortcut(&fyne.ShortcutSelectAll{})
+				return
+			}
+			fileList.Select(currentSelectionIndex - 1)
+		}
+
+		// Enter performs the action on selected item
+		filterEntry.onEnter = func() {
+			if selectedEntry != nil {
+				performAction()
+			}
+		}
+
+		// Label for the file list - will be updated when navigating
+		dirLabel := widget.NewLabel(currentDir)
+		dirLabel.TextStyle = fyne.TextStyle{Bold: true}
+
+		// Wrap directory label in horizontal scroll so panel can shrink
+		dirLabelScroll := container.NewHScroll(dirLabel)
+		dirLabelScroll.SetMinSize(fyne.NewSize(50, 0)) // Allow shrinking to small size
+
+		// Helper to update directory label and scroll to the right (show end of path)
+		updateDirLabel := func(path string) {
+			dirLabel.SetText(path)
+			dirLabel.Refresh()
+			// Scroll to show the end of the path (more important)
+			dirLabelScroll.ScrollToOffset(fyne.NewPos(10000, 0)) // Large value to scroll to end
+		}
+
+		// Helper to navigate to a directory
+		navigateToDir := func(newDir string) {
+			absDir, err := filepath.Abs(newDir)
+			if err != nil {
+				return
+			}
+			// Verify the directory exists
+			info, err := os.Stat(absDir)
+			if err != nil || !info.IsDir() {
+				return
+			}
+			currentDir = absDir
+			allEntries = getEntriesInDir(currentDir)
+			filteredEntries = append([]FileEntry{}, allEntries...)
+			selectedEntry = nil
+			runBtn.SetText("Run")
+			// Clear the filter when navigating
+			settingFilterFromSelection = true
+			filterEntry.SetText("")
+			settingFilterFromSelection = false
+			updateDirLabel(currentDir)
+			fileList.UnselectAll()
+			fileList.Refresh()
+			// Save the current directory to config
+			go saveBrowseDir(currentDir)
+			// Focus the filter entry after navigating
+			win.Canvas().Focus(filterEntry)
+		}
+
+		// Home button to navigate to user's home directory
+		homeBtn := widget.NewButtonWithIcon("", theme.HomeIcon(), func() {
+			homeDir, err := os.UserHomeDir()
+			if err != nil {
+				return
+			}
+			navigateToDir(homeDir)
+		})
+
+		// Scroll to end on initial load (after a brief delay for layout)
+		go func() {
+			time.Sleep(100 * time.Millisecond)
+			fyne.Do(func() {
+				dirLabelScroll.ScrollToOffset(fyne.NewPos(10000, 0))
+			})
+		}()
+
+		// Header row with home button and scrollable directory path
+		dirRow := container.NewBorder(nil, nil, homeBtn, nil, dirLabelScroll)
+
+		// Header with filter entry box
+		dirHeader := container.NewVBox(
+			dirRow,
+			filterEntry,
+		)
+
+		// Run/Open button - text changes based on selection
+		runBtn = newNavButton("Run", nil)
+
+		// Wire up arrow key handlers for the button
+		runBtn.onDownArrow = func() {
+			if len(filteredEntries) == 0 {
+				return
+			}
+			nextIndex := currentSelectionIndex + 1
+			if nextIndex >= len(filteredEntries) {
+				nextIndex = len(filteredEntries) - 1
+			}
+			if nextIndex < 0 {
+				nextIndex = 0
+			}
+			fileList.Select(nextIndex)
+		}
+		runBtn.onUpArrow = func() {
+			if len(filteredEntries) == 0 {
+				return
+			}
+			if currentSelectionIndex <= 0 {
+				// At top or nothing selected - focus filter and deselect
+				fileList.UnselectAll()
+				win.Canvas().Focus(filterEntry)
+				// Select all text in filter
+				filterEntry.TypedShortcut(&fyne.ShortcutSelectAll{})
+				return
+			}
+			fileList.Select(currentSelectionIndex - 1)
+		}
+
+		// Function to perform the action (open dir or run script)
+		performAction = func() {
+			if selectedEntry == nil {
+				return
+			}
+			// Ignore "(no matches)" entry
+			if selectedEntry.Name == "(no matches)" {
+				return
+			}
+			if selectedEntry.IsDir {
+				// Navigate to directory
+				var newDir string
+				if selectedEntry.IsParent {
+					newDir = filepath.Dir(currentDir)
+				} else {
+					// Remove the trailing "/" from directory name
+					dirName := strings.TrimSuffix(selectedEntry.Name, "/")
+					newDir = filepath.Join(currentDir, dirName)
+				}
+				navigateToDir(newDir)
+			} else {
+				// Run the script
+				fullPath := filepath.Join(currentDir, selectedEntry.Name)
 				go runScriptInWindow(fullPath, ws)
 			}
-		})
+		}
+
+		// Run/Open button handler
+		runBtn.OnTapped = performAction
 
 		browseBtn := widget.NewButton("Browse...", func() {
 			showOpenFileDialogForWindow(win, ws)
 		})
 
-		buttonBox := container.NewHBox(runBtn, browseBtn)
+		// Theme toggle button - load preference from config
+		config := loadConfig()
+		isLightMode := config.GetBool("light_mode", false)
+		if isLightMode {
+			guiState.app.Settings().SetTheme(&myThemeLight{})
+		} else {
+			guiState.app.Settings().SetTheme(&myThemeDark{})
+		}
 
-		// Label for the file list
-		dirLabel := widget.NewLabel("Scripts in current directory:")
+		// Theme toggle button - sun to switch to light, moon to switch to dark
+		themeBtn := widget.NewButton("", nil)
+		themeBtn.Importance = widget.LowImportance
+
+		// Set initial icon based on current theme
+		if isLightMode {
+			themeBtn.SetText("🌚") // In light mode, show moon to switch to dark
+		} else {
+			themeBtn.SetText("☀️") // In dark mode, show sun to switch to light
+		}
+
+		themeBtn.OnTapped = func() {
+			cfg := loadConfig()
+			lightMode := cfg.GetBool("light_mode", false)
+			lightMode = !lightMode
+			cfg.Set("light_mode", lightMode)
+			saveConfig(cfg)
+
+			if lightMode {
+				guiState.app.Settings().SetTheme(&myThemeLight{})
+				themeBtn.SetText("🌚") // Now in light mode, show moon
+			} else {
+				guiState.app.Settings().SetTheme(&myThemeDark{})
+				themeBtn.SetText("☀️") // Now in dark mode, show sun
+			}
+		}
+
+		// Use HBox with spacer to push theme button to the right
+		buttonBox := container.NewHBox(
+			runBtn,
+			browseBtn,
+			layout.NewSpacer(),
+			themeBtn,
+		)
+
+		// Wrap file list in scroll container for horizontal scrolling
+		fileListScroll := container.NewScroll(fileList)
 
 		leftPanel := container.NewBorder(
-			dirLabel,   // top
-			buttonBox,  // bottom
-			nil,        // left
-			nil,        // right
-			fileList,   // center (fills remaining space)
+			dirHeader,      // top (label + separator)
+			buttonBox,      // bottom
+			nil,            // left
+			nil,            // right
+			fileListScroll, // center (fills remaining space, with scroll)
 		)
 
 		// --- Right Panel: Console ---
@@ -1232,7 +1807,12 @@ func createLauncherWindow() {
 		}()
 
 		// --- Create Split Layout ---
-		split := container.NewHSplit(leftPanel, termWithInterceptor)
+		// Add small spacer to the right of the divider so console text doesn't touch it
+		spacer := canvas.NewRectangle(color.Transparent)
+		spacer.SetMinSize(fyne.NewSize(4, 0))
+		rightWithPadding := container.NewBorder(nil, nil, spacer, nil, termWithInterceptor)
+
+		split := container.NewHSplit(leftPanel, rightWithPadding)
 		split.SetOffset(0.3) // 30% for file list, 70% for console
 
 		windowID := id
@@ -1251,9 +1831,24 @@ func createLauncherWindow() {
 		guiState.windows[id] = ws
 		guiState.mu.Unlock()
 
-		// Focus the terminal
+		// Add Shift+Tab and Ctrl+Tab shortcuts to escape the terminal
 		canvas := win.Canvas()
 		if canvas != nil {
+			// Shift+Tab: Focus the filter entry
+			canvas.AddShortcut(&desktop.CustomShortcut{
+				KeyName:  fyne.KeyTab,
+				Modifier: fyne.KeyModifierShift,
+			}, func(_ fyne.Shortcut) {
+				canvas.Focus(filterEntry)
+			})
+			// Ctrl+Tab: Also focus the filter entry
+			canvas.AddShortcut(&desktop.CustomShortcut{
+				KeyName:  fyne.KeyTab,
+				Modifier: fyne.KeyModifierControl,
+			}, func(_ fyne.Shortcut) {
+				canvas.Focus(filterEntry)
+			})
+			// Focus the terminal initially
 			canvas.Focus(term)
 		}
 
@@ -1487,11 +2082,6 @@ func registerGuiCommands(ps *pawscript.PawScript) {
 		marker := fmt.Sprintf("\x00WINDOW:%d\x00", id)
 		windowSymbol := pawscript.Symbol(marker)
 
-		// Set #window as an inherited object so macros can access it
-		// This allows scripts to define macros that implicitly use the window
-		ps.SetInheritedObject("gui", "#window", windowSymbol)
-		ctx.SetModuleObject("#window", windowSymbol)
-
 		ctx.SetResult(windowSymbol)
 		return pawscript.BoolStatus(true)
 	})
@@ -1519,7 +2109,13 @@ func registerGuiCommands(ps *pawscript.PawScript) {
 			if !ws.usingSplit {
 				leftScroll := container.NewVScroll(ws.leftContent)
 				rightScroll := container.NewVScroll(ws.rightContent)
-				ws.splitView = container.NewHSplit(leftScroll, rightScroll)
+
+				// Add small spacer to the right of the divider
+				spacer := canvas.NewRectangle(color.Transparent)
+				spacer.SetMinSize(fyne.NewSize(4, 0))
+				rightWithPadding := container.NewBorder(nil, nil, spacer, nil, rightScroll)
+
+				ws.splitView = container.NewHSplit(leftScroll, rightWithPadding)
 				ws.window.SetContent(ws.splitView)
 				ws.usingSplit = true
 			}
@@ -1621,11 +2217,14 @@ func registerGuiCommands(ps *pawscript.PawScript) {
 			onclickMacro = fmt.Sprintf("%v", onclick)
 		}
 
+		// Capture the module environment so callbacks can access macros defined in the script
+		capturedEnv := ctx.GetModuleEnv()
+
 		btn := widget.NewButton(text, func() {
 			if onclickMacro != "" {
 				go func() {
-					// Use the ps instance that registered these commands, not guiState.ps (which may be nil)
-					result := ps.Execute(onclickMacro)
+					// Execute in the captured environment so macros are accessible
+					result := ps.ExecuteWithEnvironment(onclickMacro, capturedEnv, "<button-callback>", 0, 0)
 					if result == pawscript.BoolStatus(false) {
 						fmt.Fprintf(os.Stderr, "Button callback error: %s\n", onclickMacro)
 					}
@@ -1662,7 +2261,7 @@ func registerGuiCommands(ps *pawscript.PawScript) {
 			placeholder = fmt.Sprintf("%v", args[0])
 		}
 
-		entry := widget.NewEntry()
+		entry := newSelectAllEntry()
 		entry.SetPlaceHolder(placeholder)
 
 		id := ""
@@ -1706,11 +2305,13 @@ func registerGuiCommands(ps *pawscript.PawScript) {
 			return pawscript.BoolStatus(false)
 		}
 
-		switch widget := w.(type) {
+		switch w := w.(type) {
 		case *widget.Entry:
-			ctx.SetResult(widget.Text)
+			ctx.SetResult(w.Text)
+		case *selectAllEntry:
+			ctx.SetResult(w.Text)
 		case *widget.Label:
-			ctx.SetResult(widget.Text)
+			ctx.SetResult(w.Text)
 		default:
 			ctx.SetResult("")
 		}
@@ -1744,11 +2345,13 @@ func registerGuiCommands(ps *pawscript.PawScript) {
 		}
 
 		fyne.Do(func() {
-			switch widget := w.(type) {
+			switch w := w.(type) {
 			case *widget.Entry:
-				widget.SetText(value)
+				w.SetText(value)
+			case *selectAllEntry:
+				w.SetText(value)
 			case *widget.Label:
-				widget.SetText(value)
+				w.SetText(value)
 			}
 		})
 		return pawscript.BoolStatus(true)
@@ -2134,6 +2737,164 @@ func createConsoleChannels(stdinReader *io.PipeReader, stdoutWriter *io.PipeWrit
 	return consoleOutCh, consoleInCh, termCaps
 }
 
+// Custom themes for light/dark mode toggle
+type darkTheme struct{}
+
+func (d *darkTheme) Color(name fyne.ThemeColorName, variant fyne.ThemeVariant) color.Color {
+	return theme.DefaultTheme().Color(name, theme.VariantDark)
+}
+
+func (d *darkTheme) Font(style fyne.TextStyle) fyne.Resource {
+	return theme.DefaultTheme().Font(style)
+}
+
+func (d *darkTheme) Icon(name fyne.ThemeIconName) fyne.Resource {
+	return theme.DefaultTheme().Icon(name)
+}
+
+func (d *darkTheme) Size(name fyne.ThemeSizeName) float32 {
+	return theme.DefaultTheme().Size(name)
+}
+
+type lightTheme struct{}
+
+func (l *lightTheme) Color(name fyne.ThemeColorName, variant fyne.ThemeVariant) color.Color {
+	return theme.DefaultTheme().Color(name, theme.VariantLight)
+}
+
+func (l *lightTheme) Font(style fyne.TextStyle) fyne.Resource {
+	return theme.DefaultTheme().Font(style)
+}
+
+func (l *lightTheme) Icon(name fyne.ThemeIconName) fyne.Resource {
+	return theme.DefaultTheme().Icon(name)
+}
+
+func (l *lightTheme) Size(name fyne.ThemeSizeName) float32 {
+	return theme.DefaultTheme().Size(name)
+}
+
+// tappableLabel is a label that supports tap, double-tap, and mouse down events
+type tappableLabel struct {
+	widget.Label
+	onTapped       func()
+	onDoubleTapped func()
+	onMouseDown    func() // Fires immediately on mouse press
+}
+
+var _ fyne.Tappable = (*tappableLabel)(nil)
+var _ fyne.DoubleTappable = (*tappableLabel)(nil)
+var _ desktop.Mouseable = (*tappableLabel)(nil)
+
+func newTappableLabel(text string, onTapped, onDoubleTapped func()) *tappableLabel {
+	t := &tappableLabel{
+		onTapped:       onTapped,
+		onDoubleTapped: onDoubleTapped,
+	}
+	t.ExtendBaseWidget(t)
+	t.SetText(text)
+	return t
+}
+
+func (t *tappableLabel) Tapped(_ *fyne.PointEvent) {
+	if t.onTapped != nil {
+		t.onTapped()
+	}
+}
+
+func (t *tappableLabel) DoubleTapped(_ *fyne.PointEvent) {
+	if t.onDoubleTapped != nil {
+		t.onDoubleTapped()
+	}
+}
+
+func (t *tappableLabel) MouseDown(_ *desktop.MouseEvent) {
+	if t.onMouseDown != nil {
+		t.onMouseDown()
+	}
+}
+
+func (t *tappableLabel) MouseUp(_ *desktop.MouseEvent) {
+	// Required by Mouseable interface but we don't need it
+}
+
+// filterEntry is an entry that handles arrow keys for list navigation
+type filterEntryWidget struct {
+	widget.Entry
+	onDownArrow  func()
+	onUpArrow    func()
+	onEnter      func()
+}
+
+func newFilterEntry() *filterEntryWidget {
+	e := &filterEntryWidget{}
+	e.ExtendBaseWidget(e)
+	return e
+}
+
+func (e *filterEntryWidget) TypedKey(key *fyne.KeyEvent) {
+	switch key.Name {
+	case fyne.KeyDown:
+		if e.onDownArrow != nil {
+			e.onDownArrow()
+			return
+		}
+	case fyne.KeyUp:
+		if e.onUpArrow != nil {
+			e.onUpArrow()
+			return
+		}
+	case fyne.KeyReturn, fyne.KeyEnter:
+		if e.onEnter != nil {
+			e.onEnter()
+			return
+		}
+	}
+	e.Entry.TypedKey(key)
+}
+
+func (e *filterEntryWidget) FocusGained() {
+	e.Entry.FocusGained()
+	// Select all text when focus is gained
+	e.TypedShortcut(&fyne.ShortcutSelectAll{})
+}
+
+// navButton is a button that handles arrow keys for list navigation
+type navButton struct {
+	widget.Button
+	onDownArrow func()
+	onUpArrow   func()
+}
+
+func newNavButton(label string, onTapped func()) *navButton {
+	b := &navButton{}
+	b.ExtendBaseWidget(b)
+	b.SetText(label)
+	b.OnTapped = onTapped
+	return b
+}
+
+func (b *navButton) TypedKey(key *fyne.KeyEvent) {
+	switch key.Name {
+	case fyne.KeyDown:
+		if b.onDownArrow != nil {
+			b.onDownArrow()
+			return
+		}
+	case fyne.KeyUp:
+		if b.onUpArrow != nil {
+			b.onUpArrow()
+			return
+		}
+	case fyne.KeyReturn, fyne.KeyEnter:
+		if b.OnTapped != nil {
+			b.OnTapped()
+			return
+		}
+	}
+	b.Button.TypedKey(key)
+}
+
 // clickInterceptor is a transparent widget that sits on top of the terminal
 type clickInterceptor struct {
 	widget.BaseWidget
@@ -2141,6 +2902,7 @@ type clickInterceptor struct {
 }
 
 var _ fyne.Tappable = (*clickInterceptor)(nil)
+var _ desktop.Mouseable = (*clickInterceptor)(nil)
 
 func newClickInterceptor(term *terminal.Terminal) *clickInterceptor {
 	c := &clickInterceptor{
@@ -2148,6 +2910,21 @@ func newClickInterceptor(term *terminal.Terminal) *clickInterceptor {
 	}
 	c.ExtendBaseWidget(c)
 	return c
+}
+
+func (c *clickInterceptor) MouseDown(ev *desktop.MouseEvent) {
+	if c == nil || c.terminal == nil {
+		return
+	}
+	// Forward mouse down to terminal - this clears any text selection
+	c.terminal.MouseDown(ev)
+}
+
+func (c *clickInterceptor) MouseUp(ev *desktop.MouseEvent) {
+	if c == nil || c.terminal == nil {
+		return
+	}
+	c.terminal.MouseUp(ev)
 }
 
 func (c *clickInterceptor) Tapped(_ *fyne.PointEvent) {

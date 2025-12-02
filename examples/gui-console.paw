@@ -10,8 +10,12 @@
 # This makes echo, print, write, read automatically use them!
 (#out, #in, #err): {gui_console 680, 450}
 
+print "Hello, World"
+
 # Give the terminal a moment to initialize
 msleep 200
+
+print "Goodbye, World"
 
 # Now we can use standard print and echo commands!
 # Clear screen and show title - use inline color for the header

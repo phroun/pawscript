@@ -412,6 +412,84 @@ func (e *Executor) executeSingleCommand(
 					}
 				}
 
+				// Check for macro marker in command position
+				if strings.HasPrefix(finalString, "\x00MACRO:") {
+					endIdx := strings.Index(finalString[1:], "\x00")
+					if endIdx >= 0 {
+						macroMarker := finalString[:endIdx+2]
+						argsStr := strings.TrimSpace(finalString[endIdx+2:])
+						if strings.HasPrefix(argsStr, ",") {
+							argsStr = strings.TrimSpace(argsStr[1:])
+						}
+						_, objectID := parseObjectMarker(macroMarker)
+						if objectID >= 0 {
+							if obj, exists := e.getObject(objectID); exists {
+								if storedMacro, ok := obj.(StoredMacro); ok {
+									e.logger.DebugCat(CatCommand, "Executing macro from marker (async resume) with args: %s", argsStr)
+									var macroArgs []interface{}
+									var namedArgs map[string]interface{}
+									if argsStr != "" {
+										_, macroArgs, namedArgs = ParseCommand("dummy " + argsStr)
+										macroArgs = e.processArguments(macroArgs, capturedState, capturedSubstitutionCtx, capturedPosition)
+										namedArgs = e.processNamedArguments(namedArgs, capturedState, capturedSubstitutionCtx, capturedPosition)
+									}
+									result := e.executeMacro(&storedMacro, macroArgs, namedArgs, capturedState, capturedPosition)
+									if capturedShouldInvert {
+										return e.invertStatus(result, capturedState, capturedPosition)
+									}
+									return result
+								}
+							}
+						}
+					}
+				}
+
+				// Check for parenthetic block in command position
+				if strings.HasPrefix(finalString, "(") {
+					closeIdx := e.findMatchingParen(finalString, 0)
+					if closeIdx > 0 {
+						if _, _, isAssign := e.parseAssignment(finalString); !isAssign {
+							blockContent := finalString[1:closeIdx]
+							argsStr := strings.TrimSpace(finalString[closeIdx+1:])
+							e.logger.DebugCat(CatCommand, "Executing parenthetic block (async resume): (%s) with args: %s", blockContent, argsStr)
+							blockSubstCtx := capturedSubstitutionCtx
+							if argsStr != "" {
+								_, args, _ := ParseCommand("dummy " + argsStr)
+								args = e.processArguments(args, capturedState, capturedSubstitutionCtx, capturedPosition)
+								argsList := NewStoredList(args)
+								argsListID := e.storeObject(argsList, "list")
+								argsMarker := fmt.Sprintf("\x00LIST:%d\x00", argsListID)
+								blockMacroCtx := &MacroContext{
+									MacroName:      "(block)",
+									InvocationFile: capturedPosition.Filename,
+									InvocationLine: capturedPosition.Line,
+								}
+								blockSubstCtx = &SubstitutionContext{
+									Args:                args,
+									ExecutionState:      capturedState,
+									ParentContext:       capturedSubstitutionCtx,
+									MacroContext:        blockMacroCtx,
+									CurrentLineOffset:   0,
+									CurrentColumnOffset: 0,
+									Filename:            capturedPosition.Filename,
+								}
+								capturedState.SetVariable("$@", Symbol(argsMarker))
+							}
+							result := e.ExecuteWithState(
+								blockContent,
+								capturedState,
+								blockSubstCtx,
+								capturedPosition.Filename,
+								0, 0,
+							)
+							if capturedShouldInvert {
+								return e.invertStatus(result, capturedState, capturedPosition)
+							}
+							return result
+						}
+					}
+				}
+
 				// Now parse and execute the command with the substituted string
 				cmdName, args, namedArgs := ParseCommand(finalString)
 
@@ -473,6 +551,7 @@ func (e *Executor) executeSingleCommand(
 				}
 
 				// Command not found
+				e.logger.SetOutputContext(NewOutputContext(capturedState, e))
 				e.logger.UnknownCommandError(cmdName, capturedPosition, nil)
 				result := BoolStatus(false)
 				if capturedShouldInvert {
@@ -608,6 +687,111 @@ func (e *Executor) executeSingleCommand(
 		}
 	}
 
+	// Check for macro marker in command position (e.g., from {macro (...)}, args or {~m}, args)
+	// This allows macro execution via: {~macro}, arg1, arg2
+	if strings.HasPrefix(commandStr, "\x00MACRO:") {
+		// Find the end of the macro marker
+		endIdx := strings.Index(commandStr[1:], "\x00")
+		if endIdx >= 0 {
+			macroMarker := commandStr[:endIdx+2]
+			argsStr := strings.TrimSpace(commandStr[endIdx+2:])
+			// Remove leading comma if present
+			if strings.HasPrefix(argsStr, ",") {
+				argsStr = strings.TrimSpace(argsStr[1:])
+			}
+
+			_, objectID := parseObjectMarker(macroMarker)
+			if objectID >= 0 {
+				if obj, exists := e.getObject(objectID); exists {
+					if storedMacro, ok := obj.(StoredMacro); ok {
+						e.logger.DebugCat(CatCommand, "Executing macro from marker with args: %s", argsStr)
+
+						// Parse arguments
+						var macroArgs []interface{}
+						var namedArgs map[string]interface{}
+						if argsStr != "" {
+							_, macroArgs, namedArgs = ParseCommand("dummy " + argsStr)
+							macroArgs = e.processArguments(macroArgs, state, substitutionCtx, position)
+							namedArgs = e.processNamedArguments(namedArgs, state, substitutionCtx, position)
+						}
+
+						// Execute the macro
+						result := e.executeMacro(&storedMacro, macroArgs, namedArgs, state, position)
+						if shouldInvert {
+							return e.invertStatus(result, state, position)
+						}
+						return result
+					}
+				}
+			}
+		}
+	}
+
+	// Check for parenthetic block in command position after substitution
+	// This handles cases where brace substitution produced a parenthetic block
+	// e.g., {~y} where y contains (echo "hello")
+	if strings.HasPrefix(commandStr, "(") {
+		closeIdx := e.findMatchingParen(commandStr, 0)
+		if closeIdx > 0 {
+			// Check if this is an unpacking assignment pattern
+			if _, _, isAssign := e.parseAssignment(commandStr); !isAssign {
+				blockContent := commandStr[1:closeIdx]
+				argsStr := strings.TrimSpace(commandStr[closeIdx+1:])
+
+				e.logger.DebugCat(CatCommand, "Executing parenthetic block after substitution: (%s) with args: %s", blockContent, argsStr)
+
+				// Create substitution context for block arguments
+				blockSubstCtx := substitutionCtx
+				if argsStr != "" {
+					// Parse the arguments
+					_, args, _ := ParseCommand("dummy " + argsStr)
+					args = e.processArguments(args, state, substitutionCtx, position)
+
+					// Create args list for $@ and store it
+					argsList := NewStoredList(args)
+					argsListID := e.storeObject(argsList, "list")
+					argsMarker := fmt.Sprintf("\x00LIST:%d\x00", argsListID)
+
+					// Create a minimal MacroContext to enable $1, $2 substitution
+					blockMacroCtx := &MacroContext{
+						MacroName:      "(block)",
+						InvocationFile: position.Filename,
+						InvocationLine: position.Line,
+					}
+
+					// Create new substitution context with args
+					blockSubstCtx = &SubstitutionContext{
+						Args:                args,
+						ExecutionState:      state,
+						ParentContext:       substitutionCtx,
+						MacroContext:        blockMacroCtx,
+						CurrentLineOffset:   0,
+						CurrentColumnOffset: 0,
+						Filename:            position.Filename,
+					}
+
+					// Set $@ in state for dollar substitution
+					state.SetVariable("$@", Symbol(argsMarker))
+				}
+
+				// Execute block content in the SAME state (no child scope)
+				result := e.ExecuteWithState(
+					blockContent,
+					state, // Same state, not a child
+					blockSubstCtx,
+					position.Filename,
+					0, 0,
+				)
+
+				// Apply inversion if needed
+				if shouldInvert {
+					return e.invertStatus(result, state, position)
+				}
+				return result
+			}
+		}
+	}
+
 	// Parse command
 	cmdName, args, namedArgs := ParseCommand(commandStr)
 
@@ -675,6 +859,7 @@ func (e *Executor) executeSingleCommand(
 	// Command not found - set result to undefined marker and return false status
 	// Note: Using UndefinedMarker not Symbol("undefined") because the bare
 	// symbol has special handling in SetResult that clears the result
+	e.logger.SetOutputContext(NewOutputContext(state, e))
 	e.logger.UnknownCommandError(cmdName, position, nil)
 	state.SetResult(Symbol(UndefinedMarker))
 	if shouldInvert {
@@ -1610,6 +1795,16 @@ func (e *Executor) executeMacro(
 	// Execute the macro commands
 	result := e.ExecuteWithState(macro.Commands, macroState, substitutionContext,
 		macro.DefinitionFile, macro.DefinitionLine-1, macro.DefinitionColumn-1)
+
+	// Handle EarlyReturn - extract the result and convert to normal status
+	// The EarlyReturn should terminate the macro, not propagate to the caller
+	if earlyReturn, ok := result.(EarlyReturn); ok {
+		e.logger.DebugCat(CatCommand, "Macro received EarlyReturn, extracting result")
+		if earlyReturn.HasResult {
+			macroState.SetResult(earlyReturn.Result)
+		}
+		result = earlyReturn.Status
+	}
 
 	// Merge macro exports into parent's LibraryInherited under "exports" module
 	macroState.moduleEnv.mu.RLock()

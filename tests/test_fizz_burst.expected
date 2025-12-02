@@ -1,0 +1,37 @@
+=== Fizz and Burst Tests ===
+Test 1: Basic fizz
+  Error: first error
+  Error: second error
+Test 2: Multiple flavors
+  Item: first error
+  Item: second error
+  Item: first warning
+Test 3: With metadata
+  Content: first error Memo: 
+  Content: second error Memo: 
+  Content: third error Memo: my memo
+Test 4: Wildcard *
+  All: first error
+  All: second error
+  All: first warning
+  All: third error
+  All: info message
+Test 5: Burst errors
+  Removing: first error
+  Removing: second error
+  Removing: third error
+After burst - error count:
+(should be empty)
+Test 6: Wildcard error_*
+  Error_*: database error
+  Error_*: network error
+Test 7: Wildcard *_async
+  *_async: async task 1
+  *_async: async job
+Test 8: Break
+  Break test: one
+  Break test: two
+Test 9: Continue
+  Continue test: A
+  Continue test: C
+=== Tests Complete ===

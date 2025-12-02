@@ -1,0 +1,32 @@
+=== Deep Equality Tests ===
+
+Test 1: Simple positional items
+  eq same: true
+  eq diff: false
+  neq same: false
+  neq diff: true
+
+Test 2: Named arguments only
+  eq same: true
+  eq diff value: false
+  eq diff key: false
+
+Test 3: Mixed positional and named
+  eq same: true
+  eq diff named: false
+  eq diff positional: false
+
+Test 4: Nested lists with named args
+  eq same content nested: true
+  eq diff content nested: false
+
+Test 5: Empty lists
+  eq empty: true
+
+Test 6: Different lengths
+  eq diff len: false
+
+Test 7: Different named arg counts
+  eq diff named count: false
+
+=== Deep Equality Tests Complete ===

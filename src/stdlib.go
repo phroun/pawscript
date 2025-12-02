@@ -7,6 +7,249 @@ import (
 	"strings"
 )
 
+// DisplayColorConfig holds ANSI color codes for colored output
+type DisplayColorConfig struct {
+	Reset   string
+	Key     string
+	String  string
+	Number  string
+	Bool    string
+	Nil     string
+	Bracket string
+	Colon   string
+}
+
+// DefaultDisplayColors returns the default color configuration
+func DefaultDisplayColors() DisplayColorConfig {
+	return DisplayColorConfig{
+		Reset:   "\033[0m",
+		Key:     "\033[36m", // Cyan for keys
+		String:  "\033[32m", // Green for strings
+		Number:  "\033[33m", // Yellow for numbers
+		Bool:    "\033[35m", // Magenta for booleans
+		Nil:     "\033[31m", // Red for nil/null
+		Bracket: "\033[37m", // White for brackets
+		Colon:   "\033[90m", // Gray for colons/commas
+	}
+}
+
+// ParseDisplayColorConfig extracts color configuration from a list, using defaults for unspecified colors
+func ParseDisplayColorConfig(colorArg interface{}, executor *Executor) DisplayColorConfig {
+	cfg := DefaultDisplayColors()
+
+	// If it's just a boolean true, use all defaults
+	if b, ok := colorArg.(bool); ok && b {
+		return cfg
+	}
+	if sym, ok := colorArg.(Symbol); ok && (string(sym) == "true" || string(sym) == "1") {
+		return cfg
+	}
+	if s, ok := colorArg.(string); ok && (s == "true" || s == "1") {
+		return cfg
+	}
+
+	// Try to resolve as a list for custom colors
+	var colorList StoredList
+	hasColorList := false
+	switch v := colorArg.(type) {
+	case StoredList:
+		colorList = v
+		hasColorList = true
+	case Symbol:
+		if executor != nil {
+			if resolved := executor.resolveValue(v); resolved != nil {
+				if sl, ok := resolved.(StoredList); ok {
+					colorList = sl
+					hasColorList = true
+				}
+			}
+		}
+	}
+
+	if hasColorList {
+		namedArgs := colorList.NamedArgs()
+		if namedArgs != nil {
+			if v, ok := namedArgs["reset"]; ok {
+				cfg.Reset = fmt.Sprintf("%v", v)
+			}
+			if v, ok := namedArgs["key"]; ok {
+				cfg.Key = fmt.Sprintf("%v", v)
+			}
+			if v, ok := namedArgs["string"]; ok {
+				cfg.String = fmt.Sprintf("%v", v)
+			}
+			if v, ok := namedArgs["number"]; ok {
+				cfg.Number = fmt.Sprintf("%v", v)
+			}
+			if v, ok := namedArgs["bool"]; ok {
+				cfg.Bool = fmt.Sprintf("%v", v)
+			}
+			if v, ok := namedArgs["nil"]; ok {
+				cfg.Nil = fmt.Sprintf("%v", v)
+			}
+			if v, ok := namedArgs["bracket"]; ok {
+				cfg.Bracket = fmt.Sprintf("%v", v)
+			}
+			if v, ok := namedArgs["colon"]; ok {
+				cfg.Colon = fmt.Sprintf("%v", v)
+			}
+		}
+	}
+	return cfg
+}
+
+// stripANSIOutsideQuotes removes ANSI escape sequences (ESC...m) from a string,
+// but only those that appear outside of JSON quoted string values.
+// This handles colored JSON output where escape codes appear around keys/values.
+func stripANSIOutsideQuotes(s string) string {
+	var result strings.Builder
+	inQuote := false
+	i := 0
+	for i < len(s) {
+		ch := s[i]
+
+		// Track quoted strings
+		if ch == '"' && (i == 0 || s[i-1] != '\\') {
+			inQuote = !inQuote
+			result.WriteByte(ch)
+			i++
+			continue
+		}
+
+		// If inside a quoted string, keep everything
+		if inQuote {
+			result.WriteByte(ch)
+			i++
+			continue
+		}
+
+		// Check for ANSI escape sequence: ESC (0x1b or \033) followed by chars ending in 'm'
+		if ch == 0x1b && i+1 < len(s) {
+			// Skip until we find 'm' (the terminator for color/style codes)
+			j := i + 1
+			for j < len(s) && s[j] != 'm' {
+				j++
+			}
+			if j < len(s) && s[j] == 'm' {
+				// Skip the entire escape sequence including 'm'
+				i = j + 1
+				continue
+			}
+		}
+
+		result.WriteByte(ch)
+		i++
+	}
+	return result.String()
+}
+
+// JSONToStoredList converts a parsed JSON value to a StoredList structure.
+// - Arrays become lists with positional items only
+// - Objects become lists with named args only
+// - Special handling for _children (or custom childrenKey):
+//   - mergeChildren == nil: omit children entirely
+//   - mergeChildren == false: keep as separate named key with positional-only list
+//   - mergeChildren == true (default): merge children into positional args of parent
+//   - mergeChildren == int64(0): array_1 mode - index 0 object becomes named args, rest become positional
+func JSONToStoredList(value interface{}, childrenKey string, mergeChildren interface{}, executor *Executor) interface{} {
+	switch v := value.(type) {
+	case nil:
+		return nil
+	case bool, float64, string:
+		return v
+	case []interface{}:
+		// Check for merge: 0 (array_1 mode) on top-level arrays
+		if mergeInt, ok := mergeChildren.(int64); ok && mergeInt == 0 && len(v) > 0 {
+			// If index 0 is an object, its keys become named args, rest become positional
+			if firstObj, ok := v[0].(map[string]interface{}); ok {
+				namedArgs := make(map[string]interface{})
+				var positionalItems []interface{}
+				// Index 0 object keys become named args
+				for objKey, objVal := range firstObj {
+					namedArgs[objKey] = JSONToStoredList(objVal, childrenKey, mergeChildren, executor)
+				}
+				// Items after index 0 become positional
+				for i := 1; i < len(v); i++ {
+					positionalItems = append(positionalItems, JSONToStoredList(v[i], childrenKey, mergeChildren, executor))
+				}
+				return NewStoredListWithRefs(positionalItems, namedArgs, executor)
+			}
+		}
+		// Default: Array -> list with positional items only
+		items := make([]interface{}, len(v))
+		for i, item := range v {
+			items[i] = JSONToStoredList(item, childrenKey, mergeChildren, executor)
+		}
+		return NewStoredListWithRefs(items, nil, executor)
+	case map[string]interface{}:
+		// Object -> list with named args
+		namedArgs := make(map[string]interface{})
+		var positionalItems []interface{}
+
+		for k, val := range v {
+			if k == childrenKey {
+				// Handle children based on merge setting
+				if mergeChildren == nil {
+					// mergeChildren is nil -> omit children entirely
+					continue
+				}
+				if mergeBool, ok := mergeChildren.(bool); ok && !mergeBool {
+					// mergeChildren is false -> keep as separate key with positional-only list
+					if childArr, ok := val.([]interface{}); ok {
+						childItems := make([]interface{}, len(childArr))
+						for i, item := range childArr {
+							childItems[i] = JSONToStoredList(item, childrenKey, mergeChildren, executor)
+						}
+						namedArgs[k] = NewStoredListWithRefs(childItems, nil, executor)
+					} else {
+						namedArgs[k] = JSONToStoredList(val, childrenKey, mergeChildren, executor)
+					}
+					continue
+				}
+				// Check for merge: 0 (array_1 mode)
+				if mergeInt, ok := mergeChildren.(int64); ok && mergeInt == 0 {
+					if childArr, ok := val.([]interface{}); ok && len(childArr) > 0 {
+						// Index 0: if it's an object, merge its keys into parent's named args
+						if firstObj, ok := childArr[0].(map[string]interface{}); ok {
+							for objKey, objVal := range firstObj {
+								namedArgs[objKey] = JSONToStoredList(objVal, childrenKey, mergeChildren, executor)
+							}
+						} else {
+							// Index 0 is not an object, treat as positional
+							positionalItems = append(positionalItems, JSONToStoredList(childArr[0], childrenKey, mergeChildren, executor))
+						}
+						// Items after index 0 become positional
+						for i := 1; i < len(childArr); i++ {
+							positionalItems = append(positionalItems, JSONToStoredList(childArr[i], childrenKey, mergeChildren, executor))
+						}
+					}
+					continue
+				}
+				// Default (merge: true): merge children into positional args
+				if childArr, ok := val.([]interface{}); ok {
+					for _, item := range childArr {
+						positionalItems = append(positionalItems, JSONToStoredList(item, childrenKey, mergeChildren, executor))
+					}
+				}
+				continue
+			}
+			// Regular key
+			namedArgs[k] = JSONToStoredList(val, childrenKey, mergeChildren, executor)
+		}
+
+		return NewStoredListWithRefs(positionalItems, namedArgs, executor)
+	default:
+		// Numbers from JSON are float64, convert to int64 if whole number
+		if f, ok := v.(float64); ok {
+			if f == float64(int64(f)) {
+				return int64(f)
+			}
+			return f
+		}
+		return v
+	}
+}
+
 // formatListForDisplay formats a StoredList as a ParenGroup-like representation
 func formatListForDisplay(list StoredList) string {
 	var parts []string
@@ -29,16 +272,28 @@ func formatListForDisplay(list StoredList) string {
 				valueStr = formatListForDisplay(v)
 			case ParenGroup:
 				valueStr = "(" + string(v) + ")"
+			case StoredBlock:
+				valueStr = "(" + string(v) + ")"
 			case QuotedString:
 				escaped := strings.ReplaceAll(string(v), "\\", "\\\\")
 				escaped = strings.ReplaceAll(escaped, "\"", "\\\"")
 				valueStr = "\"" + escaped + "\""
 			case Symbol:
-				valueStr = string(v)
+				// Check if this is an object marker that should be formatted specially
+				if objType, objID := parseObjectMarker(string(v)); objID >= 0 {
+					valueStr = fmt.Sprintf("<%s %d>", objType, objID)
+				} else {
+					valueStr = string(v)
+				}
 			case string:
-				escaped := strings.ReplaceAll(v, "\\", "\\\\")
-				escaped = strings.ReplaceAll(escaped, "\"", "\\\"")
-				valueStr = "\"" + escaped + "\""
+				// Check if this is an object marker that should be formatted specially
+				if objType, objID := parseObjectMarker(v); objID >= 0 {
+					valueStr = fmt.Sprintf("<%s %d>", objType, objID)
+				} else {
+					escaped := strings.ReplaceAll(v, "\\", "\\\\")
+					escaped = strings.ReplaceAll(escaped, "\"", "\\\"")
+					valueStr = "\"" + escaped + "\""
+				}
 			case int64, float64, bool:
 				valueStr = fmt.Sprintf("%v", v)
 			case nil:
@@ -61,18 +316,31 @@ func formatListForDisplay(list StoredList) string {
 			parts = append(parts, formatListForDisplay(v))
 		case ParenGroup:
 			parts = append(parts, "("+string(v)+")")
+		case StoredBlock:
+			// Display block contents in parentheses
+			parts = append(parts, "("+string(v)+")")
 		case QuotedString:
 			// Escape internal quotes
 			escaped := strings.ReplaceAll(string(v), "\\", "\\\\")
 			escaped = strings.ReplaceAll(escaped, "\"", "\\\"")
 			parts = append(parts, "\""+escaped+"\"")
 		case Symbol:
-			parts = append(parts, string(v))
+			// Check if this is an object marker that should be formatted specially
+			if objType, objID := parseObjectMarker(string(v)); objID >= 0 {
+				parts = append(parts, fmt.Sprintf("<%s %d>", objType, objID))
+			} else {
+				parts = append(parts, string(v))
+			}
 		case string:
-			// Regular strings get quoted
-			escaped := strings.ReplaceAll(v, "\\", "\\\\")
-			escaped = strings.ReplaceAll(escaped, "\"", "\\\"")
-			parts = append(parts, "\""+escaped+"\"")
+			// Check if this is an object marker that should be formatted specially
+			if objType, objID := parseObjectMarker(v); objID >= 0 {
+				parts = append(parts, fmt.Sprintf("<%s %d>", objType, objID))
+			} else {
+				// Regular strings get quoted
+				escaped := strings.ReplaceAll(v, "\\", "\\\\")
+				escaped = strings.ReplaceAll(escaped, "\"", "\\\"")
+				parts = append(parts, "\""+escaped+"\"")
+			}
 		case int64, float64, bool:
 			parts = append(parts, fmt.Sprintf("%v", v))
 		case nil:
@@ -87,6 +355,263 @@ func formatListForDisplay(list StoredList) string {
 	}
 
 	return "(" + strings.Join(parts, ", ") + ")"
+}
+
+// formatListForDisplayPretty formats a StoredList with indentation for readability
+func formatListForDisplayPretty(list StoredList, indent int) string {
+	indentStr := strings.Repeat("  ", indent)
+	innerIndent := strings.Repeat("  ", indent+1)
+	var parts []string
+
+	// First, add named arguments (key: value pairs)
+	namedArgs := list.NamedArgs()
+	if len(namedArgs) > 0 {
+		// Get keys in sorted order for consistent output
+		keys := make([]string, 0, len(namedArgs))
+		for k := range namedArgs {
+			keys = append(keys, k)
+		}
+		sort.Strings(keys)
+
+		for _, key := range keys {
+			value := namedArgs[key]
+			var valueStr string
+			switch v := value.(type) {
+			case StoredList:
+				valueStr = formatListForDisplayPretty(v, indent+1)
+			case ParenGroup:
+				valueStr = "(" + string(v) + ")"
+			case StoredBlock:
+				valueStr = "(" + string(v) + ")"
+			case QuotedString:
+				escaped := strings.ReplaceAll(string(v), "\\", "\\\\")
+				escaped = strings.ReplaceAll(escaped, "\"", "\\\"")
+				valueStr = "\"" + escaped + "\""
+			case Symbol:
+				if objType, objID := parseObjectMarker(string(v)); objID >= 0 {
+					valueStr = fmt.Sprintf("<%s %d>", objType, objID)
+				} else {
+					valueStr = string(v)
+				}
+			case string:
+				if objType, objID := parseObjectMarker(v); objID >= 0 {
+					valueStr = fmt.Sprintf("<%s %d>", objType, objID)
+				} else {
+					escaped := strings.ReplaceAll(v, "\\", "\\\\")
+					escaped = strings.ReplaceAll(escaped, "\"", "\\\"")
+					valueStr = "\"" + escaped + "\""
+				}
+			case int64, float64, bool:
+				valueStr = fmt.Sprintf("%v", v)
+			case nil:
+				valueStr = "nil"
+			default:
+				valueStr = fmt.Sprintf("%v", v)
+			}
+			parts = append(parts, key+": "+valueStr)
+		}
+	}
+
+	// Then, add positional items
+	items := list.Items()
+	for _, item := range items {
+		switch v := item.(type) {
+		case StoredList:
+			parts = append(parts, formatListForDisplayPretty(v, indent+1))
+		case ParenGroup:
+			parts = append(parts, "("+string(v)+")")
+		case StoredBlock:
+			parts = append(parts, "("+string(v)+")")
+		case QuotedString:
+			escaped := strings.ReplaceAll(string(v), "\\", "\\\\")
+			escaped = strings.ReplaceAll(escaped, "\"", "\\\"")
+			parts = append(parts, "\""+escaped+"\"")
+		case Symbol:
+			if objType, objID := parseObjectMarker(string(v)); objID >= 0 {
+				parts = append(parts, fmt.Sprintf("<%s %d>", objType, objID))
+			} else {
+				parts = append(parts, string(v))
+			}
+		case string:
+			if objType, objID := parseObjectMarker(v); objID >= 0 {
+				parts = append(parts, fmt.Sprintf("<%s %d>", objType, objID))
+			} else {
+				escaped := strings.ReplaceAll(v, "\\", "\\\\")
+				escaped = strings.ReplaceAll(escaped, "\"", "\\\"")
+				parts = append(parts, "\""+escaped+"\"")
+			}
+		case int64, float64, bool:
+			parts = append(parts, fmt.Sprintf("%v", v))
+		case nil:
+			parts = append(parts, "nil")
+		default:
+			parts = append(parts, fmt.Sprintf("%v", v))
+		}
+	}
+
+	if len(parts) == 0 {
+		return "()"
+	}
+
+	// For simple lists (no nested structures), use single-line format
+	hasNested := false
+	for _, item := range items {
+		if _, ok := item.(StoredList); ok {
+			hasNested = true
+			break
+		}
+	}
+	for _, value := range namedArgs {
+		if _, ok := value.(StoredList); ok {
+			hasNested = true
+			break
+		}
+	}
+
+	if !hasNested && len(parts) <= 3 {
+		// Short simple lists stay on one line
+		return "(" + strings.Join(parts, ", ") + ")"
+	}
+
+	// Multi-line format for complex lists
+	var sb strings.Builder
+	sb.WriteString("(\n")
+	for i, part := range parts {
+		sb.WriteString(innerIndent)
+		sb.WriteString(part)
+		if i < len(parts)-1 {
+			sb.WriteString(",")
+		}
+		sb.WriteString("\n")
+	}
+	sb.WriteString(indentStr)
+	sb.WriteString(")")
+	return sb.String()
+}
+
+// formatListForDisplayColored formats a StoredList with ANSI colors for type distinction
+func formatListForDisplayColored(list StoredList, indent int, pretty bool, cfg DisplayColorConfig) string {
+	indentStr := ""
+	innerIndent := ""
+	if pretty {
+		indentStr = strings.Repeat("  ", indent)
+		innerIndent = strings.Repeat("  ", indent+1)
+	}
+
+	var parts []string
+
+	// Helper to colorize a value based on its type
+	var colorizeValue func(value interface{}) string
+	colorizeValue = func(value interface{}) string {
+		switch v := value.(type) {
+		case StoredList:
+			return formatListForDisplayColored(v, indent+1, pretty, cfg)
+		case ParenGroup:
+			return cfg.Bracket + "(" + cfg.Reset + string(v) + cfg.Bracket + ")" + cfg.Reset
+		case StoredBlock:
+			return cfg.Bracket + "(" + cfg.Reset + string(v) + cfg.Bracket + ")" + cfg.Reset
+		case QuotedString:
+			escaped := strings.ReplaceAll(string(v), "\\", "\\\\")
+			escaped = strings.ReplaceAll(escaped, "\"", "\\\"")
+			return cfg.String + "\"" + escaped + "\"" + cfg.Reset
+		case Symbol:
+			s := string(v)
+			if objType, objID := parseObjectMarker(s); objID >= 0 {
+				return cfg.Nil + fmt.Sprintf("<%s %d>", objType, objID) + cfg.Reset
+			}
+			if s == "true" || s == "false" {
+				return cfg.Bool + s + cfg.Reset
+			}
+			if s == "nil" || s == "null" {
+				return cfg.Nil + s + cfg.Reset
+			}
+			return s
+		case string:
+			if objType, objID := parseObjectMarker(v); objID >= 0 {
+				return cfg.Nil + fmt.Sprintf("<%s %d>", objType, objID) + cfg.Reset
+			}
+			escaped := strings.ReplaceAll(v, "\\", "\\\\")
+			escaped = strings.ReplaceAll(escaped, "\"", "\\\"")
+			return cfg.String + "\"" + escaped + "\"" + cfg.Reset
+		case int64:
+			return cfg.Number + fmt.Sprintf("%d", v) + cfg.Reset
+		case float64:
+			return cfg.Number + strconv.FormatFloat(v, 'f', -1, 64) + cfg.Reset
+		case bool:
+			if v {
+				return cfg.Bool + "true" + cfg.Reset
+			}
+			return cfg.Bool + "false" + cfg.Reset
+		case nil:
+			return cfg.Nil + "nil" + cfg.Reset
+		default:
+			return fmt.Sprintf("%v", v)
+		}
+	}
+
+	// First, add named arguments (key: value pairs)
+	namedArgs := list.NamedArgs()
+	if len(namedArgs) > 0 {
+		keys := make([]string, 0, len(namedArgs))
+		for k := range namedArgs {
+			keys = append(keys, k)
+		}
+		sort.Strings(keys)
+
+		for _, key := range keys {
+			value := namedArgs[key]
+			valueStr := colorizeValue(value)
+			parts = append(parts, cfg.Key+key+cfg.Reset+cfg.Colon+": "+cfg.Reset+valueStr)
+		}
+	}
+
+	// Then, add positional items
+	items := list.Items()
+	for _, item := range items {
+		parts = append(parts, colorizeValue(item))
+	}
+
+	if len(parts) == 0 {
+		return cfg.Bracket + "()" + cfg.Reset
+	}
+
+	if !pretty {
+		return cfg.Bracket + "(" + cfg.Reset + strings.Join(parts, cfg.Colon+", "+cfg.Reset) + cfg.Bracket + ")" + cfg.Reset
+	}
+
+	// For simple lists (no nested structures), use single-line format
+	hasNested := false
+	for _, item := range items {
+		if _, ok := item.(StoredList); ok {
+			hasNested = true
+			break
+		}
+	}
+	for _, value := range namedArgs {
+		if _, ok := value.(StoredList); ok {
+			hasNested = true
+			break
+		}
+	}
+
+	if !hasNested && len(parts) <= 3 {
+		return cfg.Bracket + "(" + cfg.Reset + strings.Join(parts, cfg.Colon+", "+cfg.Reset) + cfg.Bracket + ")" + cfg.Reset
+	}
+
+	// Multi-line format for complex lists
+	var sb strings.Builder
+	sb.WriteString(cfg.Bracket + "(\n" + cfg.Reset)
+	for i, part := range parts {
+		sb.WriteString(innerIndent)
+		sb.WriteString(part)
+		if i < len(parts)-1 {
+			sb.WriteString(cfg.Colon + "," + cfg.Reset)
+		}
+		sb.WriteString("\n")
+	}
+	sb.WriteString(indentStr)
+	sb.WriteString(cfg.Bracket + ")" + cfg.Reset)
+	return sb.String()
 }
 
 // formatArgForDisplay formats any argument for display, handling StoredList specially
@@ -612,4 +1137,60 @@ func getTypeName(val interface{}) string {
 		// Unknown type - return the Go type name as a fallback
 		return fmt.Sprintf("unknown(%T)", v)
 	}
+}
+
+// stringSliceToInterface converts a []string to []interface{}
+func stringSliceToInterface(strs []string) []interface{} {
+	result := make([]interface{}, len(strs))
+	for i, s := range strs {
+		result[i] = s
+	}
+	return result
+}
+
+// matchWildcard checks if a string matches a wildcard pattern (using * for any sequence)
+// Supports patterns like "error_*", "*_async", "*", "prefix*suffix"
+func matchWildcard(pattern, str string) bool {
+	if pattern == "*" {
+		return true
+	}
+
+	// Handle simple cases without wildcards
+	if !strings.Contains(pattern, "*") {
+		return pattern == str
+	}
+
+	// Split pattern by * and check parts match in order
+	parts := strings.Split(pattern, "*")
+
+	// If pattern starts with *, str can start with anything
+	// If pattern doesn't start with *, str must start with first part
+	pos := 0
+	for i, part := range parts {
+		if part == "" {
+			continue
+		}
+
+		idx := strings.Index(str[pos:], part)
+		if idx < 0 {
+			return false
+		}
+
+		// If this is the first part and pattern doesn't start with *, must match at start
+		if i == 0 && !strings.HasPrefix(pattern, "*") && idx != 0 {
+			return false
+		}
+
+		pos += idx + len(part)
+	}
+
+	// If pattern doesn't end with *, str must end with last part
+	if !strings.HasSuffix(pattern, "*") {
+		lastPart := parts[len(parts)-1]
+		if lastPart != "" && !strings.HasSuffix(str, lastPart) {
+			return false
+		}
+	}
+
+	return true
 }

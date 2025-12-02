@@ -288,19 +288,9 @@ func (e *Executor) handleAssignment(target, valueStr string, state *ExecutionSta
 
 	// Check for undefined - delete variable instead of setting
 	// Don't set result - "undefined" means no value, so leave previous result intact
+	// Note: File handles are auto-closed by the garbage collector when refcount reaches 0,
+	// so we don't close them here - this allows passing files to other threads/macros
 	if sym, ok := value.(Symbol); ok && string(sym) == "undefined" {
-		// Check if current value is a file handle - if so, close it before deleting
-		if currentValue, exists := state.GetVariable(varName); exists {
-			// Resolve any markers to get the actual value
-			if e != nil {
-				currentValue = e.resolveValue(currentValue)
-			}
-			// Auto-close file handles when set to undefined
-			if file, ok := currentValue.(*StoredFile); ok {
-				e.logger.DebugCat(CatVariable, "Auto-closing file handle %s on undefined assignment", file.Path)
-				file.Close()
-			}
-		}
 		state.DeleteVariable(varName)
 		return BoolStatus(true)
 	}

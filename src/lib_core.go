@@ -1,10 +1,13 @@
 package pawscript
 
 import (
+	"encoding/json"
 	"fmt"
 	"os"
 	"sort"
+	"strconv"
 	"strings"
+	"time"
 )
 
 // RegisterCoreLib registers core language commands
@@ -122,7 +125,174 @@ func (ps *PawScript) RegisterCoreLib() {
 	})
 
 	// list - creates an immutable list from arguments
+	// Options:
+	//   from: json - parse first positional arg as JSON string
+	//   merge: true (default) - merge _children array into positional args
+	//   merge: false - keep _children as separate named key
+	//   merge: nil - omit _children entirely
+	//   children: "key" - use custom key instead of _children
 	ps.RegisterCommandInModule("types", "list", func(ctx *Context) Result {
+		// Check for from: json option
+		if fromArg, hasFrom := ctx.NamedArgs["from"]; hasFrom {
+			fromStr := ""
+			switch v := fromArg.(type) {
+			case string:
+				fromStr = v
+			case Symbol:
+				fromStr = string(v)
+			case QuotedString:
+				fromStr = string(v)
+			}
+
+			if fromStr == "json" {
+				// Parse JSON from first positional argument
+				if len(ctx.Args) < 1 {
+					ctx.LogError(CatCommand, "list from: json requires a JSON string argument")
+					setListResult(ctx, NewStoredList(nil))
+					return BoolStatus(false)
+				}
+
+				// Get the JSON string
+				jsonStr := ""
+				switch v := ctx.Args[0].(type) {
+				case string:
+					// Check if it's an object marker
+					markerType, objectID := parseObjectMarker(v)
+					if markerType == "str" && objectID >= 0 {
+						if obj, exists := ctx.executor.getObject(objectID); exists {
+							if ss, ok := obj.(StoredString); ok {
+								jsonStr = string(ss)
+							} else {
+								ctx.LogError(CatType, "list from: json: stored object is not a string")
+								setListResult(ctx, NewStoredList(nil))
+								return BoolStatus(false)
+							}
+						} else {
+							ctx.LogError(CatType, "list from: json: stored string not found")
+							setListResult(ctx, NewStoredList(nil))
+							return BoolStatus(false)
+						}
+					} else {
+						jsonStr = v
+					}
+				case Symbol:
+					str := string(v)
+					// Check if it's an object marker
+					markerType, objectID := parseObjectMarker(str)
+					if markerType == "str" && objectID >= 0 {
+						if obj, exists := ctx.executor.getObject(objectID); exists {
+							if ss, ok := obj.(StoredString); ok {
+								jsonStr = string(ss)
+							} else {
+								ctx.LogError(CatType, "list from: json: stored object is not a string")
+								setListResult(ctx, NewStoredList(nil))
+								return BoolStatus(false)
+							}
+						} else {
+							ctx.LogError(CatType, "list from: json: stored string not found")
+							setListResult(ctx, NewStoredList(nil))
+							return BoolStatus(false)
+						}
+					} else {
+						jsonStr = str
+					}
+				case QuotedString:
+					jsonStr = string(v)
+				case StoredString:
+					jsonStr = string(v)
+				default:
+					ctx.LogError(CatType, fmt.Sprintf("list from: json requires a string argument, got %T: %v", ctx.Args[0], ctx.Args[0]))
+					setListResult(ctx, NewStoredList(nil))
+					return BoolStatus(false)
+				}
+
+				// Strip ANSI escape sequences from outside quoted strings
+				jsonStr = stripANSIOutsideQuotes(jsonStr)
+
+				// Parse JSON
+				var jsonVal interface{}
+				if err := json.Unmarshal([]byte(jsonStr), &jsonVal); err != nil {
+					ctx.LogError(CatType, fmt.Sprintf("list from: json parse error: %v", err))
+					setListResult(ctx, NewStoredList(nil))
+					return BoolStatus(false)
+				}
+
+				// Determine children key (default "_children")
+				childrenKey := "_children"
+				if ck, hasChildren := ctx.NamedArgs["children"]; hasChildren {
+					switch v := ck.(type) {
+					case string:
+						childrenKey = v
+					case Symbol:
+						childrenKey = string(v)
+					case QuotedString:
+						childrenKey = string(v)
+					}
+				}
+
+				// Determine merge behavior (default true)
+				// merge: true - merge children into positional args
+				// merge: false - keep children as separate named key
+				// merge: nil - omit children entirely
+				// merge: 0 - array_1 mode: index 0 object becomes named args, rest positional
+				var mergeChildren interface{} = true
+				if mergeArg, hasMerge := ctx.NamedArgs["merge"]; hasMerge {
+					switch v := mergeArg.(type) {
+					case bool:
+						mergeChildren = v
+					case nil:
+						mergeChildren = nil
+					case int64:
+						if v == 0 {
+							mergeChildren = int64(0) // array_1 mode
+						} else {
+							mergeChildren = true
+						}
+					case int:
+						if v == 0 {
+							mergeChildren = int64(0) // array_1 mode
+						} else {
+							mergeChildren = true
+						}
+					case Symbol:
+						s := string(v)
+						if s == "nil" || s == "null" {
+							mergeChildren = nil
+						} else if s == "0" {
+							mergeChildren = int64(0) // array_1 mode
+						} else if s == "false" {
+							mergeChildren = false
+						} else {
+							mergeChildren = true
+						}
+					case string:
+						if v == "nil" || v == "null" {
+							mergeChildren = nil
+						} else if v == "0" {
+							mergeChildren = int64(0) // array_1 mode
+						} else if v == "false" {
+							mergeChildren = false
+						} else {
+							mergeChildren = true
+						}
+					}
+				}
+
+				// Convert JSON to StoredList
+				result := JSONToStoredList(jsonVal, childrenKey, mergeChildren, ctx.executor)
+
+				// Ensure result is a StoredList
+				if sl, ok := result.(StoredList); ok {
+					setListResult(ctx, sl)
+				} else {
+					// Wrap non-list result in a list
+					setListResult(ctx, NewStoredListWithRefs([]interface{}{result}, nil, ctx.executor))
+				}
+				return BoolStatus(true)
+			}
+		}
+
+		// Default behavior: create list from arguments
 		setListResult(ctx, NewStoredListWithRefs(ctx.Args, ctx.NamedArgs, ctx.executor))
 		return BoolStatus(true)
 	})
@@ -230,6 +400,28 @@ func (ps *PawScript) RegisterCoreLib() {
 
 		switch v := value.(type) {
 		case StoredList:
+			// Check for keys_only or keys parameter
+			if keysOnly, exists := ctx.NamedArgs["keys_only"]; exists && isTruthy(keysOnly) {
+				// Count only named keys
+				namedArgs := v.NamedArgs()
+				if namedArgs == nil {
+					ctx.SetResult(int64(0))
+				} else {
+					ctx.SetResult(int64(len(namedArgs)))
+				}
+				return BoolStatus(true)
+			}
+			if keys, exists := ctx.NamedArgs["keys"]; exists && isTruthy(keys) {
+				// Count both positional and named together
+				namedCount := 0
+				namedArgs := v.NamedArgs()
+				if namedArgs != nil {
+					namedCount = len(namedArgs)
+				}
+				ctx.SetResult(int64(v.Len() + namedCount))
+				return BoolStatus(true)
+			}
+			// Default: count positional items only
 			ctx.SetResult(int64(v.Len()))
 			return BoolStatus(true)
 		case StoredBytes:
@@ -280,6 +472,679 @@ func (ps *PawScript) RegisterCoreLib() {
 		}
 	})
 
+	// arrlen - count positional items in a list (synonym for len without named args)
+	ps.RegisterCommandInModule("types", "arrlen", func(ctx *Context) Result {
+		if len(ctx.Args) < 1 {
+			ctx.LogError(CatCommand, "Usage: arrlen <list>")
+			ctx.SetResult(0)
+			return BoolStatus(false)
+		}
+
+		value := ctx.Args[0]
+
+		// Resolve list markers
+		switch v := value.(type) {
+		case Symbol:
+			markerType, objectID := parseObjectMarker(string(v))
+			if objectID >= 0 && markerType == "list" {
+				if obj, exists := ctx.executor.getObject(objectID); exists {
+					if list, ok := obj.(StoredList); ok {
+						ctx.SetResult(int64(list.Len()))
+						return BoolStatus(true)
+					}
+				}
+			}
+		case string:
+			markerType, objectID := parseObjectMarker(v)
+			if objectID >= 0 && markerType == "list" {
+				if obj, exists := ctx.executor.getObject(objectID); exists {
+					if list, ok := obj.(StoredList); ok {
+						ctx.SetResult(int64(list.Len()))
+						return BoolStatus(true)
+					}
+				}
+			}
+		case StoredList:
+			ctx.SetResult(int64(v.Len()))
+			return BoolStatus(true)
+		}
+
+		ctx.LogError(CatType, "arrlen requires a list argument")
+		ctx.SetResult(0)
+		return BoolStatus(false)
+	})
+
+	// maplen - count named keys in a list (synonym for len with keys_only: true)
+	ps.RegisterCommandInModule("types", "maplen", func(ctx *Context) Result {
+		if len(ctx.Args) < 1 {
+			ctx.LogError(CatCommand, "Usage: maplen <list>")
+			ctx.SetResult(0)
+			return BoolStatus(false)
+		}
+
+		value := ctx.Args[0]
+
+		// Resolve list markers
+		switch v := value.(type) {
+		case Symbol:
+			markerType, objectID := parseObjectMarker(string(v))
+			if objectID >= 0 && markerType == "list" {
+				if obj, exists := ctx.executor.getObject(objectID); exists {
+					if list, ok := obj.(StoredList); ok {
+						namedArgs := list.NamedArgs()
+						if namedArgs == nil {
+							ctx.SetResult(int64(0))
+						} else {
+							ctx.SetResult(int64(len(namedArgs)))
+						}
+						return BoolStatus(true)
+					}
+				}
+			}
+		case string:
+			markerType, objectID := parseObjectMarker(v)
+			if objectID >= 0 && markerType == "list" {
+				if obj, exists := ctx.executor.getObject(objectID); exists {
+					if list, ok := obj.(StoredList); ok {
+						namedArgs := list.NamedArgs()
+						if namedArgs == nil {
+							ctx.SetResult(int64(0))
+						} else {
+							ctx.SetResult(int64(len(namedArgs)))
+						}
+						return BoolStatus(true)
+					}
+				}
+			}
+		case StoredList:
+			namedArgs := v.NamedArgs()
+			if namedArgs == nil {
+				ctx.SetResult(int64(0))
+			} else {
+				ctx.SetResult(int64(len(namedArgs)))
+			}
+			return BoolStatus(true)
+		}
+
+		ctx.LogError(CatType, "maplen requires a list argument")
+		ctx.SetResult(0)
+		return BoolStatus(false)
+	})
+
+	// Helper function to resolve a list argument (shared by type info commands)
+	resolveListArg := func(ctx *Context, arg interface{}) (StoredList, bool) {
+		value := arg
+
+		// Helper to resolve a value (handles markers to get actual objects)
+		resolveValue := func(val interface{}) interface{} {
+			switch v := val.(type) {
+			case Symbol:
+				markerType, objectID := parseObjectMarker(string(v))
+				if objectID >= 0 {
+					if obj, exists := ctx.executor.getObject(objectID); exists {
+						if markerType == "list" {
+							if list, ok := obj.(StoredList); ok {
+								return list
+							}
+						}
+						return obj
+					}
+				}
+			case string:
+				markerType, objectID := parseObjectMarker(v)
+				if objectID >= 0 {
+					if obj, exists := ctx.executor.getObject(objectID); exists {
+						if markerType == "list" {
+							if list, ok := obj.(StoredList); ok {
+								return list
+							}
+						}
+						return obj
+					}
+				}
+			}
+			return val
+		}
+
+		// Check for #-prefixed symbol (resolve like tilde would)
+		if sym, ok := value.(Symbol); ok {
+			symStr := string(sym)
+			if strings.HasPrefix(symStr, "#") {
+				if localVal, exists := ctx.state.GetVariable(symStr); exists {
+					value = resolveValue(localVal)
+				} else if ctx.state.moduleEnv != nil {
+					ctx.state.moduleEnv.mu.RLock()
+					if ctx.state.moduleEnv.ObjectsModule != nil {
+						if obj, exists := ctx.state.moduleEnv.ObjectsModule[symStr]; exists {
+							value = resolveValue(obj)
+						}
+					}
+					ctx.state.moduleEnv.mu.RUnlock()
+				}
+			} else {
+				value = resolveValue(value)
+			}
+		} else if _, ok := value.(string); ok {
+			value = resolveValue(value)
+		}
+
+		if list, ok := value.(StoredList); ok {
+			return list, true
+		}
+		return StoredList{}, false
+	}
+
+	// arrtype - returns the type of positional items in a list
+	ps.RegisterCommandInModule("types", "arrtype", func(ctx *Context) Result {
+		if len(ctx.Args) < 1 {
+			ctx.LogError(CatCommand, "Usage: arrtype <list>")
+			ctx.SetResult("")
+			return BoolStatus(false)
+		}
+		list, ok := resolveListArg(ctx, ctx.Args[0])
+		if !ok {
+			ctx.LogError(CatType, "arrtype requires a list argument")
+			ctx.SetResult("")
+			return BoolStatus(false)
+		}
+		ctx.SetResult(list.ArrType())
+		return BoolStatus(true)
+	})
+
+	// maptype - returns the type of named argument values in a list
+	ps.RegisterCommandInModule("types", "maptype", func(ctx *Context) Result {
+		if len(ctx.Args) < 1 {
+			ctx.LogError(CatCommand, "Usage: maptype <list>")
+			ctx.SetResult("")
+			return BoolStatus(false)
+		}
+		list, ok := resolveListArg(ctx, ctx.Args[0])
+		if !ok {
+			ctx.LogError(CatType, "maptype requires a list argument")
+			ctx.SetResult("")
+			return BoolStatus(false)
+		}
+		ctx.SetResult(list.MapType())
+		return BoolStatus(true)
+	})
+
+	// arrsolid - returns true if positional items have no nil/undefined values
+	ps.RegisterCommandInModule("types", "arrsolid", func(ctx *Context) Result {
+		if len(ctx.Args) < 1 {
+			ctx.LogError(CatCommand, "Usage: arrsolid <list>")
+			ctx.SetResult(false)
+			return BoolStatus(false)
+		}
+		list, ok := resolveListArg(ctx, ctx.Args[0])
+		if !ok {
+			ctx.LogError(CatType, "arrsolid requires a list argument")
+			ctx.SetResult(false)
+			return BoolStatus(false)
+		}
+		ctx.SetResult(list.ArrSolid())
+		return BoolStatus(true)
+	})
+
+	// mapsolid - returns true if named argument values have no nil/undefined values
+	ps.RegisterCommandInModule("types", "mapsolid", func(ctx *Context) Result {
+		if len(ctx.Args) < 1 {
+			ctx.LogError(CatCommand, "Usage: mapsolid <list>")
+			ctx.SetResult(false)
+			return BoolStatus(false)
+		}
+		list, ok := resolveListArg(ctx, ctx.Args[0])
+		if !ok {
+			ctx.LogError(CatType, "mapsolid requires a list argument")
+			ctx.SetResult(false)
+			return BoolStatus(false)
+		}
+		ctx.SetResult(list.MapSolid())
+		return BoolStatus(true)
+	})
+
+	// arrser - returns true if all positional items are serializable types
+	ps.RegisterCommandInModule("types", "arrser", func(ctx *Context) Result {
+		if len(ctx.Args) < 1 {
+			ctx.LogError(CatCommand, "Usage: arrser <list>")
+			ctx.SetResult(false)
+			return BoolStatus(false)
+		}
+		list, ok := resolveListArg(ctx, ctx.Args[0])
+		if !ok {
+			ctx.LogError(CatType, "arrser requires a list argument")
+			ctx.SetResult(false)
+			return BoolStatus(false)
+		}
+		ctx.SetResult(list.ArrSerializable())
+		return BoolStatus(true)
+	})
+
+	// mapser - returns true if all named argument values are serializable types
+	ps.RegisterCommandInModule("types", "mapser", func(ctx *Context) Result {
+		if len(ctx.Args) < 1 {
+			ctx.LogError(CatCommand, "Usage: mapser <list>")
+			ctx.SetResult(false)
+			return BoolStatus(false)
+		}
+		list, ok := resolveListArg(ctx, ctx.Args[0])
+		if !ok {
+			ctx.LogError(CatType, "mapser requires a list argument")
+			ctx.SetResult(false)
+			return BoolStatus(false)
+		}
+		ctx.SetResult(list.MapSerializable())
+		return BoolStatus(true)
+	})
+
+	// formatJSONColored formats a Go value as colored JSON
+	var formatJSONColored func(val interface{}, indent int, pretty bool, cfg DisplayColorConfig) string
+	formatJSONColored = func(val interface{}, indent int, pretty bool, cfg DisplayColorConfig) string {
+		indentStr := ""
+		innerIndent := ""
+		newline := ""
+		space := ""
+		if pretty {
+			indentStr = strings.Repeat("  ", indent)
+			innerIndent = strings.Repeat("  ", indent+1)
+			newline = "\n"
+			space = " "
+		}
+
+		switch v := val.(type) {
+		case nil:
+			return cfg.Nil + "null" + cfg.Reset
+		case bool:
+			if v {
+				return cfg.Bool + "true" + cfg.Reset
+			}
+			return cfg.Bool + "false" + cfg.Reset
+		case int64:
+			return cfg.Number + fmt.Sprintf("%d", v) + cfg.Reset
+		case int:
+			return cfg.Number + fmt.Sprintf("%d", v) + cfg.Reset
+		case float64:
+			return cfg.Number + strconv.FormatFloat(v, 'f', -1, 64) + cfg.Reset
+		case string:
+			// Escape the string properly for JSON
+			escaped, _ := json.Marshal(v)
+			return cfg.String + string(escaped) + cfg.Reset
+		case []interface{}:
+			if len(v) == 0 {
+				return cfg.Bracket + "[]" + cfg.Reset
+			}
+			var sb strings.Builder
+			sb.WriteString(cfg.Bracket + "[" + cfg.Reset + newline)
+			for i, item := range v {
+				if pretty {
+					sb.WriteString(innerIndent)
+				}
+				sb.WriteString(formatJSONColored(item, indent+1, pretty, cfg))
+				if i < len(v)-1 {
+					sb.WriteString(cfg.Colon + "," + cfg.Reset)
+				}
+				sb.WriteString(newline)
+			}
+			if pretty {
+				sb.WriteString(indentStr)
+			}
+			sb.WriteString(cfg.Bracket + "]" + cfg.Reset)
+			return sb.String()
+		case map[string]interface{}:
+			if len(v) == 0 {
+				return cfg.Bracket + "{}" + cfg.Reset
+			}
+			// Sort keys for consistent output
+			keys := make([]string, 0, len(v))
+			for k := range v {
+				keys = append(keys, k)
+			}
+			sort.Strings(keys)
+
+			var sb strings.Builder
+			sb.WriteString(cfg.Bracket + "{" + cfg.Reset + newline)
+			for i, k := range keys {
+				if pretty {
+					sb.WriteString(innerIndent)
+				}
+				// Key
+				keyJSON, _ := json.Marshal(k)
+				sb.WriteString(cfg.Key + string(keyJSON) + cfg.Reset)
+				sb.WriteString(cfg.Colon + ":" + cfg.Reset + space)
+				// Value
+				sb.WriteString(formatJSONColored(v[k], indent+1, pretty, cfg))
+				if i < len(keys)-1 {
+					sb.WriteString(cfg.Colon + "," + cfg.Reset)
+				}
+				sb.WriteString(newline)
+			}
+			if pretty {
+				sb.WriteString(indentStr)
+			}
+			sb.WriteString(cfg.Bracket + "}" + cfg.Reset)
+			return sb.String()
+		default:
+			// Fallback - use standard JSON encoding
+			encoded, err := json.Marshal(v)
+			if err != nil {
+				return fmt.Sprintf("%v", v)
+			}
+			return string(encoded)
+		}
+	}
+
+	// json - serialize a list to JSON string
+	// Modes: explicit, merge, named, array, array_1
+	ps.RegisterCommandInModule("types", "json", func(ctx *Context) Result {
+		if len(ctx.Args) < 1 {
+			ctx.LogError(CatCommand, "Usage: json <list>, [mode: explicit|merge|named|array|array_1], [children: name]")
+			ctx.SetResult("")
+			return BoolStatus(false)
+		}
+
+		list, ok := resolveListArg(ctx, ctx.Args[0])
+		if !ok {
+			ctx.LogError(CatType, "json requires a list argument")
+			ctx.SetResult("")
+			return BoolStatus(false)
+		}
+
+		// Check serializability first
+		if !list.ArrSerializable() {
+			ctx.LogError(CatType, "json: list contains unserializable positional items")
+			ctx.SetResult("")
+			return BoolStatus(false)
+		}
+		if !list.MapSerializable() {
+			ctx.LogError(CatType, "json: list contains unserializable named items")
+			ctx.SetResult("")
+			return BoolStatus(false)
+		}
+
+		// Get mode (default depends on list contents)
+		mode := "auto"
+		if modeArg, exists := ctx.NamedArgs["mode"]; exists {
+			mode = fmt.Sprintf("%v", modeArg)
+		}
+
+		// Get children property name
+		childrenName := "_children"
+		hasChildrenParam := false
+		if childrenArg, exists := ctx.NamedArgs["children"]; exists {
+			childrenName = fmt.Sprintf("%v", childrenArg)
+			hasChildrenParam = true
+		}
+
+		// Declare both functions first so they can reference each other
+		var toJSONValue func(val interface{}) (interface{}, error)
+		var listToJSON func(l StoredList, m string, cn string, hcp bool, conv func(interface{}) (interface{}, error)) (interface{}, error)
+
+		// Helper to convert a value to JSON-compatible form
+		toJSONValue = func(val interface{}) (interface{}, error) {
+			if val == nil {
+				return nil, nil
+			}
+
+			// Handle markers
+			switch v := val.(type) {
+			case Symbol:
+				str := string(v)
+				if str == "undefined" || str == UndefinedMarker {
+					return nil, nil
+				}
+				if str == "true" {
+					return true, nil
+				}
+				if str == "false" {
+					return false, nil
+				}
+				// Check for object markers
+				_, objectID := parseObjectMarker(str)
+				if objectID >= 0 {
+					if obj, exists := ctx.executor.getObject(objectID); exists {
+						return toJSONValue(obj)
+					}
+				}
+				return str, nil
+			case string:
+				if v == UndefinedMarker {
+					return nil, nil
+				}
+				_, objectID := parseObjectMarker(v)
+				if objectID >= 0 {
+					if obj, exists := ctx.executor.getObject(objectID); exists {
+						return toJSONValue(obj)
+					}
+				}
+				return v, nil
+			case QuotedString:
+				return string(v), nil
+			case int64:
+				return v, nil
+			case float64:
+				return v, nil
+			case bool:
+				return v, nil
+			case StoredString:
+				return string(v), nil
+			case StoredBlock:
+				return string(v), nil
+			case StoredBytes:
+				// Convert to array of integers
+				data := v.Data()
+				arr := make([]interface{}, len(data))
+				for i, b := range data {
+					arr[i] = int64(b)
+				}
+				return arr, nil
+			case StoredList:
+				return listToJSON(v, mode, childrenName, hasChildrenParam, toJSONValue)
+			default:
+				return fmt.Sprintf("%v", v), nil
+			}
+		}
+
+		// Helper to convert a list to JSON based on mode
+		listToJSON = func(l StoredList, m string, cn string, hcp bool, conv func(interface{}) (interface{}, error)) (interface{}, error) {
+			items := l.Items()
+			namedArgs := l.NamedArgs()
+			hasPositional := len(items) > 0
+			hasNamed := namedArgs != nil && len(namedArgs) > 0
+
+			// Auto-detect mode if not specified
+			effectiveMode := m
+			if effectiveMode == "auto" {
+				if hasPositional && !hasNamed {
+					effectiveMode = "array"
+				} else if hasNamed && !hasPositional {
+					effectiveMode = "named"
+				} else if hasPositional && hasNamed {
+					effectiveMode = "explicit"
+				} else {
+					effectiveMode = "array" // Empty list -> empty array
+				}
+			}
+
+			switch effectiveMode {
+			case "explicit":
+				// All lists become objects, positional items go into children array
+				obj := make(map[string]interface{})
+				if namedArgs != nil {
+					for k, v := range namedArgs {
+						converted, err := conv(v)
+						if err != nil {
+							return nil, err
+						}
+						obj[k] = converted
+					}
+				}
+				if len(items) > 0 {
+					arr := make([]interface{}, len(items))
+					for i, item := range items {
+						converted, err := conv(item)
+						if err != nil {
+							return nil, err
+						}
+						arr[i] = converted
+					}
+					obj[cn] = arr
+				}
+				return obj, nil
+
+			case "merge":
+				// Object with positional items as numeric keys
+				obj := make(map[string]interface{})
+				if namedArgs != nil {
+					for k, v := range namedArgs {
+						converted, err := conv(v)
+						if err != nil {
+							return nil, err
+						}
+						obj[k] = converted
+					}
+				}
+				for i, item := range items {
+					key := fmt.Sprintf("%d", i)
+					if _, exists := obj[key]; exists {
+						return nil, fmt.Errorf("json merge mode: numeric key '%s' conflicts with named key", key)
+					}
+					converted, err := conv(item)
+					if err != nil {
+						return nil, err
+					}
+					obj[key] = converted
+				}
+				return obj, nil
+
+			case "named":
+				// Named keys take priority, positional items to children property or discarded
+				obj := make(map[string]interface{})
+				if namedArgs != nil {
+					for k, v := range namedArgs {
+						converted, err := conv(v)
+						if err != nil {
+							return nil, err
+						}
+						obj[k] = converted
+					}
+				}
+				if hcp && len(items) > 0 {
+					arr := make([]interface{}, len(items))
+					for i, item := range items {
+						converted, err := conv(item)
+						if err != nil {
+							return nil, err
+						}
+						arr[i] = converted
+					}
+					obj[cn] = arr
+				}
+				// If no children param, positional items are discarded
+				return obj, nil
+
+			case "array":
+				// Only positional items, named discarded
+				arr := make([]interface{}, len(items))
+				for i, item := range items {
+					converted, err := conv(item)
+					if err != nil {
+						return nil, err
+					}
+					arr[i] = converted
+				}
+				return arr, nil
+
+			case "array_1":
+				// Named items in element 0 as object, positional items in following elements
+				arr := make([]interface{}, 0, len(items)+1)
+				if namedArgs != nil && len(namedArgs) > 0 {
+					obj := make(map[string]interface{})
+					for k, v := range namedArgs {
+						converted, err := conv(v)
+						if err != nil {
+							return nil, err
+						}
+						obj[k] = converted
+					}
+					arr = append(arr, obj)
+				}
+				for _, item := range items {
+					converted, err := conv(item)
+					if err != nil {
+						return nil, err
+					}
+					arr = append(arr, converted)
+				}
+				return arr, nil
+
+			default:
+				return nil, fmt.Errorf("json: unknown mode '%s'", effectiveMode)
+			}
+		}
+
+		// Convert list to JSON structure
+		jsonVal, err := listToJSON(list, mode, childrenName, hasChildrenParam, toJSONValue)
+		if err != nil {
+			ctx.LogError(CatType, err.Error())
+			ctx.SetResult("")
+			return BoolStatus(false)
+		}
+
+		// Check for pretty parameter
+		pretty := false
+		if prettyArg, exists := ctx.NamedArgs["pretty"]; exists {
+			switch v := prettyArg.(type) {
+			case bool:
+				pretty = v
+			case Symbol:
+				pretty = string(v) == "true" || string(v) == "1"
+			case string:
+				pretty = v == "true" || v == "1"
+			}
+		}
+
+		// Check for color parameter - can be true or a list with color overrides
+		var colorCfg *DisplayColorConfig
+		if colorArg, exists := ctx.NamedArgs["color"]; exists {
+			// Check if it's false/0 to explicitly disable
+			isDisabled := false
+			switch v := colorArg.(type) {
+			case bool:
+				isDisabled = !v
+			case Symbol:
+				s := string(v)
+				isDisabled = s == "false" || s == "0"
+			case string:
+				isDisabled = v == "false" || v == "0"
+			}
+			if !isDisabled {
+				cfg := ParseDisplayColorConfig(colorArg, ctx.executor)
+				colorCfg = &cfg
+			}
+		}
+
+		// Serialize to JSON string
+		var result string
+		if colorCfg != nil {
+			result = formatJSONColored(jsonVal, 0, pretty, *colorCfg)
+		} else {
+			var jsonBytes []byte
+			if pretty {
+				jsonBytes, err = json.MarshalIndent(jsonVal, "", "  ")
+			} else {
+				jsonBytes, err = json.Marshal(jsonVal)
+			}
+			if err != nil {
+				ctx.LogError(CatType, fmt.Sprintf("json: serialization error: %v", err))
+				ctx.SetResult("")
+				return BoolStatus(false)
+			}
+			result = string(jsonBytes)
+		}
+
+		ctx.SetResult(result)
+		return BoolStatus(true)
+	})
+
 	// stack_trace - returns the current macro call stack as a list
 	ps.RegisterCommandInModule("core", "stack_trace", func(ctx *Context) Result {
 		macroCtx := ctx.GetMacroContext()
@@ -312,18 +1177,65 @@ func (ps *PawScript) RegisterCoreLib() {
 
 	// bubble - add a bubble to the bubble map
 	// Usage: bubble flavor, content [, trace [, memo]]
-	// flavor: string key for categorizing bubbles
+	//        bubble (flavor1, flavor2, ...), content [, trace [, memo]]
+	// flavor: string key for categorizing bubbles (or list/paren group of flavors)
 	// content: any PawScript value
 	// trace: boolean (default true) - whether to include stack trace
 	// memo: optional string memo
+	// When multiple flavors are provided, the SAME bubble entry is added to all flavor lists
 	ps.RegisterCommandInModule("core", "bubble", func(ctx *Context) Result {
 		if len(ctx.Args) < 2 {
-			ctx.LogError(CatCommand, "bubble requires at least 2 arguments: flavor, content")
+			ctx.LogError(CatCommand, "bubble requires at least 2 arguments: flavor(s), content")
 			return BoolStatus(false)
 		}
 
-		// Get flavor (convert to string)
-		flavor := fmt.Sprintf("%v", ctx.Args[0])
+		// Get flavor(s) - can be single string, list, or parenthetic group
+		var flavors []string
+		flavorArg := ctx.Args[0]
+
+		// Check if it's a stored list (either as Symbol marker or resolved StoredList)
+		if storedList, ok := flavorArg.(StoredList); ok {
+			for _, item := range storedList.Items() {
+				flavors = append(flavors, fmt.Sprintf("%v", item))
+			}
+		} else if sym, ok := flavorArg.(Symbol); ok {
+			markerType, objectID := parseObjectMarker(string(sym))
+			if markerType == "list" && objectID >= 0 {
+				if obj, exists := ctx.executor.getObject(objectID); exists {
+					if storedList, ok := obj.(StoredList); ok {
+						for _, item := range storedList.Items() {
+							flavors = append(flavors, fmt.Sprintf("%v", item))
+						}
+					}
+				}
+			}
+		} else if str, ok := flavorArg.(string); ok {
+			// Check if it's a marker string
+			markerType, objectID := parseObjectMarker(str)
+			if markerType == "list" && objectID >= 0 {
+				if obj, exists := ctx.executor.getObject(objectID); exists {
+					if storedList, ok := obj.(StoredList); ok {
+						for _, item := range storedList.Items() {
+							flavors = append(flavors, fmt.Sprintf("%v", item))
+						}
+					}
+				}
+			}
+		}
+
+		// Check if it's a paren group
+		if pg, ok := flavorArg.(ParenGroup); ok {
+			// Parse the paren group contents as comma-separated values
+			items, _ := parseArguments(string(pg))
+			for _, item := range items {
+				flavors = append(flavors, fmt.Sprintf("%v", item))
+			}
+		}
+
+		// If no flavors extracted yet, treat as single flavor
+		if len(flavors) == 0 {
+			flavors = []string{fmt.Sprintf("%v", flavorArg)}
+		}
 
 		// Get content
 		content := ctx.Args[1]
@@ -357,7 +1269,8 @@ func (ps *PawScript) RegisterCoreLib() {
 			}
 		}
 
-		ctx.state.AddBubble(flavor, content, trace, memo)
+		// Add bubble to all flavors (same entry shared across all)
+		ctx.state.AddBubbleMultiFlavor(flavors, content, trace, memo)
 		return BoolStatus(true)
 	})
 
@@ -443,6 +1356,303 @@ func (ps *PawScript) RegisterCoreLib() {
 		return BoolStatus(true)
 	})
 
+	// fizz - iterate over bubbles from specified flavors
+	// Usage: fizz ~flavorList, contentVar, (body)
+	//        fizz (flavor_a, flavor_b), contentVar, metaVar, (body)
+	// Iterates over all unique bubbles from the specified flavors, sorted by microtime.
+	// For each bubble, sets contentVar to the bubble's content.
+	// If metaVar is provided (not a ParenGroup), creates a StoredList with bubble metadata:
+	//   microtime, memo, stack_trace, flavors
+	// Supports break and continue.
+	// Use 'burst' inside the body to remove the current bubble from all its flavors.
+	ps.RegisterCommandInModule("flow", "fizz", func(ctx *Context) Result {
+		if len(ctx.Args) < 3 {
+			ctx.LogError(CatCommand, "Usage: fizz <flavor(s)>, <contentVar>, [(metaVar),] (body)")
+			return BoolStatus(false)
+		}
+
+		// Helper to extract code from a block argument
+		extractCode := func(arg interface{}) string {
+			switch v := arg.(type) {
+			case ParenGroup:
+				return string(v)
+			case Symbol:
+				markerType, objectID := parseObjectMarker(string(v))
+				if markerType == "block" && objectID >= 0 {
+					if obj, exists := ctx.executor.getObject(objectID); exists {
+						if storedBlock, ok := obj.(StoredBlock); ok {
+							return string(storedBlock)
+						}
+					}
+				}
+				return string(v)
+			default:
+				return fmt.Sprintf("%v", arg)
+			}
+		}
+
+		// Parse flavors from first argument
+		var flavors []string
+		flavorArg := ctx.Args[0]
+
+		// Check if it's a stored list (either as Symbol marker or resolved StoredList)
+		if storedList, ok := flavorArg.(StoredList); ok {
+			for _, item := range storedList.Items() {
+				flavors = append(flavors, fmt.Sprintf("%v", item))
+			}
+		} else if sym, ok := flavorArg.(Symbol); ok {
+			markerType, objectID := parseObjectMarker(string(sym))
+			if markerType == "list" && objectID >= 0 {
+				if obj, exists := ctx.executor.getObject(objectID); exists {
+					if storedList, ok := obj.(StoredList); ok {
+						for _, item := range storedList.Items() {
+							flavors = append(flavors, fmt.Sprintf("%v", item))
+						}
+					}
+				}
+			}
+		} else if str, ok := flavorArg.(string); ok {
+			markerType, objectID := parseObjectMarker(str)
+			if markerType == "list" && objectID >= 0 {
+				if obj, exists := ctx.executor.getObject(objectID); exists {
+					if storedList, ok := obj.(StoredList); ok {
+						for _, item := range storedList.Items() {
+							flavors = append(flavors, fmt.Sprintf("%v", item))
+						}
+					}
+				}
+			}
+		}
+
+		// Check if it's a paren group for flavors
+		if pg, ok := flavorArg.(ParenGroup); ok {
+			items, _ := parseArguments(string(pg))
+			for _, item := range items {
+				flavors = append(flavors, fmt.Sprintf("%v", item))
+			}
+		}
+
+		// If no flavors extracted yet, treat as single flavor
+		if len(flavors) == 0 {
+			flavors = []string{fmt.Sprintf("%v", flavorArg)}
+		}
+
+		// Expand wildcard patterns in flavors
+		// Get all existing flavor names from the bubble map
+		allFlavorNames := ctx.state.GetAllFlavorNames()
+		var expandedFlavors []string
+		seen := make(map[string]bool)
+
+		for _, pattern := range flavors {
+			if strings.Contains(pattern, "*") {
+				// Wildcard pattern - expand against all existing flavors
+				for _, name := range allFlavorNames {
+					if matchWildcard(pattern, name) && !seen[name] {
+						seen[name] = true
+						expandedFlavors = append(expandedFlavors, name)
+					}
+				}
+			} else {
+				// Exact match
+				if !seen[pattern] {
+					seen[pattern] = true
+					expandedFlavors = append(expandedFlavors, pattern)
+				}
+			}
+		}
+		flavors = expandedFlavors
+
+		// Determine if we have a meta variable (3 args = no meta, 4 args = with meta)
+		var contentVarName string
+		var metaVarName string
+		var bodyBlock string
+		hasMetaVar := false
+
+		// The body is always the last argument and must be a ParenGroup
+		lastArg := ctx.Args[len(ctx.Args)-1]
+		if _, ok := lastArg.(ParenGroup); !ok {
+			ctx.LogError(CatCommand, "fizz: body must be a code block (parentheses)")
+			return BoolStatus(false)
+		}
+		bodyBlock = extractCode(lastArg)
+
+		if len(ctx.Args) == 3 {
+			// fizz flavors, contentVar, (body)
+			contentVarName = fmt.Sprintf("%v", ctx.Args[1])
+		} else if len(ctx.Args) >= 4 {
+			// Check if arg[2] is a ParenGroup (then it's the body, not a meta var)
+			if _, ok := ctx.Args[2].(ParenGroup); ok {
+				// fizz flavors, contentVar, (body) - arg[2] is body
+				contentVarName = fmt.Sprintf("%v", ctx.Args[1])
+				bodyBlock = extractCode(ctx.Args[2])
+			} else {
+				// fizz flavors, contentVar, metaVar, (body)
+				contentVarName = fmt.Sprintf("%v", ctx.Args[1])
+				metaVarName = fmt.Sprintf("%v", ctx.Args[2])
+				hasMetaVar = true
+			}
+		}
+
+		// Get all unique bubbles sorted by microtime
+		bubbles := ctx.state.GetBubblesForFlavors(flavors)
+
+		if len(bubbles) == 0 {
+			return BoolStatus(true)
+		}
+
+		// Parse body
+		parser := NewParser(bodyBlock, "")
+		cleanedBody := parser.RemoveComments(bodyBlock)
+		normalizedBody := parser.NormalizeKeywords(cleanedBody)
+		bodyCommands, err := parser.ParseCommandSequence(normalizedBody)
+		if err != nil {
+			ctx.LogError(CatCommand, fmt.Sprintf("fizz: failed to parse body: %v", err))
+			return BoolStatus(false)
+		}
+
+		// Internal variable name to track current bubble for 'burst' command
+		const currentBubbleVar = "__fizz_current_bubble__"
+
+		// Iterate over bubbles
+		for _, bubble := range bubbles {
+			// Set content variable
+			ctx.state.SetVariable(contentVarName, bubble.Content)
+
+			// Set meta variable if requested
+			if hasMetaVar {
+				// Create a StoredList with bubble metadata
+				metaNamedArgs := map[string]interface{}{
+					"microtime": bubble.Microtime,
+					"memo":      bubble.Memo,
+					"flavors":   NewStoredList(stringSliceToInterface(bubble.Flavors)),
+				}
+
+				// Add stack trace if present
+				if len(bubble.StackTrace) > 0 {
+					// Convert stack trace to list of lists
+					var traceList []interface{}
+					for _, frame := range bubble.StackTrace {
+						if frameMap, ok := frame.(map[string]interface{}); ok {
+							frameList := NewStoredListWithNamed(nil, frameMap)
+							frameID := ctx.executor.storeObject(frameList, "list")
+							traceList = append(traceList, Symbol(fmt.Sprintf("\x00LIST:%d\x00", frameID)))
+						}
+					}
+					stackList := NewStoredList(traceList)
+					stackID := ctx.executor.storeObject(stackList, "list")
+					metaNamedArgs["stack_trace"] = Symbol(fmt.Sprintf("\x00LIST:%d\x00", stackID))
+				}
+
+				metaList := NewStoredListWithNamed(nil, metaNamedArgs)
+				metaID := ctx.executor.storeObject(metaList, "list")
+				ctx.state.SetVariable(metaVarName, Symbol(fmt.Sprintf("\x00LIST:%d\x00", metaID)))
+			}
+
+			// Store current bubble pointer for 'burst' command
+			ctx.state.mu.Lock()
+			if ctx.state.variables == nil {
+				ctx.state.variables = make(map[string]interface{})
+			}
+			ctx.state.variables[currentBubbleVar] = bubble
+			ctx.state.mu.Unlock()
+
+			// Execute body
+			lastStatus := true
+			for _, cmd := range bodyCommands {
+				if strings.TrimSpace(cmd.Command) == "" {
+					continue
+				}
+
+				shouldExecute := true
+				switch cmd.Separator {
+				case "&":
+					shouldExecute = lastStatus
+				case "|":
+					shouldExecute = !lastStatus
+				}
+
+				if !shouldExecute {
+					continue
+				}
+
+				result := ctx.executor.executeParsedCommand(cmd, ctx.state, nil)
+
+				// Check for early return
+				if earlyReturn, ok := result.(EarlyReturn); ok {
+					// Clean up current bubble var
+					ctx.state.DeleteVariable(currentBubbleVar)
+					return earlyReturn
+				}
+
+				// Check for break - exit this loop
+				if breakResult, ok := result.(BreakResult); ok {
+					// Clean up current bubble var
+					ctx.state.DeleteVariable(currentBubbleVar)
+					if breakResult.Levels <= 1 {
+						return BoolStatus(true)
+					}
+					return BreakResult{Levels: breakResult.Levels - 1}
+				}
+
+				// Check for continue - skip to next bubble
+				if continueResult, ok := result.(ContinueResult); ok {
+					if continueResult.Levels <= 1 {
+						break // Break inner command loop, continue to next bubble
+					}
+					// Clean up current bubble var
+					ctx.state.DeleteVariable(currentBubbleVar)
+					return ContinueResult{Levels: continueResult.Levels - 1}
+				}
+
+				// Handle async
+				if asyncToken, isToken := result.(TokenResult); isToken {
+					tokenID := string(asyncToken)
+					waitChan := make(chan ResumeData, 1)
+					ctx.executor.attachWaitChan(tokenID, waitChan)
+					resumeData := <-waitChan
+					lastStatus = resumeData.Status
+					continue
+				}
+
+				if boolRes, ok := result.(BoolStatus); ok {
+					lastStatus = bool(boolRes)
+				}
+			}
+		}
+
+		// Clean up current bubble var
+		ctx.state.DeleteVariable(currentBubbleVar)
+
+		return BoolStatus(true)
+	})
+
+	// burst - remove the current bubble from all its flavor maps
+	// Only valid inside a fizz loop
+	ps.RegisterCommandInModule("flow", "burst", func(ctx *Context) Result {
+		const currentBubbleVar = "__fizz_current_bubble__"
+
+		// Get the current bubble from the internal variable
+		ctx.state.mu.RLock()
+		bubbleVal, exists := ctx.state.variables[currentBubbleVar]
+		ctx.state.mu.RUnlock()
+
+		if !exists {
+			ctx.LogError(CatCommand, "burst: can only be used inside a fizz loop")
+			return BoolStatus(false)
+		}
+
+		bubble, ok := bubbleVal.(*BubbleEntry)
+		if !ok {
+			ctx.LogError(CatCommand, "burst: internal error - invalid bubble reference")
+			return BoolStatus(false)
+		}
+
+		// Remove the bubble from all its flavors
+		ctx.state.RemoveBubble(bubble)
+
+		return BoolStatus(true)
+	})
+
 	// ==================== macros:: module ====================
 
 	// macro - define a macro
@@ -498,16 +1708,75 @@ func (ps *PawScript) RegisterCoreLib() {
 
 		ps.logger.DebugCat(CatMacro,"Defining macro '%s' with commands: %s", name, commands)
 
-		// Create the StoredMacro
-		macro := NewStoredMacroWithEnv(commands, ctx.Position, macroEnv)
-
 		// Store in module environment's MacrosModule (with COW)
 		ctx.state.moduleEnv.mu.Lock()
+		defer ctx.state.moduleEnv.mu.Unlock()
+
+		// Check if macro already exists
+		if existing, exists := ctx.state.moduleEnv.MacrosModule[name]; exists && existing != nil {
+			if existing.IsForward {
+				// Fill in the forward declaration by mutating the struct in place
+				// This preserves the pointer so all references see the update
+				existing.Commands = commands
+				existing.DefinitionFile = ctx.Position.Filename
+				existing.DefinitionLine = ctx.Position.Line
+				existing.DefinitionColumn = ctx.Position.Column
+				existing.Timestamp = time.Now()
+				existing.ModuleEnv = macroEnv
+				existing.IsForward = false // No longer a forward declaration
+
+				ps.logger.DebugCat(CatMacro, "Resolved forward declaration for macro '%s'", name)
+				return BoolStatus(true)
+			}
+			// Macro exists and is not a forward declaration - error
+			ps.logger.ErrorCat(CatMacro, "Cannot define macro '%s': already exists (use macro_delete first)", name)
+			return BoolStatus(false)
+		}
+
+		// Create new StoredMacro
+		macro := NewStoredMacroWithEnv(commands, ctx.Position, macroEnv)
+
 		ctx.state.moduleEnv.EnsureMacroRegistryCopied()
 		ctx.state.moduleEnv.MacrosModule[name] = &macro
-		ctx.state.moduleEnv.mu.Unlock()
 
 		ps.logger.DebugCat(CatMacro,"Successfully defined named macro '%s' in MacrosModule", name)
+		return BoolStatus(true)
+	})
+
+	// macro_forward - create a forward declaration for a macro
+	ps.RegisterCommandInModule("macros", "macro_forward", func(ctx *Context) Result {
+		if len(ctx.Args) != 1 {
+			ps.logger.ErrorCat(CatCommand, "Usage: macro_forward <name>")
+			return BoolStatus(false)
+		}
+
+		name := fmt.Sprintf("%v", ctx.Args[0])
+
+		ctx.state.moduleEnv.mu.Lock()
+		defer ctx.state.moduleEnv.mu.Unlock()
+
+		// Check if macro already exists
+		if existing, exists := ctx.state.moduleEnv.MacrosModule[name]; exists && existing != nil {
+			ps.logger.ErrorCat(CatMacro, "Cannot create forward declaration for '%s': macro already exists (use macro_delete first)", name)
+			return BoolStatus(false)
+		}
+
+		// Create forward declaration with placeholder
+		forward := &StoredMacro{
+			Commands:         "", // Empty - will be filled in by actual definition
+			DefinitionFile:   ctx.Position.Filename,
+			DefinitionLine:   ctx.Position.Line,
+			DefinitionColumn: ctx.Position.Column,
+			Timestamp:        time.Now(),
+			ModuleEnv:        nil, // Will be set by actual definition
+			IsForward:        true,
+		}
+
+		// Store in module environment's MacrosModule (with COW)
+		ctx.state.moduleEnv.EnsureMacroRegistryCopied()
+		ctx.state.moduleEnv.MacrosModule[name] = forward
+
+		ps.logger.DebugCat(CatMacro, "Created forward declaration for macro '%s'", name)
 		return BoolStatus(true)
 	})
 
@@ -2096,9 +3365,14 @@ func (ps *PawScript) RegisterCoreLib() {
 			execState := NewExecutionState()
 			execState.moduleEnv = restrictedEnv
 			execState.executor = ctx.executor
-			defer execState.ReleaseAllReferences()
 
 			result := ctx.executor.ExecuteWithState(string(content), execState, nil, filename, 0, 0)
+
+			// Handle async result - if TokenResult is returned, we need to wait for completion
+			// For now, release state only if not async (include with async is unusual)
+			if _, isToken := result.(TokenResult); !isToken {
+				defer execState.ReleaseAllReferences()
+			}
 
 			// Merge bubbles from included file's state to caller state
 			ctx.state.MergeBubbles(execState)

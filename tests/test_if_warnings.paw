@@ -68,7 +68,7 @@ echo ""
 echo "Test 8: while true (no warning expected)"
 while true, (
     echo "Intentional infinite loop"
-    ret
+    break
 )
 echo ""
 

@@ -1,0 +1,60 @@
+# Test json and string pretty printing
+echo "=== JSON and String Pretty Tests ==="
+echo ""
+
+# Test 1: Simple nested structure with pretty
+echo "Test 1: Simple nested - pretty JSON"
+#nested: {list 1, 2, {list a: 1, b: 2}, name: "test"}
+echo "{json ~#nested, mode: explicit, pretty: true}"
+echo ""
+
+# Test 2: Compare with non-pretty
+echo "Test 2: Same structure - compact JSON"
+echo "{json ~#nested, mode: explicit}"
+echo ""
+
+# Test 3: String command with pretty
+echo "Test 3: String command - pretty"
+echo "{string ~#nested, pretty: true}"
+echo ""
+
+# Test 4: String command without pretty
+echo "Test 4: String command - compact"
+echo "{string ~#nested}"
+echo ""
+
+# Test 5: Deeply nested for pretty
+echo "Test 5: Deep nesting - pretty JSON"
+#deep: {list name: "root", children: {list {list x: 1}, {list y: 2}}, tags: {list a, b, c}}
+echo "{json ~#deep, mode: explicit, pretty: true}"
+echo ""
+
+# Test 6: Deep nesting - compact JSON
+echo "Test 6: Deep nesting - compact JSON"
+echo "{json ~#deep, mode: explicit}"
+echo ""
+
+# Test 7: Named-only structure - pretty JSON
+echo "Test 7: Named-only - pretty JSON"
+#config: {list server: "localhost", port: 8080, debug: true, options: {list timeout: 30, retries: 3}}
+echo "{json ~#config, pretty: true}"
+echo ""
+
+# Test 8: Array-only structure - pretty JSON
+echo "Test 8: Array-only - pretty JSON"
+#arr: {list 1, 2, 3, {list a, b, c}, {list x: 1, y: 2}}
+echo "{json ~#arr, mode: array, pretty: true}"
+echo ""
+
+# Test 9: Very simple list should stay compact in string pretty mode
+echo "Test 9: Simple list - string pretty (should be compact)"
+#simple: {list 1, 2, 3}
+echo "{string ~#simple, pretty: true}"
+echo ""
+
+# Test 10: String pretty for deep nested
+echo "Test 10: Deep nesting - string pretty"
+echo "{string ~#deep, pretty: true}"
+echo ""
+
+echo "=== Tests Complete ==="

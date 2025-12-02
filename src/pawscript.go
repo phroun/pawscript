@@ -264,7 +264,6 @@ func (ps *PawScript) ExecuteFile(commandString, filename string) Result {
 // Execute executes a command string
 func (ps *PawScript) Execute(commandString string, args ...interface{}) Result {
 	state := ps.NewExecutionStateFromRoot()
-	defer state.ReleaseAllReferences()
 	result := ps.executor.ExecuteWithState(commandString, state, nil, "", 0, 0)
 
 	// Merge any module exports into the root environment for persistence
@@ -272,6 +271,12 @@ func (ps *PawScript) Execute(commandString string, args ...interface{}) Result {
 
 	// Dump any remaining bubbles to stderr before returning control to host
 	ps.dumpRemainingBubbles(state)
+
+	// Only release state if not returning a token (async operation)
+	// The token system will release the state when the async operation completes
+	if _, isToken := result.(TokenResult); !isToken {
+		state.ReleaseAllReferences()
+	}
 
 	return result
 }
@@ -363,11 +368,16 @@ func (ps *PawScript) CreateRestrictedSnapshot() *ModuleEnvironment {
 func (ps *PawScript) ExecuteWithEnvironment(commandString string, env *ModuleEnvironment, filename string, lineOffset, columnOffset int) Result {
 	state := NewExecutionState()
 	state.moduleEnv = env
-	defer state.ReleaseAllReferences()
 	result := ps.executor.ExecuteWithState(commandString, state, nil, filename, lineOffset, columnOffset)
 
 	// Dump any remaining bubbles to stderr before returning control to host
 	ps.dumpRemainingBubbles(state)
+
+	// Only release state if not returning a token (async operation)
+	// The token system will release the state when the async operation completes
+	if _, isToken := result.(TokenResult); !isToken {
+		state.ReleaseAllReferences()
+	}
 
 	return result
 }

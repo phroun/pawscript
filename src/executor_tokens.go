@@ -190,8 +190,31 @@ func (e *Executor) ResumeBraceEvaluation(coordinatorToken, childToken string, re
 	targetEval.Result = result
 	coord.CompletedCount++
 
-	// Clean up the brace's state references
-	if targetEval.State != nil {
+	// Transfer owned references from brace state to parent before releasing
+	// Since the brace shares variables with the parent, any objects stored in
+	// those variables need to be owned by the parent before we release the brace's claims
+	if targetEval.State != nil && coord.SubstitutionCtx != nil && coord.SubstitutionCtx.ExecutionState != nil {
+		parentState := coord.SubstitutionCtx.ExecutionState
+		targetEval.State.mu.Lock()
+		ownedByBrace := make(map[int]int)
+		for refID, count := range targetEval.State.ownedObjects {
+			ownedByBrace[refID] = count
+		}
+		targetEval.State.mu.Unlock()
+
+		for refID, childCount := range ownedByBrace {
+			if childCount > 0 {
+				parentState.mu.Lock()
+				parentOwns := parentState.ownedObjects[refID] > 0
+				parentState.mu.Unlock()
+
+				if !parentOwns {
+					parentState.ClaimObjectReference(refID)
+				}
+			}
+		}
+		targetEval.State.ReleaseAllReferences()
+	} else if targetEval.State != nil {
 		targetEval.State.ReleaseAllReferences()
 	}
 
@@ -491,8 +514,18 @@ func (e *Executor) PopAndResumeCommandSequence(tokenID string, status bool) bool
 		if asyncPending {
 			e.logger.DebugCat(CatAsync,"Async operation pending, not immediately triggering chained token %s", chainedToken)
 			// Release our state references since we're done with this token
+			// But only if no other token is using the same state
 			if tokenData.ExecutionState != nil {
-				tokenData.ExecutionState.ReleaseAllReferences()
+				stateInUse := false
+				for otherID, otherData := range e.activeTokens {
+					if otherID != tokenID && otherData.ExecutionState == tokenData.ExecutionState {
+						stateInUse = true
+						break
+					}
+				}
+				if !stateInUse {
+					tokenData.ExecutionState.ReleaseAllReferences()
+				}
 			}
 			return success
 		}
@@ -500,10 +533,10 @@ func (e *Executor) PopAndResumeCommandSequence(tokenID string, status bool) bool
 		e.logger.DebugCat(CatAsync,"Triggering chained token %s with result %v", chainedToken, success)
 		result := e.PopAndResumeCommandSequence(chainedToken, success)
 
-		// Release all object references held by this token's state
-		if tokenData.ExecutionState != nil {
-			tokenData.ExecutionState.ReleaseAllReferences()
-		}
+		// Don't release state references here - the chained token (or its chain)
+		// will handle releasing the state when the final command completes.
+		// If we released here, we'd double-release since the chained token already
+		// released when it found no other tokens using the state.
 
 		return result
 	}
@@ -530,8 +563,18 @@ func (e *Executor) PopAndResumeCommandSequence(tokenID string, status bool) bool
 	}
 
 	// No chain - safe to release now
+	// But only release if this state is not being used by any other active token
 	if tokenData.ExecutionState != nil {
-		tokenData.ExecutionState.ReleaseAllReferences()
+		stateInUse := false
+		for otherID, otherData := range e.activeTokens {
+			if otherID != tokenID && otherData.ExecutionState == tokenData.ExecutionState {
+				stateInUse = true
+				break
+			}
+		}
+		if !stateInUse {
+			tokenData.ExecutionState.ReleaseAllReferences()
+		}
 	}
 
 	return success
@@ -576,8 +619,18 @@ func (e *Executor) forceCleanupTokenLocked(tokenID string) {
 	e.cleanupTokenChildrenLocked(tokenID)
 
 	// Release all object references held by this token's state
+	// But only if no other token is using the same state
 	if tokenData.ExecutionState != nil {
-		tokenData.ExecutionState.ReleaseAllReferences()
+		stateInUse := false
+		for otherID, otherData := range e.activeTokens {
+			if otherID != tokenID && otherData.ExecutionState == tokenData.ExecutionState {
+				stateInUse = true
+				break
+			}
+		}
+		if !stateInUse {
+			tokenData.ExecutionState.ReleaseAllReferences()
+		}
 	}
 
 	delete(e.activeTokens, tokenID)

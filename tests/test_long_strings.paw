@@ -1,0 +1,106 @@
+# Test long strings (>200 chars) in json and string commands
+# These strings will exceed StringStorageThreshold and become StoredString objects
+
+echo "=== Long String Tests ==="
+echo ""
+
+# Create a long string (250 chars)
+#longStr: "ABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789abcdefghijklmnopqrstuvwxyz0123456789ABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789abcdefghijklmnopqrstuvwxyz0123456789ABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789abcdefghijklmnopqrstuvwxyz0123456789ABCDEFGHIJKLMNOPQRS"
+
+# Test 1: Long string in {string} command
+echo "Test 1: Long string via string command"
+#strLen: {len ~#longStr}
+echo "  length: ~#strLen"
+echo ""
+
+# Test 2: Long string as value in list, then json
+echo "Test 2: Long string as named arg in list -> json"
+#list2: {list text: ~#longStr, id: 123}
+#json2: {json ~#list2}
+#len2: {len ~#json2}
+echo "  json length: ~#len2"
+echo ""
+
+# Test 3: Long string as positional arg in list, then json
+echo "Test 3: Long string as positional arg in list -> json"
+#list3: {list ~#longStr, short}
+#json3: {json ~#list3, mode: array}
+#len3: {len ~#json3}
+echo "  json length: ~#len3"
+echo ""
+
+# Test 4: Long JSON string round-trip
+echo "Test 4: Long JSON string round-trip"
+#json4: {json ~#list2}
+#parsed4: {list ~#json4, from: json}
+#text4: {ret ~#parsed4.text}
+#text4Len: {len ~#text4}
+echo "  round-trip text length: ~#text4Len"
+echo ""
+
+# Test 5: Long string in colored JSON
+echo "Test 5: Long string in colored JSON"
+#colorJson5: {json ~#list2, color: true}
+#colorLen5: {len ~#colorJson5}
+echo "  colored json length: ~#colorLen5"
+#parsed5: {list ~#colorJson5, from: json}
+#text5: {ret ~#parsed5.text}
+#text5Len: {len ~#text5}
+echo "  round-trip text length: ~#text5Len"
+echo ""
+
+# Test 6: Long string in pretty colored JSON
+echo "Test 6: Long string in pretty colored JSON"
+#prettyJson6: {json ~#list2, color: true, pretty: true}
+#parsed6: {list ~#prettyJson6, from: json}
+#text6: {ret ~#parsed6.text}
+#text6Len: {len ~#text6}
+echo "  round-trip text length: ~#text6Len"
+echo ""
+
+# Test 7: Multiple long strings
+echo "Test 7: Multiple long strings"
+#longStr2: "zyxwvutsrqponmlkjihgfedcbaZYXWVUTSRQPONMLKJIHGFEDCBA9876543210zyxwvutsrqponmlkjihgfedcbaZYXWVUTSRQPONMLKJIHGFEDCBA9876543210zyxwvutsrqponmlkjihgfedcbaZYXWVUTSRQPONMLKJIHGFEDCBA9876543210zyxwvutsrqponmlkjihgfed"
+#list7: {list first: ~#longStr, second: ~#longStr2}
+#json7: {json ~#list7}
+#parsed7: {list ~#json7, from: json}
+#first7: {ret ~#parsed7.first}
+#second7: {ret ~#parsed7.second}
+#first7Len: {len ~#first7}
+#second7Len: {len ~#second7}
+echo "  first length: ~#first7Len"
+echo "  second length: ~#second7Len"
+echo ""
+
+# Test 8: Nested list with long strings
+echo "Test 8: Nested list with long strings"
+#inner8: {list value: ~#longStr, idx: 1}
+#outer8: {list name: "container", data: ~#inner8}
+#json8: {json ~#outer8}
+#parsed8: {list ~#json8, from: json}
+#data8: {ret ~#parsed8.data}
+#value8: {ret ~#data8.value}
+#value8Len: {len ~#value8}
+echo "  nested value length: ~#value8Len"
+echo ""
+
+# Test 9: Long string with special characters
+echo "Test 9: Long string with special characters"
+#specialLong: "Quote: \"test\" and backslash: \\ and newline: \n repeat 0123456789012345678901234567890123456789012345678901234567890123456789012345678901234567890123456789012345678901234567890123456789012345678901234567890123456789"
+#list9: {list text: ~#specialLong}
+#json9: {json ~#list9}
+#parsed9: {list ~#json9, from: json}
+#text9: {ret ~#parsed9.text}
+#text9Len: {len ~#text9}
+echo "  special text length: ~#text9Len"
+echo ""
+
+# Test 10: Verify string command displays long string correctly
+echo "Test 10: String command with long string in list"
+#list10: {list message: ~#longStr}
+#display10: {string ~#list10}
+#display10Len: {len ~#display10}
+echo "  display length: ~#display10Len"
+echo ""
+
+echo "=== All Long String Tests Complete ==="

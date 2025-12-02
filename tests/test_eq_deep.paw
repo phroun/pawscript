@@ -1,0 +1,74 @@
+#!/usr/bin/env pawscript
+
+# Test deep equality (eq/neq) with named arguments
+
+echo "=== Deep Equality Tests ==="
+echo ""
+
+# Test 1: Simple positional items
+echo "Test 1: Simple positional items"
+#a: {list 1, 2, 3}
+#b: {list 1, 2, 3}
+#c: {list 1, 2, 4}
+echo "  eq same: {eq ~#a, ~#b}"
+echo "  eq diff: {eq ~#a, ~#c}"
+echo "  neq same: {neq ~#a, ~#b}"
+echo "  neq diff: {neq ~#a, ~#c}"
+
+# Test 2: Named arguments only
+echo ""
+echo "Test 2: Named arguments only"
+#d: {list x: 10, y: 20}
+#e: {list x: 10, y: 20}
+#f: {list x: 10, y: 30}
+#g: {list x: 10, z: 20}
+echo "  eq same: {eq ~#d, ~#e}"
+echo "  eq diff value: {eq ~#d, ~#f}"
+echo "  eq diff key: {eq ~#d, ~#g}"
+
+# Test 3: Mixed positional and named
+echo ""
+echo "Test 3: Mixed positional and named"
+#h: {list a, b, x: 1, y: 2}
+#i: {list a, b, x: 1, y: 2}
+#j: {list a, b, x: 1, y: 3}
+#k: {list a, c, x: 1, y: 2}
+echo "  eq same: {eq ~#h, ~#i}"
+echo "  eq diff named: {eq ~#h, ~#j}"
+echo "  eq diff positional: {eq ~#h, ~#k}"
+
+# Test 4: Nested lists with named args
+echo ""
+echo "Test 4: Nested lists with named args"
+#inner1: {list val: 100}
+#inner2: {list val: 100}
+#inner3: {list val: 200}
+#outer1: {list data: ~#inner1}
+#outer2: {list data: ~#inner2}
+#outer3: {list data: ~#inner3}
+echo "  eq same content nested: {eq ~#outer1, ~#outer2}"
+echo "  eq diff content nested: {eq ~#outer1, ~#outer3}"
+
+# Test 5: Empty lists
+echo ""
+echo "Test 5: Empty lists"
+#empty1: {list}
+#empty2: {list}
+echo "  eq empty: {eq ~#empty1, ~#empty2}"
+
+# Test 6: Different lengths
+echo ""
+echo "Test 6: Different lengths"
+#short: {list 1, 2}
+#long: {list 1, 2, 3}
+echo "  eq diff len: {eq ~#short, ~#long}"
+
+# Test 7: Different named arg counts
+echo ""
+echo "Test 7: Different named arg counts"
+#fewer: {list a: 1}
+#more: {list a: 1, b: 2}
+echo "  eq diff named count: {eq ~#fewer, ~#more}"
+
+echo ""
+echo "=== Deep Equality Tests Complete ==="

@@ -1,0 +1,35 @@
+=== Long String Tests ===
+
+Test 1: Long string via string command
+  length: 235
+
+Test 2: Long string as named arg in list -> json
+  json length: 255
+
+Test 3: Long string as positional arg in list -> json
+  json length: 247
+
+Test 4: Long JSON string round-trip
+  round-trip text length: 235
+
+Test 5: Long string in colored JSON
+  colored json length: 336
+  round-trip text length: 235
+
+Test 6: Long string in pretty colored JSON
+  round-trip text length: 235
+
+Test 7: Multiple long strings
+  first length: 235
+  second length: 209
+
+Test 8: Nested list with long strings
+  nested value length: 235
+
+Test 9: Long string with special characters
+  special text length: 213
+
+Test 10: String command with long string in list
+  display length: 18
+
+=== All Long String Tests Complete ===

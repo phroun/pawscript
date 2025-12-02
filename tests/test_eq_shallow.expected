@@ -1,0 +1,34 @@
+=== Shallow Equality Tests ===
+
+Test 1: Scalar values
+  eqs 1,1: true
+  eqs 1,2: false
+  neqs 1,1: false
+  neqs 1,2: true
+
+Test 2: Simple lists (no nesting)
+  eqs: true
+  eq: true
+
+Test 3: Same nested reference
+  eqs (same ref): true
+  eq (same ref): true
+  neqs (same ref): false
+
+Test 4: Different objects, same content
+  eqs (diff obj): false
+  eq (diff obj): true
+  neqs (diff obj): true
+
+Test 5: Named args - same reference
+  eqs: true
+
+Test 6: Named args - different references
+  eqs: false
+  eq: true
+
+Test 7: Positional items - same vs different refs
+  eqs: false
+  eq: true
+
+=== Shallow Equality Tests Complete ===

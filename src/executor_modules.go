@@ -56,7 +56,10 @@ func (e *Executor) handleMODULE(args []interface{}, state *ExecutionState, posit
 // Usage: LIBRARY "pattern"
 // Patterns for LibraryRestricted:
 //   "restrict *", "allow *", "restrict module", "allow module",
-//   "allow module::item1,item2", "allow dest=source"
+//   "restrict module::item1,item2" - remove items by name in Restricted
+//   "restrict ::module::item1,item2" - find items in Inherited, remove matching items from Restricted by pointer
+//   "allow module::item1,item2" or "allow ::module::item1,item2" - add items from Inherited to Restricted
+//   "allow dest=source" - copy module from Inherited to Restricted with new name
 // Patterns for LibraryInherited (using COW so LibraryRestricted is unaffected):
 //   "forget *", "forget module", "forget module::item1,item2"
 func (e *Executor) handleLIBRARY(args []interface{}, state *ExecutionState, position *SourcePosition) Result {
@@ -96,8 +99,93 @@ func (e *Executor) handleLIBRARY(args []interface{}, state *ExecutionState, posi
 			state.moduleEnv.CopyLibraryRestricted()
 			state.moduleEnv.LibraryRestricted = make(Library)
 			e.logger.DebugCat(CatSystem,"LIBRARY: Restricted all modules")
+		} else if strings.HasPrefix(target, "::") {
+			// Look up items in Inherited by name, remove matching items from Restricted by pointer
+			// Format: ::module::item1,item2
+			remainder := target[2:] // Strip leading "::"
+			moduleParts := strings.SplitN(remainder, "::", 2)
+			if len(moduleParts) != 2 {
+				e.logger.CommandError(CatSystem, "LIBRARY", fmt.Sprintf("Invalid ::module::items pattern: %s", target), position)
+				return BoolStatus(false)
+			}
+			moduleName := moduleParts[0]
+			itemsStr := moduleParts[1]
+			items := strings.Split(itemsStr, ",")
+
+			// Find source items in LibraryInherited
+			sourceSection, exists := state.moduleEnv.LibraryInherited[moduleName]
+			if !exists {
+				e.logger.CommandError(CatSystem, "LIBRARY", fmt.Sprintf("Module not found in Inherited: %s", moduleName), position)
+				return BoolStatus(false)
+			}
+
+			// Collect the item pointers we're looking for
+			targetItems := make(map[*ModuleItem]string) // pointer -> original name (for logging)
+			for _, itemName := range items {
+				itemName = strings.TrimSpace(itemName)
+				if item, exists := sourceSection[itemName]; exists {
+					targetItems[item] = itemName
+				} else {
+					e.logger.CommandError(CatSystem, "LIBRARY", fmt.Sprintf("Item not found in Inherited: %s::%s", moduleName, itemName), position)
+					return BoolStatus(false)
+				}
+			}
+
+			// Scan LibraryRestricted and remove entries matching those pointers
+			state.moduleEnv.CopyLibraryRestricted()
+			for restrictedModName, restrictedSection := range state.moduleEnv.LibraryRestricted {
+				for restrictedItemName, restrictedItem := range restrictedSection {
+					if origName, found := targetItems[restrictedItem]; found {
+						delete(restrictedSection, restrictedItemName)
+						e.logger.DebugCat(CatSystem, "LIBRARY: Restricted %s::%s (originally %s::%s)", restrictedModName, restrictedItemName, moduleName, origName)
+					}
+				}
+				// Clean up empty module sections
+				if len(restrictedSection) == 0 {
+					delete(state.moduleEnv.LibraryRestricted, restrictedModName)
+				}
+			}
+		} else if strings.Contains(target, "::") {
+			// Remove specific items from Restricted by name
+			// Format: module::item1,item2
+			moduleParts := strings.SplitN(target, "::", 2)
+			if len(moduleParts) != 2 {
+				e.logger.CommandError(CatSystem, "LIBRARY", fmt.Sprintf("Invalid module::items pattern: %s", target), position)
+				return BoolStatus(false)
+			}
+			moduleName := moduleParts[0]
+			itemsStr := moduleParts[1]
+			items := strings.Split(itemsStr, ",")
+
+			// Find module in LibraryRestricted
+			restrictedSection, exists := state.moduleEnv.LibraryRestricted[moduleName]
+			if !exists {
+				e.logger.CommandError(CatSystem, "LIBRARY", fmt.Sprintf("Module not found in Restricted: %s", moduleName), position)
+				return BoolStatus(false)
+			}
+
+			state.moduleEnv.CopyLibraryRestricted()
+			// Re-fetch after COW
+			restrictedSection = state.moduleEnv.LibraryRestricted[moduleName]
+
+			// Remove specific items
+			for _, itemName := range items {
+				itemName = strings.TrimSpace(itemName)
+				if _, exists := restrictedSection[itemName]; exists {
+					delete(restrictedSection, itemName)
+					e.logger.DebugCat(CatSystem, "LIBRARY: Restricted %s::%s", moduleName, itemName)
+				} else {
+					e.logger.CommandError(CatSystem, "LIBRARY", fmt.Sprintf("Item not found in Restricted: %s::%s", moduleName, itemName), position)
+					return BoolStatus(false)
+				}
+			}
+
+			// Clean up empty module section
+			if len(restrictedSection) == 0 {
+				delete(state.moduleEnv.LibraryRestricted, moduleName)
+			}
 		} else {
-			// Remove specific module
+			// Remove entire module by name from Restricted
 			state.moduleEnv.CopyLibraryRestricted()
 			delete(state.moduleEnv.LibraryRestricted, target)
 			e.logger.DebugCat(CatSystem,"LIBRARY: Restricted module \"%s\"", target)
@@ -139,8 +227,14 @@ func (e *Executor) handleLIBRARY(args []interface{}, state *ExecutionState, posi
 				return BoolStatus(false)
 			}
 		} else if strings.Contains(target, "::") {
-			// Specific items: "module::item1,item2,#obj"
-			moduleParts := strings.SplitN(target, "::", 2)
+			// Specific items: "module::item1,item2,#obj" or "::module::item1,item2"
+			// Both forms refer to LibraryInherited (we're adding from Inherited to Restricted)
+			// Strip leading "::" if present for consistency with restrict syntax
+			targetStr := target
+			if strings.HasPrefix(targetStr, "::") {
+				targetStr = targetStr[2:]
+			}
+			moduleParts := strings.SplitN(targetStr, "::", 2)
 			if len(moduleParts) != 2 {
 				e.logger.CommandError(CatSystem, "LIBRARY", fmt.Sprintf("Invalid module::items pattern: %s", target), position)
 				return BoolStatus(false)
@@ -149,10 +243,10 @@ func (e *Executor) handleLIBRARY(args []interface{}, state *ExecutionState, posi
 			itemsStr := moduleParts[1]
 			items := strings.Split(itemsStr, ",")
 
-			// Find source module
+			// Find source module in LibraryInherited
 			sourceSection, exists := state.moduleEnv.LibraryInherited[moduleName]
 			if !exists {
-				e.logger.CommandError(CatSystem, "LIBRARY", fmt.Sprintf("Module not found: %s", moduleName), position)
+				e.logger.CommandError(CatSystem, "LIBRARY", fmt.Sprintf("Module not found in Inherited: %s", moduleName), position)
 				return BoolStatus(false)
 			}
 
@@ -170,7 +264,7 @@ func (e *Executor) handleLIBRARY(args []interface{}, state *ExecutionState, posi
 					state.moduleEnv.LibraryRestricted[moduleName][itemName] = item
 					e.logger.DebugCat(CatSystem,"LIBRARY: Allowed %s::%s", moduleName, itemName)
 				} else {
-					e.logger.CommandError(CatSystem, "LIBRARY", fmt.Sprintf("Item not found: %s::%s", moduleName, itemName), position)
+					e.logger.CommandError(CatSystem, "LIBRARY", fmt.Sprintf("Item not found in Inherited: %s::%s", moduleName, itemName), position)
 					return BoolStatus(false)
 				}
 			}

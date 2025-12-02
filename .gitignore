@@ -14,3 +14,4 @@ node_modules
 /releases
 js/pawscript.wasm
 /bin/
+/pawscript
