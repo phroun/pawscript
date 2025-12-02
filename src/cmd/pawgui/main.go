@@ -1541,16 +1541,18 @@ func createLauncherWindow() {
 			fileList.Select(nextIndex)
 		}
 
-		// Up arrow navigates to previous item
+		// Up arrow navigates to previous item, or focuses filter if at top
 		filterEntry.onUpArrow = func() {
 			if len(filteredEntries) == 0 {
 				return
 			}
-			prevIndex := currentSelectionIndex - 1
-			if prevIndex < 0 {
-				prevIndex = 0
+			if currentSelectionIndex <= 0 {
+				// At top or nothing selected - focus filter and deselect
+				fileList.UnselectAll()
+				win.Canvas().Focus(filterEntry)
+				return
 			}
-			fileList.Select(prevIndex)
+			fileList.Select(currentSelectionIndex - 1)
 		}
 
 		// Enter performs the action on selected item
@@ -1652,11 +1654,13 @@ func createLauncherWindow() {
 			if len(filteredEntries) == 0 {
 				return
 			}
-			prevIndex := currentSelectionIndex - 1
-			if prevIndex < 0 {
-				prevIndex = 0
+			if currentSelectionIndex <= 0 {
+				// At top or nothing selected - focus filter and deselect
+				fileList.UnselectAll()
+				win.Canvas().Focus(filterEntry)
+				return
 			}
-			fileList.Select(prevIndex)
+			fileList.Select(currentSelectionIndex - 1)
 		}
 
 		// Function to perform the action (open dir or run script)
