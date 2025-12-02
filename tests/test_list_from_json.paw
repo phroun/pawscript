@@ -1,0 +1,132 @@
+# Test list from: json functionality
+echo "=== List from: json Tests ==="
+echo ""
+
+# Test 1: Simple array - using json command to create test string
+echo "Test 1: Simple array"
+#arrData: {list 1, 2, 3, "hello"}
+#arrJson: {json ~#arrData, mode: array}
+echo "  json: ~#arrJson"
+#arr: {list ~#arrJson, from: json}
+echo "  parsed: {string ~#arr}"
+echo ""
+
+# Test 2: Simple object
+echo "Test 2: Simple object (named args only)"
+#objData: {list name: "Alice", age: 30}
+#objJson: {json ~#objData}
+echo "  json: ~#objJson"
+#obj: {list ~#objJson, from: json}
+echo "  parsed: {string ~#obj}"
+echo ""
+
+# Test 3: Object with _children - default merge
+echo "Test 3: Object with _children - default merge (merge: true)"
+#mixedData: {list name: "test", 1, 2, 3}
+#mixedJson: {json ~#mixedData, mode: explicit}
+echo "  json: ~#mixedJson"
+#merged: {list ~#mixedJson, from: json}
+echo "  parsed: {string ~#merged}"
+echo ""
+
+# Test 4: Object with _children - merge: false
+echo "Test 4: Object with _children - merge: false"
+#notmerged: {list ~#mixedJson, from: json, merge: false}
+echo "  parsed: {string ~#notmerged}"
+echo ""
+
+# Test 5: Object with _children - merge: nil (omit)
+echo "Test 5: Object with _children - merge: nil (omit)"
+#omitted: {list ~#mixedJson, from: json, merge: nil}
+echo "  parsed: {string ~#omitted}"
+echo ""
+
+# Test 6: Custom children key
+echo "Test 6: Custom children key (children: items)"
+#customData: {list name: "test", a, b, c}
+#customJson: {json ~#customData, mode: explicit, children: items}
+echo "  json: ~#customJson"
+#custom: {list ~#customJson, from: json, children: items}
+echo "  parsed: {string ~#custom}"
+echo ""
+
+# Test 7: Custom children key - merge: false
+echo "Test 7: Custom children key - merge: false"
+#custom2: {list ~#customJson, from: json, children: items, merge: false}
+echo "  parsed: {string ~#custom2}"
+echo ""
+
+# Test 8: Nested objects
+echo "Test 8: Nested objects"
+#nestedData: {list user: {list name: "Bob", profile: {list age: 25}}}
+#nestedJson: {json ~#nestedData}
+echo "  json: ~#nestedJson"
+#nested: {list ~#nestedJson, from: json}
+echo "  parsed: {string ~#nested}"
+echo ""
+
+# Test 9: Nested with _children
+echo "Test 9: Nested with _children at multiple levels"
+#nestedChildData: {list root: {list {list x: 1}, {list y: 2}}}
+#nestedChildJson: {json ~#nestedChildData, mode: explicit}
+echo "  json: ~#nestedChildJson"
+#nestedChildren: {list ~#nestedChildJson, from: json}
+echo "  parsed: {string ~#nestedChildren}"
+echo ""
+
+# Test 10: Mixed types
+echo "Test 10: Mixed types in array"
+#mixedTypes: {list 1, "hello", true, nil, 3.14}
+#mixedTypesJson: {json ~#mixedTypes, mode: array}
+echo "  json: ~#mixedTypesJson"
+#mixed: {list ~#mixedTypesJson, from: json}
+echo "  parsed: {string ~#mixed}"
+echo ""
+
+# Test 11: Round-trip test
+echo "Test 11: Round-trip test (list -> json -> list)"
+#original: {list name: "Alice", score: 95, 1, 2, 3}
+#jsonStr: {json ~#original, mode: explicit}
+echo "  original: {string ~#original}"
+echo "  json:     ~#jsonStr"
+#roundtrip: {list ~#jsonStr, from: json}
+echo "  back:     {string ~#roundtrip}"
+echo ""
+
+# Test 12: Deep nesting with children merge
+echo "Test 12: Deep nesting with children merge"
+#deepData: {list root: {list {list name: "a", 1, 2}, {list name: "b", 3, 4}}}
+#deepJson: {json ~#deepData, mode: explicit}
+echo "  json: ~#deepJson"
+#deep: {list ~#deepJson, from: json}
+echo "  parsed: {string ~#deep, pretty: true}"
+echo ""
+
+# Test 13: Empty array
+echo "Test 13: Empty array"
+#emptyArr: {list}
+#emptyArrJson: {json ~#emptyArr, mode: array}
+echo "  json: ~#emptyArrJson"
+#empty: {list ~#emptyArrJson, from: json}
+echo "  parsed: {string ~#empty}"
+echo ""
+
+# Test 14: Boolean and null values
+echo "Test 14: Boolean and null values"
+#boolData: {list active: true, deleted: false, data: nil}
+#boolJson: {json ~#boolData}
+echo "  json: ~#boolJson"
+#boolNull: {list ~#boolJson, from: json}
+echo "  parsed: {string ~#boolNull}"
+echo ""
+
+# Test 15: Colored JSON should be stripped
+echo "Test 15: Colored JSON (ANSI stripped)"
+#coloredData: {list name: "Test", value: 42}
+#coloredJson: {json ~#coloredData, color: true}
+echo "  colored json (raw bytes follow)"
+#fromColor: {list ~#coloredJson, from: json}
+echo "  parsed: {string ~#fromColor}"
+echo ""
+
+echo "=== Tests Complete ==="

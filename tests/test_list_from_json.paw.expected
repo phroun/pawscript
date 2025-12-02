@@ -1,0 +1,66 @@
+=== List from: json Tests ===
+
+Test 1: Simple array
+  json: [1,2,3,"hello"]
+  parsed: (1, 2, 3, "hello")
+
+Test 2: Simple object (named args only)
+  json: {"age":30,"name":"Alice"}
+  parsed: (age: 30, name: "Alice")
+
+Test 3: Object with _children - default merge (merge: true)
+  json: {"_children":[1,2,3],"name":"test"}
+  parsed: (name: "test", 1, 2, 3)
+
+Test 4: Object with _children - merge: false
+  parsed: (_children: (1, 2, 3), name: "test")
+
+Test 5: Object with _children - merge: nil (omit)
+  parsed: (name: "test")
+
+Test 6: Custom children key (children: items)
+  json: {"items":["a","b","c"],"name":"test"}
+  parsed: (name: "test", "a", "b", "c")
+
+Test 7: Custom children key - merge: false
+  parsed: (items: ("a", "b", "c"), name: "test")
+
+Test 8: Nested objects
+  json: {"user":{"name":"Bob","profile":{"age":25}}}
+  parsed: (user: (name: "Bob", profile: (age: 25)))
+
+Test 9: Nested with _children at multiple levels
+  json: {"root":{"_children":[{"x":1},{"y":2}]}}
+  parsed: (root: ((x: 1), (y: 2)))
+
+Test 10: Mixed types in array
+  json: [1,"hello",true,null,3.14]
+  parsed: (1, "hello", true, nil, 3.14)
+
+Test 11: Round-trip test (list -> json -> list)
+  original: (name: "Alice", score: 95, 1, 2, 3)
+  json:     {"_children":[1,2,3],"name":"Alice","score":95}
+  back:     (name: "Alice", score: 95, 1, 2, 3)
+
+Test 12: Deep nesting with children merge
+  json: {"root":{"_children":[{"_children":[1,2],"name":"a"},{"_children":[3,4],"name":"b"}]}}
+  parsed: (
+  root: (
+    (name: "a", 1, 2),
+    (name: "b", 3, 4)
+  )
+)
+
+Test 13: Empty array
+  json: []
+  parsed: ()
+
+Test 14: Boolean and null values
+  json: {"active":true,"data":null,"deleted":false}
+  parsed: (active: true, data: nil, deleted: false)
+
+Test 15: Colored JSON (ANSI stripped)
+  colored json (raw bytes follow)
+  parsed: (name: "Test", value: 42)
+
+=== Tests Complete ===

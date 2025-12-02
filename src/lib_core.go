@@ -125,7 +125,117 @@ func (ps *PawScript) RegisterCoreLib() {
 	})
 
 	// list - creates an immutable list from arguments
+	// Options:
+	//   from: json - parse first positional arg as JSON string
+	//   merge: true (default) - merge _children array into positional args
+	//   merge: false - keep _children as separate named key
+	//   merge: nil - omit _children entirely
+	//   children: "key" - use custom key instead of _children
 	ps.RegisterCommandInModule("types", "list", func(ctx *Context) Result {
+		// Check for from: json option
+		if fromArg, hasFrom := ctx.NamedArgs["from"]; hasFrom {
+			fromStr := ""
+			switch v := fromArg.(type) {
+			case string:
+				fromStr = v
+			case Symbol:
+				fromStr = string(v)
+			case QuotedString:
+				fromStr = string(v)
+			}
+
+			if fromStr == "json" {
+				// Parse JSON from first positional argument
+				if len(ctx.Args) < 1 {
+					ctx.LogError(CatCommand, "list from: json requires a JSON string argument")
+					setListResult(ctx, NewStoredList(nil))
+					return BoolStatus(false)
+				}
+
+				// Get the JSON string
+				jsonStr := ""
+				switch v := ctx.Args[0].(type) {
+				case string:
+					jsonStr = v
+				case Symbol:
+					jsonStr = string(v)
+				case QuotedString:
+					jsonStr = string(v)
+				case StoredString:
+					jsonStr = string(v)
+				default:
+					ctx.LogError(CatType, "list from: json requires a string argument")
+					setListResult(ctx, NewStoredList(nil))
+					return BoolStatus(false)
+				}
+
+				// Strip ANSI escape sequences from outside quoted strings
+				jsonStr = stripANSIOutsideQuotes(jsonStr)
+
+				// Parse JSON
+				var jsonVal interface{}
+				if err := json.Unmarshal([]byte(jsonStr), &jsonVal); err != nil {
+					ctx.LogError(CatType, fmt.Sprintf("list from: json parse error: %v", err))
+					setListResult(ctx, NewStoredList(nil))
+					return BoolStatus(false)
+				}
+
+				// Determine children key (default "_children")
+				childrenKey := "_children"
+				if ck, hasChildren := ctx.NamedArgs["children"]; hasChildren {
+					switch v := ck.(type) {
+					case string:
+						childrenKey = v
+					case Symbol:
+						childrenKey = string(v)
+					case QuotedString:
+						childrenKey = string(v)
+					}
+				}
+
+				// Determine merge behavior (default true)
+				var mergeChildren interface{} = true
+				if mergeArg, hasMerge := ctx.NamedArgs["merge"]; hasMerge {
+					switch v := mergeArg.(type) {
+					case bool:
+						mergeChildren = v
+					case nil:
+						mergeChildren = nil
+					case Symbol:
+						s := string(v)
+						if s == "nil" || s == "null" {
+							mergeChildren = nil
+						} else if s == "false" || s == "0" {
+							mergeChildren = false
+						} else {
+							mergeChildren = true
+						}
+					case string:
+						if v == "nil" || v == "null" {
+							mergeChildren = nil
+						} else if v == "false" || v == "0" {
+							mergeChildren = false
+						} else {
+							mergeChildren = true
+						}
+					}
+				}
+
+				// Convert JSON to StoredList
+				result := JSONToStoredList(jsonVal, childrenKey, mergeChildren, ctx.executor)
+
+				// Ensure result is a StoredList
+				if sl, ok := result.(StoredList); ok {
+					setListResult(ctx, sl)
+				} else {
+					// Wrap non-list result in a list
+					setListResult(ctx, NewStoredListWithRefs([]interface{}{result}, nil, ctx.executor))
+				}
+				return BoolStatus(true)
+			}
+		}
+
+		// Default behavior: create list from arguments
 		setListResult(ctx, NewStoredListWithRefs(ctx.Args, ctx.NamedArgs, ctx.executor))
 		return BoolStatus(true)
 	})

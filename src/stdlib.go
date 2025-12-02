@@ -98,6 +98,121 @@ func ParseDisplayColorConfig(colorArg interface{}, executor *Executor) DisplayCo
 	return cfg
 }
 
+// stripANSIOutsideQuotes removes ANSI escape sequences (ESC...m) from a string,
+// but only those that appear outside of JSON quoted string values.
+// This handles colored JSON output where escape codes appear around keys/values.
+func stripANSIOutsideQuotes(s string) string {
+	var result strings.Builder
+	inQuote := false
+	i := 0
+	for i < len(s) {
+		ch := s[i]
+
+		// Track quoted strings
+		if ch == '"' && (i == 0 || s[i-1] != '\\') {
+			inQuote = !inQuote
+			result.WriteByte(ch)
+			i++
+			continue
+		}
+
+		// If inside a quoted string, keep everything
+		if inQuote {
+			result.WriteByte(ch)
+			i++
+			continue
+		}
+
+		// Check for ANSI escape sequence: ESC (0x1b or \033) followed by chars ending in 'm'
+		if ch == 0x1b && i+1 < len(s) {
+			// Skip until we find 'm' (the terminator for color/style codes)
+			j := i + 1
+			for j < len(s) && s[j] != 'm' {
+				j++
+			}
+			if j < len(s) && s[j] == 'm' {
+				// Skip the entire escape sequence including 'm'
+				i = j + 1
+				continue
+			}
+		}
+
+		result.WriteByte(ch)
+		i++
+	}
+	return result.String()
+}
+
+// JSONToStoredList converts a parsed JSON value to a StoredList structure.
+// - Arrays become lists with positional items only
+// - Objects become lists with named args only
+// - Special handling for _children (or custom childrenKey):
+//   - mergeChildren == nil: omit children entirely
+//   - mergeChildren == false: keep as separate named key with positional-only list
+//   - mergeChildren == true (default): merge children into positional args of parent
+func JSONToStoredList(value interface{}, childrenKey string, mergeChildren interface{}, executor *Executor) interface{} {
+	switch v := value.(type) {
+	case nil:
+		return nil
+	case bool, float64, string:
+		return v
+	case []interface{}:
+		// Array -> list with positional items only
+		items := make([]interface{}, len(v))
+		for i, item := range v {
+			items[i] = JSONToStoredList(item, childrenKey, mergeChildren, executor)
+		}
+		return NewStoredListWithRefs(items, nil, executor)
+	case map[string]interface{}:
+		// Object -> list with named args
+		namedArgs := make(map[string]interface{})
+		var positionalItems []interface{}
+
+		for k, val := range v {
+			if k == childrenKey {
+				// Handle children based on merge setting
+				if mergeChildren == nil {
+					// mergeChildren is nil -> omit children entirely
+					continue
+				}
+				if mergeBool, ok := mergeChildren.(bool); ok && !mergeBool {
+					// mergeChildren is false -> keep as separate key with positional-only list
+					if childArr, ok := val.([]interface{}); ok {
+						childItems := make([]interface{}, len(childArr))
+						for i, item := range childArr {
+							childItems[i] = JSONToStoredList(item, childrenKey, mergeChildren, executor)
+						}
+						namedArgs[k] = NewStoredListWithRefs(childItems, nil, executor)
+					} else {
+						namedArgs[k] = JSONToStoredList(val, childrenKey, mergeChildren, executor)
+					}
+					continue
+				}
+				// Default: merge children into positional args
+				if childArr, ok := val.([]interface{}); ok {
+					for _, item := range childArr {
+						positionalItems = append(positionalItems, JSONToStoredList(item, childrenKey, mergeChildren, executor))
+					}
+				}
+				continue
+			}
+			// Regular key
+			namedArgs[k] = JSONToStoredList(val, childrenKey, mergeChildren, executor)
+		}
+
+		return NewStoredListWithRefs(positionalItems, namedArgs, executor)
+	default:
+		// Numbers from JSON are float64, convert to int64 if whole number
+		if f, ok := v.(float64); ok {
+			if f == float64(int64(f)) {
+				return int64(f)
+			}
+			return f
+		}
+		return v
+	}
+}
+
 // formatListForDisplay formats a StoredList as a ParenGroup-like representation
 func formatListForDisplay(list StoredList) string {
 	var parts []string
