@@ -1706,7 +1706,9 @@ func createLauncherWindow() {
 		config := loadConfig()
 		isLightMode := config.GetBool("light_mode", false)
 		if isLightMode {
-			guiState.app.Settings().SetTheme(&lightTheme{})
+			guiState.app.Settings().SetTheme(&myThemeLight{})
+		} else {
+			guiState.app.Settings().SetTheme(&myThemeDark{})
 		}
 
 		// Theme toggle button - sun to switch to light, moon to switch to dark
@@ -1715,7 +1717,7 @@ func createLauncherWindow() {
 
 		// Set initial icon based on current theme
 		if isLightMode {
-			themeBtn.SetText("🌙") // In light mode, show moon to switch to dark
+			themeBtn.SetText("🌚") // In light mode, show moon to switch to dark
 		} else {
 			themeBtn.SetText("☀️") // In dark mode, show sun to switch to light
 		}
@@ -1728,10 +1730,10 @@ func createLauncherWindow() {
 			saveConfig(cfg)
 
 			if lightMode {
-				guiState.app.Settings().SetTheme(&lightTheme{})
-				themeBtn.SetText("🌙") // Now in light mode, show moon
+				guiState.app.Settings().SetTheme(&myThemeLight{})
+				themeBtn.SetText("🌚") // Now in light mode, show moon
 			} else {
-				guiState.app.Settings().SetTheme(&darkTheme{})
+				guiState.app.Settings().SetTheme(&myThemeDark{})
 				themeBtn.SetText("☀️") // Now in dark mode, show sun
 			}
 		}
