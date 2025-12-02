@@ -1,0 +1,72 @@
+#!/usr/bin/env pawscript
+
+# Test shallow equality (eqs/neqs) - compares by identity not content
+
+echo "=== Shallow Equality Tests ==="
+echo ""
+
+# Test 1: Scalar values (same as deep)
+echo "Test 1: Scalar values"
+echo "  eqs 1,1: {eqs 1, 1}"
+echo "  eqs 1,2: {eqs 1, 2}"
+echo "  neqs 1,1: {neqs 1, 1}"
+echo "  neqs 1,2: {neqs 1, 2}"
+
+# Test 2: Simple lists without nesting (same as deep)
+echo ""
+echo "Test 2: Simple lists (no nesting)"
+#a: {list 1, 2, 3}
+#b: {list 1, 2, 3}
+echo "  eqs: {eqs ~#a, ~#b}"
+echo "  eq: {eq ~#a, ~#b}"
+
+# Test 3: Same nested reference
+echo ""
+echo "Test 3: Same nested reference"
+#inner: {list x: 1, y: 2}
+#c: {list data: ~#inner, id: 1}
+#d: {list data: ~#inner, id: 1}
+echo "  eqs (same ref): {eqs ~#c, ~#d}"
+echo "  eq (same ref): {eq ~#c, ~#d}"
+echo "  neqs (same ref): {neqs ~#c, ~#d}"
+
+# Test 4: Different objects, same content - KEY DIFFERENCE
+echo ""
+echo "Test 4: Different objects, same content"
+#inner1: {list x: 1, y: 2}
+#inner2: {list x: 1, y: 2}
+#e: {list data: ~#inner1, id: 1}
+#f: {list data: ~#inner2, id: 1}
+echo "  eqs (diff obj): {eqs ~#e, ~#f}"
+echo "  eq (diff obj): {eq ~#e, ~#f}"
+echo "  neqs (diff obj): {neqs ~#e, ~#f}"
+
+# Test 5: Named args with same reference
+echo ""
+echo "Test 5: Named args - same reference"
+#shared: {list val: 100}
+#g: {list first: ~#shared, second: ~#shared}
+#h: {list first: ~#shared, second: ~#shared}
+echo "  eqs: {eqs ~#g, ~#h}"
+
+# Test 6: Named args with different references
+echo ""
+echo "Test 6: Named args - different references"
+#ref1: {list val: 100}
+#ref2: {list val: 100}
+#i: {list item: ~#ref1}
+#j: {list item: ~#ref2}
+echo "  eqs: {eqs ~#i, ~#j}"
+echo "  eq: {eq ~#i, ~#j}"
+
+# Test 7: Mixed - some same, some different refs
+echo ""
+echo "Test 7: Positional items - same vs different refs"
+#common: {list z: 999}
+#k: {list ~#common, ~#ref1}
+#l: {list ~#common, ~#ref2}
+echo "  eqs: {eqs ~#k, ~#l}"
+echo "  eq: {eq ~#k, ~#l}"
+
+echo ""
+echo "=== Shallow Equality Tests Complete ==="

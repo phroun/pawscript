@@ -1,0 +1,53 @@
+=== Slice Only Tests ===
+
+Test 1: Extract positional items (only: arr)
+  original: (x: 10, y: 20, z: 30, a, b, c)
+  only: arr -> (a, b, c)
+  len: 3
+  keys: ()
+
+Test 2: Extract named args (only: map)
+  only: map -> (x: 10, y: 20, z: 30)
+  len: 0
+  keys: (<x>, <y>, <z>)
+
+Test 3: Aliases for arr
+  only: arr -> (a, b, c)
+  only: array -> (a, b, c)
+  only: positional -> (a, b, c)
+  only: items -> (a, b, c)
+
+Test 4: Aliases for map
+  only: map -> (x: 10, y: 20, z: 30)
+  only: named -> (x: 10, y: 20, z: 30)
+
+Test 5: List with only positional items
+  original: (1, 2, 3, 4, 5)
+  only: arr -> (1, 2, 3, 4, 5)
+  only: map -> ()
+
+Test 6: List with only named args
+  original: (age: 30, city: "Boston", name: "Alice")
+  only: arr -> ()
+  only: map -> (age: 30, city: "Boston", name: "Alice")
+
+Test 7: Empty list
+  original: ()
+  only: arr -> ()
+  only: map -> ()
+
+Test 8: Nested lists preserved
+  original: (data: (val: 100), (val: 100))
+  only: arr -> ((val: 100))
+  only: map -> (data: (val: 100))
+
+Test 9: Original slice behavior
+  original: (a, b, c, d, e)
+  slice 0,3: (a, b, c)
+  slice 2,-1: (c, d, e)
+
+Test 10: String slice behavior
+  slice hello 0,3: hel
+  slice hello 2,-1: llo
+
+=== Slice Only Tests Complete ===

@@ -1,0 +1,89 @@
+#!/usr/bin/env pawscript
+
+# Test slice only: arr|map feature
+
+echo "=== Slice Only Tests ==="
+echo ""
+
+# Test 1: Mixed list - extract arr
+echo "Test 1: Extract positional items (only: arr)"
+#mixed: {list a, b, c, x: 10, y: 20, z: 30}
+echo "  original: {string ~#mixed}"
+#arrOnly: {slice ~#mixed, only: arr}
+echo "  only: arr -> {string ~#arrOnly}"
+echo "  len: {len ~#arrOnly}"
+echo "  keys: {keys ~#arrOnly}"
+
+# Test 2: Mixed list - extract map
+echo ""
+echo "Test 2: Extract named args (only: map)"
+#mapOnly: {slice ~#mixed, only: map}
+echo "  only: map -> {string ~#mapOnly}"
+echo "  len: {len ~#mapOnly}"
+echo "  keys: {keys ~#mapOnly}"
+
+# Test 3: Aliases for arr
+echo ""
+echo "Test 3: Aliases for arr"
+echo "  only: arr -> {string {slice ~#mixed, only: arr}}"
+echo "  only: array -> {string {slice ~#mixed, only: array}}"
+echo "  only: positional -> {string {slice ~#mixed, only: positional}}"
+echo "  only: items -> {string {slice ~#mixed, only: items}}"
+
+# Test 4: Aliases for map
+echo ""
+echo "Test 4: Aliases for map"
+echo "  only: map -> {string {slice ~#mixed, only: map}}"
+echo "  only: named -> {string {slice ~#mixed, only: named}}"
+
+# Test 5: List with only positional items
+echo ""
+echo "Test 5: List with only positional items"
+#posOnly: {list 1, 2, 3, 4, 5}
+echo "  original: {string ~#posOnly}"
+echo "  only: arr -> {string {slice ~#posOnly, only: arr}}"
+echo "  only: map -> {string {slice ~#posOnly, only: map}}"
+
+# Test 6: List with only named args
+echo ""
+echo "Test 6: List with only named args"
+#namedOnly: {list name: "Alice", age: 30, city: "Boston"}
+echo "  original: {string ~#namedOnly}"
+echo "  only: arr -> {string {slice ~#namedOnly, only: arr}}"
+echo "  only: map -> {string {slice ~#namedOnly, only: map}}"
+
+# Test 7: Empty list
+echo ""
+echo "Test 7: Empty list"
+#empty: {list}
+echo "  original: {string ~#empty}"
+echo "  only: arr -> {string {slice ~#empty, only: arr}}"
+echo "  only: map -> {string {slice ~#empty, only: map}}"
+
+# Test 8: Nested lists preserved
+echo ""
+echo "Test 8: Nested lists preserved"
+#inner: {list val: 100}
+#nested: {list ~#inner, data: ~#inner}
+echo "  original: {string ~#nested}"
+#nestedArr: {slice ~#nested, only: arr}
+#nestedMap: {slice ~#nested, only: map}
+echo "  only: arr -> {string ~#nestedArr}"
+echo "  only: map -> {string ~#nestedMap}"
+
+# Test 9: Original slice still works
+echo ""
+echo "Test 9: Original slice behavior"
+#list1: {list a, b, c, d, e}
+echo "  original: {string ~#list1}"
+echo "  slice 0,3: {string {slice ~#list1, 0, 3}}"
+echo "  slice 2,-1: {string {slice ~#list1, 2, -1}}"
+
+# Test 10: String slice still works
+echo ""
+echo "Test 10: String slice behavior"
+echo "  slice hello 0,3: {slice "hello", 0, 3}"
+echo "  slice hello 2,-1: {slice "hello", 2, -1}"
+
+echo ""
+echo "=== Slice Only Tests Complete ==="
