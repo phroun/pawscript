@@ -348,6 +348,8 @@ type ParsedCommand struct {
 	ChainType       string // "none", "chain" (~>), "chain_append" (~~>), "assign" (=>)
 	CachedBlockArgs map[int][]*ParsedCommand    // Pre-parsed block arguments (for blocks without $N substitution)
 	CachedBraces    map[string][]*ParsedCommand // Pre-parsed brace expressions by content string
+	ArgTemplates    []*SubstitutionTemplate     // Pre-parsed substitution templates for string arguments
+	CommandTemplate *SubstitutionTemplate       // Pre-parsed template for command name (if it has substitutions)
 }
 
 // CommandSequence represents suspended command execution
@@ -381,6 +383,41 @@ type TildeLocation struct {
 	VarName      string // The variable name (without ~ or ? or ;)
 	HasSemicolon bool   // true if terminated by explicit semicolon
 	IsQuestion   bool   // true if this is a ? (existence check) expression, false for ~ (value)
+}
+
+// SegmentType identifies the kind of segment in a substitution template
+type SegmentType int
+
+const (
+	SegmentLiteral   SegmentType = iota // Plain text, no substitution needed
+	SegmentTildeVar                     // ~varname or ?varname
+	SegmentDollarArg                    // $1, $2, etc.
+	SegmentDollarStar                   // $* (all args as comma-separated)
+	SegmentDollarAt                     // $@ (all args as list)
+	SegmentDollarHash                   // $# (arg count)
+	SegmentBrace                        // {...} expression
+)
+
+// TemplateSegment represents one piece of a pre-parsed substitution template
+type TemplateSegment struct {
+	Type       SegmentType
+	Literal    string           // For SegmentLiteral: the text
+	VarName    string           // For SegmentTildeVar: variable name
+	IsQuestion bool             // For SegmentTildeVar: true if ? (existence check)
+	ArgNum     int              // For SegmentDollarArg: 1-based argument number
+	InQuote    bool             // For SegmentDollarArg: true if inside double quotes
+	BraceAST   []*ParsedCommand // For SegmentBrace: pre-parsed commands
+	BraceRaw   string           // For SegmentBrace: original content (for cache key)
+	IsUnescape bool             // For SegmentBrace: true if ${...} (splat mode)
+}
+
+// SubstitutionTemplate is a pre-parsed template for efficient runtime substitution
+// Instead of scanning strings at runtime, we iterate through pre-computed segments
+type SubstitutionTemplate struct {
+	Segments     []TemplateSegment
+	HasDollarSub bool // true if any $N, $*, $@, $# segments (requires MacroContext)
+	HasTildeSub  bool // true if any ~var segments
+	HasBraceSub  bool // true if any {...} segments
 }
 
 // BraceEvaluation tracks the evaluation state of a single brace expression

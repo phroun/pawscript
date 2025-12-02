@@ -87,9 +87,10 @@ func (e *Executor) GetOrParseMacroCommands(macro *StoredMacro, filename string) 
 		macro.CachedCommands = commands
 		e.logger.DebugCat(CatCommand, "Cached %d parsed commands for macro", len(commands))
 
-		// Pre-cache brace expressions in each command
+		// Pre-cache brace expressions and substitution templates in each command
 		for _, cmd := range commands {
 			e.preCacheBraceExpressions(cmd, cmd.Command, filename)
+			e.PreCacheCommandTemplates(cmd, filename)
 		}
 	}
 
