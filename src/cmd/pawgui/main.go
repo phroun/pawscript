@@ -1377,6 +1377,9 @@ func createLauncherWindow() {
 
 		// State variables for the file browser
 		var selectedEntry *FileEntry
+		var lastClickTime time.Time
+		var lastClickID widget.ListItemID = -1
+		const doubleClickThreshold = 400 * time.Millisecond
 
 		fileList := widget.NewList(
 			func() int { return len(entries) },
@@ -1392,55 +1395,8 @@ func createLauncherWindow() {
 		// Run/Open button - text changes based on selection
 		runBtn := widget.NewButton("Run", nil)
 
-		// Function to refresh the file list when directory changes
-		refreshFileList := func() {
-			entries = getEntriesInDir(currentDir)
-			selectedEntry = nil
-			runBtn.SetText("Run")
-			dirLabel.SetText(currentDir)
-			fileList.UnselectAll()
-			fileList.Refresh()
-			// Save the current directory to config
-			go saveBrowseDir(currentDir)
-		}
-
-		// Function to navigate to a directory
-		navigateToDir := func(newDir string) {
-			absDir, err := filepath.Abs(newDir)
-			if err != nil {
-				return
-			}
-			// Verify the directory exists
-			info, err := os.Stat(absDir)
-			if err != nil || !info.IsDir() {
-				return
-			}
-			currentDir = absDir
-			refreshFileList()
-		}
-
-		// Handle selection changes
-		fileList.OnSelected = func(listID widget.ListItemID) {
-			if listID >= 0 && listID < len(entries) {
-				selectedEntry = &entries[listID]
-				// Update button text based on selection type
-				if selectedEntry.IsDir {
-					runBtn.SetText("Open")
-				} else {
-					runBtn.SetText("Run")
-				}
-			}
-		}
-
-		// Handle deselection
-		fileList.OnUnselected = func(listID widget.ListItemID) {
-			// Clear selection state
-			selectedEntry = nil
-			runBtn.SetText("Run")
-		}
-
-		// Run/Open button handler
-		runBtn.OnTapped = func() {
+		// Function to perform the action (open dir or run script)
+		performAction := func() {
 			if selectedEntry == nil {
 				return
 			}
@@ -1454,7 +1410,25 @@ func createLauncherWindow() {
 					dirName := strings.TrimSuffix(selectedEntry.Name, "/")
 					newDir = filepath.Join(currentDir, dirName)
 				}
-				navigateToDir(newDir)
+				absDir, err := filepath.Abs(newDir)
+				if err != nil {
+					return
+				}
+				// Verify the directory exists
+				info, err := os.Stat(absDir)
+				if err != nil || !info.IsDir() {
+					return
+				}
+				currentDir = absDir
+				entries = getEntriesInDir(currentDir)
+				selectedEntry = nil
+				lastClickID = -1
+				runBtn.SetText("Run")
+				dirLabel.SetText(currentDir)
+				fileList.UnselectAll()
+				fileList.Refresh()
+				// Save the current directory to config
+				go saveBrowseDir(currentDir)
 			} else {
 				// Run the script
 				fullPath := filepath.Join(currentDir, selectedEntry.Name)
@@ -1462,18 +1436,60 @@ func createLauncherWindow() {
 			}
 		}
 
+		// Handle selection changes (including double-click detection)
+		fileList.OnSelected = func(listID widget.ListItemID) {
+			now := time.Now()
+
+			if listID >= 0 && listID < len(entries) {
+				// Check for double-click on same item
+				if listID == lastClickID && now.Sub(lastClickTime) < doubleClickThreshold {
+					// Double-click detected - perform action
+					selectedEntry = &entries[listID]
+					performAction()
+					lastClickID = -1
+					return
+				}
+
+				// Single click - update selection
+				selectedEntry = &entries[listID]
+				lastClickID = listID
+				lastClickTime = now
+
+				// Update button text based on selection type
+				if selectedEntry.IsDir {
+					runBtn.SetText("Open")
+				} else {
+					runBtn.SetText("Run")
+				}
+			}
+		}
+
+		// Handle deselection
+		fileList.OnUnselected = func(listID widget.ListItemID) {
+			// Clear selection state
+			selectedEntry = nil
+			lastClickID = -1
+			runBtn.SetText("Run")
+		}
+
+		// Run/Open button handler
+		runBtn.OnTapped = performAction
+
 		browseBtn := widget.NewButton("Browse...", func() {
 			showOpenFileDialogForWindow(win, ws)
 		})
 
 		buttonBox := container.NewHBox(runBtn, browseBtn)
 
+		// Wrap file list in scroll container for horizontal scrolling
+		fileListScroll := container.NewScroll(fileList)
+
 		leftPanel := container.NewBorder(
-			dirLabel,   // top
-			buttonBox,  // bottom
-			nil,        // left
-			nil,        // right
-			fileList,   // center (fills remaining space)
+			dirLabel,       // top
+			buttonBox,      // bottom
+			nil,            // left
+			nil,            // right
+			fileListScroll, // center (fills remaining space, with scroll)
 		)
 
 		// --- Right Panel: Console ---
