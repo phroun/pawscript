@@ -112,6 +112,12 @@ func (c *Context) GetMacroContext() *MacroContext {
 	return c.state.macroContext
 }
 
+// GetModuleEnv returns the module environment from the current execution state
+// This can be used to capture the environment for deferred callback execution
+func (c *Context) GetModuleEnv() *ModuleEnvironment {
+	return c.state.moduleEnv
+}
+
 // GetVariable retrieves a variable from the current execution state
 func (c *Context) GetVariable(name string) (interface{}, bool) {
 	return c.state.GetVariable(name)

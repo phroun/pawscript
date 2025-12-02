@@ -2182,11 +2182,14 @@ func registerGuiCommands(ps *pawscript.PawScript) {
 			onclickMacro = fmt.Sprintf("%v", onclick)
 		}
 
+		// Capture the module environment so callbacks can access macros defined in the script
+		capturedEnv := ctx.GetModuleEnv()
+
 		btn := widget.NewButton(text, func() {
 			if onclickMacro != "" {
 				go func() {
-					// Use the ps instance that registered these commands, not guiState.ps (which may be nil)
-					result := ps.Execute(onclickMacro)
+					// Execute in the captured environment so macros are accessible
+					result := ps.ExecuteWithEnvironment(onclickMacro, capturedEnv, "<button-callback>", 0, 0)
 					if result == pawscript.BoolStatus(false) {
 						fmt.Fprintf(os.Stderr, "Button callback error: %s\n", onclickMacro)
 					}
