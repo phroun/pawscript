@@ -737,7 +737,9 @@ func (e *Executor) substituteAllBraces(originalString string, evaluations []*Bra
 		// Format the result based on type
 		var resultValue string
 		if eval.Location.IsUnescape {
-			// ${...} - no escaping, direct insertion
+			// ${...} - unwrap outer parens (splat), but still escape quotes when inside quotes
+			insideQuotes := e.isInsideQuotes(originalString, eval.Location.StartPos)
+
 			// For StoredList, unwrap outer parens (just like ParenGroup)
 			if list, ok := rawValue.(StoredList); ok {
 				resultValue = e.formatListItems(list)
@@ -776,6 +778,11 @@ func (e *Executor) substituteAllBraces(originalString string, evaluations []*Bra
 				}
 			} else {
 				resultValue = fmt.Sprintf("%v", rawValue)
+			}
+
+			// If inside quotes, escape quotes and backslashes in the result
+			if insideQuotes {
+				resultValue = e.escapeQuotesAndBackslashes(resultValue)
 			}
 		} else {
 			// {...} - preserve types properly, considering quote context
