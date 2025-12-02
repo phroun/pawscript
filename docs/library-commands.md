@@ -27,8 +27,8 @@
 | `maplen` | `maplen <list>` | Count named arguments only |
 | `arrtype` | `arrtype <list>` | Get type of positional items |
 | `maptype` | `maptype <list>` | Get type of named arguments |
-| `arrsolid` | `arrsolid <list>` | Check if all positional items are same type |
-| `mapsolid` | `mapsolid <list>` | Check if all named args are same type |
+| `arrsolid` | `arrsolid <list>` | True if no nil/undefined in positional items |
+| `mapsolid` | `mapsolid <list>` | True if no nil/undefined in named args |
 | `arrser` | `arrser <list>` | Check if positional items are serializable |
 | `mapser` | `mapser <list>` | Check if named args are serializable |
 | `json` | `json <value> [pretty: true] [color: true]` | Serialize to JSON string |
