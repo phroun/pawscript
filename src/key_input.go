@@ -422,15 +422,22 @@ func (m *KeyInputManager) emitEscapeBuffer() {
 	m.inEscape = false
 }
 
-// emitKey sends a key event to both the keys channel and line assembly
+// emitKey sends a key event to either the keys channel OR line assembly (not both)
 func (m *KeyInputManager) emitKey(key string) {
 	m.debug(fmt.Sprintf("Key: %q", key))
 
-	// Send to keys channel
-	ChannelSend(m.keysChan, key)
+	// Check if we're in line read mode
+	m.mu.Lock()
+	inLineMode := m.inLineReadMode
+	m.mu.Unlock()
 
-	// Handle line assembly
-	m.handleLineAssembly(key)
+	if inLineMode {
+		// In line read mode: keys go to line assembly only
+		m.handleLineAssembly(key)
+	} else {
+		// Normal mode: keys go to keysChan only
+		ChannelSend(m.keysChan, key)
+	}
 }
 
 // handleLineAssembly processes a key for line assembly
