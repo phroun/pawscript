@@ -2697,6 +2697,21 @@ func createConsoleChannels(stdinReader *io.PipeReader, stdoutWriter *io.PipeWrit
 		Metadata:      make(map[string]interface{}),
 	}
 
+	// Flow control: bounded channel provides backpressure when terminal can't keep up
+	// Small buffer (4) allows some pipelining but prevents runaway buffering
+	outputQueue := make(chan []byte, 4)
+
+	// Writer goroutine: reads from queue and writes to terminal pipe
+	// This decouples the PawScript execution from terminal rendering speed
+	go func() {
+		for data := range outputQueue {
+			stdoutWriter.Write(data)
+			// Small yield after each write gives terminal time to process
+			// This prevents flooding when doing rapid cursor movements
+			time.Sleep(time.Microsecond * 100)
+		}
+	}()
+
 	consoleOutCh := &pawscript.StoredChannel{
 		BufferSize:       0,
 		Messages:         make([]pawscript.ChannelMessage, 0),
@@ -2706,24 +2721,25 @@ func createConsoleChannels(stdinReader *io.PipeReader, stdoutWriter *io.PipeWrit
 		Timestamp:        time.Now(),
 		Terminal:         termCaps,
 		NativeSend: func(v interface{}) error {
-			// Handle different types properly
-			switch data := v.(type) {
+			// Convert to bytes and send to flow-controlled queue
+			// This blocks when queue is full, providing backpressure
+			var data []byte
+			switch d := v.(type) {
 			case []byte:
-				_, err := stdoutWriter.Write(data)
-				return err
+				data = d
 			case string:
 				// Convert newlines for terminal display
-				text := strings.ReplaceAll(data, "\r\n", "\n")
+				text := strings.ReplaceAll(d, "\r\n", "\n")
 				text = strings.ReplaceAll(text, "\n", "\r\n")
-				_, err := fmt.Fprint(stdoutWriter, text)
-				return err
+				data = []byte(text)
 			default:
 				text := fmt.Sprintf("%v", v)
 				text = strings.ReplaceAll(text, "\r\n", "\n")
 				text = strings.ReplaceAll(text, "\n", "\r\n")
-				_, err := fmt.Fprint(stdoutWriter, text)
-				return err
+				data = []byte(text)
 			}
+			outputQueue <- data
+			return nil
 		},
 		NativeRecv: func() (interface{}, error) {
 			return nil, fmt.Errorf("cannot receive from console_out")
