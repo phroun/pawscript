@@ -78,14 +78,14 @@ func (env *ModuleEnvironment) PopulateIOModule(config *IOChannelConfig, executor
 				if err != nil {
 					return nil, err
 				}
-				// Trim the newline
+				// Trim the newline and return as raw bytes
 				if len(line) > 0 && line[len(line)-1] == '\n' {
 					line = line[:len(line)-1]
 				}
 				if len(line) > 0 && line[len(line)-1] == '\r' {
 					line = line[:len(line)-1]
 				}
-				return line, nil
+				return []byte(line), nil
 			},
 			NativeSend: func(v interface{}) error {
 				return fmt.Errorf("cannot send to stdin")
@@ -162,14 +162,14 @@ func (env *ModuleEnvironment) PopulateIOModule(config *IOChannelConfig, executor
 				if err != nil {
 					return nil, err
 				}
-				// Trim the newline
+				// Trim the newline and return as raw bytes
 				if len(line) > 0 && line[len(line)-1] == '\n' {
 					line = line[:len(line)-1]
 				}
 				if len(line) > 0 && line[len(line)-1] == '\r' {
 					line = line[:len(line)-1]
 				}
-				return line, nil
+				return []byte(line), nil
 			},
 		}
 	}
