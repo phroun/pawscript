@@ -79,7 +79,11 @@ func NewKeyInputManager(inputReader io.Reader, echoWriter io.Writer, debugFn fun
 		m.currentLine = nil
 		m.charByteLengths = nil
 		savedEchoWriter := m.echoWriter
-		m.echoWriter = os.Stdout // Enable echo during line read
+		if m.echoWriter == nil {
+			// Only default to os.Stdout if no echo writer was configured
+			// (e.g., when using a channel for I/O, echoWriter will already be set)
+			m.echoWriter = os.Stdout
+		}
 		m.mu.Unlock()
 
 		// Wait for line (without holding lock)

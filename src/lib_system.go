@@ -44,6 +44,27 @@ func (r *channelReader) Read(p []byte) (n int, err error) {
 	return n, nil
 }
 
+// channelWriter wraps a StoredChannel as an io.Writer
+type channelWriter struct {
+	ch *StoredChannel
+}
+
+func (w *channelWriter) Write(p []byte) (n int, err error) {
+	if w.ch.NativeSend != nil {
+		err = w.ch.NativeSend(p)
+		if err != nil {
+			return 0, err
+		}
+		return len(p), nil
+	}
+	// Fall back to ChannelSend with string
+	err = ChannelSend(w.ch, string(p))
+	if err != nil {
+		return 0, err
+	}
+	return len(p), nil
+}
+
 // RegisterSystemLib registers OS, IO, and system commands
 // Modules: os, io, sys
 func (ps *PawScript) RegisterSystemLib(scriptArgs []string) {
@@ -941,9 +962,12 @@ func (ps *PawScript) RegisterSystemLib(scriptArgs []string) {
 			}
 		}
 
-		// Check for echo: named argument
+		// Check for echo: named argument - can be true/false or a channel
 		if echoArg, hasEcho := ctx.NamedArgs["echo"]; hasEcho {
-			if echoBool, ok := echoArg.(bool); ok && echoBool {
+			// First check if it's a channel
+			if ch := valueToChannel(ctx, echoArg); ch != nil {
+				echoWriter = &channelWriter{ch: ch}
+			} else if echoBool, ok := echoArg.(bool); ok && echoBool {
 				echoWriter = os.Stdout
 			} else if echoStr, ok := echoArg.(string); ok && (echoStr == "true" || echoStr == "yes") {
 				echoWriter = os.Stdout
