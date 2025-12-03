@@ -29,6 +29,7 @@ type Executor struct {
 	nextFiberID      int
 	logger           *Logger
 	optLevel         OptimizationLevel // AST caching level
+	maxIterations    int               // Maximum loop iterations (0 or negative = unlimited)
 	fallbackHandler  func(cmdName string, args []interface{}, namedArgs map[string]interface{}, state *ExecutionState, position *SourcePosition) Result
 }
 
@@ -61,6 +62,22 @@ func (e *Executor) GetOptimizationLevel() OptimizationLevel {
 	e.mu.RLock()
 	defer e.mu.RUnlock()
 	return e.optLevel
+}
+
+// SetMaxIterations sets the maximum loop iterations
+// 0 or negative values mean unlimited iterations
+func (e *Executor) SetMaxIterations(max int) {
+	e.mu.Lock()
+	defer e.mu.Unlock()
+	e.maxIterations = max
+}
+
+// GetMaxIterations returns the maximum loop iterations setting
+// 0 or negative means unlimited
+func (e *Executor) GetMaxIterations() int {
+	e.mu.RLock()
+	defer e.mu.RUnlock()
+	return e.maxIterations
 }
 
 // GetOrParseMacroCommands returns cached parsed commands for a macro, or parses and caches them

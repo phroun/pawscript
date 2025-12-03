@@ -2175,10 +2175,10 @@ func (ps *PawScript) RegisterCoreLib() {
 			return BoolStatus(false)
 		}
 
-		maxIterations := 10000
+		maxIterations := ctx.executor.GetMaxIterations()
 		iterations := 0
 
-		for iterations < maxIterations {
+		for maxIterations <= 0 || iterations < maxIterations {
 			condResult := ctx.executor.ExecuteWithState(
 				conditionBlock,
 				ctx.state,
@@ -2335,8 +2335,8 @@ func (ps *PawScript) RegisterCoreLib() {
 			iterations++
 		}
 
-		if iterations >= maxIterations {
-			ctx.LogError(CatFlow, "Maximum iterations (10000) exceeded")
+		if maxIterations > 0 && iterations >= maxIterations {
+			ctx.LogError(CatFlow, fmt.Sprintf("Maximum iterations (%d) exceeded", maxIterations))
 			return BoolStatus(false)
 		}
 
@@ -2519,12 +2519,12 @@ func (ps *PawScript) RegisterCoreLib() {
 				}
 
 				// Execute the loop
-				maxIterations := 100000
+				maxIterations := ctx.executor.GetMaxIterations()
 				iterations := 0
 				iterNum := 1
 				current := startNum
 
-				for iterations < maxIterations {
+				for maxIterations <= 0 || iterations < maxIterations {
 					// Check termination
 					if ascending && step > 0 {
 						if current > endNum {
@@ -2645,8 +2645,8 @@ func (ps *PawScript) RegisterCoreLib() {
 					iterations++
 				}
 
-				if iterations >= maxIterations {
-					ctx.LogError(CatFlow, "Maximum iterations (100000) exceeded")
+				if maxIterations > 0 && iterations >= maxIterations {
+					ctx.LogError(CatFlow, fmt.Sprintf("Maximum iterations (%d) exceeded", maxIterations))
 					return BoolStatus(false)
 				}
 
@@ -3139,11 +3139,11 @@ func (ps *PawScript) RegisterCoreLib() {
 				return BoolStatus(false)
 			}
 
-			maxIterations := 100000
+			maxIterations := ctx.executor.GetMaxIterations()
 			iterations := 0
 			iterNum := 1
 
-			for iterations < maxIterations {
+			for maxIterations <= 0 || iterations < maxIterations {
 				// Resume the iterator to get next value
 				resumeCode := fmt.Sprintf("resume %s", iteratorToken)
 				resumeResult := ctx.executor.ExecuteWithState(resumeCode, ctx.state, nil, "", 0, 0)
@@ -3301,8 +3301,8 @@ func (ps *PawScript) RegisterCoreLib() {
 				iterations++
 			}
 
-			if iterations >= maxIterations {
-				ctx.LogError(CatFlow, "Maximum iterations (100000) exceeded")
+			if maxIterations > 0 && iterations >= maxIterations {
+				ctx.LogError(CatFlow, fmt.Sprintf("Maximum iterations (%d) exceeded", maxIterations))
 				return BoolStatus(false)
 			}
 
