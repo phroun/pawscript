@@ -113,7 +113,7 @@ while true, (
             color reset: true
 
             # Read a line of input (blocking)
-            newColor: {read ~linesCh}
+            newColor: {read ~linesCh | ret ""}
 
             # Update color if not empty
             gt {len ~newColor}, 0 & (trailColor: ~newColor)
