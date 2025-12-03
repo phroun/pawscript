@@ -821,6 +821,7 @@ func (ps *PawScript) RegisterSystemLib(scriptArgs []string) {
 		_, value, err := ChannelRecv(ch)
 		if err != nil {
 			ctx.LogError(CatIO, fmt.Sprintf("Failed to read: %v", err))
+			ctx.SetResult("")  // Set empty result on error to avoid stale values
 			return BoolStatus(false)
 		}
 		// Convert raw bytes from I/O channels to unicode string
@@ -1004,6 +1005,7 @@ func (ps *PawScript) RegisterSystemLib(scriptArgs []string) {
 		_, value, err := ChannelRecv(keysCh)
 		if err != nil {
 			ctx.LogError(CatIO, fmt.Sprintf("readkey: %v", err))
+			ctx.SetResult("")  // Set empty result on error to avoid stale values
 			return BoolStatus(false)
 		}
 
