@@ -1466,6 +1466,18 @@ func (ps *PawScript) RegisterSystemLib(scriptArgs []string) {
 		ts.mu.Lock()
 		defer ts.mu.Unlock()
 
+		// Get output channel - use it for ANSI output
+		outCh, _, found := getOutputChannel(ctx, "#out")
+
+		// Helper to send output to the resolved channel or system stdout
+		sendOutput := func(text string) {
+			if found && outCh != nil {
+				_ = ChannelSend(outCh, text)
+			} else {
+				fmt.Print(text)
+			}
+		}
+
 		// Handle reset FIRST, before any other processing
 		// This resets terminal to initial state (like tput reset)
 		if v, ok := ctx.NamedArgs["reset"]; ok && isTruthy(v) {
@@ -1524,18 +1536,18 @@ func (ps *PawScript) RegisterSystemLib(scriptArgs []string) {
 		if visible, ok := ctx.NamedArgs["visible"]; ok {
 			ts.Visible = isTruthy(visible)
 			if ts.Visible {
-				fmt.Print(ANSIShowCursor())
+				sendOutput(ANSIShowCursor())
 			} else {
-				fmt.Print(ANSIHideCursor())
+				sendOutput(ANSIHideCursor())
 			}
 		}
 		if shape, ok := ctx.NamedArgs["shape"]; ok {
 			ts.Shape = fmt.Sprintf("%v", shape)
-			fmt.Print(ANSISetCursorShape(ts.Shape, ts.Blink))
+			sendOutput(ANSISetCursorShape(ts.Shape, ts.Blink))
 		}
 		if blink, ok := ctx.NamedArgs["blink"]; ok {
 			ts.Blink = fmt.Sprintf("%v", blink)
-			fmt.Print(ANSISetCursorShape(ts.Shape, ts.Blink))
+			sendOutput(ANSISetCursorShape(ts.Shape, ts.Blink))
 		}
 		if color, ok := ctx.NamedArgs["color"]; ok {
 			if v, ok := toInt64(color); ok {
@@ -1608,7 +1620,7 @@ func (ps *PawScript) RegisterSystemLib(scriptArgs []string) {
 			// Move cursor - emit ANSI codes
 			physX := ts.GetPhysicalX()
 			physY := ts.GetPhysicalY()
-			fmt.Print(ANSIMoveCursor(physY, physX))
+			sendOutput(ANSIMoveCursor(physY, physX))
 		}
 
 		// Cursor output marks position tracking as stale
