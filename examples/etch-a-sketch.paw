@@ -112,10 +112,8 @@ while true, (
             write "Enter color name: "
             color reset: true
 
-            # Read a line of input (blocking)
-            # read sets result to "" on error, so we can use it directly
-            read ~linesCh
-            newColor: {get_result}
+            # Read a line of input (blocking, with fallback to "" on error)
+            newColor: {read ~linesCh | ret ""}
 
             # Update color if not empty
             gt {len ~newColor}, 0 & (trailColor: ~newColor)
