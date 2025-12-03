@@ -1,0 +1,25 @@
+// Test readkey functionality
+// Run this interactively: ./paw examples/test_readkey.paw
+
+echo "=== Readkey Test ==="
+echo "Initializing keyboard input..."
+
+// Initialize readkey - returns [lines_channel, keys_channel]
+channels: {readkey_init}
+
+echo "Press keys to see their names. Press 'q' to quit."
+echo "Try: arrows, F1-F12, Ctrl+C, Alt+a, etc."
+echo ""
+
+// Loop reading keys
+key: ""
+while {ne ~key, "q"} (
+    key: {readkey}
+    echo "Key: ~key"
+)
+
+echo ""
+echo "Stopping readkey..."
+readkey_stop
+
+echo "Done!"
