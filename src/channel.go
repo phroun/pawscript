@@ -283,6 +283,11 @@ func ChannelLen(ch *StoredChannel) int {
 	ch.mu.RLock()
 	defer ch.mu.RUnlock()
 
+	// Check for native length handler first (for Go channel backing)
+	if ch.NativeLen != nil {
+		return ch.NativeLen()
+	}
+
 	// Get the main channel and receiver ID
 	mainCh := ch
 	receiverID := 0

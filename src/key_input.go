@@ -86,6 +86,11 @@ func NewKeyInputManager(inputReader io.Reader, echoWriter io.Writer, debugFn fun
 		}
 	}
 
+	// Set up NativeLen on keysChan to report Go channel length
+	m.keysChan.NativeLen = func() int {
+		return len(keysGo)
+	}
+
 	// Set up blocking NativeRecv on linesChan
 	m.linesChan.NativeRecv = func() (interface{}, error) {
 		// Enter line read mode - keys will now go to line buffer instead of just keysChan
