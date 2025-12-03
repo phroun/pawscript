@@ -119,17 +119,23 @@ func ChannelRecv(ch *StoredChannel) (int, interface{}, error) {
 	}
 
 	ch.mu.Lock()
-	defer ch.mu.Unlock()
 
 	if ch.IsClosed {
+		ch.mu.Unlock()
 		return 0, nil, fmt.Errorf("channel is closed")
 	}
 
 	// Check for native receive handler first
+	// Release lock before calling NativeRecv since it may block
 	if ch.NativeRecv != nil {
-		value, err := ch.NativeRecv()
+		nativeRecv := ch.NativeRecv
+		ch.mu.Unlock()
+		value, err := nativeRecv()
 		return 0, value, err
 	}
+
+	// For non-native path, use defer unlock
+	defer ch.mu.Unlock()
 
 	// Get the main channel and receiver ID
 	mainCh := ch
