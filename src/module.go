@@ -86,6 +86,10 @@ type ModuleEnvironment struct {
 	objectsModuleCopied     bool
 	metadataModuleCopied    bool
 	logConfigModuleCopied   bool
+
+	// Cache invalidation: incremented when MacrosModule or CommandRegistryModule is modified
+	// Used by ParsedCommand to know when cached handler resolutions are stale
+	RegistryGeneration uint64
 }
 
 // NewModuleEnvironment creates a new module environment
@@ -574,6 +578,7 @@ func (env *ModuleEnvironment) RegisterCommandToModule(name string, handler Handl
 
 	env.CopyCommandRegistry()
 	env.CommandRegistryModule[name] = handler
+	env.RegistryGeneration++ // Invalidate handler caches
 }
 
 // PopulateDefaultImports copies all commands and objects from LibraryInherited

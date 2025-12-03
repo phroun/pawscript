@@ -117,6 +117,7 @@ func (ps *PawScript) RegisterCommand(name string, handler Handler) {
 	ps.executor.RegisterCommand(name, handler)
 	// Also register to root module environment
 	ps.rootModuleEnv.CommandRegistryInherited[name] = handler
+	ps.rootModuleEnv.RegistryGeneration++ // Invalidate handler caches
 }
 
 // RegisterCommandInModule registers a command handler in a specific module within LibraryInherited
@@ -335,11 +336,13 @@ func (ps *PawScript) ImportModuleToRoot(moduleName string) bool {
 		case "macro":
 			if macro, ok := item.Value.(*StoredMacro); ok && macro != nil {
 				ps.rootModuleEnv.MacrosModule[itemName] = macro
+				ps.rootModuleEnv.RegistryGeneration++ // Invalidate handler caches
 				ps.logger.DebugCat(CatSystem, "ImportModuleToRoot: Imported macro %s from %s", itemName, moduleName)
 			}
 		case "command":
 			if handler, ok := item.Value.(Handler); ok && handler != nil {
 				ps.rootModuleEnv.CommandRegistryModule[itemName] = handler
+				ps.rootModuleEnv.RegistryGeneration++ // Invalidate handler caches
 				ps.logger.DebugCat(CatSystem, "ImportModuleToRoot: Imported command %s from %s", itemName, moduleName)
 			}
 		case "object":
@@ -425,6 +428,7 @@ func (ps *PawScript) DefineMacro(name, commandSequence string) bool {
 	macro := NewStoredMacro(commandSequence, nil)
 	ps.rootModuleEnv.mu.Lock()
 	ps.rootModuleEnv.MacrosModule[name] = &macro
+	ps.rootModuleEnv.RegistryGeneration++ // Invalidate handler caches
 	ps.rootModuleEnv.mu.Unlock()
 
 	ps.logger.DebugCat(CatMacro, "Defined macro \"%s\" in root environment", name)
