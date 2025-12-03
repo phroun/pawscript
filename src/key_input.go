@@ -32,7 +32,8 @@ type KeyInputManager struct {
 	managesTerminal   bool        // True if we put terminal in raw mode
 
 	// State
-	running bool
+	running        bool
+	inLineReadMode bool // True when read is waiting for line input
 
 	// Line assembly state - stores raw bytes for proper I/O semantics
 	currentLine []byte
@@ -71,9 +72,10 @@ func NewKeyInputManager(inputReader io.Reader, echoWriter io.Writer, debugFn fun
 
 	// Set up blocking NativeRecv on linesChan
 	m.linesChan.NativeRecv = func() (interface{}, error) {
-		// Clear any pending line input (from keys pressed before read started)
-		// and temporarily enable echo during line read
+		// Enter line read mode - keys will now go to line buffer instead of just keysChan
+		// Also enable echo so user can see what they're typing
 		m.mu.Lock()
+		m.inLineReadMode = true
 		m.currentLine = nil
 		m.charByteLengths = nil
 		savedEchoWriter := m.echoWriter
@@ -94,8 +96,9 @@ func NewKeyInputManager(inputReader io.Reader, echoWriter io.Writer, debugFn fun
 			err = fmt.Errorf("channel closed")
 		}
 
-		// Restore echo state
+		// Exit line read mode and restore echo state
 		m.mu.Lock()
+		m.inLineReadMode = false
 		m.echoWriter = savedEchoWriter
 		m.mu.Unlock()
 
@@ -432,9 +435,15 @@ func (m *KeyInputManager) emitKey(key string) {
 
 // handleLineAssembly processes a key for line assembly
 // Line buffer stores raw bytes; charByteLengths tracks UTF-8 boundaries for backspace
+// Only processes keys when in line read mode (read is waiting for input)
 func (m *KeyInputManager) handleLineAssembly(key string) {
 	m.mu.Lock()
 	defer m.mu.Unlock()
+
+	// Only assemble lines when read is waiting - otherwise keys just go to keysChan
+	if !m.inLineReadMode {
+		return
+	}
 
 	switch key {
 	case "Enter":
