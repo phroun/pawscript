@@ -870,6 +870,68 @@ func (ps *PawScript) RegisterSystemLib(scriptArgs []string) {
 			return TokenResult(token)
 		}
 
+		// Check if channel is in raw byte mode (LineMode: false in terminal caps)
+		// If so, we need to accumulate bytes until newline
+		rawByteMode := false
+		if ch.Terminal != nil && !ch.Terminal.LineMode {
+			rawByteMode = true
+		}
+
+		if rawByteMode && ch.NativeRecv != nil {
+			// Raw byte mode: accumulate bytes until newline
+			// Also handle echo to output channel if available
+			var lineBuffer []byte
+			outCh, _, _ := getOutputChannel(ctx, "#out")
+
+			for {
+				_, value, err := ChannelRecv(ch)
+				if err != nil {
+					ctx.LogError(CatIO, fmt.Sprintf("Failed to read: %v", err))
+					ctx.SetResult("")
+					return BoolStatus(false)
+				}
+
+				// Get the byte(s)
+				var bytes []byte
+				switch v := value.(type) {
+				case []byte:
+					bytes = v
+				case string:
+					bytes = []byte(v)
+				default:
+					bytes = []byte(fmt.Sprintf("%v", v))
+				}
+
+				for _, b := range bytes {
+					if b == '\n' || b == '\r' {
+						// End of line - echo newline and return
+						if outCh != nil {
+							_ = ChannelSend(outCh, "\r\n")
+						}
+						ctx.SetResult(string(lineBuffer))
+						return BoolStatus(true)
+					} else if b == 127 || b == 8 { // Backspace or DEL
+						if len(lineBuffer) > 0 {
+							lineBuffer = lineBuffer[:len(lineBuffer)-1]
+							// Echo backspace sequence
+							if outCh != nil {
+								_ = ChannelSend(outCh, "\b \b")
+							}
+						}
+					} else if b == 3 { // Ctrl+C
+						ctx.SetResult("")
+						return BoolStatus(false)
+					} else if b >= 32 { // Printable characters
+						lineBuffer = append(lineBuffer, b)
+						// Echo the character
+						if outCh != nil {
+							_ = ChannelSend(outCh, string([]byte{b}))
+						}
+					}
+				}
+			}
+		}
+
 		_, value, err := ChannelRecv(ch)
 		if err != nil {
 			ctx.LogError(CatIO, fmt.Sprintf("Failed to read: %v", err))
