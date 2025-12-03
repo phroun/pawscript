@@ -708,9 +708,6 @@ type StoredChannel struct {
 	NativeSend      func(interface{}) error         // Native send handler
 	NativeRecv      func() (interface{}, error)     // Native receive handler
 	NativeClose     func() error                    // Native close handler
-	// Raw I/O reader for channels backed by pipes/files
-	// Used by readkey_init to get raw byte stream for key input
-	RawReader       io.Reader
 	// Terminal capabilities associated with this channel
 	// Allows channels to report their own ANSI/color/size support
 	// If nil, system terminal capabilities are used as fallback
