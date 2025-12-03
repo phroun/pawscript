@@ -922,16 +922,23 @@ func (ps *PawScript) RegisterSystemLib(scriptArgs []string) {
 	})
 
 	// readkey_init - initialize key input manager for raw keyboard handling
-	// Usage: readkey_init [input_reader] [echo_writer]
+	// Usage: readkey_init [echo: true|false]
 	// Returns a list containing [lines_channel, keys_channel]
 	// If input_reader is #in (stdin) and is a terminal, enables raw mode
+	// By default, echo is disabled (for games/TUI). Use echo: true to enable.
 	ps.RegisterCommandInModule("io", "readkey_init", func(ctx *Context) Result {
 		// Get input source - default to os.Stdin
 		var inputReader io.Reader = os.Stdin
-		var echoWriter io.Writer = os.Stdout
+		var echoWriter io.Writer = nil // Default: no echo
 
-		// TODO: Support passing channels as input sources
-		// For now, always use stdin/stdout
+		// Check for echo: named argument
+		if echoArg, hasEcho := ctx.NamedArgs["echo"]; hasEcho {
+			if echoBool, ok := echoArg.(bool); ok && echoBool {
+				echoWriter = os.Stdout
+			} else if echoStr, ok := echoArg.(string); ok && (echoStr == "true" || echoStr == "yes") {
+				echoWriter = os.Stdout
+			}
+		}
 
 		// Create the key input manager
 		manager := NewKeyInputManager(inputReader, echoWriter, nil)

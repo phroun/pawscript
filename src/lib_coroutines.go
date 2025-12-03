@@ -604,10 +604,10 @@ func (ps *PawScript) RegisterGeneratorLib() {
 				}
 			}
 
-			maxIterations := 10000
+			maxIterations := ctx.executor.GetMaxIterations()
 			iterations := whileCont.IterationCount + 1 // Start from next iteration
 
-			for iterations < maxIterations {
+			for maxIterations <= 0 || iterations < maxIterations {
 				// Check condition
 				condResult := ctx.executor.ExecuteWithState(
 					whileCont.ConditionBlock,
@@ -987,11 +987,11 @@ func (ps *PawScript) RegisterGeneratorLib() {
 				current := forCont.RangeCurrent + step
 				ascending := endNum >= startNum
 
-				maxIterations := 100000
+				maxIterations := ctx.executor.GetMaxIterations()
 				iterations := 0
 				iterNum := forCont.IterationNumber + 1
 
-				for iterations < maxIterations {
+				for maxIterations <= 0 || iterations < maxIterations {
 					// Check termination
 					if ascending && step > 0 {
 						if current > endNum {
@@ -1155,11 +1155,11 @@ func (ps *PawScript) RegisterGeneratorLib() {
 					}
 				}
 
-				maxIterations := 100000
+				maxIterations := ctx.executor.GetMaxIterations()
 				iterations := 0
 				iterNum := forCont.IterationNumber + 1
 
-				for iterations < maxIterations {
+				for maxIterations <= 0 || iterations < maxIterations {
 					// Resume the iterator to get next value
 					resumeCode := fmt.Sprintf("resume %s", forCont.IteratorToken)
 					resumeResult := ctx.executor.ExecuteWithState(resumeCode, forCont.State, nil, "", 0, 0)
