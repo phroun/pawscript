@@ -4,6 +4,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"os"
+	"runtime"
 	"sort"
 	"strconv"
 	"strings"
@@ -2333,6 +2334,9 @@ func (ps *PawScript) RegisterCoreLib() {
 			}
 
 			iterations++
+
+			// Yield to other goroutines to prevent CPU starvation in tight loops
+			runtime.Gosched()
 		}
 
 		if maxIterations > 0 && iterations >= maxIterations {
