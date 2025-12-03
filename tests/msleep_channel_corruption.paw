@@ -1,0 +1,40 @@
+# Test: msleep and channel reference preservation
+# Verifies that channel references remain valid after async msleep operations
+# Regression test for async token state management
+
+channels: {readkey_init}
+keysCh: {argv ~channels, 2}
+
+echo "=== Testing channel reference preservation across msleep ==="
+
+# Before msleep - establish baseline
+echo ""
+echo "BEFORE MSLEEP:"
+len1: {len ~keysCh}
+echo "  len(keysCh) = ~len1"
+hasKey1: {gt ~len1, 0}
+echo "  hasKey = ~hasKey1 (expected: false)"
+
+# After msleep - verify channel reference preserved
+msleep 50
+echo ""
+echo "AFTER MSLEEP (50ms):"
+len2: {len ~keysCh}
+echo "  len(keysCh) = ~len2"
+hasKey2: {gt ~len2, 0}
+echo "  hasKey = ~hasKey2 (expected: false)"
+
+# Multiple msleeps
+msleep 50
+echo ""
+echo "AFTER 2ND MSLEEP (50ms):"
+len3: {len ~keysCh}
+echo "  len(keysCh) = ~len3"
+hasKey3: {gt ~len3, 0}
+echo "  hasKey = ~hasKey3 (expected: false)"
+
+readkey_stop
+echo ""
+echo "=== Test complete ==="
+echo "All lengths should be 0, all hasKey values should be false."
+echo "If any values above differ, the channel reference was corrupted."
