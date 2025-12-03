@@ -2698,17 +2698,18 @@ func createConsoleChannels(stdinReader *io.PipeReader, stdoutWriter *io.PipeWrit
 	}
 
 	// Flow control: bounded channel provides backpressure when terminal can't keep up
-	// Small buffer (4) allows some pipelining but prevents runaway buffering
-	outputQueue := make(chan []byte, 4)
+	// Very small buffer (2) creates stronger backpressure
+	outputQueue := make(chan []byte, 2)
 
 	// Writer goroutine: reads from queue and writes to terminal pipe
 	// This decouples the PawScript execution from terminal rendering speed
 	go func() {
 		for data := range outputQueue {
 			stdoutWriter.Write(data)
-			// Small yield after each write gives terminal time to process
-			// This prevents flooding when doing rapid cursor movements
-			time.Sleep(time.Microsecond * 100)
+			// Delay after each write gives terminal time to render
+			// 2ms allows ~500 writes/sec which is enough for smooth animation
+			// but slow enough for the terminal to keep up
+			time.Sleep(time.Millisecond * 2)
 		}
 	}()
 
