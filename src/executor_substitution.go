@@ -249,20 +249,23 @@ func (e *Executor) substituteBraceExpressions(str string, ctx *SubstitutionConte
 			// Use the formal result from the EarlyReturn
 			evaluations[i].Completed = true
 
-			// Check the status to determine success/failure
-			if !bool(earlyReturn.Status) {
-				evaluations[i].Failed = true
-				e.logger.DebugCat(CatCommand,"Brace %d completed with early return (failure)", i)
-			} else {
-				e.logger.DebugCat(CatCommand,"Brace %d completed with early return (success)", i)
-			}
-
 			// Use the result from EarlyReturn if present
 			if earlyReturn.HasResult {
 				evaluations[i].Result = earlyReturn.Result
 				e.logger.DebugCat(CatCommand,"Early return has result: %v", earlyReturn.Result)
 			} else if hasCapturedResult {
 				evaluations[i].Result = capturedResult
+			}
+
+			// Only mark as failed if ret has no result AND status is false
+			// When ret provides a value (like `ret ""`), the brace succeeds with that value
+			// regardless of the previous command's status
+			hasReturnValue := earlyReturn.HasResult || hasCapturedResult
+			if !hasReturnValue && !bool(earlyReturn.Status) {
+				evaluations[i].Failed = true
+				e.logger.DebugCat(CatCommand,"Brace %d completed with early return (failure, no result)", i)
+			} else {
+				e.logger.DebugCat(CatCommand,"Brace %d completed with early return (success)", i)
 			}
 
 			// Handle ownership for result references

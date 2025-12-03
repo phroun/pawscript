@@ -112,7 +112,7 @@ while true, (
             write "Enter color name: "
             color reset: true
 
-            # Read a line of input (blocking)
+            # Read a line of input (blocking, with fallback to "" on error)
             newColor: {read ~linesCh | ret ""}
 
             # Update color if not empty
