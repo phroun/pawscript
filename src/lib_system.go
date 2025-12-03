@@ -773,6 +773,7 @@ func (ps *PawScript) RegisterSystemLib(scriptArgs []string) {
 					return BoolStatus(false)
 				}
 				ctx.LogError(CatIO, fmt.Sprintf("read: %v", err))
+				ctx.SetResult("")  // Set empty result on error to avoid stale values
 				return BoolStatus(false)
 			}
 			ctx.SetResult(content)
