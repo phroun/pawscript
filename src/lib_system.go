@@ -261,12 +261,13 @@ func (ps *PawScript) RegisterSystemLib(scriptArgs []string) {
 	}
 
 	getInputChannel := func(ctx *Context, defaultName string) (*StoredChannel, bool) {
-		// Check if first arg is already a channel (from tilde resolution)
+		// Check if first arg is already a channel (from tilde resolution or channel marker)
 		if len(ctx.Args) > 0 {
-			if ch, ok := ctx.Args[0].(*StoredChannel); ok {
+			// Try valueToChannel which handles direct channels, markers, and symbols
+			if ch := valueToChannel(ctx, ctx.Args[0]); ch != nil {
 				return ch, true
 			}
-			// Or if first arg is a symbol starting with #
+			// Or if first arg is a symbol starting with # (like #in)
 			if sym, ok := ctx.Args[0].(Symbol); ok {
 				symStr := string(sym)
 				if strings.HasPrefix(symStr, "#") {
@@ -778,56 +779,25 @@ func (ps *PawScript) RegisterSystemLib(scriptArgs []string) {
 			return BoolStatus(true)
 		}
 
-		// Check if first arg is provided
+		// Check if first arg is a file (special case)
 		if len(ctx.Args) > 0 {
 			// Direct file handle
 			if f, ok := ctx.Args[0].(*StoredFile); ok {
 				return readFromFile(f)
 			}
-
-			// Check for channel
-			if ch, ok := ctx.Args[0].(*StoredChannel); ok {
-				_, value, err := ChannelRecv(ch)
-				if err != nil {
-					ctx.LogError(CatIO, fmt.Sprintf("read: %v", err))
-					return BoolStatus(false)
-				}
-				// Convert raw bytes from I/O channels to unicode string
-				ctx.SetResult(bytesToString(value))
-				return BoolStatus(true)
-			}
-
-			// Check for #-prefixed symbol that might be a file or channel
+			// Check for #-prefixed symbol that might be a file
 			if sym, ok := ctx.Args[0].(Symbol); ok {
 				symStr := string(sym)
 				if strings.HasPrefix(symStr, "#") {
-					// Try to resolve as file
+					// Try to resolve as file first
 					if f := resolveFile(ctx, symStr); f != nil {
 						return readFromFile(f)
 					}
-					// Try to resolve as channel (check if it's #in or similar)
-					if symStr == "#in" {
-						ch, found := getInputChannel(ctx, "#in")
-						if found {
-							_, value, err := ChannelRecv(ch)
-							if err != nil {
-								ctx.LogError(CatIO, fmt.Sprintf("read: %v", err))
-								return BoolStatus(false)
-							}
-							// Convert raw bytes from I/O channels to unicode string
-							ctx.SetResult(bytesToString(value))
-							return BoolStatus(true)
-						}
-					}
 				}
 			}
-
-			// Argument provided but not a valid file or channel - error out
-			ctx.LogError(CatIO, "read: invalid argument - expected file handle or channel")
-			return BoolStatus(false)
 		}
 
-		// No arguments - fall back to channel handling or stdin
+		// Try to get input channel (handles direct channels, markers, #symbols, defaults to #in)
 		ch, found := getInputChannel(ctx, "#in")
 		if !found {
 			token := ctx.RequestToken(nil)
