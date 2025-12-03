@@ -131,6 +131,21 @@ func (ps *PawScript) RegisterSystemLib(scriptArgs []string) {
 		return nil
 	}
 
+	// Helper to convert channel value (which may be []byte or StoredBytes) to string
+	// Used by 'read' command to convert raw bytes from I/O channels to unicode strings
+	bytesToString := func(val interface{}) string {
+		switch v := val.(type) {
+		case []byte:
+			return string(v)
+		case StoredBytes:
+			return string(v.Data())
+		case string:
+			return v
+		default:
+			return fmt.Sprintf("%v", v)
+		}
+	}
+
 	// Helper to resolve a file name (like "#myfile") to a file
 	// Resolution order: local variables -> ObjectsModule -> ObjectsInherited
 	resolveFile := func(ctx *Context, fileName string) *StoredFile {
@@ -777,7 +792,8 @@ func (ps *PawScript) RegisterSystemLib(scriptArgs []string) {
 					ctx.LogError(CatIO, fmt.Sprintf("read: %v", err))
 					return BoolStatus(false)
 				}
-				ctx.SetResult(value)
+				// Convert raw bytes from I/O channels to unicode string
+				ctx.SetResult(bytesToString(value))
 				return BoolStatus(true)
 			}
 
@@ -798,7 +814,8 @@ func (ps *PawScript) RegisterSystemLib(scriptArgs []string) {
 								ctx.LogError(CatIO, fmt.Sprintf("read: %v", err))
 								return BoolStatus(false)
 							}
-							ctx.SetResult(value)
+							// Convert raw bytes from I/O channels to unicode string
+							ctx.SetResult(bytesToString(value))
 							return BoolStatus(true)
 						}
 					}
@@ -836,7 +853,8 @@ func (ps *PawScript) RegisterSystemLib(scriptArgs []string) {
 			ctx.LogError(CatIO, fmt.Sprintf("Failed to read: %v", err))
 			return BoolStatus(false)
 		}
-		ctx.SetResult(value)
+		// Convert raw bytes from I/O channels to unicode string
+		ctx.SetResult(bytesToString(value))
 		return BoolStatus(true)
 	})
 
@@ -937,8 +955,8 @@ func (ps *PawScript) RegisterSystemLib(scriptArgs []string) {
 		linesID := ctx.executor.storeObject(linesCh, "channel")
 		keysID := ctx.executor.storeObject(keysCh, "channel")
 
-		linesMarker := fmt.Sprintf("\x00CHAN:%d\x00", linesID)
-		keysMarker := fmt.Sprintf("\x00CHAN:%d\x00", keysID)
+		linesMarker := fmt.Sprintf("\x00CHANNEL:%d\x00", linesID)
+		keysMarker := fmt.Sprintf("\x00CHANNEL:%d\x00", keysID)
 
 		resultList := NewStoredList([]interface{}{Symbol(linesMarker), Symbol(keysMarker)})
 		listID := ctx.executor.storeObject(resultList, "list")

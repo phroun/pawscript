@@ -33,8 +33,10 @@ type KeyInputManager struct {
 	// State
 	running bool
 
-	// Line assembly state
-	currentLine []rune
+	// Line assembly state - stores raw bytes for proper I/O semantics
+	currentLine []byte
+	// Track UTF-8 character boundaries for backspace (number of bytes per char)
+	charByteLengths []int
 
 	// Escape sequence buffer
 	escBuffer []byte
@@ -389,42 +391,53 @@ func (m *KeyInputManager) emitKey(key string) {
 }
 
 // handleLineAssembly processes a key for line assembly
+// Line buffer stores raw bytes; charByteLengths tracks UTF-8 boundaries for backspace
 func (m *KeyInputManager) handleLineAssembly(key string) {
 	switch key {
 	case "Enter":
-		// Emit the completed line
-		line := string(m.currentLine)
-		ChannelSend(m.linesChan, line)
+		// Emit the completed line as raw bytes
+		// Make a copy to avoid sharing the slice
+		lineBytes := make([]byte, len(m.currentLine))
+		copy(lineBytes, m.currentLine)
+		ChannelSend(m.linesChan, lineBytes)
 		m.currentLine = nil
+		m.charByteLengths = nil
 		// Echo newline
 		m.echo("\r\n")
 
 	case "Backspace":
-		if len(m.currentLine) > 0 {
-			m.currentLine = m.currentLine[:len(m.currentLine)-1]
-			// Echo backspace
+		if len(m.charByteLengths) > 0 {
+			// Remove the last character (which may be multiple bytes)
+			lastCharLen := m.charByteLengths[len(m.charByteLengths)-1]
+			m.currentLine = m.currentLine[:len(m.currentLine)-lastCharLen]
+			m.charByteLengths = m.charByteLengths[:len(m.charByteLengths)-1]
+			// Echo backspace (one visual character)
 			m.echo("\b \b")
 		}
 
 	case "^U":
-		// Clear line
-		for range m.currentLine {
+		// Clear line - one backspace per visual character
+		for range m.charByteLengths {
 			m.echo("\b \b")
 		}
 		m.currentLine = nil
+		m.charByteLengths = nil
 
 	case "^C":
-		// Interrupt - emit empty line and clear
+		// Interrupt - emit empty byte slice and clear
 		m.echo("^C\r\n")
-		ChannelSend(m.linesChan, "")
+		ChannelSend(m.linesChan, []byte{})
 		m.currentLine = nil
+		m.charByteLengths = nil
 
 	default:
 		// Check if it's a printable character (single rune)
 		if len(key) > 0 {
 			r, _ := utf8.DecodeRuneInString(key)
 			if r != utf8.RuneError && len(key) == utf8.RuneLen(r) && r >= 32 {
-				m.currentLine = append(m.currentLine, r)
+				// Append raw bytes of the character
+				m.currentLine = append(m.currentLine, []byte(key)...)
+				m.charByteLengths = append(m.charByteLengths, len(key))
 				// Echo character
 				m.echo(key)
 			}
