@@ -928,14 +928,15 @@ func (ps *PawScript) RegisterSystemLib(scriptArgs []string) {
 		linesCh := manager.GetLinesChannel()
 		keysCh := manager.GetKeysChannel()
 
-		// Store channels and create list
+		// Store channels and create list with proper refs
 		linesID := ctx.executor.storeObject(linesCh, "channel")
 		keysID := ctx.executor.storeObject(keysCh, "channel")
 
 		linesMarker := fmt.Sprintf("\x00CHANNEL:%d\x00", linesID)
 		keysMarker := fmt.Sprintf("\x00CHANNEL:%d\x00", keysID)
 
-		resultList := NewStoredList([]interface{}{Symbol(linesMarker), Symbol(keysMarker)})
+		// Use NewStoredListWithRefs to properly claim references to the channels
+		resultList := NewStoredListWithRefs([]interface{}{Symbol(linesMarker), Symbol(keysMarker)}, nil, ctx.executor)
 		listID := ctx.executor.storeObject(resultList, "list")
 		listMarker := fmt.Sprintf("\x00LIST:%d\x00", listID)
 		ctx.state.SetResultWithoutClaim(Symbol(listMarker))
