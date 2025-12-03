@@ -350,6 +350,17 @@ type ParsedCommand struct {
 	CachedBraces    map[string][]*ParsedCommand // Pre-parsed brace expressions by content string
 	ArgTemplates    []*SubstitutionTemplate     // Pre-parsed substitution templates for string arguments
 	CommandTemplate *SubstitutionTemplate       // Pre-parsed template for command name (if it has substitutions)
+
+	// Handler caching: resolved command/macro handlers to avoid map lookups
+	// These are populated on first execution and reused if CachedEnv/CachedGeneration match
+	ResolvedHandler  Handler           // Cached command handler (nil if macro or unresolved)
+	ResolvedMacro    *StoredMacro      // Cached macro (nil if command or unresolved)
+	CachedEnv        *ModuleEnvironment // Environment we resolved against
+	CachedGeneration uint64            // RegistryGeneration when we resolved
+
+	// OriginalCmd points to the original ParsedCommand when this is a position-adjusted copy
+	// Cache operations should target OriginalCmd to persist across copies
+	OriginalCmd *ParsedCommand
 }
 
 // CommandSequence represents suspended command execution
@@ -499,6 +510,9 @@ type SubstitutionContext struct {
 	BracesEvaluated int
 	// CurrentParsedCommand is the current command being executed (for block caching)
 	CurrentParsedCommand *ParsedCommand
+	// CapturedModuleEnv is the macro's captured environment (for handler caching)
+	// This is the environment commands should be cached against, not the child execution environment
+	CapturedModuleEnv *ModuleEnvironment
 }
 
 // FileAccessConfig controls file system access permissions

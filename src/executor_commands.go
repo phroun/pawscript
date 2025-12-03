@@ -18,7 +18,7 @@ var substitutionContextPool = sync.Pool{
 }
 
 // getSubstitutionContext gets a SubstitutionContext from the pool and initializes it
-func getSubstitutionContext(args []interface{}, state *ExecutionState, macroCtx *MacroContext, lineOffset, colOffset int, filename string) *SubstitutionContext {
+func getSubstitutionContext(args []interface{}, state *ExecutionState, macroCtx *MacroContext, lineOffset, colOffset int, filename string, capturedEnv *ModuleEnvironment) *SubstitutionContext {
 	ctx := substitutionContextPool.Get().(*SubstitutionContext)
 	ctx.Args = args
 	ctx.ExecutionState = state
@@ -29,6 +29,7 @@ func getSubstitutionContext(args []interface{}, state *ExecutionState, macroCtx 
 	ctx.BraceFailureCount = 0
 	ctx.BracesEvaluated = 0
 	ctx.CurrentParsedCommand = nil
+	ctx.CapturedModuleEnv = capturedEnv
 	return ctx
 }
 
@@ -43,6 +44,7 @@ func recycleSubstitutionContext(ctx *SubstitutionContext) {
 	ctx.MacroContext = nil
 	ctx.Filename = ""
 	ctx.CurrentParsedCommand = nil
+	ctx.CapturedModuleEnv = nil
 	substitutionContextPool.Put(ctx)
 }
 
@@ -894,10 +896,71 @@ func (e *Executor) executeSingleCommand(
 		return result
 	}
 
+	// Handler caching: try to use cached handler/macro to avoid map lookups
+	// Only cache if command name is static (no CommandTemplate) and we have a ParsedCommand
+	var parsedCmd *ParsedCommand
+	var cacheTarget *ParsedCommand // The command to cache on (original if this is a copy)
+	var cacheEnv *ModuleEnvironment
+	canCache := false
+	if substitutionCtx != nil && substitutionCtx.CurrentParsedCommand != nil {
+		parsedCmd = substitutionCtx.CurrentParsedCommand
+		// Use original command for caching if this is a position-adjusted copy
+		cacheTarget = parsedCmd
+		if parsedCmd.OriginalCmd != nil {
+			cacheTarget = parsedCmd.OriginalCmd
+		}
+		// Only cache if the command NAME (first word) doesn't have dynamic substitution
+		// cacheTarget.Command contains the full command string, we only need to check the first word
+		cmdStr := cacheTarget.Command
+		spaceIdx := strings.IndexAny(cmdStr, " \t")
+		if spaceIdx > 0 {
+			cmdStr = cmdStr[:spaceIdx]
+		}
+		canCache = !containsSubstitution(cmdStr)
+		// Use captured environment for caching (stable across macro calls)
+		// Fall back to execution environment for non-macro contexts
+		cacheEnv = substitutionCtx.CapturedModuleEnv
+		if cacheEnv == nil {
+			cacheEnv = state.moduleEnv
+		}
+	}
+
+	// Fast path: check if we have a valid cached handler/macro
+	if canCache && cacheEnv != nil {
+		if cacheTarget.CachedEnv == cacheEnv && cacheTarget.CachedGeneration == cacheEnv.RegistryGeneration {
+			// Cache hit - use cached handler or macro directly
+			if cacheTarget.ResolvedMacro != nil {
+				e.logger.DebugCat(CatCommand, "Cache hit for macro \"%s\"", cmdName)
+				result := e.executeMacro(cacheTarget.ResolvedMacro, args, namedArgs, state, position)
+				if shouldInvert {
+					return e.invertStatus(result, state, position)
+				}
+				return result
+			}
+			if cacheTarget.ResolvedHandler != nil {
+				e.logger.DebugCat(CatCommand, "Cache hit for command \"%s\"", cmdName)
+				ctx := e.createContext(args, rawArgs, namedArgs, state, position, substitutionCtx)
+				result := cacheTarget.ResolvedHandler(ctx)
+				if shouldInvert {
+					return e.invertStatus(result, state, position)
+				}
+				return result
+			}
+			// Cached as "not found" - fall through to fallback handler
+		}
+	}
+
 	// Check for macros in module environment
 	if state.moduleEnv != nil {
 		if macro, exists := state.moduleEnv.GetMacro(cmdName); exists {
 			e.logger.DebugCat(CatCommand,"Found macro \"%s\" in module environment", cmdName)
+			// Cache the resolved macro on the original command (not the position-adjusted copy)
+			if canCache && cacheEnv != nil && cacheTarget != nil {
+				cacheTarget.ResolvedMacro = macro
+				cacheTarget.ResolvedHandler = nil
+				cacheTarget.CachedEnv = cacheEnv
+				cacheTarget.CachedGeneration = cacheEnv.RegistryGeneration
+			}
 			result := e.executeMacro(macro, args, namedArgs, state, position)
 			if shouldInvert {
 				return e.invertStatus(result, state, position)
@@ -910,6 +973,13 @@ func (e *Executor) executeSingleCommand(
 	if state.moduleEnv != nil {
 		if handler, exists := state.moduleEnv.GetCommand(cmdName); exists {
 			e.logger.DebugCat(CatCommand,"Found command \"%s\" in module environment", cmdName)
+			// Cache the resolved handler on the original command (not the position-adjusted copy)
+			if canCache && cacheEnv != nil && cacheTarget != nil {
+				cacheTarget.ResolvedHandler = handler
+				cacheTarget.ResolvedMacro = nil
+				cacheTarget.CachedEnv = cacheEnv
+				cacheTarget.CachedGeneration = cacheEnv.RegistryGeneration
+			}
 			ctx := e.createContext(args, rawArgs, namedArgs, state, position, substitutionCtx)
 			result := handler(ctx)
 			if shouldInvert {
@@ -1858,10 +1928,12 @@ func (e *Executor) executeMacro(
 	macroState.SetVariable("$@", Symbol(argsMarker))
 
 	// Create substitution context for macro arguments (from pool)
+	// Pass macro.ModuleEnv as the captured environment for handler caching
 	substitutionContext := getSubstitutionContext(
 		args, macroState, macroContext,
 		macro.DefinitionLine-1, macro.DefinitionColumn-1,
 		macro.DefinitionFile,
+		macro.ModuleEnv,
 	)
 
 	// Get cached or freshly parsed commands for the macro

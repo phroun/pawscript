@@ -1759,6 +1759,7 @@ func (ps *PawScript) RegisterCoreLib() {
 
 		ctx.state.moduleEnv.EnsureMacroRegistryCopied()
 		ctx.state.moduleEnv.MacrosModule[name] = &macro
+		ctx.state.moduleEnv.RegistryGeneration++ // Invalidate handler caches
 
 		ps.logger.DebugCat(CatMacro,"Successfully defined named macro '%s' in MacrosModule", name)
 		return BoolStatus(true)
@@ -1796,6 +1797,7 @@ func (ps *PawScript) RegisterCoreLib() {
 		// Store in module environment's MacrosModule (with COW)
 		ctx.state.moduleEnv.EnsureMacroRegistryCopied()
 		ctx.state.moduleEnv.MacrosModule[name] = forward
+		ctx.state.moduleEnv.RegistryGeneration++ // Invalidate handler caches
 
 		ps.logger.DebugCat(CatMacro, "Created forward declaration for macro '%s'", name)
 		return BoolStatus(true)

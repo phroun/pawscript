@@ -467,6 +467,7 @@ func (e *Executor) importItem(state *ExecutionState, moduleName, originalModuleN
 		}
 		state.moduleEnv.EnsureCommandRegistryCopied()
 		state.moduleEnv.CommandRegistryModule[localName] = item.Value.(Handler)
+		state.moduleEnv.RegistryGeneration++ // Invalidate handler caches
 
 	case "macro":
 		// Check for collision if no explicit rename
@@ -477,6 +478,7 @@ func (e *Executor) importItem(state *ExecutionState, moduleName, originalModuleN
 		}
 		state.moduleEnv.EnsureMacroRegistryCopied()
 		state.moduleEnv.MacrosModule[localName] = item.Value.(*StoredMacro)
+		state.moduleEnv.RegistryGeneration++ // Invalidate handler caches
 		// Get source location from stored macro if available
 		if storedMacro, ok := item.Value.(*StoredMacro); ok && storedMacro != nil {
 			metadata.SourceFile = storedMacro.DefinitionFile
@@ -661,11 +663,13 @@ func (e *Executor) removeItem(state *ExecutionState, itemName, itemType string) 
 		if _, exists := state.moduleEnv.CommandRegistryModule[itemName]; exists {
 			state.moduleEnv.EnsureCommandRegistryCopied()
 			state.moduleEnv.CommandRegistryModule[itemName] = nil // nil marks as REMOVEd
+			state.moduleEnv.RegistryGeneration++ // Invalidate handler caches
 		}
 	case "macro":
 		if _, exists := state.moduleEnv.MacrosModule[itemName]; exists {
 			state.moduleEnv.EnsureMacroRegistryCopied()
 			state.moduleEnv.MacrosModule[itemName] = nil // nil marks as REMOVEd
+			state.moduleEnv.RegistryGeneration++ // Invalidate handler caches
 		}
 	case "object":
 		if _, exists := state.moduleEnv.ObjectsModule[itemName]; exists {

@@ -240,6 +240,8 @@ func (e *Executor) ExecuteParsedCommands(
 				}
 				adjustedCmd.Position = &adjustedPos
 			}
+			// Track original for handler caching (cache should persist on original, not copy)
+			adjustedCmd.OriginalCmd = cmd
 			adjustedCommands[i] = &adjustedCmd
 		}
 		commands = adjustedCommands
