@@ -24,6 +24,7 @@ type KeyInputManager struct {
 	// Output channels
 	keysChan  *StoredChannel // Parsed key events ("a", "M-a", "F1", etc.)
 	linesChan *StoredChannel // Assembled lines for {read}
+	linesGo   chan []byte    // Go channel for blocking line reads
 
 	// Terminal handling (only used if input is os.Stdin and is a terminal)
 	terminalFd        int         // File descriptor if we're managing terminal mode
@@ -54,15 +55,31 @@ type KeyInputManager struct {
 // echoWriter is where to echo typed characters (typically os.Stdout or a pipe)
 // If inputReader is os.Stdin and is a terminal, raw mode will be enabled
 func NewKeyInputManager(inputReader io.Reader, echoWriter io.Writer, debugFn func(string)) *KeyInputManager {
+	linesGo := make(chan []byte, 16)
+
 	m := &KeyInputManager{
 		inputReader: inputReader,
 		rawBytes:    make(chan []byte, 64),
 		stopChan:    make(chan struct{}),
 		keysChan:    NewStoredChannel(64),
 		linesChan:   NewStoredChannel(16),
+		linesGo:     linesGo,
 		echoWriter:  echoWriter,
 		debugFn:     debugFn,
 		terminalFd:  -1,
+	}
+
+	// Set up blocking NativeRecv on linesChan
+	m.linesChan.NativeRecv = func() (interface{}, error) {
+		select {
+		case line, ok := <-linesGo:
+			if !ok {
+				return nil, fmt.Errorf("channel closed")
+			}
+			return line, nil
+		case <-m.stopChan:
+			return nil, fmt.Errorf("channel closed")
+		}
 	}
 
 	// Check if input is os.Stdin and is a terminal
@@ -399,7 +416,17 @@ func (m *KeyInputManager) handleLineAssembly(key string) {
 		// Make a copy to avoid sharing the slice
 		lineBytes := make([]byte, len(m.currentLine))
 		copy(lineBytes, m.currentLine)
-		ChannelSend(m.linesChan, lineBytes)
+		// Send to Go channel (NativeRecv will read from this)
+		select {
+		case m.linesGo <- lineBytes:
+		default:
+			// Buffer full, drop oldest and add new
+			select {
+			case <-m.linesGo:
+			default:
+			}
+			m.linesGo <- lineBytes
+		}
 		m.currentLine = nil
 		m.charByteLengths = nil
 		// Echo newline
@@ -426,7 +453,11 @@ func (m *KeyInputManager) handleLineAssembly(key string) {
 	case "^C":
 		// Interrupt - emit empty byte slice and clear
 		m.echo("^C\r\n")
-		ChannelSend(m.linesChan, []byte{})
+		// Send to Go channel (NativeRecv will read from this)
+		select {
+		case m.linesGo <- []byte{}:
+		default:
+		}
 		m.currentLine = nil
 		m.charByteLengths = nil
 
