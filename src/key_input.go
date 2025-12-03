@@ -24,6 +24,7 @@ type KeyInputManager struct {
 	// Output channels
 	keysChan  *StoredChannel // Parsed key events ("a", "M-a", "F1", etc.)
 	linesChan *StoredChannel // Assembled lines for {read}
+	keysGo    chan string    // Go channel for blocking key reads
 	linesGo   chan []byte    // Go channel for blocking line reads
 
 	// Terminal handling (only used if input is os.Stdin and is a terminal)
@@ -56,6 +57,7 @@ type KeyInputManager struct {
 // echoWriter is where to echo typed characters (typically os.Stdout or a pipe)
 // If inputReader is os.Stdin and is a terminal, raw mode will be enabled
 func NewKeyInputManager(inputReader io.Reader, echoWriter io.Writer, debugFn func(string)) *KeyInputManager {
+	keysGo := make(chan string, 64)
 	linesGo := make(chan []byte, 16)
 
 	m := &KeyInputManager{
@@ -64,10 +66,24 @@ func NewKeyInputManager(inputReader io.Reader, echoWriter io.Writer, debugFn fun
 		stopChan:    make(chan struct{}),
 		keysChan:    NewStoredChannel(64),
 		linesChan:   NewStoredChannel(16),
+		keysGo:      keysGo,
 		linesGo:     linesGo,
 		echoWriter:  echoWriter,
 		debugFn:     debugFn,
 		terminalFd:  -1,
+	}
+
+	// Set up blocking NativeRecv on keysChan
+	m.keysChan.NativeRecv = func() (interface{}, error) {
+		select {
+		case key, ok := <-keysGo:
+			if !ok {
+				return nil, fmt.Errorf("channel closed")
+			}
+			return key, nil
+		case <-m.stopChan:
+			return nil, fmt.Errorf("channel closed")
+		}
 	}
 
 	// Set up blocking NativeRecv on linesChan
@@ -439,8 +455,23 @@ func (m *KeyInputManager) emitKey(key string) {
 		// In line read mode: keys go to line assembly only
 		m.handleLineAssembly(key)
 	} else {
-		// Normal mode: keys go to keysChan only
-		ChannelSend(m.keysChan, key)
+		// Normal mode: keys go to keysGo channel (blocking NativeRecv reads from this)
+		select {
+		case m.keysGo <- key:
+			// Sent successfully
+		default:
+			// Buffer full - drop oldest key to make room
+			select {
+			case <-m.keysGo:
+			default:
+			}
+			// Try again
+			select {
+			case m.keysGo <- key:
+			default:
+				// Still can't send, just drop this key
+			}
+		}
 	}
 }
 
