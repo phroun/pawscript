@@ -292,7 +292,7 @@ func (ps *PawScript) RegisterChannelsLib() {
 			return BoolStatus(false)
 		}
 
-		tuple := NewStoredList([]interface{}{senderID, value})
+		tuple := NewStoredListWithoutRefs([]interface{}{senderID, value})
 		tupleID := ctx.executor.storeObject(tuple, "list")
 		tupleMarker := fmt.Sprintf("\x00LIST:%d\x00", tupleID)
 		ctx.state.SetResult(Symbol(tupleMarker))

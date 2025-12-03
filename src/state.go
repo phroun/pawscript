@@ -252,7 +252,7 @@ func (s *ExecutionState) SetResult(value interface{}) {
 			}
 		case []interface{}:
 			// Convert raw slice to StoredList
-			list := NewStoredList(v)
+			list := NewStoredListWithoutRefs(v)
 			id := s.executor.storeObject(list, "list")
 			value = Symbol(fmt.Sprintf("\x00LIST:%d\x00", id))
 		}

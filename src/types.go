@@ -1237,9 +1237,10 @@ func mergeTypeInfos(a, b ListTypeInfo) ListTypeInfo {
 	return result
 }
 
-// NewStoredList creates a new StoredList from a slice of items
-// Type info is computed without executor (markers won't be fully resolved)
-func NewStoredList(items []interface{}) StoredList {
+// NewStoredListWithoutRefs creates a new StoredList from a slice of items
+// WARNING: Does NOT claim references to nested object markers - use NewStoredListWithRefs
+// if the list contains channel/list markers that need to stay alive
+func NewStoredListWithoutRefs(items []interface{}) StoredList {
 	arrInfo := computeTypeInfoForSlice(items, nil)
 	mapInfo := NewEmptyTypeInfo()
 	return StoredList{

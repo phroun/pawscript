@@ -48,7 +48,7 @@ func SerializePSLList(list PSLList) string {
 	}
 
 	// Create StoredList and use existing serialization
-	storedList := NewStoredList(items)
+	storedList := NewStoredListWithoutRefs(items)
 	return formatListForDisplay(storedList)
 }
 
@@ -78,7 +78,7 @@ func convertToPawValue(value interface{}) interface{} {
 		for i, item := range v {
 			items[i] = convertToPawValue(item)
 		}
-		return NewStoredList(items)
+		return NewStoredListWithoutRefs(items)
 	default:
 		return QuotedString(fmt.Sprintf("%v", v))
 	}

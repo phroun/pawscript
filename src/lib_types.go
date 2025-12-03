@@ -658,7 +658,7 @@ func (ps *PawScript) RegisterTypesLib() {
 				// Convert to list of lists
 				resultItems := make([]interface{}, len(result))
 				for i, segment := range result {
-					segList := NewStoredList(segment)
+					segList := NewStoredListWithoutRefs(segment)
 					id := ctx.executor.storeObject(segList, "list")
 					resultItems[i] = Symbol(fmt.Sprintf("\x00LIST:%d\x00", id))
 				}
@@ -685,7 +685,7 @@ func (ps *PawScript) RegisterTypesLib() {
 			// Convert to list of lists
 			resultItems := make([]interface{}, len(result))
 			for i, segment := range result {
-				segList := NewStoredList(segment)
+				segList := NewStoredListWithoutRefs(segment)
 				id := ctx.executor.storeObject(segList, "list")
 				resultItems[i] = Symbol(fmt.Sprintf("\x00LIST:%d\x00", id))
 			}
@@ -703,7 +703,7 @@ func (ps *PawScript) RegisterTypesLib() {
 			items[i] = part
 		}
 
-		setListResult(ctx, NewStoredList(items))
+		setListResult(ctx, NewStoredListWithoutRefs(items))
 		return BoolStatus(true)
 	})
 
@@ -729,7 +729,7 @@ func (ps *PawScript) RegisterTypesLib() {
 				delimItems := delimList.Items()
 
 				if len(items) == 0 {
-					setListResult(ctx, NewStoredList(nil))
+					setListResult(ctx, NewStoredListWithoutRefs(nil))
 					return BoolStatus(true)
 				}
 
@@ -893,7 +893,7 @@ func (ps *PawScript) RegisterTypesLib() {
 
 			// Create result list
 			resultItems := items[start:end]
-			setListResult(ctx, NewStoredList(resultItems))
+			setListResult(ctx, NewStoredListWithoutRefs(resultItems))
 			return BoolStatus(true)
 		}
 
@@ -999,7 +999,7 @@ func (ps *PawScript) RegisterTypesLib() {
 
 			// Create result list (keep from start to end)
 			resultItems := items[start:]
-			setListResult(ctx, NewStoredList(resultItems))
+			setListResult(ctx, NewStoredListWithoutRefs(resultItems))
 			return BoolStatus(true)
 		}
 
@@ -1105,7 +1105,7 @@ func (ps *PawScript) RegisterTypesLib() {
 
 			// Create result list (keep from 0 to end)
 			resultItems := items[:end]
-			setListResult(ctx, NewStoredList(resultItems))
+			setListResult(ctx, NewStoredListWithoutRefs(resultItems))
 			return BoolStatus(true)
 		}
 
@@ -1688,7 +1688,7 @@ func (ps *PawScript) RegisterTypesLib() {
 							var namedArgs map[string]interface{}
 							if len(failures) > 0 {
 								namedArgs = map[string]interface{}{
-									"failures": NewStoredList(failures),
+									"failures": NewStoredListWithoutRefs(failures),
 								}
 							}
 							resultList := NewStoredListWithNamed(results, namedArgs)
@@ -1736,7 +1736,7 @@ func (ps *PawScript) RegisterTypesLib() {
 			var namedArgs map[string]interface{}
 			if len(failures) > 0 {
 				namedArgs = map[string]interface{}{
-					"failures": NewStoredList(failures),
+					"failures": NewStoredListWithoutRefs(failures),
 				}
 			}
 
@@ -2018,7 +2018,7 @@ func (ps *PawScript) RegisterTypesLib() {
 				for _, group := range match {
 					matchItems = append(matchItems, group)
 				}
-				matchList := NewStoredList(matchItems)
+				matchList := NewStoredListWithoutRefs(matchItems)
 				matchID := ctx.executor.storeObject(matchList, "list")
 				resultItems = append(resultItems, Symbol(fmt.Sprintf("\x00LIST:%d\x00", matchID)))
 			}
@@ -2039,7 +2039,7 @@ func (ps *PawScript) RegisterTypesLib() {
 			for _, group := range match {
 				matchItems = append(matchItems, group)
 			}
-			resultList := NewStoredList(matchItems)
+			resultList := NewStoredListWithoutRefs(matchItems)
 			setListResult(ctx, resultList)
 			return BoolStatus(true)
 		}
@@ -2569,7 +2569,7 @@ func (ps *PawScript) RegisterTypesLib() {
 		case StoredList:
 			namedArgs := v.NamedArgs()
 			if len(namedArgs) == 0 {
-				setListResult(ctx, NewStoredList([]interface{}{}))
+				setListResult(ctx, NewStoredListWithoutRefs([]interface{}{}))
 				return BoolStatus(true)
 			}
 
@@ -2584,7 +2584,7 @@ func (ps *PawScript) RegisterTypesLib() {
 				items[i] = key
 			}
 
-			setListResult(ctx, NewStoredList(items))
+			setListResult(ctx, NewStoredListWithoutRefs(items))
 			return BoolStatus(true)
 		default:
 			ctx.LogError(CatType, fmt.Sprintf("Cannot get keys from type %s", getTypeName(v)))
@@ -2747,7 +2747,7 @@ func (ps *PawScript) RegisterTypesLib() {
 			}
 
 			// Create field info as a StoredList and store it
-			fieldInfoList := NewStoredList(fieldInfoItems)
+			fieldInfoList := NewStoredListWithoutRefs(fieldInfoItems)
 			fieldInfoID := ctx.executor.storeObject(fieldInfoList, "list")
 			fieldInfoMarker := fmt.Sprintf("\x00LIST:%d\x00", fieldInfoID)
 

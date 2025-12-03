@@ -28,12 +28,12 @@ func main() {
 			fmt.Println("\n→ wait_async: Async work DONE! Resuming script...")
 
 			// Create inner lists first
-			row1 := pawscript.NewStoredList([]interface{}{1, 2, 3})
-			row2 := pawscript.NewStoredList([]interface{}{4, 5, 6})
-			row3 := pawscript.NewStoredList([]interface{}{7, 8, 9})
+			row1 := pawscript.NewStoredListWithoutRefs([]interface{}{1, 2, 3})
+			row2 := pawscript.NewStoredListWithoutRefs([]interface{}{4, 5, 6})
+			row3 := pawscript.NewStoredListWithoutRefs([]interface{}{7, 8, 9})
 			
 			// Create outer list containing the inner lists
-			matrix := pawscript.NewStoredList([]interface{}{row1, row2, row3, row1, "I waited 5 seconds!"})
+			matrix := pawscript.NewStoredListWithoutRefs([]interface{}{row1, row2, row3, row1, "I waited 5 seconds!"})
 
 			ctx.SetResult(matrix)
 			ctx.ResumeToken(token, true)

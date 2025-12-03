@@ -484,7 +484,7 @@ func (ps *PawScript) RegisterFilesLib() {
 			items = append(items, entry.Name())
 		}
 
-		setListResult(ctx, NewStoredList(items))
+		setListResult(ctx, NewStoredListWithoutRefs(items))
 		return BoolStatus(true)
 	})
 
