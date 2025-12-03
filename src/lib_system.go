@@ -4,6 +4,7 @@ import (
 	"bufio"
 	"bytes"
 	"fmt"
+	"io"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -899,6 +900,118 @@ func (ps *PawScript) RegisterSystemLib(scriptArgs []string) {
 		id := ctx.executor.storeObject(result, "bytes")
 		marker := fmt.Sprintf("\x00BYTES:%d\x00", id)
 		ctx.state.SetResultWithoutClaim(Symbol(marker))
+		return BoolStatus(true)
+	})
+
+	// readkey_init - initialize key input manager for raw keyboard handling
+	// Usage: readkey_init [input_reader] [echo_writer]
+	// Returns a list containing [lines_channel, keys_channel]
+	// If input_reader is #in (stdin) and is a terminal, enables raw mode
+	ps.RegisterCommandInModule("io", "readkey_init", func(ctx *Context) Result {
+		// Get input source - default to os.Stdin
+		var inputReader io.Reader = os.Stdin
+		var echoWriter io.Writer = os.Stdout
+
+		// TODO: Support passing channels as input sources
+		// For now, always use stdin/stdout
+
+		// Create the key input manager
+		manager := NewKeyInputManager(inputReader, echoWriter, nil)
+
+		// Start the manager
+		if err := manager.Start(); err != nil {
+			ctx.LogError(CatIO, fmt.Sprintf("readkey_init: %v", err))
+			return BoolStatus(false)
+		}
+
+		// Store the manager in executor for cleanup and access
+		ctx.executor.mu.Lock()
+		ctx.executor.keyInputManager = manager
+		ctx.executor.mu.Unlock()
+
+		// Return the two channels as a list
+		linesCh := manager.GetLinesChannel()
+		keysCh := manager.GetKeysChannel()
+
+		// Store channels and create list
+		linesID := ctx.executor.storeObject(linesCh, "channel")
+		keysID := ctx.executor.storeObject(keysCh, "channel")
+
+		linesMarker := fmt.Sprintf("\x00CHAN:%d\x00", linesID)
+		keysMarker := fmt.Sprintf("\x00CHAN:%d\x00", keysID)
+
+		resultList := NewStoredList([]interface{}{Symbol(linesMarker), Symbol(keysMarker)})
+		listID := ctx.executor.storeObject(resultList, "list")
+		listMarker := fmt.Sprintf("\x00LIST:%d\x00", listID)
+		ctx.state.SetResultWithoutClaim(Symbol(listMarker))
+
+		return BoolStatus(true)
+	})
+
+	// readkey_stop - stop key input manager and restore terminal
+	ps.RegisterCommandInModule("io", "readkey_stop", func(ctx *Context) Result {
+		ctx.executor.mu.Lock()
+		manager := ctx.executor.keyInputManager
+		ctx.executor.keyInputManager = nil
+		ctx.executor.mu.Unlock()
+
+		if manager == nil {
+			ctx.LogError(CatIO, "readkey_stop: no key input manager running")
+			return BoolStatus(false)
+		}
+
+		if err := manager.Stop(); err != nil {
+			ctx.LogError(CatIO, fmt.Sprintf("readkey_stop: %v", err))
+			return BoolStatus(false)
+		}
+
+		return BoolStatus(true)
+	})
+
+	// readkey - read a single key event from key input manager
+	// Usage: readkey or readkey #keyin_channel
+	// Returns the key as a string ("a", "M-a", "F1", "^C", etc.)
+	ps.RegisterCommandInModule("io", "readkey", func(ctx *Context) Result {
+		var keysCh *StoredChannel
+
+		// Check for explicit channel argument
+		if len(ctx.Args) > 0 {
+			if ch, ok := ctx.Args[0].(*StoredChannel); ok {
+				keysCh = ch
+			} else if sym, ok := ctx.Args[0].(Symbol); ok {
+				symStr := string(sym)
+				if strings.HasPrefix(symStr, "#") {
+					// Try to resolve as channel from state
+					if obj, found := ctx.state.GetVariable(symStr); found && obj != nil {
+						if ch, ok := obj.(*StoredChannel); ok {
+							keysCh = ch
+						}
+					}
+				}
+			}
+		}
+
+		// If no channel specified, use the manager's keys channel
+		if keysCh == nil {
+			ctx.executor.mu.Lock()
+			manager := ctx.executor.keyInputManager
+			ctx.executor.mu.Unlock()
+
+			if manager == nil {
+				ctx.LogError(CatIO, "readkey: no key input manager running (call readkey_init first)")
+				return BoolStatus(false)
+			}
+			keysCh = manager.GetKeysChannel()
+		}
+
+		// Receive from channel
+		_, value, err := ChannelRecv(keysCh)
+		if err != nil {
+			ctx.LogError(CatIO, fmt.Sprintf("readkey: %v", err))
+			return BoolStatus(false)
+		}
+
+		ctx.SetResult(value)
 		return BoolStatus(true)
 	})
 
