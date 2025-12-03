@@ -560,9 +560,12 @@ func (e *Executor) PopAndResumeCommandSequence(tokenID string, status bool) bool
 		// Send to wait channel (blocking is expected here)
 		waitChan <- resumeData
 		e.logger.DebugCat(CatAsync,"Successfully sent resume data to wait channel")
+		// Don't release state references here - the caller (e.g., while loop)
+		// is still using this state and will continue after receiving from waitChan
+		return success
 	}
 
-	// No chain - safe to release now
+	// No chain and no waitChan - safe to release now
 	// But only release if this state is not being used by any other active token
 	if tokenData.ExecutionState != nil {
 		stateInUse := false

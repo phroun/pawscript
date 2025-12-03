@@ -146,8 +146,8 @@ while true, (
     neq ~inColorMode, true & (
         tickCount: {add ~tickCount, 1}
 
-        # Move enemy every 10 ticks (500ms at 50ms per tick)
-        gte ~tickCount, 10 & (
+        # Move enemy every 50 ticks (500ms at 10ms per tick)
+        gte ~tickCount, 50 & (
             tickCount: 0
 
             # Save old enemy position
@@ -177,9 +177,8 @@ while true, (
         )
     )
 
-    # NOTE: msleep has a bug that corrupts channel references when resuming
-    # TODO: Fix async token state management
-    # msleep 50
+    # Sleep to prevent CPU starvation and set game speed
+    msleep 10
 )
 
 # Cleanup
