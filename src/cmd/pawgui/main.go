@@ -2697,18 +2697,14 @@ func createConsoleChannels(stdinReader *io.PipeReader, stdoutWriter *io.PipeWrit
 		Metadata:      make(map[string]interface{}),
 	}
 
-	// Flow control: bounded channel provides backpressure when terminal can't keep up
-	// Buffer of 1 creates maximum backpressure - each write must complete before next queues
-	outputQueue := make(chan []byte, 1)
+	// Non-blocking output: large buffer absorbs bursts, never blocks PawScript
+	// This prevents deadlock between input and output on slow terminals
+	outputQueue := make(chan []byte, 256)
 
-	// Writer goroutine: reads from queue and writes to terminal pipe
-	// This decouples the PawScript execution from terminal rendering speed
+	// Writer goroutine: drains queue and writes to terminal pipe
 	go func() {
 		for data := range outputQueue {
 			stdoutWriter.Write(data)
-			// Longer delay gives slow terminals time to render
-			// 10ms allows ~100 writes/sec - slower but prevents freezing
-			time.Sleep(time.Millisecond * 10)
 		}
 	}()
 
@@ -2721,8 +2717,7 @@ func createConsoleChannels(stdinReader *io.PipeReader, stdoutWriter *io.PipeWrit
 		Timestamp:        time.Now(),
 		Terminal:         termCaps,
 		NativeSend: func(v interface{}) error {
-			// Convert to bytes and send to flow-controlled queue
-			// This blocks when queue is full, providing backpressure
+			// Convert to bytes
 			var data []byte
 			switch d := v.(type) {
 			case []byte:
@@ -2738,7 +2733,13 @@ func createConsoleChannels(stdinReader *io.PipeReader, stdoutWriter *io.PipeWrit
 				text = strings.ReplaceAll(text, "\n", "\r\n")
 				data = []byte(text)
 			}
-			outputQueue <- data
+			// Non-blocking send - if queue full, drop to prevent deadlock
+			select {
+			case outputQueue <- data:
+				// Sent
+			default:
+				// Queue full - output will be lost but we won't deadlock
+			}
 			return nil
 		},
 		NativeRecv: func() (interface{}, error) {
