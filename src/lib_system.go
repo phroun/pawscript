@@ -1096,24 +1096,12 @@ func (ps *PawScript) RegisterSystemLib(scriptArgs []string) {
 	ps.RegisterCommandInModule("io", "readkey", func(ctx *Context) Result {
 		var keysCh *StoredChannel
 
-		// Check for explicit channel argument
+		// Check for explicit channel argument - use valueToChannel to handle markers
 		if len(ctx.Args) > 0 {
-			if ch, ok := ctx.Args[0].(*StoredChannel); ok {
-				keysCh = ch
-			} else if sym, ok := ctx.Args[0].(Symbol); ok {
-				symStr := string(sym)
-				if strings.HasPrefix(symStr, "#") {
-					// Try to resolve as channel from state
-					if obj, found := ctx.state.GetVariable(symStr); found && obj != nil {
-						if ch, ok := obj.(*StoredChannel); ok {
-							keysCh = ch
-						}
-					}
-				}
-			}
+			keysCh = valueToChannel(ctx, ctx.Args[0])
 		}
 
-		// If no channel specified, use the manager's keys channel
+		// If no channel specified or couldn't resolve, use the manager's keys channel
 		if keysCh == nil {
 			ctx.executor.mu.Lock()
 			manager := ctx.executor.keyInputManager

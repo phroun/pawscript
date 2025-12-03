@@ -708,6 +708,7 @@ type StoredChannel struct {
 	NativeSend      func(interface{}) error         // Native send handler
 	NativeRecv      func() (interface{}, error)     // Native receive handler
 	NativeClose     func() error                    // Native close handler
+	NativeLen       func() int                      // Native length handler (for Go channel backing)
 	// Terminal capabilities associated with this channel
 	// Allows channels to report their own ANSI/color/size support
 	// If nil, system terminal capabilities are used as fallback
