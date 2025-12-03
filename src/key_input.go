@@ -71,15 +71,38 @@ func NewKeyInputManager(inputReader io.Reader, echoWriter io.Writer, debugFn fun
 
 	// Set up blocking NativeRecv on linesChan
 	m.linesChan.NativeRecv = func() (interface{}, error) {
+		// Clear any pending line input (from keys pressed before read started)
+		// and temporarily enable echo during line read
+		m.mu.Lock()
+		m.currentLine = nil
+		m.charByteLengths = nil
+		savedEchoWriter := m.echoWriter
+		m.echoWriter = os.Stdout // Enable echo during line read
+		m.mu.Unlock()
+
+		// Wait for line (without holding lock)
+		var line []byte
+		var ok bool
+		var err error
+
 		select {
-		case line, ok := <-linesGo:
+		case line, ok = <-linesGo:
 			if !ok {
-				return nil, fmt.Errorf("channel closed")
+				err = fmt.Errorf("channel closed")
 			}
-			return line, nil
 		case <-m.stopChan:
-			return nil, fmt.Errorf("channel closed")
+			err = fmt.Errorf("channel closed")
 		}
+
+		// Restore echo state
+		m.mu.Lock()
+		m.echoWriter = savedEchoWriter
+		m.mu.Unlock()
+
+		if err != nil {
+			return nil, err
+		}
+		return line, nil
 	}
 
 	// Check if input is os.Stdin and is a terminal
@@ -410,13 +433,21 @@ func (m *KeyInputManager) emitKey(key string) {
 // handleLineAssembly processes a key for line assembly
 // Line buffer stores raw bytes; charByteLengths tracks UTF-8 boundaries for backspace
 func (m *KeyInputManager) handleLineAssembly(key string) {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+
 	switch key {
 	case "Enter":
 		// Emit the completed line as raw bytes
 		// Make a copy to avoid sharing the slice
 		lineBytes := make([]byte, len(m.currentLine))
 		copy(lineBytes, m.currentLine)
-		// Send to Go channel (NativeRecv will read from this)
+		m.currentLine = nil
+		m.charByteLengths = nil
+		echoWriter := m.echoWriter
+		m.mu.Unlock()
+
+		// Send to Go channel (NativeRecv will read from this) - without holding lock
 		select {
 		case m.linesGo <- lineBytes:
 		default:
@@ -427,10 +458,14 @@ func (m *KeyInputManager) handleLineAssembly(key string) {
 			}
 			m.linesGo <- lineBytes
 		}
-		m.currentLine = nil
-		m.charByteLengths = nil
+
 		// Echo newline
-		m.echo("\r\n")
+		if echoWriter != nil {
+			echoWriter.Write([]byte("\r\n"))
+		}
+
+		m.mu.Lock() // Re-acquire for deferred unlock
+		return
 
 	case "Backspace":
 		if len(m.charByteLengths) > 0 {
@@ -439,27 +474,32 @@ func (m *KeyInputManager) handleLineAssembly(key string) {
 			m.currentLine = m.currentLine[:len(m.currentLine)-lastCharLen]
 			m.charByteLengths = m.charByteLengths[:len(m.charByteLengths)-1]
 			// Echo backspace (one visual character)
-			m.echo("\b \b")
+			m.echoLocked("\b \b")
 		}
 
 	case "^U":
 		// Clear line - one backspace per visual character
 		for range m.charByteLengths {
-			m.echo("\b \b")
+			m.echoLocked("\b \b")
 		}
 		m.currentLine = nil
 		m.charByteLengths = nil
 
 	case "^C":
 		// Interrupt - emit empty byte slice and clear
-		m.echo("^C\r\n")
-		// Send to Go channel (NativeRecv will read from this)
+		m.echoLocked("^C\r\n")
+		m.currentLine = nil
+		m.charByteLengths = nil
+		m.mu.Unlock()
+
+		// Send to Go channel (NativeRecv will read from this) - without holding lock
 		select {
 		case m.linesGo <- []byte{}:
 		default:
 		}
-		m.currentLine = nil
-		m.charByteLengths = nil
+
+		m.mu.Lock() // Re-acquire for deferred unlock
+		return
 
 	default:
 		// Check if it's a printable character (single rune)
@@ -470,7 +510,7 @@ func (m *KeyInputManager) handleLineAssembly(key string) {
 				m.currentLine = append(m.currentLine, []byte(key)...)
 				m.charByteLengths = append(m.charByteLengths, len(key))
 				// Echo character
-				m.echo(key)
+				m.echoLocked(key)
 			}
 		}
 	}
@@ -478,6 +518,13 @@ func (m *KeyInputManager) handleLineAssembly(key string) {
 
 // echo writes to the echo output if configured
 func (m *KeyInputManager) echo(s string) {
+	if m.echoWriter != nil {
+		m.echoWriter.Write([]byte(s))
+	}
+}
+
+// echoLocked writes to echo output - call only while holding m.mu
+func (m *KeyInputManager) echoLocked(s string) {
 	if m.echoWriter != nil {
 		m.echoWriter.Write([]byte(s))
 	}
