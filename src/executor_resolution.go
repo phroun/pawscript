@@ -82,7 +82,7 @@ func (e *Executor) resolveValueDeep(value interface{}) interface{} {
 		}
 
 		if hasChanges {
-			return NewStoredList(resolvedItems)
+			return NewStoredListWithoutRefs(resolvedItems)
 		}
 	}
 

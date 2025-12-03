@@ -155,7 +155,7 @@ func (ps *PawScript) RegisterBitwiseLib() {
 			return v, true
 		case ParenGroup:
 			items, _ := parseArguments(string(v))
-			return NewStoredList(items), true
+			return NewStoredListWithoutRefs(items), true
 		}
 		return StoredList{}, false
 	}
@@ -171,7 +171,7 @@ func (ps *PawScript) RegisterBitwiseLib() {
 			}
 			results[i] = result
 		}
-		return NewStoredList(results), true
+		return NewStoredListWithoutRefs(results), true
 	}
 
 	// bitwise_and - bitwise AND operation

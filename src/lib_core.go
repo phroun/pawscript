@@ -148,7 +148,7 @@ func (ps *PawScript) RegisterCoreLib() {
 				// Parse JSON from first positional argument
 				if len(ctx.Args) < 1 {
 					ctx.LogError(CatCommand, "list from: json requires a JSON string argument")
-					setListResult(ctx, NewStoredList(nil))
+					setListResult(ctx, NewStoredListWithoutRefs(nil))
 					return BoolStatus(false)
 				}
 
@@ -164,12 +164,12 @@ func (ps *PawScript) RegisterCoreLib() {
 								jsonStr = string(ss)
 							} else {
 								ctx.LogError(CatType, "list from: json: stored object is not a string")
-								setListResult(ctx, NewStoredList(nil))
+								setListResult(ctx, NewStoredListWithoutRefs(nil))
 								return BoolStatus(false)
 							}
 						} else {
 							ctx.LogError(CatType, "list from: json: stored string not found")
-							setListResult(ctx, NewStoredList(nil))
+							setListResult(ctx, NewStoredListWithoutRefs(nil))
 							return BoolStatus(false)
 						}
 					} else {
@@ -185,12 +185,12 @@ func (ps *PawScript) RegisterCoreLib() {
 								jsonStr = string(ss)
 							} else {
 								ctx.LogError(CatType, "list from: json: stored object is not a string")
-								setListResult(ctx, NewStoredList(nil))
+								setListResult(ctx, NewStoredListWithoutRefs(nil))
 								return BoolStatus(false)
 							}
 						} else {
 							ctx.LogError(CatType, "list from: json: stored string not found")
-							setListResult(ctx, NewStoredList(nil))
+							setListResult(ctx, NewStoredListWithoutRefs(nil))
 							return BoolStatus(false)
 						}
 					} else {
@@ -202,7 +202,7 @@ func (ps *PawScript) RegisterCoreLib() {
 					jsonStr = string(v)
 				default:
 					ctx.LogError(CatType, fmt.Sprintf("list from: json requires a string argument, got %T: %v", ctx.Args[0], ctx.Args[0]))
-					setListResult(ctx, NewStoredList(nil))
+					setListResult(ctx, NewStoredListWithoutRefs(nil))
 					return BoolStatus(false)
 				}
 
@@ -213,7 +213,7 @@ func (ps *PawScript) RegisterCoreLib() {
 				var jsonVal interface{}
 				if err := json.Unmarshal([]byte(jsonStr), &jsonVal); err != nil {
 					ctx.LogError(CatType, fmt.Sprintf("list from: json parse error: %v", err))
-					setListResult(ctx, NewStoredList(nil))
+					setListResult(ctx, NewStoredListWithoutRefs(nil))
 					return BoolStatus(false)
 				}
 
@@ -1150,7 +1150,7 @@ func (ps *PawScript) RegisterCoreLib() {
 		macroCtx := ctx.GetMacroContext()
 		if macroCtx == nil {
 			// At top level, return empty list
-			setListResult(ctx, NewStoredList(nil))
+			setListResult(ctx, NewStoredListWithoutRefs(nil))
 			return BoolStatus(true)
 		}
 
@@ -1171,7 +1171,7 @@ func (ps *PawScript) RegisterCoreLib() {
 			frames = append(frames, frameMarker)
 		}
 
-		setListResult(ctx, NewStoredList(frames))
+		setListResult(ctx, NewStoredListWithoutRefs(frames))
 		return BoolStatus(true)
 	})
 
@@ -1522,7 +1522,7 @@ func (ps *PawScript) RegisterCoreLib() {
 				metaNamedArgs := map[string]interface{}{
 					"microtime": bubble.Microtime,
 					"memo":      bubble.Memo,
-					"flavors":   NewStoredList(stringSliceToInterface(bubble.Flavors)),
+					"flavors":   NewStoredListWithoutRefs(stringSliceToInterface(bubble.Flavors)),
 				}
 
 				// Add stack trace if present
@@ -1536,7 +1536,7 @@ func (ps *PawScript) RegisterCoreLib() {
 							traceList = append(traceList, Symbol(fmt.Sprintf("\x00LIST:%d\x00", frameID)))
 						}
 					}
-					stackList := NewStoredList(traceList)
+					stackList := NewStoredListWithoutRefs(traceList)
 					stackID := ctx.executor.storeObject(stackList, "list")
 					metaNamedArgs["stack_trace"] = Symbol(fmt.Sprintf("\x00LIST:%d\x00", stackID))
 				}

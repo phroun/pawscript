@@ -97,7 +97,7 @@ func deepEqual(a, b interface{}, executor *Executor) bool {
 		case ParenGroup:
 			// Parse ParenGroup to list
 			items, _ := parseArguments(string(vb))
-			listB = NewStoredList(items)
+			listB = NewStoredListWithoutRefs(items)
 		default:
 			return false
 		}

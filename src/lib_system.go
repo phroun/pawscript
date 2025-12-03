@@ -32,10 +32,10 @@ func (ps *PawScript) RegisterSystemLib(scriptArgs []string) {
 			return v, true
 		case ParenGroup:
 			items, _ := parseArguments(string(v))
-			return NewStoredList(items), true
+			return NewStoredListWithoutRefs(items), true
 		case StoredBlock:
 			items, _ := parseArguments(string(v))
-			return NewStoredList(items), true
+			return NewStoredListWithoutRefs(items), true
 		case Symbol:
 			markerType, objectID := parseObjectMarker(string(v))
 			if markerType == "list" && objectID >= 0 {
@@ -419,7 +419,7 @@ func (ps *PawScript) RegisterSystemLib(scriptArgs []string) {
 					setListResult(ctx, storedListSource)
 				} else {
 					// Convert raw slice to StoredList before setting as result
-					setListResult(ctx, NewStoredList(sourceList))
+					setListResult(ctx, NewStoredListWithoutRefs(sourceList))
 				}
 				return BoolStatus(true)
 			}

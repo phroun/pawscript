@@ -329,7 +329,7 @@ func (ps *PawScript) RegisterGeneratorLib() {
 				value := list.NamedArgs()[key]
 
 				// Create a list with [key, value]
-				pairList := NewStoredList([]interface{}{key, value})
+				pairList := NewStoredListWithoutRefs([]interface{}{key, value})
 				pairID := ctx.executor.storeObject(pairList, "list")
 				pairMarker := fmt.Sprintf("\x00LIST:%d\x00", pairID)
 
@@ -1416,7 +1416,7 @@ func (ps *PawScript) RegisterGeneratorLib() {
 						var namedArgs map[string]interface{}
 						if len(failures) > 0 {
 							namedArgs = map[string]interface{}{
-								"failures": NewStoredList(failures),
+								"failures": NewStoredListWithoutRefs(failures),
 							}
 						}
 						resultList := NewStoredListWithNamed(results, namedArgs)
@@ -1468,7 +1468,7 @@ func (ps *PawScript) RegisterGeneratorLib() {
 				var namedArgs map[string]interface{}
 				if len(failures) > 0 {
 					namedArgs = map[string]interface{}{
-						"failures": NewStoredList(failures),
+						"failures": NewStoredListWithoutRefs(failures),
 					}
 				}
 				resultList := NewStoredListWithNamed(results, namedArgs)
@@ -1577,7 +1577,7 @@ func (ps *PawScript) RegisterGeneratorLib() {
 						var namedArgs map[string]interface{}
 						if len(failures) > 0 {
 							namedArgs = map[string]interface{}{
-								"failures": NewStoredList(failures),
+								"failures": NewStoredListWithoutRefs(failures),
 							}
 						}
 						resultList := NewStoredListWithNamed(results, namedArgs)
@@ -1630,7 +1630,7 @@ func (ps *PawScript) RegisterGeneratorLib() {
 				var namedArgs map[string]interface{}
 				if len(failures) > 0 {
 					namedArgs = map[string]interface{}{
-						"failures": NewStoredList(failures),
+						"failures": NewStoredListWithoutRefs(failures),
 					}
 				}
 				resultList := NewStoredListWithNamed(results, namedArgs)
@@ -1798,7 +1798,7 @@ func (ps *PawScript) RegisterGeneratorLib() {
 				metaNamedArgs := map[string]interface{}{
 					"microtime": bubble.Microtime,
 					"memo":      bubble.Memo,
-					"flavors":   NewStoredList(stringSliceToInterface(bubble.Flavors)),
+					"flavors":   NewStoredListWithoutRefs(stringSliceToInterface(bubble.Flavors)),
 				}
 				metaList := NewStoredListWithNamed(nil, metaNamedArgs)
 				metaID := ctx.executor.storeObject(metaList, "list")

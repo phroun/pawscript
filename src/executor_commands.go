@@ -232,7 +232,7 @@ func (e *Executor) executeSingleCommand(
 					args = e.processArguments(args, state, substitutionCtx, position)
 
 					// Create args list for $@ and store it
-					argsList := NewStoredList(args)
+					argsList := NewStoredListWithoutRefs(args)
 					argsListID := e.storeObject(argsList, "list")
 					argsMarker := fmt.Sprintf("\x00LIST:%d\x00", argsListID)
 
@@ -454,7 +454,7 @@ func (e *Executor) executeSingleCommand(
 									if argsStr != "" {
 										_, args, _ := ParseCommand("dummy " + argsStr)
 										args = e.processArguments(args, capturedState, capturedSubstitutionCtx, capturedPosition)
-										argsList := NewStoredList(args)
+										argsList := NewStoredListWithoutRefs(args)
 										argsListID := e.storeObject(argsList, "list")
 										argsMarker := fmt.Sprintf("\x00LIST:%d\x00", argsListID)
 										blockMacroCtx := &MacroContext{
@@ -533,7 +533,7 @@ func (e *Executor) executeSingleCommand(
 							if argsStr != "" {
 								_, args, _ := ParseCommand("dummy " + argsStr)
 								args = e.processArguments(args, capturedState, capturedSubstitutionCtx, capturedPosition)
-								argsList := NewStoredList(args)
+								argsList := NewStoredListWithoutRefs(args)
 								argsListID := e.storeObject(argsList, "list")
 								argsMarker := fmt.Sprintf("\x00LIST:%d\x00", argsListID)
 								blockMacroCtx := &MacroContext{
@@ -719,7 +719,7 @@ func (e *Executor) executeSingleCommand(
 							args = e.processArguments(args, state, substitutionCtx, position)
 
 							// Create args list for $@ and store it
-							argsList := NewStoredList(args)
+							argsList := NewStoredListWithoutRefs(args)
 							argsListID := e.storeObject(argsList, "list")
 							argsMarker := fmt.Sprintf("\x00LIST:%d\x00", argsListID)
 
@@ -823,7 +823,7 @@ func (e *Executor) executeSingleCommand(
 					args = e.processArguments(args, state, substitutionCtx, position)
 
 					// Create args list for $@ and store it
-					argsList := NewStoredList(args)
+					argsList := NewStoredListWithoutRefs(args)
 					argsListID := e.storeObject(argsList, "list")
 					argsMarker := fmt.Sprintf("\x00LIST:%d\x00", argsListID)
 
