@@ -2681,9 +2681,8 @@ func (h *consoleInputHandler) readLine() (string, error) {
 }
 
 // createConsoleChannels creates StoredChannels for the console terminal
+// NativeRecv returns raw bytes - line assembly is handled by PawScript's KeyInputManager
 func createConsoleChannels(stdinReader *io.PipeReader, stdoutWriter *io.PipeWriter, width, height int) (*pawscript.StoredChannel, *pawscript.StoredChannel, *pawscript.TerminalCapabilities) {
-	inputHandler := newConsoleInputHandler(stdinReader, stdoutWriter)
-
 	termCaps := &pawscript.TerminalCapabilities{
 		TermType:      "gui-console",
 		IsTerminal:    true,
@@ -2693,8 +2692,8 @@ func createConsoleChannels(stdinReader *io.PipeReader, stdoutWriter *io.PipeWrit
 		Width:         width,
 		Height:        height,
 		SupportsInput: true,
-		EchoEnabled:   true,
-		LineMode:      true,
+		EchoEnabled:   false, // Echo handled by KeyInputManager
+		LineMode:      false, // Raw byte mode - line assembly in PawScript
 		Metadata:      make(map[string]interface{}),
 	}
 
@@ -2707,11 +2706,24 @@ func createConsoleChannels(stdinReader *io.PipeReader, stdoutWriter *io.PipeWrit
 		Timestamp:        time.Now(),
 		Terminal:         termCaps,
 		NativeSend: func(v interface{}) error {
-			text := fmt.Sprintf("%v", v)
-			text = strings.ReplaceAll(text, "\r\n", "\n")
-			text = strings.ReplaceAll(text, "\n", "\r\n")
-			_, err := fmt.Fprint(stdoutWriter, text)
-			return err
+			// Handle different types properly
+			switch data := v.(type) {
+			case []byte:
+				_, err := stdoutWriter.Write(data)
+				return err
+			case string:
+				// Convert newlines for terminal display
+				text := strings.ReplaceAll(data, "\r\n", "\n")
+				text = strings.ReplaceAll(text, "\n", "\r\n")
+				_, err := fmt.Fprint(stdoutWriter, text)
+				return err
+			default:
+				text := fmt.Sprintf("%v", v)
+				text = strings.ReplaceAll(text, "\r\n", "\n")
+				text = strings.ReplaceAll(text, "\n", "\r\n")
+				_, err := fmt.Fprint(stdoutWriter, text)
+				return err
+			}
 		},
 		NativeRecv: func() (interface{}, error) {
 			return nil, fmt.Errorf("cannot receive from console_out")
@@ -2727,7 +2739,16 @@ func createConsoleChannels(stdinReader *io.PipeReader, stdoutWriter *io.PipeWrit
 		Timestamp:        time.Now(),
 		Terminal:         termCaps,
 		NativeRecv: func() (interface{}, error) {
-			return inputHandler.readLine()
+			// Return raw bytes - line assembly handled by KeyInputManager
+			buf := make([]byte, 1)
+			n, err := stdinReader.Read(buf)
+			if err != nil {
+				return nil, err
+			}
+			if n == 0 {
+				return nil, fmt.Errorf("no data")
+			}
+			return buf[:n], nil
 		},
 		NativeSend: func(v interface{}) error {
 			return fmt.Errorf("cannot send to console_in")

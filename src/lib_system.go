@@ -14,6 +14,36 @@ import (
 	"time"
 )
 
+// channelReader wraps a StoredChannel as an io.Reader
+// Reads bytes from the channel's NativeRecv function
+type channelReader struct {
+	ch     *StoredChannel
+	buffer []byte
+}
+
+func (r *channelReader) Read(p []byte) (n int, err error) {
+	// If buffer is empty, get more data from channel
+	if len(r.buffer) == 0 {
+		data, err := r.ch.NativeRecv()
+		if err != nil {
+			return 0, err
+		}
+		// Handle different types from NativeRecv
+		switch v := data.(type) {
+		case []byte:
+			r.buffer = v
+		case string:
+			r.buffer = []byte(v)
+		default:
+			r.buffer = []byte(fmt.Sprintf("%v", v))
+		}
+	}
+	// Copy from buffer to output
+	n = copy(p, r.buffer)
+	r.buffer = r.buffer[n:]
+	return n, nil
+}
+
 // RegisterSystemLib registers OS, IO, and system commands
 // Modules: os, io, sys
 func (ps *PawScript) RegisterSystemLib(scriptArgs []string) {
@@ -894,14 +924,22 @@ func (ps *PawScript) RegisterSystemLib(scriptArgs []string) {
 	})
 
 	// readkey_init - initialize key input manager for raw keyboard handling
-	// Usage: readkey_init [echo: true|false]
+	// Usage: readkey_init [input_channel] [echo: true|false]
 	// Returns a list containing [lines_channel, keys_channel]
-	// If input_reader is #in (stdin) and is a terminal, enables raw mode
+	// If input_channel is provided, reads bytes from its NativeRecv.
+	// Otherwise defaults to os.Stdin. If stdin is a terminal, enables raw mode.
 	// By default, echo is disabled (for games/TUI). Use echo: true to enable.
 	ps.RegisterCommandInModule("io", "readkey_init", func(ctx *Context) Result {
 		// Get input source - default to os.Stdin
 		var inputReader io.Reader = os.Stdin
 		var echoWriter io.Writer = nil // Default: no echo
+
+		// Check for channel argument - wrap it as an io.Reader
+		if len(ctx.Args) > 0 {
+			if ch := valueToChannel(ctx, ctx.Args[0]); ch != nil && ch.NativeRecv != nil {
+				inputReader = &channelReader{ch: ch}
+			}
+		}
 
 		// Check for echo: named argument
 		if echoArg, hasEcho := ctx.NamedArgs["echo"]; hasEcho {
