@@ -30,6 +30,8 @@ jobs:
             mingw-w64-x86_64-go
             mingw-w64-x86_64-pkg-config
             mingw-w64-x86_64-gcc
+            mingw-w64-x86_64-librsvg
+            mingw-w64-x86_64-adwaita-icon-theme
             git
 
       - name: Build pawgui-gtk
@@ -50,23 +52,41 @@ jobs:
           cp pawgui-gtk-windows-amd64.exe dist/windows/
           cp paw-windows-amd64.exe dist/windows/
 
-          # Copy required GTK DLLs
-          ldd pawgui-gtk-windows-amd64.exe | grep mingw64 | awk '{print $3}' | while read dll; do
-            cp "$dll" dist/windows/ 2>/dev/null || true
-          done
+          # Copy required GTK DLLs (recursively resolve dependencies)
+          copy_dll_deps() {
+            ldd "$1" 2>/dev/null | grep mingw64 | awk '{print $3}' | while read dll; do
+              if [ -f "$dll" ] && [ ! -f "dist/windows/$(basename $dll)" ]; then
+                cp "$dll" dist/windows/
+                copy_dll_deps "$dll"
+              fi
+            done
+          }
+          copy_dll_deps pawgui-gtk-windows-amd64.exe
 
-          # Copy GDK-Pixbuf loaders
+          # Copy GDK-Pixbuf loaders and their dependencies
           mkdir -p dist/windows/lib/gdk-pixbuf-2.0/2.10.0/loaders
-          cp -r /mingw64/lib/gdk-pixbuf-2.0/2.10.0/loaders/*.dll dist/windows/lib/gdk-pixbuf-2.0/2.10.0/loaders/ 2>/dev/null || true
+          for loader in /mingw64/lib/gdk-pixbuf-2.0/2.10.0/loaders/*.dll; do
+            cp "$loader" dist/windows/lib/gdk-pixbuf-2.0/2.10.0/loaders/
+            # Copy loader dependencies
+            ldd "$loader" 2>/dev/null | grep mingw64 | awk '{print $3}' | while read dll; do
+              if [ -f "$dll" ] && [ ! -f "dist/windows/$(basename $dll)" ]; then
+                cp "$dll" dist/windows/
+              fi
+            done
+          done
           cp /mingw64/lib/gdk-pixbuf-2.0/2.10.0/loaders.cache dist/windows/lib/gdk-pixbuf-2.0/2.10.0/ 2>/dev/null || true
 
           # Copy GTK schemas
           mkdir -p dist/windows/share/glib-2.0/schemas
           cp /mingw64/share/glib-2.0/schemas/gschemas.compiled dist/windows/share/glib-2.0/schemas/ 2>/dev/null || true
 
-          # Copy icons (optional, for better appearance)
-          mkdir -p dist/windows/share/icons
-          cp -r /mingw64/share/icons/Adwaita dist/windows/share/icons/ 2>/dev/null || true
+          # Copy icons - use PNG versions to avoid SVG dependency issues
+          mkdir -p dist/windows/share/icons/Adwaita
+          cp -r /mingw64/share/icons/Adwaita/16x16 dist/windows/share/icons/Adwaita/ 2>/dev/null || true
+          cp -r /mingw64/share/icons/Adwaita/22x22 dist/windows/share/icons/Adwaita/ 2>/dev/null || true
+          cp -r /mingw64/share/icons/Adwaita/24x24 dist/windows/share/icons/Adwaita/ 2>/dev/null || true
+          cp -r /mingw64/share/icons/Adwaita/32x32 dist/windows/share/icons/Adwaita/ 2>/dev/null || true
+          cp -r /mingw64/share/icons/Adwaita/index.theme dist/windows/share/icons/Adwaita/ 2>/dev/null || true
           cp -r /mingw64/share/icons/hicolor dist/windows/share/icons/ 2>/dev/null || true
 
           # Copy examples

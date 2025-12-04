@@ -380,17 +380,18 @@ func createFileRow(name string, isDir bool, isParent bool) *gtk.ListBoxRow {
 	box.SetMarginTop(2)
 	box.SetMarginBottom(2)
 
-	// Icon
-	var iconName string
+	// Use text prefix instead of icons for better cross-platform compatibility
+	var prefix string
 	if isParent {
-		iconName = "go-up-symbolic"
+		prefix = "⬆"
 	} else if isDir {
-		iconName = "folder-symbolic"
+		prefix = "📁"
 	} else {
-		iconName = "text-x-script-symbolic"
+		prefix = "📜"
 	}
-	icon, _ := gtk.ImageNewFromIconName(iconName, gtk.ICON_SIZE_MENU)
-	box.PackStart(icon, false, false, 0)
+	prefixLabel, _ := gtk.LabelNew(prefix)
+	prefixLabel.SetWidthChars(2)
+	box.PackStart(prefixLabel, false, false, 0)
 
 	// Name label
 	label, _ := gtk.LabelNew(name)
