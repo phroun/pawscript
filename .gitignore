@@ -18,3 +18,5 @@ node_modules
 js/pawscript.wasm
 /bin/
 /pawscript
+/pawgui.app
+/paw.exe
