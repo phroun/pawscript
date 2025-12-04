@@ -72,7 +72,7 @@ func activate(app *gtk.Application) {
 			font-size: 15px;
 		}
 	`)
-	screen, _ := mainWindow.GetScreen()
+	screen := mainWindow.GetScreen()
 	gtk.AddProviderForScreen(screen, cssProvider, gtk.STYLE_PROVIDER_PRIORITY_APPLICATION)
 
 	// Create main horizontal paned (split view)
