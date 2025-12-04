@@ -11,6 +11,8 @@ node_modules
 /paw-macos-arm64
 /paw-macos-x64
 /paw-x64.exe
+/paw-windows-*.exe
+/pawgui-gtk-*.exe
 /pawscript.wasm
 /releases
 js/pawscript.wasm
