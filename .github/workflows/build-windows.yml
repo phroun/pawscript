@@ -1,0 +1,122 @@
+name: Build Windows
+
+# Only run on branches starting with 'w64' to avoid wasting CI minutes
+on:
+  push:
+    branches:
+      - 'w64*'
+      - 'w64-*'
+      - 'w64/**'
+  workflow_dispatch:  # Allow manual trigger from GitHub UI
+
+jobs:
+  build-windows-gtk:
+    runs-on: windows-latest
+    defaults:
+      run:
+        shell: msys2 {0}
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Setup MSYS2
+        uses: msys2/setup-msys2@v2
+        with:
+          msystem: MINGW64
+          update: true
+          install: >-
+            mingw-w64-x86_64-gtk3
+            mingw-w64-x86_64-go
+            mingw-w64-x86_64-pkg-config
+            mingw-w64-x86_64-gcc
+            git
+
+      - name: Build pawgui-gtk
+        run: |
+          cd src
+          export CGO_ENABLED=1
+          export PKG_CONFIG_PATH="/mingw64/lib/pkgconfig:$PKG_CONFIG_PATH"
+          go build -ldflags="-H windowsgui -s -w" -o ../pawgui-gtk-windows-amd64.exe ./cmd/pawgui-gtk/
+
+      - name: Build paw CLI
+        run: |
+          cd src
+          go build -ldflags="-s -w" -o ../paw-windows-amd64.exe ./cmd/paw/
+
+      - name: Collect GTK DLLs
+        run: |
+          mkdir -p dist/windows
+          cp pawgui-gtk-windows-amd64.exe dist/windows/
+          cp paw-windows-amd64.exe dist/windows/
+
+          # Copy required GTK DLLs
+          ldd pawgui-gtk-windows-amd64.exe | grep mingw64 | awk '{print $3}' | while read dll; do
+            cp "$dll" dist/windows/ 2>/dev/null || true
+          done
+
+          # Copy GDK-Pixbuf loaders
+          mkdir -p dist/windows/lib/gdk-pixbuf-2.0/2.10.0/loaders
+          cp -r /mingw64/lib/gdk-pixbuf-2.0/2.10.0/loaders/*.dll dist/windows/lib/gdk-pixbuf-2.0/2.10.0/loaders/ 2>/dev/null || true
+          cp /mingw64/lib/gdk-pixbuf-2.0/2.10.0/loaders.cache dist/windows/lib/gdk-pixbuf-2.0/2.10.0/ 2>/dev/null || true
+
+          # Copy GTK schemas
+          mkdir -p dist/windows/share/glib-2.0/schemas
+          cp /mingw64/share/glib-2.0/schemas/gschemas.compiled dist/windows/share/glib-2.0/schemas/ 2>/dev/null || true
+
+          # Copy icons (optional, for better appearance)
+          mkdir -p dist/windows/share/icons
+          cp -r /mingw64/share/icons/Adwaita dist/windows/share/icons/ 2>/dev/null || true
+          cp -r /mingw64/share/icons/hicolor dist/windows/share/icons/ 2>/dev/null || true
+
+          # Copy examples
+          cp -r examples dist/windows/
+
+      - name: Upload Windows artifacts
+        uses: actions/upload-artifact@v4
+        with:
+          name: pawscript-windows-amd64
+          path: dist/windows/
+          retention-days: 30
+
+  build-cli-crossplatform:
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Setup Go
+        uses: actions/setup-go@v5
+        with:
+          go-version: '1.22'
+
+      - name: Build CLI for multiple platforms
+        run: |
+          cd src
+          mkdir -p ../dist
+
+          # Windows AMD64
+          GOOS=windows GOARCH=amd64 CGO_ENABLED=0 go build -ldflags="-s -w" -o ../dist/paw-windows-amd64.exe ./cmd/paw/
+
+          # Windows ARM64
+          GOOS=windows GOARCH=arm64 CGO_ENABLED=0 go build -ldflags="-s -w" -o ../dist/paw-windows-arm64.exe ./cmd/paw/
+
+          # Linux AMD64
+          GOOS=linux GOARCH=amd64 CGO_ENABLED=0 go build -ldflags="-s -w" -o ../dist/paw-linux-amd64 ./cmd/paw/
+
+          # Linux ARM64
+          GOOS=linux GOARCH=arm64 CGO_ENABLED=0 go build -ldflags="-s -w" -o ../dist/paw-linux-arm64 ./cmd/paw/
+
+          # macOS AMD64
+          GOOS=darwin GOARCH=amd64 CGO_ENABLED=0 go build -ldflags="-s -w" -o ../dist/paw-darwin-amd64 ./cmd/paw/
+
+          # macOS ARM64 (Apple Silicon)
+          GOOS=darwin GOARCH=arm64 CGO_ENABLED=0 go build -ldflags="-s -w" -o ../dist/paw-darwin-arm64 ./cmd/paw/
+
+      - name: Upload CLI artifacts
+        uses: actions/upload-artifact@v4
+        with:
+          name: paw-cli-all-platforms
+          path: dist/
+          retention-days: 30
