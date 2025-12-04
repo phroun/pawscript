@@ -16,7 +16,7 @@ else
     BINARY_NAME := paw
 endif
 
-.PHONY: build-all build-all-gui clean-releases build build-gui install test test-coverage run-example clean fmt lint help \
+.PHONY: build-all build-all-gui clean-releases build build-gui build-gui-debug install test test-coverage run-example clean fmt lint help \
 	build-gui-macos-arm64 build-gui-macos-x64 build-gui-ms-arm64 build-gui-ms-x64 build-gui-linux-arm64 build-gui-linux-x64
 
 # Build native version for local use
@@ -43,6 +43,18 @@ else ifeq ($(NATIVE_OS),darwin)
 else
 	cd $(SRC_DIR) && fyne build -o ../pawgui ./cmd/pawgui
 	@echo "Created: pawgui"
+endif
+
+# Build GUI with debug symbols (for crash debugging)
+# On Windows: use cv2pdb to convert DWARF to PDB, or use delve/gdb debugger
+build-gui-debug:
+	@echo "Building pawgui with debug symbols for $(NATIVE_OS)/$(NATIVE_ARCH)..."
+	cd $(SRC_DIR) && go build -gcflags "all=-N -l" -o ../pawgui-debug$(if $(filter windows,$(NATIVE_OS)),.exe,) ./cmd/pawgui
+ifeq ($(NATIVE_OS),windows)
+	@echo "Created: pawgui-debug.exe (with DWARF symbols)"
+	@echo "To generate PDB: cv2pdb pawgui-debug.exe (requires cv2pdb tool)"
+else
+	@echo "Created: pawgui-debug (with DWARF symbols)"
 endif
 
 # Default install prefix
@@ -197,7 +209,7 @@ run-example:
 
 clean:
 	@echo "Cleaning..."
-	@rm -f paw pawgui pawgui.exe $(SRC_DIR)/coverage.out $(SRC_DIR)/coverage.html
+	@rm -f paw pawgui pawgui.exe pawgui-debug pawgui-debug.exe $(SRC_DIR)/coverage.out $(SRC_DIR)/coverage.html
 	@rm -rf pawgui.app
 	@echo "Clean complete"
 
@@ -217,6 +229,7 @@ help:
 	@echo "Targets:"
 	@echo "  build          - Build paw for native platform"
 	@echo "  build-gui      - Build pawgui (Fyne GUI) for native platform"
+	@echo "  build-gui-debug - Build pawgui with debug symbols (for crash debugging)"
 	@echo "  build-all      - Build and package paw CLI for all platforms"
 	@echo "  build-all-gui  - Build and package pawgui for all platforms (requires Docker)"
 	@echo "  run-example    - Run hello.paw example"
