@@ -119,6 +119,7 @@ func createFileBrowser() *gtk.Box {
 	// File list
 	fileList = gtk.NewListBox()
 	fileList.SetSelectionMode(gtk.SelectionSingle)
+	fileList.SetActivateOnSingleClick(false) // Require double-click to activate
 	fileList.ConnectRowActivated(onFileActivated)
 	scroll.SetChild(fileList)
 	box.Append(scroll)
