@@ -16,8 +16,10 @@ type Buffer struct {
 	cursorX int
 	cursorY int
 
-	// Cursor visibility
+	// Cursor visibility and style
 	cursorVisible bool
+	cursorShape   int // 0=block, 1=underline, 2=bar
+	cursorBlink   int // 0=no blink, 1=slow blink, 2=fast blink
 
 	// Current text attributes
 	currentFg        Color
@@ -195,6 +197,24 @@ func (b *Buffer) IsCursorVisible() bool {
 	b.mu.RLock()
 	defer b.mu.RUnlock()
 	return b.cursorVisible
+}
+
+// SetCursorStyle sets the cursor shape and blink mode
+// shape: 0=block, 1=underline, 2=bar
+// blink: 0=no blink, 1=slow blink, 2=fast blink
+func (b *Buffer) SetCursorStyle(shape, blink int) {
+	b.mu.Lock()
+	defer b.mu.Unlock()
+	b.cursorShape = shape
+	b.cursorBlink = blink
+	b.markDirty()
+}
+
+// GetCursorStyle returns the cursor shape and blink mode
+func (b *Buffer) GetCursorStyle() (shape, blink int) {
+	b.mu.RLock()
+	defer b.mu.RUnlock()
+	return b.cursorShape, b.cursorBlink
 }
 
 // SaveCursor saves the current cursor position

@@ -24,9 +24,10 @@ type Parser struct {
 	state  parserState
 
 	// CSI sequence accumulator
-	csiParams  []int
-	csiPrivate byte // For private sequences like ?25h
-	csiBuf     strings.Builder
+	csiParams        []int
+	csiPrivate       byte // For private sequences like ?25h
+	csiIntermediate  byte // For sequences with intermediate bytes like DECSCUSR (SP q)
+	csiBuf           strings.Builder
 
 	// OSC accumulator
 	oscBuf strings.Builder
@@ -161,6 +162,7 @@ func (p *Parser) handleEscape(b byte) {
 		p.state = stateCSI
 		p.csiParams = p.csiParams[:0]
 		p.csiPrivate = 0
+		p.csiIntermediate = 0
 		p.csiBuf.Reset()
 	case ']': // OSC - Operating System Command
 		p.state = stateOSC
@@ -236,6 +238,13 @@ func (p *Parser) handleCSI(b byte) {
 	if b == ':' {
 		// Sub-parameter separator (used in some SGR sequences)
 		p.csiBuf.WriteByte(b)
+		return
+	}
+
+	// Intermediate bytes (0x20-0x2F) - used in sequences like DECSCUSR (ESC [ Ps SP q)
+	if b >= 0x20 && b <= 0x2F {
+		p.parseCSIParam() // Parse any parameter before the intermediate
+		p.csiIntermediate = b
 		return
 	}
 
@@ -370,7 +379,41 @@ func (p *Parser) executeCSI(finalByte byte) {
 		// Would need to send response - ignore
 
 	case 't': // Window manipulation - ignore
+
+	case 'q': // DECSCUSR - Set Cursor Style (with space intermediate)
+		if p.csiIntermediate == ' ' {
+			p.executeDECSCUSR()
+		}
 	}
+}
+
+// executeDECSCUSR handles ESC [ Ps SP q - Set Cursor Style
+func (p *Parser) executeDECSCUSR() {
+	style := p.getParam(0, 1)
+	// Ps = 0, 1: Blinking block
+	// Ps = 2: Steady block
+	// Ps = 3: Blinking underline
+	// Ps = 4: Steady underline
+	// Ps = 5: Blinking bar
+	// Ps = 6: Steady bar
+	var shape, blink int
+	switch style {
+	case 0, 1: // Blinking block (default)
+		shape, blink = 0, 1
+	case 2: // Steady block
+		shape, blink = 0, 0
+	case 3: // Blinking underline
+		shape, blink = 1, 1
+	case 4: // Steady underline
+		shape, blink = 1, 0
+	case 5: // Blinking bar
+		shape, blink = 2, 1
+	case 6: // Steady bar
+		shape, blink = 2, 0
+	default:
+		shape, blink = 0, 1 // Default to blinking block
+	}
+	p.buffer.SetCursorStyle(shape, blink)
 }
 
 func (p *Parser) executeSGR() {

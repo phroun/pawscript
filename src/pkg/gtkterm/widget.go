@@ -230,6 +230,7 @@ func (w *Widget) onDraw(da *gtk.DrawingArea, cr *cairo.Context) bool {
 	cols, rows := w.buffer.GetSize()
 	cursorX, cursorY := w.buffer.GetCursor()
 	cursorVisible := w.buffer.IsCursorVisible()
+	cursorShape, _ := w.buffer.GetCursorStyle() // 0=block, 1=underline, 2=bar
 	scrollOffset := w.buffer.GetScrollOffset()
 
 	// Hide cursor when scrolled back
@@ -269,9 +270,9 @@ func (w *Widget) onDraw(da *gtk.DrawingArea, cr *cairo.Context) bool {
 				bg = scheme.Selection
 			}
 
-			// Handle cursor - only swap colors for solid cursor when focused
+			// Handle cursor - only swap colors for solid block cursor when focused
 			isCursor := cursorVisible && x == cursorX && y == cursorY && w.cursorBlinkOn
-			if isCursor && w.hasFocus {
+			if isCursor && w.hasFocus && cursorShape == 0 {
 				// Swap colors for solid block cursor when focused
 				fg, bg = bg, fg
 			}
@@ -325,19 +326,51 @@ func (w *Widget) onDraw(da *gtk.DrawingArea, cr *cairo.Context) bool {
 				cr.Fill()
 			}
 
-			// Draw outline cursor when unfocused
-			if isCursor && !w.hasFocus {
+			// Draw cursor based on shape (0=block, 1=underline, 2=bar)
+			if isCursor {
 				cr.SetSourceRGB(
 					float64(scheme.Cursor.R)/255.0,
 					float64(scheme.Cursor.G)/255.0,
 					float64(scheme.Cursor.B)/255.0)
-				cr.SetLineWidth(1.0)
-				cr.Rectangle(
-					float64(x*charWidth+terminalLeftPadding)+0.5,
-					float64(y*charHeight)+0.5,
-					float64(charWidth)-1,
-					float64(charHeight)-1)
-				cr.Stroke()
+
+				switch cursorShape {
+				case 0: // Block cursor
+					if !w.hasFocus {
+						// Outline block when unfocused
+						cr.SetLineWidth(1.0)
+						cr.Rectangle(
+							float64(x*charWidth+terminalLeftPadding)+0.5,
+							float64(y*charHeight)+0.5,
+							float64(charWidth)-1,
+							float64(charHeight)-1)
+						cr.Stroke()
+					}
+					// Focused block is handled by fg/bg swap above
+
+				case 1: // Underline cursor
+					thickness := 2.0
+					if !w.hasFocus {
+						thickness = 1.0
+					}
+					cr.Rectangle(
+						float64(x*charWidth+terminalLeftPadding),
+						float64((y+1)*charHeight)-thickness,
+						float64(charWidth),
+						thickness)
+					cr.Fill()
+
+				case 2: // Bar (vertical line) cursor
+					thickness := 2.0
+					if !w.hasFocus {
+						thickness = 1.0
+					}
+					cr.Rectangle(
+						float64(x*charWidth+terminalLeftPadding),
+						float64(y*charHeight),
+						thickness,
+						float64(charHeight))
+					cr.Fill()
+				}
 			}
 		}
 	}
