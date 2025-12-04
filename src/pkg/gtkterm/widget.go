@@ -5,25 +5,8 @@ package gtkterm
 #include <gtk/gtk.h>
 #include <gdk/gdk.h>
 
-// Helper to set source color
-static void set_source_rgb_helper(cairo_t *cr, double r, double g, double b) {
-    cairo_set_source_rgb(cr, r, g, b);
-}
-
-// Helper to draw rectangle
-static void draw_rect(cairo_t *cr, double x, double y, double w, double h) {
-    cairo_rectangle(cr, x, y, w, h);
-    cairo_fill(cr);
-}
-
-// Helper to show text
-static void draw_text(cairo_t *cr, double x, double y, const char *text) {
-    cairo_move_to(cr, x, y);
-    cairo_show_text(cr, text);
-}
-
-// Helper to get motion event coordinates
-static void get_motion_coords(GdkEvent *ev, double *x, double *y) {
+// Helper to get event coordinates
+static void get_event_coords(GdkEvent *ev, double *x, double *y) {
     gdk_event_get_coords(ev, x, y);
 }
 */
@@ -33,6 +16,7 @@ import (
 	"sync"
 	"unsafe"
 
+	"github.com/gotk3/gotk3/cairo"
 	"github.com/gotk3/gotk3/gdk"
 	"github.com/gotk3/gotk3/glib"
 	"github.com/gotk3/gotk3/gtk"
@@ -209,8 +193,7 @@ func (w *Widget) Buffer() *Buffer {
 }
 
 func (w *Widget) updateFontMetrics() {
-	// Use cairo to measure font
-	// For now, use approximate metrics based on font size
+	// Use approximate metrics based on font size
 	w.charWidth = w.fontSize * 6 / 10  // Approximate for monospace
 	w.charHeight = w.fontSize * 12 / 10
 	w.charAscent = w.fontSize
@@ -222,7 +205,7 @@ func (w *Widget) updateFontMetrics() {
 	}
 }
 
-func (w *Widget) onDraw(da *gtk.DrawingArea, cr *C.cairo_t) bool {
+func (w *Widget) onDraw(da *gtk.DrawingArea, cr *cairo.Context) bool {
 	w.mu.Lock()
 	scheme := w.scheme
 	fontFamily := w.fontFamily
@@ -237,17 +220,16 @@ func (w *Widget) onDraw(da *gtk.DrawingArea, cr *C.cairo_t) bool {
 	cursorVisible := w.buffer.IsCursorVisible()
 
 	// Draw background
-	C.set_source_rgb_helper(cr,
-		C.double(scheme.Background.R)/255.0,
-		C.double(scheme.Background.G)/255.0,
-		C.double(scheme.Background.B)/255.0)
-	C.draw_rect(cr, 0, 0, C.double(cols*charWidth), C.double(rows*charHeight))
+	cr.SetSourceRGB(
+		float64(scheme.Background.R)/255.0,
+		float64(scheme.Background.G)/255.0,
+		float64(scheme.Background.B)/255.0)
+	cr.Rectangle(0, 0, float64(cols*charWidth), float64(rows*charHeight))
+	cr.Fill()
 
 	// Set up font
-	fontFamilyC := C.CString(fontFamily)
-	defer C.free(unsafe.Pointer(fontFamilyC))
-	C.cairo_select_font_face(cr, fontFamilyC, C.CAIRO_FONT_SLANT_NORMAL, C.CAIRO_FONT_WEIGHT_NORMAL)
-	C.cairo_set_font_size(cr, C.double(fontSize))
+	cr.SelectFontFace(fontFamily, cairo.FONT_SLANT_NORMAL, cairo.FONT_WEIGHT_NORMAL)
+	cr.SetFontSize(float64(fontSize))
 
 	// Draw each cell
 	for y := 0; y < rows; y++ {
@@ -278,54 +260,51 @@ func (w *Widget) onDraw(da *gtk.DrawingArea, cr *C.cairo_t) bool {
 
 			// Draw cell background if different from terminal background
 			if bg != scheme.Background {
-				C.set_source_rgb_helper(cr,
-					C.double(bg.R)/255.0,
-					C.double(bg.G)/255.0,
-					C.double(bg.B)/255.0)
-				C.draw_rect(cr,
-					C.double(x*charWidth),
-					C.double(y*charHeight),
-					C.double(charWidth),
-					C.double(charHeight))
+				cr.SetSourceRGB(
+					float64(bg.R)/255.0,
+					float64(bg.G)/255.0,
+					float64(bg.B)/255.0)
+				cr.Rectangle(
+					float64(x*charWidth),
+					float64(y*charHeight),
+					float64(charWidth),
+					float64(charHeight))
+				cr.Fill()
 			}
 
 			// Draw character
 			if cell.Char != ' ' && cell.Char != 0 {
-				C.set_source_rgb_helper(cr,
-					C.double(fg.R)/255.0,
-					C.double(fg.G)/255.0,
-					C.double(fg.B)/255.0)
+				cr.SetSourceRGB(
+					float64(fg.R)/255.0,
+					float64(fg.G)/255.0,
+					float64(fg.B)/255.0)
 
 				// Set font weight
 				if cell.Bold {
-					C.cairo_select_font_face(cr, fontFamilyC, C.CAIRO_FONT_SLANT_NORMAL, C.CAIRO_FONT_WEIGHT_BOLD)
+					cr.SelectFontFace(fontFamily, cairo.FONT_SLANT_NORMAL, cairo.FONT_WEIGHT_BOLD)
 				}
 
-				charStr := string(cell.Char)
-				charC := C.CString(charStr)
-				C.draw_text(cr,
-					C.double(x*charWidth),
-					C.double(y*charHeight+charAscent),
-					charC)
-				C.free(unsafe.Pointer(charC))
+				cr.MoveTo(float64(x*charWidth), float64(y*charHeight+charAscent))
+				cr.ShowText(string(cell.Char))
 
 				// Reset font weight
 				if cell.Bold {
-					C.cairo_select_font_face(cr, fontFamilyC, C.CAIRO_FONT_SLANT_NORMAL, C.CAIRO_FONT_WEIGHT_NORMAL)
+					cr.SelectFontFace(fontFamily, cairo.FONT_SLANT_NORMAL, cairo.FONT_WEIGHT_NORMAL)
 				}
 			}
 
 			// Draw underline if needed
 			if cell.Underline {
-				C.set_source_rgb_helper(cr,
-					C.double(fg.R)/255.0,
-					C.double(fg.G)/255.0,
-					C.double(fg.B)/255.0)
-				C.draw_rect(cr,
-					C.double(x*charWidth),
-					C.double((y+1)*charHeight-1),
-					C.double(charWidth),
+				cr.SetSourceRGB(
+					float64(fg.R)/255.0,
+					float64(fg.G)/255.0,
+					float64(fg.B)/255.0)
+				cr.Rectangle(
+					float64(x*charWidth),
+					float64((y+1)*charHeight-1),
+					float64(charWidth),
 					1)
+				cr.Fill()
 			}
 		}
 	}
@@ -394,7 +373,7 @@ func (w *Widget) onMotionNotify(da *gtk.DrawingArea, ev *gdk.Event) bool {
 
 	// Use C helper to get coordinates from the event
 	var x, y C.double
-	C.get_motion_coords((*C.GdkEvent)(unsafe.Pointer(ev.Native())), &x, &y)
+	C.get_event_coords((*C.GdkEvent)(unsafe.Pointer(ev.Native())), &x, &y)
 	cellX, cellY := w.screenToCell(float64(x), float64(y))
 	w.buffer.UpdateSelection(cellX, cellY)
 	return true
