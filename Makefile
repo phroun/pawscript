@@ -62,10 +62,10 @@ endif
 build-gui-software:
 	@echo "Building pawgui with software rendering for $(NATIVE_OS)/$(NATIVE_ARCH)..."
 ifeq ($(NATIVE_OS),windows)
-	cd $(SRC_DIR) && go build -tags software -o ../pawgui-software.exe ./cmd/pawgui
+	cd $(SRC_DIR) && fyne build --tags software -o ../pawgui-software.exe ./cmd/pawgui
 	@echo "Created: pawgui-software.exe (software rendering - slower but compatible)"
 else
-	cd $(SRC_DIR) && go build -tags software -o ../pawgui-software ./cmd/pawgui
+	cd $(SRC_DIR) && fyne build --tags software -o ../pawgui-software ./cmd/pawgui
 	@echo "Created: pawgui-software (software rendering - slower but compatible)"
 endif
 
