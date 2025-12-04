@@ -450,8 +450,10 @@ func (w *Widget) onButtonPress(da *gtk.DrawingArea, ev *gdk.Event) bool {
 		w.selectionMoved = false
 		w.buffer.ClearSelection()
 		da.GrabFocus()
+		return true
 	}
-	return true
+	// Let other buttons (like right-click) propagate for context menus
+	return false
 }
 
 func (w *Widget) onButtonRelease(da *gtk.DrawingArea, ev *gdk.Event) bool {
@@ -543,8 +545,9 @@ func (w *Widget) onKeyPress(da *gtk.DrawingArea, ev *gdk.Event) bool {
 	}
 
 	// Also check hardware keycode for Wine/Windows modifier keys
+	// Only on Windows - macOS keycodes are different (e.g., 16='y', 17='t' on macOS)
 	hwcode := key.HardwareKeyCode()
-	if isModifierKeycode(hwcode) {
+	if runtime.GOOS == "windows" && isModifierKeycode(hwcode) {
 		return false
 	}
 
