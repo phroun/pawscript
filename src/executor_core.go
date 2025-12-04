@@ -24,6 +24,7 @@ type Executor struct {
 	orphanedBubbles  map[string][]*BubbleEntry // Bubbles from abandoned fibers
 	blockCache       map[int][]*ParsedCommand  // Cached parsed forms for StoredBlock objects (by ID)
 	keyInputManager  *KeyInputManager          // Raw keyboard input manager (if initialized)
+	keyInputChannel  *StoredChannel           // Input channel being used by keyInputManager (for mode restore)
 	nextTokenID      int
 	nextObjectID     int
 	nextFiberID      int
