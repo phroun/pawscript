@@ -774,7 +774,7 @@ func (b *Buffer) GetSelectedText() string {
 	b.mu.RLock()
 	defer b.mu.RUnlock()
 
-	var result []rune
+	var lines []string
 	for y := sy; y <= ey && y < b.rows; y++ {
 		startX := 0
 		endX := b.cols
@@ -784,14 +784,27 @@ func (b *Buffer) GetSelectedText() string {
 		if y == ey {
 			endX = ex + 1
 		}
+		var lineRunes []rune
 		for x := startX; x < endX && x < b.cols; x++ {
-			result = append(result, b.screen[y][x].Char)
+			lineRunes = append(lineRunes, b.screen[y][x].Char)
 		}
-		if y < ey {
-			result = append(result, '\n')
+		// Trim trailing spaces from the line
+		line := string(lineRunes)
+		for len(line) > 0 && (line[len(line)-1] == ' ' || line[len(line)-1] == 0) {
+			line = line[:len(line)-1]
+		}
+		lines = append(lines, line)
+	}
+
+	// Join lines with newlines
+	result := ""
+	for i, line := range lines {
+		result += line
+		if i < len(lines)-1 {
+			result += "\n"
 		}
 	}
-	return string(result)
+	return result
 }
 
 // IsInSelection returns true if the given position is within the selection
