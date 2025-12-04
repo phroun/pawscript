@@ -9,6 +9,10 @@ SRC_DIR := src
 NATIVE_OS := $(shell go env GOOS)
 NATIVE_ARCH := $(shell go env GOARCH)
 
+# Fyne CLI path (in GOPATH/bin)
+GOBIN := $(shell go env GOPATH)/bin
+FYNE := $(GOBIN)/fyne
+
 # Set binary name based on OS
 ifeq ($(NATIVE_OS),windows)
     BINARY_NAME := paw.exe
@@ -32,20 +36,20 @@ build-token-example:
 
 # Ensure fyne CLI is installed
 ensure-fyne:
-	@which fyne > /dev/null 2>&1 || (echo "Installing fyne CLI..." && go install fyne.io/fyne/v2/cmd/fyne@latest)
+	@test -f $(FYNE) || (echo "Installing fyne CLI..." && go install fyne.io/fyne/v2/cmd/fyne@latest)
 
 # Build GUI version (auto-installs fyne CLI if needed)
 build-gui: ensure-fyne
 	@echo "Building pawgui for native platform ($(NATIVE_OS)/$(NATIVE_ARCH))..."
 ifeq ($(NATIVE_OS),windows)
-	cd $(SRC_DIR)/cmd/pawgui && fyne build --tags openglangle -o ../../../pawgui.exe
+	cd $(SRC_DIR)/cmd/pawgui && $(FYNE) build --tags openglangle -o ../../../pawgui.exe
 	@echo "Created: pawgui.exe (using ANGLE/DirectX backend)"
 else ifeq ($(NATIVE_OS),darwin)
-	cd $(SRC_DIR)/cmd/pawgui && fyne build -o ../../../pawgui
-	cd $(SRC_DIR)/cmd/pawgui && fyne package -name pawgui && mv pawgui.app ../../../
+	cd $(SRC_DIR)/cmd/pawgui && $(FYNE) build -o ../../../pawgui
+	cd $(SRC_DIR)/cmd/pawgui && $(FYNE) package -name pawgui && mv pawgui.app ../../../
 	@echo "Created: pawgui (binary) and pawgui.app (bundle)"
 else
-	cd $(SRC_DIR)/cmd/pawgui && fyne build -o ../../../pawgui
+	cd $(SRC_DIR)/cmd/pawgui && $(FYNE) build -o ../../../pawgui
 	@echo "Created: pawgui"
 endif
 
@@ -66,10 +70,10 @@ endif
 build-gui-software: ensure-fyne
 	@echo "Building pawgui with software rendering for $(NATIVE_OS)/$(NATIVE_ARCH)..."
 ifeq ($(NATIVE_OS),windows)
-	cd $(SRC_DIR)/cmd/pawgui && fyne build --tags software -o ../../../pawgui-software.exe
+	cd $(SRC_DIR)/cmd/pawgui && $(FYNE) build --tags software -o ../../../pawgui-software.exe
 	@echo "Created: pawgui-software.exe (software rendering - slower but compatible)"
 else
-	cd $(SRC_DIR)/cmd/pawgui && fyne build --tags software -o ../../../pawgui-software
+	cd $(SRC_DIR)/cmd/pawgui && $(FYNE) build --tags software -o ../../../pawgui-software
 	@echo "Created: pawgui-software (software rendering - slower but compatible)"
 endif
 
