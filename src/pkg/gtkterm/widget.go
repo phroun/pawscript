@@ -619,8 +619,8 @@ func (w *Widget) onKeyPress(da *gtk.DrawingArea, ev *gdk.Event) bool {
 		// Fallback: use hardware keycode when GDK translation fails (Wine/Windows)
 		if len(data) == 0 {
 			hwcode := key.HardwareKeyCode()
-			if ch := hardwareKeycodeToChar(hwcode, state&gdk.SHIFT_MASK != 0); ch != 0 {
-				if state&gdk.CONTROL_MASK != 0 && ch >= 'a' && ch <= 'z' {
+			if ch := hardwareKeycodeToChar(hwcode, state&uint(gdk.SHIFT_MASK) != 0); ch != 0 {
+				if state&uint(gdk.CONTROL_MASK) != 0 && ch >= 'a' && ch <= 'z' {
 					ch = ch - 'a' + 1
 				}
 				data = []byte{ch}
