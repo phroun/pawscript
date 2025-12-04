@@ -7,14 +7,17 @@ import (
 	"io"
 	"os"
 	"path/filepath"
+	"runtime"
 	"strings"
 	"sync"
 	"time"
 
+	"github.com/gotk3/gotk3/gdk"
 	"github.com/gotk3/gotk3/glib"
 	"github.com/gotk3/gotk3/gtk"
 	"github.com/phroun/pawscript"
 	"github.com/phroun/pawscript/pkg/gtkterm"
+	"github.com/sqweek/dialog"
 )
 
 const (
@@ -82,6 +85,10 @@ func activate(app *gtk.Application) {
 	screen := mainWindow.GetScreen()
 	gtk.AddProviderForScreen(screen, cssProvider, gtk.STYLE_PROVIDER_PRIORITY_APPLICATION)
 
+	// Create accelerator group for keyboard shortcuts
+	accelGroup, _ := gtk.AccelGroupNew()
+	mainWindow.AddAccelGroup(accelGroup)
+
 	// Create main vertical box for menu + content
 	mainBox, _ := gtk.BoxNew(gtk.ORIENTATION_VERTICAL, 0)
 
@@ -93,11 +100,20 @@ func activate(app *gtk.Application) {
 	fileMenu, _ := gtk.MenuNew()
 	fileMenuItem.SetSubmenu(fileMenu)
 
-	// Quit menu item
+	// Quit menu item with keyboard shortcut
 	quitItem, _ := gtk.MenuItemNewWithLabel("Quit")
 	quitItem.Connect("activate", func() {
 		mainWindow.Close()
 	})
+	// Add Cmd+Q (Mac) or Ctrl+Q (Linux/Windows) accelerator
+	quitKey := uint(gdk.KEY_q)
+	var quitMod gdk.ModifierType
+	if runtime.GOOS == "darwin" {
+		quitMod = gdk.META_MASK // Cmd key on macOS
+	} else {
+		quitMod = gdk.CONTROL_MASK
+	}
+	quitItem.AddAccelerator("activate", accelGroup, quitKey, quitMod, gtk.ACCEL_VISIBLE)
 	fileMenu.Append(quitItem)
 
 	// Edit menu
@@ -105,22 +121,38 @@ func activate(app *gtk.Application) {
 	editMenu, _ := gtk.MenuNew()
 	editMenuItem.SetSubmenu(editMenu)
 
-	// Copy menu item
+	// Copy menu item with Cmd/Ctrl+C
 	copyItem, _ := gtk.MenuItemNewWithLabel("Copy")
 	copyItem.Connect("activate", func() {
 		if terminal != nil {
 			terminal.CopySelection()
 		}
 	})
+	copyKey := uint(gdk.KEY_c)
+	var copyMod gdk.ModifierType
+	if runtime.GOOS == "darwin" {
+		copyMod = gdk.META_MASK
+	} else {
+		copyMod = gdk.CONTROL_MASK
+	}
+	copyItem.AddAccelerator("activate", accelGroup, copyKey, copyMod, gtk.ACCEL_VISIBLE)
 	editMenu.Append(copyItem)
 
-	// Select All menu item
+	// Select All menu item with Cmd/Ctrl+A
 	selectAllItem, _ := gtk.MenuItemNewWithLabel("Select All")
 	selectAllItem.Connect("activate", func() {
 		if terminal != nil {
 			terminal.SelectAll()
 		}
 	})
+	selectAllKey := uint(gdk.KEY_a)
+	var selectAllMod gdk.ModifierType
+	if runtime.GOOS == "darwin" {
+		selectAllMod = gdk.META_MASK
+	} else {
+		selectAllMod = gdk.CONTROL_MASK
+	}
+	selectAllItem.AddAccelerator("activate", accelGroup, selectAllKey, selectAllMod, gtk.ACCEL_VISIBLE)
 	editMenu.Append(selectAllItem)
 
 	// Clear menu item
@@ -135,6 +167,19 @@ func activate(app *gtk.Application) {
 	menuBar.Append(fileMenuItem)
 	menuBar.Append(editMenuItem)
 	mainBox.PackStart(menuBar, false, false, 0)
+
+	// Handle Alt+F4 on Windows/Linux (usually handled by window manager, but add for safety)
+	mainWindow.Connect("key-press-event", func(win *gtk.ApplicationWindow, ev *gdk.Event) bool {
+		keyEvent := gdk.EventKeyNewFromEvent(ev)
+		keyval := keyEvent.KeyVal()
+		state := keyEvent.State()
+		// Alt+F4 to quit
+		if keyval == gdk.KEY_F4 && state&gdk.MOD1_MASK != 0 {
+			mainWindow.Close()
+			return true
+		}
+		return false
+	})
 
 	// Create main horizontal paned (split view)
 	paned, _ := gtk.PanedNew(gtk.ORIENTATION_HORIZONTAL)
@@ -400,23 +445,13 @@ func handleFileSelection(name string) {
 }
 
 func onBrowseClicked() {
-	dialog, _ := gtk.FileChooserDialogNewWith2Buttons(
-		"Choose Directory",
-		mainWindow,
-		gtk.FILE_CHOOSER_ACTION_SELECT_FOLDER,
-		"Cancel", gtk.RESPONSE_CANCEL,
-		"Open", gtk.RESPONSE_ACCEPT,
-	)
-
-	dialog.SetCurrentFolder(currentDir)
-
-	response := dialog.Run()
-	if response == gtk.RESPONSE_ACCEPT {
-		currentDir = dialog.GetFilename()
+	// Use sqweek/dialog for native file browser
+	dir, err := dialog.Directory().Title("Choose Directory").Browse()
+	if err == nil && dir != "" {
+		currentDir = dir
 		refreshFileList()
 		updatePathLabel()
 	}
-	dialog.Destroy()
 }
 
 func runScript(filePath string) {
