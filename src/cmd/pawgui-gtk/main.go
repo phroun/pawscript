@@ -1,5 +1,5 @@
-// pawgui-gtk - GTK3-based GUI for PawScript with VTE terminal
-// This is a proof of concept alternative to the Fyne-based GUI
+// pawgui-gtk - GTK3-based GUI for PawScript with custom terminal emulator
+// Cross-platform: works on Linux, macOS, and Windows
 package main
 
 import (
@@ -8,17 +8,11 @@ import (
 	"os/exec"
 	"path/filepath"
 	"strings"
-	"unsafe"
 
 	"github.com/gotk3/gotk3/glib"
 	"github.com/gotk3/gotk3/gtk"
-	"github.com/sqp/vte"
+	"github.com/phroun/pawscript/pkg/gtkterm"
 )
-
-// #cgo pkg-config: gtk+-3.0 vte-2.91
-// #include <gtk/gtk.h>
-// #include <vte/vte.h>
-import "C"
 
 const (
 	appID   = "com.pawscript.pawgui-gtk"
@@ -30,7 +24,7 @@ var (
 	currentDir string
 	mainWindow *gtk.ApplicationWindow
 	fileList   *gtk.ListBox
-	terminal   *vte.Terminal
+	terminal   *gtkterm.Terminal
 	pathLabel  *gtk.Label
 )
 
@@ -93,7 +87,40 @@ func activate(app *gtk.Application) {
 	})
 	fileMenu.Append(quitItem)
 
+	// Edit menu
+	editMenuItem, _ := gtk.MenuItemNewWithLabel("Edit")
+	editMenu, _ := gtk.MenuNew()
+	editMenuItem.SetSubmenu(editMenu)
+
+	// Copy menu item
+	copyItem, _ := gtk.MenuItemNewWithLabel("Copy")
+	copyItem.Connect("activate", func() {
+		if terminal != nil {
+			terminal.CopySelection()
+		}
+	})
+	editMenu.Append(copyItem)
+
+	// Select All menu item
+	selectAllItem, _ := gtk.MenuItemNewWithLabel("Select All")
+	selectAllItem.Connect("activate", func() {
+		if terminal != nil {
+			terminal.SelectAll()
+		}
+	})
+	editMenu.Append(selectAllItem)
+
+	// Clear menu item
+	clearItem, _ := gtk.MenuItemNewWithLabel("Clear")
+	clearItem.Connect("activate", func() {
+		if terminal != nil {
+			terminal.Clear()
+		}
+	})
+	editMenu.Append(clearItem)
+
 	menuBar.Append(fileMenuItem)
+	menuBar.Append(editMenuItem)
 	mainBox.PackStart(menuBar, false, false, 0)
 
 	// Create main horizontal paned (split view)
@@ -118,7 +145,8 @@ func activate(app *gtk.Application) {
 	updatePathLabel()
 
 	// Print welcome message
-	terminal.Feed("PawScript Launcher (GTK3 + VTE)\r\n")
+	terminal.Feed("PawScript Launcher (GTK3)\r\n")
+	terminal.Feed("Cross-platform terminal emulator\r\n")
 	terminal.Feed("Select a .paw file and click Run to execute.\r\n\r\n")
 
 	mainWindow.ShowAll()
@@ -202,29 +230,35 @@ func createTerminal() *gtk.Box {
 	label.SetMarginTop(5)
 	box.PackStart(label, false, false, 0)
 
-	// VTE Terminal (has built-in scrolling)
-	terminal = vte.NewTerminal()
+	// Create terminal with gtkterm package
+	var err error
+	terminal, err = gtkterm.New(gtkterm.Options{
+		Cols:           100,
+		Rows:           30,
+		ScrollbackSize: 10000,
+		FontFamily:     "Monospace",
+		FontSize:       22, // 2x size for better readability
+		Scheme: gtkterm.ColorScheme{
+			Foreground: gtkterm.Color{R: 212, G: 212, B: 212},
+			Background: gtkterm.Color{R: 30, G: 30, B: 30},
+			Cursor:     gtkterm.Color{R: 255, G: 255, B: 255},
+			Selection:  gtkterm.Color{R: 68, G: 68, B: 68},
+			Palette:    gtkterm.ANSIColors,
+		},
+	})
+	if err != nil {
+		fmt.Fprintf(os.Stderr, "Failed to create terminal: %v\n", err)
+		// Create a placeholder label
+		errLabel, _ := gtk.LabelNew(fmt.Sprintf("Terminal creation failed: %v", err))
+		box.PackStart(errLabel, true, true, 0)
+		return box
+	}
 
-	// Dark color scheme
-	terminal.SetBgColorFromString("#1e1e1e")
-	terminal.SetFgColorFromString("#d4d4d4")
-
-	// Set font (2x size for better readability)
-	terminal.SetFontFromString("Monospace 22")
-
-	// Set scrollback
-	terminal.SetScrollbackLines(10000)
-
-	// Add terminal widget directly to box using C interop
-	// VteTerminal is a GtkWidget, so we can add it to the container
-	nativePtr := terminal.Native()
-	C.gtk_box_pack_start(
-		(*C.GtkBox)(unsafe.Pointer(box.Native())),
-		(*C.GtkWidget)(unsafe.Pointer(nativePtr)),
-		C.TRUE,  // expand
-		C.TRUE,  // fill
-		0,       // padding
-	)
+	// Add terminal widget to box
+	termWidget := terminal.Widget()
+	termWidget.SetVExpand(true)
+	termWidget.SetHExpand(true)
+	box.PackStart(termWidget, true, true, 0)
 
 	return box
 }
@@ -381,8 +415,11 @@ func runScript(filePath string) {
 		}
 	}
 
-	// Run script using VTE's async spawn capability
-	cmd := terminal.NewCmd(pawPath, filePath)
-	cmd.Dir = filepath.Dir(filePath)
-	terminal.ExecAsync(cmd)
+	// Set working directory for the terminal
+	terminal.SetWorkingDirectory(filepath.Dir(filePath))
+
+	// Run the script
+	if err := terminal.RunCommand(pawPath, filePath); err != nil {
+		terminal.Feed(fmt.Sprintf("Error running script: %v\r\n", err))
+	}
 }
