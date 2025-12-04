@@ -548,7 +548,9 @@ func (w *Widget) onKeyPress(da *gtk.DrawingArea, ev *gdk.Event) bool {
 		return false
 	}
 
-	// Handle clipboard operations (Ctrl+C with selection, Ctrl+V, Ctrl+A)
+	// Handle clipboard operations (Ctrl+C with selection, Ctrl+V)
+	// Note: Ctrl+A is NOT handled here - it passes through to the terminal
+	// for programs that use it (e.g., readline beginning-of-line)
 	if hasCtrl && !hasAlt && !hasMeta {
 		switch keyval {
 		case gdk.KEY_c, gdk.KEY_C:
@@ -567,9 +569,6 @@ func (w *Widget) onKeyPress(da *gtk.DrawingArea, ev *gdk.Event) bool {
 					onInput([]byte(text))
 				}
 			}
-			return true
-		case gdk.KEY_a, gdk.KEY_A:
-			w.buffer.SelectAll()
 			return true
 		}
 	}
@@ -601,9 +600,10 @@ func (w *Widget) onKeyPress(da *gtk.DrawingArea, ev *gdk.Event) bool {
 	switch keyval {
 	case gdk.KEY_Return, gdk.KEY_KP_Enter:
 		if hasModifiers {
-			data = modifiedSpecialKey(mod, 13, 0) // CSI 13 ; mod u (kitty protocol) or just send CR
+			data = modifiedSpecialKey(mod, 13, 0) // CSI 13 ; mod u (kitty protocol)
+		} else {
+			data = []byte{'\r'}
 		}
-		data = []byte{'\r'}
 	case gdk.KEY_BackSpace:
 		if hasCtrl {
 			data = []byte{0x08} // Ctrl+Backspace = BS
@@ -734,9 +734,17 @@ func (w *Widget) handleRegularKey(keyval uint, key *gdk.EventKey, hasShift, hasC
 
 	// On macOS, Option key composes special Unicode characters (e.g., Option+R = ®)
 	// We want to treat Option as Alt/Meta modifier instead, using the base key
-	if runtime.GOOS == "darwin" && hasAlt && !hasCtrl {
+	if runtime.GOOS == "darwin" && hasAlt {
 		hwcode := key.HardwareKeyCode()
 		if baseCh := macKeycodeToChar(hwcode, hasShift); baseCh != 0 {
+			// Apply Ctrl transformation if needed (convert letter to control char)
+			if hasCtrl {
+				if baseCh >= 'a' && baseCh <= 'z' {
+					baseCh = baseCh - 'a' + 1
+				} else if baseCh >= 'A' && baseCh <= 'Z' {
+					baseCh = baseCh - 'A' + 1
+				}
+			}
 			// Send ESC + base character for Alt+key
 			return []byte{0x1b, baseCh}
 		}
