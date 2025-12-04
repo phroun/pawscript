@@ -58,7 +58,8 @@ type Widget struct {
 	selectionMoved bool // True if mouse moved since button press
 
 	// Cursor blink
-	cursorBlinkOn bool
+	cursorBlinkOn  bool
+	blinkTimerID   glib.SourceHandle
 
 	// Focus state
 	hasFocus bool
@@ -144,6 +145,22 @@ func NewWidget(cols, rows, scrollbackSize int) (*Widget, error) {
 	// Set initial size based on character dimensions (plus left padding)
 	w.updateFontMetrics()
 	w.drawingArea.SetSizeRequest(cols*w.charWidth+terminalLeftPadding, rows*w.charHeight)
+
+	// Start cursor blink timer (530ms interval - typical blink rate)
+	w.blinkTimerID = glib.TimeoutAdd(530, func() bool {
+		_, cursorBlink := w.buffer.GetCursorStyle()
+		if cursorBlink > 0 && w.hasFocus {
+			w.cursorBlinkOn = !w.cursorBlinkOn
+			w.drawingArea.QueueDraw()
+		} else {
+			// Keep cursor visible when not blinking or unfocused
+			if !w.cursorBlinkOn {
+				w.cursorBlinkOn = true
+				w.drawingArea.QueueDraw()
+			}
+		}
+		return true // Keep timer running
+	})
 
 	return w, nil
 }
@@ -347,10 +364,10 @@ func (w *Widget) onDraw(da *gtk.DrawingArea, cr *cairo.Context) bool {
 					}
 					// Focused block is handled by fg/bg swap above
 
-				case 1: // Underline cursor
-					thickness := 2.0
+				case 1: // Underline cursor (1/4 block height)
+					thickness := float64(charHeight) / 4.0
 					if !w.hasFocus {
-						thickness = 1.0
+						thickness = float64(charHeight) / 6.0 // Thinner when unfocused
 					}
 					cr.Rectangle(
 						float64(x*charWidth+terminalLeftPadding),
@@ -617,6 +634,7 @@ func (w *Widget) onConfigure(da *gtk.DrawingArea, ev *gdk.Event) bool {
 
 func (w *Widget) onFocusIn(da *gtk.DrawingArea, ev *gdk.Event) bool {
 	w.hasFocus = true
+	w.cursorBlinkOn = true // Reset blink so cursor is immediately visible
 	w.drawingArea.QueueDraw()
 	return false
 }
