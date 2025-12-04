@@ -809,7 +809,7 @@ func (w *Widget) processCharWithModifiers(ch byte, hasCtrl, hasAlt, hasMeta, has
 // With modifiers: ESC [ 1 ; <mod> <key>
 func cursorKey(key byte, mod int, hasModifiers bool) []byte {
 	if hasModifiers {
-		return []byte{0x1b, '[', '1', ';', byte('0' + mod), key}
+		return []byte(fmt.Sprintf("\x1b[1;%d%c", mod, key))
 	}
 	return []byte{0x1b, '[', key}
 }
@@ -836,7 +836,7 @@ func tildeKey(num int, mod int, hasModifiers bool) []byte {
 // With modifiers: ESC [ 1 ; <mod> <key> (CSI format)
 func functionKey(num int, key byte, mod int, hasModifiers bool) []byte {
 	if hasModifiers {
-		return []byte{0x1b, '[', '1', ';', byte('0' + mod), key}
+		return []byte(fmt.Sprintf("\x1b[1;%d%c", mod, key))
 	}
 	return []byte{0x1b, 'O', key}
 }

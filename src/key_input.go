@@ -362,9 +362,18 @@ func (m *KeyInputManager) processLoop() {
 			}
 
 		case <-escTimeout.C:
-			// Escape sequence timeout - emit buffered escape
+			// Escape sequence timeout - try Alt sequence parsing before giving up
 			if m.inEscape && len(m.escBuffer) > 0 {
-				m.emitEscapeBuffer()
+				seq := string(m.escBuffer)
+				// Try Alt+key parsing (ESC followed by character)
+				// This handles cases like ESC O which could be Alt+Shift+O
+				if key, ok := m.parseAltSequence(seq); ok {
+					m.emitKey(key)
+					m.escBuffer = nil
+					m.inEscape = false
+				} else {
+					m.emitEscapeBuffer()
+				}
 			}
 		}
 	}
