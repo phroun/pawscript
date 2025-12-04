@@ -728,93 +728,120 @@ func (w *Widget) SetCursorVisible(visible bool) {
 	w.buffer.SetCursorVisible(visible)
 }
 
-// hardwareKeycodeToSpecial maps X11/evdev hardware keycodes to special key sequences.
+// hardwareKeycodeToSpecial maps Windows Virtual Key codes to special key sequences.
 // This is used as a fallback when GDK can't translate keypresses (Wine/Windows).
+// On Windows/Wine, HardwareKeyCode() returns Windows VK codes, not X11 keycodes.
 func hardwareKeycodeToSpecial(hwcode uint16) []byte {
-	// X11/evdev keycode mappings for special keys
+	// Windows Virtual Key code mappings
 	switch hwcode {
-	case 36: // Return
+	case 13: // VK_RETURN
 		return []byte{'\r'}
-	case 22: // BackSpace
+	case 8: // VK_BACK
 		return []byte{0x7f}
-	case 23: // Tab
+	case 9: // VK_TAB
 		return []byte{'\t'}
-	case 9: // Escape
+	case 27: // VK_ESCAPE
 		return []byte{0x1b}
-	case 111: // Up
+	case 38: // VK_UP
 		return []byte{0x1b, '[', 'A'}
-	case 116: // Down
+	case 40: // VK_DOWN
 		return []byte{0x1b, '[', 'B'}
-	case 114: // Right
+	case 39: // VK_RIGHT
 		return []byte{0x1b, '[', 'C'}
-	case 113: // Left
+	case 37: // VK_LEFT
 		return []byte{0x1b, '[', 'D'}
-	case 110: // Home
+	case 36: // VK_HOME
 		return []byte{0x1b, '[', 'H'}
-	case 115: // End
+	case 35: // VK_END
 		return []byte{0x1b, '[', 'F'}
-	case 112: // Page_Up
+	case 33: // VK_PRIOR (Page Up)
 		return []byte{0x1b, '[', '5', '~'}
-	case 117: // Page_Down
+	case 34: // VK_NEXT (Page Down)
 		return []byte{0x1b, '[', '6', '~'}
-	case 118: // Insert
+	case 45: // VK_INSERT
 		return []byte{0x1b, '[', '2', '~'}
-	case 119: // Delete
+	case 46: // VK_DELETE
 		return []byte{0x1b, '[', '3', '~'}
-	case 67: // F1
+	case 112: // VK_F1
 		return []byte{0x1b, 'O', 'P'}
-	case 68: // F2
+	case 113: // VK_F2
 		return []byte{0x1b, 'O', 'Q'}
-	case 69: // F3
+	case 114: // VK_F3
 		return []byte{0x1b, 'O', 'R'}
-	case 70: // F4
+	case 115: // VK_F4
 		return []byte{0x1b, 'O', 'S'}
+	case 116: // VK_F5
+		return []byte{0x1b, '[', '1', '5', '~'}
+	case 117: // VK_F6
+		return []byte{0x1b, '[', '1', '7', '~'}
+	case 118: // VK_F7
+		return []byte{0x1b, '[', '1', '8', '~'}
+	case 119: // VK_F8
+		return []byte{0x1b, '[', '1', '9', '~'}
+	case 120: // VK_F9
+		return []byte{0x1b, '[', '2', '0', '~'}
+	case 121: // VK_F10
+		return []byte{0x1b, '[', '2', '1', '~'}
+	case 122: // VK_F11
+		return []byte{0x1b, '[', '2', '3', '~'}
+	case 123: // VK_F12
+		return []byte{0x1b, '[', '2', '4', '~'}
 	}
 	return nil
 }
 
-// hardwareKeycodeToChar maps X11/evdev hardware keycodes to ASCII characters.
+// hardwareKeycodeToChar maps Windows Virtual Key codes to ASCII characters.
 // This is used as a fallback when GDK can't translate keypresses (Wine/Windows).
+// Windows VK codes for letters are 65-90 (A-Z), numbers are 48-57 (0-9).
 func hardwareKeycodeToChar(hwcode uint16, shift bool) byte {
-	// X11/evdev keycode mappings for US QWERTY keyboard
-	// These are evdev codes + 8 (X11 offset)
+	// Letters A-Z: VK codes 65-90
+	if hwcode >= 65 && hwcode <= 90 {
+		if shift {
+			return byte(hwcode) // 'A'-'Z'
+		}
+		return byte(hwcode + 32) // 'a'-'z'
+	}
+
+	// Numbers 0-9: VK codes 48-57
+	if hwcode >= 48 && hwcode <= 57 {
+		if shift {
+			// Shifted number row symbols
+			symbols := []byte{')', '!', '@', '#', '$', '%', '^', '&', '*', '('}
+			return symbols[hwcode-48]
+		}
+		return byte(hwcode) // '0'-'9'
+	}
+
+	// Space
+	if hwcode == 32 { // VK_SPACE
+		return ' '
+	}
+
+	// OEM keys (symbols) - US keyboard layout
 	type keyMapping struct {
 		normal byte
 		shift  byte
 	}
-
-	keycodeMap := map[uint16]keyMapping{
-		// Number row
-		10: {'1', '!'}, 11: {'2', '@'}, 12: {'3', '#'}, 13: {'4', '$'},
-		14: {'5', '%'}, 15: {'6', '^'}, 16: {'7', '&'}, 17: {'8', '*'},
-		18: {'9', '('}, 19: {'0', ')'}, 20: {'-', '_'}, 21: {'=', '+'},
-
-		// Top letter row (QWERTY)
-		24: {'q', 'Q'}, 25: {'w', 'W'}, 26: {'e', 'E'}, 27: {'r', 'R'},
-		28: {'t', 'T'}, 29: {'y', 'Y'}, 30: {'u', 'U'}, 31: {'i', 'I'},
-		32: {'o', 'O'}, 33: {'p', 'P'}, 34: {'[', '{'}, 35: {']', '}'},
-
-		// Home row (ASDF)
-		38: {'a', 'A'}, 39: {'s', 'S'}, 40: {'d', 'D'}, 41: {'f', 'F'},
-		42: {'g', 'G'}, 43: {'h', 'H'}, 44: {'j', 'J'}, 45: {'k', 'K'},
-		46: {'l', 'L'}, 47: {';', ':'}, 48: {'\'', '"'},
-
-		// Bottom row (ZXCV)
-		52: {'z', 'Z'}, 53: {'x', 'X'}, 54: {'c', 'C'}, 55: {'v', 'V'},
-		56: {'b', 'B'}, 57: {'n', 'N'}, 58: {'m', 'M'}, 59: {',', '<'},
-		60: {'.', '>'}, 61: {'/', '?'},
-
-		// Other keys
-		49: {'`', '~'},  // Grave/tilde
-		51: {'\\', '|'}, // Backslash/pipe
-		65: {' ', ' '},  // Space
+	oemKeys := map[uint16]keyMapping{
+		186: {';', ':'}, // VK_OEM_1
+		187: {'=', '+'}, // VK_OEM_PLUS
+		188: {',', '<'}, // VK_OEM_COMMA
+		189: {'-', '_'}, // VK_OEM_MINUS
+		190: {'.', '>'}, // VK_OEM_PERIOD
+		191: {'/', '?'}, // VK_OEM_2
+		192: {'`', '~'}, // VK_OEM_3
+		219: {'[', '{'}, // VK_OEM_4
+		220: {'\\', '|'}, // VK_OEM_5
+		221: {']', '}'}, // VK_OEM_6
+		222: {'\'', '"'}, // VK_OEM_7
 	}
 
-	if mapping, ok := keycodeMap[hwcode]; ok {
+	if mapping, ok := oemKeys[hwcode]; ok {
 		if shift {
 			return mapping.shift
 		}
 		return mapping.normal
 	}
+
 	return 0
 }
