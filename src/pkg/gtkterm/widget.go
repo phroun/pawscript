@@ -388,7 +388,7 @@ func (w *Widget) onMotionNotify(da *gtk.DrawingArea, ev *gdk.Event) bool {
 	}
 
 	motion := gdk.EventMotionNewFromEvent(ev)
-	x, y := motion.X(), motion.Y()
+	x, y := motion.MotionX(), motion.MotionY()
 	cellX, cellY := w.screenToCell(x, y)
 	w.buffer.UpdateSelection(cellX, cellY)
 	return true

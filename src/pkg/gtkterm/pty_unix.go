@@ -3,11 +3,51 @@
 
 package gtkterm
 
+/*
+#define _XOPEN_SOURCE 600
+#include <stdlib.h>
+#include <fcntl.h>
+#include <unistd.h>
+#include <sys/ioctl.h>
+
+// ptsname_r might not be available on all platforms, use ptsname
+static int get_ptsname(int fd, char *buf, size_t buflen) {
+    char *name = ptsname(fd);
+    if (name == NULL) {
+        return -1;
+    }
+    size_t len = strlen(name);
+    if (len >= buflen) {
+        return -1;
+    }
+    strcpy(buf, name);
+    return 0;
+}
+
+static int grant_pt(int fd) {
+    return grantpt(fd);
+}
+
+static int unlock_pt(int fd) {
+    return unlockpt(fd);
+}
+
+static int set_winsize(int fd, unsigned short rows, unsigned short cols) {
+    struct winsize ws;
+    ws.ws_row = rows;
+    ws.ws_col = cols;
+    ws.ws_xpixel = 0;
+    ws.ws_ypixel = 0;
+    return ioctl(fd, TIOCSWINSZ, &ws);
+}
+*/
+import "C"
+
 import (
+	"errors"
 	"os"
 	"os/exec"
 	"syscall"
-	"unsafe"
 )
 
 // UnixPTY implements PTY for Unix systems (Linux, macOS, BSD)
@@ -28,17 +68,27 @@ func newUnixPTY() (*UnixPTY, error) {
 		return nil, err
 	}
 
-	// Get slave name and unlock
-	slaveName, err := ptsname(master)
-	if err != nil {
+	fd := C.int(master.Fd())
+
+	// Grant access to slave
+	if C.grant_pt(fd) != 0 {
 		master.Close()
-		return nil, err
+		return nil, errors.New("grantpt failed")
 	}
 
-	if err := unlockpt(master); err != nil {
+	// Unlock slave
+	if C.unlock_pt(fd) != 0 {
 		master.Close()
-		return nil, err
+		return nil, errors.New("unlockpt failed")
 	}
+
+	// Get slave name
+	var buf [256]C.char
+	if C.get_ptsname(fd, &buf[0], 256) != 0 {
+		master.Close()
+		return nil, errors.New("ptsname failed")
+	}
+	slaveName := C.GoString(&buf[0])
 
 	// Open slave
 	slave, err := os.OpenFile(slaveName, os.O_RDWR|syscall.O_NOCTTY, 0)
@@ -90,11 +140,11 @@ func (p *UnixPTY) Write(b []byte) (int, error) {
 
 // Resize resizes the PTY
 func (p *UnixPTY) Resize(cols, rows int) error {
-	ws := &winsize{
-		Row: uint16(rows),
-		Col: uint16(cols),
+	fd := C.int(p.master.Fd())
+	if C.set_winsize(fd, C.ushort(rows), C.ushort(cols)) != 0 {
+		return errors.New("TIOCSWINSZ failed")
 	}
-	return windowSizeIoctl(p.master.Fd(), ws)
+	return nil
 }
 
 // Close closes the PTY
@@ -103,56 +153,4 @@ func (p *UnixPTY) Close() error {
 		p.slave.Close()
 	}
 	return p.master.Close()
-}
-
-// winsize is the struct for TIOCSWINSZ/TIOCGWINSZ
-type winsize struct {
-	Row    uint16
-	Col    uint16
-	Xpixel uint16
-	Ypixel uint16
-}
-
-// ptsname returns the name of the slave PTY
-func ptsname(master *os.File) (string, error) {
-	var n uint32
-	_, _, errno := syscall.Syscall(syscall.SYS_IOCTL, master.Fd(), syscall.TIOCGPTN, uintptr(unsafe.Pointer(&n)))
-	if errno != 0 {
-		return "", errno
-	}
-	return "/dev/pts/" + itoa(int(n)), nil
-}
-
-// unlockpt unlocks the slave PTY
-func unlockpt(master *os.File) error {
-	var unlock int32 = 0
-	_, _, errno := syscall.Syscall(syscall.SYS_IOCTL, master.Fd(), syscall.TIOCSPTLCK, uintptr(unsafe.Pointer(&unlock)))
-	if errno != 0 {
-		return errno
-	}
-	return nil
-}
-
-// windowSizeIoctl sets the window size
-func windowSizeIoctl(fd uintptr, ws *winsize) error {
-	_, _, errno := syscall.Syscall(syscall.SYS_IOCTL, fd, syscall.TIOCSWINSZ, uintptr(unsafe.Pointer(ws)))
-	if errno != 0 {
-		return errno
-	}
-	return nil
-}
-
-// Simple itoa without importing strconv
-func itoa(n int) string {
-	if n == 0 {
-		return "0"
-	}
-	var buf [20]byte
-	i := len(buf)
-	for n > 0 {
-		i--
-		buf[i] = byte('0' + n%10)
-		n /= 10
-	}
-	return string(buf[i:])
 }
