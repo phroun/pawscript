@@ -7,6 +7,7 @@ toolchain go1.24.7
 require (
 	fyne.io/fyne/v2 v2.7.1
 	github.com/fyne-io/terminal v0.0.0-20251010081556-6f9c3819f75f
+	github.com/gotk3/gotk3 v0.6.4
 	golang.org/x/term v0.37.0
 )
 
