@@ -243,8 +243,19 @@ func (env *ModuleEnvironment) PopulateIOModule(config *IOChannelConfig, executor
 			IsClosed:         false,
 			Timestamp:        time.Now(),
 			NativeSend: func(v interface{}) error {
-				_, err := fmt.Fprintf(stdout, "%v", v)
-				return err
+				// Handle []byte and string directly to avoid %v formatting
+				// which would print []byte as [114 101 100] instead of "red"
+				switch val := v.(type) {
+				case []byte:
+					_, err := stdout.Write(val)
+					return err
+				case string:
+					_, err := io.WriteString(stdout, val)
+					return err
+				default:
+					_, err := fmt.Fprintf(stdout, "%v", v)
+					return err
+				}
 			},
 			NativeRecv: func() (interface{}, error) {
 				return nil, fmt.Errorf("cannot receive from stdout")
@@ -266,8 +277,18 @@ func (env *ModuleEnvironment) PopulateIOModule(config *IOChannelConfig, executor
 			IsClosed:         false,
 			Timestamp:        time.Now(),
 			NativeSend: func(v interface{}) error {
-				_, err := fmt.Fprintf(stderr, "%v", v)
-				return err
+				// Handle []byte and string directly to avoid %v formatting
+				switch val := v.(type) {
+				case []byte:
+					_, err := stderr.Write(val)
+					return err
+				case string:
+					_, err := io.WriteString(stderr, val)
+					return err
+				default:
+					_, err := fmt.Fprintf(stderr, "%v", v)
+					return err
+				}
 			},
 			NativeRecv: func() (interface{}, error) {
 				return nil, fmt.Errorf("cannot receive from stderr")
@@ -290,8 +311,18 @@ func (env *ModuleEnvironment) PopulateIOModule(config *IOChannelConfig, executor
 			IsClosed:         false,
 			Timestamp:        time.Now(),
 			NativeSend: func(v interface{}) error {
-				_, err := fmt.Fprintf(stdout, "%v", v)
-				return err
+				// Handle []byte and string directly to avoid %v formatting
+				switch val := v.(type) {
+				case []byte:
+					_, err := stdout.Write(val)
+					return err
+				case string:
+					_, err := io.WriteString(stdout, val)
+					return err
+				default:
+					_, err := fmt.Fprintf(stdout, "%v", v)
+					return err
+				}
 			},
 			NativeRecv: func() (interface{}, error) {
 				line, err := stdioReader.ReadString('\n')
