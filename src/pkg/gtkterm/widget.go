@@ -60,6 +60,9 @@ type Widget struct {
 	// Cursor blink
 	cursorBlinkOn bool
 
+	// Focus state
+	hasFocus bool
+
 	// Callback when data should be written to PTY
 	onInput func([]byte)
 
@@ -120,6 +123,8 @@ func NewWidget(cols, rows, scrollbackSize int) (*Widget, error) {
 	w.drawingArea.Connect("scroll-event", w.onScroll)
 	w.drawingArea.Connect("key-press-event", w.onKeyPress)
 	w.drawingArea.Connect("configure-event", w.onConfigure)
+	w.drawingArea.Connect("focus-in-event", w.onFocusIn)
+	w.drawingArea.Connect("focus-out-event", w.onFocusOut)
 
 	// Create scrollbar
 	adjustment, _ := gtk.AdjustmentNew(0, 0, 100, 1, 10, 10)
@@ -264,10 +269,10 @@ func (w *Widget) onDraw(da *gtk.DrawingArea, cr *cairo.Context) bool {
 				bg = scheme.Selection
 			}
 
-			// Handle cursor
+			// Handle cursor - only swap colors for solid cursor when focused
 			isCursor := cursorVisible && x == cursorX && y == cursorY && w.cursorBlinkOn
-			if isCursor {
-				// Swap colors for block cursor
+			if isCursor && w.hasFocus {
+				// Swap colors for solid block cursor when focused
 				fg, bg = bg, fg
 			}
 
@@ -318,6 +323,21 @@ func (w *Widget) onDraw(da *gtk.DrawingArea, cr *cairo.Context) bool {
 					float64(charWidth),
 					1)
 				cr.Fill()
+			}
+
+			// Draw outline cursor when unfocused
+			if isCursor && !w.hasFocus {
+				cr.SetSourceRGB(
+					float64(scheme.Cursor.R)/255.0,
+					float64(scheme.Cursor.G)/255.0,
+					float64(scheme.Cursor.B)/255.0)
+				cr.SetLineWidth(1.0)
+				cr.Rectangle(
+					float64(x*charWidth+terminalLeftPadding)+0.5,
+					float64(y*charHeight)+0.5,
+					float64(charWidth)-1,
+					float64(charHeight)-1)
+				cr.Stroke()
 			}
 		}
 	}
@@ -559,6 +579,18 @@ func (w *Widget) onConfigure(da *gtk.DrawingArea, ev *gdk.Event) bool {
 	}
 
 	w.buffer.Resize(newCols, newRows)
+	return false
+}
+
+func (w *Widget) onFocusIn(da *gtk.DrawingArea, ev *gdk.Event) bool {
+	w.hasFocus = true
+	w.drawingArea.QueueDraw()
+	return false
+}
+
+func (w *Widget) onFocusOut(da *gtk.DrawingArea, ev *gdk.Event) bool {
+	w.hasFocus = false
+	w.drawingArea.QueueDraw()
 	return false
 }
 
