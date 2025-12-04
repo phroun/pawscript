@@ -13,6 +13,7 @@ static void get_event_coords(GdkEvent *ev, double *x, double *y) {
 import "C"
 
 import (
+	"fmt"
 	"sync"
 	"unsafe"
 
@@ -528,8 +529,15 @@ func (w *Widget) onKeyPress(da *gtk.DrawingArea, ev *gdk.Event) bool {
 	onInput := w.onInput
 	w.mu.Unlock()
 
-	// Handle Ctrl+C, Ctrl+V
-	if state&gdk.CONTROL_MASK != 0 {
+	// Extract modifier states
+	hasShift := state&gdk.SHIFT_MASK != 0
+	hasCtrl := state&gdk.CONTROL_MASK != 0
+	hasAlt := state&gdk.MOD1_MASK != 0  // Alt key
+	hasMeta := state&gdk.META_MASK != 0 // Meta/Command key
+	hasSuper := state&gdk.SUPER_MASK != 0
+
+	// Handle clipboard operations (Ctrl+C with selection, Ctrl+V, Ctrl+A)
+	if hasCtrl && !hasAlt && !hasMeta {
 		switch keyval {
 		case gdk.KEY_c, gdk.KEY_C:
 			if w.buffer.HasSelection() {
@@ -539,11 +547,7 @@ func (w *Widget) onKeyPress(da *gtk.DrawingArea, ev *gdk.Event) bool {
 				}
 				return true
 			}
-			// Ctrl+C without selection - send interrupt
-			if onInput != nil {
-				onInput([]byte{0x03})
-			}
-			return true
+			// Ctrl+C without selection falls through to send interrupt
 		case gdk.KEY_v, gdk.KEY_V:
 			if w.clipboard != nil {
 				text, err := w.clipboard.WaitForText()
@@ -562,76 +566,145 @@ func (w *Widget) onKeyPress(da *gtk.DrawingArea, ev *gdk.Event) bool {
 		return false
 	}
 
-	// Handle special keys
+	// Calculate xterm-style modifier parameter
+	// mod = 1 + (shift?1:0) + (alt?2:0) + (ctrl?4:0) + (meta?8:0)
+	mod := 1
+	if hasShift {
+		mod += 1
+	}
+	if hasAlt {
+		mod += 2
+	}
+	if hasCtrl {
+		mod += 4
+	}
+	if hasMeta || hasSuper {
+		mod += 8
+	}
+	hasModifiers := mod > 1
+
 	var data []byte
+
+	// Handle special keys with potential modifiers
 	switch keyval {
 	case gdk.KEY_Return, gdk.KEY_KP_Enter:
+		if hasModifiers {
+			data = modifiedSpecialKey(mod, 13, 0) // CSI 13 ; mod u (kitty protocol) or just send CR
+		}
 		data = []byte{'\r'}
 	case gdk.KEY_BackSpace:
-		data = []byte{0x7f}
+		if hasCtrl {
+			data = []byte{0x08} // Ctrl+Backspace = BS
+		} else if hasAlt {
+			data = []byte{0x1b, 0x7f} // Alt+Backspace = ESC DEL
+		} else {
+			data = []byte{0x7f}
+		}
 	case gdk.KEY_Tab:
-		data = []byte{'\t'}
+		if hasShift {
+			data = []byte{0x1b, '[', 'Z'} // Shift+Tab = CSI Z (backtab)
+		} else if hasCtrl {
+			data = []byte{'\t'} // Ctrl+Tab (some apps use this)
+		} else {
+			data = []byte{'\t'}
+		}
 	case gdk.KEY_Escape:
-		data = []byte{0x1b}
-	case gdk.KEY_Up:
-		data = []byte{0x1b, '[', 'A'}
-	case gdk.KEY_Down:
-		data = []byte{0x1b, '[', 'B'}
-	case gdk.KEY_Right:
-		data = []byte{0x1b, '[', 'C'}
-	case gdk.KEY_Left:
-		data = []byte{0x1b, '[', 'D'}
-	case gdk.KEY_Home:
-		data = []byte{0x1b, '[', 'H'}
-	case gdk.KEY_End:
-		data = []byte{0x1b, '[', 'F'}
-	case gdk.KEY_Page_Up:
-		data = []byte{0x1b, '[', '5', '~'}
-	case gdk.KEY_Page_Down:
-		data = []byte{0x1b, '[', '6', '~'}
-	case gdk.KEY_Insert:
-		data = []byte{0x1b, '[', '2', '~'}
-	case gdk.KEY_Delete:
-		data = []byte{0x1b, '[', '3', '~'}
-	case gdk.KEY_F1:
-		data = []byte{0x1b, 'O', 'P'}
-	case gdk.KEY_F2:
-		data = []byte{0x1b, 'O', 'Q'}
-	case gdk.KEY_F3:
-		data = []byte{0x1b, 'O', 'R'}
-	case gdk.KEY_F4:
-		data = []byte{0x1b, 'O', 'S'}
-	default:
-		// Regular character - try keyval first
-		if keyval >= 0x20 && keyval < 256 {
-			ch := byte(keyval)
-			if state&gdk.CONTROL_MASK != 0 && ch >= 'a' && ch <= 'z' {
-				ch = ch - 'a' + 1 // Ctrl+A = 1, Ctrl+B = 2, etc.
-			}
-			data = []byte{ch}
-		} else if keyval >= 0x20 {
-			// Unicode character
-			if r := gdk.KeyvalToUnicode(keyval); r != 0 {
-				data = []byte(string(r))
-			}
+		if hasAlt {
+			data = []byte{0x1b, 0x1b} // Alt+Escape
+		} else {
+			data = []byte{0x1b}
 		}
 
-		// Fallback: use hardware keycode when GDK translation fails (Wine/Windows)
-		if len(data) == 0 {
-			hwcode := key.HardwareKeyCode()
-			if ch := hardwareKeycodeToChar(hwcode, state&uint(gdk.SHIFT_MASK) != 0); ch != 0 {
-				if state&uint(gdk.CONTROL_MASK) != 0 && ch >= 'a' && ch <= 'z' {
-					ch = ch - 'a' + 1
-				}
-				data = []byte{ch}
-			}
-		}
+	// Arrow keys
+	case gdk.KEY_Up:
+		data = cursorKey('A', mod, hasModifiers)
+	case gdk.KEY_Down:
+		data = cursorKey('B', mod, hasModifiers)
+	case gdk.KEY_Right:
+		data = cursorKey('C', mod, hasModifiers)
+	case gdk.KEY_Left:
+		data = cursorKey('D', mod, hasModifiers)
+
+	// Navigation keys
+	case gdk.KEY_Home:
+		data = cursorKey('H', mod, hasModifiers)
+	case gdk.KEY_End:
+		data = cursorKey('F', mod, hasModifiers)
+	case gdk.KEY_Page_Up:
+		data = tildeKey(5, mod, hasModifiers)
+	case gdk.KEY_Page_Down:
+		data = tildeKey(6, mod, hasModifiers)
+	case gdk.KEY_Insert:
+		data = tildeKey(2, mod, hasModifiers)
+	case gdk.KEY_Delete:
+		data = tildeKey(3, mod, hasModifiers)
+
+	// Function keys F1-F4 (use SS3 format without modifiers, CSI format with)
+	case gdk.KEY_F1:
+		data = functionKey(1, 'P', mod, hasModifiers)
+	case gdk.KEY_F2:
+		data = functionKey(2, 'Q', mod, hasModifiers)
+	case gdk.KEY_F3:
+		data = functionKey(3, 'R', mod, hasModifiers)
+	case gdk.KEY_F4:
+		data = functionKey(4, 'S', mod, hasModifiers)
+
+	// Function keys F5-F12 (use tilde format)
+	case gdk.KEY_F5:
+		data = tildeKey(15, mod, hasModifiers)
+	case gdk.KEY_F6:
+		data = tildeKey(17, mod, hasModifiers)
+	case gdk.KEY_F7:
+		data = tildeKey(18, mod, hasModifiers)
+	case gdk.KEY_F8:
+		data = tildeKey(19, mod, hasModifiers)
+	case gdk.KEY_F9:
+		data = tildeKey(20, mod, hasModifiers)
+	case gdk.KEY_F10:
+		data = tildeKey(21, mod, hasModifiers)
+	case gdk.KEY_F11:
+		data = tildeKey(23, mod, hasModifiers)
+	case gdk.KEY_F12:
+		data = tildeKey(24, mod, hasModifiers)
+
+	// Keypad keys
+	case gdk.KEY_KP_Up:
+		data = cursorKey('A', mod, hasModifiers)
+	case gdk.KEY_KP_Down:
+		data = cursorKey('B', mod, hasModifiers)
+	case gdk.KEY_KP_Right:
+		data = cursorKey('C', mod, hasModifiers)
+	case gdk.KEY_KP_Left:
+		data = cursorKey('D', mod, hasModifiers)
+	case gdk.KEY_KP_Home:
+		data = cursorKey('H', mod, hasModifiers)
+	case gdk.KEY_KP_End:
+		data = cursorKey('F', mod, hasModifiers)
+	case gdk.KEY_KP_Page_Up:
+		data = tildeKey(5, mod, hasModifiers)
+	case gdk.KEY_KP_Page_Down:
+		data = tildeKey(6, mod, hasModifiers)
+	case gdk.KEY_KP_Insert:
+		data = tildeKey(2, mod, hasModifiers)
+	case gdk.KEY_KP_Delete:
+		data = tildeKey(3, mod, hasModifiers)
+
+	default:
+		// Regular character handling
+		data = w.handleRegularKey(keyval, key, hasShift, hasCtrl, hasAlt, hasMeta, hasSuper)
 	}
 
 	// Final fallback: check hardware keycodes for special keys (Wine/Windows)
 	if len(data) == 0 {
 		hwcode := key.HardwareKeyCode()
-		data = hardwareKeycodeToSpecial(hwcode)
+		data = hardwareKeycodeToSpecialWithMod(hwcode, mod, hasModifiers)
+
+		// If still no data, try regular character from hardware keycode
+		if len(data) == 0 {
+			if ch := hardwareKeycodeToChar(hwcode, hasShift); ch != 0 {
+				data = w.processCharWithModifiers(ch, hasCtrl, hasAlt, hasMeta, hasSuper)
+			}
+		}
 	}
 
 	if len(data) > 0 {
@@ -640,6 +713,118 @@ func (w *Widget) onKeyPress(da *gtk.DrawingArea, ev *gdk.Event) bool {
 	}
 
 	return false
+}
+
+// handleRegularKey processes regular character keys with modifiers
+func (w *Widget) handleRegularKey(keyval uint, key *gdk.EventKey, hasShift, hasCtrl, hasAlt, hasMeta, hasSuper bool) []byte {
+	var ch byte
+	var isChar bool
+
+	// Try to get character from keyval
+	if keyval >= 0x20 && keyval < 256 {
+		ch = byte(keyval)
+		isChar = true
+	} else if keyval >= 0x20 {
+		// Unicode character - only handle if no special modifiers
+		if r := gdk.KeyvalToUnicode(keyval); r != 0 && r < 128 {
+			ch = byte(r)
+			isChar = true
+		} else if r != 0 {
+			// Full unicode - send as UTF-8, with ESC prefix if Alt
+			if hasAlt && !hasCtrl {
+				return append([]byte{0x1b}, []byte(string(r))...)
+			}
+			return []byte(string(r))
+		}
+	}
+
+	if !isChar {
+		return nil
+	}
+
+	return w.processCharWithModifiers(ch, hasCtrl, hasAlt, hasMeta, hasSuper)
+}
+
+// processCharWithModifiers applies modifier transformations to a character
+func (w *Widget) processCharWithModifiers(ch byte, hasCtrl, hasAlt, hasMeta, hasSuper bool) []byte {
+	// Ctrl+letter produces control character (1-26)
+	if hasCtrl && ch >= 'a' && ch <= 'z' {
+		ch = ch - 'a' + 1
+	} else if hasCtrl && ch >= 'A' && ch <= 'Z' {
+		ch = ch - 'A' + 1
+	} else if hasCtrl {
+		// Other Ctrl combinations
+		switch ch {
+		case '@':
+			ch = 0 // Ctrl+@ = NUL
+		case '[':
+			ch = 0x1b // Ctrl+[ = ESC
+		case '\\':
+			ch = 0x1c // Ctrl+\ = FS
+		case ']':
+			ch = 0x1d // Ctrl+] = GS
+		case '^':
+			ch = 0x1e // Ctrl+^ = RS
+		case '_':
+			ch = 0x1f // Ctrl+_ = US
+		case '?':
+			ch = 0x7f // Ctrl+? = DEL
+		case ' ':
+			ch = 0 // Ctrl+Space = NUL
+		}
+	}
+
+	// Alt/Meta prefix with ESC
+	if hasAlt || hasMeta || hasSuper {
+		return []byte{0x1b, ch}
+	}
+
+	return []byte{ch}
+}
+
+// cursorKey generates escape sequence for cursor keys (arrows, home, end)
+// Without modifiers: ESC [ <key>
+// With modifiers: ESC [ 1 ; <mod> <key>
+func cursorKey(key byte, mod int, hasModifiers bool) []byte {
+	if hasModifiers {
+		return []byte{0x1b, '[', '1', ';', byte('0' + mod), key}
+	}
+	return []byte{0x1b, '[', key}
+}
+
+// tildeKey generates escape sequence for tilde-style keys (PgUp, PgDn, Insert, Delete, F5-F12)
+// Without modifiers: ESC [ <num> ~
+// With modifiers: ESC [ <num> ; <mod> ~
+func tildeKey(num int, mod int, hasModifiers bool) []byte {
+	numStr := []byte(fmt.Sprintf("%d", num))
+	if hasModifiers {
+		modStr := []byte(fmt.Sprintf(";%d", mod))
+		result := append([]byte{0x1b, '['}, numStr...)
+		result = append(result, modStr...)
+		result = append(result, '~')
+		return result
+	}
+	result := append([]byte{0x1b, '['}, numStr...)
+	result = append(result, '~')
+	return result
+}
+
+// functionKey generates escape sequence for F1-F4
+// Without modifiers: ESC O <key> (SS3 format)
+// With modifiers: ESC [ 1 ; <mod> <key> (CSI format)
+func functionKey(num int, key byte, mod int, hasModifiers bool) []byte {
+	if hasModifiers {
+		return []byte{0x1b, '[', '1', ';', byte('0' + mod), key}
+	}
+	return []byte{0x1b, 'O', key}
+}
+
+// modifiedSpecialKey generates CSI u format for special keys with modifiers (kitty protocol style)
+func modifiedSpecialKey(mod int, keycode int, suffix byte) []byte {
+	if suffix != 0 {
+		return []byte(fmt.Sprintf("\x1b[%d;%d%c", keycode, mod, suffix))
+	}
+	return []byte(fmt.Sprintf("\x1b[%d;%du", keycode, mod))
 }
 
 func (w *Widget) onConfigure(da *gtk.DrawingArea, ev *gdk.Event) bool {
@@ -728,64 +913,80 @@ func (w *Widget) SetCursorVisible(visible bool) {
 	w.buffer.SetCursorVisible(visible)
 }
 
-// hardwareKeycodeToSpecial maps Windows Virtual Key codes to special key sequences.
+// hardwareKeycodeToSpecialWithMod maps Windows Virtual Key codes to special key sequences with modifier support.
 // This is used as a fallback when GDK can't translate keypresses (Wine/Windows).
 // On Windows/Wine, HardwareKeyCode() returns Windows VK codes, not X11 keycodes.
-func hardwareKeycodeToSpecial(hwcode uint16) []byte {
+func hardwareKeycodeToSpecialWithMod(hwcode uint16, mod int, hasModifiers bool) []byte {
 	// Windows Virtual Key code mappings
 	switch hwcode {
 	case 13: // VK_RETURN
 		return []byte{'\r'}
 	case 8: // VK_BACK
+		if hasModifiers && mod >= 5 { // Ctrl
+			return []byte{0x08}
+		} else if hasModifiers && mod >= 3 { // Alt
+			return []byte{0x1b, 0x7f}
+		}
 		return []byte{0x7f}
 	case 9: // VK_TAB
+		if hasModifiers && (mod == 2 || mod == 3) { // Shift
+			return []byte{0x1b, '[', 'Z'}
+		}
 		return []byte{'\t'}
 	case 27: // VK_ESCAPE
 		return []byte{0x1b}
+
+	// Arrow keys
 	case 38: // VK_UP
-		return []byte{0x1b, '[', 'A'}
+		return cursorKey('A', mod, hasModifiers)
 	case 40: // VK_DOWN
-		return []byte{0x1b, '[', 'B'}
+		return cursorKey('B', mod, hasModifiers)
 	case 39: // VK_RIGHT
-		return []byte{0x1b, '[', 'C'}
+		return cursorKey('C', mod, hasModifiers)
 	case 37: // VK_LEFT
-		return []byte{0x1b, '[', 'D'}
+		return cursorKey('D', mod, hasModifiers)
+
+	// Navigation keys
 	case 36: // VK_HOME
-		return []byte{0x1b, '[', 'H'}
+		return cursorKey('H', mod, hasModifiers)
 	case 35: // VK_END
-		return []byte{0x1b, '[', 'F'}
+		return cursorKey('F', mod, hasModifiers)
 	case 33: // VK_PRIOR (Page Up)
-		return []byte{0x1b, '[', '5', '~'}
+		return tildeKey(5, mod, hasModifiers)
 	case 34: // VK_NEXT (Page Down)
-		return []byte{0x1b, '[', '6', '~'}
+		return tildeKey(6, mod, hasModifiers)
 	case 45: // VK_INSERT
-		return []byte{0x1b, '[', '2', '~'}
+		return tildeKey(2, mod, hasModifiers)
 	case 46: // VK_DELETE
-		return []byte{0x1b, '[', '3', '~'}
+		return tildeKey(3, mod, hasModifiers)
+
+	// Function keys F1-F4
 	case 112: // VK_F1
-		return []byte{0x1b, 'O', 'P'}
+		return functionKey(1, 'P', mod, hasModifiers)
 	case 113: // VK_F2
-		return []byte{0x1b, 'O', 'Q'}
+		return functionKey(2, 'Q', mod, hasModifiers)
 	case 114: // VK_F3
-		return []byte{0x1b, 'O', 'R'}
+		return functionKey(3, 'R', mod, hasModifiers)
 	case 115: // VK_F4
-		return []byte{0x1b, 'O', 'S'}
+		return functionKey(4, 'S', mod, hasModifiers)
+
+	// Function keys F5-F12
 	case 116: // VK_F5
-		return []byte{0x1b, '[', '1', '5', '~'}
+		return tildeKey(15, mod, hasModifiers)
 	case 117: // VK_F6
-		return []byte{0x1b, '[', '1', '7', '~'}
+		return tildeKey(17, mod, hasModifiers)
 	case 118: // VK_F7
-		return []byte{0x1b, '[', '1', '8', '~'}
+		return tildeKey(18, mod, hasModifiers)
 	case 119: // VK_F8
-		return []byte{0x1b, '[', '1', '9', '~'}
+		return tildeKey(19, mod, hasModifiers)
 	case 120: // VK_F9
-		return []byte{0x1b, '[', '2', '0', '~'}
+		return tildeKey(20, mod, hasModifiers)
 	case 121: // VK_F10
-		return []byte{0x1b, '[', '2', '1', '~'}
+		return tildeKey(21, mod, hasModifiers)
 	case 122: // VK_F11
-		return []byte{0x1b, '[', '2', '3', '~'}
+		return tildeKey(23, mod, hasModifiers)
 	case 123: // VK_F12
-		return []byte{0x1b, '[', '2', '4', '~'}
+		return tildeKey(24, mod, hasModifiers)
 	}
 	return nil
 }
