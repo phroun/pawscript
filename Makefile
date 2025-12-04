@@ -34,8 +34,8 @@ build-token-example:
 build-gui:
 	@echo "Building pawgui for native platform ($(NATIVE_OS)/$(NATIVE_ARCH))..."
 ifeq ($(NATIVE_OS),windows)
-	cd $(SRC_DIR) && fyne build -o ../pawgui.exe ./cmd/pawgui
-	@echo "Created: pawgui.exe"
+	cd $(SRC_DIR) && fyne build --tags openglangle -o ../pawgui.exe ./cmd/pawgui
+	@echo "Created: pawgui.exe (using ANGLE/DirectX backend)"
 else ifeq ($(NATIVE_OS),darwin)
 	cd $(SRC_DIR) && fyne build -o ../pawgui ./cmd/pawgui
 	cd $(SRC_DIR)/cmd/pawgui && fyne package -name pawgui && mv pawgui.app ../../../
@@ -49,11 +49,12 @@ endif
 # On Windows: use cv2pdb to convert DWARF to PDB, or use delve/gdb debugger
 build-gui-debug:
 	@echo "Building pawgui with debug symbols for $(NATIVE_OS)/$(NATIVE_ARCH)..."
-	cd $(SRC_DIR) && go build -gcflags "all=-N -l" -o ../pawgui-debug$(if $(filter windows,$(NATIVE_OS)),.exe,) ./cmd/pawgui
 ifeq ($(NATIVE_OS),windows)
-	@echo "Created: pawgui-debug.exe (with DWARF symbols)"
+	cd $(SRC_DIR) && go build -tags openglangle -gcflags "all=-N -l" -o ../pawgui-debug.exe ./cmd/pawgui
+	@echo "Created: pawgui-debug.exe (with DWARF symbols, using ANGLE/DirectX)"
 	@echo "To generate PDB: cv2pdb pawgui-debug.exe (requires cv2pdb tool)"
 else
+	cd $(SRC_DIR) && go build -gcflags "all=-N -l" -o ../pawgui-debug ./cmd/pawgui
 	@echo "Created: pawgui-debug (with DWARF symbols)"
 endif
 
