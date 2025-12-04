@@ -620,6 +620,8 @@ func (w *Widget) onKeyPress(da *gtk.DrawingArea, ev *gdk.Event) bool {
 		} else {
 			data = []byte{'\t'}
 		}
+	case gdk.KEY_ISO_Left_Tab: // GTK sends this for Shift+Tab on many systems
+		data = []byte{0x1b, '[', 'Z'} // Shift+Tab = CSI Z (backtab)
 	case gdk.KEY_Escape:
 		if hasAlt {
 			data = []byte{0x1b, 0x1b} // Alt+Escape
