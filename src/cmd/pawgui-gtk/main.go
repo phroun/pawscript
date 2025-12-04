@@ -26,7 +26,7 @@ const (
 // Global state
 var (
 	currentDir string
-	mainWindow *gtk.Window
+	mainWindow *gtk.ApplicationWindow
 	fileList   *gtk.ListBox
 	terminal   *gtk.TextView
 	termBuffer *gtk.TextBuffer
@@ -320,28 +320,21 @@ func onRunClicked() {
 }
 
 func onBrowseClicked() {
-	dialog := gtk.NewFileChooserDialog(
-		"Choose Directory",
-		mainWindow,
-		gtk.FileChooserActionSelectFolder,
-		"Cancel", int(gtk.ResponseCancel),
-		"Open", int(gtk.ResponseAccept),
-	)
+	dialog := gtk.NewFileDialog()
+	dialog.SetTitle("Choose Directory")
+	dialog.SetInitialFolder(gio.NewFileForPath(currentDir))
 
-	dialog.SetCurrentFolder(gio.NewFileForPath(currentDir))
-
-	dialog.ConnectResponse(func(response int) {
-		if response == int(gtk.ResponseAccept) {
-			file := dialog.File()
-			if file != nil {
-				currentDir = file.Path()
-				refreshFileList()
-			}
+	dialog.SelectFolder(mainWindow, nil, func(result gio.AsyncResulter) {
+		file, err := dialog.SelectFolderFinish(result)
+		if err != nil {
+			// User cancelled or error occurred
+			return
 		}
-		dialog.Destroy()
+		if file != nil {
+			currentDir = file.Path()
+			refreshFileList()
+		}
 	})
-
-	dialog.Show()
 }
 
 func runScript(filePath string) {
