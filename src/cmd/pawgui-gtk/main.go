@@ -325,7 +325,7 @@ func onBrowseClicked() {
 	dialog.SetTitle("Choose Directory")
 	dialog.SetInitialFolder(gio.NewFileForPath(currentDir))
 
-	dialog.SelectFolder(context.Background(), mainWindow, func(result gio.AsyncResulter) {
+	dialog.SelectFolder(context.Background(), &mainWindow.Window, func(result gio.AsyncResulter) {
 		file, err := dialog.SelectFolderFinish(result)
 		if err != nil {
 			// User cancelled or error occurred
