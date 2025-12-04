@@ -1,4 +1,4 @@
-package gtkterm
+package purfectermgtk
 
 /*
 #cgo pkg-config: gtk+-3.0

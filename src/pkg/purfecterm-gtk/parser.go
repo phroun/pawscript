@@ -1,4 +1,4 @@
-package gtkterm
+package purfectermgtk
 
 import (
 	"strconv"

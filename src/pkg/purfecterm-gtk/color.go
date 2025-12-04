@@ -1,4 +1,4 @@
-// Package gtkterm provides a GTK3-based terminal emulator widget for Go.
+// Package purfectermgtk provides a GTK3-based terminal emulator widget for Go.
 //
 // It features:
 //   - Full ANSI escape sequence support (colors, cursor movement, clearing)
@@ -20,7 +20,7 @@
 //	}
 //	container.Add(term.Widget())
 //	term.RunShell() // or term.RunCommand("program", "arg1", "arg2")
-package gtkterm
+package purfectermgtk
 
 // Color represents an RGB color
 type Color struct {
