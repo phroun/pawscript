@@ -63,7 +63,7 @@ type Widget struct {
 // NewWidget creates a new terminal widget with the specified dimensions
 func NewWidget(cols, rows, scrollbackSize int) (*Widget, error) {
 	w := &Widget{
-		fontFamily:    "Monospace",
+		fontFamily:    "Menlo",
 		fontSize:      14,
 		charWidth:     10, // Will be calculated properly
 		charHeight:    20,
@@ -218,6 +218,12 @@ func (w *Widget) onDraw(da *gtk.DrawingArea, cr *cairo.Context) bool {
 	cols, rows := w.buffer.GetSize()
 	cursorX, cursorY := w.buffer.GetCursor()
 	cursorVisible := w.buffer.IsCursorVisible()
+	scrollOffset := w.buffer.GetScrollOffset()
+
+	// Hide cursor when scrolled back
+	if scrollOffset > 0 {
+		cursorVisible = false
+	}
 
 	// Draw background
 	cr.SetSourceRGB(
@@ -231,10 +237,10 @@ func (w *Widget) onDraw(da *gtk.DrawingArea, cr *cairo.Context) bool {
 	cr.SelectFontFace(fontFamily, cairo.FONT_SLANT_NORMAL, cairo.FONT_WEIGHT_NORMAL)
 	cr.SetFontSize(float64(fontSize))
 
-	// Draw each cell
+	// Draw each cell (use GetVisibleCell to account for scroll offset)
 	for y := 0; y < rows; y++ {
 		for x := 0; x < cols; x++ {
-			cell := w.buffer.GetCell(x, y)
+			cell := w.buffer.GetVisibleCell(x, y)
 
 			// Determine colors
 			fg := cell.Foreground

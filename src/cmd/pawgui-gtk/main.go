@@ -236,7 +236,7 @@ func createTerminal() *gtk.Box {
 		Cols:           100,
 		Rows:           30,
 		ScrollbackSize: 10000,
-		FontFamily:     "Monospace",
+		FontFamily:     "Menlo",
 		FontSize:       22, // 2x size for better readability
 		Scheme: gtkterm.ColorScheme{
 			Foreground: gtkterm.Color{R: 212, G: 212, B: 212},

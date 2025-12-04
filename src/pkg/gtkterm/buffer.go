@@ -482,6 +482,48 @@ func (b *Buffer) GetCell(x, y int) Cell {
 	return b.screen[y][x]
 }
 
+// GetVisibleCell returns the cell at the given position accounting for scroll offset
+// When scrolled back, top rows come from scrollback buffer
+func (b *Buffer) GetVisibleCell(x, y int) Cell {
+	b.mu.RLock()
+	defer b.mu.RUnlock()
+
+	if x < 0 || x >= b.cols || y < 0 || y >= b.rows {
+		return EmptyCell()
+	}
+
+	if b.scrollOffset == 0 {
+		// Not scrolled, show current screen
+		return b.screen[y][x]
+	}
+
+	// Calculate which line to show
+	// scrollOffset = how many lines we're scrolled back
+	// y=0 with scrollOffset=5 means we want to show scrollback line 4 (5th from end)
+	scrollbackSize := len(b.scrollback)
+
+	// The view shows: scrollback[scrollbackSize-scrollOffset ... scrollbackSize-1], then screen[0 ... rows-1-scrollOffset]
+	if y < b.scrollOffset {
+		// This row is from scrollback
+		scrollbackIdx := scrollbackSize - b.scrollOffset + y
+		if scrollbackIdx < 0 || scrollbackIdx >= scrollbackSize {
+			return EmptyCell()
+		}
+		line := b.scrollback[scrollbackIdx]
+		if x < len(line) {
+			return line[x]
+		}
+		return EmptyCell()
+	} else {
+		// This row is from current screen
+		screenY := y - b.scrollOffset
+		if screenY >= 0 && screenY < b.rows {
+			return b.screen[screenY][x]
+		}
+		return EmptyCell()
+	}
+}
+
 // GetLine returns a copy of the specified screen line
 func (b *Buffer) GetLine(y int) []Cell {
 	b.mu.RLock()
