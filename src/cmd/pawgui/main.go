@@ -42,9 +42,10 @@ type WindowState struct {
 	containers   map[string]*fyne.Container
 	terminal     *terminal.Terminal
 	// Console IO channels (for launcher windows)
-	consoleOutCh  *pawscript.StoredChannel
-	consoleInCh   *pawscript.StoredChannel
-	stdoutWriter  *io.PipeWriter
+	consoleOutCh     *pawscript.StoredChannel
+	consoleInCh      *pawscript.StoredChannel
+	stdoutWriter     *io.PipeWriter
+	clearInputQueue  func() // Clears pending input when starting a new script
 }
 
 // GuiState holds the current GUI state accessible to PawScript
@@ -388,7 +389,7 @@ func main() {
 			charHeight = 24
 		}
 
-		consoleOutCh, consoleInCh, _ := createConsoleChannels(consoleStdinWriter, consoleStdoutWriter, charWidth, charHeight)
+		consoleOutCh, consoleInCh, _, _ := createConsoleChannels(consoleStdinWriter, consoleStdoutWriter, charWidth, charHeight)
 
 		// Register standard library with custom IO channels
 		ioConfig := &pawscript.IOChannelConfig{
@@ -1180,6 +1181,11 @@ func runScriptInWindow(filePath string, ws *WindowState) {
 		return
 	}
 
+	// Clear any buffered input from previous script runs
+	if ws.clearInputQueue != nil {
+		ws.clearInputQueue()
+	}
+
 	content, err := os.ReadFile(filePath)
 	if err != nil {
 		// Write error to console
@@ -1297,7 +1303,7 @@ func runScriptFile(filePath string) {
 	charWidth := 80
 	charHeight := 25
 
-	consoleOutCh, consoleInCh, _ := createConsoleChannels(stdinWriter, stdoutWriter, charWidth, charHeight)
+	consoleOutCh, consoleInCh, _, _ := createConsoleChannels(stdinWriter, stdoutWriter, charWidth, charHeight)
 
 	// Register standard library with console IO
 	ioConfig := &pawscript.IOChannelConfig{
@@ -1391,7 +1397,7 @@ func createLauncherWindow() {
 	// Create console channels for script execution
 	charWidth := 80
 	charHeight := 25
-	consoleOutCh, consoleInCh, _ := createConsoleChannels(stdinWriter, stdoutWriter, charWidth, charHeight)
+	consoleOutCh, consoleInCh, _, clearQueue := createConsoleChannels(stdinWriter, stdoutWriter, charWidth, charHeight)
 
 	var ws *WindowState
 
@@ -1405,16 +1411,17 @@ func createLauncherWindow() {
 
 		// Create window state with console channels
 		ws = &WindowState{
-			window:       win,
-			content:      container.NewVBox(),
-			leftContent:  container.NewVBox(),
-			rightContent: container.NewVBox(),
-			usingSplit:   false,
-			widgets:      make(map[string]fyne.CanvasObject),
-			containers:   make(map[string]*fyne.Container),
-			consoleOutCh: consoleOutCh,
-			consoleInCh:  consoleInCh,
-			stdoutWriter: stdoutWriter,
+			window:          win,
+			content:         container.NewVBox(),
+			leftContent:     container.NewVBox(),
+			rightContent:    container.NewVBox(),
+			usingSplit:      false,
+			widgets:         make(map[string]fyne.CanvasObject),
+			containers:      make(map[string]*fyne.Container),
+			consoleOutCh:    consoleOutCh,
+			consoleInCh:     consoleInCh,
+			stdoutWriter:    stdoutWriter,
+			clearInputQueue: clearQueue,
 		}
 
 		// --- Left Panel: File Browser ---
@@ -1947,6 +1954,7 @@ func registerGuiCommands(ps *pawscript.PawScript) {
 
 		// For console mode, we need to set up pipes and channels
 		var consoleOutCh, consoleInCh *pawscript.StoredChannel
+		var clearQueue func()
 
 		if isConsole {
 			// Create pipes for console I/O
@@ -1963,20 +1971,21 @@ func registerGuiCommands(ps *pawscript.PawScript) {
 				charHeight = 24
 			}
 
-			consoleOutCh, consoleInCh, _ = createConsoleChannels(stdinWriter, stdoutWriter, charWidth, charHeight)
+			consoleOutCh, consoleInCh, _, clearQueue = createConsoleChannels(stdinWriter, stdoutWriter, charWidth, charHeight)
 
 			fyne.Do(func() {
 				newWindow := guiState.app.NewWindow(title)
 				newWindow.Resize(fyne.NewSize(width, height))
 
 				ws = &WindowState{
-					window:       newWindow,
-					content:      container.NewVBox(),
-					leftContent:  container.NewVBox(),
-					rightContent: container.NewVBox(),
-					usingSplit:   false,
-					widgets:      make(map[string]fyne.CanvasObject),
-					containers:   make(map[string]*fyne.Container),
+					window:          newWindow,
+					content:         container.NewVBox(),
+					leftContent:     container.NewVBox(),
+					rightContent:    container.NewVBox(),
+					usingSplit:      false,
+					widgets:         make(map[string]fyne.CanvasObject),
+					containers:      make(map[string]*fyne.Container),
+					clearInputQueue: clearQueue,
 				}
 
 				term := terminal.New()
@@ -2498,7 +2507,7 @@ func registerGuiCommands(ps *pawscript.PawScript) {
 			charHeight = 24
 		}
 
-		consoleOutCh, consoleInCh, termCaps := createConsoleChannels(stdinReader, stdoutWriter, charWidth, charHeight)
+		consoleOutCh, consoleInCh, termCaps, _ := createConsoleChannels(stdinReader, stdoutWriter, charWidth, charHeight)
 		_ = termCaps
 
 		term := terminal.New()
@@ -2682,7 +2691,7 @@ func (h *consoleInputHandler) readLine() (string, error) {
 
 // createConsoleChannels creates StoredChannels for the console terminal
 // NativeRecv returns raw bytes - line assembly is handled by PawScript's KeyInputManager
-func createConsoleChannels(stdinReader *io.PipeReader, stdoutWriter *io.PipeWriter, width, height int) (*pawscript.StoredChannel, *pawscript.StoredChannel, *pawscript.TerminalCapabilities) {
+func createConsoleChannels(stdinReader *io.PipeReader, stdoutWriter *io.PipeWriter, width, height int) (*pawscript.StoredChannel, *pawscript.StoredChannel, *pawscript.TerminalCapabilities, func()) {
 	termCaps := &pawscript.TerminalCapabilities{
 		TermType:      "gui-console",
 		IsTerminal:    true,
@@ -2804,7 +2813,19 @@ func createConsoleChannels(stdinReader *io.PipeReader, stdoutWriter *io.PipeWrit
 		},
 	}
 
-	return consoleOutCh, consoleInCh, termCaps
+	// clearQueue drains all pending input from the queue
+	clearQueue := func() {
+		for {
+			select {
+			case <-inputQueue:
+				// Discard
+			default:
+				return
+			}
+		}
+	}
+
+	return consoleOutCh, consoleInCh, termCaps, clearQueue
 }
 
 // Custom themes for light/dark mode toggle
