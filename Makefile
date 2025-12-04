@@ -81,6 +81,7 @@ endif
 # Install deps: apt install libgtk-3-dev (Linux), brew install gtk+3 (macOS)
 build-gui-gtk:
 	@echo "Building pawgui-gtk for native platform ($(NATIVE_OS)/$(NATIVE_ARCH))..."
+	@cd $(SRC_DIR) && go mod tidy
 ifeq ($(NATIVE_OS),windows)
 	cd $(SRC_DIR) && go build -o ../pawgui-gtk.exe ./cmd/pawgui-gtk
 	@echo "Created: pawgui-gtk.exe"
