@@ -46,7 +46,7 @@ ifeq ($(NATIVE_OS),windows)
 	@echo "Created: pawgui.exe (using ANGLE/DirectX backend)"
 else ifeq ($(NATIVE_OS),darwin)
 	cd $(SRC_DIR)/cmd/pawgui && $(FYNE) build -o ../../../pawgui
-	cd $(SRC_DIR)/cmd/pawgui && $(FYNE) package -name pawgui && mv pawgui.app ../../../
+	cd $(SRC_DIR)/cmd/pawgui && $(FYNE) package -name pawgui && rm -rf ../../../pawgui.app && mv pawgui.app ../../../
 	@echo "Created: pawgui (binary) and pawgui.app (bundle)"
 else
 	cd $(SRC_DIR)/cmd/pawgui && $(FYNE) build -o ../../../pawgui
