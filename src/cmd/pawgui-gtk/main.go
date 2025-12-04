@@ -15,7 +15,8 @@ import (
 	"github.com/sqp/vte"
 )
 
-// #cgo pkg-config: vte-2.91
+// #cgo pkg-config: gtk+-3.0 vte-2.91
+// #include <gtk/gtk.h>
 // #include <vte/vte.h>
 import "C"
 
@@ -162,13 +163,7 @@ func createTerminal() *gtk.Box {
 	label.SetMarginTop(5)
 	box.PackStart(label, false, false, 0)
 
-	// Scrolled window for terminal
-	scroll, _ := gtk.ScrolledWindowNew(nil, nil)
-	scroll.SetPolicy(gtk.POLICY_AUTOMATIC, gtk.POLICY_AUTOMATIC)
-	scroll.SetVExpand(true)
-	scroll.SetHExpand(true)
-
-	// VTE Terminal
+	// VTE Terminal (has built-in scrolling)
 	terminal = vte.NewTerminal()
 
 	// Dark color scheme
@@ -181,12 +176,16 @@ func createTerminal() *gtk.Box {
 	// Set scrollback
 	terminal.SetScrollbackLines(10000)
 
-	// Add terminal widget to scroll window
-	// Get the native VteTerminal pointer and wrap it as a GtkWidget
+	// Add terminal widget directly to box using C interop
+	// VteTerminal is a GtkWidget, so we can add it to the container
 	nativePtr := terminal.Native()
-	termWidget := gtk.WrapWidget(uintptr(unsafe.Pointer(nativePtr)))
-	scroll.Add(termWidget)
-	box.PackStart(scroll, true, true, 0)
+	C.gtk_box_pack_start(
+		(*C.GtkBox)(unsafe.Pointer(box.Native())),
+		(*C.GtkWidget)(unsafe.Pointer(nativePtr)),
+		C.TRUE,  // expand
+		C.TRUE,  // fill
+		0,       // padding
+	)
 
 	return box
 }
