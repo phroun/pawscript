@@ -720,6 +720,12 @@ func (m *KeyInputManager) parseAltSequence(seq string) (string, bool) {
 		case ' ':
 			return "M-Space", true
 		default:
+			// Control characters: M-^A through M-^Z (ESC + 0x01-0x1A)
+			// These come from Alt+Ctrl+letter combinations
+			if char >= 0x01 && char <= 0x1A {
+				letter := 'A' + char - 1 // ^A=1 -> 'A', ^K=11 -> 'K'
+				return fmt.Sprintf("M-^%c", letter), true
+			}
 			// Any other printable ASCII character
 			if char >= 0x20 && char < 0x7f {
 				return fmt.Sprintf("M-%c", char), true

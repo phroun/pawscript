@@ -733,9 +733,17 @@ func (w *Widget) handleRegularKey(keyval uint, key *gdk.EventKey, hasShift, hasC
 
 	// On macOS, Option key composes special Unicode characters (e.g., Option+R = ®)
 	// We want to treat Option as Alt/Meta modifier instead, using the base key
-	if runtime.GOOS == "darwin" && hasAlt && !hasCtrl {
+	if runtime.GOOS == "darwin" && hasAlt {
 		hwcode := key.HardwareKeyCode()
 		if baseCh := macKeycodeToChar(hwcode, hasShift); baseCh != 0 {
+			// Apply Ctrl transformation if needed (convert letter to control char)
+			if hasCtrl {
+				if baseCh >= 'a' && baseCh <= 'z' {
+					baseCh = baseCh - 'a' + 1
+				} else if baseCh >= 'A' && baseCh <= 'Z' {
+					baseCh = baseCh - 'A' + 1
+				}
+			}
 			// Send ESC + base character for Alt+key
 			return []byte{0x1b, baseCh}
 		}
