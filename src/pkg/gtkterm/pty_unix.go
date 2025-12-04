@@ -91,8 +91,8 @@ func newUnixPTY() (*UnixPTY, error) {
 	}
 	slaveName := C.GoString(&buf[0])
 
-	// Open slave
-	slave, err := os.OpenFile(slaveName, os.O_RDWR|syscall.O_NOCTTY, 0)
+	// Open slave - don't use O_NOCTTY so it can become controlling terminal
+	slave, err := os.OpenFile(slaveName, os.O_RDWR, 0)
 	if err != nil {
 		master.Close()
 		return nil, err
@@ -112,9 +112,11 @@ func (p *UnixPTY) Start(cmd *exec.Cmd) error {
 	cmd.Stderr = p.slave
 
 	// Set up session and controlling terminal
+	// Ctty must be set to the fd in the child's perspective (after dup2, it's 0)
 	cmd.SysProcAttr = &syscall.SysProcAttr{
 		Setsid:  true,
 		Setctty: true,
+		Ctty:    0, // stdin will be the controlling terminal
 	}
 
 	// Start the command

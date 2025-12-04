@@ -139,6 +139,8 @@ func (t *Terminal) RunCommand(name string, args ...string) error {
 		t.mu.Unlock()
 		return nil // Already running
 	}
+	// Create new done channel for this command
+	t.done = make(chan struct{})
 	t.mu.Unlock()
 
 	// Create PTY
