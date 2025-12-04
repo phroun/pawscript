@@ -160,7 +160,7 @@ func saveConfig(config pawscript.PSLConfig) {
 		return
 	}
 
-	data := pawscript.SerializePSL(config)
+	data := pawscript.SerializePSLPretty(config)
 	_ = os.WriteFile(configPath, []byte(data), 0644)
 }
 
