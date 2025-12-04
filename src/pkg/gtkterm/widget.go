@@ -529,12 +529,12 @@ func (w *Widget) onKeyPress(da *gtk.DrawingArea, ev *gdk.Event) bool {
 	onInput := w.onInput
 	w.mu.Unlock()
 
-	// Extract modifier states
-	hasShift := state&gdk.SHIFT_MASK != 0
-	hasCtrl := state&gdk.CONTROL_MASK != 0
-	hasAlt := state&gdk.MOD1_MASK != 0  // Alt key
-	hasMeta := state&gdk.META_MASK != 0 // Meta/Command key
-	hasSuper := state&gdk.SUPER_MASK != 0
+	// Extract modifier states (cast ModifierType to uint for bitwise ops)
+	hasShift := state&uint(gdk.SHIFT_MASK) != 0
+	hasCtrl := state&uint(gdk.CONTROL_MASK) != 0
+	hasAlt := state&uint(gdk.MOD1_MASK) != 0  // Alt key
+	hasMeta := state&uint(gdk.META_MASK) != 0 // Meta/Command key
+	hasSuper := state&uint(gdk.SUPER_MASK) != 0
 
 	// Handle clipboard operations (Ctrl+C with selection, Ctrl+V, Ctrl+A)
 	if hasCtrl && !hasAlt && !hasMeta {
