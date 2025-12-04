@@ -85,12 +85,13 @@ func init() {
 
 // Global state
 var (
-	currentDir string
-	mainWindow *gtk.ApplicationWindow
-	fileList   *gtk.ListBox
-	terminal   *purfectermgtk.Terminal
-	pathLabel  *gtk.Label
-	runButton  *gtk.Button
+	currentDir  string
+	mainWindow  *gtk.ApplicationWindow
+	fileList    *gtk.ListBox
+	terminal    *purfectermgtk.Terminal
+	pathLabel   *gtk.Label
+	runButton   *gtk.Button
+	contextMenu *gtk.Menu // Right-click context menu for terminal
 
 	// Console I/O for PawScript
 	consoleOutCh   *pawscript.StoredChannel
@@ -316,27 +317,12 @@ func activate(app *gtk.Application) {
 	screen := mainWindow.GetScreen()
 	gtk.AddProviderForScreen(screen, cssProvider, gtk.STYLE_PROVIDER_PRIORITY_APPLICATION)
 
-	// Create accelerator group for keyboard shortcuts
+	// Create accelerator group for keyboard shortcuts (quit shortcut)
 	accelGroup, _ := gtk.AccelGroupNew()
 	mainWindow.AddAccelGroup(accelGroup)
 
-	// Create main vertical box for menu + content
-	mainBox, _ := gtk.BoxNew(gtk.ORIENTATION_VERTICAL, 0)
-
-	// Create menu bar
-	menuBar, _ := gtk.MenuBarNew()
-
-	// File menu
-	fileMenuItem, _ := gtk.MenuItemNewWithLabel("File")
-	fileMenu, _ := gtk.MenuNew()
-	fileMenuItem.SetSubmenu(fileMenu)
-
-	// Quit menu item with configurable keyboard shortcut
-	quitItem, _ := gtk.MenuItemNewWithLabel("Quit")
-	quitItem.Connect("activate", func() {
-		mainWindow.Close()
-	})
 	// Add quit shortcut based on config (can be disabled by setting to nil)
+	// Uses a hidden menu item to handle the accelerator
 	quitShortcut := getQuitShortcut()
 	if quitShortcut != "" {
 		var quitKey uint
@@ -353,47 +339,46 @@ func activate(app *gtk.Application) {
 			quitMod = gdk.MOD1_MASK
 		}
 		if quitKey != 0 {
+			// Create hidden menu item just for the accelerator
+			quitItem, _ := gtk.MenuItemNew()
+			quitItem.Connect("activate", func() {
+				mainWindow.Close()
+			})
 			quitItem.AddAccelerator("activate", accelGroup, quitKey, quitMod, gtk.ACCEL_VISIBLE)
 		}
 	}
-	fileMenu.Append(quitItem)
 
-	// Edit menu - items available via mouse, no keyboard shortcuts
-	// (shortcuts would interfere with terminal input like Ctrl+A, Ctrl+C)
-	editMenuItem, _ := gtk.MenuItemNewWithLabel("Edit")
-	editMenu, _ := gtk.MenuNew()
-	editMenuItem.SetSubmenu(editMenu)
+	// Create context menu for terminal (right-click)
+	contextMenu, _ = gtk.MenuNew()
 
-	// Copy menu item (no shortcut - Ctrl+C should go to terminal for interrupt)
 	copyItem, _ := gtk.MenuItemNewWithLabel("Copy")
 	copyItem.Connect("activate", func() {
 		if terminal != nil {
 			terminal.CopySelection()
 		}
 	})
-	editMenu.Append(copyItem)
+	contextMenu.Append(copyItem)
 
-	// Select All menu item (no shortcut - Ctrl+A should go to terminal)
 	selectAllItem, _ := gtk.MenuItemNewWithLabel("Select All")
 	selectAllItem.Connect("activate", func() {
 		if terminal != nil {
 			terminal.SelectAll()
 		}
 	})
-	editMenu.Append(selectAllItem)
+	contextMenu.Append(selectAllItem)
 
-	// Clear menu item
 	clearItem, _ := gtk.MenuItemNewWithLabel("Clear")
 	clearItem.Connect("activate", func() {
 		if terminal != nil {
 			terminal.Clear()
 		}
 	})
-	editMenu.Append(clearItem)
+	contextMenu.Append(clearItem)
 
-	menuBar.Append(fileMenuItem)
-	menuBar.Append(editMenuItem)
-	mainBox.PackStart(menuBar, false, false, 0)
+	contextMenu.ShowAll()
+
+	// Create main vertical box for content (no menu bar)
+	mainBox, _ := gtk.BoxNew(gtk.ORIENTATION_VERTICAL, 0)
 
 	// Handle Alt+F4 on Windows/Linux (usually handled by window manager, but add for safety)
 	mainWindow.Connect("key-press-event", func(win *gtk.ApplicationWindow, ev *gdk.Event) bool {
@@ -556,6 +541,18 @@ func createTerminal() *gtk.Box {
 	termWidget.SetVExpand(true)
 	termWidget.SetHExpand(true)
 	box.PackStart(termWidget, true, true, 0)
+
+	// Connect right-click for context menu
+	termWidget.Connect("button-press-event", func(widget *gtk.Widget, ev *gdk.Event) bool {
+		btn := gdk.EventButtonNewFromEvent(ev)
+		if btn.Button() == 3 { // Right mouse button
+			if contextMenu != nil {
+				contextMenu.PopupAtPointer(ev)
+			}
+			return true
+		}
+		return false
+	})
 
 	// Create console channels for PawScript I/O
 	createConsoleChannels(100, 30)
