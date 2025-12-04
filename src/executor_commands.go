@@ -1960,6 +1960,23 @@ func (e *Executor) executeMacro(
 		result = earlyReturn.Status
 	}
 
+	// If result is a TokenResult (async operation like msleep), DON'T clean up
+	// the macro state - it's attached to the token and will be cleaned up when
+	// the async operation completes. Store parent state reference for result transfer.
+	if tokenResult, ok := result.(TokenResult); ok {
+		e.logger.DebugCat(CatCommand, "Macro returned async token %s, deferring cleanup", string(tokenResult))
+
+		// Store parent state reference so result can be transferred on completion
+		e.mu.Lock()
+		if tokenData, exists := e.activeTokens[string(tokenResult)]; exists {
+			tokenData.ParentState = state
+		}
+		e.mu.Unlock()
+
+		recycleSubstitutionContext(substitutionContext)
+		return result
+	}
+
 	// Merge macro exports into parent's LibraryInherited under "exports" module
 	macroState.moduleEnv.mu.RLock()
 	if exportsSection, exists := macroState.moduleEnv.ModuleExports["exports"]; exists && len(exportsSection) > 0 {

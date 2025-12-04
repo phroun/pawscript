@@ -8,6 +8,7 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"runtime"
 	"sort"
 	"strconv"
 	"strings"
@@ -1779,6 +1780,46 @@ func (ps *PawScript) RegisterSystemLib(scriptArgs []string) {
 		}()
 
 		return TokenResult(token)
+	})
+
+	// yield - synchronous yield to other goroutines and the system
+	// Unlike msleep (which uses async tokens), yield is synchronous and safe in tight loops
+	// Usage: yield [milliseconds] - default is 1ms
+	ps.RegisterCommandInModule("time", "yield", func(ctx *Context) Result {
+		ms := int64(1) // Default to 1ms
+
+		if len(ctx.Args) >= 1 {
+			switch v := ctx.Args[0].(type) {
+			case int:
+				ms = int64(v)
+			case int64:
+				ms = v
+			case float64:
+				ms = int64(v)
+			case string:
+				parsed, err := strconv.ParseInt(v, 10, 64)
+				if err == nil {
+					ms = parsed
+				}
+			}
+		}
+
+		if ms < 0 {
+			ms = 0
+		}
+		if ms > 1000 {
+			ms = 1000 // Cap at 1 second for safety
+		}
+
+		// Yield to scheduler first
+		runtime.Gosched()
+
+		// Then sleep for the specified time (blocking, not async)
+		if ms > 0 {
+			time.Sleep(time.Duration(ms) * time.Millisecond)
+		}
+
+		return BoolStatus(true)
 	})
 
 	// log_print - output log messages from scripts
