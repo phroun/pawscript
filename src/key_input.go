@@ -392,6 +392,24 @@ func (m *KeyInputManager) processByte(b byte, escTimeout *time.Timer) {
 			return
 		}
 
+		// Try dynamic parsing for CSI sequences with modifiers
+		if key, ok := m.parseModifiedCSI(seq); ok {
+			m.emitKey(key)
+			m.escBuffer = nil
+			m.inEscape = false
+			escTimeout.Stop()
+			return
+		}
+
+		// Try Alt+key parsing (ESC followed by character)
+		if key, ok := m.parseAltSequence(seq); ok {
+			m.emitKey(key)
+			m.escBuffer = nil
+			m.inEscape = false
+			escTimeout.Stop()
+			return
+		}
+
 		// Not a valid sequence - emit as individual keys
 		m.emitEscapeBuffer()
 		return
@@ -622,5 +640,243 @@ func (m *KeyInputManager) parseAltSequence(seq string) (string, bool) {
 			return fmt.Sprintf("M-%c", char), true
 		}
 	}
+	return "", false
+}
+
+// parseModifiedCSI dynamically parses CSI sequences with modifiers
+// Handles sequences not in the static escBindings map
+func (m *KeyInputManager) parseModifiedCSI(seq string) (string, bool) {
+	// Must start with ESC [
+	if len(seq) < 3 || seq[0] != 0x1b || seq[1] != '[' {
+		return "", false
+	}
+
+	body := seq[2:]
+	if len(body) == 0 {
+		return "", false
+	}
+
+	// Check for Shift+Tab: ESC [ Z
+	if body == "Z" {
+		return "S-Tab", true
+	}
+
+	// Final byte determines the key type
+	finalByte := body[len(body)-1]
+	if finalByte < 0x40 || finalByte > 0x7E {
+		return "", false
+	}
+
+	params := body[:len(body)-1]
+
+	// Split parameters by semicolon
+	parts := splitCSIParams(params)
+
+	switch finalByte {
+	case 'A', 'B', 'C', 'D':
+		// Cursor keys: ESC [ 1 ; <mod> <A-D>
+		return parseModifiedCursorKey(finalByte, parts)
+	case 'H', 'F':
+		// Home/End: ESC [ 1 ; <mod> <H|F>
+		return parseModifiedHomeEnd(finalByte, parts)
+	case 'P', 'Q', 'R', 'S':
+		// F1-F4: ESC [ 1 ; <mod> <P-S>
+		return parseModifiedF1toF4(finalByte, parts)
+	case '~':
+		// Tilde sequences: ESC [ <num> ; <mod> ~
+		return parseModifiedTildeKey(parts)
+	}
+
+	return "", false
+}
+
+// splitCSIParams splits parameter string by semicolons
+func splitCSIParams(params string) []string {
+	if params == "" {
+		return nil
+	}
+	var parts []string
+	start := 0
+	for i := 0; i <= len(params); i++ {
+		if i == len(params) || params[i] == ';' {
+			parts = append(parts, params[start:i])
+			start = i + 1
+		}
+	}
+	return parts
+}
+
+// modifierPrefix converts xterm modifier code to key prefix
+// mod = 1 + shift + 2*alt + 4*ctrl + 8*meta
+// Returns prefix like "S-", "C-", "M-", "S-C-", etc.
+func modifierPrefix(mod int) string {
+	if mod < 2 {
+		return ""
+	}
+	mod-- // Remove the base 1
+
+	prefix := ""
+	if mod&1 != 0 { // Shift
+		prefix += "S-"
+	}
+	if mod&2 != 0 { // Alt
+		prefix += "M-"
+	}
+	if mod&4 != 0 { // Ctrl
+		prefix += "C-"
+	}
+	if mod&8 != 0 { // Meta (Super)
+		prefix += "s-" // lowercase s for Super
+	}
+	return prefix
+}
+
+// parseModifierParam parses a modifier parameter string to int
+func parseModifierParam(s string) int {
+	if s == "" {
+		return 1
+	}
+	mod := 0
+	for _, c := range s {
+		if c >= '0' && c <= '9' {
+			mod = mod*10 + int(c-'0')
+		} else {
+			return 1
+		}
+	}
+	if mod < 1 {
+		return 1
+	}
+	return mod
+}
+
+// parseModifiedCursorKey handles ESC [ 1 ; <mod> <A-D>
+func parseModifiedCursorKey(finalByte byte, parts []string) (string, bool) {
+	keyNames := map[byte]string{
+		'A': "Up",
+		'B': "Down",
+		'C': "Right",
+		'D': "Left",
+	}
+
+	baseName, ok := keyNames[finalByte]
+	if !ok {
+		return "", false
+	}
+
+	// No params = unmodified
+	if len(parts) == 0 {
+		return baseName, true
+	}
+
+	// Need exactly 2 params: "1" and modifier
+	if len(parts) != 2 {
+		return "", false
+	}
+
+	mod := parseModifierParam(parts[1])
+	prefix := modifierPrefix(mod)
+	return prefix + baseName, true
+}
+
+// parseModifiedHomeEnd handles ESC [ 1 ; <mod> <H|F>
+func parseModifiedHomeEnd(finalByte byte, parts []string) (string, bool) {
+	keyNames := map[byte]string{
+		'H': "Home",
+		'F': "End",
+	}
+
+	baseName, ok := keyNames[finalByte]
+	if !ok {
+		return "", false
+	}
+
+	// No params = unmodified
+	if len(parts) == 0 {
+		return baseName, true
+	}
+
+	// Need exactly 2 params for modified version
+	if len(parts) != 2 {
+		return "", false
+	}
+
+	mod := parseModifierParam(parts[1])
+	prefix := modifierPrefix(mod)
+	return prefix + baseName, true
+}
+
+// parseModifiedF1toF4 handles ESC [ 1 ; <mod> <P-S>
+func parseModifiedF1toF4(finalByte byte, parts []string) (string, bool) {
+	keyNames := map[byte]string{
+		'P': "F1",
+		'Q': "F2",
+		'R': "F3",
+		'S': "F4",
+	}
+
+	baseName, ok := keyNames[finalByte]
+	if !ok {
+		return "", false
+	}
+
+	// No params = might be unmodified (though F1-F4 usually use SS3)
+	if len(parts) == 0 {
+		return baseName, true
+	}
+
+	// Need exactly 2 params for modified version
+	if len(parts) != 2 {
+		return "", false
+	}
+
+	mod := parseModifierParam(parts[1])
+	prefix := modifierPrefix(mod)
+	return prefix + baseName, true
+}
+
+// parseModifiedTildeKey handles ESC [ <num> ; <mod> ~
+func parseModifiedTildeKey(parts []string) (string, bool) {
+	// Tilde key number to name mapping
+	tildeKeys := map[int]string{
+		1:  "Home",
+		2:  "Insert",
+		3:  "Delete",
+		4:  "End",
+		5:  "PageUp",
+		6:  "PageDown",
+		15: "F5",
+		17: "F6",
+		18: "F7",
+		19: "F8",
+		20: "F9",
+		21: "F10",
+		23: "F11",
+		24: "F12",
+	}
+
+	if len(parts) == 0 {
+		return "", false
+	}
+
+	// First param is the key number
+	keyNum := parseModifierParam(parts[0])
+	baseName, ok := tildeKeys[keyNum]
+	if !ok {
+		return "", false
+	}
+
+	// One param = unmodified
+	if len(parts) == 1 {
+		return baseName, true
+	}
+
+	// Two params = modified
+	if len(parts) == 2 {
+		mod := parseModifierParam(parts[1])
+		prefix := modifierPrefix(mod)
+		return prefix + baseName, true
+	}
+
 	return "", false
 }
