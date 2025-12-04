@@ -720,7 +720,21 @@ func (m *KeyInputManager) parseAltSequence(seq string) (string, bool) {
 		case ' ':
 			return "M-Space", true
 		default:
-			// Control characters: M-^A through M-^Z (ESC + 0x01-0x1A)
+			// Special control characters with named keys
+			// ESC + control_char comes from Alt/Meta + the key that produces that control char
+			switch char {
+			case 0x09: // Tab (Ctrl+I)
+				return "M-Tab", true
+			case 0x0D: // Enter/CR (Ctrl+M)
+				return "M-Enter", true
+			case 0x7F: // DEL/Backspace
+				return "M-Backspace", true
+			case 0x08: // Backspace (Ctrl+H)
+				return "M-Backspace", true
+			case 0x1B: // ESC (another ESC)
+				return "M-Escape", true
+			}
+			// Other control characters: M-^A through M-^Z (ESC + 0x01-0x1A)
 			// These come from Alt+Ctrl+letter combinations
 			if char >= 0x01 && char <= 0x1A {
 				letter := 'A' + char - 1 // ^A=1 -> 'A', ^K=11 -> 'K'
@@ -777,6 +791,48 @@ func (m *KeyInputManager) parseModifiedCSI(seq string) (string, bool) {
 	case '~':
 		// Tilde sequences: ESC [ <num> ; <mod> ~
 		return parseModifiedTildeKey(parts)
+	case 'u':
+		// Kitty protocol: ESC [ keycode ; mod u
+		return parseKittyProtocol(parts)
+	}
+
+	return "", false
+}
+
+// parseKittyProtocol handles CSI keycode ; mod u format (kitty keyboard protocol)
+// This format encodes special keys with full modifier information
+func parseKittyProtocol(parts []string) (string, bool) {
+	if len(parts) == 0 {
+		return "", false
+	}
+
+	// First param is the keycode
+	keycode := parseModifierParam(parts[0])
+
+	// Map keycodes to key names
+	keyNames := map[int]string{
+		9:   "Tab",
+		13:  "Enter",
+		27:  "Escape",
+		127: "Backspace",
+	}
+
+	baseName, ok := keyNames[keycode]
+	if !ok {
+		// Unknown keycode
+		return "", false
+	}
+
+	// One param = unmodified (rare for kitty protocol)
+	if len(parts) == 1 {
+		return baseName, true
+	}
+
+	// Two params = modified
+	if len(parts) == 2 {
+		mod := parseModifierParam(parts[1])
+		prefix := modifierPrefix(mod)
+		return prefix + baseName, true
 	}
 
 	return "", false
