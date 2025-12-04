@@ -57,11 +57,27 @@ func activate(app *gtk.Application) {
 		return
 	}
 	mainWindow.SetTitle(appName)
-	mainWindow.SetDefaultSize(900, 600)
+	mainWindow.SetDefaultSize(1100, 750)
+
+	// Apply CSS for larger fonts throughout the UI
+	cssProvider, _ := gtk.CssProviderNew()
+	cssProvider.LoadFromData(`
+		* {
+			font-size: 15px;
+		}
+		button {
+			padding: 8px 16px;
+		}
+		label {
+			font-size: 15px;
+		}
+	`)
+	screen, _ := mainWindow.GetScreen()
+	gtk.AddProviderForScreen(screen, cssProvider, gtk.STYLE_PROVIDER_PRIORITY_APPLICATION)
 
 	// Create main horizontal paned (split view)
 	paned, _ := gtk.PanedNew(gtk.ORIENTATION_HORIZONTAL)
-	paned.SetPosition(300)
+	paned.SetPosition(350)
 
 	// Left panel: File browser
 	leftPanel := createFileBrowser()
@@ -170,8 +186,8 @@ func createTerminal() *gtk.Box {
 	terminal.SetBgColorFromString("#1e1e1e")
 	terminal.SetFgColorFromString("#d4d4d4")
 
-	// Set font
-	terminal.SetFontFromString("Monospace 11")
+	// Set font (1.5x size for better readability)
+	terminal.SetFontFromString("Monospace 16")
 
 	// Set scrollback
 	terminal.SetScrollbackLines(10000)
