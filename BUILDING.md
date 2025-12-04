@@ -150,4 +150,4 @@ make lint           # Run linter (requires golangci-lint)
 make help           # Show all targets
 ```
 
-brew install gtk4 gobject-introspection graphene
+brew install gtk+3 vte3
