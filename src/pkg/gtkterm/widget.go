@@ -22,6 +22,9 @@ import (
 	"github.com/gotk3/gotk3/gtk"
 )
 
+// Left padding for terminal content (pixels)
+const terminalLeftPadding = 8
+
 // Widget is a GTK terminal emulator widget
 type Widget struct {
 	mu sync.Mutex
@@ -133,9 +136,9 @@ func NewWidget(cols, rows, scrollbackSize int) (*Widget, error) {
 	// Get clipboard
 	w.clipboard, _ = gtk.ClipboardGet(gdk.SELECTION_CLIPBOARD)
 
-	// Set initial size based on character dimensions
+	// Set initial size based on character dimensions (plus left padding)
 	w.updateFontMetrics()
-	w.drawingArea.SetSizeRequest(cols*w.charWidth, rows*w.charHeight)
+	w.drawingArea.SetSizeRequest(cols*w.charWidth+terminalLeftPadding, rows*w.charHeight)
 
 	return w, nil
 }
@@ -229,12 +232,12 @@ func (w *Widget) onDraw(da *gtk.DrawingArea, cr *cairo.Context) bool {
 		cursorVisible = false
 	}
 
-	// Draw background
+	// Draw background (including left padding area)
 	cr.SetSourceRGB(
 		float64(scheme.Background.R)/255.0,
 		float64(scheme.Background.G)/255.0,
 		float64(scheme.Background.B)/255.0)
-	cr.Rectangle(0, 0, float64(cols*charWidth), float64(rows*charHeight))
+	cr.Rectangle(0, 0, float64(cols*charWidth+terminalLeftPadding), float64(rows*charHeight))
 	cr.Fill()
 
 	// Set up font
@@ -275,7 +278,7 @@ func (w *Widget) onDraw(da *gtk.DrawingArea, cr *cairo.Context) bool {
 					float64(bg.G)/255.0,
 					float64(bg.B)/255.0)
 				cr.Rectangle(
-					float64(x*charWidth),
+					float64(x*charWidth+terminalLeftPadding),
 					float64(y*charHeight),
 					float64(charWidth),
 					float64(charHeight))
@@ -294,7 +297,7 @@ func (w *Widget) onDraw(da *gtk.DrawingArea, cr *cairo.Context) bool {
 					cr.SelectFontFace(fontFamily, cairo.FONT_SLANT_NORMAL, cairo.FONT_WEIGHT_BOLD)
 				}
 
-				cr.MoveTo(float64(x*charWidth), float64(y*charHeight+charAscent))
+				cr.MoveTo(float64(x*charWidth+terminalLeftPadding), float64(y*charHeight+charAscent))
 				cr.ShowText(string(cell.Char))
 
 				// Reset font weight
@@ -310,7 +313,7 @@ func (w *Widget) onDraw(da *gtk.DrawingArea, cr *cairo.Context) bool {
 					float64(fg.G)/255.0,
 					float64(fg.B)/255.0)
 				cr.Rectangle(
-					float64(x*charWidth),
+					float64(x*charWidth+terminalLeftPadding),
 					float64((y+1)*charHeight-1),
 					float64(charWidth),
 					1)
@@ -329,7 +332,8 @@ func (w *Widget) screenToCell(screenX, screenY float64) (cellX, cellY int) {
 	charHeight := w.charHeight
 	w.mu.Unlock()
 
-	cellX = int(screenX) / charWidth
+	// Account for left padding when converting screen coords to cell
+	cellX = (int(screenX) - terminalLeftPadding) / charWidth
 	cellY = int(screenY) / charHeight
 
 	cols, rows := w.buffer.GetSize()
@@ -542,9 +546,9 @@ func (w *Widget) onKeyPress(da *gtk.DrawingArea, ev *gdk.Event) bool {
 func (w *Widget) onConfigure(da *gtk.DrawingArea, ev *gdk.Event) bool {
 	w.updateFontMetrics()
 
-	// Recalculate terminal size based on widget size
+	// Recalculate terminal size based on widget size (minus left padding)
 	alloc := da.GetAllocation()
-	newCols := alloc.GetWidth() / w.charWidth
+	newCols := (alloc.GetWidth() - terminalLeftPadding) / w.charWidth
 	newRows := alloc.GetHeight() / w.charHeight
 
 	if newCols < 1 {
