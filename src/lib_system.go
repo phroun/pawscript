@@ -850,6 +850,28 @@ func (ps *PawScript) RegisterSystemLib(scriptArgs []string) {
 			}
 		}
 
+		// If KeyInputManager is running and no explicit channel given, use its lines channel
+		// This ensures read works correctly when readkey_init has taken over stdin in raw mode
+		if len(ctx.Args) == 0 {
+			ctx.executor.mu.Lock()
+			manager := ctx.executor.keyInputManager
+			ctx.executor.mu.Unlock()
+
+			if manager != nil {
+				linesCh := manager.GetLinesChannel()
+				if linesCh != nil && linesCh.NativeRecv != nil {
+					_, value, err := ChannelRecv(linesCh)
+					if err != nil {
+						ctx.LogError(CatIO, fmt.Sprintf("Failed to read: %v", err))
+						ctx.SetResult("")
+						return BoolStatus(false)
+					}
+					ctx.SetResult(bytesToString(value))
+					return BoolStatus(true)
+				}
+			}
+		}
+
 		// Try to get input channel (handles direct channels, markers, #symbols, defaults to #in)
 		ch, found := getInputChannel(ctx, "#in")
 		if !found {
