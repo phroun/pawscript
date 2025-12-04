@@ -600,9 +600,10 @@ func (w *Widget) onKeyPress(da *gtk.DrawingArea, ev *gdk.Event) bool {
 	switch keyval {
 	case gdk.KEY_Return, gdk.KEY_KP_Enter:
 		if hasModifiers {
-			data = modifiedSpecialKey(mod, 13, 0) // CSI 13 ; mod u (kitty protocol) or just send CR
+			data = modifiedSpecialKey(mod, 13, 0) // CSI 13 ; mod u (kitty protocol)
+		} else {
+			data = []byte{'\r'}
 		}
-		data = []byte{'\r'}
 	case gdk.KEY_BackSpace:
 		if hasCtrl {
 			data = []byte{0x08} // Ctrl+Backspace = BS
