@@ -48,15 +48,15 @@ jobs:
 
       - name: Collect GTK DLLs
         run: |
-          mkdir -p dist/windows
+          mkdir -p dist/windows/lib
           cp pawgui-gtk-windows-amd64.exe dist/windows/
           cp paw-windows-amd64.exe dist/windows/
 
-          # Copy required GTK DLLs (recursively resolve dependencies)
+          # Copy required GTK DLLs to lib/ subfolder (recursively resolve dependencies)
           copy_dll_deps() {
             ldd "$1" 2>/dev/null | grep mingw64 | awk '{print $3}' | while read dll; do
-              if [ -f "$dll" ] && [ ! -f "dist/windows/$(basename $dll)" ]; then
-                cp "$dll" dist/windows/
+              if [ -f "$dll" ] && [ ! -f "dist/windows/lib/$(basename $dll)" ]; then
+                cp "$dll" dist/windows/lib/
                 copy_dll_deps "$dll"
               fi
             done
@@ -69,8 +69,8 @@ jobs:
             cp "$loader" dist/windows/lib/gdk-pixbuf-2.0/2.10.0/loaders/
             # Copy loader dependencies
             ldd "$loader" 2>/dev/null | grep mingw64 | awk '{print $3}' | while read dll; do
-              if [ -f "$dll" ] && [ ! -f "dist/windows/$(basename $dll)" ]; then
-                cp "$dll" dist/windows/
+              if [ -f "$dll" ] && [ ! -f "dist/windows/lib/$(basename $dll)" ]; then
+                cp "$dll" dist/windows/lib/
               fi
             done
           done
