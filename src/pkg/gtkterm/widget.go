@@ -548,7 +548,9 @@ func (w *Widget) onKeyPress(da *gtk.DrawingArea, ev *gdk.Event) bool {
 		return false
 	}
 
-	// Handle clipboard operations (Ctrl+C with selection, Ctrl+V, Ctrl+A)
+	// Handle clipboard operations (Ctrl+C with selection, Ctrl+V)
+	// Note: Ctrl+A is NOT handled here - it passes through to the terminal
+	// for programs that use it (e.g., readline beginning-of-line)
 	if hasCtrl && !hasAlt && !hasMeta {
 		switch keyval {
 		case gdk.KEY_c, gdk.KEY_C:
@@ -567,9 +569,6 @@ func (w *Widget) onKeyPress(da *gtk.DrawingArea, ev *gdk.Event) bool {
 					onInput([]byte(text))
 				}
 			}
-			return true
-		case gdk.KEY_a, gdk.KEY_A:
-			w.buffer.SelectAll()
 			return true
 		}
 	}

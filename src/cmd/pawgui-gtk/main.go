@@ -210,6 +210,36 @@ func getOptimizationLevel() int {
 	return 1
 }
 
+// getQuitShortcut returns the configured quit shortcut
+// Valid values: "Cmd+Q", "Ctrl+Q", "Alt+F4", or "" (disabled)
+// Default: "Cmd+Q" on macOS, "Ctrl+Q" on Linux/Windows
+func getQuitShortcut() string {
+	if appConfig != nil {
+		// Check if explicitly set (even to empty string)
+		if val, exists := appConfig["quit_shortcut"]; exists {
+			if val == nil {
+				return "" // nil means disabled
+			}
+			if s, ok := val.(string); ok {
+				return s
+			}
+		}
+	}
+	// Platform default
+	if runtime.GOOS == "darwin" {
+		return "Cmd+Q"
+	}
+	return "Ctrl+Q"
+}
+
+// getDefaultQuitShortcut returns the platform-appropriate default quit shortcut
+func getDefaultQuitShortcut() string {
+	if runtime.GOOS == "darwin" {
+		return "Cmd+Q"
+	}
+	return "Ctrl+Q"
+}
+
 func main() {
 	app, err := gtk.ApplicationNew(appID, glib.APPLICATION_FLAGS_NONE)
 	if err != nil {
@@ -246,6 +276,11 @@ func activate(app *gtk.Application) {
 	// optimization_level: 0=no caching, 1=cache macro/loop bodies (default)
 	if _, exists := appConfig["optimization_level"]; !exists {
 		appConfig.Set("optimization_level", 1)
+		configModified = true
+	}
+	// quit_shortcut: "Cmd+Q", "Ctrl+Q", "Alt+F4", or nil to disable
+	if _, exists := appConfig["quit_shortcut"]; !exists {
+		appConfig.Set("quit_shortcut", getDefaultQuitShortcut())
 		configModified = true
 	}
 	if configModified {
@@ -296,59 +331,55 @@ func activate(app *gtk.Application) {
 	fileMenu, _ := gtk.MenuNew()
 	fileMenuItem.SetSubmenu(fileMenu)
 
-	// Quit menu item with keyboard shortcut
+	// Quit menu item with configurable keyboard shortcut
 	quitItem, _ := gtk.MenuItemNewWithLabel("Quit")
 	quitItem.Connect("activate", func() {
 		mainWindow.Close()
 	})
-	// Add Cmd+Q (Mac) or Ctrl+Q (Linux/Windows) accelerator
-	quitKey := uint(gdk.KEY_q)
-	var quitMod gdk.ModifierType
-	if runtime.GOOS == "darwin" {
-		quitMod = gdk.META_MASK // Cmd key on macOS
-	} else {
-		quitMod = gdk.CONTROL_MASK
+	// Add quit shortcut based on config (can be disabled by setting to nil)
+	quitShortcut := getQuitShortcut()
+	if quitShortcut != "" {
+		var quitKey uint
+		var quitMod gdk.ModifierType
+		switch quitShortcut {
+		case "Cmd+Q":
+			quitKey = uint(gdk.KEY_q)
+			quitMod = gdk.META_MASK
+		case "Ctrl+Q":
+			quitKey = uint(gdk.KEY_q)
+			quitMod = gdk.CONTROL_MASK
+		case "Alt+F4":
+			quitKey = uint(gdk.KEY_F4)
+			quitMod = gdk.MOD1_MASK
+		}
+		if quitKey != 0 {
+			quitItem.AddAccelerator("activate", accelGroup, quitKey, quitMod, gtk.ACCEL_VISIBLE)
+		}
 	}
-	quitItem.AddAccelerator("activate", accelGroup, quitKey, quitMod, gtk.ACCEL_VISIBLE)
 	fileMenu.Append(quitItem)
 
-	// Edit menu
+	// Edit menu - items available via mouse, no keyboard shortcuts
+	// (shortcuts would interfere with terminal input like Ctrl+A, Ctrl+C)
 	editMenuItem, _ := gtk.MenuItemNewWithLabel("Edit")
 	editMenu, _ := gtk.MenuNew()
 	editMenuItem.SetSubmenu(editMenu)
 
-	// Copy menu item with Cmd/Ctrl+C
+	// Copy menu item (no shortcut - Ctrl+C should go to terminal for interrupt)
 	copyItem, _ := gtk.MenuItemNewWithLabel("Copy")
 	copyItem.Connect("activate", func() {
 		if terminal != nil {
 			terminal.CopySelection()
 		}
 	})
-	copyKey := uint(gdk.KEY_c)
-	var copyMod gdk.ModifierType
-	if runtime.GOOS == "darwin" {
-		copyMod = gdk.META_MASK
-	} else {
-		copyMod = gdk.CONTROL_MASK
-	}
-	copyItem.AddAccelerator("activate", accelGroup, copyKey, copyMod, gtk.ACCEL_VISIBLE)
 	editMenu.Append(copyItem)
 
-	// Select All menu item with Cmd/Ctrl+A
+	// Select All menu item (no shortcut - Ctrl+A should go to terminal)
 	selectAllItem, _ := gtk.MenuItemNewWithLabel("Select All")
 	selectAllItem.Connect("activate", func() {
 		if terminal != nil {
 			terminal.SelectAll()
 		}
 	})
-	selectAllKey := uint(gdk.KEY_a)
-	var selectAllMod gdk.ModifierType
-	if runtime.GOOS == "darwin" {
-		selectAllMod = gdk.META_MASK
-	} else {
-		selectAllMod = gdk.CONTROL_MASK
-	}
-	selectAllItem.AddAccelerator("activate", accelGroup, selectAllKey, selectAllMod, gtk.ACCEL_VISIBLE)
 	editMenu.Append(selectAllItem)
 
 	// Clear menu item
