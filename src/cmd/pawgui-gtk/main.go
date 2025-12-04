@@ -75,6 +75,27 @@ func activate(app *gtk.Application) {
 	screen := mainWindow.GetScreen()
 	gtk.AddProviderForScreen(screen, cssProvider, gtk.STYLE_PROVIDER_PRIORITY_APPLICATION)
 
+	// Create main vertical box for menu + content
+	mainBox, _ := gtk.BoxNew(gtk.ORIENTATION_VERTICAL, 0)
+
+	// Create menu bar
+	menuBar, _ := gtk.MenuBarNew()
+
+	// File menu
+	fileMenuItem, _ := gtk.MenuItemNewWithLabel("File")
+	fileMenu, _ := gtk.MenuNew()
+	fileMenuItem.SetSubmenu(fileMenu)
+
+	// Quit menu item
+	quitItem, _ := gtk.MenuItemNewWithLabel("Quit")
+	quitItem.Connect("activate", func() {
+		mainWindow.Close()
+	})
+	fileMenu.Append(quitItem)
+
+	menuBar.Append(fileMenuItem)
+	mainBox.PackStart(menuBar, false, false, 0)
+
 	// Create main horizontal paned (split view)
 	paned, _ := gtk.PanedNew(gtk.ORIENTATION_HORIZONTAL)
 	paned.SetPosition(400)
@@ -83,11 +104,13 @@ func activate(app *gtk.Application) {
 	leftPanel := createFileBrowser()
 	paned.Pack1(leftPanel, false, false)
 
-	// Right panel: Terminal
+	// Right panel: Terminal (with left margin for spacing from divider)
 	rightPanel := createTerminal()
+	rightPanel.SetMarginStart(8) // 8 pixel spacer from divider
 	paned.Pack2(rightPanel, true, false)
 
-	mainWindow.Add(paned)
+	mainBox.PackStart(paned, true, true, 0)
+	mainWindow.Add(mainBox)
 
 	// Load initial directory
 	currentDir = getDefaultDir()
