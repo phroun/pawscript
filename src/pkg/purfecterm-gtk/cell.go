@@ -1,4 +1,4 @@
-package gtkterm
+package purfectermgtk
 
 // Cell represents a single character cell in the terminal
 type Cell struct {

@@ -1,7 +1,7 @@
 //go:build windows
 // +build windows
 
-package gtkterm
+package purfectermgtk
 
 import (
 	"errors"

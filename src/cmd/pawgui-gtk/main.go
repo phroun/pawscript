@@ -16,7 +16,7 @@ import (
 	"github.com/gotk3/gotk3/glib"
 	"github.com/gotk3/gotk3/gtk"
 	"github.com/phroun/pawscript"
-	"github.com/phroun/pawscript/pkg/gtkterm"
+	purfectermgtk "github.com/phroun/pawscript/pkg/purfecterm-gtk"
 	"github.com/sqweek/dialog"
 )
 
@@ -88,7 +88,7 @@ var (
 	currentDir string
 	mainWindow *gtk.ApplicationWindow
 	fileList   *gtk.ListBox
-	terminal   *gtkterm.Terminal
+	terminal   *purfectermgtk.Terminal
 	pathLabel  *gtk.Label
 	runButton  *gtk.Button
 
@@ -529,18 +529,18 @@ func createTerminal() *gtk.Box {
 
 	// Create terminal with gtkterm package using config settings
 	var err error
-	terminal, err = gtkterm.New(gtkterm.Options{
+	terminal, err = purfectermgtk.New(purfectermgtk.Options{
 		Cols:           100,
 		Rows:           30,
 		ScrollbackSize: 10000,
 		FontFamily:     getFontFamily(),
 		FontSize:       getFontSize(),
-		Scheme: gtkterm.ColorScheme{
-			Foreground: gtkterm.Color{R: 212, G: 212, B: 212},
-			Background: gtkterm.Color{R: 30, G: 30, B: 30},
-			Cursor:     gtkterm.Color{R: 255, G: 255, B: 255},
-			Selection:  gtkterm.Color{R: 68, G: 68, B: 68},
-			Palette:    gtkterm.ANSIColors,
+		Scheme: purfectermgtk.ColorScheme{
+			Foreground: purfectermgtk.Color{R: 212, G: 212, B: 212},
+			Background: purfectermgtk.Color{R: 30, G: 30, B: 30},
+			Cursor:     purfectermgtk.Color{R: 255, G: 255, B: 255},
+			Selection:  purfectermgtk.Color{R: 68, G: 68, B: 68},
+			Palette:    purfectermgtk.ANSIColors,
 		},
 	})
 	if err != nil {
