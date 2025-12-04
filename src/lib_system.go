@@ -1083,6 +1083,14 @@ func (ps *PawScript) RegisterSystemLib(scriptArgs []string) {
 		inputReader := &channelReader{ch: inputCh}
 		manager := NewKeyInputManager(inputReader, echoWriter, nil)
 
+		// If input channel is terminal-backed, set up line echo writer for {read} operations
+		// This ensures echo works during line read mode even though we're using channel input
+		if inputCh.Terminal != nil && inputCh.Terminal.IsTerminal {
+			if outCh := resolveChannel(ctx, "#out"); outCh != nil {
+				manager.SetLineEchoWriter(&channelWriter{ch: outCh})
+			}
+		}
+
 		// Start the manager (won't touch terminal since input is a channel, not os.Stdin directly)
 		if err := manager.Start(); err != nil {
 			// Restore line mode on failure
