@@ -20,6 +20,30 @@ import (
 	"github.com/sqweek/dialog"
 )
 
+// Default font settings
+// Font priority: platform-specific defaults with cross-platform fallbacks
+// - macOS: Menlo (built-in)
+// - Windows: Cascadia Mono (Win11), Consolas (Win7+), Courier New (fallback)
+// - Linux: JetBrains Mono, DejaVu Sans Mono, monospace
+const (
+	defaultFontSize = 22
+)
+
+// getDefaultFont returns the best monospace font for the current platform
+func getDefaultFont() string {
+	switch runtime.GOOS {
+	case "darwin":
+		return "Menlo"
+	case "windows":
+		// Cascadia Mono is on Windows 11+ and Windows Terminal
+		// Consolas is on Windows Vista+, Courier New is universal fallback
+		return "Cascadia Mono, Consolas, Courier New"
+	default:
+		// Linux: try popular coding fonts first
+		return "JetBrains Mono, DejaVu Sans Mono, Liberation Mono, monospace"
+	}
+}
+
 const (
 	appID   = "com.pawscript.pawgui-gtk"
 	appName = "PawScript Launcher (GTK)"
@@ -76,7 +100,114 @@ var (
 	clearInputFunc func()
 	scriptRunning  bool
 	scriptMu       sync.Mutex
+
+	// Configuration loaded at startup
+	appConfig pawscript.PSLConfig
 )
+
+// --- Configuration Management ---
+
+// getConfigDir returns the path to the .paw config directory in the user's home
+func getConfigDir() string {
+	home, err := os.UserHomeDir()
+	if err != nil {
+		return ""
+	}
+	return filepath.Join(home, ".paw")
+}
+
+// getConfigPath returns the path to the pawgui-gtk.psl config file
+func getConfigPath() string {
+	configDir := getConfigDir()
+	if configDir == "" {
+		return ""
+	}
+	return filepath.Join(configDir, "pawgui-gtk.psl")
+}
+
+// loadConfig loads the configuration from ~/.paw/pawgui-gtk.psl
+// Returns an empty config if the file doesn't exist or can't be read
+func loadConfig() pawscript.PSLConfig {
+	configPath := getConfigPath()
+	if configPath == "" {
+		return pawscript.PSLConfig{}
+	}
+
+	data, err := os.ReadFile(configPath)
+	if err != nil {
+		return pawscript.PSLConfig{}
+	}
+
+	config, err := pawscript.ParsePSL(string(data))
+	if err != nil {
+		return pawscript.PSLConfig{}
+	}
+
+	return config
+}
+
+// saveConfig saves the configuration to ~/.paw/pawgui-gtk.psl
+// Silently fails if there are any errors (graceful degradation)
+func saveConfig(config pawscript.PSLConfig) {
+	configPath := getConfigPath()
+	if configPath == "" {
+		return
+	}
+
+	// Ensure config directory exists
+	configDir := getConfigDir()
+	if err := os.MkdirAll(configDir, 0755); err != nil {
+		return
+	}
+
+	data := pawscript.SerializePSL(config)
+	_ = os.WriteFile(configPath, []byte(data), 0644)
+}
+
+// saveBrowseDir saves the current browse directory to config
+func saveBrowseDir(dir string) {
+	appConfig.Set("last_browse_dir", dir)
+	saveConfig(appConfig)
+}
+
+// getFontFamily returns the configured font family or platform default
+func getFontFamily() string {
+	if appConfig != nil {
+		if font := appConfig.GetString("font_family", ""); font != "" {
+			return font
+		}
+	}
+	return getDefaultFont()
+}
+
+// getFontSize returns the configured font size or default
+func getFontSize() int {
+	if appConfig != nil {
+		if size := appConfig.GetInt("font_size", 0); size > 0 {
+			return size
+		}
+	}
+	return defaultFontSize
+}
+
+// getUIScale returns the configured UI scale factor (default 1.0)
+func getUIScale() float64 {
+	if appConfig != nil {
+		if scale := appConfig.GetFloat("ui_scale", 0); scale > 0 {
+			return scale
+		}
+	}
+	return 1.0
+}
+
+// getOptimizationLevel returns the configured optimization level (default 1)
+// 0 = no caching, 1 = cache macro/loop bodies
+func getOptimizationLevel() int {
+	if appConfig != nil {
+		return appConfig.GetInt("optimization_level", 1)
+	}
+	return 1
+}
 
 func main() {
 	app, err := gtk.ApplicationNew(appID, glib.APPLICATION_FLAGS_NONE)
@@ -93,6 +224,32 @@ func main() {
 }
 
 func activate(app *gtk.Application) {
+	// Load configuration
+	appConfig = loadConfig()
+
+	// Ensure config has defaults and save (creates file if missing)
+	configModified := false
+	if appConfig.GetString("font_family", "") == "" {
+		appConfig.Set("font_family", getDefaultFont())
+		configModified = true
+	}
+	if appConfig.GetInt("font_size", 0) == 0 {
+		appConfig.Set("font_size", defaultFontSize)
+		configModified = true
+	}
+	if appConfig.GetFloat("ui_scale", 0) == 0 {
+		appConfig.Set("ui_scale", 1.0)
+		configModified = true
+	}
+	// optimization_level: 0=no caching, 1=cache macro/loop bodies (default)
+	if _, exists := appConfig["optimization_level"]; !exists {
+		appConfig.Set("optimization_level", 1)
+		configModified = true
+	}
+	if configModified {
+		saveConfig(appConfig)
+	}
+
 	// Create main window
 	var err error
 	mainWindow, err = gtk.ApplicationWindowNew(app)
@@ -103,19 +260,22 @@ func activate(app *gtk.Application) {
 	mainWindow.SetTitle(appName)
 	mainWindow.SetDefaultSize(1100, 750)
 
-	// Apply CSS for larger fonts throughout the UI (2x original size)
+	// Apply CSS for UI scaling (base size 10px, scaled by ui_scale config)
+	uiScale := getUIScale()
+	baseFontSize := int(10.0 * uiScale)
+	buttonPadding := int(6.0 * uiScale)
 	cssProvider, _ := gtk.CssProviderNew()
-	cssProvider.LoadFromData(`
+	cssProvider.LoadFromData(fmt.Sprintf(`
 		* {
-			font-size: 20px;
+			font-size: %dpx;
 		}
 		button {
-			padding: 12px 24px;
+			padding: %dpx %dpx;
 		}
 		label {
-			font-size: 20px;
+			font-size: %dpx;
 		}
-	`)
+	`, baseFontSize*2, buttonPadding*2, buttonPadding*4, baseFontSize*2))
 	screen := mainWindow.GetScreen()
 	gtk.AddProviderForScreen(screen, cssProvider, gtk.STYLE_PROVIDER_PRIORITY_APPLICATION)
 
@@ -245,7 +405,17 @@ func activate(app *gtk.Application) {
 }
 
 func getDefaultDir() string {
-	// Try to find examples directory
+	// First try saved last_browse_dir from config
+	if appConfig != nil {
+		savedDir := appConfig.GetString("last_browse_dir", "")
+		if savedDir != "" {
+			if info, err := os.Stat(savedDir); err == nil && info.IsDir() {
+				return savedDir
+			}
+		}
+	}
+
+	// Try to find examples directory relative to executable
 	if exe, err := os.Executable(); err == nil {
 		exeDir := filepath.Dir(exe)
 		examples := filepath.Join(exeDir, "examples")
@@ -253,6 +423,7 @@ func getDefaultDir() string {
 			return examples
 		}
 	}
+
 	// Fall back to current directory
 	if cwd, err := os.Getwd(); err == nil {
 		return cwd
@@ -323,14 +494,14 @@ func createTerminal() *gtk.Box {
 	label.SetMarginTop(5)
 	box.PackStart(label, false, false, 0)
 
-	// Create terminal with gtkterm package
+	// Create terminal with gtkterm package using config settings
 	var err error
 	terminal, err = gtkterm.New(gtkterm.Options{
 		Cols:           100,
 		Rows:           30,
 		ScrollbackSize: 10000,
-		FontFamily:     "Menlo",
-		FontSize:       22, // 2x size for better readability
+		FontFamily:     getFontFamily(),
+		FontSize:       getFontSize(),
 		Scheme: gtkterm.ColorScheme{
 			Foreground: gtkterm.Color{R: 212, G: 212, B: 212},
 			Background: gtkterm.Color{R: 30, G: 30, B: 30},
@@ -501,6 +672,8 @@ func handleFileSelection(name string) {
 		}
 		refreshFileList()
 		updatePathLabel()
+		// Save the new directory to config
+		saveBrowseDir(currentDir)
 	} else {
 		// Run the script
 		runScript(fullPath)
@@ -520,6 +693,8 @@ func onBrowseClicked() {
 		currentDir = filepath.Dir(file)
 		refreshFileList()
 		updatePathLabel()
+		// Save the new directory to config
+		saveBrowseDir(currentDir)
 		runScript(file)
 	}
 }
@@ -575,6 +750,7 @@ func runScript(filePath string) {
 		ContextLines:         2,
 		FileAccess:           fileAccess,
 		ScriptDir:            scriptDir,
+		OptLevel:             pawscript.OptimizationLevel(getOptimizationLevel()),
 	})
 
 	// Register standard library with the console IO
