@@ -17,7 +17,7 @@ else
 endif
 
 .PHONY: build-all build-all-gui clean-releases build build-gui build-gui-debug build-gui-software install test test-coverage run-example clean fmt lint help \
-	build-gui-macos-arm64 build-gui-macos-x64 build-gui-ms-arm64 build-gui-ms-x64 build-gui-linux-arm64 build-gui-linux-x64
+	build-gui-macos-arm64 build-gui-macos-x64 build-gui-ms-arm64 build-gui-ms-x64 build-gui-linux-arm64 build-gui-linux-x64 ensure-fyne
 
 # Build native version for local use
 build:
@@ -30,8 +30,12 @@ build-token-example:
 	cd $(SRC_DIR) && go build -ldflags "-X main.version=$(VERSION)" -o ../token_example ./cmd/token_example
 	@echo "Created: token_example"
 
-# Build GUI version (requires Fyne CLI: go install fyne.io/fyne/v2/cmd/fyne@latest)
-build-gui:
+# Ensure fyne CLI is installed
+ensure-fyne:
+	@which fyne > /dev/null 2>&1 || (echo "Installing fyne CLI..." && go install fyne.io/fyne/v2/cmd/fyne@latest)
+
+# Build GUI version (auto-installs fyne CLI if needed)
+build-gui: ensure-fyne
 	@echo "Building pawgui for native platform ($(NATIVE_OS)/$(NATIVE_ARCH))..."
 ifeq ($(NATIVE_OS),windows)
 	cd $(SRC_DIR)/cmd/pawgui && fyne build --tags openglangle -o ../../../pawgui.exe
@@ -59,7 +63,7 @@ else
 endif
 
 # Build GUI with software rendering (for systems with graphics driver issues)
-build-gui-software:
+build-gui-software: ensure-fyne
 	@echo "Building pawgui with software rendering for $(NATIVE_OS)/$(NATIVE_ARCH)..."
 ifeq ($(NATIVE_OS),windows)
 	cd $(SRC_DIR)/cmd/pawgui && fyne build --tags software -o ../../../pawgui-software.exe
