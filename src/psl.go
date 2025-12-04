@@ -35,6 +35,24 @@ func SerializePSL(config PSLConfig) string {
 	return formatListForDisplay(list)
 }
 
+// SerializePSLPretty serializes a PSLConfig to PSL format with pretty indentation
+// Each named argument on its own line for readability
+func SerializePSLPretty(config PSLConfig) string {
+	if len(config) == 0 {
+		return "()"
+	}
+
+	// Convert to named args map with PawScript values
+	namedArgs := make(map[string]interface{})
+	for key, value := range config {
+		namedArgs[key] = convertToPawValue(value)
+	}
+
+	// Create StoredList with named args and use pretty serialization
+	list := NewStoredListWithNamed(nil, namedArgs)
+	return formatListForDisplayPretty(list, 0)
+}
+
 // SerializePSLList serializes a PSLList to PSL format string
 func SerializePSLList(list PSLList) string {
 	if len(list) == 0 {

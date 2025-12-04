@@ -536,6 +536,17 @@ func (w *Widget) onKeyPress(da *gtk.DrawingArea, ev *gdk.Event) bool {
 	hasMeta := state&uint(gdk.META_MASK) != 0 // Meta/Command key
 	hasSuper := state&uint(gdk.SUPER_MASK) != 0
 
+	// Ignore modifier-only key presses (they don't produce terminal output)
+	if isModifierKey(keyval) {
+		return false
+	}
+
+	// Also check hardware keycode for Wine/Windows modifier keys
+	hwcode := key.HardwareKeyCode()
+	if isModifierKeycode(hwcode) {
+		return false
+	}
+
 	// Handle clipboard operations (Ctrl+C with selection, Ctrl+V, Ctrl+A)
 	if hasCtrl && !hasAlt && !hasMeta {
 		switch keyval {
@@ -1045,4 +1056,39 @@ func hardwareKeycodeToChar(hwcode uint16, shift bool) byte {
 	}
 
 	return 0
+}
+
+// isModifierKey returns true if the GDK keyval is a modifier key
+// Modifier keys alone don't produce terminal output
+func isModifierKey(keyval uint) bool {
+	switch keyval {
+	case gdk.KEY_Shift_L, gdk.KEY_Shift_R,
+		gdk.KEY_Control_L, gdk.KEY_Control_R,
+		gdk.KEY_Alt_L, gdk.KEY_Alt_R,
+		gdk.KEY_Meta_L, gdk.KEY_Meta_R,
+		gdk.KEY_Super_L, gdk.KEY_Super_R,
+		gdk.KEY_Hyper_L, gdk.KEY_Hyper_R,
+		gdk.KEY_Caps_Lock, gdk.KEY_Num_Lock, gdk.KEY_Scroll_Lock:
+		return true
+	}
+	return false
+}
+
+// isModifierKeycode returns true if the hardware keycode is a Windows VK modifier key
+// This catches modifier keys on Wine/Windows when GDK keyval detection fails
+func isModifierKeycode(hwcode uint16) bool {
+	switch hwcode {
+	case 16,         // VK_SHIFT
+		17,          // VK_CONTROL
+		18,          // VK_MENU (Alt)
+		20,          // VK_CAPITAL (Caps Lock)
+		91, 92,      // VK_LWIN, VK_RWIN (Windows/Command keys)
+		144,         // VK_NUMLOCK
+		145,         // VK_SCROLL
+		160, 161,    // VK_LSHIFT, VK_RSHIFT
+		162, 163,    // VK_LCONTROL, VK_RCONTROL
+		164, 165:    // VK_LMENU, VK_RMENU (Left/Right Alt)
+		return true
+	}
+	return false
 }
