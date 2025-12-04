@@ -28,7 +28,7 @@ macro clamp (
 )
 
 # Initialize keyboard input
-channels: {readkey_init}
+channels: {readkey_init ~#in, echo: ~#out}
 linesCh: {argv ~channels, 1}
 keysCh: {argv ~channels, 2}
 
