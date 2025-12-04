@@ -714,7 +714,7 @@ func (w *Widget) onKeyPress(da *gtk.DrawingArea, ev *gdk.Event) bool {
 		// If still no data, try regular character from hardware keycode
 		if len(data) == 0 {
 			if ch := hardwareKeycodeToChar(hwcode, hasShift); ch != 0 {
-				data = w.processCharWithModifiers(ch, hasCtrl, hasAlt, hasMeta, hasSuper)
+				data = w.processCharWithModifiers(ch, hasShift, hasCtrl, hasAlt, hasMeta, hasSuper)
 			}
 		}
 	}
