@@ -34,14 +34,14 @@ build-token-example:
 build-gui:
 	@echo "Building pawgui for native platform ($(NATIVE_OS)/$(NATIVE_ARCH))..."
 ifeq ($(NATIVE_OS),windows)
-	cd $(SRC_DIR) && fyne build --tags openglangle -o ../pawgui.exe ./cmd/pawgui
+	cd $(SRC_DIR)/cmd/pawgui && fyne build --tags openglangle -o ../../../pawgui.exe
 	@echo "Created: pawgui.exe (using ANGLE/DirectX backend)"
 else ifeq ($(NATIVE_OS),darwin)
-	cd $(SRC_DIR) && fyne build -o ../pawgui ./cmd/pawgui
+	cd $(SRC_DIR)/cmd/pawgui && fyne build -o ../../../pawgui
 	cd $(SRC_DIR)/cmd/pawgui && fyne package -name pawgui && mv pawgui.app ../../../
 	@echo "Created: pawgui (binary) and pawgui.app (bundle)"
 else
-	cd $(SRC_DIR) && fyne build -o ../pawgui ./cmd/pawgui
+	cd $(SRC_DIR)/cmd/pawgui && fyne build -o ../../../pawgui
 	@echo "Created: pawgui"
 endif
 
@@ -62,10 +62,10 @@ endif
 build-gui-software:
 	@echo "Building pawgui with software rendering for $(NATIVE_OS)/$(NATIVE_ARCH)..."
 ifeq ($(NATIVE_OS),windows)
-	cd $(SRC_DIR) && fyne build --tags software -o ../pawgui-software.exe ./cmd/pawgui
+	cd $(SRC_DIR)/cmd/pawgui && fyne build --tags software -o ../../../pawgui-software.exe
 	@echo "Created: pawgui-software.exe (software rendering - slower but compatible)"
 else
-	cd $(SRC_DIR) && fyne build --tags software -o ../pawgui-software ./cmd/pawgui
+	cd $(SRC_DIR)/cmd/pawgui && fyne build --tags software -o ../../../pawgui-software
 	@echo "Created: pawgui-software (software rendering - slower but compatible)"
 endif
 
