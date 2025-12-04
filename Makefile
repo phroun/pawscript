@@ -16,7 +16,7 @@ else
     BINARY_NAME := paw
 endif
 
-.PHONY: build-all build-all-gui clean-releases build build-gui build-gui-debug install test test-coverage run-example clean fmt lint help \
+.PHONY: build-all build-all-gui clean-releases build build-gui build-gui-debug build-gui-software install test test-coverage run-example clean fmt lint help \
 	build-gui-macos-arm64 build-gui-macos-x64 build-gui-ms-arm64 build-gui-ms-x64 build-gui-linux-arm64 build-gui-linux-x64
 
 # Build native version for local use
@@ -56,6 +56,17 @@ ifeq ($(NATIVE_OS),windows)
 else
 	cd $(SRC_DIR) && go build -gcflags "all=-N -l" -o ../pawgui-debug ./cmd/pawgui
 	@echo "Created: pawgui-debug (with DWARF symbols)"
+endif
+
+# Build GUI with software rendering (for systems with graphics driver issues)
+build-gui-software:
+	@echo "Building pawgui with software rendering for $(NATIVE_OS)/$(NATIVE_ARCH)..."
+ifeq ($(NATIVE_OS),windows)
+	cd $(SRC_DIR) && go build -tags software -o ../pawgui-software.exe ./cmd/pawgui
+	@echo "Created: pawgui-software.exe (software rendering - slower but compatible)"
+else
+	cd $(SRC_DIR) && go build -tags software -o ../pawgui-software ./cmd/pawgui
+	@echo "Created: pawgui-software (software rendering - slower but compatible)"
 endif
 
 # Default install prefix
@@ -210,7 +221,7 @@ run-example:
 
 clean:
 	@echo "Cleaning..."
-	@rm -f paw pawgui pawgui.exe pawgui-debug pawgui-debug.exe $(SRC_DIR)/coverage.out $(SRC_DIR)/coverage.html
+	@rm -f paw pawgui pawgui.exe pawgui-debug pawgui-debug.exe pawgui-software pawgui-software.exe $(SRC_DIR)/coverage.out $(SRC_DIR)/coverage.html
 	@rm -rf pawgui.app
 	@echo "Clean complete"
 
@@ -231,6 +242,7 @@ help:
 	@echo "  build          - Build paw for native platform"
 	@echo "  build-gui      - Build pawgui (Fyne GUI) for native platform"
 	@echo "  build-gui-debug - Build pawgui with debug symbols (for crash debugging)"
+	@echo "  build-gui-software - Build pawgui with software rendering (for driver issues)"
 	@echo "  build-all      - Build and package paw CLI for all platforms"
 	@echo "  build-all-gui  - Build and package pawgui for all platforms (requires Docker)"
 	@echo "  run-example    - Run hello.paw example"
