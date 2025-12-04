@@ -300,7 +300,7 @@ func createFileBrowser() *gtk.Box {
 	runButton.SetHExpand(true)
 	buttonBox.PackStart(runButton, true, true, 0)
 
-	browseButton, _ := gtk.ButtonNewWithLabel("Open...")
+	browseButton, _ := gtk.ButtonNewWithLabel("Browse...")
 	browseButton.Connect("clicked", onBrowseClicked)
 	browseButton.SetHExpand(true)
 	buttonBox.PackStart(browseButton, true, true, 0)
