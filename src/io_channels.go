@@ -6,7 +6,10 @@ import (
 	"io"
 	"math/rand"
 	"os"
+	"sync"
 	"time"
+
+	"golang.org/x/term"
 )
 
 // IOChannelConfig allows host applications to provide custom IO channel handlers
@@ -26,6 +29,97 @@ type IOChannelConfig struct {
 	// Additional custom channels - will be registered with their map keys as names
 	// Example: {"#mylog": logChannel} would create io::#mylog
 	CustomChannels map[string]*StoredChannel
+}
+
+// stdinChannelState manages the state of a terminal-backed stdin channel
+// Supports mode switching between line mode and raw mode via NativeSend
+type stdinChannelState struct {
+	mu sync.Mutex
+
+	// Input source
+	file       *os.File      // The underlying file (os.Stdin)
+	lineReader *bufio.Reader // Line-mode reader
+
+	// Terminal state
+	fd              int         // File descriptor
+	isTerminal      bool        // True if fd is a terminal
+	originalState   *term.State // Original terminal state (for restore)
+	inRawMode       bool        // Current mode
+	rawModeRefCount int         // Reference count for nested raw mode requests
+}
+
+// setRawMode puts the terminal in raw mode (reference counted)
+func (s *stdinChannelState) setRawMode() error {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+
+	if !s.isTerminal {
+		return fmt.Errorf("not a terminal")
+	}
+
+	s.rawModeRefCount++
+	if s.inRawMode {
+		return nil // Already in raw mode
+	}
+
+	state, err := term.MakeRaw(s.fd)
+	if err != nil {
+		s.rawModeRefCount--
+		return err
+	}
+	s.originalState = state
+	s.inRawMode = true
+	return nil
+}
+
+// setLineMode restores line mode (reference counted)
+func (s *stdinChannelState) setLineMode() error {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+
+	if !s.isTerminal || !s.inRawMode {
+		return nil
+	}
+
+	s.rawModeRefCount--
+	if s.rawModeRefCount > 0 {
+		return nil // Still have active raw mode users
+	}
+
+	if s.originalState != nil {
+		if err := term.Restore(s.fd, s.originalState); err != nil {
+			return err
+		}
+		s.originalState = nil
+	}
+	s.inRawMode = false
+	return nil
+}
+
+// readByte reads a single byte (for raw mode)
+func (s *stdinChannelState) readByte() (byte, error) {
+	buf := make([]byte, 1)
+	_, err := s.file.Read(buf)
+	if err != nil {
+		return 0, err
+	}
+	return buf[0], nil
+}
+
+// readLine reads a line (for line mode)
+func (s *stdinChannelState) readLine() ([]byte, error) {
+	line, err := s.lineReader.ReadString('\n')
+	if err != nil {
+		return nil, err
+	}
+	// Trim newline
+	if len(line) > 0 && line[len(line)-1] == '\n' {
+		line = line[:len(line)-1]
+	}
+	if len(line) > 0 && line[len(line)-1] == '\r' {
+		line = line[:len(line)-1]
+	}
+	return []byte(line), nil
 }
 
 // PopulateIOModule creates native IO channels and registers them in the io module
@@ -64,8 +158,25 @@ func (env *ModuleEnvironment) PopulateIOModule(config *IOChannelConfig, executor
 	if config != nil && config.Stdin != nil {
 		stdinCh = config.Stdin
 	} else {
-		// Create default stdin channel - read-only
-		stdinReader := bufio.NewReader(defaultStdin)
+		// Create default stdin channel with mode switching support
+		// Check if defaultStdin is os.Stdin and is a terminal
+		var stdinState *stdinChannelState
+		if f, ok := defaultStdin.(*os.File); ok {
+			fd := int(f.Fd())
+			stdinState = &stdinChannelState{
+				file:       f,
+				lineReader: bufio.NewReader(f),
+				fd:         fd,
+				isTerminal: term.IsTerminal(fd),
+			}
+		} else {
+			// Non-file reader - wrap in state with no terminal support
+			stdinState = &stdinChannelState{
+				lineReader: bufio.NewReader(defaultStdin),
+				isTerminal: false,
+			}
+		}
+
 		stdinCh = &StoredChannel{
 			BufferSize:       0,
 			Messages:         make([]ChannelMessage, 0),
@@ -74,22 +185,47 @@ func (env *ModuleEnvironment) PopulateIOModule(config *IOChannelConfig, executor
 			IsClosed:         false,
 			Timestamp:        time.Now(),
 			NativeRecv: func() (interface{}, error) {
-				line, err := stdinReader.ReadString('\n')
-				if err != nil {
-					return nil, err
+				stdinState.mu.Lock()
+				inRaw := stdinState.inRawMode
+				stdinState.mu.Unlock()
+
+				if inRaw {
+					// Raw mode: return single bytes
+					b, err := stdinState.readByte()
+					if err != nil {
+						return nil, err
+					}
+					return []byte{b}, nil
 				}
-				// Trim the newline and return as raw bytes
-				if len(line) > 0 && line[len(line)-1] == '\n' {
-					line = line[:len(line)-1]
-				}
-				if len(line) > 0 && line[len(line)-1] == '\r' {
-					line = line[:len(line)-1]
-				}
-				return []byte(line), nil
+				// Line mode: return full lines
+				return stdinState.readLine()
 			},
 			NativeSend: func(v interface{}) error {
-				return fmt.Errorf("cannot send to stdin")
+				// Handle mode instructions sent to the input channel
+				switch cmd := v.(type) {
+				case string:
+					switch cmd {
+					case "raw", "raw_mode":
+						return stdinState.setRawMode()
+					case "line", "line_mode":
+						return stdinState.setLineMode()
+					default:
+						return fmt.Errorf("unknown stdin mode: %s", cmd)
+					}
+				default:
+					return fmt.Errorf("stdin accepts mode commands: 'raw' or 'line'")
+				}
 			},
+		}
+
+		// Set terminal capabilities
+		if stdinState.isTerminal {
+			stdinCh.Terminal = &TerminalCapabilities{
+				IsTerminal:    true,
+				SupportsInput: true,
+				LineMode:      true, // Starts in line mode
+				EchoEnabled:   true,
+			}
 		}
 	}
 

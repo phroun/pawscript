@@ -1030,20 +1030,34 @@ func (ps *PawScript) RegisterSystemLib(scriptArgs []string) {
 	})
 
 	// readkey_init - initialize key input manager for raw keyboard handling
-	// Usage: readkey_init [input_channel] [echo: true|false]
+	// Usage: readkey_init [input_channel] [echo: true|false|channel]
 	// Returns a list containing [lines_channel, keys_channel]
-	// If input_channel is provided, reads bytes from its NativeRecv.
-	// Otherwise defaults to os.Stdin. If stdin is a terminal, enables raw mode.
+	// If input_channel is provided, reads bytes from that channel.
+	// Otherwise defaults to #in (the root input channel).
+	// Sends "raw" mode instruction to the input channel to enable raw mode.
 	// By default, echo is disabled (for games/TUI). Use echo: true to enable.
 	ps.RegisterCommandInModule("io", "readkey_init", func(ctx *Context) Result {
-		// Get input source - default to os.Stdin
-		var inputReader io.Reader = os.Stdin
+		var inputCh *StoredChannel
 		var echoWriter io.Writer = nil // Default: no echo
 
-		// Check for channel argument - wrap it as an io.Reader
+		// Get input channel - explicit arg or default to #in
 		if len(ctx.Args) > 0 {
-			if ch := valueToChannel(ctx, ctx.Args[0]); ch != nil && ch.NativeRecv != nil {
-				inputReader = &channelReader{ch: ch}
+			inputCh = valueToChannel(ctx, ctx.Args[0])
+		}
+		if inputCh == nil {
+			// Default to #in channel
+			inputCh = resolveChannel(ctx, "#in")
+		}
+		if inputCh == nil || inputCh.NativeRecv == nil {
+			ctx.LogError(CatIO, "readkey_init: no valid input channel (need #in or explicit channel with NativeRecv)")
+			return BoolStatus(false)
+		}
+
+		// Send "raw" mode instruction to the input channel
+		if inputCh.NativeSend != nil {
+			if err := inputCh.NativeSend("raw"); err != nil {
+				// Channel doesn't support raw mode - might be okay for GUI channels
+				ps.logger.DebugCat(CatIO, "readkey_init: channel raw mode instruction: %v", err)
 			}
 		}
 
@@ -1053,24 +1067,36 @@ func (ps *PawScript) RegisterSystemLib(scriptArgs []string) {
 			if ch := valueToChannel(ctx, echoArg); ch != nil {
 				echoWriter = &channelWriter{ch: ch}
 			} else if echoBool, ok := echoArg.(bool); ok && echoBool {
-				echoWriter = os.Stdout
+				// Get #out channel for echo
+				if outCh := resolveChannel(ctx, "#out"); outCh != nil {
+					echoWriter = &channelWriter{ch: outCh}
+				}
 			} else if echoStr, ok := echoArg.(string); ok && (echoStr == "true" || echoStr == "yes") {
-				echoWriter = os.Stdout
+				if outCh := resolveChannel(ctx, "#out"); outCh != nil {
+					echoWriter = &channelWriter{ch: outCh}
+				}
 			}
 		}
 
-		// Create the key input manager
+		// Create the key input manager using the channel as input source
+		// The channel handles raw mode, so KeyInputManager doesn't need to manage terminal
+		inputReader := &channelReader{ch: inputCh}
 		manager := NewKeyInputManager(inputReader, echoWriter, nil)
 
-		// Start the manager
+		// Start the manager (won't touch terminal since input is a channel, not os.Stdin directly)
 		if err := manager.Start(); err != nil {
+			// Restore line mode on failure
+			if inputCh.NativeSend != nil {
+				_ = inputCh.NativeSend("line")
+			}
 			ctx.LogError(CatIO, fmt.Sprintf("readkey_init: %v", err))
 			return BoolStatus(false)
 		}
 
-		// Store the manager in executor for cleanup and access
+		// Store the manager and input channel in executor for cleanup
 		ctx.executor.mu.Lock()
 		ctx.executor.keyInputManager = manager
+		ctx.executor.keyInputChannel = inputCh // Store for readkey_stop to restore mode
 		ctx.executor.mu.Unlock()
 
 		// Return the two channels as a list
@@ -1093,11 +1119,13 @@ func (ps *PawScript) RegisterSystemLib(scriptArgs []string) {
 		return BoolStatus(true)
 	})
 
-	// readkey_stop - stop key input manager and restore terminal
+	// readkey_stop - stop key input manager and restore channel to line mode
 	ps.RegisterCommandInModule("io", "readkey_stop", func(ctx *Context) Result {
 		ctx.executor.mu.Lock()
 		manager := ctx.executor.keyInputManager
+		inputCh := ctx.executor.keyInputChannel
 		ctx.executor.keyInputManager = nil
+		ctx.executor.keyInputChannel = nil
 		ctx.executor.mu.Unlock()
 
 		if manager == nil {
@@ -1105,9 +1133,17 @@ func (ps *PawScript) RegisterSystemLib(scriptArgs []string) {
 			return BoolStatus(false)
 		}
 
+		// Stop the manager first
 		if err := manager.Stop(); err != nil {
 			ctx.LogError(CatIO, fmt.Sprintf("readkey_stop: %v", err))
-			return BoolStatus(false)
+			// Still try to restore channel mode
+		}
+
+		// Restore channel to line mode
+		if inputCh != nil && inputCh.NativeSend != nil {
+			if err := inputCh.NativeSend("line"); err != nil {
+				ps.logger.DebugCat(CatIO, "readkey_stop: channel line mode instruction: %v", err)
+			}
 		}
 
 		return BoolStatus(true)
