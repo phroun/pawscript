@@ -627,17 +627,94 @@ func (m *KeyInputManager) debug(msg string) {
 
 // Alt key handling - detect M- prefix for alt combinations
 func (m *KeyInputManager) parseAltSequence(seq string) (string, bool) {
-	// ESC followed by a character = Alt+char
+	// ESC followed by a character = Alt+char (Meta prefix)
 	if len(seq) == 2 && seq[0] == 0x1b {
 		char := seq[1]
+		// Lowercase letters: M-a through M-z
 		if char >= 'a' && char <= 'z' {
 			return fmt.Sprintf("M-%c", char), true
 		}
+		// Uppercase letters: M-S-a through M-S-z (shift implied)
 		if char >= 'A' && char <= 'Z' {
 			return fmt.Sprintf("M-S-%c", char-'A'+'a'), true
 		}
+		// Numbers: M-0 through M-9
 		if char >= '0' && char <= '9' {
 			return fmt.Sprintf("M-%c", char), true
+		}
+		// Symbols and punctuation - use descriptive names for common ones
+		switch char {
+		case '[':
+			return "M-[", true
+		case ']':
+			return "M-]", true
+		case '{':
+			return "M-{", true
+		case '}':
+			return "M-}", true
+		case '(':
+			return "M-(", true
+		case ')':
+			return "M-)", true
+		case '<':
+			return "M-<", true
+		case '>':
+			return "M->", true
+		case '/':
+			return "M-/", true
+		case '\\':
+			return "M-\\", true
+		case '\'':
+			return "M-'", true
+		case '"':
+			return "M-\"", true
+		case '`':
+			return "M-`", true
+		case ',':
+			return "M-,", true
+		case '.':
+			return "M-.", true
+		case ';':
+			return "M-;", true
+		case ':':
+			return "M-:", true
+		case '=':
+			return "M-=", true
+		case '+':
+			return "M-+", true
+		case '-':
+			return "M--", true
+		case '_':
+			return "M-_", true
+		case '!':
+			return "M-!", true
+		case '@':
+			return "M-@", true
+		case '#':
+			return "M-#", true
+		case '$':
+			return "M-$", true
+		case '%':
+			return "M-%", true
+		case '^':
+			return "M-^", true
+		case '&':
+			return "M-&", true
+		case '*':
+			return "M-*", true
+		case '?':
+			return "M-?", true
+		case '|':
+			return "M-|", true
+		case '~':
+			return "M-~", true
+		case ' ':
+			return "M-Space", true
+		default:
+			// Any other printable ASCII character
+			if char >= 0x20 && char < 0x7f {
+				return fmt.Sprintf("M-%c", char), true
+			}
 		}
 	}
 	return "", false
