@@ -60,6 +60,7 @@ type Widget struct {
 	// Cursor blink
 	cursorBlinkOn  bool
 	blinkTimerID   glib.SourceHandle
+	blinkTickCount int // Counter for variable blink rates
 
 	// Focus state
 	hasFocus bool
@@ -146,14 +147,25 @@ func NewWidget(cols, rows, scrollbackSize int) (*Widget, error) {
 	w.updateFontMetrics()
 	w.drawingArea.SetSizeRequest(cols*w.charWidth+terminalLeftPadding, rows*w.charHeight)
 
-	// Start cursor blink timer (530ms interval - typical blink rate)
-	w.blinkTimerID = glib.TimeoutAdd(530, func() bool {
+	// Start cursor blink timer (265ms base interval)
+	// cursorBlink: 0=no blink, 1=slow blink (~530ms), 2=fast blink (~265ms)
+	w.blinkTimerID = glib.TimeoutAdd(265, func() bool {
 		_, cursorBlink := w.buffer.GetCursorStyle()
 		if cursorBlink > 0 && w.hasFocus {
-			w.cursorBlinkOn = !w.cursorBlinkOn
-			w.drawingArea.QueueDraw()
+			w.blinkTickCount++
+			// Fast blink (2) toggles every tick, slow blink (1) every 2 ticks
+			ticksNeeded := 2
+			if cursorBlink >= 2 {
+				ticksNeeded = 1
+			}
+			if w.blinkTickCount >= ticksNeeded {
+				w.blinkTickCount = 0
+				w.cursorBlinkOn = !w.cursorBlinkOn
+				w.drawingArea.QueueDraw()
+			}
 		} else {
 			// Keep cursor visible when not blinking or unfocused
+			w.blinkTickCount = 0
 			if !w.cursorBlinkOn {
 				w.cursorBlinkOn = true
 				w.drawingArea.QueueDraw()

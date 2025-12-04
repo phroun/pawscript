@@ -518,8 +518,13 @@ func (p *Parser) executePrivateModeSet(set bool) {
 			// Not yet implemented
 		case 7: // DECAWM - Auto-wrap mode
 			// Not yet implemented
-		case 12: // Cursor blink
-			// Not yet implemented
+		case 12: // Cursor blink rate: h=fast, l=slow
+			shape, _ := p.buffer.GetCursorStyle()
+			if set {
+				p.buffer.SetCursorStyle(shape, 2) // Fast blink
+			} else {
+				p.buffer.SetCursorStyle(shape, 1) // Slow blink
+			}
 		}
 	}
 }

@@ -1689,6 +1689,13 @@ func (ps *PawScript) RegisterSystemLib(scriptArgs []string) {
 		if blink, ok := ctx.NamedArgs["blink"]; ok {
 			ts.Blink = fmt.Sprintf("%v", blink)
 			sendOutput(ANSISetCursorShape(ts.Shape, ts.Blink))
+			// Emit fast/slow blink rate control sequence
+			blinkLower := strings.ToLower(ts.Blink)
+			if blinkLower == "fast" {
+				sendOutput("\x1b[?12h") // Fast blink rate
+			} else if blinkLower == "true" {
+				sendOutput("\x1b[?12l") // Slow blink rate (default)
+			}
 		}
 		if color, ok := ctx.NamedArgs["color"]; ok {
 			if v, ok := toInt64(color); ok {

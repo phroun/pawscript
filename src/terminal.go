@@ -469,33 +469,37 @@ func ANSIHideCursor() string {
 // SetCursorShape returns ANSI code for cursor shape
 // Shapes: 0=default, 1=blinking block, 2=steady block, 3=blinking underline,
 // 4=steady underline, 5=blinking bar, 6=steady bar
+// Blink: "true"/"fast" = blinking, "false" = steady
 func ANSISetCursorShape(shape string, blink string) string {
 	var code int
+	blinkLower := strings.ToLower(blink)
+	isBlinking := blinkLower != "false"
+
 	switch strings.ToLower(shape) {
 	case "block":
-		if blink == "false" {
-			code = 2
-		} else {
+		if isBlinking {
 			code = 1
+		} else {
+			code = 2
 		}
 	case "underline":
-		if blink == "false" {
-			code = 4
-		} else {
+		if isBlinking {
 			code = 3
+		} else {
+			code = 4
 		}
 	case "bar":
-		if blink == "false" {
-			code = 6
-		} else {
+		if isBlinking {
 			code = 5
+		} else {
+			code = 6
 		}
 	case "half":
 		// Half block - not standard, fall back to block
-		if blink == "false" {
-			code = 2
-		} else {
+		if isBlinking {
 			code = 1
+		} else {
+			code = 2
 		}
 	default:
 		code = 0 // default
