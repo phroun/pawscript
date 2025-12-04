@@ -25,51 +25,6 @@ const (
 	appName = "PawScript Launcher (GTK)"
 )
 
-// init sets up DLL paths on Windows before GTK initializes
-// This allows DLLs to be in a lib/ subfolder instead of next to the exe
-func init() {
-	if runtime.GOOS != "windows" {
-		return
-	}
-
-	// Get the directory containing the executable
-	exePath, err := os.Executable()
-	if err != nil {
-		return
-	}
-	exeDir := filepath.Dir(exePath)
-
-	// Check if lib/ subfolder exists
-	libDir := filepath.Join(exeDir, "lib")
-	if _, err := os.Stat(libDir); err != nil {
-		// No lib folder, DLLs are probably in same folder as exe
-		return
-	}
-
-	// Add lib/ to PATH so Windows can find DLLs
-	path := os.Getenv("PATH")
-	os.Setenv("PATH", libDir+";"+path)
-
-	// Set GDK-Pixbuf loader path
-	loaderCache := filepath.Join(libDir, "gdk-pixbuf-2.0", "2.10.0", "loaders.cache")
-	if _, err := os.Stat(loaderCache); err == nil {
-		os.Setenv("GDK_PIXBUF_MODULE_FILE", loaderCache)
-	}
-
-	// Set data directories for schemas and icons
-	shareDir := filepath.Join(exeDir, "share")
-	if _, err := os.Stat(shareDir); err == nil {
-		os.Setenv("XDG_DATA_DIRS", shareDir)
-		os.Setenv("GTK_DATA_PREFIX", exeDir)
-	}
-
-	// Set schema directory
-	schemaDir := filepath.Join(shareDir, "glib-2.0", "schemas")
-	if _, err := os.Stat(schemaDir); err == nil {
-		os.Setenv("GSETTINGS_SCHEMA_DIR", schemaDir)
-	}
-}
-
 // Global state
 var (
 	currentDir string
@@ -425,20 +380,7 @@ func createFileRow(name string, isDir bool, isParent bool) *gtk.ListBoxRow {
 	box.SetMarginTop(2)
 	box.SetMarginBottom(2)
 
-	// Use text prefix instead of icons for better cross-platform compatibility
-	var prefix string
-	if isParent {
-		prefix = "⬆"
-	} else if isDir {
-		prefix = "📁"
-	} else {
-		prefix = "📜"
-	}
-	prefixLabel, _ := gtk.LabelNew(prefix)
-	prefixLabel.SetWidthChars(2)
-	box.PackStart(prefixLabel, false, false, 0)
-
-	// Name label
+	// Name label (no icons - emoji don't work on Wine)
 	label, _ := gtk.LabelNew(name)
 	label.SetXAlign(0)
 	label.SetHExpand(true)

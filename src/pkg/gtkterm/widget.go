@@ -602,8 +602,8 @@ func (w *Widget) onKeyPress(da *gtk.DrawingArea, ev *gdk.Event) bool {
 	case gdk.KEY_F4:
 		data = []byte{0x1b, 'O', 'S'}
 	default:
-		// Regular character
-		if keyval < 256 {
+		// Regular character - try keyval first
+		if keyval >= 0x20 && keyval < 256 {
 			ch := byte(keyval)
 			if state&gdk.CONTROL_MASK != 0 && ch >= 'a' && ch <= 'z' {
 				ch = ch - 'a' + 1 // Ctrl+A = 1, Ctrl+B = 2, etc.
@@ -615,6 +615,23 @@ func (w *Widget) onKeyPress(da *gtk.DrawingArea, ev *gdk.Event) bool {
 				data = []byte(string(r))
 			}
 		}
+
+		// Fallback: use hardware keycode when GDK translation fails (Wine/Windows)
+		if len(data) == 0 {
+			hwcode := key.HardwareKeyCode()
+			if ch := hardwareKeycodeToChar(hwcode, state&gdk.SHIFT_MASK != 0); ch != 0 {
+				if state&gdk.CONTROL_MASK != 0 && ch >= 'a' && ch <= 'z' {
+					ch = ch - 'a' + 1
+				}
+				data = []byte{ch}
+			}
+		}
+	}
+
+	// Final fallback: check hardware keycodes for special keys (Wine/Windows)
+	if len(data) == 0 {
+		hwcode := key.HardwareKeyCode()
+		data = hardwareKeycodeToSpecial(hwcode)
 	}
 
 	if len(data) > 0 {
@@ -709,4 +726,95 @@ func (w *Widget) SelectAll() {
 // SetCursorVisible shows or hides the cursor
 func (w *Widget) SetCursorVisible(visible bool) {
 	w.buffer.SetCursorVisible(visible)
+}
+
+// hardwareKeycodeToSpecial maps X11/evdev hardware keycodes to special key sequences.
+// This is used as a fallback when GDK can't translate keypresses (Wine/Windows).
+func hardwareKeycodeToSpecial(hwcode uint16) []byte {
+	// X11/evdev keycode mappings for special keys
+	switch hwcode {
+	case 36: // Return
+		return []byte{'\r'}
+	case 22: // BackSpace
+		return []byte{0x7f}
+	case 23: // Tab
+		return []byte{'\t'}
+	case 9: // Escape
+		return []byte{0x1b}
+	case 111: // Up
+		return []byte{0x1b, '[', 'A'}
+	case 116: // Down
+		return []byte{0x1b, '[', 'B'}
+	case 114: // Right
+		return []byte{0x1b, '[', 'C'}
+	case 113: // Left
+		return []byte{0x1b, '[', 'D'}
+	case 110: // Home
+		return []byte{0x1b, '[', 'H'}
+	case 115: // End
+		return []byte{0x1b, '[', 'F'}
+	case 112: // Page_Up
+		return []byte{0x1b, '[', '5', '~'}
+	case 117: // Page_Down
+		return []byte{0x1b, '[', '6', '~'}
+	case 118: // Insert
+		return []byte{0x1b, '[', '2', '~'}
+	case 119: // Delete
+		return []byte{0x1b, '[', '3', '~'}
+	case 67: // F1
+		return []byte{0x1b, 'O', 'P'}
+	case 68: // F2
+		return []byte{0x1b, 'O', 'Q'}
+	case 69: // F3
+		return []byte{0x1b, 'O', 'R'}
+	case 70: // F4
+		return []byte{0x1b, 'O', 'S'}
+	}
+	return nil
+}
+
+// hardwareKeycodeToChar maps X11/evdev hardware keycodes to ASCII characters.
+// This is used as a fallback when GDK can't translate keypresses (Wine/Windows).
+func hardwareKeycodeToChar(hwcode uint16, shift bool) byte {
+	// X11/evdev keycode mappings for US QWERTY keyboard
+	// These are evdev codes + 8 (X11 offset)
+	type keyMapping struct {
+		normal byte
+		shift  byte
+	}
+
+	keycodeMap := map[uint16]keyMapping{
+		// Number row
+		10: {'1', '!'}, 11: {'2', '@'}, 12: {'3', '#'}, 13: {'4', '$'},
+		14: {'5', '%'}, 15: {'6', '^'}, 16: {'7', '&'}, 17: {'8', '*'},
+		18: {'9', '('}, 19: {'0', ')'}, 20: {'-', '_'}, 21: {'=', '+'},
+
+		// Top letter row (QWERTY)
+		24: {'q', 'Q'}, 25: {'w', 'W'}, 26: {'e', 'E'}, 27: {'r', 'R'},
+		28: {'t', 'T'}, 29: {'y', 'Y'}, 30: {'u', 'U'}, 31: {'i', 'I'},
+		32: {'o', 'O'}, 33: {'p', 'P'}, 34: {'[', '{'}, 35: {']', '}'},
+
+		// Home row (ASDF)
+		38: {'a', 'A'}, 39: {'s', 'S'}, 40: {'d', 'D'}, 41: {'f', 'F'},
+		42: {'g', 'G'}, 43: {'h', 'H'}, 44: {'j', 'J'}, 45: {'k', 'K'},
+		46: {'l', 'L'}, 47: {';', ':'}, 48: {'\'', '"'},
+
+		// Bottom row (ZXCV)
+		52: {'z', 'Z'}, 53: {'x', 'X'}, 54: {'c', 'C'}, 55: {'v', 'V'},
+		56: {'b', 'B'}, 57: {'n', 'N'}, 58: {'m', 'M'}, 59: {',', '<'},
+		60: {'.', '>'}, 61: {'/', '?'},
+
+		// Other keys
+		49: {'`', '~'},  // Grave/tilde
+		51: {'\\', '|'}, // Backslash/pipe
+		65: {' ', ' '},  // Space
+	}
+
+	if mapping, ok := keycodeMap[hwcode]; ok {
+		if shift {
+			return mapping.shift
+		}
+		return mapping.normal
+	}
+	return 0
 }
