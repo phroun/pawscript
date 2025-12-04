@@ -380,20 +380,7 @@ func createFileRow(name string, isDir bool, isParent bool) *gtk.ListBoxRow {
 	box.SetMarginTop(2)
 	box.SetMarginBottom(2)
 
-	// Use text prefix instead of icons for better cross-platform compatibility
-	var prefix string
-	if isParent {
-		prefix = "⬆"
-	} else if isDir {
-		prefix = "📁"
-	} else {
-		prefix = "📜"
-	}
-	prefixLabel, _ := gtk.LabelNew(prefix)
-	prefixLabel.SetWidthChars(2)
-	box.PackStart(prefixLabel, false, false, 0)
-
-	// Name label
+	// Name label (no icons - emoji don't work on Wine)
 	label, _ := gtk.LabelNew(name)
 	label.SetXAlign(0)
 	label.SetHExpand(true)
