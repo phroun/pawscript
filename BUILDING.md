@@ -149,3 +149,5 @@ make fmt            # Format Go code
 make lint           # Run linter (requires golangci-lint)
 make help           # Show all targets
 ```
+
+brew install gtk4 gobject-introspection graphene
