@@ -45,8 +45,11 @@ type KeyInputManager struct {
 	escBuffer []byte
 	inEscape  bool
 
-	// Echo output (where to echo typed characters)
+	// Echo output (where to echo typed characters during readkey)
 	echoWriter io.Writer
+	// Echo output specifically for line read mode (used by read command)
+	// If set, overrides echoWriter during line assembly
+	lineEchoWriter io.Writer
 
 	// Debug callback (optional)
 	debugFn func(string)
@@ -100,7 +103,10 @@ func NewKeyInputManager(inputReader io.Reader, echoWriter io.Writer, debugFn fun
 		m.currentLine = nil
 		m.charByteLengths = nil
 		savedEchoWriter := m.echoWriter
-		if m.echoWriter == nil && m.managesTerminal {
+		// Use lineEchoWriter if set (for channel-based input with separate echo channel)
+		if m.lineEchoWriter != nil {
+			m.echoWriter = m.lineEchoWriter
+		} else if m.echoWriter == nil && m.managesTerminal {
 			// Only default to os.Stdout if we're in terminal mode
 			// In channel mode (pawgui), echo must be explicitly configured via echo: argument
 			m.echoWriter = os.Stdout
@@ -300,6 +306,15 @@ func (m *KeyInputManager) GetKeysChannel() *StoredChannel {
 // GetLinesChannel returns the channel for reading assembled lines
 func (m *KeyInputManager) GetLinesChannel() *StoredChannel {
 	return m.linesChan
+}
+
+// SetLineEchoWriter sets the writer to use for echo during line read mode
+// This is used when input comes from a channel (not os.Stdin directly)
+// but we still want echo during {read} operations
+func (m *KeyInputManager) SetLineEchoWriter(w io.Writer) {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	m.lineEchoWriter = w
 }
 
 // readLoop continuously reads raw bytes from input
