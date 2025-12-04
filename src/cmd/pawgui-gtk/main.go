@@ -300,7 +300,7 @@ func createFileBrowser() *gtk.Box {
 	runButton.SetHExpand(true)
 	buttonBox.PackStart(runButton, true, true, 0)
 
-	browseButton, _ := gtk.ButtonNewWithLabel("Browse...")
+	browseButton, _ := gtk.ButtonNewWithLabel("Open...")
 	browseButton.Connect("clicked", onBrowseClicked)
 	browseButton.SetHExpand(true)
 	buttonBox.PackStart(browseButton, true, true, 0)
@@ -480,12 +480,19 @@ func handleFileSelection(name string) {
 }
 
 func onBrowseClicked() {
-	// Use sqweek/dialog for native file browser
-	dir, err := dialog.Directory().Title("Choose Directory").Browse()
-	if err == nil && dir != "" {
-		currentDir = dir
+	// Use sqweek/dialog for native file open dialog
+	file, err := dialog.File().
+		Title("Open PawScript File").
+		Filter("PawScript files", "paw").
+		Filter("All files", "*").
+		SetStartDir(currentDir).
+		Load()
+	if err == nil && file != "" {
+		// Navigate to the file's directory and run the script
+		currentDir = filepath.Dir(file)
 		refreshFileList()
 		updatePathLabel()
+		runScript(file)
 	}
 }
 
