@@ -77,9 +77,9 @@ else
 	@echo "Created: pawgui-software (software rendering - slower but compatible)"
 endif
 
-# Build GTK4-based GUI (alternative to Fyne, requires GTK4 development libraries)
-# Linux: apt install libgtk-4-dev libglib2.0-dev gobject-introspection libgirepository1.0-dev libgraphene-1.0-dev
-# macOS: brew install gtk4
+# Build GTK3+VTE-based GUI (alternative to Fyne, requires GTK3 and VTE development libraries)
+# Linux: apt install libgtk-3-dev libvte-2.91-dev
+# macOS: brew install gtk+3 vte3
 build-gui-gtk:
 	@echo "Building pawgui-gtk for native platform ($(NATIVE_OS)/$(NATIVE_ARCH))..."
 	@cd $(SRC_DIR) && go mod tidy
@@ -265,7 +265,7 @@ help:
 	@echo "  build-gui      - Build pawgui (Fyne GUI) for native platform"
 	@echo "  build-gui-debug - Build pawgui with debug symbols (for crash debugging)"
 	@echo "  build-gui-software - Build pawgui with software rendering (for driver issues)"
-	@echo "  build-gui-gtk - Build pawgui-gtk (GTK4 alternative, no OpenGL)"
+	@echo "  build-gui-gtk - Build pawgui-gtk (GTK3+VTE alternative, no OpenGL)"
 	@echo "  build-all      - Build and package paw CLI for all platforms"
 	@echo "  build-all-gui  - Build and package pawgui for all platforms (requires Docker)"
 	@echo "  run-example    - Run hello.paw example"

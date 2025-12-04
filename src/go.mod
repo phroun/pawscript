@@ -6,8 +6,9 @@ toolchain go1.24.7
 
 require (
 	fyne.io/fyne/v2 v2.7.1
-	github.com/diamondburned/gotk4 v0.3.1
 	github.com/fyne-io/terminal v0.0.0-20251010081556-6f9c3819f75f
+	github.com/gotk3/gotk3 v0.6.4
+	github.com/sqp/vte v0.0.0-20210401000000-165d184de1eb
 	golang.org/x/term v0.37.0
 )
 
@@ -16,7 +17,6 @@ require (
 	github.com/ActiveState/termtest/conpty v0.5.0 // indirect
 	github.com/Azure/go-ansiterm v0.0.0-20170929234023-d6e3b3328b78 // indirect
 	github.com/BurntSushi/toml v1.5.0 // indirect
-	github.com/KarpelesLab/weak v0.1.1 // indirect
 	github.com/TheTitanrain/w32 v0.0.0-20180517000239-4f5cfb03fabf // indirect
 	github.com/creack/pty v1.1.21 // indirect
 	github.com/davecgh/go-spew v1.1.1 // indirect

@@ -1,22 +1,18 @@
-// pawgui-gtk - GTK4-based GUI for PawScript
+// pawgui-gtk - GTK3-based GUI for PawScript with VTE terminal
 // This is a proof of concept alternative to the Fyne-based GUI
 package main
 
 import (
-	"context"
 	"fmt"
-	"io"
 	"os"
+	"os/exec"
 	"path/filepath"
 	"strings"
-	"sync"
 
-	"github.com/diamondburned/gotk4/pkg/gdk/v4"
-	"github.com/diamondburned/gotk4/pkg/gio/v2"
-	"github.com/diamondburned/gotk4/pkg/glib/v2"
-	"github.com/diamondburned/gotk4/pkg/gtk/v4"
-
-	pawscript "github.com/phroun/pawscript"
+	"github.com/gotk3/gotk3/gdk"
+	"github.com/gotk3/gotk3/glib"
+	"github.com/gotk3/gotk3/gtk"
+	"github.com/sqp/vte"
 )
 
 const (
@@ -29,50 +25,59 @@ var (
 	currentDir string
 	mainWindow *gtk.ApplicationWindow
 	fileList   *gtk.ListBox
-	terminal   *gtk.TextView
-	termBuffer *gtk.TextBuffer
-	termMutex  sync.Mutex
-	app        *gtk.Application
+	terminal   *vte.Terminal
+	pathLabel  *gtk.Label
 )
 
 func main() {
-	app = gtk.NewApplication(appID, gio.ApplicationFlagsNone)
-	app.ConnectActivate(func() { activate(app) })
-
-	if code := app.Run(os.Args); code > 0 {
-		os.Exit(code)
+	app, err := gtk.ApplicationNew(appID, glib.APPLICATION_FLAGS_NONE)
+	if err != nil {
+		fmt.Fprintf(os.Stderr, "Failed to create application: %v\n", err)
+		os.Exit(1)
 	}
+
+	app.Connect("activate", func() {
+		activate(app)
+	})
+
+	os.Exit(app.Run(os.Args))
 }
 
 func activate(app *gtk.Application) {
 	// Create main window
-	mainWindow = gtk.NewApplicationWindow(app)
+	var err error
+	mainWindow, err = gtk.ApplicationWindowNew(app)
+	if err != nil {
+		fmt.Fprintf(os.Stderr, "Failed to create window: %v\n", err)
+		return
+	}
 	mainWindow.SetTitle(appName)
 	mainWindow.SetDefaultSize(900, 600)
 
 	// Create main horizontal paned (split view)
-	paned := gtk.NewPaned(gtk.OrientationHorizontal)
+	paned, _ := gtk.PanedNew(gtk.ORIENTATION_HORIZONTAL)
 	paned.SetPosition(300)
 
 	// Left panel: File browser
 	leftPanel := createFileBrowser()
-	paned.SetStartChild(leftPanel)
+	paned.Pack1(leftPanel, false, false)
 
 	// Right panel: Terminal
 	rightPanel := createTerminal()
-	paned.SetEndChild(rightPanel)
+	paned.Pack2(rightPanel, true, false)
 
-	mainWindow.SetChild(paned)
+	mainWindow.Add(paned)
 
 	// Load initial directory
 	currentDir = getDefaultDir()
 	refreshFileList()
+	updatePathLabel()
 
 	// Print welcome message
-	appendToTerminal("PawScript Launcher (GTK4)\n")
-	appendToTerminal("Select a .paw file and click Run to execute.\n\n")
+	terminal.Feed([]byte("PawScript Launcher (GTK3 + VTE)\r\n"))
+	terminal.Feed([]byte("Select a .paw file and click Run to execute.\r\n\r\n"))
 
-	mainWindow.Show()
+	mainWindow.ShowAll()
 }
 
 func getDefaultDir() string {
@@ -92,134 +97,126 @@ func getDefaultDir() string {
 }
 
 func createFileBrowser() *gtk.Box {
-	box := gtk.NewBox(gtk.OrientationVertical, 5)
+	box, _ := gtk.BoxNew(gtk.ORIENTATION_VERTICAL, 5)
 	box.SetMarginStart(5)
 	box.SetMarginEnd(5)
 	box.SetMarginTop(5)
 	box.SetMarginBottom(5)
 
 	// Directory label
-	dirLabel := gtk.NewLabel("")
+	dirLabel, _ := gtk.LabelNew("")
 	dirLabel.SetXAlign(0)
 	dirLabel.SetMarkup("<b>Directory:</b>")
-	box.Append(dirLabel)
+	box.PackStart(dirLabel, false, false, 0)
 
 	// Current path label
-	pathLabel := gtk.NewLabel(currentDir)
+	pathLabel, _ = gtk.LabelNew(currentDir)
 	pathLabel.SetXAlign(0)
-	pathLabel.SetWrap(true)
+	pathLabel.SetLineWrap(true)
 	pathLabel.SetSelectable(true)
-	box.Append(pathLabel)
+	box.PackStart(pathLabel, false, false, 0)
 
 	// Scrolled window for file list
-	scroll := gtk.NewScrolledWindow()
-	scroll.SetPolicy(gtk.PolicyAutomatic, gtk.PolicyAutomatic)
+	scroll, _ := gtk.ScrolledWindowNew(nil, nil)
+	scroll.SetPolicy(gtk.POLICY_AUTOMATIC, gtk.POLICY_AUTOMATIC)
 	scroll.SetVExpand(true)
 
 	// File list
-	fileList = gtk.NewListBox()
-	fileList.SetSelectionMode(gtk.SelectionSingle)
-	fileList.SetActivateOnSingleClick(false) // Require double-click to activate
-	fileList.ConnectRowActivated(onFileActivated)
-	scroll.SetChild(fileList)
-	box.Append(scroll)
+	fileList, _ = gtk.ListBoxNew()
+	fileList.SetSelectionMode(gtk.SELECTION_SINGLE)
+	fileList.SetActivateOnSingleClick(false)
+	fileList.Connect("row-activated", onFileActivated)
+	scroll.Add(fileList)
+	box.PackStart(scroll, true, true, 0)
 
 	// Button box
-	buttonBox := gtk.NewBox(gtk.OrientationHorizontal, 5)
+	buttonBox, _ := gtk.BoxNew(gtk.ORIENTATION_HORIZONTAL, 5)
 
-	runButton := gtk.NewButtonWithLabel("Run")
-	runButton.ConnectClicked(onRunClicked)
+	runButton, _ := gtk.ButtonNewWithLabel("Run")
+	runButton.Connect("clicked", onRunClicked)
 	runButton.SetHExpand(true)
-	buttonBox.Append(runButton)
+	buttonBox.PackStart(runButton, true, true, 0)
 
-	browseButton := gtk.NewButtonWithLabel("Browse...")
-	browseButton.ConnectClicked(onBrowseClicked)
+	browseButton, _ := gtk.ButtonNewWithLabel("Browse...")
+	browseButton.Connect("clicked", onBrowseClicked)
 	browseButton.SetHExpand(true)
-	buttonBox.Append(browseButton)
+	buttonBox.PackStart(browseButton, true, true, 0)
 
-	box.Append(buttonBox)
+	box.PackStart(buttonBox, false, false, 0)
 
 	return box
 }
 
 func createTerminal() *gtk.Box {
-	box := gtk.NewBox(gtk.OrientationVertical, 0)
+	box, _ := gtk.BoxNew(gtk.ORIENTATION_VERTICAL, 0)
 
 	// Label
-	label := gtk.NewLabel("")
+	label, _ := gtk.LabelNew("")
 	label.SetXAlign(0)
 	label.SetMarkup("<b>Console Output:</b>")
 	label.SetMarginStart(5)
 	label.SetMarginTop(5)
-	box.Append(label)
+	box.PackStart(label, false, false, 0)
 
 	// Scrolled window for terminal
-	scroll := gtk.NewScrolledWindow()
-	scroll.SetPolicy(gtk.PolicyAutomatic, gtk.PolicyAutomatic)
+	scroll, _ := gtk.ScrolledWindowNew(nil, nil)
+	scroll.SetPolicy(gtk.POLICY_AUTOMATIC, gtk.POLICY_AUTOMATIC)
 	scroll.SetVExpand(true)
 	scroll.SetHExpand(true)
 
-	// Text view as terminal
-	terminal = gtk.NewTextView()
-	terminal.SetEditable(false)
-	terminal.SetCursorVisible(false)
-	terminal.SetWrapMode(gtk.WrapChar)
-	terminal.SetMonospace(true)
-	terminal.SetLeftMargin(5)
-	terminal.SetRightMargin(5)
-	terminal.SetTopMargin(5)
-	terminal.SetBottomMargin(5)
+	// VTE Terminal
+	terminal = vte.New()
+	terminal.SetScrollOnOutput(true)
+	terminal.SetScrollOnKeystroke(true)
 
-	// Dark background for terminal look
-	cssProvider := gtk.NewCSSProvider()
-	cssProvider.LoadFromData(`
-		textview {
-			background-color: #1e1e1e;
-			color: #d4d4d4;
-		}
-		textview text {
-			background-color: #1e1e1e;
-			color: #d4d4d4;
-		}
-	`)
-	display := gdk.DisplayGetDefault()
-	gtk.StyleContextAddProviderForDisplay(display, cssProvider, gtk.STYLE_PROVIDER_PRIORITY_APPLICATION)
+	// Dark color scheme
+	bgColor := gdk.NewRGBA(0.12, 0.12, 0.12, 1.0)
+	fgColor := gdk.NewRGBA(0.83, 0.83, 0.83, 1.0)
+	terminal.SetColorBackground(bgColor)
+	terminal.SetColorForeground(fgColor)
 
-	termBuffer = terminal.Buffer()
-	scroll.SetChild(terminal)
-	box.Append(scroll)
+	// Set font
+	terminal.SetFontFromString("Monospace 11")
+
+	scroll.Add(terminal)
+	box.PackStart(scroll, true, true, 0)
 
 	return box
 }
 
+func updatePathLabel() {
+	if pathLabel != nil {
+		pathLabel.SetText(currentDir)
+	}
+}
+
 func refreshFileList() {
 	// Clear existing items
-	for {
-		row := fileList.RowAtIndex(0)
-		if row == nil {
-			break
+	children := fileList.GetChildren()
+	children.Foreach(func(item interface{}) {
+		if widget, ok := item.(*gtk.Widget); ok {
+			fileList.Remove(widget)
 		}
-		fileList.Remove(row)
-	}
+	})
 
 	// Read directory
 	entries, err := os.ReadDir(currentDir)
 	if err != nil {
-		appendToTerminal(fmt.Sprintf("Error reading directory: %v\n", err))
+		terminal.Feed([]byte(fmt.Sprintf("Error reading directory: %v\r\n", err)))
 		return
 	}
 
 	// Add parent directory entry
 	if currentDir != "/" {
 		row := createFileRow("..", true, true)
-		fileList.Append(row)
+		fileList.Add(row)
 	}
 
 	// Add directories first
 	for _, entry := range entries {
 		if entry.IsDir() && !strings.HasPrefix(entry.Name(), ".") {
 			row := createFileRow(entry.Name(), true, false)
-			fileList.Append(row)
+			fileList.Add(row)
 		}
 	}
 
@@ -227,15 +224,17 @@ func refreshFileList() {
 	for _, entry := range entries {
 		if !entry.IsDir() && strings.HasSuffix(strings.ToLower(entry.Name()), ".paw") {
 			row := createFileRow(entry.Name(), false, false)
-			fileList.Append(row)
+			fileList.Add(row)
 		}
 	}
+
+	fileList.ShowAll()
 }
 
 func createFileRow(name string, isDir bool, isParent bool) *gtk.ListBoxRow {
-	row := gtk.NewListBoxRow()
+	row, _ := gtk.ListBoxRowNew()
 
-	box := gtk.NewBox(gtk.OrientationHorizontal, 5)
+	box, _ := gtk.BoxNew(gtk.ORIENTATION_HORIZONTAL, 5)
 	box.SetMarginStart(5)
 	box.SetMarginEnd(5)
 	box.SetMarginTop(2)
@@ -250,60 +249,43 @@ func createFileRow(name string, isDir bool, isParent bool) *gtk.ListBoxRow {
 	} else {
 		iconName = "text-x-script-symbolic"
 	}
-	icon := gtk.NewImageFromIconName(iconName)
-	box.Append(icon)
+	icon, _ := gtk.ImageNewFromIconName(iconName, gtk.ICON_SIZE_MENU)
+	box.PackStart(icon, false, false, 0)
 
 	// Name label
-	label := gtk.NewLabel(name)
+	label, _ := gtk.LabelNew(name)
 	label.SetXAlign(0)
 	label.SetHExpand(true)
-	box.Append(label)
+	box.PackStart(label, true, true, 0)
 
-	row.SetChild(box)
-
-	// Store name as data
+	row.Add(box)
 	row.SetName(name)
 
 	return row
 }
 
-func onFileActivated(row *gtk.ListBoxRow) {
-	name := row.Name()
-	fullPath := filepath.Join(currentDir, name)
-
-	info, err := os.Stat(fullPath)
-	if err != nil {
-		appendToTerminal(fmt.Sprintf("Error: %v\n", err))
-		return
-	}
-
-	if info.IsDir() {
-		// Navigate to directory
-		if name == ".." {
-			currentDir = filepath.Dir(currentDir)
-		} else {
-			currentDir = fullPath
-		}
-		refreshFileList()
-	} else {
-		// Run the script
-		runScript(fullPath)
-	}
+func onFileActivated(listbox *gtk.ListBox, row *gtk.ListBoxRow) {
+	name := row.GetName()
+	handleFileSelection(name)
 }
 
 func onRunClicked() {
-	row := fileList.SelectedRow()
+	row := fileList.GetSelectedRow()
 	if row == nil {
-		appendToTerminal("No file selected.\n")
+		terminal.Feed([]byte("No file selected.\r\n"))
 		return
 	}
 
-	name := row.Name()
+	name := row.GetName()
+	handleFileSelection(name)
+}
+
+func handleFileSelection(name string) {
 	fullPath := filepath.Join(currentDir, name)
 
 	info, err := os.Stat(fullPath)
 	if err != nil {
-		appendToTerminal(fmt.Sprintf("Error: %v\n", err))
+		terminal.Feed([]byte(fmt.Sprintf("Error: %v\r\n", err)))
 		return
 	}
 
@@ -315,6 +297,7 @@ func onRunClicked() {
 			currentDir = fullPath
 		}
 		refreshFileList()
+		updatePathLabel()
 	} else {
 		// Run the script
 		runScript(fullPath)
@@ -322,132 +305,56 @@ func onRunClicked() {
 }
 
 func onBrowseClicked() {
-	dialog := gtk.NewFileDialog()
-	dialog.SetTitle("Choose Directory")
-	dialog.SetInitialFolder(gio.NewFileForPath(currentDir))
+	dialog, _ := gtk.FileChooserDialogNewWith2Buttons(
+		"Choose Directory",
+		mainWindow,
+		gtk.FILE_CHOOSER_ACTION_SELECT_FOLDER,
+		"Cancel", gtk.RESPONSE_CANCEL,
+		"Open", gtk.RESPONSE_ACCEPT,
+	)
 
-	dialog.SelectFolder(context.Background(), &mainWindow.Window, func(result gio.AsyncResulter) {
-		file, err := dialog.SelectFolderFinish(result)
-		if err != nil {
-			// User cancelled or error occurred
-			return
-		}
-		if file != nil {
-			currentDir = file.Path()
-			refreshFileList()
-		}
-	})
+	dialog.SetCurrentFolder(currentDir)
+
+	response := dialog.Run()
+	if response == gtk.RESPONSE_ACCEPT {
+		currentDir = dialog.GetFilename()
+		refreshFileList()
+		updatePathLabel()
+	}
+	dialog.Destroy()
 }
 
 func runScript(filePath string) {
-	appendToTerminal(fmt.Sprintf("\n--- Running: %s ---\n\n", filepath.Base(filePath)))
+	terminal.Feed([]byte(fmt.Sprintf("\r\n--- Running: %s ---\r\n\r\n", filepath.Base(filePath))))
 
-	content, err := os.ReadFile(filePath)
+	// Find the paw executable
+	pawPath, err := exec.LookPath("paw")
 	if err != nil {
-		appendToTerminal(fmt.Sprintf("Error reading file: %v\n", err))
-		return
+		// Try relative to our executable
+		if exe, err := os.Executable(); err == nil {
+			pawPath = filepath.Join(filepath.Dir(exe), "paw")
+		}
 	}
 
-	scriptDir := filepath.Dir(filePath)
+	// Run script using VTE's spawn capability
+	argv := []string{pawPath, filePath}
+	envv := os.Environ()
 
-	// Create PawScript instance
-	ps := pawscript.New(&pawscript.Config{
-		Debug:                false,
-		AllowMacros:          true,
-		EnableSyntacticSugar: true,
-		ShowErrorContext:     true,
-		ContextLines:         2,
-		ScriptDir:            scriptDir,
-	})
-
-	// Create custom IO channels that write to our terminal
-	termWriter := &terminalWriter{}
-	ioConfig := &pawscript.IOChannelConfig{
-		Stdout: createOutputChannel(termWriter),
-		Stderr: createOutputChannel(termWriter),
-		Stdin:  createInputChannel(),
-	}
-	ps.RegisterStandardLibraryWithIO([]string{}, ioConfig)
-
-	// Run in a goroutine to not block the UI
-	go func() {
-		result := ps.Execute(string(content), filePath, 0, 0)
-		glib.IdleAdd(func() {
-			if result == pawscript.BoolStatus(false) {
-				appendToTerminal("\n--- Script execution failed ---\n")
-			} else {
-				appendToTerminal("\n--- Script completed ---\n")
+	terminal.SpawnAsync(
+		vte.PtyDefault,
+		filepath.Dir(filePath),
+		argv,
+		envv,
+		glib.SPAWN_DEFAULT,
+		nil,
+		-1,
+		nil,
+		func(terminal *vte.Terminal, pid int, err error) {
+			if err != nil {
+				glib.IdleAdd(func() {
+					terminal.Feed([]byte(fmt.Sprintf("Error spawning process: %v\r\n", err)))
+				})
 			}
-		})
-	}()
-}
-
-// terminalWriter writes to the GTK terminal
-type terminalWriter struct{}
-
-func (w *terminalWriter) Write(p []byte) (n int, err error) {
-	text := string(p)
-	glib.IdleAdd(func() {
-		appendToTerminal(text)
-	})
-	return len(p), nil
-}
-
-func appendToTerminal(text string) {
-	termMutex.Lock()
-	defer termMutex.Unlock()
-
-	if termBuffer == nil {
-		return
-	}
-
-	endIter := termBuffer.EndIter()
-	termBuffer.Insert(endIter, text)
-
-	// Scroll to bottom
-	mark := termBuffer.CreateMark("end", termBuffer.EndIter(), false)
-	terminal.ScrollToMark(mark, 0, false, 0, 0)
-}
-
-func createOutputChannel(w io.Writer) *pawscript.StoredChannel {
-	return &pawscript.StoredChannel{
-		BufferSize:       0,
-		Messages:         make([]pawscript.ChannelMessage, 0),
-		Subscribers:      make(map[int]*pawscript.StoredChannel),
-		NextSubscriberID: 1,
-		IsClosed:         false,
-		NativeSend: func(v interface{}) error {
-			switch val := v.(type) {
-			case []byte:
-				w.Write(val)
-			case string:
-				w.Write([]byte(val))
-			default:
-				w.Write([]byte(fmt.Sprintf("%v", val)))
-			}
-			return nil
 		},
-		NativeRecv: func() (interface{}, error) {
-			return nil, fmt.Errorf("cannot receive from output channel")
-		},
-	}
-}
-
-func createInputChannel() *pawscript.StoredChannel {
-	// For now, just return a basic input channel
-	// TODO: Implement proper input handling
-	return &pawscript.StoredChannel{
-		BufferSize:       0,
-		Messages:         make([]pawscript.ChannelMessage, 0),
-		Subscribers:      make(map[int]*pawscript.StoredChannel),
-		NextSubscriberID: 1,
-		IsClosed:         false,
-		NativeSend: func(v interface{}) error {
-			return fmt.Errorf("cannot send to input channel")
-		},
-		NativeRecv: func() (interface{}, error) {
-			// TODO: Implement input from GTK
-			return nil, fmt.Errorf("input not implemented yet")
-		},
-	}
+	)
 }
