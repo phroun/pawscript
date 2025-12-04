@@ -37,7 +37,7 @@ ifeq ($(NATIVE_OS),windows)
 	cd $(SRC_DIR) && fyne build -o ../pawgui.exe ./cmd/pawgui
 	@echo "Created: pawgui.exe"
 else ifeq ($(NATIVE_OS),darwin)
-	cd $(SRC_DIR) && fyne build -o ../pawgui ./cmd/pawgui
+	cd $(SRC_DIR) && fyne package -name pawgui ./cmd/pawgui && mv pawgui.app ../
 	@echo "Created: pawgui.app"
 else
 	cd $(SRC_DIR) && fyne build -o ../pawgui ./cmd/pawgui
