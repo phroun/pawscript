@@ -1,0 +1,101 @@
+# Cursor Shapes Demo
+# Demonstrates the cursor shape and blink options via the DECSCUSR escape sequence
+# Run this in pawgui-gtk or a terminal that supports cursor shape control
+
+print "=========================================="
+print "   PawScript Cursor Shapes Demo"
+print "=========================================="
+print ""
+
+# Get initial cursor info
+info: {cursor}
+print "Current cursor settings:"
+print "  Shape: ~info.shape"
+print "  Blink: ~info.blink"
+print "  Visible: ~info.visible"
+print ""
+
+print "This demo will cycle through all cursor shapes."
+print "Watch the cursor change after each prompt!"
+print ""
+
+# 1. Blinking Block (default)
+print "--- Blinking Block Cursor ---"
+cursor shape: "block", blink: true
+write "Press Enter to continue... "
+read
+print ""
+
+# 2. Steady Block
+print "--- Steady Block Cursor ---"
+cursor shape: "block", blink: false
+write "Press Enter to continue... "
+read
+print ""
+
+# 3. Blinking Underline
+print "--- Blinking Underline Cursor ---"
+cursor shape: "underline", blink: true
+write "Press Enter to continue... "
+read
+print ""
+
+# 4. Steady Underline
+print "--- Steady Underline Cursor ---"
+cursor shape: "underline", blink: false
+write "Press Enter to continue... "
+read
+print ""
+
+# 5. Blinking Bar (I-beam)
+print "--- Blinking Bar Cursor ---"
+cursor shape: "bar", blink: true
+write "Press Enter to continue... "
+read
+print ""
+
+# 6. Steady Bar (I-beam)
+print "--- Steady Bar Cursor ---"
+cursor shape: "bar", blink: false
+write "Press Enter to continue... "
+read
+print ""
+
+# Show cursor visibility toggle
+print "--- Cursor Visibility ---"
+print "Hiding cursor for 2 seconds..."
+cursor visible: false
+sleep 2000
+cursor visible: true
+print "Cursor is visible again!"
+print ""
+
+# Reset to default
+print "--- Reset to Default ---"
+cursor shape: "block", blink: true
+print "Cursor reset to blinking block (default)"
+print ""
+
+# Summary of DECSCUSR codes
+print "=========================================="
+print "   Cursor Shape Reference"
+print "=========================================="
+print ""
+print "The cursor command uses DECSCUSR escape sequences:"
+print ""
+print "  cursor shape: \"block\"                 - Block cursor"
+print "  cursor shape: \"underline\"             - Underline cursor"
+print "  cursor shape: \"bar\"                   - Vertical bar cursor"
+print ""
+print "  cursor blink: true                    - Enable blinking"
+print "  cursor blink: false                   - Steady (no blink)"
+print ""
+print "DECSCUSR codes (ESC [ Ps SP q):"
+print "  Ps=0,1: Blinking block"
+print "  Ps=2:   Steady block"
+print "  Ps=3:   Blinking underline"
+print "  Ps=4:   Steady underline"
+print "  Ps=5:   Blinking bar"
+print "  Ps=6:   Steady bar"
+print ""
+print "Demo complete!"
