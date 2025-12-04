@@ -30,17 +30,17 @@ build-token-example:
 	cd $(SRC_DIR) && go build -ldflags "-X main.version=$(VERSION)" -o ../token_example ./cmd/token_example
 	@echo "Created: token_example"
 
-# Build GUI version (requires Fyne dependencies: libgl1-mesa-dev xorg-dev on Linux)
+# Build GUI version (requires Fyne CLI: go install fyne.io/fyne/v2/cmd/fyne@latest)
 build-gui:
 	@echo "Building pawgui for native platform ($(NATIVE_OS)/$(NATIVE_ARCH))..."
 ifeq ($(NATIVE_OS),windows)
-	cd $(SRC_DIR) && go build -ldflags "-X main.version=$(VERSION)" -o ../pawgui.exe ./cmd/pawgui
+	cd $(SRC_DIR) && fyne build -o ../pawgui.exe ./cmd/pawgui
 	@echo "Created: pawgui.exe"
 else ifeq ($(NATIVE_OS),darwin)
-	cd $(SRC_DIR) && CGO_CFLAGS="-Wno-deprecated-declarations" CGO_LDFLAGS="-Wl,-no_warn_duplicate_libraries" go build -ldflags "-X main.version=$(VERSION)" -o ../pawgui ./cmd/pawgui
-	@echo "Created: pawgui"
+	cd $(SRC_DIR) && fyne build -o ../pawgui ./cmd/pawgui
+	@echo "Created: pawgui.app"
 else
-	cd $(SRC_DIR) && go build -ldflags "-X main.version=$(VERSION)" -o ../pawgui ./cmd/pawgui
+	cd $(SRC_DIR) && fyne build -o ../pawgui ./cmd/pawgui
 	@echo "Created: pawgui"
 endif
 
@@ -53,6 +53,15 @@ ifeq ($(NATIVE_OS),windows)
 	@echo "Built: $(BINARY_NAME)"
 	@if [ -f pawgui.exe ]; then echo "Built: pawgui.exe (from 'make build-gui')"; fi
 	@echo "Note: On Windows, manually copy to a directory in your PATH."
+else ifeq ($(NATIVE_OS),darwin)
+	@mkdir -p $(PREFIX)/bin
+	@install -m 755 $(BINARY_NAME) $(PREFIX)/bin/paw
+	@echo "Installed: $(PREFIX)/bin/paw"
+	@if [ -d pawgui.app ]; then \
+		rm -rf /Applications/pawgui.app && \
+		cp -R pawgui.app /Applications/ && \
+		echo "Installed: /Applications/pawgui.app"; \
+	fi
 else
 	@mkdir -p $(PREFIX)/bin
 	@install -m 755 $(BINARY_NAME) $(PREFIX)/bin/paw
@@ -187,7 +196,8 @@ run-example:
 
 clean:
 	@echo "Cleaning..."
-	@rm -f paw pawgui $(SRC_DIR)/coverage.out $(SRC_DIR)/coverage.html
+	@rm -f paw pawgui pawgui.exe $(SRC_DIR)/coverage.out $(SRC_DIR)/coverage.html
+	@rm -rf pawgui.app
 	@echo "Clean complete"
 
 fmt:
