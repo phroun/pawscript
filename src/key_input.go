@@ -45,6 +45,10 @@ type KeyInputManager struct {
 	escBuffer []byte
 	inEscape  bool
 
+	// UTF-8 multi-byte character buffer
+	utf8Buffer    []byte
+	utf8Remaining int // bytes remaining to complete current UTF-8 char
+
 	// Echo output (where to echo typed characters during readkey)
 	echoWriter io.Writer
 	// Echo output specifically for line read mode (used by read command)
@@ -445,9 +449,49 @@ func (m *KeyInputManager) processByte(b byte, escTimeout *time.Timer) {
 	// Regular printable character or start of UTF-8 sequence
 	if b < 128 {
 		m.emitKey(string(b))
+		return
+	}
+
+	// UTF-8 multi-byte character handling
+	// Check if we're continuing an existing UTF-8 sequence
+	if m.utf8Remaining > 0 {
+		// Continuation byte should be 10xxxxxx (0x80-0xBF)
+		if b >= 0x80 && b <= 0xBF {
+			m.utf8Buffer = append(m.utf8Buffer, b)
+			m.utf8Remaining--
+			if m.utf8Remaining == 0 {
+				// Complete UTF-8 sequence - emit the character
+				m.emitKey(string(m.utf8Buffer))
+				m.utf8Buffer = nil
+			}
+		} else {
+			// Invalid continuation - emit buffer as-is and reset
+			for _, bb := range m.utf8Buffer {
+				m.emitKey(string(rune(bb)))
+			}
+			m.utf8Buffer = nil
+			m.utf8Remaining = 0
+			// Process this byte as a new sequence
+			m.processByte(b, escTimeout)
+		}
+		return
+	}
+
+	// Start of new UTF-8 sequence - determine length from lead byte
+	if b >= 0xC0 && b <= 0xDF {
+		// 2-byte sequence: 110xxxxx
+		m.utf8Buffer = []byte{b}
+		m.utf8Remaining = 1
+	} else if b >= 0xE0 && b <= 0xEF {
+		// 3-byte sequence: 1110xxxx
+		m.utf8Buffer = []byte{b}
+		m.utf8Remaining = 2
+	} else if b >= 0xF0 && b <= 0xF7 {
+		// 4-byte sequence: 11110xxx
+		m.utf8Buffer = []byte{b}
+		m.utf8Remaining = 3
 	} else {
-		// UTF-8 multi-byte character - need to collect more bytes
-		// For now, emit as single character (will enhance later)
+		// Invalid UTF-8 lead byte or bare continuation byte - emit as-is
 		m.emitKey(string(rune(b)))
 	}
 }
