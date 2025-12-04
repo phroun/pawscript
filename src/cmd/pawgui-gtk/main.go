@@ -25,6 +25,39 @@ const (
 	appName = "PawScript Launcher (GTK)"
 )
 
+// init sets up GTK data paths on Windows for icons, schemas, etc.
+// Note: This doesn't help with DLL loading (too late), but icons load at runtime.
+func init() {
+	if runtime.GOOS != "windows" {
+		return
+	}
+
+	exePath, err := os.Executable()
+	if err != nil {
+		return
+	}
+	exeDir := filepath.Dir(exePath)
+
+	// Set GDK-Pixbuf loader path
+	loaderCache := filepath.Join(exeDir, "lib", "gdk-pixbuf-2.0", "2.10.0", "loaders.cache")
+	if _, err := os.Stat(loaderCache); err == nil {
+		os.Setenv("GDK_PIXBUF_MODULE_FILE", loaderCache)
+	}
+
+	// Set data directories for icons and schemas
+	shareDir := filepath.Join(exeDir, "share")
+	if _, err := os.Stat(shareDir); err == nil {
+		os.Setenv("XDG_DATA_DIRS", shareDir)
+		os.Setenv("GTK_DATA_PREFIX", exeDir)
+	}
+
+	// Set schema directory
+	schemaDir := filepath.Join(shareDir, "glib-2.0", "schemas")
+	if _, err := os.Stat(schemaDir); err == nil {
+		os.Setenv("GSETTINGS_SCHEMA_DIR", schemaDir)
+	}
+}
+
 // Global state
 var (
 	currentDir string
@@ -380,7 +413,21 @@ func createFileRow(name string, isDir bool, isParent bool) *gtk.ListBoxRow {
 	box.SetMarginTop(2)
 	box.SetMarginBottom(2)
 
-	// Name label (no icons - emoji don't work on Wine)
+	// Use GTK icons from Adwaita theme
+	var iconName string
+	if isParent {
+		iconName = "go-up"
+	} else if isDir {
+		iconName = "folder"
+	} else {
+		iconName = "text-x-generic"
+	}
+	icon, err := gtk.ImageNewFromIconName(iconName, gtk.ICON_SIZE_LARGE_TOOLBAR)
+	if err == nil {
+		box.PackStart(icon, false, false, 0)
+	}
+
+	// Name label
 	label, _ := gtk.LabelNew(name)
 	label.SetXAlign(0)
 	label.SetHExpand(true)
