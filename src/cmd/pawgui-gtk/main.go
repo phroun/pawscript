@@ -8,11 +8,16 @@ import (
 	"os/exec"
 	"path/filepath"
 	"strings"
+	"unsafe"
 
 	"github.com/gotk3/gotk3/glib"
 	"github.com/gotk3/gotk3/gtk"
 	"github.com/sqp/vte"
 )
+
+// #cgo pkg-config: vte-2.91
+// #include <vte/vte.h>
+import "C"
 
 const (
 	appID   = "com.pawscript.pawgui-gtk"
@@ -177,7 +182,9 @@ func createTerminal() *gtk.Box {
 	terminal.SetScrollbackLines(10000)
 
 	// Add terminal widget to scroll window
-	termWidget := &terminal.Widget
+	// Get the native VteTerminal pointer and wrap it as a GtkWidget
+	nativePtr := terminal.Native()
+	termWidget := gtk.WrapWidget(uintptr(unsafe.Pointer(nativePtr)))
 	scroll.Add(termWidget)
 	box.PackStart(scroll, true, true, 0)
 
@@ -338,6 +345,6 @@ func runScript(filePath string) {
 
 	// Run script using VTE's async spawn capability
 	cmd := terminal.NewCmd(pawPath, filePath)
-	cmd.SetDirectory(filepath.Dir(filePath))
+	cmd.Dir = filepath.Dir(filePath)
 	terminal.ExecAsync(cmd)
 }
