@@ -48,39 +48,66 @@ jobs:
 
       - name: Collect GTK DLLs
         run: |
+          set -x  # Debug: show commands as they run
+
           mkdir -p dist/windows/lib
+
+          # Verify builds exist
+          ls -la *.exe
+
           cp pawgui-gtk-windows-amd64.exe dist/windows/
           cp paw-windows-amd64.exe dist/windows/
 
-          # Copy required GTK DLLs to lib/ subfolder (recursively resolve dependencies)
-          copy_dll_deps() {
-            ldd "$1" 2>/dev/null | grep mingw64 | awk '{print $3}' | while read dll; do
-              if [ -f "$dll" ] && [ ! -f "dist/windows/lib/$(basename $dll)" ]; then
+          # Copy required GTK DLLs to lib/ subfolder (iterative to avoid subshell issues)
+          # Use a file as a queue to process DLLs
+          echo "pawgui-gtk-windows-amd64.exe" > /tmp/dll_queue.txt
+          touch /tmp/dll_done.txt
+
+          while [ -s /tmp/dll_queue.txt ]; do
+            # Get first item from queue
+            current=$(head -1 /tmp/dll_queue.txt)
+            tail -n +2 /tmp/dll_queue.txt > /tmp/dll_queue_tmp.txt
+            mv /tmp/dll_queue_tmp.txt /tmp/dll_queue.txt
+
+            # Skip if already processed
+            if grep -qxF "$current" /tmp/dll_done.txt 2>/dev/null; then
+              continue
+            fi
+            echo "$current" >> /tmp/dll_done.txt
+
+            # Get dependencies
+            ldd "$current" 2>/dev/null | grep mingw64 | awk '{print $3}' > /tmp/deps.txt || true
+            while IFS= read -r dll; do
+              if [ -f "$dll" ] && [ ! -f "dist/windows/lib/$(basename "$dll")" ]; then
                 cp "$dll" dist/windows/lib/
-                copy_dll_deps "$dll"
+                echo "$dll" >> /tmp/dll_queue.txt
               fi
-            done
-          }
-          copy_dll_deps pawgui-gtk-windows-amd64.exe
+            done < /tmp/deps.txt
+          done
+
+          echo "Copied $(ls dist/windows/lib/*.dll 2>/dev/null | wc -l) DLLs"
 
           # Copy GDK-Pixbuf loaders and their dependencies
           mkdir -p dist/windows/lib/gdk-pixbuf-2.0/2.10.0/loaders
-          for loader in /mingw64/lib/gdk-pixbuf-2.0/2.10.0/loaders/*.dll; do
-            cp "$loader" dist/windows/lib/gdk-pixbuf-2.0/2.10.0/loaders/
-            # Copy loader dependencies
-            ldd "$loader" 2>/dev/null | grep mingw64 | awk '{print $3}' | while read dll; do
-              if [ -f "$dll" ] && [ ! -f "dist/windows/lib/$(basename $dll)" ]; then
-                cp "$dll" dist/windows/lib/
-              fi
+          if ls /mingw64/lib/gdk-pixbuf-2.0/2.10.0/loaders/*.dll 1>/dev/null 2>&1; then
+            for loader in /mingw64/lib/gdk-pixbuf-2.0/2.10.0/loaders/*.dll; do
+              cp "$loader" dist/windows/lib/gdk-pixbuf-2.0/2.10.0/loaders/
+              # Add loader to queue for dependency resolution
+              ldd "$loader" 2>/dev/null | grep mingw64 | awk '{print $3}' > /tmp/loader_deps.txt || true
+              while IFS= read -r dll; do
+                if [ -f "$dll" ] && [ ! -f "dist/windows/lib/$(basename "$dll")" ]; then
+                  cp "$dll" dist/windows/lib/
+                fi
+              done < /tmp/loader_deps.txt
             done
-          done
+          fi
           cp /mingw64/lib/gdk-pixbuf-2.0/2.10.0/loaders.cache dist/windows/lib/gdk-pixbuf-2.0/2.10.0/ 2>/dev/null || true
 
           # Copy GTK schemas
           mkdir -p dist/windows/share/glib-2.0/schemas
           cp /mingw64/share/glib-2.0/schemas/gschemas.compiled dist/windows/share/glib-2.0/schemas/ 2>/dev/null || true
 
-          # Copy icons - use PNG versions to avoid SVG dependency issues
+          # Copy icons (optional - we use emoji fallbacks anyway)
           mkdir -p dist/windows/share/icons/Adwaita
           cp -r /mingw64/share/icons/Adwaita/16x16 dist/windows/share/icons/Adwaita/ 2>/dev/null || true
           cp -r /mingw64/share/icons/Adwaita/22x22 dist/windows/share/icons/Adwaita/ 2>/dev/null || true
@@ -91,6 +118,10 @@ jobs:
 
           # Copy examples
           cp -r examples dist/windows/
+
+          echo "=== Final distribution contents ==="
+          find dist/windows -type f | head -50
+          echo "Total files: $(find dist/windows -type f | wc -l)"
 
       - name: Upload Windows artifacts
         uses: actions/upload-artifact@v4
@@ -110,6 +141,7 @@ jobs:
         uses: actions/setup-go@v5
         with:
           go-version: '1.22'
+          cache-dependency-path: src/go.sum
 
       - name: Build CLI for multiple platforms
         run: |
