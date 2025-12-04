@@ -92,7 +92,7 @@ jobs:
           if ls /mingw64/lib/gdk-pixbuf-2.0/2.10.0/loaders/*.dll 1>/dev/null 2>&1; then
             for loader in /mingw64/lib/gdk-pixbuf-2.0/2.10.0/loaders/*.dll; do
               cp "$loader" dist/windows/lib/gdk-pixbuf-2.0/2.10.0/loaders/
-              # Copy loader dependencies
+              # Copy loader dependencies (including librsvg deps for SVG icons)
               ldd "$loader" 2>/dev/null | grep mingw64 | awk '{print $3}' > /tmp/loader_deps.txt || true
               while IFS= read -r dll; do
                 if [ -f "$dll" ] && [ ! -f "dist/windows/$(basename "$dll")" ]; then
@@ -101,7 +101,18 @@ jobs:
               done < /tmp/loader_deps.txt
             done
           fi
-          cp /mingw64/lib/gdk-pixbuf-2.0/2.10.0/loaders.cache dist/windows/lib/gdk-pixbuf-2.0/2.10.0/ 2>/dev/null || true
+
+          # Generate loaders.cache with correct relative paths for Windows
+          # The cache file from MSYS2 has /mingw64 paths which won't work on Windows
+          cd dist/windows
+          GDK_PIXBUF_MODULEDIR=lib/gdk-pixbuf-2.0/2.10.0/loaders \
+            gdk-pixbuf-query-loaders.exe lib/gdk-pixbuf-2.0/2.10.0/loaders/*.dll \
+            > lib/gdk-pixbuf-2.0/2.10.0/loaders.cache 2>/dev/null || \
+            cp /mingw64/lib/gdk-pixbuf-2.0/2.10.0/loaders.cache lib/gdk-pixbuf-2.0/2.10.0/ 2>/dev/null || true
+          cd ../..
+
+          echo "=== Pixbuf loaders ==="
+          cat dist/windows/lib/gdk-pixbuf-2.0/2.10.0/loaders.cache 2>/dev/null | head -30 || echo "No loaders.cache"
 
           # Copy GTK schemas
           mkdir -p dist/windows/share/glib-2.0/schemas
