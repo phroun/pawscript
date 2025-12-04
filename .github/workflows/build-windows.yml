@@ -50,7 +50,7 @@ jobs:
         run: |
           set -x  # Debug: show commands as they run
 
-          mkdir -p dist/windows/lib
+          mkdir -p dist/windows
 
           # Verify builds exist
           ls -la *.exe
@@ -58,8 +58,8 @@ jobs:
           cp pawgui-gtk-windows-amd64.exe dist/windows/
           cp paw-windows-amd64.exe dist/windows/
 
-          # Copy required GTK DLLs to lib/ subfolder (iterative to avoid subshell issues)
-          # Use a file as a queue to process DLLs
+          # Copy required GTK DLLs to same folder as exe (Windows loads DLLs before any code runs)
+          # Use a file as a queue to process DLLs iteratively
           echo "pawgui-gtk-windows-amd64.exe" > /tmp/dll_queue.txt
           touch /tmp/dll_done.txt
 
@@ -78,25 +78,25 @@ jobs:
             # Get dependencies
             ldd "$current" 2>/dev/null | grep mingw64 | awk '{print $3}' > /tmp/deps.txt || true
             while IFS= read -r dll; do
-              if [ -f "$dll" ] && [ ! -f "dist/windows/lib/$(basename "$dll")" ]; then
-                cp "$dll" dist/windows/lib/
+              if [ -f "$dll" ] && [ ! -f "dist/windows/$(basename "$dll")" ]; then
+                cp "$dll" dist/windows/
                 echo "$dll" >> /tmp/dll_queue.txt
               fi
             done < /tmp/deps.txt
           done
 
-          echo "Copied $(ls dist/windows/lib/*.dll 2>/dev/null | wc -l) DLLs"
+          echo "Copied $(ls dist/windows/*.dll 2>/dev/null | wc -l) DLLs"
 
           # Copy GDK-Pixbuf loaders and their dependencies
           mkdir -p dist/windows/lib/gdk-pixbuf-2.0/2.10.0/loaders
           if ls /mingw64/lib/gdk-pixbuf-2.0/2.10.0/loaders/*.dll 1>/dev/null 2>&1; then
             for loader in /mingw64/lib/gdk-pixbuf-2.0/2.10.0/loaders/*.dll; do
               cp "$loader" dist/windows/lib/gdk-pixbuf-2.0/2.10.0/loaders/
-              # Add loader to queue for dependency resolution
+              # Copy loader dependencies
               ldd "$loader" 2>/dev/null | grep mingw64 | awk '{print $3}' > /tmp/loader_deps.txt || true
               while IFS= read -r dll; do
-                if [ -f "$dll" ] && [ ! -f "dist/windows/lib/$(basename "$dll")" ]; then
-                  cp "$dll" dist/windows/lib/
+                if [ -f "$dll" ] && [ ! -f "dist/windows/$(basename "$dll")" ]; then
+                  cp "$dll" dist/windows/
                 fi
               done < /tmp/loader_deps.txt
             done
