@@ -745,6 +745,37 @@ func (w *Widget) handleRegularKey(keyval uint, key *gdk.EventKey, hasShift, hasC
 					baseCh = baseCh - 'A' + 1
 				}
 			}
+
+			// Check if the result is a named key that should use kitty protocol
+			var keycode int
+			switch baseCh {
+			case 0x0D: // CR = Enter (from Ctrl+M)
+				keycode = 13
+			case 0x09: // HT = Tab (from Ctrl+I)
+				keycode = 9
+			case 0x08: // BS = Backspace (from Ctrl+H)
+				keycode = 127
+			case 0x7F: // DEL
+				keycode = 127
+			case 0x1B: // ESC
+				keycode = 27
+			}
+
+			if keycode != 0 {
+				// Use kitty protocol: CSI keycode ; mod u
+				// mod = 1 + (shift?1:0) + (alt?2:0) + (ctrl?4:0) + (meta?8:0)
+				// Ctrl is consumed by letter->control_char, so not included
+				mod := 1
+				if hasShift {
+					mod += 1
+				}
+				mod += 2 // Alt (Option) is always pressed in this branch
+				if hasMeta || hasSuper {
+					mod += 8
+				}
+				return []byte(fmt.Sprintf("\x1b[%d;%du", keycode, mod))
+			}
+
 			// Send ESC + base character for Alt+key
 			return []byte{0x1b, baseCh}
 		}
@@ -772,11 +803,11 @@ func (w *Widget) handleRegularKey(keyval uint, key *gdk.EventKey, hasShift, hasC
 		return nil
 	}
 
-	return w.processCharWithModifiers(ch, hasCtrl, hasAlt, hasMeta, hasSuper)
+	return w.processCharWithModifiers(ch, hasShift, hasCtrl, hasAlt, hasMeta, hasSuper)
 }
 
 // processCharWithModifiers applies modifier transformations to a character
-func (w *Widget) processCharWithModifiers(ch byte, hasCtrl, hasAlt, hasMeta, hasSuper bool) []byte {
+func (w *Widget) processCharWithModifiers(ch byte, hasShift, hasCtrl, hasAlt, hasMeta, hasSuper bool) []byte {
 	// Ctrl+letter produces control character (1-26)
 	if hasCtrl && ch >= 'a' && ch <= 'z' {
 		ch = ch - 'a' + 1
@@ -804,8 +835,42 @@ func (w *Widget) processCharWithModifiers(ch byte, hasCtrl, hasAlt, hasMeta, has
 		}
 	}
 
-	// Alt/Meta prefix with ESC
+	// Check if the control char is a "named key" that should use kitty protocol
+	// when combined with other modifiers (Alt/Meta/Super)
 	if hasAlt || hasMeta || hasSuper {
+		// Map control chars to their keycode for kitty protocol
+		var keycode int
+		switch ch {
+		case 0x0D: // CR = Enter (from Ctrl+M)
+			keycode = 13
+		case 0x09: // HT = Tab (from Ctrl+I)
+			keycode = 9
+		case 0x08: // BS = Backspace (from Ctrl+H)
+			keycode = 127 // Use DEL keycode for backspace
+		case 0x7F: // DEL
+			keycode = 127
+		case 0x1B: // ESC
+			keycode = 27
+		}
+
+		if keycode != 0 {
+			// Use kitty protocol: CSI keycode ; mod u
+			// Compute modifier: 1 + (shift?1:0) + (alt?2:0) + (ctrl?4:0) + (meta?8:0)
+			// Note: Ctrl is NOT included since it was consumed to produce the control char
+			mod := 1
+			if hasShift {
+				mod += 1
+			}
+			if hasAlt {
+				mod += 2
+			}
+			if hasMeta || hasSuper {
+				mod += 8
+			}
+			return []byte(fmt.Sprintf("\x1b[%d;%du", keycode, mod))
+		}
+
+		// For other control chars, use ESC prefix
 		return []byte{0x1b, ch}
 	}
 
