@@ -2747,6 +2747,42 @@ func createConsoleChannels(stdinReader *io.PipeReader, stdoutWriter *io.PipeWrit
 		},
 	}
 
+	// Non-blocking input: large buffer absorbs input when script isn't reading
+	// This prevents deadlock when script ends but terminal is still accepting input
+	inputQueue := make(chan byte, 256)
+
+	// Reader goroutine: drains pipe and puts bytes into queue
+	// Drops oldest bytes if queue is full to prevent blocking
+	go func() {
+		buf := make([]byte, 1)
+		for {
+			n, err := stdinReader.Read(buf)
+			if err != nil || n == 0 {
+				close(inputQueue)
+				return
+			}
+			// Non-blocking send with "drop oldest" policy
+			select {
+			case inputQueue <- buf[0]:
+				// Sent successfully
+			default:
+				// Queue full - drop oldest byte to make room
+				select {
+				case <-inputQueue:
+					// Dropped oldest
+				default:
+					// Queue was drained between checks, that's fine
+				}
+				// Try again - should succeed now
+				select {
+				case inputQueue <- buf[0]:
+				default:
+					// Still can't send, just drop this byte
+				}
+			}
+		}
+	}()
+
 	consoleInCh := &pawscript.StoredChannel{
 		BufferSize:       0,
 		Messages:         make([]pawscript.ChannelMessage, 0),
@@ -2756,16 +2792,12 @@ func createConsoleChannels(stdinReader *io.PipeReader, stdoutWriter *io.PipeWrit
 		Timestamp:        time.Now(),
 		Terminal:         termCaps,
 		NativeRecv: func() (interface{}, error) {
-			// Return raw bytes - line assembly handled by KeyInputManager
-			buf := make([]byte, 1)
-			n, err := stdinReader.Read(buf)
-			if err != nil {
-				return nil, err
+			// Read from buffered queue instead of directly from pipe
+			b, ok := <-inputQueue
+			if !ok {
+				return nil, fmt.Errorf("input closed")
 			}
-			if n == 0 {
-				return nil, fmt.Errorf("no data")
-			}
-			return buf[:n], nil
+			return []byte{b}, nil
 		},
 		NativeSend: func(v interface{}) error {
 			return fmt.Errorf("cannot send to console_in")
