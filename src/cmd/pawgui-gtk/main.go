@@ -9,7 +9,6 @@ import (
 	"path/filepath"
 	"strings"
 
-	"github.com/gotk3/gotk3/gdk"
 	"github.com/gotk3/gotk3/glib"
 	"github.com/gotk3/gotk3/gtk"
 	"github.com/sqp/vte"
@@ -74,8 +73,8 @@ func activate(app *gtk.Application) {
 	updatePathLabel()
 
 	// Print welcome message
-	terminal.Feed([]byte("PawScript Launcher (GTK3 + VTE)\r\n"))
-	terminal.Feed([]byte("Select a .paw file and click Run to execute.\r\n\r\n"))
+	terminal.Feed("PawScript Launcher (GTK3 + VTE)\r\n")
+	terminal.Feed("Select a .paw file and click Run to execute.\r\n\r\n")
 
 	mainWindow.ShowAll()
 }
@@ -165,20 +164,21 @@ func createTerminal() *gtk.Box {
 	scroll.SetHExpand(true)
 
 	// VTE Terminal
-	terminal = vte.New()
-	terminal.SetScrollOnOutput(true)
-	terminal.SetScrollOnKeystroke(true)
+	terminal = vte.NewTerminal()
 
 	// Dark color scheme
-	bgColor := gdk.NewRGBA(0.12, 0.12, 0.12, 1.0)
-	fgColor := gdk.NewRGBA(0.83, 0.83, 0.83, 1.0)
-	terminal.SetColorBackground(bgColor)
-	terminal.SetColorForeground(fgColor)
+	terminal.SetBgColorFromString("#1e1e1e")
+	terminal.SetFgColorFromString("#d4d4d4")
 
 	// Set font
 	terminal.SetFontFromString("Monospace 11")
 
-	scroll.Add(terminal)
+	// Set scrollback
+	terminal.SetScrollbackLines(10000)
+
+	// Add terminal widget to scroll window
+	termWidget := &terminal.Widget
+	scroll.Add(termWidget)
 	box.PackStart(scroll, true, true, 0)
 
 	return box
@@ -202,7 +202,7 @@ func refreshFileList() {
 	// Read directory
 	entries, err := os.ReadDir(currentDir)
 	if err != nil {
-		terminal.Feed([]byte(fmt.Sprintf("Error reading directory: %v\r\n", err)))
+		terminal.Feed(fmt.Sprintf("Error reading directory: %v\r\n", err))
 		return
 	}
 
@@ -265,18 +265,18 @@ func createFileRow(name string, isDir bool, isParent bool) *gtk.ListBoxRow {
 }
 
 func onFileActivated(listbox *gtk.ListBox, row *gtk.ListBoxRow) {
-	name := row.GetName()
+	name, _ := row.GetName()
 	handleFileSelection(name)
 }
 
 func onRunClicked() {
 	row := fileList.GetSelectedRow()
 	if row == nil {
-		terminal.Feed([]byte("No file selected.\r\n"))
+		terminal.Feed("No file selected.\r\n")
 		return
 	}
 
-	name := row.GetName()
+	name, _ := row.GetName()
 	handleFileSelection(name)
 }
 
@@ -285,7 +285,7 @@ func handleFileSelection(name string) {
 
 	info, err := os.Stat(fullPath)
 	if err != nil {
-		terminal.Feed([]byte(fmt.Sprintf("Error: %v\r\n", err)))
+		terminal.Feed(fmt.Sprintf("Error: %v\r\n", err))
 		return
 	}
 
@@ -325,7 +325,7 @@ func onBrowseClicked() {
 }
 
 func runScript(filePath string) {
-	terminal.Feed([]byte(fmt.Sprintf("\r\n--- Running: %s ---\r\n\r\n", filepath.Base(filePath))))
+	terminal.Feed(fmt.Sprintf("\r\n--- Running: %s ---\r\n\r\n", filepath.Base(filePath)))
 
 	// Find the paw executable
 	pawPath, err := exec.LookPath("paw")
@@ -336,25 +336,8 @@ func runScript(filePath string) {
 		}
 	}
 
-	// Run script using VTE's spawn capability
-	argv := []string{pawPath, filePath}
-	envv := os.Environ()
-
-	terminal.SpawnAsync(
-		vte.PtyDefault,
-		filepath.Dir(filePath),
-		argv,
-		envv,
-		glib.SPAWN_DEFAULT,
-		nil,
-		-1,
-		nil,
-		func(terminal *vte.Terminal, pid int, err error) {
-			if err != nil {
-				glib.IdleAdd(func() {
-					terminal.Feed([]byte(fmt.Sprintf("Error spawning process: %v\r\n", err)))
-				})
-			}
-		},
-	)
+	// Run script using VTE's async spawn capability
+	cmd := terminal.NewCmd(pawPath, filePath)
+	cmd.SetDirectory(filepath.Dir(filePath))
+	terminal.ExecAsync(cmd)
 }
