@@ -65,6 +65,7 @@ var (
 	fileList   *gtk.ListBox
 	terminal   *gtkterm.Terminal
 	pathLabel  *gtk.Label
+	runButton  *gtk.Button
 
 	// Console I/O for PawScript
 	consoleOutCh   *pawscript.StoredChannel
@@ -289,13 +290,14 @@ func createFileBrowser() *gtk.Box {
 	fileList.SetSelectionMode(gtk.SELECTION_SINGLE)
 	fileList.SetActivateOnSingleClick(false)
 	fileList.Connect("row-activated", onFileActivated)
+	fileList.Connect("row-selected", onRowSelected)
 	scroll.Add(fileList)
 	box.PackStart(scroll, true, true, 0)
 
 	// Button box
 	buttonBox, _ := gtk.BoxNew(gtk.ORIENTATION_HORIZONTAL, 5)
 
-	runButton, _ := gtk.ButtonNewWithLabel("Run")
+	runButton, _ = gtk.ButtonNewWithLabel("Run")
 	runButton.Connect("clicked", onRunClicked)
 	runButton.SetHExpand(true)
 	buttonBox.PackStart(runButton, true, true, 0)
@@ -442,6 +444,32 @@ func createFileRow(name string, isDir bool, isParent bool) *gtk.ListBoxRow {
 func onFileActivated(listbox *gtk.ListBox, row *gtk.ListBoxRow) {
 	name, _ := row.GetName()
 	handleFileSelection(name)
+}
+
+func onRowSelected(listbox *gtk.ListBox, row *gtk.ListBoxRow) {
+	if row == nil || runButton == nil {
+		return
+	}
+	name, _ := row.GetName()
+	fullPath := filepath.Join(currentDir, name)
+
+	// Check if it's a directory (including ".." parent)
+	if name == ".." {
+		runButton.SetLabel("Open")
+		return
+	}
+
+	info, err := os.Stat(fullPath)
+	if err != nil {
+		runButton.SetLabel("Run")
+		return
+	}
+
+	if info.IsDir() {
+		runButton.SetLabel("Open")
+	} else {
+		runButton.SetLabel("Run")
+	}
 }
 
 func onRunClicked() {
