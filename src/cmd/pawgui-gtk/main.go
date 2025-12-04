@@ -22,9 +22,9 @@ import (
 
 // Default font settings
 // Font priority: platform-specific defaults with cross-platform fallbacks
-// - macOS: Menlo (built-in)
-// - Windows: Cascadia Mono (Win11), Consolas (Win7+), Courier New (fallback)
-// - Linux: JetBrains Mono, DejaVu Sans Mono, monospace
+// - macOS: Menlo, SF Mono, Monaco, Courier New
+// - Windows: Cascadia Mono, Consolas, Courier New
+// - Linux: JetBrains Mono, DejaVu Sans Mono, Liberation Mono, monospace
 const (
 	defaultFontSize = 22
 )
@@ -33,7 +33,8 @@ const (
 func getDefaultFont() string {
 	switch runtime.GOOS {
 	case "darwin":
-		return "Menlo"
+		// Menlo (10.6+), SF Mono (10.12+), Monaco (classic), Courier New (fallback)
+		return "Menlo, SF Mono, Monaco, Courier New"
 	case "windows":
 		// Cascadia Mono is on Windows 11+ and Windows Terminal
 		// Consolas is on Windows Vista+, Courier New is universal fallback

@@ -14,6 +14,7 @@ import "C"
 
 import (
 	"fmt"
+	"runtime"
 	"sync"
 	"unsafe"
 
@@ -731,6 +732,16 @@ func (w *Widget) handleRegularKey(keyval uint, key *gdk.EventKey, hasShift, hasC
 	var ch byte
 	var isChar bool
 
+	// On macOS, Option key composes special Unicode characters (e.g., Option+R = ®)
+	// We want to treat Option as Alt/Meta modifier instead, using the base key
+	if runtime.GOOS == "darwin" && hasAlt && !hasCtrl {
+		hwcode := key.HardwareKeyCode()
+		if baseCh := macKeycodeToChar(hwcode, hasShift); baseCh != 0 {
+			// Send ESC + base character for Alt+key
+			return []byte{0x1b, baseCh}
+		}
+	}
+
 	// Try to get character from keyval
 	if keyval >= 0x20 && keyval < 256 {
 		ch = byte(keyval)
@@ -1053,6 +1064,68 @@ func hardwareKeycodeToChar(hwcode uint16, shift bool) byte {
 			return mapping.shift
 		}
 		return mapping.normal
+	}
+
+	return 0
+}
+
+// macKeycodeToChar converts macOS hardware keycodes to ASCII characters
+// On macOS, Option key produces composed characters (like ® for Option+R)
+// We use hardware keycodes to get the base character for Alt/Meta sequences
+func macKeycodeToChar(hwcode uint16, shift bool) byte {
+	// macOS keycode to character mapping (US keyboard layout)
+	// Letters - macOS keycodes are not sequential like Windows VK codes
+	letterKeys := map[uint16]byte{
+		0: 'a', 1: 's', 2: 'd', 3: 'f', 4: 'h', 5: 'g', 6: 'z', 7: 'x',
+		8: 'c', 9: 'v', 11: 'b', 12: 'q', 13: 'w', 14: 'e', 15: 'r',
+		16: 'y', 17: 't', 31: 'o', 32: 'u', 34: 'i', 35: 'p', 37: 'l',
+		38: 'j', 40: 'k', 45: 'n', 46: 'm',
+	}
+
+	if ch, ok := letterKeys[hwcode]; ok {
+		if shift {
+			return ch - 32 // Convert to uppercase
+		}
+		return ch
+	}
+
+	// Number row
+	numberKeys := map[uint16]struct {
+		normal byte
+		shift  byte
+	}{
+		18: {'1', '!'}, 19: {'2', '@'}, 20: {'3', '#'}, 21: {'4', '$'},
+		23: {'5', '%'}, 22: {'6', '^'}, 26: {'7', '&'}, 28: {'8', '*'},
+		25: {'9', '('}, 29: {'0', ')'},
+	}
+
+	if mapping, ok := numberKeys[hwcode]; ok {
+		if shift {
+			return mapping.shift
+		}
+		return mapping.normal
+	}
+
+	// Symbol keys
+	symbolKeys := map[uint16]struct {
+		normal byte
+		shift  byte
+	}{
+		24: {'=', '+'}, 27: {'-', '_'}, 30: {']', '}'}, 33: {'[', '{'},
+		39: {'\'', '"'}, 41: {';', ':'}, 42: {'\\', '|'}, 43: {',', '<'},
+		44: {'/', '?'}, 47: {'.', '>'}, 50: {'`', '~'},
+	}
+
+	if mapping, ok := symbolKeys[hwcode]; ok {
+		if shift {
+			return mapping.shift
+		}
+		return mapping.normal
+	}
+
+	// Space
+	if hwcode == 49 {
+		return ' '
 	}
 
 	return 0
