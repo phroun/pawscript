@@ -644,4 +644,11 @@ func createConsoleChannels(width, height int) {
 			}
 		}
 	}()
+
+	// Wire keyboard input from terminal to stdin pipe
+	terminal.SetInputCallback(func(data []byte) {
+		if stdinWriter != nil {
+			stdinWriter.Write(data)
+		}
+	})
 }

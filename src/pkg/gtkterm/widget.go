@@ -46,9 +46,13 @@ type Widget struct {
 	scheme ColorScheme
 
 	// Selection state
-	selecting    bool
-	selectStartX int
-	selectStartY int
+	selecting      bool
+	selectStartX   int
+	selectStartY   int
+	mouseDown      bool
+	mouseDownX     int
+	mouseDownY     int
+	selectionMoved bool // True if mouse moved since button press
 
 	// Cursor blink
 	cursorBlinkOn bool
@@ -351,11 +355,12 @@ func (w *Widget) onButtonPress(da *gtk.DrawingArea, ev *gdk.Event) bool {
 
 	if button == 1 { // Left button
 		cellX, cellY := w.screenToCell(x, y)
+		// Record press position but don't start selection yet
+		w.mouseDown = true
+		w.mouseDownX = cellX
+		w.mouseDownY = cellY
+		w.selectionMoved = false
 		w.buffer.ClearSelection()
-		w.buffer.StartSelection(cellX, cellY)
-		w.selecting = true
-		w.selectStartX = cellX
-		w.selectStartY = cellY
 		da.GrabFocus()
 	}
 	return true
@@ -365,15 +370,18 @@ func (w *Widget) onButtonRelease(da *gtk.DrawingArea, ev *gdk.Event) bool {
 	btn := gdk.EventButtonNewFromEvent(ev)
 	button := btn.Button()
 
-	if button == 1 && w.selecting {
-		w.selecting = false
-		w.buffer.EndSelection()
+	if button == 1 {
+		w.mouseDown = false
+		if w.selecting {
+			w.selecting = false
+			w.buffer.EndSelection()
+		}
 	}
 	return true
 }
 
 func (w *Widget) onMotionNotify(da *gtk.DrawingArea, ev *gdk.Event) bool {
-	if !w.selecting {
+	if !w.mouseDown {
 		return false
 	}
 
@@ -381,6 +389,21 @@ func (w *Widget) onMotionNotify(da *gtk.DrawingArea, ev *gdk.Event) bool {
 	var x, y C.double
 	C.get_event_coords((*C.GdkEvent)(unsafe.Pointer(ev.Native())), &x, &y)
 	cellX, cellY := w.screenToCell(float64(x), float64(y))
+
+	// Only start selection once mouse has moved to a different cell
+	if !w.selectionMoved {
+		if cellX != w.mouseDownX || cellY != w.mouseDownY {
+			// Start selection from original mouse-down position
+			w.selectionMoved = true
+			w.selecting = true
+			w.selectStartX = w.mouseDownX
+			w.selectStartY = w.mouseDownY
+			w.buffer.StartSelection(w.mouseDownX, w.mouseDownY)
+		} else {
+			return true // Mouse still in same cell, don't select yet
+		}
+	}
+
 	w.buffer.UpdateSelection(cellX, cellY)
 	return true
 }

@@ -306,3 +306,9 @@ func (t *Terminal) SetWorkingDirectory(dir string) {
 	t.options.WorkingDir = dir
 	t.mu.Unlock()
 }
+
+// SetInputCallback sets a callback for handling keyboard input
+// This overrides the default PTY-writing behavior
+func (t *Terminal) SetInputCallback(fn func([]byte)) {
+	t.widget.SetInputCallback(fn)
+}
