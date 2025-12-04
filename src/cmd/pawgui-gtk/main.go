@@ -4,13 +4,16 @@ package main
 
 import (
 	"fmt"
+	"io"
 	"os"
-	"os/exec"
 	"path/filepath"
 	"strings"
+	"sync"
+	"time"
 
 	"github.com/gotk3/gotk3/glib"
 	"github.com/gotk3/gotk3/gtk"
+	"github.com/phroun/pawscript"
 	"github.com/phroun/pawscript/pkg/gtkterm"
 )
 
@@ -26,6 +29,16 @@ var (
 	fileList   *gtk.ListBox
 	terminal   *gtkterm.Terminal
 	pathLabel  *gtk.Label
+
+	// Console I/O for PawScript
+	consoleOutCh   *pawscript.StoredChannel
+	consoleInCh    *pawscript.StoredChannel
+	stdoutWriter   *io.PipeWriter
+	stdinReader    *io.PipeReader
+	stdinWriter    *io.PipeWriter
+	clearInputFunc func()
+	scriptRunning  bool
+	scriptMu       sync.Mutex
 )
 
 func main() {
@@ -260,6 +273,9 @@ func createTerminal() *gtk.Box {
 	termWidget.SetHExpand(true)
 	box.PackStart(termWidget, true, true, 0)
 
+	// Create console channels for PawScript I/O
+	createConsoleChannels(100, 30)
+
 	return box
 }
 
@@ -404,22 +420,228 @@ func onBrowseClicked() {
 }
 
 func runScript(filePath string) {
+	scriptMu.Lock()
+	if scriptRunning {
+		scriptMu.Unlock()
+		terminal.Feed("A script is already running.\r\n")
+		return
+	}
+	scriptRunning = true
+	scriptMu.Unlock()
+
 	terminal.Feed(fmt.Sprintf("\r\n--- Running: %s ---\r\n\r\n", filepath.Base(filePath)))
 
-	// Find the paw executable
-	pawPath, err := exec.LookPath("paw")
+	// Clear any buffered input from previous script runs
+	if clearInputFunc != nil {
+		clearInputFunc()
+	}
+
+	// Read script content
+	content, err := os.ReadFile(filePath)
 	if err != nil {
-		// Try relative to our executable
-		if exe, err := os.Executable(); err == nil {
-			pawPath = filepath.Join(filepath.Dir(exe), "paw")
+		terminal.Feed(fmt.Sprintf("Error reading script file: %v\r\n", err))
+		scriptMu.Lock()
+		scriptRunning = false
+		scriptMu.Unlock()
+		return
+	}
+
+	scriptDir := filepath.Dir(filePath)
+	absScript, _ := filepath.Abs(filePath)
+	if absScript != "" {
+		scriptDir = filepath.Dir(absScript)
+	}
+
+	// Create file access config
+	cwd, _ := os.Getwd()
+	tmpDir := os.TempDir()
+	fileAccess := &pawscript.FileAccessConfig{
+		ReadRoots:  []string{scriptDir, cwd, tmpDir},
+		WriteRoots: []string{filepath.Join(scriptDir, "saves"), filepath.Join(scriptDir, "output"), filepath.Join(cwd, "saves"), filepath.Join(cwd, "output"), tmpDir},
+		ExecRoots:  []string{filepath.Join(scriptDir, "helpers"), filepath.Join(scriptDir, "bin")},
+	}
+
+	// Create a new PawScript instance for this script
+	ps := pawscript.New(&pawscript.Config{
+		Debug:                false,
+		AllowMacros:          true,
+		EnableSyntacticSugar: true,
+		ShowErrorContext:     true,
+		ContextLines:         2,
+		FileAccess:           fileAccess,
+		ScriptDir:            scriptDir,
+	})
+
+	// Register standard library with the console IO
+	ioConfig := &pawscript.IOChannelConfig{
+		Stdout: consoleOutCh,
+		Stdin:  consoleInCh,
+		Stderr: consoleOutCh,
+	}
+	ps.RegisterStandardLibraryWithIO([]string{}, ioConfig)
+
+	// Run script in goroutine so UI stays responsive
+	go func() {
+		// Create an isolated snapshot for execution
+		snapshot := ps.CreateRestrictedSnapshot()
+
+		// Run the script in the isolated environment
+		result := ps.ExecuteWithEnvironment(string(content), snapshot, filePath, 0, 0)
+		if result == pawscript.BoolStatus(false) {
+			terminal.Feed("\r\n--- Script execution failed ---\r\n")
+		} else {
+			terminal.Feed("\r\n--- Script completed ---\r\n")
+		}
+
+		scriptMu.Lock()
+		scriptRunning = false
+		scriptMu.Unlock()
+	}()
+}
+
+// createConsoleChannels creates the I/O channels for PawScript console
+func createConsoleChannels(width, height int) {
+	// Create pipes for stdout/stdin
+	stdoutReader, stdoutWriterLocal := io.Pipe()
+	stdinReaderLocal, stdinWriterLocal := io.Pipe()
+	stdoutWriter = stdoutWriterLocal
+	stdinReader = stdinReaderLocal
+	stdinWriter = stdinWriterLocal
+
+	termCaps := &pawscript.TerminalCapabilities{
+		TermType:      "gui-console",
+		IsTerminal:    true,
+		SupportsANSI:  true,
+		SupportsColor: true,
+		ColorDepth:    256,
+		Width:         width,
+		Height:        height,
+		SupportsInput: true,
+		EchoEnabled:   false,
+		LineMode:      false,
+		Metadata:      make(map[string]interface{}),
+	}
+
+	// Non-blocking output: large buffer absorbs bursts
+	outputQueue := make(chan []byte, 256)
+
+	// Writer goroutine: drains queue and writes to terminal pipe
+	go func() {
+		for data := range outputQueue {
+			stdoutWriter.Write(data)
+		}
+	}()
+
+	consoleOutCh = &pawscript.StoredChannel{
+		BufferSize:       0,
+		Messages:         make([]pawscript.ChannelMessage, 0),
+		Subscribers:      make(map[int]*pawscript.StoredChannel),
+		NextSubscriberID: 1,
+		IsClosed:         false,
+		Timestamp:        time.Now(),
+		Terminal:         termCaps,
+		NativeSend: func(v interface{}) error {
+			var data []byte
+			switch d := v.(type) {
+			case []byte:
+				data = d
+			case string:
+				text := strings.ReplaceAll(d, "\r\n", "\n")
+				text = strings.ReplaceAll(text, "\n", "\r\n")
+				data = []byte(text)
+			default:
+				text := fmt.Sprintf("%v", v)
+				text = strings.ReplaceAll(text, "\r\n", "\n")
+				text = strings.ReplaceAll(text, "\n", "\r\n")
+				data = []byte(text)
+			}
+			select {
+			case outputQueue <- data:
+			default:
+				// Queue full - drop to prevent deadlock
+			}
+			return nil
+		},
+		NativeRecv: func() (interface{}, error) {
+			return nil, fmt.Errorf("cannot receive from console_out")
+		},
+	}
+
+	// Non-blocking input queue
+	inputQueue := make(chan byte, 256)
+
+	// Reader goroutine: drains pipe and puts bytes into queue
+	go func() {
+		buf := make([]byte, 1)
+		for {
+			n, err := stdinReader.Read(buf)
+			if err != nil || n == 0 {
+				close(inputQueue)
+				return
+			}
+			select {
+			case inputQueue <- buf[0]:
+			default:
+				// Drop oldest if full
+				select {
+				case <-inputQueue:
+				default:
+				}
+				select {
+				case inputQueue <- buf[0]:
+				default:
+				}
+			}
+		}
+	}()
+
+	consoleInCh = &pawscript.StoredChannel{
+		BufferSize:       0,
+		Messages:         make([]pawscript.ChannelMessage, 0),
+		Subscribers:      make(map[int]*pawscript.StoredChannel),
+		NextSubscriberID: 1,
+		IsClosed:         false,
+		Timestamp:        time.Now(),
+		Terminal:         termCaps,
+		NativeRecv: func() (interface{}, error) {
+			b, ok := <-inputQueue
+			if !ok {
+				return nil, fmt.Errorf("input closed")
+			}
+			return []byte{b}, nil
+		},
+		NativeSend: func(v interface{}) error {
+			return fmt.Errorf("cannot send to console_in")
+		},
+	}
+
+	clearInputFunc = func() {
+		for {
+			select {
+			case <-inputQueue:
+			default:
+				return
+			}
 		}
 	}
 
-	// Set working directory for the terminal
-	terminal.SetWorkingDirectory(filepath.Dir(filePath))
-
-	// Run the script
-	if err := terminal.RunCommand(pawPath, filePath); err != nil {
-		terminal.Feed(fmt.Sprintf("Error running script: %v\r\n", err))
-	}
+	// Start goroutine to read from stdout pipe and feed to terminal
+	go func() {
+		buf := make([]byte, 4096)
+		for {
+			n, err := stdoutReader.Read(buf)
+			if n > 0 {
+				// Schedule terminal update on GTK main thread
+				data := make([]byte, n)
+				copy(data, buf[:n])
+				glib.IdleAdd(func() bool {
+					terminal.FeedBytes(data)
+					return false
+				})
+			}
+			if err != nil {
+				return
+			}
+		}
+	}()
 }
