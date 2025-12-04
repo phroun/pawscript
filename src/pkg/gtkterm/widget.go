@@ -21,6 +21,11 @@ static void draw_text(cairo_t *cr, double x, double y, const char *text) {
     cairo_move_to(cr, x, y);
     cairo_show_text(cr, text);
 }
+
+// Helper to get motion event coordinates
+static void get_motion_coords(GdkEvent *ev, double *x, double *y) {
+    gdk_event_get_coords(ev, x, y);
+}
 */
 import "C"
 
@@ -387,9 +392,10 @@ func (w *Widget) onMotionNotify(da *gtk.DrawingArea, ev *gdk.Event) bool {
 		return false
 	}
 
-	motion := gdk.EventMotionNewFromEvent(ev)
-	x, y := motion.MotionX(), motion.MotionY()
-	cellX, cellY := w.screenToCell(x, y)
+	// Use C helper to get coordinates from the event
+	var x, y C.double
+	C.get_motion_coords((*C.GdkEvent)(unsafe.Pointer(ev.Native())), &x, &y)
+	cellX, cellY := w.screenToCell(float64(x), float64(y))
 	w.buffer.UpdateSelection(cellX, cellY)
 	return true
 }
