@@ -227,17 +227,18 @@ func activate(app *gtk.Application) {
 	// Load configuration
 	appConfig = loadConfig()
 
-	// Ensure config has defaults and save (creates file if missing)
+	// Ensure config has all known fields with defaults (makes them discoverable)
+	// Only add fields that don't exist - preserve user's intentional values (even 0 or empty)
 	configModified := false
-	if appConfig.GetString("font_family", "") == "" {
+	if _, exists := appConfig["font_family"]; !exists {
 		appConfig.Set("font_family", getDefaultFont())
 		configModified = true
 	}
-	if appConfig.GetInt("font_size", 0) == 0 {
+	if _, exists := appConfig["font_size"]; !exists {
 		appConfig.Set("font_size", defaultFontSize)
 		configModified = true
 	}
-	if appConfig.GetFloat("ui_scale", 0) == 0 {
+	if _, exists := appConfig["ui_scale"]; !exists {
 		appConfig.Set("ui_scale", 1.0)
 		configModified = true
 	}
