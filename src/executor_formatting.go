@@ -157,6 +157,22 @@ func (e *Executor) formatArgumentForSubstitution(arg interface{}) string {
 	case int64, float64, bool:
 		// Numbers and booleans as-is
 		result = fmt.Sprintf("%v", v)
+	case StoredList:
+		// List object - find existing ID or store it and return a marker
+		if id := e.findStoredListID(v); id >= 0 {
+			return fmt.Sprintf("\x00LIST:%d\x00", id)
+		}
+		// Not in storage yet - store it now
+		id := e.storeObject(v, "list")
+		return fmt.Sprintf("\x00LIST:%d\x00", id)
+	case StoredBytes:
+		// Bytes object - find existing ID or store it and return a marker
+		if id := e.findStoredBytesID(v); id >= 0 {
+			return fmt.Sprintf("\x00BYTES:%d\x00", id)
+		}
+		// Not in storage yet - store it now
+		id := e.storeObject(v, "bytes")
+		return fmt.Sprintf("\x00BYTES:%d\x00", id)
 	case *StoredChannel:
 		// Channel object - find or create a marker
 		if id := e.findStoredChannelID(v); id >= 0 {
@@ -223,6 +239,20 @@ func (e *Executor) formatArgumentForQuotedContext(arg interface{}) string {
 		content = v
 	case int64, float64, bool:
 		return fmt.Sprintf("%v", v)
+	case StoredList:
+		// List object - find existing ID or store it and return a marker
+		if id := e.findStoredListID(v); id >= 0 {
+			return fmt.Sprintf("\x00LIST:%d\x00", id)
+		}
+		id := e.storeObject(v, "list")
+		return fmt.Sprintf("\x00LIST:%d\x00", id)
+	case StoredBytes:
+		// Bytes object - find existing ID or store it and return a marker
+		if id := e.findStoredBytesID(v); id >= 0 {
+			return fmt.Sprintf("\x00BYTES:%d\x00", id)
+		}
+		id := e.storeObject(v, "bytes")
+		return fmt.Sprintf("\x00BYTES:%d\x00", id)
 	case *StoredChannel:
 		if id := e.findStoredChannelID(v); id >= 0 {
 			return fmt.Sprintf("\x00CHANNEL:%d\x00", id)
