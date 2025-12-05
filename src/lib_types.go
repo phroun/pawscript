@@ -1185,7 +1185,8 @@ func (ps *PawScript) RegisterTypesLib() {
 			return BoolStatus(false)
 		}
 
-		value := ctx.Args[0]
+		// Resolve the first argument to check its type
+		value := ctx.executor.resolveValue(ctx.Args[0])
 		search := ctx.Args[1]
 
 		// Check if first argument is a list
