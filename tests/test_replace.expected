@@ -1,0 +1,97 @@
+=== Testing replace on strings ===
+
+Replace all (default):
+  replace 'hello world world world', 'world', 'gopher' = hello gopher gopher gopher
+
+Replace first N:
+  replace ..., 1 = hello gopher world world
+  replace ..., 2 = hello gopher gopher world
+
+Replace last N:
+  replace ..., -1 = hello world world gopher
+  replace ..., -2 = hello world gopher gopher
+
+Replace with count 0 (all):
+  replace 'a-b-c-d', '-', '_', 0 = a_b_c_d
+
+=== Testing replace on lists ===
+
+Replace all single values:
+  replace (a, x, b, x, c, x), x, Y = (a, Y, b, Y, c, Y)
+
+Replace first N in list:
+  replace ..., 1 = (a, Y, b, x, c, x)
+  replace ..., 2 = (a, Y, b, Y, c, x)
+
+Replace last N in list:
+  replace ..., -1 = (a, x, b, x, c, Y)
+  replace ..., -2 = (a, x, b, Y, c, Y)
+
+=== Testing sequence replacement in lists ===
+
+Replace sequence with sequence:
+  replace (1,2,3,4,5,3,4,6), (3,4), (X,Y,Z) = (1, 2, X, Y, Z, 5, X, Y, Z, 6)
+
+Replace sequence - first only:
+  replace ..., 1 = (1, 2, X, 5, 3, 4, 6)
+
+Replace sequence - last only:
+  replace ..., -1 = (1, 2, 3, 4, 5, X, 6)
+
+=== Testing replace with single value for sequence ===
+
+Replace sequence with single value:
+  replace (a,b,c,b,c,d), (b,c), X = (a, X, X, d)
+
+Replace single value with list (exact replacement):
+  replace (1,X,2,X,3), X, (A,B) = (1, (A, B), 2, (A, B), 3)
+
+=== Sequence mode vs single-value mode ===
+
+Sequence mode (old=list): new items spliced in:
+  replace (1,2,3,4,5), (2,3), (X,Y,Z) = (1, X, Y, Z, 4, 5)
+
+Single-value mode (old=single): new replaces exactly:
+  replace (1,2,3,2,5), 2, (A,B) = (1, (A, B), 3, (A, B), 5)
+
+=== Edge cases ===
+
+No matches:
+  replace 'hello world', 'foo', 'bar' = hello world
+
+Empty replacement (delete):
+  replace 'hello world world', 'world ', '' = hello world
+
+Count larger than occurrences:
+  replace 'a-b-c', '-', '_', 10 = a_b_c
+
+=== Testing named args preservation and modification ===
+
+Create list with named args:
+  Original list: (x: "hello", y: 42, 1, 2, 3)
+
+Preserve named args during positional replacement:
+  replace (x: "hello", y: 42, 1, 2, 3), 2, 'two' = (x: "hello", y: 42, 1, "two", 3)
+
+Remove named key with undefined:
+  replace (x: "hello", y: 42, 1, 2, 3), x: undefined = (y: 42, 1, 2, 3)
+
+Update named key value:
+  replace (x: "hello", y: 42, 1, 2, 3), y: 100 = (x: "hello", y: 100, 1, 2, 3)
+
+Combined positional replacement and key operations:
+  replace (x: "hello", y: 42, 1, 2, 3), 1, 'one', x: 'world', y: undefined = (x: "world", "one", 2, 3)
+
+Key-only mode (add new key, update existing):
+  replace (x: "hello", y: 42, 1, 2, 3), x: 'updated', z: 'new' = (x: "updated", y: 42, z: "new", 1, 2, 3)
+
+Remove multiple keys at once:
+  replace (x: "hello", y: 42, 1, 2, 3), x: undefined, y: undefined = (1, 2, 3)
+
+Set key to same value (no-op):
+  replace (x: "hello", y: 42, 1, 2, 3), y: 42 = (x: "hello", y: 42, 1, 2, 3)
+
+Remove non-existent key (no error):
+  replace (x: "hello", y: 42, 1, 2, 3), nonexistent: undefined = (x: "hello", y: 42, 1, 2, 3)
+
+=== All replace tests complete ===
