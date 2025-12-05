@@ -240,6 +240,7 @@ func (ps *PawScript) RegisterCoreLib() {
 
 		varName := fmt.Sprintf("%v", ctx.Args[0])
 		value, exists := ctx.state.GetVariable(varName)
+		fmt.Printf("DEBUG type: varName=%s, value type=%T, value=%v, exists=%v\n", varName, value, value, exists)
 
 		if !exists {
 			ctx.SetResult("undefined")
@@ -248,6 +249,7 @@ func (ps *PawScript) RegisterCoreLib() {
 
 		// Resolve the value to get the actual object (for correct struct def detection)
 		resolved := ctx.executor.resolveValue(value)
+		fmt.Printf("DEBUG type: after resolve, resolved type=%T, resolved=%v\n", resolved, resolved)
 		typeName := getTypeName(resolved)
 		ctx.SetResult(typeName)
 		return BoolStatus(true)

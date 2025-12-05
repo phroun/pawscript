@@ -1189,12 +1189,23 @@ func (ps *PawScript) RegisterSystemLib(scriptArgs []string) {
 			return BoolStatus(false)
 		}
 
-		// Convert string to QuotedString for consistency with parsed list items
-		if s, ok := value.(string); ok {
-			ctx.SetResult(QuotedString(s))
-		} else {
-			ctx.SetResult(value)
+		// Convert to QuotedString for consistency with parsed list items
+		// Handle various string-like types that might come from the channel
+		var keyStr string
+		switch v := value.(type) {
+		case string:
+			keyStr = v
+		case []byte:
+			keyStr = string(v)
+		case QuotedString:
+			keyStr = string(v)
+		case Symbol:
+			keyStr = string(v)
+		default:
+			keyStr = fmt.Sprintf("%v", v)
 		}
+		fmt.Printf("DEBUG readkey: value type=%T, setting QuotedString(%q)\n", value, keyStr)
+		ctx.SetResult(QuotedString(keyStr))
 		return BoolStatus(true)
 	})
 
