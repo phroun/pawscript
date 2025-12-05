@@ -1204,7 +1204,6 @@ func (ps *PawScript) RegisterSystemLib(scriptArgs []string) {
 		default:
 			keyStr = fmt.Sprintf("%v", v)
 		}
-		fmt.Printf("DEBUG readkey: value type=%T, setting QuotedString(%q)\n", value, keyStr)
 		ctx.SetResult(QuotedString(keyStr))
 		return BoolStatus(true)
 	})
