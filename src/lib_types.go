@@ -1217,230 +1217,27 @@ func (ps *PawScript) RegisterTypesLib() {
 	//               replace "hello world world", "world", "gopher", -1 -> "hello world gopher" (last 1)
 	// List Usage:   replace ~list, old, new       -> replace all occurrences (single value or sequence)
 	//               replace ~list, old, new, N    -> replace first N (positive) or last N (negative)
+	//               replace ~list, key: value     -> set/update named key (key-only mode, no positional replacement)
+	//               replace ~list, key: undefined -> remove named key
+	//               replace ~list, old, new, key: value -> combined positional replacement and key operations
 	// Count: omitted or 0 = all, positive N = first N, negative N = last N
 	ps.RegisterCommandInModule("strlist", "replace", func(ctx *Context) Result {
-		// Check if first argument is a list
-		var list StoredList
-		var isList bool
-		if len(ctx.Args) >= 1 {
-			list, isList = ctx.Args[0].(StoredList)
+		// Check if this is key-only mode (list + only named args, no positional old/new)
+		keyOnlyMode := false
+		if len(ctx.Args) == 1 && len(ctx.NamedArgs) > 0 {
+			if _, ok := ctx.Args[0].(StoredList); ok {
+				keyOnlyMode = true
+			}
 		}
 
-		// For lists: support named args to modify/remove named keys
-		// Named arg with value `undefined` or omitted (nil) removes the key
-		// Named arg with any other value (including explicit nil) sets the key
-		if isList {
-			// Use COW semantics: only copy the map if we need to modify it
-			originalNamed := list.NamedArgs()
-			var newNamed map[string]interface{}
-			namedModified := false
-
-			// Check if any named arg modifications are needed
-			for key, val := range ctx.NamedArgs {
-				// Check if this is a removal (undefined or omitted nil)
-				shouldRemove := false
-				if val == nil {
-					shouldRemove = true
-				} else if sym, ok := val.(Symbol); ok && string(sym) == "undefined" {
-					shouldRemove = true
-				}
-
-				if shouldRemove {
-					// Only matters if key exists in original
-					if originalNamed != nil {
-						if _, exists := originalNamed[key]; exists {
-							if !namedModified {
-								// First modification - copy the map
-								newNamed = make(map[string]interface{})
-								for k, v := range originalNamed {
-									newNamed[k] = v
-								}
-								namedModified = true
-							}
-							delete(newNamed, key)
-						}
-					}
-				} else {
-					// Setting/replacing a key
-					if !namedModified {
-						// First modification - copy the map
-						newNamed = make(map[string]interface{})
-						if originalNamed != nil {
-							for k, v := range originalNamed {
-								newNamed[k] = v
-							}
-						}
-						namedModified = true
-					}
-					newNamed[key] = val
-				}
-			}
-
-			// If no modifications, reuse original map reference
-			if !namedModified {
-				newNamed = originalNamed
-			}
-
-			// Check if we have enough args for positional replacement
-			if len(ctx.Args) >= 3 {
-				// Full positional replacement: replace ~list, old, new [, count]
-				items := list.Items()
-				oldVal := ctx.Args[1]
-				newVal := ctx.Args[2]
-
-				// Parse optional count argument (4th arg)
-				count := int64(0) // 0 means replace all
-				if len(ctx.Args) >= 4 {
-					countArg := ctx.Args[3]
-					switch v := countArg.(type) {
-					case int64:
-						count = v
-					case float64:
-						count = int64(v)
-					default:
-						countStr := resolveToString(countArg, ctx.executor)
-						if parsed, err := strconv.ParseInt(countStr, 10, 64); err == nil {
-							count = parsed
-						}
-					}
-				}
-
-				// Check if old value is a list (sequence match mode)
-				if oldList, ok := oldVal.(StoredList); ok {
-					oldItems := oldList.Items()
-					oldLen := len(oldItems)
-
-					if oldLen == 0 {
-						// Empty old sequence - return list with named arg modifications only
-						setListResult(ctx, NewStoredListWithRefs(items, newNamed, ctx.executor))
-						return BoolStatus(true)
-					}
-
-					// Find all sequence match positions
-					var matchPositions []int
-					for i := 0; i+oldLen <= len(items); i++ {
-						match := true
-						for j := 0; j < oldLen; j++ {
-							if !deepEqual(items[i+j], oldItems[j], ctx.executor) {
-								match = false
-								break
-							}
-						}
-						if match {
-							matchPositions = append(matchPositions, i)
-							i += oldLen - 1
-						}
-					}
-
-					// Determine which matches to replace based on count
-					replaceSet := make(map[int]bool)
-					if count == 0 || len(matchPositions) == 0 {
-						for _, pos := range matchPositions {
-							replaceSet[pos] = true
-						}
-					} else if count > 0 {
-						n := int(count)
-						if n > len(matchPositions) {
-							n = len(matchPositions)
-						}
-						for i := 0; i < n; i++ {
-							replaceSet[matchPositions[i]] = true
-						}
-					} else {
-						n := int(-count)
-						if n > len(matchPositions) {
-							n = len(matchPositions)
-						}
-						for i := len(matchPositions) - n; i < len(matchPositions); i++ {
-							replaceSet[matchPositions[i]] = true
-						}
-					}
-
-					// Build result
-					var result []interface{}
-					i := 0
-					for i < len(items) {
-						if replaceSet[i] {
-							if newList, ok := newVal.(StoredList); ok {
-								result = append(result, newList.Items()...)
-							} else {
-								result = append(result, newVal)
-							}
-							i += oldLen
-						} else {
-							result = append(result, items[i])
-							i++
-						}
-					}
-
-					setListResult(ctx, NewStoredListWithRefs(result, newNamed, ctx.executor))
-					return BoolStatus(true)
-				}
-
-				// Single value match mode
-				var matchPositions []int
-				for i, item := range items {
-					if deepEqual(item, oldVal, ctx.executor) {
-						matchPositions = append(matchPositions, i)
-					}
-				}
-
-				replaceSet := make(map[int]bool)
-				if count == 0 || len(matchPositions) == 0 {
-					for _, pos := range matchPositions {
-						replaceSet[pos] = true
-					}
-				} else if count > 0 {
-					n := int(count)
-					if n > len(matchPositions) {
-						n = len(matchPositions)
-					}
-					for i := 0; i < n; i++ {
-						replaceSet[matchPositions[i]] = true
-					}
-				} else {
-					n := int(-count)
-					if n > len(matchPositions) {
-						n = len(matchPositions)
-					}
-					for i := len(matchPositions) - n; i < len(matchPositions); i++ {
-						replaceSet[matchPositions[i]] = true
-					}
-				}
-
-				var result []interface{}
-				for i, item := range items {
-					if replaceSet[i] {
-						result = append(result, newVal)
-					} else {
-						result = append(result, item)
-					}
-				}
-
-				setListResult(ctx, NewStoredListWithRefs(result, newNamed, ctx.executor))
-				return BoolStatus(true)
-			}
-
-			// Named-args-only mode: just modify keys, keep positional items unchanged
-			if len(ctx.NamedArgs) > 0 {
-				setListResult(ctx, NewStoredListWithRefs(list.Items(), newNamed, ctx.executor))
-				return BoolStatus(true)
-			}
-
-			// No positional replacement and no named args - return original
-			setListResult(ctx, list)
-			return BoolStatus(true)
-		}
-
-		// String mode - requires 3 args
-		if len(ctx.Args) < 3 {
+		if len(ctx.Args) < 3 && !keyOnlyMode {
 			ctx.LogError(CatCommand, "Usage: replace <string|list>, <old>, <new> [, count] or replace <list>, key: value, ...")
 			ctx.SetResult("")
 			return BoolStatus(false)
 		}
 
 		// Parse optional count argument (4th arg)
-		count := int64(0)
+		count := int64(0) // 0 means replace all
 		if len(ctx.Args) >= 4 {
 			countArg := ctx.Args[3]
 			switch v := countArg.(type) {
@@ -1454,6 +1251,216 @@ func (ps *PawScript) RegisterTypesLib() {
 					count = parsed
 				}
 			}
+		}
+
+		// Check if first argument is a list
+		if list, ok := ctx.Args[0].(StoredList); ok {
+			// Helper function to process named args with COW semantics
+			// Returns the named args map to use for the result (may be original or copy)
+			processNamedArgs := func() map[string]interface{} {
+				originalNamed := list.NamedArgs()
+				if len(ctx.NamedArgs) == 0 {
+					// No named args to process, return original
+					return originalNamed
+				}
+
+				var newNamed map[string]interface{}
+				namedModified := false
+
+				for key, val := range ctx.NamedArgs {
+					// Check if this is a removal operation
+					shouldRemove := false
+					if val == nil {
+						shouldRemove = true
+					} else if sym, ok := val.(Symbol); ok && string(sym) == "undefined" {
+						shouldRemove = true
+					}
+
+					if shouldRemove {
+						// Remove key if it exists
+						if originalNamed != nil {
+							if _, exists := originalNamed[key]; exists {
+								if !namedModified {
+									// First modification - copy the map (COW)
+									newNamed = make(map[string]interface{})
+									for k, v := range originalNamed {
+										newNamed[k] = v
+									}
+									namedModified = true
+								}
+								delete(newNamed, key)
+							}
+						}
+					} else {
+						// Setting/replacing a key - check if it's actually different (shallow compare)
+						var existingVal interface{}
+						exists := false
+						if originalNamed != nil {
+							existingVal, exists = originalNamed[key]
+						}
+						if !exists || existingVal != val {
+							// Value is new or different
+							if !namedModified {
+								// First modification - copy the map (COW)
+								newNamed = make(map[string]interface{})
+								if originalNamed != nil {
+									for k, v := range originalNamed {
+										newNamed[k] = v
+									}
+								}
+								namedModified = true
+							}
+							newNamed[key] = val
+						}
+					}
+				}
+
+				if !namedModified {
+					return originalNamed
+				}
+				return newNamed
+			}
+
+			// Key-only mode: just process named args, no positional replacement
+			if keyOnlyMode {
+				newNamed := processNamedArgs()
+				setListResult(ctx, NewStoredListWithRefs(list.Items(), newNamed, ctx.executor))
+				return BoolStatus(true)
+			}
+
+			items := list.Items()
+			oldVal := ctx.Args[1]
+			newVal := ctx.Args[2]
+
+			// Check if old value is a list (sequence match mode)
+			// List old = sequence to find, new = sequence to splice in
+			if oldList, ok := oldVal.(StoredList); ok {
+				oldItems := oldList.Items()
+				oldLen := len(oldItems)
+
+				if oldLen == 0 {
+					// Empty old sequence - return original list
+					setListResult(ctx, list)
+					return BoolStatus(true)
+				}
+
+				// Find all sequence match positions
+				var matchPositions []int
+				for i := 0; i+oldLen <= len(items); i++ {
+					match := true
+					for j := 0; j < oldLen; j++ {
+						if !deepEqual(items[i+j], oldItems[j], ctx.executor) {
+							match = false
+							break
+						}
+					}
+					if match {
+						matchPositions = append(matchPositions, i)
+						i += oldLen - 1 // Skip to end of this match (loop will add 1)
+					}
+				}
+
+				// Determine which matches to replace based on count
+				replaceSet := make(map[int]bool)
+				if count == 0 || len(matchPositions) == 0 {
+					// Replace all
+					for _, pos := range matchPositions {
+						replaceSet[pos] = true
+					}
+				} else if count > 0 {
+					// Replace first N
+					n := int(count)
+					if n > len(matchPositions) {
+						n = len(matchPositions)
+					}
+					for i := 0; i < n; i++ {
+						replaceSet[matchPositions[i]] = true
+					}
+				} else {
+					// Replace last N (count is negative)
+					n := int(-count)
+					if n > len(matchPositions) {
+						n = len(matchPositions)
+					}
+					for i := len(matchPositions) - n; i < len(matchPositions); i++ {
+						replaceSet[matchPositions[i]] = true
+					}
+				}
+
+				// Build result by iterating through items
+				// For sequence mode: new is spliced in as items
+				var result []interface{}
+				i := 0
+				for i < len(items) {
+					if replaceSet[i] {
+						// Replace this sequence with newVal items
+						if newList, ok := newVal.(StoredList); ok {
+							result = append(result, newList.Items()...)
+						} else {
+							result = append(result, newVal)
+						}
+						i += oldLen
+					} else {
+						result = append(result, items[i])
+						i++
+					}
+				}
+
+				setListResult(ctx, NewStoredListWithRefs(result, processNamedArgs(), ctx.executor))
+				return BoolStatus(true)
+			}
+
+			// Single value match mode
+			// Single old = find that item, new replaces exactly as one element
+			// Find all match positions first
+			var matchPositions []int
+			for i, item := range items {
+				if deepEqual(item, oldVal, ctx.executor) {
+					matchPositions = append(matchPositions, i)
+				}
+			}
+
+			// Determine which matches to replace based on count
+			replaceSet := make(map[int]bool)
+			if count == 0 || len(matchPositions) == 0 {
+				// Replace all
+				for _, pos := range matchPositions {
+					replaceSet[pos] = true
+				}
+			} else if count > 0 {
+				// Replace first N
+				n := int(count)
+				if n > len(matchPositions) {
+					n = len(matchPositions)
+				}
+				for i := 0; i < n; i++ {
+					replaceSet[matchPositions[i]] = true
+				}
+			} else {
+				// Replace last N (count is negative)
+				n := int(-count)
+				if n > len(matchPositions) {
+					n = len(matchPositions)
+				}
+				for i := len(matchPositions) - n; i < len(matchPositions); i++ {
+					replaceSet[matchPositions[i]] = true
+				}
+			}
+
+			// Build result
+			// For single-value mode: new replaces exactly as one element (even if it's a list)
+			var result []interface{}
+			for i, item := range items {
+				if replaceSet[i] {
+					// Replace this item with newVal exactly (as single element)
+					result = append(result, newVal)
+				} else {
+					result = append(result, item)
+				}
+			}
+
+			setListResult(ctx, NewStoredListWithRefs(result, processNamedArgs(), ctx.executor))
+			return BoolStatus(true)
 		}
 
 		// String mode
@@ -1470,6 +1477,7 @@ func (ps *PawScript) RegisterTypesLib() {
 			result = strings.Replace(str, old, newStr, int(count))
 		} else {
 			// Replace last N occurrences
+			// Need to find positions and replace from the end
 			n := int(-count)
 			positions := findAllStringPositions(str, old)
 			if len(positions) == 0 {
