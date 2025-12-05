@@ -845,11 +845,13 @@ func (e *Executor) formatBraceResult(value interface{}, originalString string, b
 
 	// Handle nil specially - output as bare word "nil"
 	if value == nil {
+		fmt.Printf("DEBUG formatBraceResult: value is nil\n")
 		return "nil"
 	}
 
 	// Check if we're inside a quoted string context
 	insideQuotes := e.isInsideQuotes(originalString, bracePos)
+	fmt.Printf("DEBUG formatBraceResult: value type=%T, value=%v, insideQuotes=%v, originalString=%q\n", value, value, insideQuotes, originalString)
 
 	// If it's a Symbol that might be a marker, return it unchanged to preserve the reference
 	if sym, ok := value.(Symbol); ok {
