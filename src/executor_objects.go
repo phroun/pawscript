@@ -205,8 +205,32 @@ func (e *Executor) findStoredListID(list StoredList) int {
 			// Two slices share backing array if they have same length and same first element address
 			if len(objList.items) == len(list.items) {
 				if len(objList.items) == 0 {
-					// Both empty - match any empty list for now
-					return id
+					// For empty positional items, also check if namedArgs maps are the same
+					// (using pointer comparison as a proxy for identity)
+					// If both have nil namedArgs, we can't distinguish them - return -1 to be safe
+					if objList.namedArgs == nil && list.namedArgs == nil {
+						// Can't reliably identify - don't match
+						continue
+					}
+					// Check if namedArgs slices share the same backing map
+					// We compare the maps by checking if they have the same keys/values
+					// For true identity, we'd need pointer comparison which isn't possible for maps
+					// So for empty lists, only match if both have the exact same namedArgs reference
+					// This is a heuristic - if both have nil or same map contents, it might be same list
+					if objList.namedArgs != nil && list.namedArgs != nil && len(objList.namedArgs) == len(list.namedArgs) {
+						// Check if all keys and values match (shallow comparison)
+						match := true
+						for k, v := range objList.namedArgs {
+							if list.namedArgs[k] != v {
+								match = false
+								break
+							}
+						}
+						if match {
+							return id
+						}
+					}
+					continue
 				}
 				// Check if they point to the same backing array
 				if &objList.items[0] == &list.items[0] {

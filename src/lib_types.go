@@ -1225,7 +1225,18 @@ func (ps *PawScript) RegisterTypesLib() {
 		// Check if this is key-only mode (list + only named args, no positional old/new)
 		keyOnlyMode := false
 		if len(ctx.Args) == 1 && len(ctx.NamedArgs) > 0 {
-			if _, ok := ctx.Args[0].(StoredList); ok {
+			// Need to resolve the first arg to check if it's a list
+			// It might be a marker string like \x00LIST:5\x00
+			firstArg := ctx.Args[0]
+			if str, ok := firstArg.(string); ok {
+				if markerType, objectID := parseObjectMarker(str); markerType == "list" && objectID >= 0 {
+					keyOnlyMode = true
+				}
+			} else if sym, ok := firstArg.(Symbol); ok {
+				if markerType, objectID := parseObjectMarker(string(sym)); markerType == "list" && objectID >= 0 {
+					keyOnlyMode = true
+				}
+			} else if _, ok := firstArg.(StoredList); ok {
 				keyOnlyMode = true
 			}
 		}
