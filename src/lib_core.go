@@ -21,6 +21,128 @@ func (ps *PawScript) RegisterCoreLib() {
 		ctx.state.SetResultWithoutClaim(Symbol(marker))
 	}
 
+	// hasBlockIndicators checks if a string contains block indicators (;, &, |, !)
+	// at the top level (outside of nested braces, parens, or quotes)
+	hasBlockIndicators := func(content string) bool {
+		inSingleQuote := false
+		inDoubleQuote := false
+		braceDepth := 0
+		parenDepth := 0
+		runes := []rune(content)
+
+		for i := 0; i < len(runes); i++ {
+			ch := runes[i]
+
+			// Handle escape sequences
+			if ch == '\\' && i+1 < len(runes) {
+				i++ // Skip the escaped character
+				continue
+			}
+
+			// Track quote state
+			if !inDoubleQuote && ch == '\'' {
+				inSingleQuote = !inSingleQuote
+				continue
+			}
+			if !inSingleQuote && ch == '"' {
+				inDoubleQuote = !inDoubleQuote
+				continue
+			}
+
+			// Skip if inside quotes
+			if inSingleQuote || inDoubleQuote {
+				continue
+			}
+
+			// Track nesting
+			if ch == '{' {
+				braceDepth++
+				continue
+			}
+			if ch == '}' {
+				braceDepth--
+				continue
+			}
+			if ch == '(' {
+				parenDepth++
+				continue
+			}
+			if ch == ')' {
+				parenDepth--
+				continue
+			}
+
+			// Check for block indicators at top level
+			if braceDepth == 0 && parenDepth == 0 {
+				if ch == ';' || ch == '&' || ch == '|' || ch == '!' {
+					return true
+				}
+			}
+		}
+		return false
+	}
+
+	// coerceToList recursively converts ParenGroups to StoredLists
+	// if they don't contain block indicators
+	var coerceToList func(arg interface{}, executor *Executor) interface{}
+	coerceToList = func(arg interface{}, executor *Executor) interface{} {
+		switch v := arg.(type) {
+		case ParenGroup:
+			content := string(v)
+			// If it has block indicators, keep as ParenGroup (will become StoredBlock)
+			if hasBlockIndicators(content) {
+				return v
+			}
+			// Parse the content as a command to get individual items
+			_, items, namedArgs := ParseCommand("dummy " + content)
+			// Recursively coerce each item
+			coercedItems := make([]interface{}, len(items))
+			for i, item := range items {
+				coercedItems[i] = coerceToList(item, executor)
+			}
+			// Recursively coerce named args
+			coercedNamedArgs := make(map[string]interface{})
+			for k, val := range namedArgs {
+				coercedNamedArgs[k] = coerceToList(val, executor)
+			}
+			// Return as StoredList
+			return NewStoredListWithRefs(coercedItems, coercedNamedArgs, executor)
+		case StoredList:
+			// Already a list, but recursively check its contents
+			items := v.Items()
+			namedArgs := v.NamedArgs()
+			needsCoercion := false
+			// Check if any items need coercion
+			for _, item := range items {
+				if _, ok := item.(ParenGroup); ok {
+					needsCoercion = true
+					break
+				}
+			}
+			for _, val := range namedArgs {
+				if _, ok := val.(ParenGroup); ok {
+					needsCoercion = true
+					break
+				}
+			}
+			if !needsCoercion {
+				return v
+			}
+			// Coerce contents
+			coercedItems := make([]interface{}, len(items))
+			for i, item := range items {
+				coercedItems[i] = coerceToList(item, executor)
+			}
+			coercedNamedArgs := make(map[string]interface{})
+			for k, val := range namedArgs {
+				coercedNamedArgs[k] = coerceToList(val, executor)
+			}
+			return NewStoredListWithRefs(coercedItems, coercedNamedArgs, executor)
+		default:
+			return arg
+		}
+	}
+
 	// ==================== core:: module ====================
 
 	// true - sets success state
@@ -294,7 +416,16 @@ func (ps *PawScript) RegisterCoreLib() {
 		}
 
 		// Default behavior: create list from arguments
-		setListResult(ctx, NewStoredListWithRefs(ctx.Args, ctx.NamedArgs, ctx.executor))
+		// Coerce ParenGroups to nested StoredLists (unless they contain block indicators)
+		coercedArgs := make([]interface{}, len(ctx.Args))
+		for i, arg := range ctx.Args {
+			coercedArgs[i] = coerceToList(arg, ctx.executor)
+		}
+		coercedNamedArgs := make(map[string]interface{})
+		for k, v := range ctx.NamedArgs {
+			coercedNamedArgs[k] = coerceToList(v, ctx.executor)
+		}
+		setListResult(ctx, NewStoredListWithRefs(coercedArgs, coercedNamedArgs, ctx.executor))
 		return BoolStatus(true)
 	})
 
