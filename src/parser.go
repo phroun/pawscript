@@ -1720,6 +1720,7 @@ func (p *Parser) applyChainOperators(commands []*ParsedCommand) ([]*ParsedComman
 		case "assign":
 			// => operator: turn command into assignment
 			// Transform: "cmd=>varname" => "varname: {get_result}"
+			// Also supports unpacking: "cmd=>(a, b)" => "(a, b): {get_result}"
 			cmdName := strings.TrimSpace(cmd.Command)
 			if cmdName == "" {
 				return nil, &PawScriptError{
@@ -1729,8 +1730,35 @@ func (p *Parser) applyChainOperators(commands []*ParsedCommand) ([]*ParsedComman
 				}
 			}
 
-			// Check if it looks like a valid identifier
-			if strings.ContainsAny(cmdName, " \t\n(){}[]") {
+			// Check if it looks like a valid identifier or unpacking pattern
+			// Allow parenthesized patterns like (a, b) for unpacking
+			isValid := true
+			if strings.HasPrefix(cmdName, "(") && strings.HasSuffix(cmdName, ")") {
+				// Unpacking pattern - allow parentheses, commas, identifiers, whitespace inside
+				// Just make sure parentheses are balanced
+				parenDepth := 0
+				for _, ch := range cmdName {
+					if ch == '(' {
+						parenDepth++
+					} else if ch == ')' {
+						parenDepth--
+						if parenDepth < 0 {
+							isValid = false
+							break
+						}
+					}
+				}
+				if parenDepth != 0 {
+					isValid = false
+				}
+			} else {
+				// Simple variable name - reject special characters
+				if strings.ContainsAny(cmdName, " \t\n(){}[]") {
+					isValid = false
+				}
+			}
+
+			if !isValid {
 				return nil, &PawScriptError{
 					Message:  fmt.Sprintf("Invalid variable name after => operator: '%s'", cmdName),
 					Position: cmd.Position,
