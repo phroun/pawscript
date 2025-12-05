@@ -1986,9 +1986,17 @@ func (e *Executor) formatBraceResultFromTemplate(value interface{}, isUnescape b
 	case int64, float64:
 		return fmt.Sprintf("%v", v)
 	case string:
-		return v
+		if inQuote {
+			return v
+		}
+		// Outside quotes: wrap in quotes to preserve as string
+		return "\"" + e.escapeQuotesAndBackslashes(v) + "\""
 	case QuotedString:
-		return string(v)
+		if inQuote {
+			return string(v)
+		}
+		// Outside quotes: wrap in quotes to preserve as string
+		return "\"" + e.escapeQuotesAndBackslashes(string(v)) + "\""
 	default:
 		return fmt.Sprintf("%v", v)
 	}
