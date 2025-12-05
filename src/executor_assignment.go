@@ -223,10 +223,12 @@ func (e *Executor) handleAssignment(target, valueStr string, state *ExecutionSta
 	var braceStatus BoolStatus = BoolStatus(true) // Default status
 	isBraceExpr := false
 
+	fmt.Printf("DEBUG assignment: valueStr=%q\n", valueStr)
 	if valueStr == "" {
 		value = nil
 	} else {
 		trimmedValue := strings.TrimSpace(valueStr)
+		fmt.Printf("DEBUG assignment: trimmedValue=%q, hasPrefix={: %v, hasSuffix=}: %v\n", trimmedValue, strings.HasPrefix(trimmedValue, "{"), strings.HasSuffix(trimmedValue, "}"))
 		// Check if the outermost structure is a brace expression
 		if strings.HasPrefix(trimmedValue, "{") && strings.HasSuffix(trimmedValue, "}") {
 			// Verify it's a complete brace expression (not multiple expressions)
