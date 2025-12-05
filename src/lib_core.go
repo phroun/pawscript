@@ -83,7 +83,8 @@ func (ps *PawScript) RegisterCoreLib() {
 	}
 
 	// coerceToList recursively converts ParenGroups to StoredLists
-	// if they don't contain block indicators
+	// if they don't contain block indicators.
+	// Nested lists are stored and returned as markers for proper reference counting.
 	var coerceToList func(arg interface{}, executor *Executor) interface{}
 	coerceToList = func(arg interface{}, executor *Executor) interface{} {
 		switch v := arg.(type) {
@@ -105,8 +106,10 @@ func (ps *PawScript) RegisterCoreLib() {
 			for k, val := range namedArgs {
 				coercedNamedArgs[k] = coerceToList(val, executor)
 			}
-			// Return as StoredList
-			return NewStoredListWithRefs(coercedItems, coercedNamedArgs, executor)
+			// Create the list, store it, and return a marker for proper ref counting
+			newList := NewStoredListWithRefs(coercedItems, coercedNamedArgs, executor)
+			id := executor.storeObject(newList, "list")
+			return Symbol(fmt.Sprintf("\x00LIST:%d\x00", id))
 		case StoredList:
 			// Already a list, but recursively check its contents
 			items := v.Items()
@@ -137,7 +140,10 @@ func (ps *PawScript) RegisterCoreLib() {
 			for k, val := range namedArgs {
 				coercedNamedArgs[k] = coerceToList(val, executor)
 			}
-			return NewStoredListWithRefs(coercedItems, coercedNamedArgs, executor)
+			// Create the list, store it, and return a marker for proper ref counting
+			newList := NewStoredListWithRefs(coercedItems, coercedNamedArgs, executor)
+			id := executor.storeObject(newList, "list")
+			return Symbol(fmt.Sprintf("\x00LIST:%d\x00", id))
 		default:
 			return arg
 		}
