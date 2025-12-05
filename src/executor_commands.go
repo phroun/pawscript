@@ -281,52 +281,6 @@ func (e *Executor) executeSingleCommand(
 
 	e.logger.DebugCat(CatCommand,"executeSingleCommand called with: \"%s\"", commandStr)
 
-	// Check for assignment pattern BEFORE substitution
-	// This preserves brace expressions in the value for handleAssignment to process
-	// which maintains type information (e.g., QuotedString from readkey)
-	if target, valueStr, isAssign := e.parseAssignment(commandStr); isAssign {
-		e.logger.DebugCat(CatCommand,"Detected assignment before substitution: target=%s, value=%s", target, valueStr)
-		// Only substitute the target part (for ~varname: value patterns)
-		// Leave the value part intact for handleAssignment
-		if substitutionCtx == nil {
-			filename := ""
-			lineOffset := 0
-			columnOffset := 0
-			if position != nil {
-				filename = position.Filename
-				lineOffset = position.Line - 1
-				columnOffset = position.Column - 1
-			}
-			substitutionCtx = &SubstitutionContext{
-				Args:                []interface{}{},
-				ExecutionState:      state,
-				MacroContext:        nil,
-				CurrentLineOffset:   lineOffset,
-				CurrentColumnOffset: columnOffset,
-				Filename:            filename,
-			}
-		} else {
-			substitutionCtx.ExecutionState = state
-			if position != nil && position.Filename != "" {
-				substitutionCtx.Filename = position.Filename
-			}
-		}
-		// Only substitute tildes/dollars in target, not braces
-		// This allows ~varname: {expr} to work correctly
-		target = e.substituteTildeExpressions(target, state, position)
-		target = strings.ReplaceAll(target, "\x00TILDE\x00", "~")
-		target = strings.ReplaceAll(target, `\~`, "~")
-		if substitutionCtx.MacroContext != nil {
-			target = e.substituteDollarArgs(target, substitutionCtx)
-		}
-
-		result := e.handleAssignment(target, valueStr, state, substitutionCtx, position)
-		if shouldInvert {
-			return e.invertStatus(result, state, position)
-		}
-		return result
-	}
-
 	// CRITICAL: Always evaluate brace expressions, even when not in a macro context
 	// Create a minimal substitution context if one doesn't exist
 	if substitutionCtx == nil {
