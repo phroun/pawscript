@@ -250,6 +250,19 @@ func JSONToStoredList(value interface{}, childrenKey string, mergeChildren inter
 	}
 }
 
+// formatBlockForPSL formats a block's content for PSL serialization.
+// Ensures the content starts with a semicolon (block indicator) so that
+// when parsed back with {list}, it will remain a block and not be coerced to a list.
+func formatBlockForPSL(content string) string {
+	trimmed := strings.TrimLeft(content, " \t\n\r")
+	if len(trimmed) > 0 && trimmed[0] == ';' {
+		// Already has a leading semicolon
+		return "(" + content + ")"
+	}
+	// Add a leading semicolon to preserve block semantics
+	return "(; " + content + ")"
+}
+
 // formatListForDisplay formats a StoredList as a ParenGroup-like representation
 func formatListForDisplay(list StoredList) string {
 	var parts []string
@@ -271,9 +284,9 @@ func formatListForDisplay(list StoredList) string {
 			case StoredList:
 				valueStr = formatListForDisplay(v)
 			case ParenGroup:
-				valueStr = "(" + string(v) + ")"
+				valueStr = formatBlockForPSL(string(v))
 			case StoredBlock:
-				valueStr = "(" + string(v) + ")"
+				valueStr = formatBlockForPSL(string(v))
 			case QuotedString:
 				escaped := strings.ReplaceAll(string(v), "\\", "\\\\")
 				escaped = strings.ReplaceAll(escaped, "\"", "\\\"")
@@ -315,10 +328,10 @@ func formatListForDisplay(list StoredList) string {
 			// Recursively format nested lists
 			parts = append(parts, formatListForDisplay(v))
 		case ParenGroup:
-			parts = append(parts, "("+string(v)+")")
+			parts = append(parts, formatBlockForPSL(string(v)))
 		case StoredBlock:
 			// Display block contents in parentheses
-			parts = append(parts, "("+string(v)+")")
+			parts = append(parts, formatBlockForPSL(string(v)))
 		case QuotedString:
 			// Escape internal quotes
 			escaped := strings.ReplaceAll(string(v), "\\", "\\\\")
@@ -380,9 +393,9 @@ func formatListForDisplayPretty(list StoredList, indent int) string {
 			case StoredList:
 				valueStr = formatListForDisplayPretty(v, indent+1)
 			case ParenGroup:
-				valueStr = "(" + string(v) + ")"
+				valueStr = formatBlockForPSL(string(v))
 			case StoredBlock:
-				valueStr = "(" + string(v) + ")"
+				valueStr = formatBlockForPSL(string(v))
 			case QuotedString:
 				escaped := strings.ReplaceAll(string(v), "\\", "\\\\")
 				escaped = strings.ReplaceAll(escaped, "\"", "\\\"")
@@ -419,9 +432,9 @@ func formatListForDisplayPretty(list StoredList, indent int) string {
 		case StoredList:
 			parts = append(parts, formatListForDisplayPretty(v, indent+1))
 		case ParenGroup:
-			parts = append(parts, "("+string(v)+")")
+			parts = append(parts, formatBlockForPSL(string(v)))
 		case StoredBlock:
-			parts = append(parts, "("+string(v)+")")
+			parts = append(parts, formatBlockForPSL(string(v)))
 		case QuotedString:
 			escaped := strings.ReplaceAll(string(v), "\\", "\\\\")
 			escaped = strings.ReplaceAll(escaped, "\"", "\\\"")
@@ -507,9 +520,19 @@ func formatListForDisplayColored(list StoredList, indent int, pretty bool, cfg D
 		case StoredList:
 			return formatListForDisplayColored(v, indent+1, pretty, cfg)
 		case ParenGroup:
-			return cfg.Bracket + "(" + cfg.Reset + string(v) + cfg.Bracket + ")" + cfg.Reset
+			content := string(v)
+			trimmed := strings.TrimLeft(content, " \t\n\r")
+			if len(trimmed) == 0 || trimmed[0] != ';' {
+				content = "; " + content
+			}
+			return cfg.Bracket + "(" + cfg.Reset + content + cfg.Bracket + ")" + cfg.Reset
 		case StoredBlock:
-			return cfg.Bracket + "(" + cfg.Reset + string(v) + cfg.Bracket + ")" + cfg.Reset
+			content := string(v)
+			trimmed := strings.TrimLeft(content, " \t\n\r")
+			if len(trimmed) == 0 || trimmed[0] != ';' {
+				content = "; " + content
+			}
+			return cfg.Bracket + "(" + cfg.Reset + content + cfg.Bracket + ")" + cfg.Reset
 		case QuotedString:
 			escaped := strings.ReplaceAll(string(v), "\\", "\\\\")
 			escaped = strings.ReplaceAll(escaped, "\"", "\\\"")
