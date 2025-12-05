@@ -223,12 +223,10 @@ func (e *Executor) handleAssignment(target, valueStr string, state *ExecutionSta
 	var braceStatus BoolStatus = BoolStatus(true) // Default status
 	isBraceExpr := false
 
-	fmt.Printf("DEBUG assignment: valueStr=%q\n", valueStr)
 	if valueStr == "" {
 		value = nil
 	} else {
 		trimmedValue := strings.TrimSpace(valueStr)
-		fmt.Printf("DEBUG assignment: trimmedValue=%q, hasPrefix={: %v, hasSuffix=}: %v\n", trimmedValue, strings.HasPrefix(trimmedValue, "{"), strings.HasSuffix(trimmedValue, "}"))
 		// Check if the outermost structure is a brace expression
 		if strings.HasPrefix(trimmedValue, "{") && strings.HasSuffix(trimmedValue, "}") {
 			// Verify it's a complete brace expression (not multiple expressions)
@@ -260,7 +258,6 @@ func (e *Executor) handleAssignment(target, valueStr string, state *ExecutionSta
 				}
 				// Get the result value
 				value = state.GetResult()
-				fmt.Printf("DEBUG assignment: after GetResult, value type=%T, value=%v\n", value, value)
 				// If no result was set but we have a BoolStatus, use the boolean as the value
 				// This handles cases like x: {false} which should set x to false
 				if value == nil {
@@ -299,7 +296,6 @@ func (e *Executor) handleAssignment(target, valueStr string, state *ExecutionSta
 	}
 
 	// Assign and set the formal result to the assigned value
-	fmt.Printf("DEBUG assignment: before SetVariable, varName=%s, value type=%T, value=%v\n", varName, value, value)
 	state.SetVariable(varName, value)
 	state.SetResult(value)
 
