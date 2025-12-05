@@ -1230,32 +1230,55 @@ func (ps *PawScript) RegisterTypesLib() {
 		// Named arg with value `undefined` or omitted (nil) removes the key
 		// Named arg with any other value (including explicit nil) sets the key
 		if isList {
-			// Start with original named args
+			// Use COW semantics: only copy the map if we need to modify it
 			originalNamed := list.NamedArgs()
-			newNamed := make(map[string]interface{})
-			if originalNamed != nil {
-				for k, v := range originalNamed {
-					newNamed[k] = v
-				}
-			}
+			var newNamed map[string]interface{}
+			namedModified := false
 
-			// Apply named arg modifications from the command
+			// Check if any named arg modifications are needed
 			for key, val := range ctx.NamedArgs {
 				// Check if this is a removal (undefined or omitted nil)
 				shouldRemove := false
 				if val == nil {
-					// Omitted value like `key:` - remove the key
 					shouldRemove = true
 				} else if sym, ok := val.(Symbol); ok && string(sym) == "undefined" {
-					// Explicit undefined - remove the key
 					shouldRemove = true
 				}
 
 				if shouldRemove {
-					delete(newNamed, key)
+					// Only matters if key exists in original
+					if originalNamed != nil {
+						if _, exists := originalNamed[key]; exists {
+							if !namedModified {
+								// First modification - copy the map
+								newNamed = make(map[string]interface{})
+								for k, v := range originalNamed {
+									newNamed[k] = v
+								}
+								namedModified = true
+							}
+							delete(newNamed, key)
+						}
+					}
 				} else {
+					// Setting/replacing a key
+					if !namedModified {
+						// First modification - copy the map
+						newNamed = make(map[string]interface{})
+						if originalNamed != nil {
+							for k, v := range originalNamed {
+								newNamed[k] = v
+							}
+						}
+						namedModified = true
+					}
 					newNamed[key] = val
 				}
+			}
+
+			// If no modifications, reuse original map reference
+			if !namedModified {
+				newNamed = originalNamed
 			}
 
 			// Check if we have enough args for positional replacement
