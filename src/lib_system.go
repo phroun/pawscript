@@ -1189,7 +1189,12 @@ func (ps *PawScript) RegisterSystemLib(scriptArgs []string) {
 			return BoolStatus(false)
 		}
 
-		ctx.SetResult(value)
+		// Convert string to QuotedString for consistency with parsed list items
+		if s, ok := value.(string); ok {
+			ctx.SetResult(QuotedString(s))
+		} else {
+			ctx.SetResult(value)
+		}
 		return BoolStatus(true)
 	})
 
