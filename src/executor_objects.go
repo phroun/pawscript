@@ -184,6 +184,12 @@ func (e *Executor) findStoredListID(list StoredList) int {
 	e.mu.RLock()
 	defer e.mu.RUnlock()
 
+	// Check if this is a truly empty list (no items AND no namedArgs)
+	// If so, return the canonical empty list ID
+	if len(list.items) == 0 && (list.namedArgs == nil || len(list.namedArgs) == 0) {
+		return e.emptyListID
+	}
+
 	// Get all IDs in sorted order for deterministic iteration
 	ids := make([]int, 0, len(e.storedObjects))
 	for id := range e.storedObjects {
@@ -205,9 +211,8 @@ func (e *Executor) findStoredListID(list StoredList) int {
 			// Two slices share backing array if they have same length and same first element address
 			if len(objList.items) == len(list.items) {
 				if len(objList.items) == 0 {
-					// Empty lists cannot be reliably identified by pointer comparison
-					// since there's no items[0] to compare. Don't match empty lists
-					// to avoid confusing different empty list instances.
+					// Empty positional items but has namedArgs - can't match by pointer
+					// since there's no items[0] to compare
 					continue
 				}
 				// Check if they point to the same backing array
