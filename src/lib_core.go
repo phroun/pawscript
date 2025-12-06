@@ -83,18 +83,29 @@ func (ps *PawScript) RegisterCoreLib() {
 	}
 
 	// coerceToList recursively converts ParenGroups to StoredLists
-	// if they don't contain block indicators.
+	// if they don't contain block indicators (;, &, |, !).
+	//
+	// This allows single-item lists like (foo) to be created without commas.
+	// To force a ParenGroup to remain as a block (executable code), use a
+	// semicolon after the opening paren: (; echo hello)
+	//
+	// Examples:
+	//   (foo)           -> list with one item "foo"
+	//   (foo, bar)      -> list with two items
+	//   (; echo hello)  -> block (the ; is a block indicator)
+	//   (echo; done)    -> block (contains ; at top level)
+	//
 	// Nested lists are stored and returned as markers for proper reference counting.
 	var coerceToList func(arg interface{}, executor *Executor) interface{}
 	coerceToList = func(arg interface{}, executor *Executor) interface{} {
 		switch v := arg.(type) {
 		case ParenGroup:
 			content := string(v)
-			// If it has block indicators, keep as ParenGroup (will become StoredBlock)
+			// If it has block indicators (;, &, |, !), keep as ParenGroup (executable code)
 			if hasBlockIndicators(content) {
 				return v
 			}
-			// Parse the content as a command to get individual items
+			// No block indicators - treat as a list and parse its contents
 			_, items, namedArgs := ParseCommand("dummy " + content)
 			// Recursively coerce each item
 			coercedItems := make([]interface{}, len(items))

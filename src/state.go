@@ -320,6 +320,11 @@ func (s *ExecutionState) extractObjectReferencesLocked(value interface{}) []int 
 	var refs []int
 
 	switch v := value.(type) {
+	case ObjectRef:
+		// ObjectRef is the new preferred way to reference stored objects
+		if v.IsValid() {
+			refs = append(refs, v.ID)
+		}
 	case Symbol:
 		if _, id := parseObjectMarker(string(v)); id >= 0 {
 			refs = append(refs, id)

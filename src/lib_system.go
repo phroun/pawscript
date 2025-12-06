@@ -2265,7 +2265,7 @@ func (ps *PawScript) RegisterSystemLib(scriptArgs []string) {
 	ps.RegisterCommandInModule("debug", "mem_stats", func(ctx *Context) Result {
 		type objectInfo struct {
 			ID       int
-			Type     string
+			Type     ObjectType
 			RefCount int
 			Size     int
 		}
