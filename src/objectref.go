@@ -132,3 +132,19 @@ func ParseObjectRef(marker string) ObjectRef {
 
 	return ObjectRef{Type: objType, ID: id}
 }
+
+// ExtractObjectRef extracts an ObjectRef from any value.
+// Handles ObjectRef directly, marker strings (Symbol/string), and returns
+// zero-value ObjectRef for non-reference values.
+func ExtractObjectRef(value interface{}) ObjectRef {
+	switch v := value.(type) {
+	case ObjectRef:
+		return v
+	case Symbol:
+		return ParseObjectRef(string(v))
+	case string:
+		return ParseObjectRef(v)
+	default:
+		return ObjectRef{}
+	}
+}
