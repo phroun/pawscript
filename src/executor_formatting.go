@@ -201,6 +201,10 @@ func (e *Executor) formatArgumentForSubstitution(arg interface{}) string {
 		// Command - store and create marker
 		ref := e.RegisterObject(v, ObjCommand)
 		return ref.ToMarker()
+	case ObjectRef:
+		// ObjectRef - convert to marker format for substitution
+		// This allows the reference to be resolved later during parsing
+		return v.ToMarker()
 	default:
 		// Unknown type: convert to string
 		result = fmt.Sprintf("%v", v)

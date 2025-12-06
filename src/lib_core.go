@@ -240,7 +240,9 @@ func (ps *PawScript) RegisterCoreLib() {
 			return BoolStatus(true)
 		}
 		value := ctx.Args[0]
-		typeName := getTypeName(value)
+		// Resolve ObjectRef to get the actual stored object for correct type inference
+		resolved := ctx.executor.resolveValue(value)
+		typeName := getTypeName(resolved)
 		ctx.SetResult(typeName)
 		return BoolStatus(true)
 	})
@@ -253,7 +255,27 @@ func (ps *PawScript) RegisterCoreLib() {
 			return BoolStatus(false)
 		}
 
-		varName := fmt.Sprintf("%v", ctx.Args[0])
+		arg := ctx.Args[0]
+
+		// type expects a variable name (string, QuotedString, or Symbol)
+		// If the argument is an already-resolved value, suggest using infer instead
+		var varName string
+		switch v := arg.(type) {
+		case string:
+			varName = v
+		case QuotedString:
+			varName = string(v)
+		case Symbol:
+			varName = string(v)
+		case StoredString:
+			varName = string(v)
+		default:
+			// Not a valid variable name - probably an already-resolved value
+			ctx.LogError(CatCommand, "type expects a variable name, not a resolved value. Use {infer <value>} to get the type of an immediate or resolved value.")
+			ctx.SetResult("undefined")
+			return BoolStatus(false)
+		}
+
 		value, exists := ctx.state.GetVariable(varName)
 
 		if !exists {
