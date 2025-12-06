@@ -997,11 +997,36 @@ func (w *Widget) CopySelection() {
 }
 
 // PasteClipboard pastes text from clipboard into terminal
+// Uses bracketed paste mode if enabled by the application or if the
+// pasted text contains special characters (newlines, control chars, etc.)
 func (w *Widget) PasteClipboard() {
 	if w.clipboard != nil && onInput != nil {
 		text, err := w.clipboard.WaitForText()
-		if err == nil {
-			onInput([]byte(text))
+		if err == nil && len(text) > 0 {
+			// Determine if we should use bracketed paste
+			useBracketedPaste := w.buffer.IsBracketedPasteModeEnabled()
+
+			// Also use bracketed paste if text contains special characters
+			// even if the application hasn't requested it
+			if !useBracketedPaste {
+				for _, c := range text {
+					// Check for newlines, control chars, or escape
+					if c == '\n' || c == '\r' || c == '\x1b' || c < 32 {
+						useBracketedPaste = true
+						break
+					}
+				}
+			}
+
+			if useBracketedPaste {
+				// Send bracketed paste start sequence
+				onInput([]byte("\x1b[200~"))
+				onInput([]byte(text))
+				// Send bracketed paste end sequence
+				onInput([]byte("\x1b[201~"))
+			} else {
+				onInput([]byte(text))
+			}
 		}
 	}
 }

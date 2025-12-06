@@ -21,6 +21,9 @@ type Buffer struct {
 	cursorShape   int // 0=block, 1=underline, 2=bar
 	cursorBlink   int // 0=no blink, 1=slow blink, 2=fast blink
 
+	// Terminal modes
+	bracketedPasteMode bool
+
 	// Current text attributes
 	currentFg        Color
 	currentBg        Color
@@ -215,6 +218,20 @@ func (b *Buffer) GetCursorStyle() (shape, blink int) {
 	b.mu.RLock()
 	defer b.mu.RUnlock()
 	return b.cursorShape, b.cursorBlink
+}
+
+// SetBracketedPasteMode enables or disables bracketed paste mode
+func (b *Buffer) SetBracketedPasteMode(enabled bool) {
+	b.mu.Lock()
+	defer b.mu.Unlock()
+	b.bracketedPasteMode = enabled
+}
+
+// IsBracketedPasteModeEnabled returns whether bracketed paste mode is enabled
+func (b *Buffer) IsBracketedPasteModeEnabled() bool {
+	b.mu.RLock()
+	defer b.mu.RUnlock()
+	return b.bracketedPasteMode
 }
 
 // SaveCursor saves the current cursor position

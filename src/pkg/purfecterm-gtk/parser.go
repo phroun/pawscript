@@ -513,7 +513,7 @@ func (p *Parser) executePrivateModeSet(set bool) {
 		case 1049: // Alternate screen buffer
 			// Not yet implemented
 		case 2004: // Bracketed paste mode
-			// Not yet implemented
+			p.buffer.SetBracketedPasteMode(set)
 		case 1: // DECCKM - Application cursor keys
 			// Not yet implemented
 		case 7: // DECAWM - Auto-wrap mode
