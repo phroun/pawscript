@@ -38,7 +38,7 @@ echo ""
 
 # Test 4: Lists containing blocks (code)
 echo "Test 4: Lists containing blocks"
-commands: {list (echo hello), (x: 10), (echo world)}
+commands: {list (;echo hello), (x: 10;), (;echo world)}
 echo "Commands list length: {len ~commands}"
 echo "First command type: {infer {argv ~commands, 1}}"
 echo "Second command type: {infer {argv ~commands, 2}}"
@@ -47,7 +47,7 @@ echo ""
 
 # Test 5: Mixed types including lists and blocks
 echo "Test 5: Mixed types"
-mixed: {list 42, "text", {list nested}, (code block), true, nil}
+mixed: {list 42, "text", {list nested}, (;code block), true, nil}
 echo "Mixed list length: {len ~mixed}"
 echo "Item 1 type: {infer {argv ~mixed, 1}}"
 echo "Item 2 type: {infer {argv ~mixed, 2}}"
@@ -85,7 +85,7 @@ echo ""
 
 # Test 8: List of blocks that could be executed
 echo "Test 8: Executable blocks in list"
-actions: {list (echo "Action 1"), (echo "Action 2"), (echo "Action 3")}
+actions: {list (;echo "Action 1"), (;echo "Action 2"), (;echo "Action 3")}
 echo "Actions list length: {len ~actions}"
 echo "All items are blocks (type check passed)"
 echo ""

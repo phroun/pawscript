@@ -1,0 +1,15 @@
+# Named macro (existing)
+macro greet, (echo "Hello $1!")
+call greet, World
+
+# Anonymous macro (new)
+anon: {macro (echo "Anonymous, $1!")}
+
+# Call with named arguments (from dev branch)
+call greet, Alice
+
+call ~anon, yo
+
+lambda: {macro (add $1, $2)}
+
+print ${call ~lambda, 5, 4}

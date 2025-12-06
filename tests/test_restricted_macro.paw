@@ -1,0 +1,21 @@
+
+REMOVE ALL
+IMPORT "io", "debug", "channels", "core::list"
+IMPORT "macros::macro"
+
+MODULE dingus
+
+macro buzz(echo "bar")
+
+y: {channel}
+x: {list a, b, c, d}
+
+EXPORT x, buzz
+
+MODULE foobar
+
+z: 23
+
+EXPORT y, z
+
+env_dump

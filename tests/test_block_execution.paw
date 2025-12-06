@@ -42,6 +42,6 @@ ml: {list ~m, (echo "Yes.")}
 print
 
 echo "Test 8 - List with Parenthetic Block:"
-ml: {list ~m, (echo "Yes.")}
+ml: {list ~m, (;echo "Yes.")}
 {~ml 1}
 print

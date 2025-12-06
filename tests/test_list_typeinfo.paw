@@ -91,7 +91,7 @@ echo ""
 
 # Test 12: Blocks
 echo "Test 12: List of blocks"
-blocklist: {list (echo "a"), (echo "b")}
+blocklist: {list (;echo "a"), (;echo "b")}
 echo "  arrtype: {arrtype ~blocklist}"
 echo "  arrser: {arrser ~blocklist}"
 echo ""
