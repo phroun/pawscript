@@ -622,8 +622,11 @@ func (ps *PawScript) RegisterTypesLib() {
 			return BoolStatus(false)
 		}
 
+		// Resolve ObjectRef to actual stored object
+		value := ctx.executor.resolveValue(ctx.Args[0])
+
 		// Check if first argument is a list
-		if list, ok := ctx.Args[0].(StoredList); ok {
+		if list, ok := value.(StoredList); ok {
 			items := list.Items()
 			delimiter := ctx.Args[1]
 
@@ -730,8 +733,11 @@ func (ps *PawScript) RegisterTypesLib() {
 			return BoolStatus(false)
 		}
 
+		// Resolve ObjectRef to actual stored object
+		value := ctx.executor.resolveValue(ctx.Args[0])
+
 		// Handle StoredList as first argument
-		if storedList, ok := ctx.Args[0].(StoredList); ok {
+		if storedList, ok := value.(StoredList); ok {
 			items := storedList.Items()
 			delimiter := ctx.Args[1]
 
@@ -775,7 +781,7 @@ func (ps *PawScript) RegisterTypesLib() {
 			return BoolStatus(true)
 		}
 
-		ctx.LogError(CatType, fmt.Sprintf("First argument must be a list, got %s\n", getTypeName(ctx.Args[0])))
+		ctx.LogError(CatType, fmt.Sprintf("First argument must be a list, got %s\n", getTypeName(value)))
 		ctx.SetResult(nil)
 		return BoolStatus(false)
 	})
@@ -1160,6 +1166,8 @@ func (ps *PawScript) RegisterTypesLib() {
 		}
 
 		value := ctx.Args[0]
+		// Resolve ObjectRef to actual stored object
+		value = ctx.executor.resolveValue(value)
 		search := ctx.Args[1]
 
 		// Check if first argument is a list
@@ -1198,6 +1206,8 @@ func (ps *PawScript) RegisterTypesLib() {
 		}
 
 		value := ctx.Args[0]
+		// Resolve ObjectRef to actual stored object
+		value = ctx.executor.resolveValue(value)
 		search := ctx.Args[1]
 
 		// Check if first argument is a list
@@ -1234,21 +1244,15 @@ func (ps *PawScript) RegisterTypesLib() {
 	//               replace ~list, old, new, key: value -> combined positional replacement and key operations
 	// Count: omitted or 0 = all, positive N = first N, negative N = last N
 	ps.RegisterCommandInModule("strlist", "replace", func(ctx *Context) Result {
+		// Resolve ObjectRef to actual stored object early
+		firstArg := ctx.Args[0]
+		resolvedFirst := ctx.executor.resolveValue(firstArg)
+
 		// Check if this is key-only mode (list + only named args, no positional old/new)
 		keyOnlyMode := false
 		if len(ctx.Args) == 1 && len(ctx.NamedArgs) > 0 {
-			// Need to resolve the first arg to check if it's a list
-			// It might be a marker string like \x00LIST:5\x00
-			firstArg := ctx.Args[0]
-			if str, ok := firstArg.(string); ok {
-				if markerType, objectID := parseObjectMarker(str); markerType == "list" && objectID >= 0 {
-					keyOnlyMode = true
-				}
-			} else if sym, ok := firstArg.(Symbol); ok {
-				if markerType, objectID := parseObjectMarker(string(sym)); markerType == "list" && objectID >= 0 {
-					keyOnlyMode = true
-				}
-			} else if _, ok := firstArg.(StoredList); ok {
+			// Check if resolved value is a list
+			if _, ok := resolvedFirst.(StoredList); ok {
 				keyOnlyMode = true
 			}
 		}
@@ -1277,7 +1281,7 @@ func (ps *PawScript) RegisterTypesLib() {
 		}
 
 		// Check if first argument is a list
-		if list, ok := ctx.Args[0].(StoredList); ok {
+		if list, ok := resolvedFirst.(StoredList); ok {
 			// Helper function to process named args with COW semantics
 			// Returns the named args map to use for the result (may be original or copy)
 			processNamedArgs := func() map[string]interface{} {
@@ -1903,10 +1907,12 @@ func (ps *PawScript) RegisterTypesLib() {
 
 		// Get the list to sort
 		value := ctx.Args[0]
+		// Resolve ObjectRef to actual stored object
+		value = ctx.executor.resolveValue(value)
 		var items []interface{}
 		var namedArgs map[string]interface{}
 
-		// Handle different input types (like len does)
+		// Handle different input types
 		switch v := value.(type) {
 		case StoredList:
 			items = make([]interface{}, len(v.Items()))
@@ -1917,24 +1923,9 @@ func (ps *PawScript) RegisterTypesLib() {
 			items = parsed
 			namedArgs = parsedNamed
 		default:
-			// Try to resolve as marker
-			if sym, ok := value.(Symbol); ok {
-				markerType, objectID := parseObjectMarker(string(sym))
-				if markerType == "list" && objectID >= 0 {
-					if obj, exists := ctx.executor.getObject(objectID); exists {
-						if list, ok := obj.(StoredList); ok {
-							items = make([]interface{}, len(list.Items()))
-							copy(items, list.Items())
-							namedArgs = list.NamedArgs()
-						}
-					}
-				}
-			}
-			if items == nil {
-				ctx.LogError(CatType, fmt.Sprintf("Cannot sort type %s", getTypeName(value)))
-				ctx.SetResult(nil)
-				return BoolStatus(false)
-			}
+			ctx.LogError(CatType, fmt.Sprintf("Cannot sort type %s", getTypeName(value)))
+			ctx.SetResult(nil)
+			return BoolStatus(false)
 		}
 
 		// Check for custom comparator (second positional argument)
