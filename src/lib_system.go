@@ -2059,10 +2059,11 @@ func (ps *PawScript) RegisterSystemLib(scriptArgs []string) {
 		return TokenResult(token)
 	})
 
-	// yield - synchronous yield to other goroutines and the system
-	// Unlike msleep (which uses async tokens), yield is synchronous and safe in tight loops
-	// Usage: yield [milliseconds] - default is 1ms
-	ps.RegisterCommandInModule("time", "yield", func(ctx *Context) Result {
+	// pause - synchronous yield to other goroutines and the system
+	// Unlike msleep (which uses async tokens), pause is synchronous and safe in tight loops
+	// Usage: pause [milliseconds] - default is 1ms
+	// Note: Renamed from "yield" to avoid collision with coroutines::yield (generator yield)
+	ps.RegisterCommandInModule("time", "pause", func(ctx *Context) Result {
 		ms := int64(1) // Default to 1ms
 
 		if len(ctx.Args) >= 1 {

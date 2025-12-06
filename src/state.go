@@ -122,9 +122,11 @@ func NewExecutionStateFromSharedVars(parent *ExecutionState) *ExecutionState {
 	state := executionStatePool.Get().(*ExecutionState)
 	ownedObjects := ownedObjectsMapPool.Get().(map[int]int)
 
-	// Initialize state - shares most things with parent
-	state.currentResult = parent.currentResult
-	state.hasResult = parent.hasResult
+	// Initialize state - shares most things with parent BUT has isolated result storage
+	// The result must be independent so brace expressions don't accidentally return
+	// a parent's previous result when the brace command doesn't set one
+	state.currentResult = nil
+	state.hasResult = false
 	state.lastStatus = parent.lastStatus
 	state.lastBraceFailureCount = parent.lastBraceFailureCount
 	state.variables = parent.variables // Shared with parent
