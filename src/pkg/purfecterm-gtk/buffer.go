@@ -4,6 +4,16 @@ import (
 	"sync"
 )
 
+// LineAttribute defines the display mode for a line (VT100 DECDHL/DECDWL)
+type LineAttribute int
+
+const (
+	LineAttrNormal       LineAttribute = iota // Normal single-width, single-height
+	LineAttrDoubleWidth                       // DECDWL: Double-width line (ESC#6)
+	LineAttrDoubleTop                         // DECDHL: Double-height top half (ESC#3)
+	LineAttrDoubleBottom                      // DECDHL: Double-height bottom half (ESC#4)
+)
+
 // Buffer manages the terminal screen and scrollback buffer
 type Buffer struct {
 	mu sync.RWMutex
@@ -36,9 +46,13 @@ type Buffer struct {
 	// Screen buffer (visible area)
 	screen [][]Cell
 
+	// Line attributes (double-width/height per line)
+	lineAttrs []LineAttribute
+
 	// Scrollback buffer (lines that scrolled off the top)
-	scrollback    [][]Cell
-	maxScrollback int
+	scrollback     [][]Cell
+	scrollbackAttr []LineAttribute // Line attributes for scrollback
+	maxScrollback  int
 
 	// Scroll position (0 = bottom, positive = scrolled up)
 	scrollOffset int
@@ -91,8 +105,10 @@ func (b *Buffer) markDirty() {
 // initScreen initializes or reinitializes the screen buffer
 func (b *Buffer) initScreen() {
 	b.screen = make([][]Cell, b.rows)
+	b.lineAttrs = make([]LineAttribute, b.rows)
 	for i := range b.screen {
 		b.screen[i] = b.makeEmptyLine()
+		b.lineAttrs[i] = LineAttrNormal
 	}
 }
 
@@ -115,6 +131,7 @@ func (b *Buffer) Resize(cols, rows int) {
 	}
 
 	oldScreen := b.screen
+	oldLineAttrs := b.lineAttrs
 	oldRows := b.rows
 	oldCols := b.cols
 
@@ -135,6 +152,10 @@ func (b *Buffer) Resize(cols, rows int) {
 	for y := 0; y < copyRows && y < len(oldScreen); y++ {
 		for x := 0; x < copyCols && x < len(oldScreen[y]); x++ {
 			b.screen[y][x] = oldScreen[y][x]
+		}
+		// Copy line attributes
+		if y < len(oldLineAttrs) {
+			b.lineAttrs[y] = oldLineAttrs[y]
 		}
 	}
 
@@ -349,12 +370,16 @@ func (b *Buffer) scrollUpInternal() {
 	if len(b.scrollback) >= b.maxScrollback {
 		// Remove oldest line
 		b.scrollback = b.scrollback[1:]
+		b.scrollbackAttr = b.scrollbackAttr[1:]
 	}
 	b.scrollback = append(b.scrollback, b.screen[0])
+	b.scrollbackAttr = append(b.scrollbackAttr, b.lineAttrs[0])
 
 	// Shift all lines up
 	copy(b.screen, b.screen[1:])
+	copy(b.lineAttrs, b.lineAttrs[1:])
 	b.screen[b.rows-1] = b.makeEmptyLine()
+	b.lineAttrs[b.rows-1] = LineAttrNormal
 	b.markDirty()
 }
 
@@ -374,7 +399,9 @@ func (b *Buffer) ScrollDown(n int) {
 	for i := 0; i < n; i++ {
 		// Shift lines down
 		copy(b.screen[1:], b.screen[:b.rows-1])
+		copy(b.lineAttrs[1:], b.lineAttrs[:b.rows-1])
 		b.screen[0] = b.makeEmptyLine()
+		b.lineAttrs[0] = LineAttrNormal
 	}
 	b.markDirty()
 }
@@ -690,8 +717,10 @@ func (b *Buffer) InsertLines(n int) {
 	for i := 0; i < n; i++ {
 		if b.cursorY < b.rows-1 {
 			copy(b.screen[b.cursorY+1:], b.screen[b.cursorY:b.rows-1])
+			copy(b.lineAttrs[b.cursorY+1:], b.lineAttrs[b.cursorY:b.rows-1])
 		}
 		b.screen[b.cursorY] = b.makeEmptyLine()
+		b.lineAttrs[b.cursorY] = LineAttrNormal
 	}
 	b.markDirty()
 }
@@ -703,8 +732,10 @@ func (b *Buffer) DeleteLines(n int) {
 	for i := 0; i < n; i++ {
 		if b.cursorY < b.rows-1 {
 			copy(b.screen[b.cursorY:], b.screen[b.cursorY+1:])
+			copy(b.lineAttrs[b.cursorY:], b.lineAttrs[b.cursorY+1:])
 		}
 		b.screen[b.rows-1] = b.makeEmptyLine()
+		b.lineAttrs[b.rows-1] = LineAttrNormal
 	}
 	b.markDirty()
 }
@@ -886,4 +917,60 @@ func (b *Buffer) SelectAll() {
 	b.selEndX = b.cols - 1
 	b.selEndY = b.rows - 1
 	b.markDirty()
+}
+
+// SetLineAttribute sets the display attribute for the current line
+// Used by DECDHL (ESC#3, ESC#4) and DECDWL (ESC#6)
+func (b *Buffer) SetLineAttribute(attr LineAttribute) {
+	b.mu.Lock()
+	defer b.mu.Unlock()
+	if b.cursorY >= 0 && b.cursorY < len(b.lineAttrs) {
+		b.lineAttrs[b.cursorY] = attr
+		b.markDirty()
+	}
+}
+
+// GetLineAttribute returns the display attribute for the specified line
+func (b *Buffer) GetLineAttribute(y int) LineAttribute {
+	b.mu.RLock()
+	defer b.mu.RUnlock()
+	if y >= 0 && y < len(b.lineAttrs) {
+		return b.lineAttrs[y]
+	}
+	return LineAttrNormal
+}
+
+// GetVisibleLineAttribute returns the line attribute accounting for scroll offset
+func (b *Buffer) GetVisibleLineAttribute(y int) LineAttribute {
+	b.mu.RLock()
+	defer b.mu.RUnlock()
+
+	if y < 0 || y >= b.rows {
+		return LineAttrNormal
+	}
+
+	if b.scrollOffset == 0 {
+		if y < len(b.lineAttrs) {
+			return b.lineAttrs[y]
+		}
+		return LineAttrNormal
+	}
+
+	// Calculate which line to show when scrolled
+	scrollbackSize := len(b.scrollback)
+	if y < b.scrollOffset {
+		// This row is from scrollback
+		scrollbackIdx := scrollbackSize - b.scrollOffset + y
+		if scrollbackIdx >= 0 && scrollbackIdx < len(b.scrollbackAttr) {
+			return b.scrollbackAttr[scrollbackIdx]
+		}
+		return LineAttrNormal
+	}
+
+	// This row is from current screen
+	screenY := y - b.scrollOffset
+	if screenY >= 0 && screenY < len(b.lineAttrs) {
+		return b.lineAttrs[screenY]
+	}
+	return LineAttrNormal
 }

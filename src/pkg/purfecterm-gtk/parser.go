@@ -16,6 +16,7 @@ const (
 	stateOSC                // After ESC ]
 	stateOSCString          // Reading OSC string
 	stateCharset            // After ESC ( or ESC )
+	stateDECLineAttr        // After ESC # (waiting for line attribute command)
 )
 
 // Parser parses ANSI escape sequences and updates a Buffer
@@ -113,6 +114,8 @@ func (p *Parser) processByte(b byte) {
 	case stateCharset:
 		// Consume one character and return to ground
 		p.state = stateGround
+	case stateDECLineAttr:
+		p.handleDECLineAttr(b)
 	}
 }
 
@@ -169,6 +172,8 @@ func (p *Parser) handleEscape(b byte) {
 		p.oscBuf.Reset()
 	case '(', ')': // Character set designation
 		p.state = stateCharset
+	case '#': // DEC line attribute commands (DECDHL, DECDWL, DECSWL, DECALN)
+		p.state = stateDECLineAttr
 	case '7': // DECSC - Save Cursor
 		p.buffer.SaveCursor()
 		p.state = stateGround
@@ -209,6 +214,36 @@ func (p *Parser) handleEscape(b byte) {
 		// Unknown escape sequence, return to ground state
 		p.state = stateGround
 	}
+}
+
+// handleDECLineAttr handles ESC # sequences for line attributes
+// ESC#3 - DECDHL: Double-height line, top half
+// ESC#4 - DECDHL: Double-height line, bottom half
+// ESC#5 - DECSWL: Single-width line (normal)
+// ESC#6 - DECDWL: Double-width line
+// ESC#8 - DECALN: Screen alignment test (fill screen with 'E')
+func (p *Parser) handleDECLineAttr(b byte) {
+	switch b {
+	case '3': // DECDHL top half
+		p.buffer.SetLineAttribute(LineAttrDoubleTop)
+	case '4': // DECDHL bottom half
+		p.buffer.SetLineAttribute(LineAttrDoubleBottom)
+	case '5': // DECSWL - single width (normal)
+		p.buffer.SetLineAttribute(LineAttrNormal)
+	case '6': // DECDWL - double width
+		p.buffer.SetLineAttribute(LineAttrDoubleWidth)
+	case '8': // DECALN - Screen alignment test (fill with 'E')
+		cols, rows := p.buffer.GetSize()
+		for y := 0; y < rows; y++ {
+			p.buffer.SetCursor(0, y)
+			p.buffer.SetLineAttribute(LineAttrNormal)
+			for x := 0; x < cols; x++ {
+				p.buffer.WriteChar('E')
+			}
+		}
+		p.buffer.SetCursor(0, 0)
+	}
+	p.state = stateGround
 }
 
 func (p *Parser) handleCSI(b byte) {
