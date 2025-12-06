@@ -10,8 +10,10 @@ import (
 // StoredObject represents a reference-counted stored object
 type StoredObject struct {
 	Value    interface{} // The actual object (StoredList, etc.)
-	Type     string      // "list", "dict", etc.
+	Type     ObjectType  // Object type (ObjList, ObjString, etc.)
 	RefCount int         // Number of contexts holding references
+	Hash     uint64      // Content hash for immutable types (0 for mutable)
+	Deleted  bool        // Marked for ID reuse when true
 }
 
 // Executor handles command execution
@@ -19,8 +21,10 @@ type Executor struct {
 	mu               sync.RWMutex
 	commands         map[string]Handler
 	activeTokens     map[string]*TokenData
-	storedObjects    map[int]*StoredObject // Global reference-counted object store
-	activeFibers     map[int]*FiberHandle  // Currently running fibers
+	storedObjects    map[int]*StoredObject    // Global reference-counted object store
+	contentHash      map[uint64]int           // Hash → object ID for deduplication lookup
+	freeIDs          []int                    // Recycled IDs from deleted objects
+	activeFibers     map[int]*FiberHandle     // Currently running fibers
 	orphanedBubbles  map[string][]*BubbleEntry // Bubbles from abandoned fibers
 	blockCache       map[int][]*ParsedCommand  // Cached parsed forms for StoredBlock objects (by ID)
 	keyInputManager  *KeyInputManager          // Raw keyboard input manager (if initialized)
@@ -29,6 +33,7 @@ type Executor struct {
 	nextObjectID     int
 	nextFiberID      int
 	emptyListID      int               // ID of the canonical empty list (immortal, never freed)
+	deduplicationEnabled bool          // Toggle content-addressable deduplication on/off
 	logger           *Logger
 	optLevel         OptimizationLevel // AST caching level
 	maxIterations    int               // Maximum loop iterations (0 or negative = unlimited)
@@ -38,17 +43,20 @@ type Executor struct {
 // NewExecutor creates a new command executor
 func NewExecutor(logger *Logger) *Executor {
 	e := &Executor{
-		commands:        make(map[string]Handler),
-		activeTokens:    make(map[string]*TokenData),
-		storedObjects:   make(map[int]*StoredObject),
-		activeFibers:    make(map[int]*FiberHandle),
-		orphanedBubbles: make(map[string][]*BubbleEntry),
-		blockCache:      make(map[int][]*ParsedCommand),
-		nextTokenID:     1,
-		nextObjectID:    1,
-		nextFiberID:     1, // 0 is reserved for main fiber
-		logger:          logger,
-		optLevel:        OptimizeBasic, // Default to caching enabled
+		commands:             make(map[string]Handler),
+		activeTokens:         make(map[string]*TokenData),
+		storedObjects:        make(map[int]*StoredObject),
+		contentHash:          make(map[uint64]int),
+		freeIDs:              make([]int, 0),
+		activeFibers:         make(map[int]*FiberHandle),
+		orphanedBubbles:      make(map[string][]*BubbleEntry),
+		blockCache:           make(map[int][]*ParsedCommand),
+		nextTokenID:          1,
+		nextObjectID:         1,
+		nextFiberID:          1, // 0 is reserved for main fiber
+		deduplicationEnabled: true, // Enable deduplication by default
+		logger:               logger,
+		optLevel:             OptimizeBasic, // Default to caching enabled
 	}
 
 	// Create the canonical empty list with an immortal refcount
@@ -58,8 +66,9 @@ func NewExecutor(logger *Logger) *Executor {
 	e.nextObjectID++
 	e.storedObjects[e.emptyListID] = &StoredObject{
 		Value:    emptyList,
-		Type:     "list",
+		Type:     ObjList,
 		RefCount: 1000000, // Immortal - will never reach 0
+		Hash:     0,       // Empty list hash (will be set properly later)
 	}
 
 	return e
