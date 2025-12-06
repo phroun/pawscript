@@ -556,12 +556,6 @@ func createFileBrowser() *gtk.Box {
 	box.SetMarginTop(5)
 	box.SetMarginBottom(5)
 
-	// Directory label
-	dirLabel, _ := gtk.LabelNew("")
-	dirLabel.SetXAlign(0)
-	dirLabel.SetMarkup("<b>Directory:</b>")
-	box.PackStart(dirLabel, false, false, 0)
-
 	// Current path label
 	pathLabel, _ = gtk.LabelNew(currentDir)
 	pathLabel.SetXAlign(0)
@@ -603,14 +597,6 @@ func createFileBrowser() *gtk.Box {
 
 func createTerminal() *gtk.Box {
 	box, _ := gtk.BoxNew(gtk.ORIENTATION_VERTICAL, 0)
-
-	// Label
-	label, _ := gtk.LabelNew("")
-	label.SetXAlign(0)
-	label.SetMarkup("<b>Console Output:</b>")
-	label.SetMarginStart(5)
-	label.SetMarginTop(5)
-	box.PackStart(label, false, false, 0)
 
 	// Create terminal with gtkterm package using config settings
 	var err error
