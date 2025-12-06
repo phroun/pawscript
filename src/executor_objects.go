@@ -229,8 +229,115 @@ func (e *Executor) RefRelease(ref ObjectRef) {
 	e.mu.Unlock()
 }
 
+// ============================================================================
+// Object Constructors
+// ============================================================================
+// Each constructor creates an object, registers it, claims nested refs,
+// and returns an ObjectRef with refcount=0. Caller must claim via SetVar/SetResult.
+
+// NewList creates a new stored list and returns its ObjectRef.
+// Claims nested refs for any ObjectRefs in items or namedArgs.
+// Returns ObjectRef with refcount=0 - caller must claim ownership.
+func (e *Executor) NewList(items []interface{}, namedArgs map[string]interface{}) ObjectRef {
+	// Compute type info with executor for full marker resolution
+	arrInfo := computeTypeInfoForSlice(items, e)
+	mapInfo := computeTypeInfoForMap(namedArgs, e)
+
+	list := StoredList{
+		items:           items,
+		namedArgs:       namedArgs,
+		arrType:         arrInfo.Type,
+		arrSolid:        arrInfo.Solid,
+		arrSerializable: arrInfo.Serializable,
+		mapType:         mapInfo.Type,
+		mapSolid:        mapInfo.Solid,
+		mapSerializable: mapInfo.Serializable,
+	}
+
+	ref := e.RegisterObject(list, ObjList)
+
+	// Claim refs for any ObjectRefs in contents
+	for _, item := range items {
+		if objRef, ok := item.(ObjectRef); ok {
+			e.RefClaim(objRef)
+		}
+	}
+	for _, val := range namedArgs {
+		if objRef, ok := val.(ObjectRef); ok {
+			e.RefClaim(objRef)
+		}
+	}
+
+	return ref
+}
+
+// NewString creates a new stored string and returns its ObjectRef.
+// Returns ObjectRef with refcount=0 - caller must claim ownership.
+func (e *Executor) NewString(s string) ObjectRef {
+	return e.RegisterObject(StoredString(s), ObjString)
+}
+
+// NewBlock creates a new stored block and returns its ObjectRef.
+// Returns ObjectRef with refcount=0 - caller must claim ownership.
+func (e *Executor) NewBlock(s string) ObjectRef {
+	return e.RegisterObject(StoredBlock(s), ObjBlock)
+}
+
+// NewBytes creates a new stored bytes object and returns its ObjectRef.
+// Returns ObjectRef with refcount=0 - caller must claim ownership.
+func (e *Executor) NewBytes(data []byte) ObjectRef {
+	return e.RegisterObject(StoredBytes{data: data}, ObjBytes)
+}
+
+// NewChannel creates a new stored channel and returns its ObjectRef.
+// Returns ObjectRef with refcount=0 - caller must claim ownership.
+func (e *Executor) NewChannel(bufferSize int) ObjectRef {
+	ch := NewStoredChannel(bufferSize)
+	return e.RegisterObject(ch, ObjChannel)
+}
+
+// NewMacro creates a new stored macro and returns its ObjectRef.
+// Returns ObjectRef with refcount=0 - caller must claim ownership.
+func (e *Executor) NewMacro(macro StoredMacro) ObjectRef {
+	return e.RegisterObject(macro, ObjMacro)
+}
+
+// NewCommand creates a new stored command and returns its ObjectRef.
+// Returns ObjectRef with refcount=0 - caller must claim ownership.
+func (e *Executor) NewCommand(cmd StoredCommand) ObjectRef {
+	return e.RegisterObject(cmd, ObjCommand)
+}
+
+// NewFile creates a new stored file and returns its ObjectRef.
+// Returns ObjectRef with refcount=0 - caller must claim ownership.
+func (e *Executor) NewFile(file *StoredFile) ObjectRef {
+	return e.RegisterObject(file, ObjFile)
+}
+
+// NewStruct creates a new stored struct and returns its ObjectRef.
+// Returns ObjectRef with refcount=0 - caller must claim ownership.
+func (e *Executor) NewStruct(ss StoredStruct) ObjectRef {
+	return e.RegisterObject(ss, ObjStruct)
+}
+
+// NewStructArray creates a new stored struct array and returns its ObjectRef.
+// Returns ObjectRef with refcount=0 - caller must claim ownership.
+func (e *Executor) NewStructArray(ss StoredStruct) ObjectRef {
+	return e.RegisterObject(ss, ObjStructArray)
+}
+
+// NewFiber creates a new stored fiber and returns its ObjectRef.
+// Returns ObjectRef with refcount=0 - caller must claim ownership.
+func (e *Executor) NewFiber(fh *FiberHandle) ObjectRef {
+	return e.RegisterObject(fh, ObjFiber)
+}
+
+// ============================================================================
+// Compatibility Shims (DEPRECATED)
+// ============================================================================
+
 // storeObject is a compatibility shim during migration.
-// DEPRECATED: Use RegisterObject instead which returns ObjectRef.
+// DEPRECATED: Use the typed constructors (NewList, NewString, etc.) instead.
 func (e *Executor) storeObject(value interface{}, typeName string) int {
 	objType := ObjectTypeFromString(typeName)
 	ref := e.RegisterObject(value, objType)
