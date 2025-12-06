@@ -31,6 +31,7 @@ type Buffer struct {
 	currentItalic    bool
 	currentUnderline bool
 	currentReverse   bool
+	currentBlink     bool
 
 	// Screen buffer (visible area)
 	screen [][]Cell
@@ -282,6 +283,7 @@ func (b *Buffer) writeCharInternal(ch rune) {
 		Bold:       b.currentBold,
 		Italic:     b.currentItalic,
 		Underline:  b.currentUnderline,
+		Blink:      b.currentBlink,
 	}
 	b.cursorX++
 	b.markDirty()
@@ -465,6 +467,7 @@ func (b *Buffer) ResetAttributes() {
 	b.currentItalic = false
 	b.currentUnderline = false
 	b.currentReverse = false
+	b.currentBlink = false
 }
 
 // SetForeground sets the current foreground color
@@ -507,6 +510,13 @@ func (b *Buffer) SetReverse(reverse bool) {
 	b.mu.Lock()
 	defer b.mu.Unlock()
 	b.currentReverse = reverse
+}
+
+// SetBlink sets blink attribute (rendered as bobbing wave animation)
+func (b *Buffer) SetBlink(blink bool) {
+	b.mu.Lock()
+	defer b.mu.Unlock()
+	b.currentBlink = blink
 }
 
 // GetCell returns the cell at the given screen position

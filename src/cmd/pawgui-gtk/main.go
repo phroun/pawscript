@@ -211,6 +211,56 @@ func getOptimizationLevel() int {
 	return 1
 }
 
+// getTerminalBackground returns the configured terminal background color
+func getTerminalBackground() purfectermgtk.Color {
+	if appConfig != nil {
+		if hex := appConfig.GetString("terminal_background", ""); hex != "" {
+			if c, ok := purfectermgtk.ParseHexColor(hex); ok {
+				return c
+			}
+		}
+	}
+	return purfectermgtk.Color{R: 30, G: 30, B: 30} // Default dark background
+}
+
+// getTerminalForeground returns the configured terminal foreground color
+func getTerminalForeground() purfectermgtk.Color {
+	if appConfig != nil {
+		if hex := appConfig.GetString("terminal_foreground", ""); hex != "" {
+			if c, ok := purfectermgtk.ParseHexColor(hex); ok {
+				return c
+			}
+		}
+	}
+	return purfectermgtk.Color{R: 212, G: 212, B: 212} // Default light gray
+}
+
+// getColorPalette returns the configured 16-color ANSI palette
+func getColorPalette() []purfectermgtk.Color {
+	palette := make([]purfectermgtk.Color, 16)
+	copy(palette, purfectermgtk.ANSIColors)
+
+	if appConfig == nil {
+		return palette
+	}
+
+	// Check for palette_colors nested config
+	if paletteConfig, ok := appConfig["palette_colors"]; ok {
+		if pc, ok := paletteConfig.(pawscript.PSLConfig); ok {
+			names := purfectermgtk.PaletteColorNames()
+			for i, name := range names {
+				if hex := pc.GetString(name, ""); hex != "" {
+					if c, ok := purfectermgtk.ParseHexColor(hex); ok {
+						palette[i] = c
+					}
+				}
+			}
+		}
+	}
+
+	return palette
+}
+
 // getQuitShortcut returns the configured quit shortcut
 // Valid values: "Cmd+Q", "Ctrl+Q", "Alt+F4", or "" (disabled)
 // Default: "Cmd+Q" on macOS, "Ctrl+Q" on Linux/Windows
@@ -282,6 +332,27 @@ func activate(app *gtk.Application) {
 	// quit_shortcut: "Cmd+Q", "Ctrl+Q", "Alt+F4", or nil to disable
 	if _, exists := appConfig["quit_shortcut"]; !exists {
 		appConfig.Set("quit_shortcut", getDefaultQuitShortcut())
+		configModified = true
+	}
+	// terminal_background: default console background color as "#RRGGBB"
+	if _, exists := appConfig["terminal_background"]; !exists {
+		appConfig.Set("terminal_background", "#1E1E1E")
+		configModified = true
+	}
+	// terminal_foreground: default console foreground color as "#RRGGBB"
+	if _, exists := appConfig["terminal_foreground"]; !exists {
+		appConfig.Set("terminal_foreground", "#D4D4D4")
+		configModified = true
+	}
+	// palette_colors: 16 ANSI color palette as named hex colors
+	if _, exists := appConfig["palette_colors"]; !exists {
+		paletteConfig := pawscript.PSLConfig{}
+		names := purfectermgtk.PaletteColorNames()
+		hexColors := purfectermgtk.DefaultPaletteHex()
+		for i, name := range names {
+			paletteConfig.Set(name, hexColors[i])
+		}
+		appConfig.Set("palette_colors", paletteConfig)
 		configModified = true
 	}
 	if configModified {
@@ -529,11 +600,11 @@ func createTerminal() *gtk.Box {
 		FontFamily:     getFontFamily(),
 		FontSize:       getFontSize(),
 		Scheme: purfectermgtk.ColorScheme{
-			Foreground: purfectermgtk.Color{R: 212, G: 212, B: 212},
-			Background: purfectermgtk.Color{R: 30, G: 30, B: 30},
+			Foreground: getTerminalForeground(),
+			Background: getTerminalBackground(),
 			Cursor:     purfectermgtk.Color{R: 255, G: 255, B: 255},
 			Selection:  purfectermgtk.Color{R: 68, G: 68, B: 68},
-			Palette:    purfectermgtk.ANSIColors,
+			Palette:    getColorPalette(),
 		},
 	})
 	if err != nil {

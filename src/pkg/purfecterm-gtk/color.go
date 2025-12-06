@@ -88,6 +88,63 @@ func hexByte(b uint8) string {
 	return string([]byte{hex[b>>4], hex[b&0x0F]})
 }
 
+// ParseHexColor parses a hex color string in "#RRGGBB" or "#RGB" format
+// Returns the color and true on success, or a zero color and false on failure
+func ParseHexColor(s string) (Color, bool) {
+	if len(s) == 0 || s[0] != '#' {
+		return Color{}, false
+	}
+	s = s[1:] // Remove the '#' prefix
+
+	var r, g, b uint8
+	switch len(s) {
+	case 3: // #RGB format
+		r = parseHexNibble(s[0]) * 17 // 0xF -> 0xFF, 0x8 -> 0x88, etc.
+		g = parseHexNibble(s[1]) * 17
+		b = parseHexNibble(s[2]) * 17
+	case 6: // #RRGGBB format
+		r = parseHexNibble(s[0])<<4 | parseHexNibble(s[1])
+		g = parseHexNibble(s[2])<<4 | parseHexNibble(s[3])
+		b = parseHexNibble(s[4])<<4 | parseHexNibble(s[5])
+	default:
+		return Color{}, false
+	}
+	return Color{R: r, G: g, B: b}, true
+}
+
+func parseHexNibble(c byte) uint8 {
+	switch {
+	case c >= '0' && c <= '9':
+		return c - '0'
+	case c >= 'a' && c <= 'f':
+		return c - 'a' + 10
+	case c >= 'A' && c <= 'F':
+		return c - 'A' + 10
+	default:
+		return 0
+	}
+}
+
+// ColorNames maps ANSI color index names to their indices (0-15)
+var ColorNames = map[string]int{
+	"black":         0,
+	"red":           1,
+	"green":         2,
+	"yellow":        3,
+	"blue":          4,
+	"magenta":       5,
+	"cyan":          6,
+	"white":         7,
+	"bright_black":  8,
+	"bright_red":    9,
+	"bright_green":  10,
+	"bright_yellow": 11,
+	"bright_blue":   12,
+	"bright_magenta": 13,
+	"bright_cyan":   14,
+	"bright_white":  15,
+}
+
 // ColorScheme defines the colors used by the terminal
 type ColorScheme struct {
 	Foreground Color
@@ -95,6 +152,24 @@ type ColorScheme struct {
 	Cursor     Color
 	Selection  Color
 	Palette    []Color // 16 ANSI colors
+}
+
+// DefaultPaletteHex returns the default 16-color ANSI palette as hex strings
+func DefaultPaletteHex() []string {
+	result := make([]string, 16)
+	for i, c := range ANSIColors {
+		result[i] = c.ToHex()
+	}
+	return result
+}
+
+// PaletteColorNames returns the names for the 16 palette colors in order
+func PaletteColorNames() []string {
+	return []string{
+		"black", "red", "green", "yellow", "blue", "magenta", "cyan", "white",
+		"bright_black", "bright_red", "bright_green", "bright_yellow",
+		"bright_blue", "bright_magenta", "bright_cyan", "bright_white",
+	}
 }
 
 // DefaultColorScheme returns a dark color scheme similar to VS Code
