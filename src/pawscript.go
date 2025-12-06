@@ -15,6 +15,7 @@ type PawScript struct {
 	rootModuleEnv *ModuleEnvironment // Root module environment for all execution states
 	startTime     time.Time          // Time when interpreter was initialized
 	terminalState *TerminalState     // Terminal/cursor state for io commands
+	lastResult    interface{}        // Last execution result value (for REPL)
 }
 
 // New creates a new PawScript interpreter
@@ -272,6 +273,9 @@ func (ps *PawScript) Execute(commandString string, args ...interface{}) Result {
 	state := ps.NewExecutionStateFromRoot()
 	result := ps.executor.ExecuteWithState(commandString, state, nil, "", 0, 0)
 
+	// Save the result value before releasing references (for REPL access)
+	ps.lastResult = state.GetResult()
+
 	// Merge any module exports into the root environment for persistence
 	state.moduleEnv.MergeExportsInto(ps.rootModuleEnv)
 
@@ -285,6 +289,11 @@ func (ps *PawScript) Execute(commandString string, args ...interface{}) Result {
 	}
 
 	return result
+}
+
+// GetResultValue returns the last execution result value (for REPL)
+func (ps *PawScript) GetResultValue() interface{} {
+	return ps.lastResult
 }
 
 // HasLibraryModule checks if a module exists in the library.
