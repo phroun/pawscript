@@ -640,7 +640,7 @@ func createTerminal() *gtk.Box {
 	box.PackStart(termWidget, true, true, 0)
 
 	// Connect right-click for context menu
-	termWidget.Connect("button-press-event", func(ev *gdk.Event) bool {
+	termWidget.Connect("button-press-event", func(widget *gtk.Box, ev *gdk.Event) bool {
 		btn := gdk.EventButtonNewFromEvent(ev)
 		if btn.Button() == 3 { // Right mouse button
 			if contextMenu != nil {
