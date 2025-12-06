@@ -1,14 +1,20 @@
 package main
 
 import (
+	"encoding/json"
 	"flag"
 	"fmt"
-	"github.com/phroun/pawscript"
 	"io"
 	"os"
+	"os/signal"
 	"path/filepath"
 	"strings"
+	"syscall"
 	"time"
+	"unicode/utf8"
+
+	"github.com/phroun/pawscript"
+	"golang.org/x/term"
 )
 
 var version = "dev" // set via -ldflags at build time
@@ -56,6 +62,19 @@ func errorPrintf(format string, args ...interface{}) {
 }
 
 func main() {
+	// Ensure terminal is restored to normal state on exit
+	// This is critical when using raw mode (readkey_init) to prevent
+	// the terminal from being left in a broken state (no newline translation, etc.)
+	defer pawscript.CleanupTerminal()
+
+	// Handle signals to ensure cleanup on interrupt
+	sigChan := make(chan os.Signal, 1)
+	signal.Notify(sigChan, syscall.SIGINT, syscall.SIGTERM)
+	go func() {
+		<-sigChan
+		pawscript.CleanupTerminal()
+		os.Exit(130) // Standard exit code for SIGINT
+	}()
 
 	// Define command line flags
 	licenseFlag := flag.Bool("license", false, "Show license")
@@ -153,10 +172,9 @@ func main() {
 		scriptContent = string(content)
 
 	} else {
-		// No filename and stdin is not redirected - show usage
-		showCopyright()
-		showUsage()
-		os.Exit(1)
+		// No filename and stdin is not redirected - run REPL
+		runREPL(debug, *unrestrictedFlag, *optLevelFlag)
+		os.Exit(0)
 	}
 
 	// Build file access configuration
@@ -441,4 +459,480 @@ Examples:
   export PAW_WRITE_ROOTS="SCRIPT_DIR/data,/tmp"
 `
 	fmt.Fprint(os.Stderr, usage)
+}
+
+// REPL color codes
+const (
+	colorWhite = "\x1b[97m"
+	colorRed   = "\x1b[91m"
+	colorGray  = "\x1b[90m"
+	colorCyan  = "\x1b[96m"
+)
+
+// runREPL runs an interactive Read-Eval-Print Loop
+func runREPL(debug, unrestricted bool, optLevel int) {
+	showCopyright()
+	fmt.Println("Interactive mode. Type 'exit' or 'quit' to leave.")
+	fmt.Println()
+
+	// Set up file access (unrestricted for REPL by default, or use flag)
+	var fileAccess *pawscript.FileAccessConfig
+	if !unrestricted {
+		cwd, _ := os.Getwd()
+		tmpDir := os.TempDir()
+		fileAccess = &pawscript.FileAccessConfig{
+			ReadRoots:  []string{cwd, tmpDir},
+			WriteRoots: []string{cwd, tmpDir},
+			ExecRoots:  []string{cwd},
+		}
+	}
+
+	// Create PawScript interpreter
+	ps := pawscript.New(&pawscript.Config{
+		Debug:                debug,
+		AllowMacros:          true,
+		EnableSyntacticSugar: true,
+		ShowErrorContext:     true,
+		ContextLines:         2,
+		FileAccess:           fileAccess,
+		OptLevel:             pawscript.OptimizationLevel(optLevel),
+	})
+	ps.RegisterStandardLibrary([]string{})
+
+	// Put terminal in raw mode for key handling
+	fd := int(os.Stdin.Fd())
+	if !term.IsTerminal(fd) {
+		fmt.Fprintln(os.Stderr, "REPL requires a terminal")
+		return
+	}
+
+	oldState, err := term.MakeRaw(fd)
+	if err != nil {
+		fmt.Fprintf(os.Stderr, "Failed to set raw mode: %v\n", err)
+		return
+	}
+	defer term.Restore(fd, oldState)
+
+	// History
+	history := make([]string, 0, 100)
+	historyPos := 0
+
+	// Main REPL loop
+	for {
+		// Read a complete statement (may span multiple lines)
+		input, quit := readStatement(fd, history, &historyPos)
+		if quit {
+			fmt.Print("\r\n")
+			break
+		}
+
+		// Add to history if non-empty and different from last entry
+		trimmed := strings.TrimSpace(input)
+		if trimmed != "" {
+			if len(history) == 0 || history[len(history)-1] != trimmed {
+				history = append(history, trimmed)
+			}
+			historyPos = len(history)
+		}
+
+		// Check for exit commands
+		lower := strings.ToLower(trimmed)
+		if lower == "exit" || lower == "quit" {
+			break
+		}
+
+		if trimmed == "" {
+			continue
+		}
+
+		// Temporarily restore terminal for script execution (so echo works)
+		term.Restore(fd, oldState)
+
+		// Execute
+		result := ps.Execute(input)
+
+		// Get the result value and format it
+		displayResult(ps, result)
+
+		// Back to raw mode
+		oldState, _ = term.MakeRaw(fd)
+	}
+}
+
+// readStatement reads a complete statement, handling multi-line input
+func readStatement(fd int, history []string, historyPos *int) (string, bool) {
+	var lines []string
+	var currentLine []rune
+	cursorPos := 0
+	savedLine := ""     // Saved current line when browsing history
+	inHistory := false  // Are we browsing history?
+
+	prompt := "\"\":"
+	contPrompt := "..:"
+
+	printPrompt := func() {
+		if len(lines) == 0 {
+			fmt.Print(colorYellow + prompt + colorReset + " ")
+		} else {
+			fmt.Print(colorYellow + contPrompt + colorReset + " ")
+		}
+	}
+
+	redrawLine := func() {
+		// Clear line and redraw
+		fmt.Print("\r\x1b[K") // Move to start and clear line
+		printPrompt()
+		fmt.Print(string(currentLine))
+		// Move cursor to correct position
+		if cursorPos < len(currentLine) {
+			fmt.Printf("\x1b[%dD", len(currentLine)-cursorPos)
+		}
+	}
+
+	printPrompt()
+
+	buf := make([]byte, 32)
+	for {
+		n, err := os.Stdin.Read(buf)
+		if err != nil || n == 0 {
+			return "", true
+		}
+
+		i := 0
+		for i < n {
+			b := buf[i]
+			i++
+
+			// Handle escape sequences
+			if b == 0x1b && i < n && buf[i] == '[' {
+				i++ // consume '['
+				if i < n {
+					switch buf[i] {
+					case 'A': // Up arrow
+						i++
+						if len(history) > 0 && *historyPos > 0 {
+							if !inHistory {
+								savedLine = string(currentLine)
+								inHistory = true
+							}
+							*historyPos--
+							currentLine = []rune(history[*historyPos])
+							cursorPos = len(currentLine)
+							redrawLine()
+						}
+						continue
+					case 'B': // Down arrow
+						i++
+						if inHistory {
+							if *historyPos < len(history)-1 {
+								*historyPos++
+								currentLine = []rune(history[*historyPos])
+								cursorPos = len(currentLine)
+							} else {
+								*historyPos = len(history)
+								currentLine = []rune(savedLine)
+								cursorPos = len(currentLine)
+								inHistory = false
+							}
+							redrawLine()
+						}
+						continue
+					case 'C': // Right arrow
+						i++
+						if cursorPos < len(currentLine) {
+							cursorPos++
+							fmt.Print("\x1b[C")
+						}
+						continue
+					case 'D': // Left arrow
+						i++
+						if cursorPos > 0 {
+							cursorPos--
+							fmt.Print("\x1b[D")
+						}
+						continue
+					case '3': // Possible Delete key
+						i++
+						if i < n && buf[i] == '~' {
+							i++
+							if cursorPos < len(currentLine) {
+								currentLine = append(currentLine[:cursorPos], currentLine[cursorPos+1:]...)
+								redrawLine()
+							}
+						}
+						continue
+					case 'H': // Home
+						i++
+						if cursorPos > 0 {
+							fmt.Printf("\x1b[%dD", cursorPos)
+							cursorPos = 0
+						}
+						continue
+					case 'F': // End
+						i++
+						if cursorPos < len(currentLine) {
+							fmt.Printf("\x1b[%dC", len(currentLine)-cursorPos)
+							cursorPos = len(currentLine)
+						}
+						continue
+					}
+				}
+				// Skip unknown escape sequence
+				continue
+			}
+
+			switch b {
+			case 0x03: // Ctrl+C
+				fmt.Print("^C\r\n")
+				return "", true
+
+			case 0x04: // Ctrl+D
+				if len(currentLine) == 0 && len(lines) == 0 {
+					fmt.Print("\r\n")
+					return "", true
+				}
+
+			case 0x7f, 0x08: // Backspace
+				if cursorPos > 0 {
+					currentLine = append(currentLine[:cursorPos-1], currentLine[cursorPos:]...)
+					cursorPos--
+					redrawLine()
+				}
+
+			case '\r', '\n': // Enter
+				fmt.Print("\r\n")
+				line := string(currentLine)
+				lines = append(lines, line)
+				fullInput := strings.Join(lines, "\n")
+
+				// Check if input is complete
+				if isComplete(fullInput) {
+					return fullInput, false
+				}
+
+				// Continue on next line
+				currentLine = nil
+				cursorPos = 0
+				inHistory = false
+				printPrompt()
+
+			case 0x15: // Ctrl+U - clear line
+				currentLine = nil
+				cursorPos = 0
+				redrawLine()
+
+			case 0x0b: // Ctrl+K - kill to end of line
+				currentLine = currentLine[:cursorPos]
+				redrawLine()
+
+			case 0x01: // Ctrl+A - beginning of line
+				if cursorPos > 0 {
+					fmt.Printf("\x1b[%dD", cursorPos)
+					cursorPos = 0
+				}
+
+			case 0x05: // Ctrl+E - end of line
+				if cursorPos < len(currentLine) {
+					fmt.Printf("\x1b[%dC", len(currentLine)-cursorPos)
+					cursorPos = len(currentLine)
+				}
+
+			default:
+				// Regular character - might be part of UTF-8 sequence
+				if b >= 32 && b < 127 {
+					// ASCII printable
+					currentLine = append(currentLine[:cursorPos], append([]rune{rune(b)}, currentLine[cursorPos:]...)...)
+					cursorPos++
+					inHistory = false
+					redrawLine()
+				} else if b >= 0xC0 {
+					// UTF-8 start byte - collect full character
+					charBytes := []byte{b}
+					for i < n && buf[i] >= 0x80 && buf[i] < 0xC0 {
+						charBytes = append(charBytes, buf[i])
+						i++
+					}
+					r, _ := utf8.DecodeRune(charBytes)
+					if r != utf8.RuneError {
+						currentLine = append(currentLine[:cursorPos], append([]rune{r}, currentLine[cursorPos:]...)...)
+						cursorPos++
+						inHistory = false
+						redrawLine()
+					}
+				}
+			}
+		}
+	}
+}
+
+// isComplete checks if the input forms a complete statement
+func isComplete(input string) bool {
+	// Track nesting and quotes
+	parenDepth := 0
+	braceDepth := 0
+	inDoubleQuote := false
+	inSingleQuote := false
+	prevChar := rune(0)
+
+	for _, ch := range input {
+		if inDoubleQuote {
+			if ch == '"' && prevChar != '\\' {
+				inDoubleQuote = false
+			}
+		} else if inSingleQuote {
+			if ch == '\'' && prevChar != '\\' {
+				inSingleQuote = false
+			}
+		} else {
+			switch ch {
+			case '"':
+				inDoubleQuote = true
+			case '\'':
+				inSingleQuote = true
+			case '(':
+				parenDepth++
+			case ')':
+				parenDepth--
+			case '{':
+				braceDepth++
+			case '}':
+				braceDepth--
+			}
+		}
+		prevChar = ch
+	}
+
+	// Also check for #( pattern
+	hashParenDepth := 0
+	for i := 0; i < len(input)-1; i++ {
+		if input[i] == '#' && input[i+1] == '(' {
+			hashParenDepth++
+		}
+	}
+	// This is simplified - actual tracking would need to match with closing )
+
+	return !inDoubleQuote && !inSingleQuote && parenDepth <= 0 && braceDepth <= 0
+}
+
+// displayResult formats and displays the execution result
+func displayResult(ps *pawscript.PawScript, result pawscript.Result) {
+	// Get the result value from the interpreter
+	resultValue := ps.GetResultValue()
+
+	var prefix string
+	var prefixColor string
+
+	if boolStatus, ok := result.(pawscript.BoolStatus); ok {
+		if bool(boolStatus) {
+			prefix = "="
+			prefixColor = colorWhite
+		} else {
+			prefix = "E"
+			prefixColor = colorRed
+		}
+	} else {
+		prefix = "="
+		prefixColor = colorWhite
+	}
+
+	// Format the result value as JSON
+	formatted := formatValueAsJSON(resultValue)
+
+	// Print with prefix
+	lines := strings.Split(formatted, "\n")
+	for i, line := range lines {
+		if i == 0 {
+			fmt.Printf("%s%s%s %s\n", prefixColor, prefix, colorReset, line)
+		} else {
+			fmt.Printf("  %s\n", line)
+		}
+	}
+}
+
+// formatValueAsJSON converts a PawScript value to pretty-printed JSON
+func formatValueAsJSON(val interface{}) string {
+	if val == nil {
+		return "null"
+	}
+
+	// Convert to JSON-compatible form
+	jsonVal := toJSONValue(val)
+
+	// Pretty print
+	jsonBytes, err := json.MarshalIndent(jsonVal, "", "  ")
+	if err != nil {
+		return fmt.Sprintf("%v", val)
+	}
+
+	return string(jsonBytes)
+}
+
+// toJSONValue converts a PawScript value to a JSON-compatible Go value
+func toJSONValue(val interface{}) interface{} {
+	if val == nil {
+		return nil
+	}
+
+	switch v := val.(type) {
+	case pawscript.Symbol:
+		str := string(v)
+		if str == "undefined" {
+			return nil
+		}
+		if str == "true" {
+			return true
+		}
+		if str == "false" {
+			return false
+		}
+		return str
+	case string:
+		return v
+	case pawscript.QuotedString:
+		return string(v)
+	case int64:
+		return v
+	case float64:
+		return v
+	case int:
+		return int64(v)
+	case bool:
+		return v
+	case pawscript.StoredString:
+		return string(v)
+	case pawscript.StoredBlock:
+		return string(v)
+	case pawscript.StoredList:
+		items := v.Items()
+		namedArgs := v.NamedArgs()
+
+		// If only positional items, return array
+		if namedArgs == nil || len(namedArgs) == 0 {
+			arr := make([]interface{}, len(items))
+			for i, item := range items {
+				arr[i] = toJSONValue(item)
+			}
+			return arr
+		}
+
+		// If has named args, return object
+		obj := make(map[string]interface{})
+		if len(items) > 0 {
+			arr := make([]interface{}, len(items))
+			for i, item := range items {
+				arr[i] = toJSONValue(item)
+			}
+			obj["_items"] = arr
+		}
+		for k, v := range namedArgs {
+			obj[k] = toJSONValue(v)
+		}
+		return obj
+	case *pawscript.StoredChannel:
+		return fmt.Sprintf("<channel>")
+	case *pawscript.StoredFile:
+		return fmt.Sprintf("<file>")
+	default:
+		return fmt.Sprintf("%v", v)
+	}
 }
