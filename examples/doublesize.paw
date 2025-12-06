@@ -2,7 +2,7 @@
 # These are the classic double-width and double-height line effects from VT100 terminals
 
 # Define escape sequences
-ESC: {chr 27}
+ESC: {rune 27}
 DOUBLE_TOP:    {concat ~ESC, "#3"}    # DECDHL - Double-height line, top half
 DOUBLE_BOTTOM: {concat ~ESC, "#4"}    # DECDHL - Double-height line, bottom half
 SINGLE_WIDTH:  {concat ~ESC, "#5"}    # DECSWL - Single-width line (normal)
@@ -42,7 +42,7 @@ print {concat ~DOUBLE_BOTTOM, "Double-Height: Big Text!"}
 print {concat ~SINGLE_WIDTH, ""}
 
 # Fun banner effect
-BLOCK: {chr 9608}
+BLOCK: {rune 9608}
 print "--- Banner Style ---"
 print {concat ~DOUBLE_TOP, "  ", ~BLOCK, ~BLOCK, ~BLOCK, "  PAWSCRIPT  ", ~BLOCK, ~BLOCK, ~BLOCK}
 print {concat ~DOUBLE_BOTTOM, "  ", ~BLOCK, ~BLOCK, ~BLOCK, "  PAWSCRIPT  ", ~BLOCK, ~BLOCK, ~BLOCK}
