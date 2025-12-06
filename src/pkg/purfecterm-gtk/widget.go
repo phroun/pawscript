@@ -551,7 +551,8 @@ func (w *Widget) onKeyPress(da *gtk.DrawingArea, ev *gdk.Event) bool {
 		return false
 	}
 
-	// Handle clipboard operations (Ctrl+C with selection, Ctrl+V)
+	// Handle clipboard copy (Ctrl+C with selection only)
+	// Note: Ctrl+V paste is NOT handled here - use PasteClipboard() via context menu
 	// Note: Ctrl+A is NOT handled here - it passes through to the terminal
 	// for programs that use it (e.g., readline beginning-of-line)
 	if hasCtrl && !hasAlt && !hasMeta {
@@ -565,14 +566,6 @@ func (w *Widget) onKeyPress(da *gtk.DrawingArea, ev *gdk.Event) bool {
 				return true
 			}
 			// Ctrl+C without selection falls through to send interrupt
-		case gdk.KEY_v, gdk.KEY_V:
-			if w.clipboard != nil {
-				text, err := w.clipboard.WaitForText()
-				if err == nil && onInput != nil {
-					onInput([]byte(text))
-				}
-			}
-			return true
 		}
 	}
 
@@ -1000,6 +993,16 @@ func (w *Widget) CopySelection() {
 	if w.clipboard != nil && w.buffer.HasSelection() {
 		text := w.buffer.GetSelectedText()
 		w.clipboard.SetText(text)
+	}
+}
+
+// PasteClipboard pastes text from clipboard into terminal
+func (w *Widget) PasteClipboard() {
+	if w.clipboard != nil && onInput != nil {
+		text, err := w.clipboard.WaitForText()
+		if err == nil {
+			onInput([]byte(text))
+		}
 	}
 }
 

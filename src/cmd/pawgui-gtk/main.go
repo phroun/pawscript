@@ -359,6 +359,14 @@ func activate(app *gtk.Application) {
 	})
 	contextMenu.Append(copyItem)
 
+	pasteItem, _ := gtk.MenuItemNewWithLabel("Paste")
+	pasteItem.Connect("activate", func() {
+		if terminal != nil {
+			terminal.PasteClipboard()
+		}
+	})
+	contextMenu.Append(pasteItem)
+
 	selectAllItem, _ := gtk.MenuItemNewWithLabel("Select All")
 	selectAllItem.Connect("activate", func() {
 		if terminal != nil {
@@ -543,7 +551,7 @@ func createTerminal() *gtk.Box {
 	box.PackStart(termWidget, true, true, 0)
 
 	// Connect right-click for context menu
-	termWidget.Connect("button-press-event", func(widget *gtk.Widget, ev *gdk.Event) bool {
+	termWidget.Connect("button-press-event", func(ev *gdk.Event) bool {
 		btn := gdk.EventButtonNewFromEvent(ev)
 		if btn.Button() == 3 { // Right mouse button
 			if contextMenu != nil {

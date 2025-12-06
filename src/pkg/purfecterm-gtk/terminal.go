@@ -290,6 +290,11 @@ func (t *Terminal) CopySelection() {
 	t.widget.CopySelection()
 }
 
+// PasteClipboard pastes text from clipboard into terminal
+func (t *Terminal) PasteClipboard() {
+	t.widget.PasteClipboard()
+}
+
 // SelectAll selects all text
 func (t *Terminal) SelectAll() {
 	t.widget.SelectAll()
