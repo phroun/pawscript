@@ -1366,31 +1366,10 @@ func (ps *PawScript) RegisterSystemLib(scriptArgs []string) {
 			inCh.mu.Unlock()
 		}
 
-		// Bracketed paste tracking for paste during readkey
-		pasteMode := false
-		var pasteBuffer []byte
-		var escBuffer []byte
-
-		checkBracketedPaste := func() (start bool, end bool, complete bool) {
-			if len(escBuffer) < 6 {
-				return false, false, false
-			}
-			seq := string(escBuffer)
-			if seq == "\x1b[200~" {
-				return true, false, true
-			}
-			if seq == "\x1b[201~" {
-				return false, true, true
-			}
-			return false, false, false
-		}
-
-		couldBeSequence := func() bool {
-			seq := string(escBuffer)
-			return strings.HasPrefix("\x1b[200~", seq) || strings.HasPrefix("\x1b[201~", seq)
-		}
-
-		// Read keys, watching for bracketed paste
+		// KeyInputManager now handles escape sequence processing and sends complete
+		// key names like "Up", "F1", "Enter", etc. We just need to return them directly.
+		// Bracketed paste is also handled by KeyInputManager which emits individual
+		// characters in key-by-key mode.
 		for {
 			_, value, err := ChannelRecv(keysCh)
 			if err != nil {
@@ -1399,7 +1378,7 @@ func (ps *PawScript) RegisterSystemLib(scriptArgs []string) {
 				return BoolStatus(false)
 			}
 
-			// Convert to string for processing
+			// Convert to string
 			var keyStr string
 			switch v := value.(type) {
 			case string:
@@ -1414,75 +1393,10 @@ func (ps *PawScript) RegisterSystemLib(scriptArgs []string) {
 				keyStr = fmt.Sprintf("%v", v)
 			}
 
-			// Process each byte for escape sequence detection
-			for _, b := range []byte(keyStr) {
-				if len(escBuffer) > 0 || b == 0x1b {
-					escBuffer = append(escBuffer, b)
-
-					isStart, isEnd, complete := checkBracketedPaste()
-					if complete {
-						if isStart {
-							pasteMode = true
-							pasteBuffer = nil
-						} else if isEnd {
-							pasteMode = false
-							// Paste completed - add to PasteBuffer and return "Paste"
-							if len(pasteBuffer) > 0 && hasInCh {
-								pastedStr := string(pasteBuffer)
-								endsWithNewline := strings.HasSuffix(pastedStr, "\n") || strings.HasSuffix(pastedStr, "\r")
-								lines := strings.Split(pastedStr, "\n")
-								var cleanLines []string
-								for _, line := range lines {
-									cleanLines = append(cleanLines, strings.TrimSuffix(line, "\r"))
-								}
-
-								inCh.mu.Lock()
-								if len(cleanLines) == 1 && !endsWithNewline {
-									// Single partial line
-									inCh.PartialPaste = cleanLines[0]
-								} else if endsWithNewline {
-									// All complete lines
-									inCh.PasteBuffer = append(inCh.PasteBuffer, cleanLines...)
-								} else {
-									// Multiple lines, last is partial
-									inCh.PasteBuffer = append(inCh.PasteBuffer, cleanLines[:len(cleanLines)-1]...)
-									inCh.PartialPaste = cleanLines[len(cleanLines)-1]
-								}
-								inCh.PasteNotified = true
-								inCh.mu.Unlock()
-							}
-							ctx.SetResult(QuotedString("Paste"))
-							return BoolStatus(true)
-						}
-						escBuffer = nil
-						continue
-					}
-
-					if couldBeSequence() {
-						continue
-					}
-
-					// Not a valid sequence - if in paste mode, add to buffer
-					if pasteMode {
-						pasteBuffer = append(pasteBuffer, escBuffer...)
-					} else {
-						// Return the key (could be a special key that starts with ESC)
-						ctx.SetResult(QuotedString(string(escBuffer)))
-						return BoolStatus(true)
-					}
-					escBuffer = nil
-					continue
-				}
-
-				if pasteMode {
-					pasteBuffer = append(pasteBuffer, b)
-					continue
-				}
-
-				// Normal key - return it
-				ctx.SetResult(QuotedString(string([]byte{b})))
-				return BoolStatus(true)
-			}
+			// Return the key directly - KeyInputManager has already processed
+			// escape sequences into key names
+			ctx.SetResult(QuotedString(keyStr))
+			return BoolStatus(true)
 		}
 	})
 
