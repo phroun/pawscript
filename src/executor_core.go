@@ -28,6 +28,7 @@ type Executor struct {
 	nextTokenID      int
 	nextObjectID     int
 	nextFiberID      int
+	emptyListID      int               // ID of the canonical empty list (immortal, never freed)
 	logger           *Logger
 	optLevel         OptimizationLevel // AST caching level
 	maxIterations    int               // Maximum loop iterations (0 or negative = unlimited)
@@ -36,7 +37,7 @@ type Executor struct {
 
 // NewExecutor creates a new command executor
 func NewExecutor(logger *Logger) *Executor {
-	return &Executor{
+	e := &Executor{
 		commands:        make(map[string]Handler),
 		activeTokens:    make(map[string]*TokenData),
 		storedObjects:   make(map[int]*StoredObject),
@@ -49,6 +50,19 @@ func NewExecutor(logger *Logger) *Executor {
 		logger:          logger,
 		optLevel:        OptimizeBasic, // Default to caching enabled
 	}
+
+	// Create the canonical empty list with an immortal refcount
+	// This list is used for all empty list references to avoid refcount issues
+	emptyList := NewStoredListWithoutRefs(nil)
+	e.emptyListID = e.nextObjectID
+	e.nextObjectID++
+	e.storedObjects[e.emptyListID] = &StoredObject{
+		Value:    emptyList,
+		Type:     "list",
+		RefCount: 1000000, // Immortal - will never reach 0
+	}
+
+	return e
 }
 
 // SetOptimizationLevel sets the AST caching level
