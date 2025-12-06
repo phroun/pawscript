@@ -1299,6 +1299,11 @@ func NewStoredListWithRefs(items []interface{}, namedArgs map[string]interface{}
 // claimNestedReferences recursively claims references to nested objects
 func claimNestedReferences(value interface{}, executor *Executor) {
 	switch v := value.(type) {
+	case ObjectRef:
+		// ObjectRef is the preferred way to reference stored objects
+		if v.IsValid() {
+			executor.incrementObjectRefCount(v.ID)
+		}
 	case Symbol:
 		if _, id := parseObjectMarker(string(v)); id >= 0 {
 			executor.incrementObjectRefCount(id)
@@ -1327,6 +1332,11 @@ func claimNestedReferences(value interface{}, executor *Executor) {
 // releaseNestedReferences recursively releases references to nested objects
 func releaseNestedReferences(value interface{}, executor *Executor) {
 	switch v := value.(type) {
+	case ObjectRef:
+		// ObjectRef is the preferred way to reference stored objects
+		if v.IsValid() {
+			executor.decrementObjectRefCount(v.ID)
+		}
 	case Symbol:
 		if _, id := parseObjectMarker(string(v)); id >= 0 {
 			executor.decrementObjectRefCount(id)

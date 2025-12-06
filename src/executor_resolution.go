@@ -12,6 +12,25 @@ const UndefinedMarker = "\x00UNDEFINED\x00"
 // If the value is not a marker, returns it unchanged
 // This is the central resolution function - all resolution should go through here
 func (e *Executor) resolveValue(value interface{}) interface{} {
+	// Check if it's an ObjectRef (the preferred internal representation)
+	if ref, ok := value.(ObjectRef); ok {
+		if ref.IsValid() {
+			if actualValue, exists := e.getObject(ref.ID); exists {
+				e.logger.DebugCat(CatVariable, "Resolved ObjectRef %s %d to actual value", ref.Type.String(), ref.ID)
+				// Convert stored types back to their original forms
+				switch v := actualValue.(type) {
+				case StoredString:
+					return string(v)
+				case StoredBlock:
+					return ParenGroup(v)
+				default:
+					return actualValue
+				}
+			}
+		}
+		return value // Return ObjectRef as-is if not found
+	}
+
 	// Check if it's a Symbol that might be a marker
 	if sym, ok := value.(Symbol); ok {
 		str := string(sym)

@@ -97,6 +97,16 @@ func (ref ObjectRef) IsValid() bool {
 	return ref.Type != ObjNone && ref.ID > 0
 }
 
+// String returns a human-readable representation of the ObjectRef.
+// This is used when formatting lists for display.
+// Format matches how Symbol markers are displayed: <type id>
+func (ref ObjectRef) String() string {
+	if !ref.IsValid() {
+		return "<invalid>"
+	}
+	return fmt.Sprintf("<%s %d>", ref.Type.String(), ref.ID)
+}
+
 // ToMarker converts to the legacy marker string format.
 // This should ONLY be used at code substitution boundaries.
 func (ref ObjectRef) ToMarker() string {

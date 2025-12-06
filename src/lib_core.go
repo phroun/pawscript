@@ -99,7 +99,7 @@ func (ps *PawScript) RegisterCoreLib() {
 	//   (; echo hello)  -> block (the ; is a block indicator)
 	//   (echo; done)    -> block (contains ; at top level)
 	//
-	// Nested lists are stored and returned as markers for proper reference counting.
+	// Nested lists are stored and returned as ObjectRef for proper reference counting.
 	var coerceToList func(arg interface{}, executor *Executor) interface{}
 	coerceToList = func(arg interface{}, executor *Executor) interface{} {
 		switch v := arg.(type) {
@@ -121,10 +121,10 @@ func (ps *PawScript) RegisterCoreLib() {
 			for k, val := range namedArgs {
 				coercedNamedArgs[k] = coerceToList(val, executor)
 			}
-			// Create the list, store it, and return a marker for proper ref counting
+			// Create the list, store it, and return ObjectRef for proper ref counting
 			newList := NewStoredListWithRefs(coercedItems, coercedNamedArgs, executor)
 			ref := executor.RegisterObject(newList, ObjList)
-			return Symbol(ref.ToMarker())
+			return ref
 		case StoredList:
 			// Already a list, but recursively check its contents
 			items := v.Items()
@@ -155,10 +155,10 @@ func (ps *PawScript) RegisterCoreLib() {
 			for k, val := range namedArgs {
 				coercedNamedArgs[k] = coerceToList(val, executor)
 			}
-			// Create the list, store it, and return a marker for proper ref counting
+			// Create the list, store it, and return ObjectRef for proper ref counting
 			newList := NewStoredListWithRefs(coercedItems, coercedNamedArgs, executor)
 			ref := executor.RegisterObject(newList, ObjList)
-			return Symbol(ref.ToMarker())
+			return ref
 		default:
 			return arg
 		}
@@ -2551,6 +2551,15 @@ func (ps *PawScript) RegisterCoreLib() {
 		// Helper to check if arg is a list
 		isList := func(arg interface{}) (StoredList, int, bool) {
 			switch v := arg.(type) {
+			case ObjectRef:
+				// ObjectRef is the preferred way to reference stored objects
+				if v.Type == ObjList && v.IsValid() {
+					if obj, exists := ctx.executor.getObject(v.ID); exists {
+						if list, ok := obj.(StoredList); ok {
+							return list, v.ID, true
+						}
+					}
+				}
 			case StoredList:
 				ref := ctx.executor.RegisterObject(v, ObjList)
 				return v, ref.ID, true
