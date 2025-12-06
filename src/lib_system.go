@@ -905,12 +905,30 @@ func (ps *PawScript) RegisterSystemLib(scriptArgs []string) {
 			// Raw byte mode: accumulate bytes until newline
 			// Also handle echo to output channel if available
 			// Supports bracketed paste mode (ESC[200~ ... ESC[201~)
-			var lineBuffer []byte
 			outCh, _, _ := getOutputChannel(ctx, "#out")
+
+			// Check if there are buffered lines from a previous paste
+			ch.mu.Lock()
+			if len(ch.PasteBuffer) > 0 {
+				// Return the first buffered line
+				line := ch.PasteBuffer[0]
+				ch.PasteBuffer = ch.PasteBuffer[1:]
+				ch.mu.Unlock()
+				// Echo the line
+				if outCh != nil {
+					_ = ChannelSend(outCh, line+"\r\n")
+				}
+				ctx.SetResult(line)
+				return BoolStatus(true)
+			}
+			ch.mu.Unlock()
+
+			var lineBuffer []byte
 
 			// Bracketed paste tracking
 			pasteMode := false
-			var escBuffer []byte // buffer for detecting escape sequences
+			var pasteBuffer []byte   // accumulates content during paste
+			var escBuffer []byte     // buffer for detecting escape sequences
 
 			// Helper to check if buffer matches a bracketed paste sequence
 			checkBracketedPaste := func() (start bool, end bool, complete bool) {
@@ -931,6 +949,34 @@ func (ps *PawScript) RegisterSystemLib(scriptArgs []string) {
 			couldBeSequence := func() bool {
 				seq := string(escBuffer)
 				return strings.HasPrefix("\x1b[200~", seq) || strings.HasPrefix("\x1b[201~", seq)
+			}
+
+			// Helper to process completed paste - splits into lines and buffers extras
+			processPaste := func() {
+				if len(pasteBuffer) == 0 {
+					return
+				}
+				// Split pasted content by newlines
+				pastedStr := string(pasteBuffer)
+				lines := strings.Split(pastedStr, "\n")
+				// Also handle \r\n by trimming \r from each line
+				var cleanLines []string
+				for _, line := range lines {
+					cleanLines = append(cleanLines, strings.TrimSuffix(line, "\r"))
+				}
+
+				if len(cleanLines) > 0 {
+					// First line gets appended to current lineBuffer
+					lineBuffer = append(lineBuffer, []byte(cleanLines[0])...)
+
+					// If there are more lines, they go to the paste buffer
+					if len(cleanLines) > 1 {
+						ch.mu.Lock()
+						ch.PasteBuffer = append(ch.PasteBuffer, cleanLines[1:]...)
+						ch.mu.Unlock()
+					}
+				}
+				pasteBuffer = nil
 			}
 
 			for {
@@ -962,8 +1008,13 @@ func (ps *PawScript) RegisterSystemLib(scriptArgs []string) {
 						if complete {
 							if isStart {
 								pasteMode = true
+								pasteBuffer = nil
 							} else if isEnd {
 								pasteMode = false
+								processPaste()
+								// If paste contained newlines, we have buffered lines
+								// and the first line is already in lineBuffer
+								// Continue to let the user press Enter or type more
 							}
 							escBuffer = nil
 							continue
@@ -976,8 +1027,8 @@ func (ps *PawScript) RegisterSystemLib(scriptArgs []string) {
 
 						// Not a valid sequence prefix - flush buffer
 						if pasteMode {
-							// In paste mode, add literally to line buffer
-							lineBuffer = append(lineBuffer, escBuffer...)
+							// In paste mode, add literally to paste buffer
+							pasteBuffer = append(pasteBuffer, escBuffer...)
 						} else {
 							// In normal mode, process each byte
 							for _, eb := range escBuffer {
@@ -995,7 +1046,7 @@ func (ps *PawScript) RegisterSystemLib(scriptArgs []string) {
 
 					// In paste mode, accept all characters literally (except ESC which starts sequence detection)
 					if pasteMode {
-						lineBuffer = append(lineBuffer, b)
+						pasteBuffer = append(pasteBuffer, b)
 						continue
 					}
 
