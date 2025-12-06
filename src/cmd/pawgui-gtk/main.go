@@ -103,6 +103,9 @@ var (
 	scriptRunning  bool
 	scriptMu       sync.Mutex
 
+	// REPL for interactive mode when no script is running
+	consoleREPL *pawscript.REPL
+
 	// Configuration loaded at startup
 	appConfig pawscript.PSLConfig
 )
@@ -826,6 +829,11 @@ func runScript(filePath string) {
 	scriptRunning = true
 	scriptMu.Unlock()
 
+	// Stop the REPL while script runs
+	if consoleREPL != nil {
+		consoleREPL.Stop()
+	}
+
 	terminal.Feed(fmt.Sprintf("\r\n--- Running: %s ---\r\n\r\n", filepath.Base(filePath)))
 
 	// Clear any buffered input from previous script runs
@@ -894,6 +902,23 @@ func runScript(filePath string) {
 		scriptMu.Lock()
 		scriptRunning = false
 		scriptMu.Unlock()
+
+		// Restart the REPL
+		if consoleREPL != nil {
+			// Create a new REPL instance (fresh state)
+			consoleREPL = pawscript.NewREPL(pawscript.REPLConfig{
+				Debug:        false,
+				Unrestricted: false,
+				OptLevel:     getOptimizationLevel(),
+				ShowBanner:   false, // Don't show banner again
+			}, func(s string) {
+				glib.IdleAdd(func() bool {
+					terminal.Feed(s)
+					return false
+				})
+			})
+			consoleREPL.Start()
+		}
 	}()
 }
 
@@ -939,20 +964,20 @@ func createConsoleChannels(width, height int) {
 		Timestamp:        time.Now(),
 		Terminal:         termCaps,
 		NativeSend: func(v interface{}) error {
-			var data []byte
+			var text string
 			switch d := v.(type) {
 			case []byte:
-				data = d
+				text = string(d)
 			case string:
-				text := strings.ReplaceAll(d, "\r\n", "\n")
-				text = strings.ReplaceAll(text, "\n", "\r\n")
-				data = []byte(text)
+				text = d
 			default:
-				text := fmt.Sprintf("%v", v)
-				text = strings.ReplaceAll(text, "\r\n", "\n")
-				text = strings.ReplaceAll(text, "\n", "\r\n")
-				data = []byte(text)
+				text = fmt.Sprintf("%v", v)
 			}
+			// Normalize newlines: first collapse any existing \r\n to \n, then convert all \n to \r\n
+			// This ensures consistent terminal behavior whether in raw mode or not
+			text = strings.ReplaceAll(text, "\r\n", "\n")
+			text = strings.ReplaceAll(text, "\n", "\r\n")
+			data := []byte(text)
 			select {
 			case outputQueue <- data:
 			default:
@@ -1043,10 +1068,37 @@ func createConsoleChannels(width, height int) {
 		}
 	}()
 
-	// Wire keyboard input from terminal to stdin pipe
+	// Wire keyboard input from terminal to stdin pipe or REPL
 	terminal.SetInputCallback(func(data []byte) {
-		if stdinWriter != nil {
-			stdinWriter.Write(data)
+		scriptMu.Lock()
+		isRunning := scriptRunning
+		scriptMu.Unlock()
+
+		if isRunning {
+			// Script is running, send to stdin pipe
+			if stdinWriter != nil {
+				stdinWriter.Write(data)
+			}
+		} else {
+			// No script running, send to REPL
+			if consoleREPL != nil && consoleREPL.IsRunning() {
+				consoleREPL.HandleInput(data)
+			}
 		}
 	})
+
+	// Create and start the REPL for interactive mode
+	consoleREPL = pawscript.NewREPL(pawscript.REPLConfig{
+		Debug:        false,
+		Unrestricted: false,
+		OptLevel:     getOptimizationLevel(),
+		ShowBanner:   true,
+	}, func(s string) {
+		// Output to terminal on GTK main thread
+		glib.IdleAdd(func() bool {
+			terminal.Feed(s)
+			return false
+		})
+	})
+	consoleREPL.Start()
 }

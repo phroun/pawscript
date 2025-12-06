@@ -6,11 +6,22 @@ import (
 	"io"
 	"math/rand"
 	"os"
+	"strings"
 	"sync"
 	"time"
 
 	"golang.org/x/term"
 )
+
+// normalizeNewlines converts bare \n to \r\n for consistent terminal behavior.
+// This ensures output works correctly whether the terminal is in raw mode or not.
+// Existing \r\n sequences are preserved (not doubled).
+func normalizeNewlines(s string) string {
+	// First normalize any existing \r\n to \n, then convert all \n to \r\n
+	s = strings.ReplaceAll(s, "\r\n", "\n")
+	s = strings.ReplaceAll(s, "\n", "\r\n")
+	return s
+}
 
 // Global tracking for terminal state cleanup
 var (
@@ -269,7 +280,7 @@ func (env *ModuleEnvironment) PopulateIOModule(config *IOChannelConfig, executor
 		stdoutCh = config.Stdout
 	} else {
 		// Create default stdout channel - write-only
-		// Note: NativeSend does NOT add newline - callers add it if needed
+		// Normalizes newlines (\n -> \r\n) for consistent behavior in raw/cooked terminal modes
 		stdout := defaultStdout // capture for closure
 		stdoutCh = &StoredChannel{
 			BufferSize:       0,
@@ -279,19 +290,19 @@ func (env *ModuleEnvironment) PopulateIOModule(config *IOChannelConfig, executor
 			IsClosed:         false,
 			Timestamp:        time.Now(),
 			NativeSend: func(v interface{}) error {
-				// Handle []byte and string directly to avoid %v formatting
-				// which would print []byte as [114 101 100] instead of "red"
+				// Convert to string and normalize newlines for consistent terminal behavior
+				var text string
 				switch val := v.(type) {
 				case []byte:
-					_, err := stdout.Write(val)
-					return err
+					text = string(val)
 				case string:
-					_, err := io.WriteString(stdout, val)
-					return err
+					text = val
 				default:
-					_, err := fmt.Fprintf(stdout, "%v", v)
-					return err
+					text = fmt.Sprintf("%v", v)
 				}
+				text = normalizeNewlines(text)
+				_, err := io.WriteString(stdout, text)
+				return err
 			},
 			NativeRecv: func() (interface{}, error) {
 				return nil, fmt.Errorf("cannot receive from stdout")
@@ -303,7 +314,7 @@ func (env *ModuleEnvironment) PopulateIOModule(config *IOChannelConfig, executor
 		stderrCh = config.Stderr
 	} else {
 		// Create default stderr channel - write-only
-		// Note: NativeSend does NOT add newline - callers add it if needed
+		// Normalizes newlines (\n -> \r\n) for consistent behavior in raw/cooked terminal modes
 		stderr := defaultStderr // capture for closure
 		stderrCh = &StoredChannel{
 			BufferSize:       0,
@@ -313,18 +324,19 @@ func (env *ModuleEnvironment) PopulateIOModule(config *IOChannelConfig, executor
 			IsClosed:         false,
 			Timestamp:        time.Now(),
 			NativeSend: func(v interface{}) error {
-				// Handle []byte and string directly to avoid %v formatting
+				// Convert to string and normalize newlines for consistent terminal behavior
+				var text string
 				switch val := v.(type) {
 				case []byte:
-					_, err := stderr.Write(val)
-					return err
+					text = string(val)
 				case string:
-					_, err := io.WriteString(stderr, val)
-					return err
+					text = val
 				default:
-					_, err := fmt.Fprintf(stderr, "%v", v)
-					return err
+					text = fmt.Sprintf("%v", v)
 				}
+				text = normalizeNewlines(text)
+				_, err := io.WriteString(stderr, text)
+				return err
 			},
 			NativeRecv: func() (interface{}, error) {
 				return nil, fmt.Errorf("cannot receive from stderr")
@@ -336,7 +348,7 @@ func (env *ModuleEnvironment) PopulateIOModule(config *IOChannelConfig, executor
 		stdioCh = config.Stdio
 	} else {
 		// Create default stdio channel - bidirectional (read from stdin, write to stdout)
-		// Note: NativeSend does NOT add newline - callers add it if needed
+		// Normalizes newlines (\n -> \r\n) for consistent behavior in raw/cooked terminal modes
 		stdioReader := bufio.NewReader(defaultStdin)
 		stdout := defaultStdout // capture for closure
 		stdioCh = &StoredChannel{
@@ -347,18 +359,19 @@ func (env *ModuleEnvironment) PopulateIOModule(config *IOChannelConfig, executor
 			IsClosed:         false,
 			Timestamp:        time.Now(),
 			NativeSend: func(v interface{}) error {
-				// Handle []byte and string directly to avoid %v formatting
+				// Convert to string and normalize newlines for consistent terminal behavior
+				var text string
 				switch val := v.(type) {
 				case []byte:
-					_, err := stdout.Write(val)
-					return err
+					text = string(val)
 				case string:
-					_, err := io.WriteString(stdout, val)
-					return err
+					text = val
 				default:
-					_, err := fmt.Fprintf(stdout, "%v", v)
-					return err
+					text = fmt.Sprintf("%v", v)
 				}
+				text = normalizeNewlines(text)
+				_, err := io.WriteString(stdout, text)
+				return err
 			},
 			NativeRecv: func() (interface{}, error) {
 				line, err := stdioReader.ReadString('\n')
