@@ -280,8 +280,13 @@ func (env *ModuleEnvironment) PopulateIOModule(config *IOChannelConfig, executor
 		stdoutCh = config.Stdout
 	} else {
 		// Create default stdout channel - write-only
-		// Normalizes newlines (\n -> \r\n) for consistent behavior in raw/cooked terminal modes
+		// Normalizes newlines (\n -> \r\n) only when outputting to a terminal
 		stdout := defaultStdout // capture for closure
+		// Check if stdout is a terminal (for newline normalization)
+		stdoutIsTerminal := false
+		if f, ok := stdout.(*os.File); ok {
+			stdoutIsTerminal = term.IsTerminal(int(f.Fd()))
+		}
 		stdoutCh = &StoredChannel{
 			BufferSize:       0,
 			Messages:         make([]ChannelMessage, 0),
@@ -290,7 +295,7 @@ func (env *ModuleEnvironment) PopulateIOModule(config *IOChannelConfig, executor
 			IsClosed:         false,
 			Timestamp:        time.Now(),
 			NativeSend: func(v interface{}) error {
-				// Convert to string and normalize newlines for consistent terminal behavior
+				// Convert to string
 				var text string
 				switch val := v.(type) {
 				case []byte:
@@ -300,7 +305,11 @@ func (env *ModuleEnvironment) PopulateIOModule(config *IOChannelConfig, executor
 				default:
 					text = fmt.Sprintf("%v", v)
 				}
-				text = normalizeNewlines(text)
+				// Normalize newlines only when outputting to a terminal
+				// (not when redirected to a file)
+				if stdoutIsTerminal {
+					text = normalizeNewlines(text)
+				}
 				_, err := io.WriteString(stdout, text)
 				return err
 			},
@@ -314,8 +323,13 @@ func (env *ModuleEnvironment) PopulateIOModule(config *IOChannelConfig, executor
 		stderrCh = config.Stderr
 	} else {
 		// Create default stderr channel - write-only
-		// Normalizes newlines (\n -> \r\n) for consistent behavior in raw/cooked terminal modes
+		// Normalizes newlines (\n -> \r\n) only when outputting to a terminal
 		stderr := defaultStderr // capture for closure
+		// Check if stderr is a terminal (for newline normalization)
+		stderrIsTerminal := false
+		if f, ok := stderr.(*os.File); ok {
+			stderrIsTerminal = term.IsTerminal(int(f.Fd()))
+		}
 		stderrCh = &StoredChannel{
 			BufferSize:       0,
 			Messages:         make([]ChannelMessage, 0),
@@ -324,7 +338,7 @@ func (env *ModuleEnvironment) PopulateIOModule(config *IOChannelConfig, executor
 			IsClosed:         false,
 			Timestamp:        time.Now(),
 			NativeSend: func(v interface{}) error {
-				// Convert to string and normalize newlines for consistent terminal behavior
+				// Convert to string
 				var text string
 				switch val := v.(type) {
 				case []byte:
@@ -334,7 +348,11 @@ func (env *ModuleEnvironment) PopulateIOModule(config *IOChannelConfig, executor
 				default:
 					text = fmt.Sprintf("%v", v)
 				}
-				text = normalizeNewlines(text)
+				// Normalize newlines only when outputting to a terminal
+				// (not when redirected to a file)
+				if stderrIsTerminal {
+					text = normalizeNewlines(text)
+				}
 				_, err := io.WriteString(stderr, text)
 				return err
 			},
@@ -348,9 +366,14 @@ func (env *ModuleEnvironment) PopulateIOModule(config *IOChannelConfig, executor
 		stdioCh = config.Stdio
 	} else {
 		// Create default stdio channel - bidirectional (read from stdin, write to stdout)
-		// Normalizes newlines (\n -> \r\n) for consistent behavior in raw/cooked terminal modes
+		// Normalizes newlines (\n -> \r\n) only when outputting to a terminal
 		stdioReader := bufio.NewReader(defaultStdin)
 		stdout := defaultStdout // capture for closure
+		// Check if stdout is a terminal (for newline normalization)
+		stdioIsTerminal := false
+		if f, ok := stdout.(*os.File); ok {
+			stdioIsTerminal = term.IsTerminal(int(f.Fd()))
+		}
 		stdioCh = &StoredChannel{
 			BufferSize:       0,
 			Messages:         make([]ChannelMessage, 0),
@@ -359,7 +382,7 @@ func (env *ModuleEnvironment) PopulateIOModule(config *IOChannelConfig, executor
 			IsClosed:         false,
 			Timestamp:        time.Now(),
 			NativeSend: func(v interface{}) error {
-				// Convert to string and normalize newlines for consistent terminal behavior
+				// Convert to string
 				var text string
 				switch val := v.(type) {
 				case []byte:
@@ -369,7 +392,11 @@ func (env *ModuleEnvironment) PopulateIOModule(config *IOChannelConfig, executor
 				default:
 					text = fmt.Sprintf("%v", v)
 				}
-				text = normalizeNewlines(text)
+				// Normalize newlines only when outputting to a terminal
+				// (not when redirected to a file)
+				if stdioIsTerminal {
+					text = normalizeNewlines(text)
+				}
 				_, err := io.WriteString(stdout, text)
 				return err
 			},
