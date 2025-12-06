@@ -482,6 +482,9 @@ func (ps *PawScript) RegisterCoreLib() {
 
 		value := ctx.Args[0]
 
+		// First, resolve ObjectRef to get the actual stored object
+		value = ctx.executor.resolveValue(value)
+
 		// Helper to resolve a value (handles markers to get actual objects)
 		resolveValue := func(val interface{}) interface{} {
 			switch v := val.(type) {
