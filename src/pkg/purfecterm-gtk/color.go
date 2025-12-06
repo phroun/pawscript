@@ -34,25 +34,34 @@ var (
 	DefaultBackground = Color{R: 30, G: 30, B: 30, Default: true}
 )
 
-// Standard ANSI 16-color palette
+// BlinkMode determines how the blink attribute is rendered
+type BlinkMode int
+
+const (
+	BlinkModeBounce BlinkMode = iota // Bobbing wave animation (default)
+	BlinkModeBlink                   // Traditional on/off blinking
+	BlinkModeBright                  // Interpret as bright background (VGA style)
+)
+
+// Standard ANSI 16-color palette (VGA-style naming)
 var ANSIColors = []Color{
 	{R: 0, G: 0, B: 0},       // 0: Black
-	{R: 205, G: 49, B: 49},   // 1: Red
-	{R: 13, G: 188, B: 121},  // 2: Green
-	{R: 229, G: 229, B: 16},  // 3: Yellow
-	{R: 36, G: 114, B: 200},  // 4: Blue
-	{R: 188, G: 63, B: 188},  // 5: Magenta
-	{R: 17, G: 168, B: 205},  // 6: Cyan
-	{R: 229, G: 229, B: 229}, // 7: White
+	{R: 0, G: 0, B: 170},     // 1: Dark Blue
+	{R: 0, G: 170, B: 0},     // 2: Dark Green
+	{R: 0, G: 170, B: 170},   // 3: Dark Cyan
+	{R: 170, G: 0, B: 0},     // 4: Dark Red
+	{R: 170, G: 0, B: 170},   // 5: Purple
+	{R: 170, G: 85, B: 0},    // 6: Brown
+	{R: 170, G: 170, B: 170}, // 7: Silver (Light Gray)
 	// Bright variants (8-15)
-	{R: 102, G: 102, B: 102}, // 8: Bright Black (Gray)
-	{R: 241, G: 76, B: 76},   // 9: Bright Red
-	{R: 35, G: 209, B: 139},  // 10: Bright Green
-	{R: 245, G: 245, B: 67},  // 11: Bright Yellow
-	{R: 59, G: 142, B: 234},  // 12: Bright Blue
-	{R: 214, G: 112, B: 214}, // 13: Bright Magenta
-	{R: 41, G: 184, B: 219},  // 14: Bright Cyan
-	{R: 255, G: 255, B: 255}, // 15: Bright White
+	{R: 85, G: 85, B: 85},    // 8: Dark Gray
+	{R: 85, G: 85, B: 255},   // 9: Bright Blue
+	{R: 85, G: 255, B: 85},   // 10: Bright Green
+	{R: 85, G: 255, B: 255},  // 11: Bright Cyan
+	{R: 255, G: 85, B: 85},   // 12: Bright Red
+	{R: 255, G: 85, B: 255},  // 13: Pink (Bright Magenta)
+	{R: 255, G: 255, B: 85},  // 14: Yellow
+	{R: 255, G: 255, B: 255}, // 15: White
 }
 
 // Get256Color returns the color for a 256-color mode index
@@ -127,22 +136,22 @@ func parseHexNibble(c byte) uint8 {
 
 // ColorNames maps ANSI color index names to their indices (0-15)
 var ColorNames = map[string]int{
-	"black":         0,
-	"red":           1,
-	"green":         2,
-	"yellow":        3,
-	"blue":          4,
-	"magenta":       5,
-	"cyan":          6,
-	"white":         7,
-	"bright_black":  8,
-	"bright_red":    9,
-	"bright_green":  10,
-	"bright_yellow": 11,
-	"bright_blue":   12,
-	"bright_magenta": 13,
-	"bright_cyan":   14,
-	"bright_white":  15,
+	"00_black":        0,
+	"01_dark_blue":    1,
+	"02_dark_green":   2,
+	"03_dark_cyan":    3,
+	"04_dark_red":     4,
+	"05_purple":       5,
+	"06_brown":        6,
+	"07_silver":       7,
+	"08_dark_gray":    8,
+	"09_bright_blue":  9,
+	"10_bright_green": 10,
+	"11_bright_cyan":  11,
+	"12_bright_red":   12,
+	"13_pink":         13,
+	"14_yellow":       14,
+	"15_white":        15,
 }
 
 // ColorScheme defines the colors used by the terminal
@@ -151,7 +160,20 @@ type ColorScheme struct {
 	Background Color
 	Cursor     Color
 	Selection  Color
-	Palette    []Color // 16 ANSI colors
+	Palette    []Color   // 16 ANSI colors
+	BlinkMode  BlinkMode // How to render blink attribute
+}
+
+// ParseBlinkMode parses a blink mode string
+func ParseBlinkMode(s string) BlinkMode {
+	switch s {
+	case "blink":
+		return BlinkModeBlink
+	case "bright":
+		return BlinkModeBright
+	default:
+		return BlinkModeBounce
+	}
 }
 
 // DefaultPaletteHex returns the default 16-color ANSI palette as hex strings
@@ -166,9 +188,10 @@ func DefaultPaletteHex() []string {
 // PaletteColorNames returns the names for the 16 palette colors in order
 func PaletteColorNames() []string {
 	return []string{
-		"black", "red", "green", "yellow", "blue", "magenta", "cyan", "white",
-		"bright_black", "bright_red", "bright_green", "bright_yellow",
-		"bright_blue", "bright_magenta", "bright_cyan", "bright_white",
+		"00_black", "01_dark_blue", "02_dark_green", "03_dark_cyan",
+		"04_dark_red", "05_purple", "06_brown", "07_silver",
+		"08_dark_gray", "09_bright_blue", "10_bright_green", "11_bright_cyan",
+		"12_bright_red", "13_pink", "14_yellow", "15_white",
 	}
 }
 

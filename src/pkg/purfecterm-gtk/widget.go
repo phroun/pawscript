@@ -307,6 +307,29 @@ func (w *Widget) onDraw(da *gtk.DrawingArea, cr *cairo.Context) bool {
 				bg = scheme.Background
 			}
 
+			// Handle blink attribute based on mode
+			blinkVisible := true // For traditional blink mode
+			if cell.Blink {
+				switch scheme.BlinkMode {
+				case BlinkModeBright:
+					// Interpret blink as bright background (VGA style)
+					// Find if bg matches a dark color (0-7) and use bright version (8-15)
+					for i := 0; i < 8; i++ {
+						if len(scheme.Palette) > i+8 &&
+							bg.R == scheme.Palette[i].R &&
+							bg.G == scheme.Palette[i].G &&
+							bg.B == scheme.Palette[i].B {
+							bg = scheme.Palette[i+8]
+							break
+						}
+					}
+				case BlinkModeBlink:
+					// Traditional on/off blink - visible when phase is in first half
+					blinkVisible = blinkPhase < 3.14159
+				// BlinkModeBounce is handled later in character drawing
+				}
+			}
+
 			// Handle selection highlighting
 			if w.buffer.IsInSelection(x, y) {
 				bg = scheme.Selection
@@ -333,8 +356,8 @@ func (w *Widget) onDraw(da *gtk.DrawingArea, cr *cairo.Context) bool {
 				cr.Fill()
 			}
 
-			// Draw character
-			if cell.Char != ' ' && cell.Char != 0 {
+			// Draw character (skip if traditional blink mode and currently invisible)
+			if cell.Char != ' ' && cell.Char != 0 && blinkVisible {
 				cr.SetSourceRGB(
 					float64(fg.R)/255.0,
 					float64(fg.G)/255.0,
@@ -349,7 +372,7 @@ func (w *Widget) onDraw(da *gtk.DrawingArea, cr *cairo.Context) bool {
 				// Each character is offset by a phase shift based on its x position,
 				// creating a "wave" effect where characters bob up and down in sequence
 				yOffset := 0.0
-				if cell.Blink {
+				if cell.Blink && scheme.BlinkMode == BlinkModeBounce {
 					// Wave parameters: each character is phase-shifted by 0.5 radians from its neighbor
 					// Amplitude is about 3 pixels up and down
 					wavePhase := blinkPhase + float64(x)*0.5
