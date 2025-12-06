@@ -261,6 +261,18 @@ func getColorPalette() []purfectermgtk.Color {
 	return palette
 }
 
+// getBlinkMode returns the configured blink mode
+// "bounce" = bobbing wave animation (default)
+// "blink" = traditional on/off blinking
+// "bright" = interpret as bright background (VGA style)
+func getBlinkMode() purfectermgtk.BlinkMode {
+	if appConfig != nil {
+		mode := appConfig.GetString("default_blink", "bounce")
+		return purfectermgtk.ParseBlinkMode(mode)
+	}
+	return purfectermgtk.BlinkModeBounce
+}
+
 // getQuitShortcut returns the configured quit shortcut
 // Valid values: "Cmd+Q", "Ctrl+Q", "Alt+F4", or "" (disabled)
 // Default: "Cmd+Q" on macOS, "Ctrl+Q" on Linux/Windows
@@ -353,6 +365,11 @@ func activate(app *gtk.Application) {
 			paletteConfig.Set(name, hexColors[i])
 		}
 		appConfig.Set("palette_colors", paletteConfig)
+		configModified = true
+	}
+	// default_blink: "bounce" (wave animation), "blink" (traditional), or "bright" (VGA style)
+	if _, exists := appConfig["default_blink"]; !exists {
+		appConfig.Set("default_blink", "bounce")
 		configModified = true
 	}
 	if configModified {
@@ -605,6 +622,7 @@ func createTerminal() *gtk.Box {
 			Cursor:     purfectermgtk.Color{R: 255, G: 255, B: 255},
 			Selection:  purfectermgtk.Color{R: 68, G: 68, B: 68},
 			Palette:    getColorPalette(),
+			BlinkMode:  getBlinkMode(),
 		},
 	})
 	if err != nil {
