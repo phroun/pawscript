@@ -7,10 +7,16 @@ keycats: {list (note: "Unshifted basic keys - including space",
   ), (note: "Shifted basic keys",
     ("S-Escape", "~", "!", "@", "#", "$", "%", "^", "&", "*", "(", ")", "_", "+", "S-Backspace"),
     ("S-Tab", "Q", "W", "E", "R", "T", "Y", "U", "I", "O", "P", "{", "}", "|"),
-    ("A", "S", "D", "F", "G", "H", "J", "K", "L", ";", "\"", "S-Enter"),
-    ("Z", "X", "C", "V", "B", "N", "M", "<", ">", "?")
+    ("A", "S", "D", "F", "G", "H", "J", "K", "L", ":", "\"", "S-Enter"),
+    ("Z", "X", "C", "V", "B", "N", "M", "<", ">", "?"),
+    ("S-Space"),
+  ), (note: "Basic control keys",
+    ("^`", "^1", "^2", "^3", "^4", "^5", "^6", "^7", "^8", "^9", "^0", "^-", "^=", "^Backspace"),
+    ("^Tab", "^Q", "^W", "^E", "^R", "^T", "^Y", "^U", "^I", "^O", "^P", "^[", "^]", "^\\"),
+    ("^A", "^S", "^D", "^F", "^G", "^H", "^J", "^K", "^L", "^;", "^'", "^Enter"),
+    ("^Z", "^X", "^C", "^V", "^B", "^N", "^M", "^,", "^.", "^/"),
+    ("^Space"),
   )}
-
 
 macro testcat(
   l: $1
@@ -96,7 +102,7 @@ echo "\r\nBEGINNING TEST\r\n"
 
 testnum: 0
 res: true
-while (true), (
+while (lt ~testnum, {len ~keycats}), (
   (reason, remain): {testcat ~keycats ~testnum}
   print "REASON=", ~reason
   print "REMAIN=", ~remain

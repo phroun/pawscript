@@ -136,7 +136,7 @@ while true, (
         neq ~oldX, ~playerX & (moved: true)
         neq ~oldY, ~playerY & (moved: true)
 
-        if ~moved then (drawAt ~oldX, ~oldY, ".", ~trailColor)
+        if ~moved then (drawAt ~oldX, ~oldY, "#", ~trailColor)
 
         # Draw player at new position
         drawAt ~playerX, ~playerY, "@", white
