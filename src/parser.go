@@ -791,6 +791,12 @@ func parseArguments(argsStr string) ([]interface{}, map[string]interface{}) {
 						return true
 					}
 				}
+				if newType == unitSymbol && isTildeExpr(newValue) {
+					// Tilde + tilde expression - potential accessor chain
+					s := rawString(currentValue) + " " + rawString(newValue)
+					currentValue = Symbol(s)
+					return true
+				}
 				// Fall through to normal symbol handling for other cases
 			}
 

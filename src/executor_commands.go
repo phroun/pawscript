@@ -1111,18 +1111,18 @@ func splitAccessors(s string) (base string, accessors string) {
 		}
 	}
 
-	// For tilde expressions, find the first accessor (. or space followed by digit)
+	// For tilde expressions, find the first accessor (. or space followed by digit or tilde)
 	for i := 1; i < len(s); i++ {
 		if s[i] == '.' {
 			return s[:i], s[i:]
 		}
 		if s[i] == ' ' {
-			// Check if followed by a digit
+			// Check if followed by a digit or tilde (potential accessor)
 			j := i + 1
 			for j < len(s) && s[j] == ' ' {
 				j++
 			}
-			if j < len(s) && s[j] >= '0' && s[j] <= '9' {
+			if j < len(s) && (s[j] >= '0' && s[j] <= '9' || s[j] == '~') {
 				return s[:i], s[i:]
 			}
 		}
@@ -1178,8 +1178,8 @@ func (e *Executor) findMatchingParen(s string, startIdx int) int {
 }
 
 // applyAccessorChain applies a chain of accessors to a value
-// Accessors: ".key" for named args, " N" for index access
-func (e *Executor) applyAccessorChain(value interface{}, accessors string, position *SourcePosition) interface{} {
+// Accessors: ".key" for named args, " N" for index access, " ~var" for variable index
+func (e *Executor) applyAccessorChain(value interface{}, accessors string, state *ExecutionState, substitutionCtx *SubstitutionContext, position *SourcePosition) interface{} {
 	if accessors == "" {
 		return value
 	}
@@ -1287,6 +1287,92 @@ func (e *Executor) applyAccessorChain(value interface{}, accessors string, posit
 					return Symbol(UndefinedMarker)
 				}
 				// Return a single struct from the array
+				current = structVal.Get(idx)
+			} else {
+				e.logger.ErrorCat(CatList, "Cannot use index accessor on non-list/non-bytes/non-struct value")
+				return Symbol(UndefinedMarker)
+			}
+
+		} else if accessors[i] == '~' {
+			// Tilde expression accessor - resolve it and use as index
+			// Find just the immediate tilde expression (variable name only, no nested accessors)
+			// The tight bind rule means each tilde resolves independently, and if it produces
+			// a number that can index the current list, we apply it and continue
+			tildeStart := i
+			i++ // skip the ~
+
+			// Find the variable name (until space, dot, or end)
+			for i < len(accessors) {
+				ch := accessors[i]
+				if ch >= 'a' && ch <= 'z' || ch >= 'A' && ch <= 'Z' || ch == '_' || ch >= '0' && ch <= '9' {
+					i++
+					continue
+				}
+				// Dot accessor on this tilde expression - include it
+				if ch == '.' {
+					i++
+					// Consume the key name after dot
+					for i < len(accessors) {
+						ch = accessors[i]
+						if ch >= 'a' && ch <= 'z' || ch >= 'A' && ch <= 'Z' || ch == '_' || ch >= '0' && ch <= '9' {
+							i++
+							continue
+						}
+						break
+					}
+					continue
+				}
+				break
+			}
+
+			tildeExpr := accessors[tildeStart:i]
+
+			// Resolve this immediate tilde expression
+			resolvedAccessor, ok := e.resolveTildeExpression(tildeExpr, state, substitutionCtx, position)
+			if !ok {
+				return Symbol(UndefinedMarker)
+			}
+
+			// Check if resolved value is a valid index
+			var idx int
+			switch v := resolvedAccessor.(type) {
+			case int64:
+				idx = int(v)
+			case float64:
+				idx = int(v)
+			case int:
+				idx = v
+			default:
+				// Resolved value is not a number, can't use as index
+				// This becomes the end of accessor application
+				// Return the current value combined with the non-index accessor result
+				// For now, just log and return undefined
+				e.logger.ErrorCat(CatList, "Tilde accessor did not resolve to a number: %T", resolvedAccessor)
+				return Symbol(UndefinedMarker)
+			}
+
+			// Apply the index
+			if isList {
+				if idx < 0 || idx >= list.Len() {
+					e.logger.DebugCat(CatList, "Index %d out of bounds (list has %d items)", idx, list.Len())
+					return Symbol(UndefinedMarker)
+				}
+				current = list.Get(idx)
+			} else if isBytes {
+				if idx < 0 || idx >= bytes.Len() {
+					e.logger.DebugCat(CatList, "Index %d out of bounds (bytes has %d items)", idx, bytes.Len())
+					return Symbol(UndefinedMarker)
+				}
+				current = bytes.Get(idx)
+			} else if isStruct {
+				if !structVal.IsArray() {
+					e.logger.ErrorCat(CatList, "Cannot use index accessor on single struct")
+					return Symbol(UndefinedMarker)
+				}
+				if idx < 0 || idx >= structVal.Len() {
+					e.logger.DebugCat(CatList, "Index %d out of bounds (struct array has %d items)", idx, structVal.Len())
+					return Symbol(UndefinedMarker)
+				}
 				current = structVal.Get(idx)
 			} else {
 				e.logger.ErrorCat(CatList, "Cannot use index accessor on non-list/non-bytes/non-struct value")
@@ -1699,7 +1785,7 @@ func (e *Executor) processArguments(args []interface{}, state *ExecutionState, s
 
 				// Apply any accessors
 				if accessors != "" {
-					resolved = e.applyAccessorChain(resolved, accessors, position)
+					resolved = e.applyAccessorChain(resolved, accessors, state, substitutionCtx, position)
 					e.logger.DebugCat(CatCommand,"processArguments[%d]: After accessors %q: %v", i, accessors, resolved)
 				}
 
@@ -1730,7 +1816,7 @@ func (e *Executor) processArguments(args []interface{}, state *ExecutionState, s
 						finalValue := value
 						// Apply any accessors
 						if accessors != "" {
-							finalValue = e.applyAccessorChain(value, accessors, position)
+							finalValue = e.applyAccessorChain(value, accessors, state, substitutionCtx, position)
 							e.logger.DebugCat(CatCommand,"processArguments[%d]: After accessors %q: %v", i, accessors, finalValue)
 						}
 						result[i] = finalValue
@@ -1763,7 +1849,7 @@ func (e *Executor) processArguments(args []interface{}, state *ExecutionState, s
 						finalValue := value
 						// Apply any accessors
 						if accessors != "" {
-							finalValue = e.applyAccessorChain(value, accessors, position)
+							finalValue = e.applyAccessorChain(value, accessors, state, substitutionCtx, position)
 							e.logger.DebugCat(CatCommand,"processArguments[%d]: After accessors %q: %v", i, accessors, finalValue)
 						}
 						result[i] = finalValue
@@ -1773,7 +1859,7 @@ func (e *Executor) processArguments(args []interface{}, state *ExecutionState, s
 						finalValue := value
 						// Apply any accessors (index and field)
 						if accessors != "" {
-							finalValue = e.applyAccessorChain(value, accessors, position)
+							finalValue = e.applyAccessorChain(value, accessors, state, substitutionCtx, position)
 							e.logger.DebugCat(CatCommand,"processArguments[%d]: After accessors %q: %v", i, accessors, finalValue)
 						}
 						result[i] = finalValue

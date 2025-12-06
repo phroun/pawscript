@@ -187,7 +187,7 @@ func (e *Executor) resolveTildeExpression(expr string, state *ExecutionState, su
 
 	// Apply any accessors
 	if accessors != "" {
-		value = e.applyAccessorChain(value, accessors, position)
+		value = e.applyAccessorChain(value, accessors, state, substitutionCtx, position)
 	}
 
 	return value, true
@@ -301,7 +301,7 @@ func (e *Executor) resolveTildeExpressionSilent(expr string, state *ExecutionSta
 
 	// Apply any accessors
 	if accessors != "" {
-		value = e.applyAccessorChain(value, accessors, nil)
+		value = e.applyAccessorChain(value, accessors, state, substitutionCtx, nil)
 	}
 
 	return value, true
