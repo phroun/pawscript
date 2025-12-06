@@ -1022,7 +1022,7 @@ func (w *Widget) CopySelection() {
 // Uses bracketed paste mode if enabled by the application or if the
 // pasted text contains special characters (newlines, control chars, etc.)
 func (w *Widget) PasteClipboard() {
-	if w.clipboard != nil && onInput != nil {
+	if w.clipboard != nil && w.onInput != nil {
 		text, err := w.clipboard.WaitForText()
 		if err == nil && len(text) > 0 {
 			// Determine if we should use bracketed paste
@@ -1042,12 +1042,12 @@ func (w *Widget) PasteClipboard() {
 
 			if useBracketedPaste {
 				// Send bracketed paste start sequence
-				onInput([]byte("\x1b[200~"))
-				onInput([]byte(text))
+				w.onInput([]byte("\x1b[200~"))
+				w.onInput([]byte(text))
 				// Send bracketed paste end sequence
-				onInput([]byte("\x1b[201~"))
+				w.onInput([]byte("\x1b[201~"))
 			} else {
-				onInput([]byte(text))
+				w.onInput([]byte(text))
 			}
 		}
 	}
