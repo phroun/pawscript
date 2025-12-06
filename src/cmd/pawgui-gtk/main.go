@@ -236,6 +236,8 @@ func getTerminalForeground() purfectermgtk.Color {
 }
 
 // getColorPalette returns the configured 16-color ANSI palette
+// Config uses VGA-style naming (01_dark_blue, etc.) but ANSI escape codes
+// expect ANSI order (index 1 = red). We map VGA config indices to ANSI palette indices.
 func getColorPalette() []purfectermgtk.Color {
 	palette := make([]purfectermgtk.Color, 16)
 	copy(palette, purfectermgtk.ANSIColors)
@@ -248,10 +250,12 @@ func getColorPalette() []purfectermgtk.Color {
 	if paletteConfig, ok := appConfig["palette_colors"]; ok {
 		if pc, ok := paletteConfig.(pawscript.PSLConfig); ok {
 			names := purfectermgtk.PaletteColorNames()
-			for i, name := range names {
+			for vgaIdx, name := range names {
 				if hex := pc.GetString(name, ""); hex != "" {
 					if c, ok := purfectermgtk.ParseHexColor(hex); ok {
-						palette[i] = c
+						// Map VGA config index to ANSI palette index
+						ansiIdx := purfectermgtk.VGAToANSI[vgaIdx]
+						palette[ansiIdx] = c
 					}
 				}
 			}

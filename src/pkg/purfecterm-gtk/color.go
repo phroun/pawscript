@@ -43,26 +43,36 @@ const (
 	BlinkModeBright                  // Interpret as bright background (VGA style)
 )
 
-// Standard ANSI 16-color palette (VGA-style naming)
+// Standard ANSI 16-color palette (in ANSI order for escape code compatibility)
+// ANSI order: black, red, green, yellow, blue, magenta, cyan, white
+// VGA order:  black, blue, green, cyan, red, magenta, brown, silver
 var ANSIColors = []Color{
-	{R: 0, G: 0, B: 0},       // 0: Black
-	{R: 0, G: 0, B: 170},     // 1: Dark Blue
-	{R: 0, G: 170, B: 0},     // 2: Dark Green
-	{R: 0, G: 170, B: 170},   // 3: Dark Cyan
-	{R: 170, G: 0, B: 0},     // 4: Dark Red
-	{R: 170, G: 0, B: 170},   // 5: Purple
-	{R: 170, G: 85, B: 0},    // 6: Brown
-	{R: 170, G: 170, B: 170}, // 7: Silver (Light Gray)
+	{R: 0, G: 0, B: 0},       // ANSI 0: Black
+	{R: 170, G: 0, B: 0},     // ANSI 1: Red
+	{R: 0, G: 170, B: 0},     // ANSI 2: Green
+	{R: 170, G: 85, B: 0},    // ANSI 3: Yellow/Brown
+	{R: 0, G: 0, B: 170},     // ANSI 4: Blue
+	{R: 170, G: 0, B: 170},   // ANSI 5: Magenta/Purple
+	{R: 0, G: 170, B: 170},   // ANSI 6: Cyan
+	{R: 170, G: 170, B: 170}, // ANSI 7: White/Silver
 	// Bright variants (8-15)
-	{R: 85, G: 85, B: 85},    // 8: Dark Gray
-	{R: 85, G: 85, B: 255},   // 9: Bright Blue
-	{R: 85, G: 255, B: 85},   // 10: Bright Green
-	{R: 85, G: 255, B: 255},  // 11: Bright Cyan
-	{R: 255, G: 85, B: 85},   // 12: Bright Red
-	{R: 255, G: 85, B: 255},  // 13: Pink (Bright Magenta)
-	{R: 255, G: 255, B: 85},  // 14: Yellow
-	{R: 255, G: 255, B: 255}, // 15: White
+	{R: 85, G: 85, B: 85},    // ANSI 8: Bright Black (Dark Gray)
+	{R: 255, G: 85, B: 85},   // ANSI 9: Bright Red
+	{R: 85, G: 255, B: 85},   // ANSI 10: Bright Green
+	{R: 255, G: 255, B: 85},  // ANSI 11: Bright Yellow
+	{R: 85, G: 85, B: 255},   // ANSI 12: Bright Blue
+	{R: 255, G: 85, B: 255},  // ANSI 13: Bright Magenta/Pink
+	{R: 85, G: 255, B: 255},  // ANSI 14: Bright Cyan
+	{R: 255, G: 255, B: 255}, // ANSI 15: White
 }
+
+// VGAToANSI maps VGA/CGA color index to ANSI color index
+// VGA: 0=black,1=blue,2=green,3=cyan,4=red,5=magenta,6=brown,7=silver,...
+// ANSI: 0=black,1=red,2=green,3=yellow,4=blue,5=magenta,6=cyan,7=white,...
+var VGAToANSI = []int{0, 4, 2, 6, 1, 5, 3, 7, 8, 12, 10, 14, 9, 13, 11, 15}
+
+// ANSIToVGA maps ANSI color index to VGA/CGA color index
+var ANSIToVGA = []int{0, 4, 2, 6, 1, 5, 3, 7, 8, 12, 10, 14, 9, 13, 11, 15}
 
 // Get256Color returns the color for a 256-color mode index
 func Get256Color(idx int) Color {
@@ -176,11 +186,13 @@ func ParseBlinkMode(s string) BlinkMode {
 	}
 }
 
-// DefaultPaletteHex returns the default 16-color ANSI palette as hex strings
+// DefaultPaletteHex returns the default 16-color palette as hex strings in VGA order
+// (for config file compatibility with VGA-style color names)
 func DefaultPaletteHex() []string {
 	result := make([]string, 16)
-	for i, c := range ANSIColors {
-		result[i] = c.ToHex()
+	for vgaIdx := 0; vgaIdx < 16; vgaIdx++ {
+		ansiIdx := VGAToANSI[vgaIdx]
+		result[vgaIdx] = ANSIColors[ansiIdx].ToHex()
 	}
 	return result
 }
