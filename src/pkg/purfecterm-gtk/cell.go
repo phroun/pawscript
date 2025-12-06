@@ -9,6 +9,7 @@ type Cell struct {
 	Italic     bool
 	Underline  bool
 	Reverse    bool
+	Blink      bool // When true, character animates (bobbing wave instead of traditional blink)
 }
 
 // EmptyCell returns an empty cell with default attributes

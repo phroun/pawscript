@@ -436,6 +436,8 @@ func (p *Parser) executeSGR() {
 			p.buffer.SetItalic(true)
 		case 4: // Underline
 			p.buffer.SetUnderline(true)
+		case 5, 6: // Blink (slow=5, rapid=6) - rendered as bobbing wave animation
+			p.buffer.SetBlink(true)
 		case 7: // Reverse video
 			p.buffer.SetReverse(true)
 		case 21: // Bold off (double underline in some terminals)
@@ -446,6 +448,8 @@ func (p *Parser) executeSGR() {
 			p.buffer.SetItalic(false)
 		case 24: // Underline off
 			p.buffer.SetUnderline(false)
+		case 25: // Blink off
+			p.buffer.SetBlink(false)
 		case 27: // Reverse off
 			p.buffer.SetReverse(false)
 
@@ -513,7 +517,7 @@ func (p *Parser) executePrivateModeSet(set bool) {
 		case 1049: // Alternate screen buffer
 			// Not yet implemented
 		case 2004: // Bracketed paste mode
-			// Not yet implemented
+			p.buffer.SetBracketedPasteMode(set)
 		case 1: // DECCKM - Application cursor keys
 			// Not yet implemented
 		case 7: // DECAWM - Auto-wrap mode

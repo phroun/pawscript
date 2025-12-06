@@ -14,6 +14,7 @@ import "C"
 
 import (
 	"fmt"
+	"math"
 	"runtime"
 	"sync"
 	"unsafe"
@@ -63,6 +64,9 @@ type Widget struct {
 	cursorBlinkOn  bool
 	blinkTimerID   glib.SourceHandle
 	blinkTickCount int // Counter for variable blink rates
+
+	// Text blink animation (bobbing wave)
+	blinkPhase float64 // Animation phase in radians (0 to 2*PI)
 
 	// Focus state
 	hasFocus bool
@@ -149,30 +153,36 @@ func NewWidget(cols, rows, scrollbackSize int) (*Widget, error) {
 	w.updateFontMetrics()
 	w.drawingArea.SetSizeRequest(cols*w.charWidth+terminalLeftPadding, rows*w.charHeight)
 
-	// Start cursor blink timer (265ms base interval)
-	// cursorBlink: 0=no blink, 1=slow blink (~530ms), 2=fast blink (~265ms)
-	w.blinkTimerID = glib.TimeoutAdd(265, func() bool {
+	// Start animation timer (50ms interval for smooth bobbing wave animation)
+	// Also handles cursor blink timing
+	w.blinkTimerID = glib.TimeoutAdd(50, func() bool {
+		// Update text blink animation phase (complete wave cycle in ~1.5 seconds)
+		w.blinkPhase += 0.21 // ~1.5 second cycle
+		if w.blinkPhase > 6.283185 { // 2*PI
+			w.blinkPhase -= 6.283185
+		}
+
+		// Handle cursor blink timing (roughly every 250ms = 5 ticks)
+		w.blinkTickCount++
 		_, cursorBlink := w.buffer.GetCursorStyle()
 		if cursorBlink > 0 && w.hasFocus {
-			w.blinkTickCount++
-			// Fast blink (2) toggles every tick, slow blink (1) every 2 ticks
-			ticksNeeded := 2
+			// Fast blink (2) toggles every 5 ticks (~250ms), slow blink (1) every 10 ticks (~500ms)
+			ticksNeeded := 10
 			if cursorBlink >= 2 {
-				ticksNeeded = 1
+				ticksNeeded = 5
 			}
 			if w.blinkTickCount >= ticksNeeded {
 				w.blinkTickCount = 0
 				w.cursorBlinkOn = !w.cursorBlinkOn
-				w.drawingArea.QueueDraw()
 			}
 		} else {
 			// Keep cursor visible when not blinking or unfocused
-			w.blinkTickCount = 0
 			if !w.cursorBlinkOn {
 				w.cursorBlinkOn = true
-				w.drawingArea.QueueDraw()
 			}
 		}
+
+		w.drawingArea.QueueDraw()
 		return true // Keep timer running
 	})
 
@@ -256,6 +266,7 @@ func (w *Widget) onDraw(da *gtk.DrawingArea, cr *cairo.Context) bool {
 	charWidth := w.charWidth
 	charHeight := w.charHeight
 	charAscent := w.charAscent
+	blinkPhase := w.blinkPhase
 	w.mu.Unlock()
 
 	cols, rows := w.buffer.GetSize()
@@ -334,7 +345,18 @@ func (w *Widget) onDraw(da *gtk.DrawingArea, cr *cairo.Context) bool {
 					cr.SelectFontFace(fontFamily, cairo.FONT_SLANT_NORMAL, cairo.FONT_WEIGHT_BOLD)
 				}
 
-				cr.MoveTo(float64(x*charWidth+terminalLeftPadding), float64(y*charHeight+charAscent))
+				// Calculate vertical offset for bobbing wave animation on blink text
+				// Each character is offset by a phase shift based on its x position,
+				// creating a "wave" effect where characters bob up and down in sequence
+				yOffset := 0.0
+				if cell.Blink {
+					// Wave parameters: each character is phase-shifted by 0.5 radians from its neighbor
+					// Amplitude is about 3 pixels up and down
+					wavePhase := blinkPhase + float64(x)*0.5
+					yOffset = math.Sin(wavePhase) * 3.0
+				}
+
+				cr.MoveTo(float64(x*charWidth+terminalLeftPadding), float64(y*charHeight+charAscent)+yOffset)
 				cr.ShowText(string(cell.Char))
 
 				// Reset font weight
@@ -551,7 +573,8 @@ func (w *Widget) onKeyPress(da *gtk.DrawingArea, ev *gdk.Event) bool {
 		return false
 	}
 
-	// Handle clipboard operations (Ctrl+C with selection, Ctrl+V)
+	// Handle clipboard copy (Ctrl+C with selection only)
+	// Note: Ctrl+V paste is NOT handled here - use PasteClipboard() via context menu
 	// Note: Ctrl+A is NOT handled here - it passes through to the terminal
 	// for programs that use it (e.g., readline beginning-of-line)
 	if hasCtrl && !hasAlt && !hasMeta {
@@ -565,14 +588,6 @@ func (w *Widget) onKeyPress(da *gtk.DrawingArea, ev *gdk.Event) bool {
 				return true
 			}
 			// Ctrl+C without selection falls through to send interrupt
-		case gdk.KEY_v, gdk.KEY_V:
-			if w.clipboard != nil {
-				text, err := w.clipboard.WaitForText()
-				if err == nil && onInput != nil {
-					onInput([]byte(text))
-				}
-			}
-			return true
 		}
 	}
 
@@ -1000,6 +1015,41 @@ func (w *Widget) CopySelection() {
 	if w.clipboard != nil && w.buffer.HasSelection() {
 		text := w.buffer.GetSelectedText()
 		w.clipboard.SetText(text)
+	}
+}
+
+// PasteClipboard pastes text from clipboard into terminal
+// Uses bracketed paste mode if enabled by the application or if the
+// pasted text contains special characters (newlines, control chars, etc.)
+func (w *Widget) PasteClipboard() {
+	if w.clipboard != nil && onInput != nil {
+		text, err := w.clipboard.WaitForText()
+		if err == nil && len(text) > 0 {
+			// Determine if we should use bracketed paste
+			useBracketedPaste := w.buffer.IsBracketedPasteModeEnabled()
+
+			// Also use bracketed paste if text contains special characters
+			// even if the application hasn't requested it
+			if !useBracketedPaste {
+				for _, c := range text {
+					// Check for newlines, control chars, or escape
+					if c == '\n' || c == '\r' || c == '\x1b' || c < 32 {
+						useBracketedPaste = true
+						break
+					}
+				}
+			}
+
+			if useBracketedPaste {
+				// Send bracketed paste start sequence
+				onInput([]byte("\x1b[200~"))
+				onInput([]byte(text))
+				// Send bracketed paste end sequence
+				onInput([]byte("\x1b[201~"))
+			} else {
+				onInput([]byte(text))
+			}
+		}
 	}
 }
 

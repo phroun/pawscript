@@ -716,6 +716,15 @@ type StoredChannel struct {
 	// Allows channels to report their own ANSI/color/size support
 	// If nil, system terminal capabilities are used as fallback
 	Terminal        *TerminalCapabilities
+	// PasteBuffer holds complete lines from bracketed paste that haven't been read yet
+	// When a multi-line paste arrives, complete lines are stored here for subsequent reads
+	PasteBuffer     []string
+	// PartialPaste holds the last segment of a paste that didn't end with a newline
+	// This becomes the starting content for the next read, allowing user to continue typing
+	PartialPaste    string
+	// PasteNotified is set when readkey returns "Paste" to avoid returning it multiple times
+	// Cleared when read is called
+	PasteNotified   bool
 }
 
 // GetTerminalCapabilities returns terminal capabilities for this channel
