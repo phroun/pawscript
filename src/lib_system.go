@@ -904,8 +904,34 @@ func (ps *PawScript) RegisterSystemLib(scriptArgs []string) {
 		if rawByteMode && ch.NativeRecv != nil {
 			// Raw byte mode: accumulate bytes until newline
 			// Also handle echo to output channel if available
+			// Supports bracketed paste mode (ESC[200~ ... ESC[201~)
 			var lineBuffer []byte
 			outCh, _, _ := getOutputChannel(ctx, "#out")
+
+			// Bracketed paste tracking
+			pasteMode := false
+			var escBuffer []byte // buffer for detecting escape sequences
+
+			// Helper to check if buffer matches a bracketed paste sequence
+			checkBracketedPaste := func() (start bool, end bool, complete bool) {
+				if len(escBuffer) < 6 {
+					return false, false, false
+				}
+				seq := string(escBuffer)
+				if seq == "\x1b[200~" {
+					return true, false, true
+				}
+				if seq == "\x1b[201~" {
+					return false, true, true
+				}
+				return false, false, false
+			}
+
+			// Helper to check if buffer could still become a valid sequence
+			couldBeSequence := func() bool {
+				seq := string(escBuffer)
+				return strings.HasPrefix("\x1b[200~", seq) || strings.HasPrefix("\x1b[201~", seq)
+			}
 
 			for {
 				_, value, err := ChannelRecv(ch)
@@ -927,6 +953,53 @@ func (ps *PawScript) RegisterSystemLib(scriptArgs []string) {
 				}
 
 				for _, b := range bytes {
+					// If we're building an escape sequence, add to buffer
+					if len(escBuffer) > 0 || b == 0x1b {
+						escBuffer = append(escBuffer, b)
+
+						// Check if we've completed a bracketed paste sequence
+						isStart, isEnd, complete := checkBracketedPaste()
+						if complete {
+							if isStart {
+								pasteMode = true
+							} else if isEnd {
+								pasteMode = false
+							}
+							escBuffer = nil
+							continue
+						}
+
+						// Check if this could still become a valid sequence
+						if couldBeSequence() {
+							continue // keep buffering
+						}
+
+						// Not a valid sequence prefix - flush buffer
+						if pasteMode {
+							// In paste mode, add literally to line buffer
+							lineBuffer = append(lineBuffer, escBuffer...)
+						} else {
+							// In normal mode, process each byte
+							for _, eb := range escBuffer {
+								if eb >= 32 {
+									lineBuffer = append(lineBuffer, eb)
+									if outCh != nil {
+										_ = ChannelSend(outCh, string([]byte{eb}))
+									}
+								}
+							}
+						}
+						escBuffer = nil
+						continue
+					}
+
+					// In paste mode, accept all characters literally (except ESC which starts sequence detection)
+					if pasteMode {
+						lineBuffer = append(lineBuffer, b)
+						continue
+					}
+
+					// Normal character processing
 					if b == '\n' || b == '\r' {
 						// End of line - echo newline and return
 						if outCh != nil {
