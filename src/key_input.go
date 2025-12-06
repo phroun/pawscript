@@ -49,6 +49,10 @@ type KeyInputManager struct {
 	utf8Buffer    []byte
 	utf8Remaining int // bytes remaining to complete current UTF-8 char
 
+	// Bracketed paste state
+	inPaste     bool
+	pasteBuffer []byte
+
 	// Echo output (where to echo typed characters during readkey)
 	echoWriter io.Writer
 	// Echo output specifically for line read mode (used by read command)
@@ -383,13 +387,51 @@ func (m *KeyInputManager) processLoop() {
 	}
 }
 
+// Bracketed paste sequences
+const (
+	bracketedPasteStart = "\x1b[200~"
+	bracketedPasteEnd   = "\x1b[201~"
+)
+
 // processByte handles a single byte of input
 func (m *KeyInputManager) processByte(b byte, escTimeout *time.Timer) {
+	// Handle bracketed paste mode
+	if m.inPaste {
+		m.pasteBuffer = append(m.pasteBuffer, b)
+
+		// Check if paste buffer ends with the end sequence
+		if len(m.pasteBuffer) >= len(bracketedPasteEnd) {
+			tail := string(m.pasteBuffer[len(m.pasteBuffer)-len(bracketedPasteEnd):])
+			if tail == bracketedPasteEnd {
+				// End of paste - extract content (without the end sequence)
+				content := m.pasteBuffer[:len(m.pasteBuffer)-len(bracketedPasteEnd)]
+				m.inPaste = false
+				m.pasteBuffer = nil
+				m.debug(fmt.Sprintf("Paste end, %d bytes", len(content)))
+				m.emitPaste(content)
+				return
+			}
+		}
+		return
+	}
+
 	if m.inEscape {
 		m.escBuffer = append(m.escBuffer, b)
 
 		// Check if we have a complete escape sequence
 		seq := string(m.escBuffer)
+
+		// Check for bracketed paste start
+		if seq == bracketedPasteStart {
+			m.debug("Bracketed paste start detected")
+			m.inEscape = false
+			m.escBuffer = nil
+			m.inPaste = true
+			m.pasteBuffer = nil
+			escTimeout.Stop()
+			return
+		}
+
 		if key, ok := escBindings[seq]; ok {
 			m.emitKey(key)
 			m.escBuffer = nil
@@ -563,6 +605,105 @@ func (m *KeyInputManager) emitKey(key string) {
 				// Still can't send, just drop this key
 			}
 		}
+	}
+}
+
+// emitPaste handles bracketed paste content
+func (m *KeyInputManager) emitPaste(content []byte) {
+	m.mu.Lock()
+	inLineMode := m.inLineReadMode
+	m.mu.Unlock()
+
+	if inLineMode {
+		// In line read mode: add pasted content directly to line buffer
+		m.handlePasteLineAssembly(content)
+	} else {
+		// Normal mode: emit each character as individual key events
+		// This preserves behavior for programs reading key-by-key
+		for len(content) > 0 {
+			r, size := utf8.DecodeRune(content)
+			if r == utf8.RuneError && size == 1 {
+				// Invalid UTF-8, skip byte
+				content = content[1:]
+				continue
+			}
+			// Handle special characters
+			if r == '\r' || r == '\n' {
+				m.emitKey("Enter")
+			} else if r == '\t' {
+				m.emitKey("Tab")
+			} else if r == 0x7f {
+				m.emitKey("Backspace")
+			} else if r < 32 {
+				// Control character
+				if key, ok := controlKeys[byte(r)]; ok {
+					m.emitKey(key)
+				}
+			} else {
+				m.emitKey(string(r))
+			}
+			content = content[size:]
+		}
+	}
+}
+
+// handlePasteLineAssembly adds pasted content to the line buffer
+func (m *KeyInputManager) handlePasteLineAssembly(content []byte) {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+
+	if !m.inLineReadMode {
+		return
+	}
+
+	// Process pasted content byte by byte, handling special characters
+	for len(content) > 0 {
+		r, size := utf8.DecodeRune(content)
+		if r == utf8.RuneError && size == 1 {
+			content = content[1:]
+			continue
+		}
+
+		if r == '\r' || r == '\n' {
+			// Newline in paste - submit the current line and continue
+			// For multi-line paste, only take the first line
+			lineBytes := make([]byte, len(m.currentLine))
+			copy(lineBytes, m.currentLine)
+			m.currentLine = nil
+			m.charByteLengths = nil
+			echoWriter := m.echoWriter
+			m.mu.Unlock()
+
+			// Send line
+			select {
+			case m.linesGo <- lineBytes:
+			default:
+				select {
+				case <-m.linesGo:
+				default:
+				}
+				m.linesGo <- lineBytes
+			}
+
+			// Echo newline
+			if echoWriter != nil {
+				echoWriter.Write([]byte("\r\n"))
+			}
+
+			m.mu.Lock()
+			// Skip remaining content after newline (single-line read)
+			return
+		} else if r >= 32 || r == '\t' {
+			// Printable character or tab - add to line
+			charBytes := content[:size]
+			m.currentLine = append(m.currentLine, charBytes...)
+			m.charByteLengths = append(m.charByteLengths, size)
+			// Echo
+			m.echoLocked(string(r))
+		}
+		// Skip control characters (except handled above)
+
+		content = content[size:]
 	}
 }
 
