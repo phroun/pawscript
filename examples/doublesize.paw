@@ -3,64 +3,64 @@
 
 # Define escape sequences
 ESC: {chr 27}
-DOUBLE_TOP:    {cat ~ESC, "#3"}    # DECDHL - Double-height line, top half
-DOUBLE_BOTTOM: {cat ~ESC, "#4"}    # DECDHL - Double-height line, bottom half
-SINGLE_WIDTH:  {cat ~ESC, "#5"}    # DECSWL - Single-width line (normal)
-DOUBLE_WIDTH:  {cat ~ESC, "#6"}    # DECDWL - Double-width line
+DOUBLE_TOP:    {concat ~ESC, "#3"}    # DECDHL - Double-height line, top half
+DOUBLE_BOTTOM: {concat ~ESC, "#4"}    # DECDHL - Double-height line, bottom half
+SINGLE_WIDTH:  {concat ~ESC, "#5"}    # DECSWL - Single-width line (normal)
+DOUBLE_WIDTH:  {concat ~ESC, "#6"}    # DECDWL - Double-width line
 
 # Clear screen and move to top
-print {cat ~ESC, "[2J", ~ESC, "[H"}
+print {concat ~ESC, "[2J", ~ESC, "[H"}
 
 # Show title in double-height (requires two lines with same content)
-print {cat ~DOUBLE_TOP, "    Double-Size Text Demo"}
-print {cat ~DOUBLE_BOTTOM, "    Double-Size Text Demo"}
+print {concat ~DOUBLE_TOP, "    Double-Size Text Demo"}
+print {concat ~DOUBLE_BOTTOM, "    Double-Size Text Demo"}
 
 # Back to normal and add spacing
-print {cat ~SINGLE_WIDTH, ""}
+print {concat ~SINGLE_WIDTH, ""}
 print "This demo shows VT100 double-width and double-height text."
 print ""
 
 # Double-height section
 print "--- Double-Height Text (ESC#3 + ESC#4) ---"
-print {cat ~DOUBLE_TOP, "HELLO WORLD!"}
-print {cat ~DOUBLE_BOTTOM, "HELLO WORLD!"}
-print {cat ~SINGLE_WIDTH, ""}
+print {concat ~DOUBLE_TOP, "HELLO WORLD!"}
+print {concat ~DOUBLE_BOTTOM, "HELLO WORLD!"}
+print {concat ~SINGLE_WIDTH, ""}
 
 # Double-width section
 print "--- Double-Width Text (ESC#6) ---"
-print {cat ~DOUBLE_WIDTH, "Wide Characters"}
-print {cat ~SINGLE_WIDTH, "Normal width for comparison"}
+print {concat ~DOUBLE_WIDTH, "Wide Characters"}
+print {concat ~SINGLE_WIDTH, "Normal width for comparison"}
 print ""
 
 # Show all 3 styles together
 print "--- Comparison of Styles ---"
-print {cat ~SINGLE_WIDTH, "Normal: The quick brown fox"}
-print {cat ~DOUBLE_WIDTH, "Double-Wide: Fox"}
+print {concat ~SINGLE_WIDTH, "Normal: The quick brown fox"}
+print {concat ~DOUBLE_WIDTH, "Double-Wide: Fox"}
 print ""
-print {cat ~DOUBLE_TOP, "Double-Height: Big Text!"}
-print {cat ~DOUBLE_BOTTOM, "Double-Height: Big Text!"}
-print {cat ~SINGLE_WIDTH, ""}
+print {concat ~DOUBLE_TOP, "Double-Height: Big Text!"}
+print {concat ~DOUBLE_BOTTOM, "Double-Height: Big Text!"}
+print {concat ~SINGLE_WIDTH, ""}
 
 # Fun banner effect
 BLOCK: {chr 9608}
 print "--- Banner Style ---"
-print {cat ~DOUBLE_TOP, "  ", ~BLOCK, ~BLOCK, ~BLOCK, "  PAWSCRIPT  ", ~BLOCK, ~BLOCK, ~BLOCK}
-print {cat ~DOUBLE_BOTTOM, "  ", ~BLOCK, ~BLOCK, ~BLOCK, "  PAWSCRIPT  ", ~BLOCK, ~BLOCK, ~BLOCK}
-print {cat ~SINGLE_WIDTH, ""}
+print {concat ~DOUBLE_TOP, "  ", ~BLOCK, ~BLOCK, ~BLOCK, "  PAWSCRIPT  ", ~BLOCK, ~BLOCK, ~BLOCK}
+print {concat ~DOUBLE_BOTTOM, "  ", ~BLOCK, ~BLOCK, ~BLOCK, "  PAWSCRIPT  ", ~BLOCK, ~BLOCK, ~BLOCK}
+print {concat ~SINGLE_WIDTH, ""}
 
 # Colorful double-height example
-RED:     {cat ~ESC, "[31m"}
-GREEN:   {cat ~ESC, "[32m"}
-YELLOW:  {cat ~ESC, "[33m"}
-BLUE:    {cat ~ESC, "[34m"}
-MAGENTA: {cat ~ESC, "[35m"}
-CYAN:    {cat ~ESC, "[36m"}
-RESET:   {cat ~ESC, "[0m"}
+RED:     {concat ~ESC, "[31m"}
+GREEN:   {concat ~ESC, "[32m"}
+YELLOW:  {concat ~ESC, "[33m"}
+BLUE:    {concat ~ESC, "[34m"}
+MAGENTA: {concat ~ESC, "[35m"}
+CYAN:    {concat ~ESC, "[36m"}
+RESET:   {concat ~ESC, "[0m"}
 
 print "--- With Colors ---"
-print {cat ~DOUBLE_TOP, ~RED, "R", ~GREEN, "A", ~YELLOW, "I", ~BLUE, "N", ~MAGENTA, "B", ~CYAN, "O", ~RED, "W", ~RESET, " Text!"}
-print {cat ~DOUBLE_BOTTOM, ~RED, "R", ~GREEN, "A", ~YELLOW, "I", ~BLUE, "N", ~MAGENTA, "B", ~CYAN, "O", ~RED, "W", ~RESET, " Text!"}
-print {cat ~SINGLE_WIDTH, ~RESET}
+print {concat ~DOUBLE_TOP, ~RED, "R", ~GREEN, "A", ~YELLOW, "I", ~BLUE, "N", ~MAGENTA, "B", ~CYAN, "O", ~RED, "W", ~RESET, " Text!"}
+print {concat ~DOUBLE_BOTTOM, ~RED, "R", ~GREEN, "A", ~YELLOW, "I", ~BLUE, "N", ~MAGENTA, "B", ~CYAN, "O", ~RED, "W", ~RESET, " Text!"}
+print {concat ~SINGLE_WIDTH, ~RESET}
 
 print ""
 print "Press any key to exit..."
