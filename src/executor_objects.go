@@ -10,20 +10,20 @@ func (e *Executor) maybeStoreValue(value interface{}, state *ExecutionState) int
 	switch v := value.(type) {
 	case string:
 		if len(v) > StringStorageThreshold {
-			id := e.storeObject(StoredString(v), "string")
-			return Symbol(fmt.Sprintf("\x00STR:%d\x00", id))
+			ref := e.RegisterObject(StoredString(v), ObjString)
+			return Symbol(ref.ToMarker())
 		}
 		return v
 	case QuotedString:
 		if len(v) > StringStorageThreshold {
-			id := e.storeObject(StoredString(v), "string")
-			return Symbol(fmt.Sprintf("\x00STR:%d\x00", id))
+			ref := e.RegisterObject(StoredString(v), ObjString)
+			return Symbol(ref.ToMarker())
 		}
 		return v
 	case ParenGroup:
 		if len(v) > BlockStorageThreshold {
-			id := e.storeObject(StoredBlock(v), "block")
-			return Symbol(fmt.Sprintf("\x00BLOCK:%d\x00", id))
+			ref := e.RegisterObject(StoredBlock(v), ObjBlock)
+			return Symbol(ref.ToMarker())
 		}
 		return v
 	case StoredList:
@@ -37,24 +37,24 @@ func (e *Executor) maybeStoreValue(value interface{}, state *ExecutionState) int
 		}
 		// List not found in store - this shouldn't happen normally
 		// Store it as a new object
-		id := e.storeObject(v, "list")
-		return Symbol(fmt.Sprintf("\x00LIST:%d\x00", id))
+		ref := e.RegisterObject(v, ObjList)
+		return Symbol(ref.ToMarker())
 	case StoredBytes:
 		// StoredBytes objects - convert to marker
 		if id := e.findStoredBytesID(v); id >= 0 {
 			return Symbol(fmt.Sprintf("\x00BYTES:%d\x00", id))
 		}
 		// Not found, store as new object
-		id := e.storeObject(v, "bytes")
-		return Symbol(fmt.Sprintf("\x00BYTES:%d\x00", id))
+		ref := e.RegisterObject(v, ObjBytes)
+		return Symbol(ref.ToMarker())
 	case StoredStruct:
 		// StoredStruct objects - convert to marker
 		if id := e.findStoredStructID(v); id >= 0 {
 			return Symbol(fmt.Sprintf("\x00STRUCT:%d\x00", id))
 		}
 		// Not found, store as new object
-		id := e.storeObject(v, "struct")
-		return Symbol(fmt.Sprintf("\x00STRUCT:%d\x00", id))
+		ref := e.RegisterObject(v, ObjStruct)
+		return Symbol(ref.ToMarker())
 	// Note: StructDef is now a StoredList, no special handling needed
 	default:
 		return value

@@ -786,16 +786,14 @@ func performDivision(ctx *Context, args []interface{}, isInteger bool, remainder
 
 	if wantRemainder {
 		list := NewStoredListWithoutRefs([]interface{}{quotient, remainder})
-		id := ctx.executor.storeObject(list, "list")
-		marker := fmt.Sprintf("\x00LIST:%d\x00", id)
-		ctx.state.SetResultWithoutClaim(Symbol(marker))
+		ref := ctx.executor.RegisterObject(list, ObjList)
+		ctx.state.SetResultWithoutClaim(Symbol(ref.ToMarker()))
 		return BoolStatus(true)
 	}
 	if wantModulo {
 		list := NewStoredListWithoutRefs([]interface{}{quotient, modulo})
-		id := ctx.executor.storeObject(list, "list")
-		marker := fmt.Sprintf("\x00LIST:%d\x00", id)
-		ctx.state.SetResultWithoutClaim(Symbol(marker))
+		ref := ctx.executor.RegisterObject(list, ObjList)
+		ctx.state.SetResultWithoutClaim(Symbol(ref.ToMarker()))
 		return BoolStatus(true)
 	}
 

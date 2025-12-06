@@ -233,8 +233,8 @@ func (e *Executor) executeSingleCommand(
 
 					// Create args list for $@ and store it
 					argsList := NewStoredListWithoutRefs(args)
-					argsListID := e.storeObject(argsList, "list")
-					argsMarker := fmt.Sprintf("\x00LIST:%d\x00", argsListID)
+					argsListRef := e.RegisterObject(argsList, ObjList)
+					argsMarker := argsListRef.ToMarker()
 
 					// Create a minimal MacroContext to enable $1, $2 substitution
 					blockMacroCtx := &MacroContext{
@@ -455,8 +455,8 @@ func (e *Executor) executeSingleCommand(
 										_, args, _ := ParseCommand("dummy " + argsStr)
 										args = e.processArguments(args, capturedState, capturedSubstitutionCtx, capturedPosition)
 										argsList := NewStoredListWithoutRefs(args)
-										argsListID := e.storeObject(argsList, "list")
-										argsMarker := fmt.Sprintf("\x00LIST:%d\x00", argsListID)
+										argsListRef := e.RegisterObject(argsList, ObjList)
+										argsMarker := argsListRef.ToMarker()
 										blockMacroCtx := &MacroContext{
 											MacroName:      "(block)",
 											InvocationFile: capturedPosition.Filename,
@@ -534,8 +534,8 @@ func (e *Executor) executeSingleCommand(
 								_, args, _ := ParseCommand("dummy " + argsStr)
 								args = e.processArguments(args, capturedState, capturedSubstitutionCtx, capturedPosition)
 								argsList := NewStoredListWithoutRefs(args)
-								argsListID := e.storeObject(argsList, "list")
-								argsMarker := fmt.Sprintf("\x00LIST:%d\x00", argsListID)
+								argsListRef := e.RegisterObject(argsList, ObjList)
+								argsMarker := argsListRef.ToMarker()
 								blockMacroCtx := &MacroContext{
 									MacroName:      "(block)",
 									InvocationFile: capturedPosition.Filename,
@@ -720,8 +720,8 @@ func (e *Executor) executeSingleCommand(
 
 							// Create args list for $@ and store it
 							argsList := NewStoredListWithoutRefs(args)
-							argsListID := e.storeObject(argsList, "list")
-							argsMarker := fmt.Sprintf("\x00LIST:%d\x00", argsListID)
+							argsListRef := e.RegisterObject(argsList, ObjList)
+							argsMarker := argsListRef.ToMarker()
 
 							// Create a minimal MacroContext to enable $1, $2 substitution
 							blockMacroCtx := &MacroContext{
@@ -824,8 +824,8 @@ func (e *Executor) executeSingleCommand(
 
 					// Create args list for $@ and store it
 					argsList := NewStoredListWithoutRefs(args)
-					argsListID := e.storeObject(argsList, "list")
-					argsMarker := fmt.Sprintf("\x00LIST:%d\x00", argsListID)
+					argsListRef := e.RegisterObject(argsList, ObjList)
+					argsMarker := argsListRef.ToMarker()
 
 					// Create a minimal MacroContext to enable $1, $2 substitution
 					blockMacroCtx := &MacroContext{
@@ -1921,11 +1921,10 @@ func (e *Executor) executeMacro(
 
 	// Create a LIST from the arguments (both positional and named) and store it as $@
 	argsList := NewStoredListWithRefs(args, namedArgs, e)
-	argsListID := e.storeObject(argsList, "list")
-	argsMarker := "\x00LIST:" + strconv.Itoa(argsListID) + "\x00"
+	argsListRef := e.RegisterObject(argsList, ObjList)
 
 	// Store the list marker in the macro state's variables as $@
-	macroState.SetVariable("$@", Symbol(argsMarker))
+	macroState.SetVariable("$@", Symbol(argsListRef.ToMarker()))
 
 	// Create substitution context for macro arguments (from pool)
 	// Pass macro.ModuleEnv as the captured environment for handler caching

@@ -13,23 +13,20 @@ import (
 func (ps *PawScript) RegisterTypesLib() {
 	// Helper function to set a StoredList as result with proper reference counting
 	setListResult := func(ctx *Context, list StoredList) {
-		id := ctx.executor.storeObject(list, "list")
-		marker := fmt.Sprintf("\x00LIST:%d\x00", id)
-		ctx.state.SetResultWithoutClaim(Symbol(marker))
+		ref := ctx.executor.RegisterObject(list, ObjList)
+		ctx.state.SetResultWithoutClaim(Symbol(ref.ToMarker()))
 	}
 
 	// Helper function to set a StoredBytes as result with proper reference counting
 	setBytesResult := func(ctx *Context, bytes StoredBytes) {
-		id := ctx.executor.storeObject(bytes, "bytes")
-		marker := fmt.Sprintf("\x00BYTES:%d\x00", id)
-		ctx.state.SetResultWithoutClaim(Symbol(marker))
+		ref := ctx.executor.RegisterObject(bytes, ObjBytes)
+		ctx.state.SetResultWithoutClaim(Symbol(ref.ToMarker()))
 	}
 
 	// Helper function to set a StoredStruct as result with proper reference counting
 	setStructResult := func(ctx *Context, s StoredStruct) {
-		id := ctx.executor.storeObject(s, "struct")
-		marker := fmt.Sprintf("\x00STRUCT:%d\x00", id)
-		ctx.state.SetResultWithoutClaim(Symbol(marker))
+		ref := ctx.executor.RegisterObject(s, ObjStruct)
+		ctx.state.SetResultWithoutClaim(Symbol(ref.ToMarker()))
 	}
 
 	// Note: struct definitions are now just StoredLists, so use setListResult for them
@@ -659,8 +656,8 @@ func (ps *PawScript) RegisterTypesLib() {
 				resultItems := make([]interface{}, len(result))
 				for i, segment := range result {
 					segList := NewStoredListWithoutRefs(segment)
-					id := ctx.executor.storeObject(segList, "list")
-					resultItems[i] = Symbol(fmt.Sprintf("\x00LIST:%d\x00", id))
+					ref := ctx.executor.RegisterObject(segList, ObjList)
+					resultItems[i] = Symbol(ref.ToMarker())
 				}
 				setListResult(ctx, NewStoredListWithRefs(resultItems, nil, ctx.executor))
 				return BoolStatus(true)
@@ -686,8 +683,8 @@ func (ps *PawScript) RegisterTypesLib() {
 			resultItems := make([]interface{}, len(result))
 			for i, segment := range result {
 				segList := NewStoredListWithoutRefs(segment)
-				id := ctx.executor.storeObject(segList, "list")
-				resultItems[i] = Symbol(fmt.Sprintf("\x00LIST:%d\x00", id))
+				ref := ctx.executor.RegisterObject(segList, ObjList)
+				resultItems[i] = Symbol(ref.ToMarker())
 			}
 			setListResult(ctx, NewStoredListWithRefs(resultItems, nil, ctx.executor))
 			return BoolStatus(true)
@@ -2114,8 +2111,8 @@ func (ps *PawScript) RegisterTypesLib() {
 					matchItems = append(matchItems, group)
 				}
 				matchList := NewStoredListWithoutRefs(matchItems)
-				matchID := ctx.executor.storeObject(matchList, "list")
-				resultItems = append(resultItems, Symbol(fmt.Sprintf("\x00LIST:%d\x00", matchID)))
+				matchRef := ctx.executor.RegisterObject(matchList, ObjList)
+				resultItems = append(resultItems, Symbol(matchRef.ToMarker()))
 			}
 			// Use NewStoredListWithRefs to properly claim references to nested lists
 			resultList := NewStoredListWithRefs(resultItems, nil, ctx.executor)
@@ -2644,9 +2641,8 @@ func (ps *PawScript) RegisterTypesLib() {
 
 		// Store as StoredBlock and return marker
 		block := StoredBlock(code)
-		id := ctx.executor.storeObject(block, "block")
-		marker := fmt.Sprintf("\x00BLOCK:%d\x00", id)
-		ctx.state.SetResultWithoutClaim(Symbol(marker))
+		blockRef := ctx.executor.RegisterObject(block, ObjBlock)
+		ctx.state.SetResultWithoutClaim(Symbol(blockRef.ToMarker()))
 		return BoolStatus(true)
 	})
 
@@ -2830,8 +2826,8 @@ func (ps *PawScript) RegisterTypesLib() {
 					}
 				} else if nestedList, ok := refVal.(StoredList); ok {
 					// Store it and get the ID
-					nestedID := ctx.executor.storeObject(nestedList, "list")
-					fieldInfoItems = append(fieldInfoItems, int64(nestedID))
+					nestedRef := ctx.executor.RegisterObject(nestedList, ObjList)
+					fieldInfoItems = append(fieldInfoItems, int64(nestedRef.ID))
 				}
 				if len(fieldItems) >= 5 {
 					countVal := ctx.executor.resolveValue(fieldItems[4])
@@ -2843,11 +2839,10 @@ func (ps *PawScript) RegisterTypesLib() {
 
 			// Create field info as a StoredList and store it
 			fieldInfoList := NewStoredListWithoutRefs(fieldInfoItems)
-			fieldInfoID := ctx.executor.storeObject(fieldInfoList, "list")
-			fieldInfoMarker := fmt.Sprintf("\x00LIST:%d\x00", fieldInfoID)
+			fieldInfoRef := ctx.executor.RegisterObject(fieldInfoList, ObjList)
 
 			// Add to result named args
-			resultNamedArgs[fieldName] = Symbol(fieldInfoMarker)
+			resultNamedArgs[fieldName] = Symbol(fieldInfoRef.ToMarker())
 
 			currentOffset += fieldSize
 		}
@@ -2862,9 +2857,8 @@ func (ps *PawScript) RegisterTypesLib() {
 				namedMeta[k] = v
 			}
 			namedList := NewStoredListWithNamed(nil, namedMeta)
-			namedID := ctx.executor.storeObject(namedList, "list")
-			namedMarker := fmt.Sprintf("\x00LIST:%d\x00", namedID)
-			resultNamedArgs["__named"] = Symbol(namedMarker)
+			namedRef := ctx.executor.RegisterObject(namedList, ObjList)
+			resultNamedArgs["__named"] = Symbol(namedRef.ToMarker())
 		}
 
 		// Create the result list (no positional items, only named args)
@@ -2950,7 +2944,8 @@ func (ps *PawScript) RegisterTypesLib() {
 
 		// If we didn't get defID from marker, store the def list now
 		if defID == 0 {
-			defID = ctx.executor.storeObject(defList, "list")
+			defRef := ctx.executor.RegisterObject(defList, ObjList)
+			defID = defRef.ID
 		}
 
 		// Check for count (array vs single)

@@ -9,16 +9,14 @@ import (
 func (ps *PawScript) RegisterBitwiseLib() {
 	// Helper function to set a StoredBytes as result with proper reference counting
 	setBytesResult := func(ctx *Context, bytes StoredBytes) {
-		id := ctx.executor.storeObject(bytes, "bytes")
-		marker := fmt.Sprintf("\x00BYTES:%d\x00", id)
-		ctx.state.SetResultWithoutClaim(Symbol(marker))
+		ref := ctx.executor.RegisterObject(bytes, ObjBytes)
+		ctx.state.SetResultWithoutClaim(Symbol(ref.ToMarker()))
 	}
 
 	// Helper function to set a StoredList as result with proper reference counting
 	setListResult := func(ctx *Context, list StoredList) {
-		id := ctx.executor.storeObject(list, "list")
-		marker := fmt.Sprintf("\x00LIST:%d\x00", id)
-		ctx.state.SetResultWithoutClaim(Symbol(marker))
+		ref := ctx.executor.RegisterObject(list, ObjList)
+		ctx.state.SetResultWithoutClaim(Symbol(ref.ToMarker()))
 	}
 
 	// Helper to extract int64 or bytes from argument

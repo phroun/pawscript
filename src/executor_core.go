@@ -585,12 +585,11 @@ func (e *Executor) executeStoredMacro(
 
 	// Create a LIST from the arguments (both positional and named) and store it as $@
 	argsList := NewStoredListWithRefs(args, namedArgs, state.executor)
-	argsListID := state.executor.storeObject(argsList, "list")
-	argsMarker := fmt.Sprintf("\x00LIST:%d\x00", argsListID)
+	argsListRef := state.executor.RegisterObject(argsList, ObjList)
 
 	// Store the list marker in the state's variables as $@
 	// SetVariable will claim the reference
-	state.SetVariable("$@", Symbol(argsMarker))
+	state.SetVariable("$@", Symbol(argsListRef.ToMarker()))
 
 	// Create substitution context for macro arguments
 	// Use macro definition location for error reporting within macro body

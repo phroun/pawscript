@@ -112,8 +112,11 @@ func (c *Context) ResumeToken(tokenID string, status bool) bool {
 }
 
 // StoreObject stores an object and returns its ID
+// Deprecated: Use RegisterObject instead for new code
 func (c *Context) StoreObject(value interface{}, typeName string) int {
-	return c.executor.storeObject(value, typeName)
+	objType := ObjectTypeFromString(typeName)
+	ref := c.executor.RegisterObject(value, objType)
+	return ref.ID
 }
 
 // ClaimObjectReference claims ownership of an object to prevent garbage collection

@@ -71,9 +71,8 @@ func (w *channelWriter) Write(p []byte) (n int, err error) {
 func (ps *PawScript) RegisterSystemLib(scriptArgs []string) {
 	// Helper function to set a StoredList as result with proper reference counting
 	setListResult := func(ctx *Context, list StoredList) {
-		id := ctx.executor.storeObject(list, "list")
-		marker := fmt.Sprintf("\x00LIST:%d\x00", id)
-		ctx.state.SetResultWithoutClaim(Symbol(marker))
+		ref := ctx.executor.RegisterObject(list, ObjList)
+		ctx.state.SetResultWithoutClaim(Symbol(ref.ToMarker()))
 	}
 
 	// Helper to resolve a value to a StoredList (handles markers, direct objects, ParenGroups)
@@ -1012,9 +1011,8 @@ func (ps *PawScript) RegisterSystemLib(scriptArgs []string) {
 			if err.Error() == "EOF" || strings.Contains(err.Error(), "EOF") {
 				// Return empty bytes on EOF
 				result := NewStoredBytes(nil)
-				id := ctx.executor.storeObject(result, "bytes")
-				marker := fmt.Sprintf("\x00BYTES:%d\x00", id)
-				ctx.state.SetResultWithoutClaim(Symbol(marker))
+				ref := ctx.executor.RegisterObject(result, ObjBytes)
+				ctx.state.SetResultWithoutClaim(Symbol(ref.ToMarker()))
 				return BoolStatus(false)
 			}
 			ctx.LogError(CatIO, fmt.Sprintf("read_bytes: %v", err))
@@ -1023,9 +1021,8 @@ func (ps *PawScript) RegisterSystemLib(scriptArgs []string) {
 
 		// Create StoredBytes result
 		result := NewStoredBytes(data)
-		id := ctx.executor.storeObject(result, "bytes")
-		marker := fmt.Sprintf("\x00BYTES:%d\x00", id)
-		ctx.state.SetResultWithoutClaim(Symbol(marker))
+		ref := ctx.executor.RegisterObject(result, ObjBytes)
+		ctx.state.SetResultWithoutClaim(Symbol(ref.ToMarker()))
 		return BoolStatus(true)
 	})
 
@@ -1112,17 +1109,13 @@ func (ps *PawScript) RegisterSystemLib(scriptArgs []string) {
 		keysCh := manager.GetKeysChannel()
 
 		// Store channels and create list with proper refs
-		linesID := ctx.executor.storeObject(linesCh, "channel")
-		keysID := ctx.executor.storeObject(keysCh, "channel")
-
-		linesMarker := fmt.Sprintf("\x00CHANNEL:%d\x00", linesID)
-		keysMarker := fmt.Sprintf("\x00CHANNEL:%d\x00", keysID)
+		linesRef := ctx.executor.RegisterObject(linesCh, ObjChannel)
+		keysRef := ctx.executor.RegisterObject(keysCh, ObjChannel)
 
 		// Use NewStoredListWithRefs to properly claim references to the channels
-		resultList := NewStoredListWithRefs([]interface{}{Symbol(linesMarker), Symbol(keysMarker)}, nil, ctx.executor)
-		listID := ctx.executor.storeObject(resultList, "list")
-		listMarker := fmt.Sprintf("\x00LIST:%d\x00", listID)
-		ctx.state.SetResultWithoutClaim(Symbol(listMarker))
+		resultList := NewStoredListWithRefs([]interface{}{Symbol(linesRef.ToMarker()), Symbol(keysRef.ToMarker())}, nil, ctx.executor)
+		listRef := ctx.executor.RegisterObject(resultList, ObjList)
+		ctx.state.SetResultWithoutClaim(Symbol(listRef.ToMarker()))
 
 		return BoolStatus(true)
 	})
@@ -1464,9 +1457,8 @@ func (ps *PawScript) RegisterSystemLib(scriptArgs []string) {
 				int64(-1), // bg (default)
 			}, resultNamedArgs)
 
-			id := ctx.executor.storeObject(result, "list")
-			marker := fmt.Sprintf("\x00LIST:%d\x00", id)
-			ctx.state.SetResultWithoutClaim(Symbol(marker))
+			ref := ctx.executor.RegisterObject(result, ObjList)
+			ctx.state.SetResultWithoutClaim(Symbol(ref.ToMarker()))
 			return BoolStatus(true)
 		}
 
@@ -1605,9 +1597,8 @@ func (ps *PawScript) RegisterSystemLib(scriptArgs []string) {
 			int64(ts.CurrentBG),
 		}, resultNamedArgs)
 
-		id := ctx.executor.storeObject(result, "list")
-		marker := fmt.Sprintf("\x00LIST:%d\x00", id)
-		ctx.state.SetResultWithoutClaim(Symbol(marker))
+		ref := ctx.executor.RegisterObject(result, ObjList)
+		ctx.state.SetResultWithoutClaim(Symbol(ref.ToMarker()))
 
 		return BoolStatus(true)
 	})
@@ -1819,9 +1810,8 @@ func (ps *PawScript) RegisterSystemLib(scriptArgs []string) {
 		}, resultNamedArgs)
 
 		// Store and return the list
-		id := ctx.executor.storeObject(result, "list")
-		marker := fmt.Sprintf("\x00LIST:%d\x00", id)
-		ctx.state.SetResultWithoutClaim(Symbol(marker))
+		ref := ctx.executor.RegisterObject(result, ObjList)
+		ctx.state.SetResultWithoutClaim(Symbol(ref.ToMarker()))
 
 		return BoolStatus(true)
 	})
@@ -2580,9 +2570,8 @@ func configureLogFilter(ctx *Context, ps *PawScript, filterType string) Result {
 	}
 
 	result := NewStoredListWithNamed([]interface{}{}, resultNamedArgs)
-	id := ctx.executor.storeObject(result, "list")
-	marker := fmt.Sprintf("\x00LIST:%d\x00", id)
-	ctx.state.SetResultWithoutClaim(Symbol(marker))
+	ref := ctx.executor.RegisterObject(result, ObjList)
+	ctx.state.SetResultWithoutClaim(Symbol(ref.ToMarker()))
 
 	return BoolStatus(true)
 }

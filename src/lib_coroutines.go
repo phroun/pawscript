@@ -122,9 +122,8 @@ func (ps *PawScript) RegisterGeneratorLib() {
 
 		// Create a LIST from the arguments and store as $@
 		argsList := NewStoredListWithRefs(macroArgs, ctx.NamedArgs, ctx.executor)
-		argsListID := ctx.executor.storeObject(argsList, "list")
-		argsMarker := fmt.Sprintf("\x00LIST:%d\x00", argsListID)
-		genState.SetVariable("$@", Symbol(argsMarker))
+		argsListRef := ctx.executor.RegisterObject(argsList, ObjList)
+		genState.SetVariable("$@", Symbol(argsListRef.ToMarker()))
 
 		// Parse the macro body into commands
 		parser := NewParser(macro.Commands, macro.DefinitionFile)
@@ -330,8 +329,8 @@ func (ps *PawScript) RegisterGeneratorLib() {
 
 				// Create a list with [key, value]
 				pairList := NewStoredListWithoutRefs([]interface{}{key, value})
-				pairID := ctx.executor.storeObject(pairList, "list")
-				pairMarker := fmt.Sprintf("\x00LIST:%d\x00", pairID)
+				pairRef := ctx.executor.RegisterObject(pairList, ObjList)
+				pairMarker := pairRef.ToMarker()
 
 				// Advance index
 				ctx.executor.mu.Lock()
@@ -1420,9 +1419,9 @@ func (ps *PawScript) RegisterGeneratorLib() {
 							}
 						}
 						resultList := NewStoredListWithNamed(results, namedArgs)
-						listID := ctx.executor.storeObject(resultList, "list")
-						ctx.executor.incrementObjectRefCount(listID)
-						ctx.SetResult(Symbol(fmt.Sprintf("\x00LIST:%d\x00", listID)))
+						listRef := ctx.executor.RegisterObject(resultList, ObjList)
+						ctx.executor.incrementObjectRefCount(listRef.ID)
+						ctx.SetResult(Symbol(listRef.ToMarker()))
 						return BoolStatus(true)
 					}
 					return BreakResult{Levels: breakResult.Levels - 1}
@@ -1472,9 +1471,9 @@ func (ps *PawScript) RegisterGeneratorLib() {
 					}
 				}
 				resultList := NewStoredListWithNamed(results, namedArgs)
-				listID := ctx.executor.storeObject(resultList, "list")
-				ctx.executor.incrementObjectRefCount(listID)
-				ctx.SetResult(Symbol(fmt.Sprintf("\x00LIST:%d\x00", listID)))
+				listRef := ctx.executor.RegisterObject(resultList, ObjList)
+				ctx.executor.incrementObjectRefCount(listRef.ID)
+				ctx.SetResult(Symbol(listRef.ToMarker()))
 
 				ctx.state.MergeBubbles(repeatCont.State)
 				repeatCont.State.mu.Lock()
@@ -1581,9 +1580,9 @@ func (ps *PawScript) RegisterGeneratorLib() {
 							}
 						}
 						resultList := NewStoredListWithNamed(results, namedArgs)
-						listID := ctx.executor.storeObject(resultList, "list")
-						ctx.executor.incrementObjectRefCount(listID)
-						ctx.SetResult(Symbol(fmt.Sprintf("\x00LIST:%d\x00", listID)))
+						listRef := ctx.executor.RegisterObject(resultList, ObjList)
+						ctx.executor.incrementObjectRefCount(listRef.ID)
+						ctx.SetResult(Symbol(listRef.ToMarker()))
 						repeatCont = nil // Exit outer loop
 						break
 					}
@@ -1634,9 +1633,9 @@ func (ps *PawScript) RegisterGeneratorLib() {
 					}
 				}
 				resultList := NewStoredListWithNamed(results, namedArgs)
-				listID := ctx.executor.storeObject(resultList, "list")
-				ctx.executor.incrementObjectRefCount(listID)
-				ctx.SetResult(Symbol(fmt.Sprintf("\x00LIST:%d\x00", listID)))
+				listRef := ctx.executor.RegisterObject(resultList, ObjList)
+				ctx.executor.incrementObjectRefCount(listRef.ID)
+				ctx.SetResult(Symbol(listRef.ToMarker()))
 				break
 			}
 
@@ -1801,8 +1800,8 @@ func (ps *PawScript) RegisterGeneratorLib() {
 					"flavors":   NewStoredListWithoutRefs(stringSliceToInterface(bubble.Flavors)),
 				}
 				metaList := NewStoredListWithNamed(nil, metaNamedArgs)
-				metaID := ctx.executor.storeObject(metaList, "list")
-				fizzCont.State.SetVariable(fizzCont.MetaVarName, Symbol(fmt.Sprintf("\x00LIST:%d\x00", metaID)))
+				metaRef := ctx.executor.RegisterObject(metaList, ObjList)
+				fizzCont.State.SetVariable(fizzCont.MetaVarName, Symbol(metaRef.ToMarker()))
 			}
 
 			fizzCont.State.mu.Lock()
@@ -2206,8 +2205,8 @@ func (ps *PawScript) RegisterGeneratorLib() {
 		switch v := val.(type) {
 		case StoredList:
 			// Direct list - need to store it first
-			id := ctx.executor.storeObject(v, "list")
-			return v, id, true
+			ref := ctx.executor.RegisterObject(v, ObjList)
+			return v, ref.ID, true
 		case Symbol:
 			markerType, objectID := parseObjectMarker(string(v))
 			if markerType == "list" && objectID >= 0 {

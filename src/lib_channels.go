@@ -75,11 +75,10 @@ func (ps *PawScript) RegisterChannelsLib() {
 		ch.CustomRecv = customRecv
 		ch.CustomClose = customClose
 
-		objectID := ctx.executor.storeObject(ch, "channel")
-		channelMarker := fmt.Sprintf("\x00CHANNEL:%d\x00", objectID)
-		ctx.state.SetResult(Symbol(channelMarker))
+		chRef := ctx.executor.RegisterObject(ch, ObjChannel)
+		ctx.state.SetResult(Symbol(chRef.ToMarker()))
 
-		ps.logger.DebugCat(CatAsync, "Created channel (object %d) with buffer size %d", objectID, bufferSize)
+		ps.logger.DebugCat(CatAsync, "Created channel (object %d) with buffer size %d", chRef.ID, bufferSize)
 		return BoolStatus(true)
 	})
 
@@ -101,11 +100,10 @@ func (ps *PawScript) RegisterChannelsLib() {
 			return BoolStatus(false)
 		}
 
-		objectID := ctx.executor.storeObject(subscriber, "channel")
-		subscriberMarker := fmt.Sprintf("\x00CHANNEL:%d\x00", objectID)
-		ctx.state.SetResult(Symbol(subscriberMarker))
+		subRef := ctx.executor.RegisterObject(subscriber, ObjChannel)
+		ctx.state.SetResult(Symbol(subRef.ToMarker()))
 
-		ps.logger.DebugCat(CatAsync, "Created subscriber %d for channel (object %d)", subscriber.SubscriberID, objectID)
+		ps.logger.DebugCat(CatAsync, "Created subscriber %d for channel (object %d)", subscriber.SubscriberID, subRef.ID)
 		return BoolStatus(true)
 	})
 
@@ -293,9 +291,8 @@ func (ps *PawScript) RegisterChannelsLib() {
 		}
 
 		tuple := NewStoredListWithoutRefs([]interface{}{senderID, value})
-		tupleID := ctx.executor.storeObject(tuple, "list")
-		tupleMarker := fmt.Sprintf("\x00LIST:%d\x00", tupleID)
-		ctx.state.SetResult(Symbol(tupleMarker))
+		tupleRef := ctx.executor.RegisterObject(tuple, ObjList)
+		ctx.state.SetResult(Symbol(tupleRef.ToMarker()))
 
 		return BoolStatus(true)
 	})

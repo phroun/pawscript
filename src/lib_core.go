@@ -15,10 +15,12 @@ import (
 // Modules: core, macros, flow, debug
 func (ps *PawScript) RegisterCoreLib() {
 	// Helper function to set a StoredList as result with proper reference counting
+	// Uses the new typed constructor and ObjectRef
 	setListResult := func(ctx *Context, list StoredList) {
-		id := ctx.executor.storeObject(list, "list")
-		marker := fmt.Sprintf("\x00LIST:%d\x00", id)
-		ctx.state.SetResultWithoutClaim(Symbol(marker))
+		// Store using RegisterObject directly since list is already constructed
+		ref := ctx.executor.RegisterObject(list, ObjList)
+		// Set result using marker for now (ObjectRef integration in SetResult is gradual)
+		ctx.state.SetResultWithoutClaim(Symbol(ref.ToMarker()))
 	}
 
 	// hasBlockIndicators checks if a string contains block indicators (;, &, |, !)
@@ -119,8 +121,8 @@ func (ps *PawScript) RegisterCoreLib() {
 			}
 			// Create the list, store it, and return a marker for proper ref counting
 			newList := NewStoredListWithRefs(coercedItems, coercedNamedArgs, executor)
-			id := executor.storeObject(newList, "list")
-			return Symbol(fmt.Sprintf("\x00LIST:%d\x00", id))
+			ref := executor.RegisterObject(newList, ObjList)
+			return Symbol(ref.ToMarker())
 		case StoredList:
 			// Already a list, but recursively check its contents
 			items := v.Items()
@@ -153,8 +155,8 @@ func (ps *PawScript) RegisterCoreLib() {
 			}
 			// Create the list, store it, and return a marker for proper ref counting
 			newList := NewStoredListWithRefs(coercedItems, coercedNamedArgs, executor)
-			id := executor.storeObject(newList, "list")
-			return Symbol(fmt.Sprintf("\x00LIST:%d\x00", id))
+			ref := executor.RegisterObject(newList, ObjList)
+			return Symbol(ref.ToMarker())
 		default:
 			return arg
 		}
@@ -1315,9 +1317,8 @@ func (ps *PawScript) RegisterCoreLib() {
 				"def_line": int64(mc.DefinitionLine),
 			})
 			// Store frame and create marker
-			frameID := ctx.executor.storeObject(frame, "list")
-			frameMarker := Symbol(fmt.Sprintf("\x00LIST:%d\x00", frameID))
-			frames = append(frames, frameMarker)
+			frameRef := ctx.executor.RegisterObject(frame, ObjList)
+			frames = append(frames, Symbol(frameRef.ToMarker()))
 		}
 
 		setListResult(ctx, NewStoredListWithoutRefs(frames))
@@ -1681,18 +1682,18 @@ func (ps *PawScript) RegisterCoreLib() {
 					for _, frame := range bubble.StackTrace {
 						if frameMap, ok := frame.(map[string]interface{}); ok {
 							frameList := NewStoredListWithNamed(nil, frameMap)
-							frameID := ctx.executor.storeObject(frameList, "list")
-							traceList = append(traceList, Symbol(fmt.Sprintf("\x00LIST:%d\x00", frameID)))
+							frameRef := ctx.executor.RegisterObject(frameList, ObjList)
+							traceList = append(traceList, Symbol(frameRef.ToMarker()))
 						}
 					}
 					stackList := NewStoredListWithoutRefs(traceList)
-					stackID := ctx.executor.storeObject(stackList, "list")
-					metaNamedArgs["stack_trace"] = Symbol(fmt.Sprintf("\x00LIST:%d\x00", stackID))
+					stackRef := ctx.executor.RegisterObject(stackList, ObjList)
+					metaNamedArgs["stack_trace"] = Symbol(stackRef.ToMarker())
 				}
 
 				metaList := NewStoredListWithNamed(nil, metaNamedArgs)
-				metaID := ctx.executor.storeObject(metaList, "list")
-				ctx.state.SetVariable(metaVarName, Symbol(fmt.Sprintf("\x00LIST:%d\x00", metaID)))
+				metaRef := ctx.executor.RegisterObject(metaList, ObjList)
+				ctx.state.SetVariable(metaVarName, Symbol(metaRef.ToMarker()))
 			}
 
 			// Store current bubble pointer for 'burst' command
@@ -1859,11 +1860,10 @@ func (ps *PawScript) RegisterCoreLib() {
 			ps.logger.DebugCat(CatMacro,"Creating anonymous macro with commands: %s", commands)
 
 			macro := NewStoredMacroWithEnv(commands, ctx.Position, macroEnv)
-			objectID := ctx.executor.storeObject(macro, "macro")
-			macroMarker := fmt.Sprintf("\x00MACRO:%d\x00", objectID)
-			ctx.state.SetResult(Symbol(macroMarker))
+			macroRef := ctx.executor.RegisterObject(macro, ObjMacro)
+			ctx.state.SetResult(Symbol(macroRef.ToMarker()))
 
-			ps.logger.DebugCat(CatMacro,"Created anonymous macro (object %d)", objectID)
+			ps.logger.DebugCat(CatMacro,"Created anonymous macro (object %d)", macroRef.ID)
 			return BoolStatus(true)
 		}
 
@@ -2247,11 +2247,10 @@ func (ps *PawScript) RegisterCoreLib() {
 		}
 
 		cmd := NewStoredCommand(commandName, handler)
-		objectID := ctx.executor.storeObject(cmd, "command")
-		commandMarker := fmt.Sprintf("\x00COMMAND:%d\x00", objectID)
-		ctx.state.SetResult(Symbol(commandMarker))
+		cmdRef := ctx.executor.RegisterObject(cmd, ObjCommand)
+		ctx.state.SetResult(Symbol(cmdRef.ToMarker()))
 
-		ps.logger.DebugCat(CatMacro,"Created command reference for '%s' (object %d)", commandName, objectID)
+		ps.logger.DebugCat(CatMacro,"Created command reference for '%s' (object %d)", commandName, cmdRef.ID)
 		return BoolStatus(true)
 	})
 
@@ -2551,14 +2550,14 @@ func (ps *PawScript) RegisterCoreLib() {
 		isList := func(arg interface{}) (StoredList, int, bool) {
 			switch v := arg.(type) {
 			case StoredList:
-				id := ctx.executor.storeObject(v, "list")
-				return v, id, true
+				ref := ctx.executor.RegisterObject(v, ObjList)
+				return v, ref.ID, true
 			case ParenGroup:
 				// Convert ParenGroup to StoredList
 				items, namedArgs := parseArguments(string(v))
 				list := NewStoredListWithNamed(items, namedArgs)
-				id := ctx.executor.storeObject(list, "list")
-				return list, id, true
+				ref := ctx.executor.RegisterObject(list, ObjList)
+				return list, ref.ID, true
 			case Symbol:
 				markerType, objectID := parseObjectMarker(string(v))
 				if markerType == "list" && objectID >= 0 {
@@ -3117,9 +3116,8 @@ func (ps *PawScript) RegisterCoreLib() {
 					ctx.state.SetVariable(keyVar, int64(idx))
 
 					// Store element and create marker
-					elemID := ctx.executor.storeObject(elem, "struct")
-					elemMarker := fmt.Sprintf("\x00STRUCT:%d\x00", elemID)
-					ctx.state.SetVariable(valueVar, Symbol(elemMarker))
+					elemRef := ctx.executor.RegisterObject(elem, ObjStruct)
+					ctx.state.SetVariable(valueVar, Symbol(elemRef.ToMarker()))
 
 					if iterVar != "" {
 						ctx.state.SetVariable(iterVar, int64(iterNum))

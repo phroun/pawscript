@@ -163,44 +163,44 @@ func (e *Executor) formatArgumentForSubstitution(arg interface{}) string {
 			return fmt.Sprintf("\x00LIST:%d\x00", id)
 		}
 		// Not in storage yet - store it now
-		id := e.storeObject(v, "list")
-		return fmt.Sprintf("\x00LIST:%d\x00", id)
+		ref := e.RegisterObject(v, ObjList)
+		return ref.ToMarker()
 	case StoredBytes:
 		// Bytes object - find existing ID or store it and return a marker
 		if id := e.findStoredBytesID(v); id >= 0 {
 			return fmt.Sprintf("\x00BYTES:%d\x00", id)
 		}
 		// Not in storage yet - store it now
-		id := e.storeObject(v, "bytes")
-		return fmt.Sprintf("\x00BYTES:%d\x00", id)
+		ref := e.RegisterObject(v, ObjBytes)
+		return ref.ToMarker()
 	case *StoredChannel:
 		// Channel object - find or create a marker
 		if id := e.findStoredChannelID(v); id >= 0 {
 			return fmt.Sprintf("\x00CHANNEL:%d\x00", id)
 		}
 		// Not in storage yet (e.g., system IO channel) - store it now
-		id := e.storeObject(v, "channel")
-		return fmt.Sprintf("\x00CHANNEL:%d\x00", id)
+		ref := e.RegisterObject(v, ObjChannel)
+		return ref.ToMarker()
 	case *FiberHandle:
 		// Fiber handle - find or create a marker
 		if id := e.findStoredFiberID(v); id >= 0 {
 			return fmt.Sprintf("\x00FIBER:%d\x00", id)
 		}
 		// Not in storage yet - store it now
-		id := e.storeObject(v, "fiber")
-		return fmt.Sprintf("\x00FIBER:%d\x00", id)
+		ref := e.RegisterObject(v, ObjFiber)
+		return ref.ToMarker()
 	case StoredMacro:
 		// Macro - store and create marker
-		id := e.storeObject(v, "macro")
-		return fmt.Sprintf("\x00MACRO:%d\x00", id)
+		ref := e.RegisterObject(v, ObjMacro)
+		return ref.ToMarker()
 	case *StoredMacro:
 		// Macro pointer - store and create marker
-		id := e.storeObject(*v, "macro")
-		return fmt.Sprintf("\x00MACRO:%d\x00", id)
+		ref := e.RegisterObject(*v, ObjMacro)
+		return ref.ToMarker()
 	case *StoredCommand:
 		// Command - store and create marker
-		id := e.storeObject(v, "command")
-		return fmt.Sprintf("\x00COMMAND:%d\x00", id)
+		ref := e.RegisterObject(v, ObjCommand)
+		return ref.ToMarker()
 	default:
 		// Unknown type: convert to string
 		result = fmt.Sprintf("%v", v)
@@ -244,36 +244,36 @@ func (e *Executor) formatArgumentForQuotedContext(arg interface{}) string {
 		if id := e.findStoredListID(v); id >= 0 {
 			return fmt.Sprintf("\x00LIST:%d\x00", id)
 		}
-		id := e.storeObject(v, "list")
-		return fmt.Sprintf("\x00LIST:%d\x00", id)
+		ref := e.RegisterObject(v, ObjList)
+		return ref.ToMarker()
 	case StoredBytes:
 		// Bytes object - find existing ID or store it and return a marker
 		if id := e.findStoredBytesID(v); id >= 0 {
 			return fmt.Sprintf("\x00BYTES:%d\x00", id)
 		}
-		id := e.storeObject(v, "bytes")
-		return fmt.Sprintf("\x00BYTES:%d\x00", id)
+		ref := e.RegisterObject(v, ObjBytes)
+		return ref.ToMarker()
 	case *StoredChannel:
 		if id := e.findStoredChannelID(v); id >= 0 {
 			return fmt.Sprintf("\x00CHANNEL:%d\x00", id)
 		}
-		id := e.storeObject(v, "channel")
-		return fmt.Sprintf("\x00CHANNEL:%d\x00", id)
+		ref := e.RegisterObject(v, ObjChannel)
+		return ref.ToMarker()
 	case *FiberHandle:
 		if id := e.findStoredFiberID(v); id >= 0 {
 			return fmt.Sprintf("\x00FIBER:%d\x00", id)
 		}
-		id := e.storeObject(v, "fiber")
-		return fmt.Sprintf("\x00FIBER:%d\x00", id)
+		ref := e.RegisterObject(v, ObjFiber)
+		return ref.ToMarker()
 	case StoredMacro:
-		id := e.storeObject(v, "macro")
-		return fmt.Sprintf("\x00MACRO:%d\x00", id)
+		ref := e.RegisterObject(v, ObjMacro)
+		return ref.ToMarker()
 	case *StoredMacro:
-		id := e.storeObject(*v, "macro")
-		return fmt.Sprintf("\x00MACRO:%d\x00", id)
+		ref := e.RegisterObject(*v, ObjMacro)
+		return ref.ToMarker()
 	case *StoredCommand:
-		id := e.storeObject(v, "command")
-		return fmt.Sprintf("\x00COMMAND:%d\x00", id)
+		ref := e.RegisterObject(v, ObjCommand)
+		return ref.ToMarker()
 	default:
 		content = fmt.Sprintf("%v", v)
 	}

@@ -437,7 +437,7 @@ func (env *ModuleEnvironment) PopulateIOModule(config *IOChannelConfig, executor
 		storedChannels := make(map[*StoredChannel]bool)
 		for _, ch := range []*StoredChannel{stdinCh, stdoutCh, stderrCh, stdioCh} {
 			if ch != nil && !storedChannels[ch] {
-				executor.storeObject(ch, "channel")
+				executor.RegisterObject(ch, ObjChannel)
 				storedChannels[ch] = true
 			}
 		}
@@ -445,7 +445,7 @@ func (env *ModuleEnvironment) PopulateIOModule(config *IOChannelConfig, executor
 		if config != nil && config.CustomChannels != nil {
 			for _, ch := range config.CustomChannels {
 				if ch != nil && !storedChannels[ch] {
-					executor.storeObject(ch, "channel")
+					executor.RegisterObject(ch, ObjChannel)
 					storedChannels[ch] = true
 				}
 			}

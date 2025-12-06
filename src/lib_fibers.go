@@ -1,7 +1,6 @@
 package pawscript
 
 import (
-	"fmt"
 	"sync"
 )
 
@@ -80,11 +79,10 @@ func (ps *PawScript) RegisterFibersLib() {
 		}
 		handle := ctx.executor.SpawnFiber(macro, fiberArgs, namedArgs, parentModuleEnv)
 
-		objectID := ctx.executor.storeObject(handle, "fiber")
-		fiberMarker := fmt.Sprintf("\x00FIBER:%d\x00", objectID)
-		ctx.state.SetResult(Symbol(fiberMarker))
+		fiberRef := ctx.executor.RegisterObject(handle, ObjFiber)
+		ctx.state.SetResult(Symbol(fiberRef.ToMarker()))
 
-		ps.logger.DebugCat(CatAsync, "Spawned fiber %d (object %d)", handle.ID, objectID)
+		ps.logger.DebugCat(CatAsync, "Spawned fiber %d (object %d)", handle.ID, fiberRef.ID)
 		return BoolStatus(true)
 	})
 

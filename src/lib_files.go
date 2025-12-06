@@ -34,9 +34,8 @@ func pathEquals(path1, path2 string) bool {
 func (ps *PawScript) RegisterFilesLib() {
 	// Helper to set a StoredList as result
 	setListResult := func(ctx *Context, list StoredList) {
-		id := ctx.executor.storeObject(list, "list")
-		marker := fmt.Sprintf("\x00LIST:%d\x00", id)
-		ctx.state.SetResultWithoutClaim(Symbol(marker))
+		ref := ctx.executor.RegisterObject(list, ObjList)
+		ctx.state.SetResultWithoutClaim(Symbol(ref.ToMarker()))
 	}
 
 	// Helper to validate path access against configured roots

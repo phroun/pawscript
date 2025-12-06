@@ -220,8 +220,8 @@ func (s *ExecutionState) SetResult(value interface{}) {
 				value = Symbol(fmt.Sprintf("\x00LIST:%d\x00", id))
 			} else {
 				// Not found, store it
-				id := s.executor.storeObject(v, "list")
-				value = Symbol(fmt.Sprintf("\x00LIST:%d\x00", id))
+				ref := s.executor.RegisterObject(v, ObjList)
+				value = Symbol(ref.ToMarker())
 			}
 		case *StoredChannel:
 			// Find existing channel ID
@@ -229,8 +229,8 @@ func (s *ExecutionState) SetResult(value interface{}) {
 				value = Symbol(fmt.Sprintf("\x00CHANNEL:%d\x00", id))
 			} else {
 				// Store the channel
-				id := s.executor.storeObject(v, "channel")
-				value = Symbol(fmt.Sprintf("\x00CHANNEL:%d\x00", id))
+				ref := s.executor.RegisterObject(v, ObjChannel)
+				value = Symbol(ref.ToMarker())
 			}
 		case *StoredFile:
 			// Find existing file ID
@@ -238,8 +238,8 @@ func (s *ExecutionState) SetResult(value interface{}) {
 				value = Symbol(fmt.Sprintf("\x00FILE:%d\x00", id))
 			} else {
 				// Store the file
-				id := s.executor.storeObject(v, "file")
-				value = Symbol(fmt.Sprintf("\x00FILE:%d\x00", id))
+				ref := s.executor.RegisterObject(v, ObjFile)
+				value = Symbol(ref.ToMarker())
 			}
 		case StoredBytes:
 			// Find existing bytes ID
@@ -247,14 +247,14 @@ func (s *ExecutionState) SetResult(value interface{}) {
 				value = Symbol(fmt.Sprintf("\x00BYTES:%d\x00", id))
 			} else {
 				// Store the bytes
-				id := s.executor.storeObject(v, "bytes")
-				value = Symbol(fmt.Sprintf("\x00BYTES:%d\x00", id))
+				ref := s.executor.RegisterObject(v, ObjBytes)
+				value = Symbol(ref.ToMarker())
 			}
 		case []interface{}:
 			// Convert raw slice to StoredList
 			list := NewStoredListWithoutRefs(v)
-			id := s.executor.storeObject(list, "list")
-			value = Symbol(fmt.Sprintf("\x00LIST:%d\x00", id))
+			ref := s.executor.RegisterObject(list, ObjList)
+			value = Symbol(ref.ToMarker())
 		}
 	}
 

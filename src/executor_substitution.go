@@ -974,12 +974,12 @@ func (e *Executor) formatBraceResult(value interface{}, originalString string, b
 		}
 		// Outside quotes: use a special marker that preserves the object
 		// Format: \x00LIST:index\x00 where index is stored in the execution state
-		id := e.storeObject(value, "list")
+		ref := e.RegisterObject(value, ObjList)
 		// The creating context claims the first reference
 		if state != nil {
-			state.ClaimObjectReference(id)
+			state.ClaimObjectReference(ref.ID)
 		}
-		return fmt.Sprintf("\x00LIST:%d\x00", id)
+		return ref.ToMarker()
 	case StoredBytes:
 		if insideQuotes {
 			// Inside quotes: format as hex display
@@ -987,12 +987,12 @@ func (e *Executor) formatBraceResult(value interface{}, originalString string, b
 		}
 		// Outside quotes: use a special marker that preserves the object
 		// Format: \x00BYTES:index\x00 where index is stored in the execution state
-		id := e.storeObject(value, "bytes")
+		ref := e.RegisterObject(value, ObjBytes)
 		// The creating context claims the first reference
 		if state != nil {
-			state.ClaimObjectReference(id)
+			state.ClaimObjectReference(ref.ID)
 		}
-		return fmt.Sprintf("\x00BYTES:%d\x00", id)
+		return ref.ToMarker()
 	case *StoredFile:
 		if insideQuotes {
 			// Inside quotes: show file path
@@ -1000,12 +1000,12 @@ func (e *Executor) formatBraceResult(value interface{}, originalString string, b
 		}
 		// Outside quotes: use a special marker that preserves the object
 		// Format: \x00FILE:index\x00 where index is stored in the execution state
-		id := e.storeObject(value, "file")
+		ref := e.RegisterObject(value, ObjFile)
 		// The creating context claims the first reference
 		if state != nil {
-			state.ClaimObjectReference(id)
+			state.ClaimObjectReference(ref.ID)
 		}
-		return fmt.Sprintf("\x00FILE:%d\x00", id)
+		return ref.ToMarker()
 	case StoredStruct:
 		if insideQuotes {
 			// Inside quotes: format as display string
@@ -1013,12 +1013,12 @@ func (e *Executor) formatBraceResult(value interface{}, originalString string, b
 		}
 		// Outside quotes: use a special marker that preserves the object
 		// Format: \x00STRUCT:index\x00 where index is stored in the execution state
-		id := e.storeObject(value, "struct")
+		ref := e.RegisterObject(value, ObjStruct)
 		// The creating context claims the first reference
 		if state != nil {
-			state.ClaimObjectReference(id)
+			state.ClaimObjectReference(ref.ID)
 		}
-		return fmt.Sprintf("\x00STRUCT:%d\x00", id)
+		return ref.ToMarker()
 	// Note: StructDef is now a StoredList, handled above
 	case int64, float64:
 		// Numbers as-is
@@ -1976,11 +1976,11 @@ func (e *Executor) formatBraceResultFromTemplate(value interface{}, isUnescape b
 			return e.formatListItems(v)
 		}
 		// Store and return marker
-		id := e.storeObject(value, "list")
+		ref := e.RegisterObject(value, ObjList)
 		if ctx.ExecutionState != nil {
-			ctx.ExecutionState.ClaimObjectReference(id)
+			ctx.ExecutionState.ClaimObjectReference(ref.ID)
 		}
-		return fmt.Sprintf("\x00LIST:%d\x00", id)
+		return ref.ToMarker()
 	case int64, float64:
 		return fmt.Sprintf("%v", v)
 	case string:
