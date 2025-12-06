@@ -37,11 +37,12 @@ m: {macro (echo "G'day, $1")}
 print
 
 echo "Test 7 - List with Macro:"
-ml: {list ~m, (echo "Yes.")}
+ml: {list ~m, (; echo "Yes.")}
 {~ml 0} "mate"
 print
 
 echo "Test 8 - List with Parenthetic Block:"
-ml: {list ~m, (echo "Yes.")}
+# Note: Use (; ...) to force a block - without the semicolon, (echo "Yes.") becomes a list
+ml: {list ~m, (; echo "Yes.")}
 {~ml 1}
 print
