@@ -51,19 +51,24 @@ type StoredObject struct {
     Value    interface{}  // The actual object
     Type     ObjectType
     RefCount int
+    Hash     uint64       // Content hash for immutable types (0 for mutable)
     Deleted  bool         // Marked for reuse when true
 }
 
 type Executor struct {
     // ...
-    objectRegistry map[int]*StoredObject
-    freeIDs        []int   // Recycled IDs from deleted objects
-    nextID         int
+    objectRegistry       map[int]*StoredObject
+    contentHash          map[uint64]int    // hash → object ID (dedup lookup)
+    freeIDs              []int             // Recycled IDs from deleted objects
+    nextID               int
+    deduplicationEnabled bool              // Toggle optimization on/off
     // ...
 }
 ```
 
 **ID Reuse**: When an object is GC'd (refcount→0), its ID is added to `freeIDs`. New objects first check `freeIDs` before incrementing `nextID`.
+
+**Hash Storage**: The content hash is stored in `StoredObject.Hash`, NOT in the ObjectRef. ObjectRef remains lightweight `{Type, ID}`. The `contentHash` map provides fast lookup during construction.
 
 ### 3. Central Ownership Functions
 
@@ -331,23 +336,16 @@ parseObjectMarker          → (keep only for code substitution boundary)
 
 Since lists, strings, blocks, and bytes are **immutable**, duplicate objects can share storage.
 
-#### Design
-
-```go
-type Executor struct {
-    // ... existing fields ...
-    deduplicationEnabled bool              // Toggle optimization on/off
-    contentHash          map[uint64]int    // hash → object ID (immutable types only)
-}
-```
-
 #### How It Works
 
 1. **During construction** of immutable object, compute shallow hash
-2. **Lookup hash** in `contentHash` map
-3. **If found**: verify shallow equality (handle collisions), return existing ObjectRef (claim it)
-4. **If not found**: register new object, add to `contentHash`
-5. **On GC**: remove entry from `contentHash`
+2. **Lookup hash** in `contentHash` map → get candidate ID
+3. **If found**: compare `storedObjects[candidateID].Hash`, verify shallow equality (handle collisions)
+4. **If match**: return existing ObjectRef (claim it)
+5. **If not found/no match**: register new object, store hash in `StoredObject.Hash`, add to `contentHash`
+6. **On GC**: remove entry from `contentHash`
+
+The hash is stored in `StoredObject.Hash`, not in the ObjectRef. ObjectRef stays lightweight.
 
 #### Shallow Hashing for Lists
 
