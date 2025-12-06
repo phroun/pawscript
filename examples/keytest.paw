@@ -23,6 +23,7 @@ macro testcat(
   
   while (gt {maplen ~bag}, 0), (
     
+    print "\r\n"
     print ~l.note, "\r\n"
     
     lr: ""
@@ -34,7 +35,11 @@ macro testcat(
       color 1
       write "[", ~k, "]"
       color 15
-      write ~v, "  "
+      if {eq ~v, " "} then (
+        write "Space  "
+      ) else (
+        write ~v, "  "
+      )
       color -1
     )
     
@@ -43,7 +48,7 @@ macro testcat(
     ch: {readkey}
     
     if {eq ~ch, "Escape"} then (
-      write "\r\n\r\nTYPE \"NEXT\" TO END CATEGORY, TYPE \"QUIT\" TO END TEST: "
+      write "\r\n\r\nTYPE \"NEXT\" TO END CATEGORY, TYPE \"QUIT\" TO END TEST, OR ENTER TO CONTINUE: "
       cmd: {trim {lower {read}}}
       if {eq ~cmd, "quit"} then (
         ret {list "quit", ~bag}
@@ -51,33 +56,43 @@ macro testcat(
       if {eq ~cmd, "next"} then (
         ret {list "next", ~bag}
       )
-      
     )
     
     print "\r\n"
-    
-    print {type ch}
+    print "entered [~ch]"
+    print "type=", {type ch}, "\r\n"
 
     for ~l, v, index: i, (
-      idx: {index ~v ~i, "~ch"}
+      idx: {index ~v, ~ch}
+      # print "\r\ninfer=", {infer ~v}, "\r\n"
+      # print "len=",  {len ~v}
+      # print "\r\n"
+      # print "idx=", ~idx
+      # print "\r\n", ~v
       if {gte ~idx, 0} then (
         subj: {concat ~i, "_", ~idx}
-        print "replacing:", ~subj, ":::"
+        # print "\r\nreplacing:", ~subj, ":::"
         bag: {replace ~bag, ~subj: undefined}
-        print "index: ", ~i, ~idx, "\r\n"
+        # print "index: ", ~i, ~idx, "\r\n"
       )
     )
     print
 
   )
   
+  echo "\r\nCATEGORY COMPLETED.\r\n"
+  
   ret {list "done"}
 )
 
 
-echo ~#args.os ~args.arch
+echo "args info:"
+echo ~#args.os, ~args.arch
+echo "\r\n"
 
 readkey_init #in, echo: #out
+
+echo "\r\nBEGINNING TEST\r\n"
 
 testnum: 0
 res: true
@@ -89,14 +104,15 @@ while (true), (
   then (
     print "MATCH FOUND"
     res: false
+    ret
   )
   else
-  ret "dead"
   if {contains ("next","done"),  ~reason}
   then (
     testnum: {add ~testnum, 1}
   )
 )
-print "done"
+
+print "\r\nTEST COMPLETED\r\n"
 
 readkey_stop
