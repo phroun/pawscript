@@ -522,22 +522,35 @@ func (w *Widget) screenToCell(screenX, screenY float64) (cellX, cellY int) {
 	charHeight := w.charHeight
 	w.mu.Unlock()
 
-	// Account for left padding when converting screen coords to cell
-	cellX = (int(screenX) - terminalLeftPadding) / charWidth
+	// Calculate row first (needed to check line attributes)
 	cellY = int(screenY) / charHeight
 
 	cols, rows := w.buffer.GetSize()
-	if cellX < 0 {
-		cellX = 0
-	}
-	if cellX >= cols {
-		cellX = cols - 1
-	}
 	if cellY < 0 {
 		cellY = 0
 	}
 	if cellY >= rows {
 		cellY = rows - 1
+	}
+
+	// Check if this line has doubled attributes (affects column calculation)
+	lineAttr := w.buffer.GetVisibleLineAttribute(cellY)
+	effectiveCharWidth := charWidth
+	effectiveCols := cols
+	if lineAttr != LineAttrNormal {
+		// Doubled lines: each logical cell is 2x wide visually
+		effectiveCharWidth = charWidth * 2
+		effectiveCols = cols / 2
+	}
+
+	// Account for left padding when converting screen coords to cell
+	cellX = (int(screenX) - terminalLeftPadding) / effectiveCharWidth
+
+	if cellX < 0 {
+		cellX = 0
+	}
+	if cellX >= effectiveCols {
+		cellX = effectiveCols - 1
 	}
 	return
 }
