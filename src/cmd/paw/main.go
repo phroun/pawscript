@@ -3,12 +3,15 @@ package main
 import (
 	"flag"
 	"fmt"
-	"github.com/phroun/pawscript"
 	"io"
 	"os"
+	"os/signal"
 	"path/filepath"
 	"strings"
+	"syscall"
 	"time"
+
+	"github.com/phroun/pawscript"
 )
 
 var version = "dev" // set via -ldflags at build time
@@ -56,6 +59,19 @@ func errorPrintf(format string, args ...interface{}) {
 }
 
 func main() {
+	// Ensure terminal is restored to normal state on exit
+	// This is critical when using raw mode (readkey_init) to prevent
+	// the terminal from being left in a broken state (no newline translation, etc.)
+	defer pawscript.CleanupTerminal()
+
+	// Handle signals to ensure cleanup on interrupt
+	sigChan := make(chan os.Signal, 1)
+	signal.Notify(sigChan, syscall.SIGINT, syscall.SIGTERM)
+	go func() {
+		<-sigChan
+		pawscript.CleanupTerminal()
+		os.Exit(130) // Standard exit code for SIGINT
+	}()
 
 	// Define command line flags
 	licenseFlag := flag.Bool("license", false, "Show license")

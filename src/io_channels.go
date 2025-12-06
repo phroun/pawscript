@@ -12,6 +12,35 @@ import (
 	"golang.org/x/term"
 )
 
+// Global tracking for terminal state cleanup
+var (
+	globalStdinStateMu sync.Mutex
+	globalStdinState   *stdinChannelState
+)
+
+// CleanupTerminal restores the terminal to its original state.
+// This should be called when the program exits to ensure the terminal
+// is left in a usable state (proper newline handling, echo enabled, etc.)
+func CleanupTerminal() {
+	globalStdinStateMu.Lock()
+	state := globalStdinState
+	globalStdinStateMu.Unlock()
+
+	if state == nil {
+		return
+	}
+
+	state.mu.Lock()
+	defer state.mu.Unlock()
+
+	if state.originalState != nil && state.inRawMode {
+		_ = term.Restore(state.fd, state.originalState)
+		state.originalState = nil
+		state.inRawMode = false
+		state.rawModeRefCount = 0
+	}
+}
+
 // IOChannelConfig allows host applications to provide custom IO channel handlers
 // Any nil channel will use the default OS-backed implementation
 type IOChannelConfig struct {
@@ -175,6 +204,13 @@ func (env *ModuleEnvironment) PopulateIOModule(config *IOChannelConfig, executor
 				lineReader: bufio.NewReader(defaultStdin),
 				isTerminal: false,
 			}
+		}
+
+		// Register for global cleanup on program exit
+		if stdinState.isTerminal {
+			globalStdinStateMu.Lock()
+			globalStdinState = stdinState
+			globalStdinStateMu.Unlock()
 		}
 
 		stdinCh = &StoredChannel{
