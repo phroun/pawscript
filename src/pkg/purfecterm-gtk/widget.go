@@ -294,7 +294,15 @@ func (w *Widget) onDraw(da *gtk.DrawingArea, cr *cairo.Context) bool {
 
 	// Draw each cell (use GetVisibleCell to account for scroll offset)
 	for y := 0; y < rows; y++ {
-		for x := 0; x < cols; x++ {
+		lineAttr := w.buffer.GetVisibleLineAttribute(y)
+
+		// Calculate effective columns for this line (half for double-width/height)
+		effectiveCols := cols
+		if lineAttr != LineAttrNormal {
+			effectiveCols = cols / 2
+		}
+
+		for x := 0; x < effectiveCols; x++ {
 			cell := w.buffer.GetVisibleCell(x, y)
 
 			// Determine colors
@@ -342,17 +350,35 @@ func (w *Widget) onDraw(da *gtk.DrawingArea, cr *cairo.Context) bool {
 				fg, bg = bg, fg
 			}
 
+			// Calculate cell position and size based on line attributes
+			var cellX, cellY, cellW, cellH float64
+			switch lineAttr {
+			case LineAttrNormal:
+				cellX = float64(x*charWidth + terminalLeftPadding)
+				cellY = float64(y * charHeight)
+				cellW = float64(charWidth)
+				cellH = float64(charHeight)
+			case LineAttrDoubleWidth:
+				// Each character takes up 2 cell widths
+				cellX = float64(x*2*charWidth + terminalLeftPadding)
+				cellY = float64(y * charHeight)
+				cellW = float64(charWidth * 2)
+				cellH = float64(charHeight)
+			case LineAttrDoubleTop, LineAttrDoubleBottom:
+				// Each character takes up 2 cell widths, text is rendered 2x height
+				cellX = float64(x*2*charWidth + terminalLeftPadding)
+				cellY = float64(y * charHeight)
+				cellW = float64(charWidth * 2)
+				cellH = float64(charHeight)
+			}
+
 			// Draw cell background if different from terminal background
 			if bg != scheme.Background {
 				cr.SetSourceRGB(
 					float64(bg.R)/255.0,
 					float64(bg.G)/255.0,
 					float64(bg.B)/255.0)
-				cr.Rectangle(
-					float64(x*charWidth+terminalLeftPadding),
-					float64(y*charHeight),
-					float64(charWidth),
-					float64(charHeight))
+				cr.Rectangle(cellX, cellY, cellW, cellH)
 				cr.Fill()
 			}
 
@@ -379,8 +405,54 @@ func (w *Widget) onDraw(da *gtk.DrawingArea, cr *cairo.Context) bool {
 					yOffset = math.Sin(wavePhase) * 3.0
 				}
 
-				cr.MoveTo(float64(x*charWidth+terminalLeftPadding), float64(y*charHeight+charAscent)+yOffset)
-				cr.ShowText(string(cell.Char))
+				switch lineAttr {
+				case LineAttrNormal:
+					// Normal rendering
+					cr.MoveTo(float64(x*charWidth+terminalLeftPadding), float64(y*charHeight+charAscent)+yOffset)
+					cr.ShowText(string(cell.Char))
+
+				case LineAttrDoubleWidth:
+					// Double width: scale text 2x horizontally
+					cr.Save()
+					// Position at cell, scale 2x horizontally
+					textX := float64(x*2*charWidth + terminalLeftPadding)
+					textY := float64(y*charHeight + charAscent)
+					cr.Translate(textX, textY+yOffset)
+					cr.Scale(2.0, 1.0)
+					cr.MoveTo(0, 0)
+					cr.ShowText(string(cell.Char))
+					cr.Restore()
+
+				case LineAttrDoubleTop:
+					// Double height top: scale 2x, show top half only
+					cr.Save()
+					// Clip to just this cell's area
+					cr.Rectangle(cellX, cellY, cellW, cellH)
+					cr.Clip()
+					// Position text: baseline at 2x ascent position from cell top
+					textX := float64(x*2*charWidth + terminalLeftPadding)
+					textY := float64(y*charHeight + charAscent*2)
+					cr.Translate(textX, textY+yOffset*2)
+					cr.Scale(2.0, 2.0)
+					cr.MoveTo(0, 0)
+					cr.ShowText(string(cell.Char))
+					cr.Restore()
+
+				case LineAttrDoubleBottom:
+					// Double height bottom: scale 2x, show bottom half only
+					cr.Save()
+					// Clip to just this cell's area
+					cr.Rectangle(cellX, cellY, cellW, cellH)
+					cr.Clip()
+					// Position text: the top half would be at y-1, so shift up by one cell height
+					textX := float64(x*2*charWidth + terminalLeftPadding)
+					textY := float64(y*charHeight + charAscent*2 - charHeight)
+					cr.Translate(textX, textY+yOffset*2)
+					cr.Scale(2.0, 2.0)
+					cr.MoveTo(0, 0)
+					cr.ShowText(string(cell.Char))
+					cr.Restore()
+				}
 
 				// Reset font weight
 				if cell.Bold {
@@ -394,11 +466,12 @@ func (w *Widget) onDraw(da *gtk.DrawingArea, cr *cairo.Context) bool {
 					float64(fg.R)/255.0,
 					float64(fg.G)/255.0,
 					float64(fg.B)/255.0)
-				cr.Rectangle(
-					float64(x*charWidth+terminalLeftPadding),
-					float64((y+1)*charHeight-1),
-					float64(charWidth),
-					1)
+				underlineY := cellY + cellH - 1
+				underlineH := 1.0
+				if lineAttr == LineAttrDoubleTop || lineAttr == LineAttrDoubleBottom {
+					underlineH = 2.0
+				}
+				cr.Rectangle(cellX, underlineY, cellW, underlineH)
 				cr.Fill()
 			}
 
@@ -414,25 +487,17 @@ func (w *Widget) onDraw(da *gtk.DrawingArea, cr *cairo.Context) bool {
 					if !w.hasFocus {
 						// Outline block when unfocused
 						cr.SetLineWidth(1.0)
-						cr.Rectangle(
-							float64(x*charWidth+terminalLeftPadding)+0.5,
-							float64(y*charHeight)+0.5,
-							float64(charWidth)-1,
-							float64(charHeight)-1)
+						cr.Rectangle(cellX+0.5, cellY+0.5, cellW-1, cellH-1)
 						cr.Stroke()
 					}
 					// Focused block is handled by fg/bg swap above
 
 				case 1: // Underline cursor (1/4 block height)
-					thickness := float64(charHeight) / 4.0
+					thickness := cellH / 4.0
 					if !w.hasFocus {
-						thickness = float64(charHeight) / 6.0 // Thinner when unfocused
+						thickness = cellH / 6.0 // Thinner when unfocused
 					}
-					cr.Rectangle(
-						float64(x*charWidth+terminalLeftPadding),
-						float64((y+1)*charHeight)-thickness,
-						float64(charWidth),
-						thickness)
+					cr.Rectangle(cellX, cellY+cellH-thickness, cellW, thickness)
 					cr.Fill()
 
 				case 2: // Bar (vertical line) cursor
@@ -440,11 +505,7 @@ func (w *Widget) onDraw(da *gtk.DrawingArea, cr *cairo.Context) bool {
 					if !w.hasFocus {
 						thickness = 1.0
 					}
-					cr.Rectangle(
-						float64(x*charWidth+terminalLeftPadding),
-						float64(y*charHeight),
-						thickness,
-						float64(charHeight))
+					cr.Rectangle(cellX, cellY, thickness, cellH)
 					cr.Fill()
 				}
 			}

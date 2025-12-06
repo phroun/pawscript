@@ -1,0 +1,66 @@
+; doublesize.paw - Demonstrates VT100 DECDHL and DECDWL escape sequences
+; These are the classic double-width and double-height line effects from VT100 terminals
+
+; Define escape sequences
+set ESC chr(27)
+set DOUBLE_TOP    cat(ESC, "#3")    ; DECDHL - Double-height line, top half
+set DOUBLE_BOTTOM cat(ESC, "#4")    ; DECDHL - Double-height line, bottom half
+set SINGLE_WIDTH  cat(ESC, "#5")    ; DECSWL - Single-width line (normal)
+set DOUBLE_WIDTH  cat(ESC, "#6")    ; DECDWL - Double-width line
+
+; Clear screen and move to top
+print cat(ESC, "[2J", ESC, "[H")
+
+; Show title in double-height (requires two lines with same content)
+print cat(DOUBLE_TOP, "    Double-Size Text Demo")
+print cat(DOUBLE_BOTTOM, "    Double-Size Text Demo")
+
+; Back to normal and add spacing
+print cat(SINGLE_WIDTH, "")
+print "This demo shows VT100 double-width and double-height text."
+print ""
+
+; Double-height section
+print "--- Double-Height Text (ESC#3 + ESC#4) ---"
+print cat(DOUBLE_TOP, "HELLO WORLD!")
+print cat(DOUBLE_BOTTOM, "HELLO WORLD!")
+print cat(SINGLE_WIDTH, "")
+
+; Double-width section
+print "--- Double-Width Text (ESC#6) ---"
+print cat(DOUBLE_WIDTH, "Wide Characters")
+print cat(SINGLE_WIDTH, "Normal width for comparison")
+print ""
+
+; Show all 3 styles together
+print "--- Comparison of Styles ---"
+print cat(SINGLE_WIDTH, "Normal: The quick brown fox")
+print cat(DOUBLE_WIDTH, "Double-Wide: Fox")
+print ""
+print cat(DOUBLE_TOP, "Double-Height: Big Text!")
+print cat(DOUBLE_BOTTOM, "Double-Height: Big Text!")
+print cat(SINGLE_WIDTH, "")
+
+; Fun banner effect
+print "--- Banner Style ---"
+print cat(DOUBLE_TOP, "  ", chr(9608), chr(9608), chr(9608), "  PAWSCRIPT  ", chr(9608), chr(9608), chr(9608))
+print cat(DOUBLE_BOTTOM, "  ", chr(9608), chr(9608), chr(9608), "  PAWSCRIPT  ", chr(9608), chr(9608), chr(9608))
+print cat(SINGLE_WIDTH, "")
+
+; Colorful double-height example
+set RED cat(ESC, "[31m")
+set GREEN cat(ESC, "[32m")
+set YELLOW cat(ESC, "[33m")
+set BLUE cat(ESC, "[34m")
+set MAGENTA cat(ESC, "[35m")
+set CYAN cat(ESC, "[36m")
+set RESET cat(ESC, "[0m")
+
+print "--- With Colors ---"
+print cat(DOUBLE_TOP, RED, "R", GREEN, "A", YELLOW, "I", BLUE, "N", MAGENTA, "B", CYAN, "O", RED, "W", RESET, " Text!")
+print cat(DOUBLE_BOTTOM, RED, "R", GREEN, "A", YELLOW, "I", BLUE, "N", MAGENTA, "B", CYAN, "O", RED, "W", RESET, " Text!")
+print cat(SINGLE_WIDTH, RESET)
+
+print ""
+print "Press any key to exit..."
+set _ readkey()
