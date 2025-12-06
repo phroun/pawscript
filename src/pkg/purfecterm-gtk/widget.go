@@ -280,12 +280,14 @@ func (w *Widget) onDraw(da *gtk.DrawingArea, cr *cairo.Context) bool {
 		cursorVisible = false
 	}
 
-	// Draw background (including left padding area)
+	// Draw background - fill entire widget area (not just cell area)
+	// This ensures any extra space at edges is filled with terminal background
+	alloc := da.GetAllocation()
 	cr.SetSourceRGB(
 		float64(scheme.Background.R)/255.0,
 		float64(scheme.Background.G)/255.0,
 		float64(scheme.Background.B)/255.0)
-	cr.Rectangle(0, 0, float64(cols*charWidth+terminalLeftPadding), float64(rows*charHeight))
+	cr.Rectangle(0, 0, float64(alloc.GetWidth()), float64(alloc.GetHeight()))
 	cr.Fill()
 
 	// Set up font

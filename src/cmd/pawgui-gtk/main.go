@@ -388,7 +388,7 @@ func activate(app *gtk.Application) {
 		return
 	}
 	mainWindow.SetTitle(appName)
-	mainWindow.SetDefaultSize(1100, 750)
+	mainWindow.SetDefaultSize(1100, 700)
 
 	// Apply CSS for UI scaling (base size 10px, scaled by ui_scale config)
 	uiScale := getUIScale()
