@@ -907,8 +907,11 @@ func (ps *PawScript) RegisterSystemLib(scriptArgs []string) {
 			// Supports bracketed paste mode (ESC[200~ ... ESC[201~)
 			outCh, _, _ := getOutputChannel(ctx, "#out")
 
-			// Check if there are buffered lines from a previous paste
+			// Clear PasteNotified flag - read clears it so readkey can return "Paste" again
 			ch.mu.Lock()
+			ch.PasteNotified = false
+
+			// Check if there are buffered complete lines from a previous paste
 			if len(ch.PasteBuffer) > 0 {
 				// Return the first buffered line
 				line := ch.PasteBuffer[0]
@@ -921,9 +924,18 @@ func (ps *PawScript) RegisterSystemLib(scriptArgs []string) {
 				ctx.SetResult(line)
 				return BoolStatus(true)
 			}
-			ch.mu.Unlock()
 
+			// Check for partial paste content - becomes start of line buffer
 			var lineBuffer []byte
+			if ch.PartialPaste != "" {
+				lineBuffer = []byte(ch.PartialPaste)
+				// Echo the partial content
+				if outCh != nil {
+					_ = ChannelSend(outCh, ch.PartialPaste)
+				}
+				ch.PartialPaste = ""
+			}
+			ch.mu.Unlock()
 
 			// Bracketed paste tracking
 			pasteMode := false
@@ -952,31 +964,58 @@ func (ps *PawScript) RegisterSystemLib(scriptArgs []string) {
 			}
 
 			// Helper to process completed paste - splits into lines and buffers extras
-			processPaste := func() {
+			// Returns true if we should return immediately (have complete lines)
+			processPaste := func() bool {
 				if len(pasteBuffer) == 0 {
-					return
+					return false
 				}
-				// Split pasted content by newlines
 				pastedStr := string(pasteBuffer)
+				pasteBuffer = nil
+
+				// Check if paste ended with a newline
+				endsWithNewline := strings.HasSuffix(pastedStr, "\n") || strings.HasSuffix(pastedStr, "\r")
+
+				// Split pasted content by newlines
 				lines := strings.Split(pastedStr, "\n")
-				// Also handle \r\n by trimming \r from each line
+				// Handle \r\n by trimming \r from each line
 				var cleanLines []string
 				for _, line := range lines {
 					cleanLines = append(cleanLines, strings.TrimSuffix(line, "\r"))
 				}
 
-				if len(cleanLines) > 0 {
-					// First line gets appended to current lineBuffer
-					lineBuffer = append(lineBuffer, []byte(cleanLines[0])...)
-
-					// If there are more lines, they go to the paste buffer
-					if len(cleanLines) > 1 {
-						ch.mu.Lock()
-						ch.PasteBuffer = append(ch.PasteBuffer, cleanLines[1:]...)
-						ch.mu.Unlock()
-					}
+				if len(cleanLines) == 0 {
+					return false
 				}
-				pasteBuffer = nil
+
+				// First line gets appended to current lineBuffer
+				lineBuffer = append(lineBuffer, []byte(cleanLines[0])...)
+
+				if len(cleanLines) == 1 {
+					// Single line paste
+					if endsWithNewline {
+						// Complete line - return immediately
+						return true
+					}
+					// Partial line - user needs to press Enter or continue typing
+					return false
+				}
+
+				// Multiple lines
+				ch.mu.Lock()
+				if endsWithNewline {
+					// All lines are complete - buffer lines 1 to end
+					ch.PasteBuffer = append(ch.PasteBuffer, cleanLines[1:]...)
+				} else {
+					// Last line is partial - buffer complete lines, save partial
+					if len(cleanLines) > 2 {
+						ch.PasteBuffer = append(ch.PasteBuffer, cleanLines[1:len(cleanLines)-1]...)
+					}
+					ch.PartialPaste = cleanLines[len(cleanLines)-1]
+				}
+				ch.mu.Unlock()
+
+				// Return first line immediately (auto-enter for multi-line paste)
+				return true
 			}
 
 			for {
@@ -1011,10 +1050,20 @@ func (ps *PawScript) RegisterSystemLib(scriptArgs []string) {
 								pasteBuffer = nil
 							} else if isEnd {
 								pasteMode = false
-								processPaste()
-								// If paste contained newlines, we have buffered lines
-								// and the first line is already in lineBuffer
-								// Continue to let the user press Enter or type more
+								if processPaste() {
+									// Multi-line paste or paste ending with newline
+									// Return first line immediately (echo + newline)
+									if outCh != nil {
+										_ = ChannelSend(outCh, "\r\n")
+									}
+									ctx.SetResult(string(lineBuffer))
+									return BoolStatus(true)
+								}
+								// Single line paste without trailing newline
+								// Echo what was pasted and continue waiting for input
+								if outCh != nil && len(lineBuffer) > 0 {
+									_ = ChannelSend(outCh, string(lineBuffer))
+								}
 							}
 							escBuffer = nil
 							continue
@@ -1279,6 +1328,7 @@ func (ps *PawScript) RegisterSystemLib(scriptArgs []string) {
 	// readkey - read a single key event from key input manager
 	// Usage: readkey or readkey #keyin_channel
 	// Returns the key as a string ("a", "M-a", "F1", "^C", etc.)
+	// Returns "Paste" if there is buffered paste content waiting to be read
 	ps.RegisterCommandInModule("io", "readkey", func(ctx *Context) Result {
 		var keysCh *StoredChannel
 
@@ -1300,31 +1350,140 @@ func (ps *PawScript) RegisterSystemLib(scriptArgs []string) {
 			keysCh = manager.GetKeysChannel()
 		}
 
-		// Receive from channel
-		_, value, err := ChannelRecv(keysCh)
-		if err != nil {
-			ctx.LogError(CatIO, fmt.Sprintf("readkey: %v", err))
-			ctx.SetResult("")  // Set empty result on error to avoid stale values
-			return BoolStatus(false)
+		// Check if there's paste content waiting and we haven't notified yet
+		// Use the #in channel for paste buffer since that's where read uses it
+		inCh, hasInCh := getInputChannel(ctx, "#in")
+		if hasInCh {
+			inCh.mu.Lock()
+			hasPaste := len(inCh.PasteBuffer) > 0 || inCh.PartialPaste != ""
+			notified := inCh.PasteNotified
+			if hasPaste && !notified {
+				inCh.PasteNotified = true
+				inCh.mu.Unlock()
+				ctx.SetResult(QuotedString("Paste"))
+				return BoolStatus(true)
+			}
+			inCh.mu.Unlock()
 		}
 
-		// Convert to QuotedString for consistency with parsed list items
-		// Handle various string-like types that might come from the channel
-		var keyStr string
-		switch v := value.(type) {
-		case string:
-			keyStr = v
-		case []byte:
-			keyStr = string(v)
-		case QuotedString:
-			keyStr = string(v)
-		case Symbol:
-			keyStr = string(v)
-		default:
-			keyStr = fmt.Sprintf("%v", v)
+		// Bracketed paste tracking for paste during readkey
+		pasteMode := false
+		var pasteBuffer []byte
+		var escBuffer []byte
+
+		checkBracketedPaste := func() (start bool, end bool, complete bool) {
+			if len(escBuffer) < 6 {
+				return false, false, false
+			}
+			seq := string(escBuffer)
+			if seq == "\x1b[200~" {
+				return true, false, true
+			}
+			if seq == "\x1b[201~" {
+				return false, true, true
+			}
+			return false, false, false
 		}
-		ctx.SetResult(QuotedString(keyStr))
-		return BoolStatus(true)
+
+		couldBeSequence := func() bool {
+			seq := string(escBuffer)
+			return strings.HasPrefix("\x1b[200~", seq) || strings.HasPrefix("\x1b[201~", seq)
+		}
+
+		// Read keys, watching for bracketed paste
+		for {
+			_, value, err := ChannelRecv(keysCh)
+			if err != nil {
+				ctx.LogError(CatIO, fmt.Sprintf("readkey: %v", err))
+				ctx.SetResult("")
+				return BoolStatus(false)
+			}
+
+			// Convert to string for processing
+			var keyStr string
+			switch v := value.(type) {
+			case string:
+				keyStr = v
+			case []byte:
+				keyStr = string(v)
+			case QuotedString:
+				keyStr = string(v)
+			case Symbol:
+				keyStr = string(v)
+			default:
+				keyStr = fmt.Sprintf("%v", v)
+			}
+
+			// Process each byte for escape sequence detection
+			for _, b := range []byte(keyStr) {
+				if len(escBuffer) > 0 || b == 0x1b {
+					escBuffer = append(escBuffer, b)
+
+					isStart, isEnd, complete := checkBracketedPaste()
+					if complete {
+						if isStart {
+							pasteMode = true
+							pasteBuffer = nil
+						} else if isEnd {
+							pasteMode = false
+							// Paste completed - add to PasteBuffer and return "Paste"
+							if len(pasteBuffer) > 0 && hasInCh {
+								pastedStr := string(pasteBuffer)
+								endsWithNewline := strings.HasSuffix(pastedStr, "\n") || strings.HasSuffix(pastedStr, "\r")
+								lines := strings.Split(pastedStr, "\n")
+								var cleanLines []string
+								for _, line := range lines {
+									cleanLines = append(cleanLines, strings.TrimSuffix(line, "\r"))
+								}
+
+								inCh.mu.Lock()
+								if len(cleanLines) == 1 && !endsWithNewline {
+									// Single partial line
+									inCh.PartialPaste = cleanLines[0]
+								} else if endsWithNewline {
+									// All complete lines
+									inCh.PasteBuffer = append(inCh.PasteBuffer, cleanLines...)
+								} else {
+									// Multiple lines, last is partial
+									inCh.PasteBuffer = append(inCh.PasteBuffer, cleanLines[:len(cleanLines)-1]...)
+									inCh.PartialPaste = cleanLines[len(cleanLines)-1]
+								}
+								inCh.PasteNotified = true
+								inCh.mu.Unlock()
+							}
+							ctx.SetResult(QuotedString("Paste"))
+							return BoolStatus(true)
+						}
+						escBuffer = nil
+						continue
+					}
+
+					if couldBeSequence() {
+						continue
+					}
+
+					// Not a valid sequence - if in paste mode, add to buffer
+					if pasteMode {
+						pasteBuffer = append(pasteBuffer, escBuffer...)
+					} else {
+						// Return the key (could be a special key that starts with ESC)
+						ctx.SetResult(QuotedString(string(escBuffer)))
+						return BoolStatus(true)
+					}
+					escBuffer = nil
+					continue
+				}
+
+				if pasteMode {
+					pasteBuffer = append(pasteBuffer, b)
+					continue
+				}
+
+				// Normal key - return it
+				ctx.SetResult(QuotedString(string([]byte{b})))
+				return BoolStatus(true)
+			}
+		}
 	})
 
 	// write_bytes - write binary data to a file
