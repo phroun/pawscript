@@ -21,6 +21,69 @@ func (ps *PawScript) RegisterCoreLib() {
 		ctx.state.SetResultWithoutClaim(Symbol(marker))
 	}
 
+	// hasTopLevelCommas checks if a string contains commas at the top level
+	// (outside of nested braces, parens, or quotes).
+	// Used to determine if a ParenGroup should be treated as a list (has commas)
+	// or as a code block (no commas - just a single command).
+	hasTopLevelCommas := func(content string) bool {
+		inSingleQuote := false
+		inDoubleQuote := false
+		braceDepth := 0
+		parenDepth := 0
+		runes := []rune(content)
+
+		for i := 0; i < len(runes); i++ {
+			ch := runes[i]
+
+			// Handle escape sequences
+			if ch == '\\' && i+1 < len(runes) {
+				i++ // Skip the escaped character
+				continue
+			}
+
+			// Track quote state
+			if !inDoubleQuote && ch == '\'' {
+				inSingleQuote = !inSingleQuote
+				continue
+			}
+			if !inSingleQuote && ch == '"' {
+				inDoubleQuote = !inDoubleQuote
+				continue
+			}
+
+			// Skip if inside quotes
+			if inSingleQuote || inDoubleQuote {
+				continue
+			}
+
+			// Track nesting
+			if ch == '{' {
+				braceDepth++
+				continue
+			}
+			if ch == '}' {
+				braceDepth--
+				continue
+			}
+			if ch == '(' {
+				parenDepth++
+				continue
+			}
+			if ch == ')' {
+				parenDepth--
+				continue
+			}
+
+			// Check for commas at top level
+			if braceDepth == 0 && parenDepth == 0 {
+				if ch == ',' {
+					return true
+				}
+			}
+		}
+		return false
+	}
+
 	// hasBlockIndicators checks if a string contains block indicators (;, &, |, !)
 	// at the top level (outside of nested braces, parens, or quotes)
 	hasBlockIndicators := func(content string) bool {
@@ -83,17 +146,21 @@ func (ps *PawScript) RegisterCoreLib() {
 	}
 
 	// coerceToList recursively converts ParenGroups to StoredLists
-	// if they don't contain block indicators.
+	// only if they contain top-level commas (indicating a data list).
+	// ParenGroups without commas are kept as blocks (executable code).
 	// Nested lists are stored and returned as markers for proper reference counting.
 	var coerceToList func(arg interface{}, executor *Executor) interface{}
 	coerceToList = func(arg interface{}, executor *Executor) interface{} {
 		switch v := arg.(type) {
 		case ParenGroup:
 			content := string(v)
-			// If it has block indicators, keep as ParenGroup (will become StoredBlock)
-			if hasBlockIndicators(content) {
+			// Keep as ParenGroup (block) if:
+			// - It has block indicators (;, &, |, !) - definitely code
+			// - It doesn't have top-level commas - probably a single command, not a data list
+			if hasBlockIndicators(content) || !hasTopLevelCommas(content) {
 				return v
 			}
+			// Has commas but no block indicators - treat as a list
 			// Parse the content as a command to get individual items
 			_, items, namedArgs := ParseCommand("dummy " + content)
 			// Recursively coerce each item
