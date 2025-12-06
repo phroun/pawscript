@@ -33,7 +33,9 @@ func pathEquals(path1, path2 string) bool {
 // Module: files
 func (ps *PawScript) RegisterFilesLib() {
 	// Helper to set a StoredList as result
+	// Note: RegisterObject now handles nested ref claiming for lists
 	setListResult := func(ctx *Context, list StoredList) {
+		// RegisterObject claims refs for all nested items automatically
 		ref := ctx.executor.RegisterObject(list, ObjList)
 		ctx.state.SetResultWithoutClaim(Symbol(ref.ToMarker()))
 	}

@@ -70,7 +70,9 @@ func (w *channelWriter) Write(p []byte) (n int, err error) {
 // Modules: os, io, sys
 func (ps *PawScript) RegisterSystemLib(scriptArgs []string) {
 	// Helper function to set a StoredList as result with proper reference counting
+	// Note: RegisterObject now handles nested ref claiming for lists
 	setListResult := func(ctx *Context, list StoredList) {
+		// RegisterObject claims refs for all nested items automatically
 		ref := ctx.executor.RegisterObject(list, ObjList)
 		ctx.state.SetResultWithoutClaim(Symbol(ref.ToMarker()))
 	}

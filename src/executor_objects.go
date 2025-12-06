@@ -63,9 +63,9 @@ func (e *Executor) maybeStoreValue(value interface{}, state *ExecutionState) int
 
 // RegisterObject stores a new object and returns its ObjectRef
 // The object is stored with refcount=0 - caller must claim ownership
+// For lists: automatically claims refs to all nested items (ensures proper cleanup on free)
 func (e *Executor) RegisterObject(value interface{}, objType ObjectType) ObjectRef {
 	e.mu.Lock()
-	defer e.mu.Unlock()
 
 	// Try to reuse a freed ID first
 	var id int
@@ -87,6 +87,23 @@ func (e *Executor) RegisterObject(value interface{}, objType ObjectType) ObjectR
 
 	e.logger.DebugCat(CatMemory, "Stored object %d (type: %s, refcount: 0)", id, objType.String())
 
+	// For lists, claim refs to all nested items so they're released when this list is freed
+	// This ensures sliced/derived lists properly own their shared items
+	if objType == ObjList {
+		if list, ok := value.(StoredList); ok {
+			// Release lock before claiming refs (they acquire locks too)
+			e.mu.Unlock()
+			for _, item := range list.Items() {
+				claimNestedReferences(item, e)
+			}
+			for _, val := range list.NamedArgs() {
+				claimNestedReferences(val, e)
+			}
+			return ObjectRef{Type: objType, ID: id}
+		}
+	}
+
+	e.mu.Unlock()
 	return ObjectRef{Type: objType, ID: id}
 }
 

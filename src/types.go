@@ -1276,14 +1276,15 @@ func NewStoredListWithNamed(items []interface{}, namedArgs map[string]interface{
 	}
 }
 
-// NewStoredListWithRefs creates a new StoredList and claims references to any nested objects
-// Type info is computed with the executor for full marker resolution
+// NewStoredListWithRefs creates a new StoredList with type info computed via executor
+// NOTE: Does NOT claim refs - that's now done by setListResult when registering
+// This allows sliced/derived lists to share items without double-claiming
 func NewStoredListWithRefs(items []interface{}, namedArgs map[string]interface{}, executor *Executor) StoredList {
 	// Compute type info with executor for full resolution
 	arrInfo := computeTypeInfoForSlice(items, executor)
 	mapInfo := computeTypeInfoForMap(namedArgs, executor)
 
-	list := StoredList{
+	return StoredList{
 		items:           items,
 		namedArgs:       namedArgs,
 		arrType:         arrInfo.Type,
@@ -1293,19 +1294,6 @@ func NewStoredListWithRefs(items []interface{}, namedArgs map[string]interface{}
 		mapSolid:        mapInfo.Solid,
 		mapSerializable: mapInfo.Serializable,
 	}
-
-	// Claim references to any nested objects in positional items
-	if executor != nil {
-		for _, item := range items {
-			claimNestedReferences(item, executor)
-		}
-		// Claim references to any nested objects in named arguments (both keys and values)
-		for key, value := range namedArgs {
-			claimNestedReferences(key, executor)
-			claimNestedReferences(value, executor)
-		}
-	}
-	return list
 }
 
 // claimNestedReferences recursively claims references to nested objects

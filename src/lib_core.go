@@ -16,8 +16,10 @@ import (
 func (ps *PawScript) RegisterCoreLib() {
 	// Helper function to set a StoredList as result with proper reference counting
 	// Uses the new typed constructor and ObjectRef
+	// Note: RegisterObject now handles nested ref claiming for lists
 	setListResult := func(ctx *Context, list StoredList) {
 		// Store using RegisterObject directly since list is already constructed
+		// RegisterObject claims refs for all nested items automatically
 		ref := ctx.executor.RegisterObject(list, ObjList)
 		// Set result using marker for now (ObjectRef integration in SetResult is gradual)
 		ctx.state.SetResultWithoutClaim(Symbol(ref.ToMarker()))
