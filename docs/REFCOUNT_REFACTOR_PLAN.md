@@ -317,19 +317,75 @@ parseObjectMarker          → (keep only for code substitution boundary)
 - Add specific refcount tests
 - Test edge cases: scope transitions, channel buffering, bubbles, suspension
 
-### 10. Open Questions
+### 10. Resolved Design Decisions
 
-1. **Code substitution**: Do we actually need markers anywhere? Or can ObjectRef flow through the entire system?
+1. **Code substitution**: Markers are NOT needed internally. `~myvar` evaluates to a typed Unit (which can be ObjectRef). Marker strings only needed if we ever serialize to text that gets re-parsed, which is not a supported pattern.
 
-2. **Channel ownership transfer**: When an item is received from a channel, who claims it? Need to avoid:
-   - Double claim (channel claimed it, receiver claims it)
-   - Premature release (channel releases before receiver claims)
+2. **Channel ownership transfer**: Option B - channels claim items when buffered, receiver claims when receiving, then channel releases. Temporary refcount=2 is safe and prevents premature GC when sender's scope ends before receiver exists.
 
-3. **Result transfer between scopes**: The result holds the claim during macro return. Verify this pattern is watertight.
+3. **Result transfer between scopes**: The result holds the claim during macro return. Caller claims via SetVar/SetResult (claim new first, release old after), ensuring no gap.
 
-4. **Thread safety**: Multiple fibers accessing same object. Current mutex approach should work but verify.
+4. **Thread safety**: Mutex approach on Executor for refcount operations. Verify during implementation.
 
-### 11. File-by-File Impact
+### 11. Optional Optimization: Content-Addressable Deduplication
+
+Since lists, strings, blocks, and bytes are **immutable**, duplicate objects can share storage.
+
+#### Design
+
+```go
+type Executor struct {
+    // ... existing fields ...
+    deduplicationEnabled bool              // Toggle optimization on/off
+    contentHash          map[uint64]int    // hash → object ID (immutable types only)
+}
+```
+
+#### How It Works
+
+1. **During construction** of immutable object, compute shallow hash
+2. **Lookup hash** in `contentHash` map
+3. **If found**: verify shallow equality (handle collisions), return existing ObjectRef (claim it)
+4. **If not found**: register new object, add to `contentHash`
+5. **On GC**: remove entry from `contentHash`
+
+#### Shallow Hashing for Lists
+
+```go
+func computeListHash(items []interface{}, namedArgs map[string]interface{}) uint64 {
+    h := fnv.New64a()
+
+    // Hash positional items (shallow)
+    for _, item := range items {
+        hashValue(h, item)  // primitives: hash value; ObjectRef: hash Type+ID
+    }
+
+    // Hash named args (shallow) - keys sorted for consistency
+    keys := sortedKeys(namedArgs)
+    for _, k := range keys {
+        h.Write([]byte(k))
+        hashValue(h, namedArgs[k])
+    }
+
+    return h.Sum64()
+}
+```
+
+#### Benefits
+
+- **Eliminates empty list problem**: all empty lists hash identically → same ID
+- **Memory efficient**: duplicate immutable objects share storage
+- **No extra traversal**: hash computed during construction already happening
+- **Optional**: can be toggled off for debugging or if overhead is unwanted
+
+#### Applies To
+
+- **Immutable (deduplicate)**: List, String, Block, Bytes, Struct, StructArray
+- **Mutable (no dedup)**: Channel, File, Fiber, Command, Macro, Token
+
+Mutable objects each get unique IDs regardless - they still participate in refcounting, just not deduplication.
+
+### 12. File-by-File Impact
 
 High-impact files to modify:
 - `executor_core.go` - Executor struct, central functions
