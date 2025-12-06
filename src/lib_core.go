@@ -660,6 +660,9 @@ func (ps *PawScript) RegisterCoreLib() {
 
 		value := ctx.Args[0]
 
+		// First, resolve ObjectRef to get the actual stored object
+		value = ctx.executor.resolveValue(value)
+
 		// Resolve list markers
 		switch v := value.(type) {
 		case Symbol:
@@ -701,6 +704,9 @@ func (ps *PawScript) RegisterCoreLib() {
 		}
 
 		value := ctx.Args[0]
+
+		// First, resolve ObjectRef to get the actual stored object
+		value = ctx.executor.resolveValue(value)
 
 		// Resolve list markers
 		switch v := value.(type) {
@@ -752,6 +758,9 @@ func (ps *PawScript) RegisterCoreLib() {
 	// Helper function to resolve a list argument (shared by type info commands)
 	resolveListArg := func(ctx *Context, arg interface{}) (StoredList, bool) {
 		value := arg
+
+		// First, resolve ObjectRef to get the actual stored object
+		value = ctx.executor.resolveValue(value)
 
 		// Helper to resolve a value (handles markers to get actual objects)
 		resolveValue := func(val interface{}) interface{} {

@@ -124,7 +124,9 @@ func (ps *PawScript) RegisterFilesLib() {
 
 	// Helper to resolve a file from an argument
 	resolveFile := func(ctx *Context, arg interface{}) *StoredFile {
-		switch v := arg.(type) {
+		// First, resolve ObjectRef to get the actual stored object
+		resolved := ctx.executor.resolveValue(arg)
+		switch v := resolved.(type) {
 		case *StoredFile:
 			return v
 		case Symbol:

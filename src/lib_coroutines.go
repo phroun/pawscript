@@ -2203,6 +2203,15 @@ func (ps *PawScript) RegisterGeneratorLib() {
 	// Helper to resolve a value to a list and get its object ID
 	resolveListWithID := func(ctx *Context, val interface{}) (StoredList, int, bool) {
 		switch v := val.(type) {
+		case ObjectRef:
+			// ObjectRef contains the ID directly
+			if v.Type == ObjList && v.IsValid() {
+				if obj, exists := ctx.executor.getObject(v.ID); exists {
+					if list, ok := obj.(StoredList); ok {
+						return list, v.ID, true
+					}
+				}
+			}
 		case StoredList:
 			// Direct list - need to store it first
 			ref := ctx.executor.RegisterObject(v, ObjList)

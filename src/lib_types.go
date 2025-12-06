@@ -188,6 +188,8 @@ func (ps *PawScript) RegisterTypesLib() {
 
 			// Resolve the list argument
 			value := ctx.Args[0]
+			// Resolve ObjectRef to actual stored object
+			value = ctx.executor.resolveValue(value)
 			var list StoredList
 			switch v := value.(type) {
 			case StoredList:
@@ -242,6 +244,8 @@ func (ps *PawScript) RegisterTypesLib() {
 		}
 
 		value := ctx.Args[0]
+		// Resolve ObjectRef to actual stored object
+		value = ctx.executor.resolveValue(value)
 
 		// Parse start index
 		startNum, ok := toNumber(ctx.Args[1])
@@ -333,6 +337,8 @@ func (ps *PawScript) RegisterTypesLib() {
 		}
 
 		value := ctx.Args[0]
+		// Resolve ObjectRef to actual stored object
+		value = ctx.executor.resolveValue(value)
 		item := ctx.Args[1]
 
 		switch v := value.(type) {
@@ -412,6 +418,8 @@ func (ps *PawScript) RegisterTypesLib() {
 		}
 
 		value := ctx.Args[0]
+		// Resolve ObjectRef to actual stored object
+		value = ctx.executor.resolveValue(value)
 		item := ctx.Args[1]
 
 		switch v := value.(type) {
@@ -492,6 +500,8 @@ func (ps *PawScript) RegisterTypesLib() {
 		}
 
 		value := ctx.Args[0]
+		// Resolve ObjectRef to actual stored object
+		value = ctx.executor.resolveValue(value)
 
 		switch v := value.(type) {
 		case StoredList:
@@ -524,8 +534,11 @@ func (ps *PawScript) RegisterTypesLib() {
 			return BoolStatus(false)
 		}
 
+		// Resolve first argument - ObjectRef to actual stored object
+		firstArg := ctx.executor.resolveValue(ctx.Args[0])
+
 		// Check if first argument is a StoredList
-		if list, ok := ctx.Args[0].(StoredList); ok {
+		if list, ok := firstArg.(StoredList); ok {
 			// List mode: concatenate lists and append other items
 			result := list
 
@@ -546,7 +559,7 @@ func (ps *PawScript) RegisterTypesLib() {
 		}
 
 		// Check if first argument is StoredBytes
-		if bytes, ok := ctx.Args[0].(StoredBytes); ok {
+		if bytes, ok := firstArg.(StoredBytes); ok {
 			// Bytes mode: concatenate bytes and append other values
 			result := bytes
 

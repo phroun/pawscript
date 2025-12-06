@@ -116,6 +116,15 @@ func (ps *PawScript) RegisterChannelsLib() {
 		// Helper to resolve a value to a channel
 		resolveToChannel := func(val interface{}) *StoredChannel {
 			switch v := val.(type) {
+			case ObjectRef:
+				// ObjectRef for channel
+				if v.Type == ObjChannel && v.IsValid() {
+					if obj, exists := ctx.executor.getObject(v.ID); exists {
+						if ch, ok := obj.(*StoredChannel); ok {
+							return ch
+						}
+					}
+				}
 			case *StoredChannel:
 				return v
 			case Symbol:
@@ -209,6 +218,15 @@ func (ps *PawScript) RegisterChannelsLib() {
 		// Helper to resolve a value to a channel
 		resolveToChannel := func(val interface{}) *StoredChannel {
 			switch v := val.(type) {
+			case ObjectRef:
+				// ObjectRef for channel
+				if v.Type == ObjChannel && v.IsValid() {
+					if obj, exists := ctx.executor.getObject(v.ID); exists {
+						if ch, ok := obj.(*StoredChannel); ok {
+							return ch
+						}
+					}
+				}
 			case *StoredChannel:
 				return v
 			case Symbol:
