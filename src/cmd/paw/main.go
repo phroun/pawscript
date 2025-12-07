@@ -107,15 +107,16 @@ func createDefaultConfig(configPath string) {
 		return // Graceful failure
 	}
 
-	// Default config content
-	defaultConfig := `; PawScript CLI Configuration
-; This file is automatically created on first run
+	// Default config content - using proper PSL comment syntax
+	// Line comments start with "# " (hash followed by space)
+	defaultConfig := `# PawScript CLI Configuration
+# This file is automatically created on first run
 
-; Terminal background color for REPL prompt colors
-; Options: "auto", "dark", "light"
-; - auto: assumes dark background (for now)
-; - dark: uses bright yellow prompt
-; - light: uses dark brown prompt
+# Terminal background color for REPL prompt colors
+# Options: "auto", "dark", "light"
+#   auto  - assumes dark background (for now)
+#   dark  - uses bright yellow prompt
+#   light - uses dark brown prompt
 term_background: "auto"
 `
 
