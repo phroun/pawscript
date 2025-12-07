@@ -777,6 +777,7 @@ func parseArguments(argsStr string) ([]interface{}, map[string]interface{}) {
 				s2 := valueToString(newValue)
 				currentValue = QuotedString(s1 + s2)
 				lastWasNumber = false
+				potentialString = false // A real string confirms the concatenation
 			case unitNumber:
 				// Concatenate number, track lastWasNumber
 				s := valueToString(currentValue)
