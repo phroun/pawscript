@@ -2541,15 +2541,19 @@ func registerGuiCommands(ps *pawscript.PawScript) {
 		ctx.ClaimObjectReference(outID)
 		ctx.ClaimObjectReference(inID)
 
-		outMarker := pawscript.Symbol(fmt.Sprintf("\x00CHANNEL:%d\x00", outID))
-		inMarker := pawscript.Symbol(fmt.Sprintf("\x00CHANNEL:%d\x00", inID))
-		errMarker := outMarker
+		outRef := pawscript.ObjectRef{Type: pawscript.ObjChannel, ID: outID}
+		inRef := pawscript.ObjectRef{Type: pawscript.ObjChannel, ID: inID}
+		errRef := outRef
 
-		channelList := ctx.NewStoredListWithRefs([]interface{}{outMarker, inMarker, errMarker}, nil)
+		channelList := ctx.NewStoredListWithRefs([]interface{}{
+			pawscript.Symbol(outRef.ToMarker()),
+			pawscript.Symbol(inRef.ToMarker()),
+			pawscript.Symbol(errRef.ToMarker()),
+		}, nil)
 		listID := ctx.StoreObject(channelList, "list")
-		listMarker := fmt.Sprintf("\x00LIST:%d\x00", listID)
+		listRef := pawscript.ObjectRef{Type: pawscript.ObjList, ID: listID}
 
-		ctx.SetResult(pawscript.Symbol(listMarker))
+		ctx.SetResult(pawscript.Symbol(listRef.ToMarker()))
 		return pawscript.BoolStatus(true)
 	})
 }
