@@ -265,7 +265,9 @@ func (r *REPL) printPrompt() {
 		// Determine what needs to be closed based on accumulated input
 		fullInput := strings.Join(r.lines, "\n")
 		prompt := r.getContinuationPrompt(fullInput)
-		r.output(replColorYellow + prompt + replColorReset + " ")
+		// Show line number (current line is len(r.lines) + 1)
+		lineNum := len(r.lines) + 1
+		r.output(fmt.Sprintf("%s%d %s%s ", replColorYellow, lineNum, prompt, replColorReset))
 	}
 }
 
