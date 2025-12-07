@@ -81,30 +81,10 @@ func NewWidget(cols, rows, scrollbackSize int) *Widget {
 	w.buffer = purfecterm.NewBuffer(cols, rows, scrollbackSize)
 	w.parser = purfecterm.NewParser(w.buffer)
 
-	// Set up dirty callback to trigger redraws and update scrollbar
+	// Set up dirty callback to trigger redraws
 	w.buffer.SetDirtyCallback(func() {
 		w.widget.Update()
-		w.updateScrollbar()
 	})
-
-	// Create scrollbar as child of container
-	w.scrollbar = qt.NewQScrollBar2()
-	w.scrollbar.SetOrientation(qt.Vertical)
-	w.scrollbar.SetMinimum(0)
-	w.scrollbar.SetMaximum(0)
-	w.scrollbar.OnValueChanged(func(value int) {
-		if !w.scrollbarUpdating {
-			// Scrollbar value is inverted (0 = bottom, max = top)
-			maxScroll := w.scrollbar.Maximum()
-			w.buffer.SetScrollOffset(maxScroll - value)
-		}
-	})
-
-	// Set up terminal widget as child of container
-	w.widget.SetParent(w.container)
-
-	// Set up scrollbar as child of container
-	w.scrollbar.SetParent(w.container)
 
 	// Enable focus and mouse tracking on the terminal widget
 	w.widget.SetFocusPolicy(qt.StrongFocus)
@@ -153,12 +133,6 @@ func NewWidget(cols, rows, scrollbackSize int) *Widget {
 		w.resizeEvent(event)
 	})
 
-	// Handle container resize to position terminal and scrollbar
-	w.container.OnResizeEvent(func(super func(event *qt.QResizeEvent), event *qt.QResizeEvent) {
-		super(event)
-		w.updateLayout()
-	})
-
 	// Create context menu for right-click
 	w.contextMenu = qt.NewQMenu(w.widget)
 
@@ -193,9 +167,9 @@ func NewWidget(cols, rows, scrollbackSize int) *Widget {
 	return w
 }
 
-// QWidget returns the container widget (terminal + scrollbar)
+// QWidget returns the terminal widget
 func (w *Widget) QWidget() *qt.QWidget {
-	return w.container
+	return w.widget
 }
 
 // updateLayout positions the terminal widget and scrollbar within the container
