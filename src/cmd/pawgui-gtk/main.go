@@ -23,8 +23,8 @@ import (
 // Default font settings
 // Font priority: platform-specific defaults with cross-platform fallbacks
 // Config files can be shared across OS - each platform includes other platforms' fonts
-// - macOS: Menlo, SF Mono, Cascadia Mono, Consolas, Monaco, Courier New
-// - Windows: Cascadia Mono, Consolas, Menlo, SF Mono, Monaco, Courier New
+// - macOS: Menlo, JetBrains Mono, SF Mono, Cascadia Mono, Consolas, Monaco, Courier New
+// - Windows: Cascadia Mono, Consolas, JetBrains Mono, Menlo, SF Mono, Monaco, Courier New
 // - Linux: JetBrains Mono, DejaVu Sans Mono, Liberation Mono, Menlo, Consolas, monospace
 const (
 	defaultFontSize = 22
@@ -35,13 +35,13 @@ const (
 func getDefaultFont() string {
 	switch runtime.GOOS {
 	case "darwin":
-		// macOS: Menlo (10.6+), SF Mono (10.12+), then Windows fonts for portability
-		// Monaco (classic macOS), Courier New (universal fallback)
-		return "Menlo, SF Mono, Cascadia Mono, Consolas, Monaco, Courier New"
+		// macOS: Menlo (10.6+), JetBrains Mono (popular dev font), SF Mono (Xcode/dev downloads),
+		// then Windows fonts for portability, Monaco (classic), Courier New (universal)
+		return "Menlo, JetBrains Mono, SF Mono, Cascadia Mono, Consolas, Monaco, Courier New"
 	case "windows":
-		// Windows: Cascadia Mono (11+/Terminal), Consolas (Vista+), then macOS fonts
-		// Courier New is universal fallback
-		return "Cascadia Mono, Consolas, Menlo, SF Mono, Monaco, Courier New"
+		// Windows: Cascadia Mono (11+/Terminal), Consolas (Vista+), JetBrains Mono (popular),
+		// then macOS fonts, Courier New (universal)
+		return "Cascadia Mono, Consolas, JetBrains Mono, Menlo, SF Mono, Monaco, Courier New"
 	default:
 		// Linux: popular coding fonts, then cross-platform fallbacks
 		return "JetBrains Mono, DejaVu Sans Mono, Liberation Mono, Menlo, Consolas, monospace"
