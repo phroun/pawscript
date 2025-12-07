@@ -208,11 +208,11 @@ func (w *Widget) updateLayout() {
 	scrollbarWidth := 16 // Standard scrollbar width
 
 	// Position terminal widget
-	w.widget.SetGeometry(qt.NewQRect2(0, 0, containerWidth-scrollbarWidth, containerHeight))
+	w.widget.SetGeometry(0, 0, containerWidth-scrollbarWidth, containerHeight)
 
 	// Position scrollbar on the right
 	if w.scrollbar != nil {
-		w.scrollbar.SetGeometry(qt.NewQRect2(containerWidth-scrollbarWidth, 0, scrollbarWidth, containerHeight))
+		w.scrollbar.SetGeometry(containerWidth-scrollbarWidth, 0, scrollbarWidth, containerHeight)
 	}
 }
 
