@@ -11,10 +11,11 @@ import (
 
 // REPL color codes
 const (
-	replColorYellow = "\x1b[93m"
-	replColorWhite  = "\x1b[97m"
-	replColorRed    = "\x1b[91m"
-	replColorReset  = "\x1b[0m"
+	replColorYellow   = "\x1b[93m"
+	replColorWhite    = "\x1b[97m"
+	replColorRed      = "\x1b[91m"
+	replColorDarkCyan = "\x1b[36m"
+	replColorReset    = "\x1b[0m"
 )
 
 // REPLConfig configures the REPL behavior
@@ -265,7 +266,9 @@ func (r *REPL) printPrompt() {
 		// Determine what needs to be closed based on accumulated input
 		fullInput := strings.Join(r.lines, "\n")
 		prompt := r.getContinuationPrompt(fullInput)
-		r.output(replColorYellow + prompt + replColorReset + " ")
+		// Show line number in dark cyan, rest of prompt in yellow
+		lineNum := len(r.lines) + 1
+		r.output(fmt.Sprintf("%s%d %s%s%s ", replColorDarkCyan, lineNum, replColorYellow, prompt, replColorReset))
 	}
 }
 
@@ -280,6 +283,7 @@ func (r *REPL) getContinuationPrompt(input string) string {
 	for _, ch := range input {
 		// Check if we're inside a string
 		inString := false
+		closedString := false
 		for j := len(stack) - 1; j >= 0; j-- {
 			if stack[j] == "\"" || stack[j] == "'" {
 				inString = true
@@ -287,13 +291,15 @@ func (r *REPL) getContinuationPrompt(input string) string {
 				if (stack[j] == "\"" && ch == '"' && prevChar != '\\') ||
 					(stack[j] == "'" && ch == '\'' && prevChar != '\\') {
 					stack = stack[:j] // Pop the string opener
-					inString = false
+					closedString = true
 				}
 				break
 			}
 		}
 
-		if !inString {
+		// Don't process openers if we're in a string OR if we just closed one
+		// (closing quote shouldn't also open a new string)
+		if !inString && !closedString {
 			switch ch {
 			case '"':
 				stack = append(stack, "\"")
