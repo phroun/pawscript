@@ -551,8 +551,8 @@ func (env *ModuleEnvironment) PopulateIOModule(config *IOChannelConfig, executor
 
 	// Add #random token to ObjectsInherited if it exists
 	if ioModule["#random"] != nil {
-		if item, ok := ioModule["#random"].Value.(Symbol); ok {
-			env.ObjectsInherited["#random"] = item
+		if ref, ok := ioModule["#random"].Value.(ObjectRef); ok {
+			env.ObjectsInherited["#random"] = ref
 		}
 	}
 
