@@ -6,8 +6,8 @@ import (
 	"os/exec"
 	"sync"
 
+	"github.com/mappu/miqt/qt"
 	"github.com/phroun/pawscript/pkg/purfecterm"
-	"github.com/therecipe/qt/widgets"
 )
 
 // Options configures terminal creation
@@ -92,7 +92,7 @@ func New(opts Options) (*Terminal, error) {
 }
 
 // Widget returns the Qt widget
-func (t *Terminal) Widget() *widgets.QWidget {
+func (t *Terminal) Widget() *qt.QWidget {
 	return t.widget.QWidget()
 }
 

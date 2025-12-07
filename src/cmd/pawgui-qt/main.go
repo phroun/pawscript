@@ -3,10 +3,6 @@
 package main
 
 import (
-	// IMPORTANT: qtinit must be imported first to set Qt environment variables
-	// before any therecipe/qt packages initialize
-	_ "github.com/phroun/pawscript/pkg/qtinit"
-
 	"fmt"
 	"io"
 	"os"
@@ -16,10 +12,9 @@ import (
 	"sync"
 	"time"
 
+	"github.com/mappu/miqt/qt"
 	"github.com/phroun/pawscript"
 	purfectermqt "github.com/phroun/pawscript/pkg/purfecterm-qt"
-	"github.com/therecipe/qt/core"
-	"github.com/therecipe/qt/widgets"
 )
 
 // Default font settings
@@ -29,11 +24,11 @@ const defaultFontSize = 22
 func getDefaultFont() string {
 	switch runtime.GOOS {
 	case "darwin":
-		return "Menlo, JetBrains Mono, SF Mono, Cascadia Mono, Consolas, Monaco, Courier New"
+		return "Menlo"
 	case "windows":
-		return "Cascadia Mono, Consolas, JetBrains Mono, Menlo, SF Mono, Monaco, Courier New"
+		return "Cascadia Mono"
 	default:
-		return "JetBrains Mono, DejaVu Sans Mono, Liberation Mono, Menlo, Consolas, monospace"
+		return "DejaVu Sans Mono"
 	}
 }
 
@@ -42,17 +37,15 @@ const appName = "PawScript Launcher (Qt)"
 // Global state
 var (
 	currentDir string
-	mainWindow *widgets.QMainWindow
-	qApp       *widgets.QApplication
-	fileList   *widgets.QListWidget
+	mainWindow *qt.QMainWindow
+	fileList   *qt.QListWidget
 	terminal   *purfectermqt.Terminal
-	pathLabel  *widgets.QLabel
-	runButton  *widgets.QPushButton
+	pathLabel  *qt.QLabel
+	runButton  *qt.QPushButton
 
 	// Console I/O for PawScript
 	consoleOutCh   *pawscript.StoredChannel
 	consoleInCh    *pawscript.StoredChannel
-	stdoutWriter   *io.PipeWriter
 	stdinReader    *io.PipeReader
 	stdinWriter    *io.PipeWriter
 	clearInputFunc func()
@@ -152,26 +145,21 @@ func main() {
 		currentDir, _ = os.Getwd()
 	}
 
-	// Initialize Qt with explicit args to avoid potential nil issues
-	args := os.Args
-	if len(args) == 0 {
-		args = []string{"pawgui-qt"}
-	}
-	qApp = widgets.NewQApplication(len(args), args)
-	qApp.SetApplicationName(appName)
+	// Initialize Qt application
+	qt.NewQApplication(os.Args)
 
 	// Create main window
-	mainWindow = widgets.NewQMainWindow(nil, 0)
+	mainWindow = qt.NewQMainWindow2(nil)
 	mainWindow.SetWindowTitle(appName)
 	mainWindow.SetMinimumSize2(900, 700)
 
 	// Create central widget with horizontal splitter
-	centralWidget := widgets.NewQWidget(nil, 0)
-	mainLayout := widgets.NewQHBoxLayout()
-	centralWidget.SetLayout(mainLayout)
+	centralWidget := qt.NewQWidget2(nil)
+	mainLayout := qt.NewQHBoxLayout2()
+	centralWidget.SetLayout(mainLayout.QLayout)
 
 	// Create splitter
-	splitter := widgets.NewQSplitter2(core.Qt__Horizontal, nil)
+	splitter := qt.NewQSplitter3(qt.Horizontal, nil)
 
 	// Left panel (file browser)
 	leftPanel := createFilePanel()
@@ -184,7 +172,7 @@ func main() {
 	// Set splitter sizes (30% left, 70% right)
 	splitter.SetSizes([]int{270, 630})
 
-	mainLayout.AddWidget(splitter, 0, 0)
+	mainLayout.AddWidget(splitter.QWidget, 0, 0)
 	mainWindow.SetCentralWidget(centralWidget)
 
 	// Set up console I/O
@@ -200,51 +188,51 @@ func main() {
 	mainWindow.Show()
 
 	// Run application
-	qApp.Exec()
+	qt.QApplication_Exec()
 }
 
-func createFilePanel() *widgets.QWidget {
-	panel := widgets.NewQWidget(nil, 0)
-	layout := widgets.NewQVBoxLayout()
-	panel.SetLayout(layout)
+func createFilePanel() *qt.QWidget {
+	panel := qt.NewQWidget2(nil)
+	layout := qt.NewQVBoxLayout2()
+	panel.SetLayout(layout.QLayout)
 
 	// Path label
-	pathLabel = widgets.NewQLabel2("", nil, 0)
+	pathLabel = qt.NewQLabel3("", nil)
 	pathLabel.SetWordWrap(true)
-	layout.AddWidget(pathLabel, 0, 0)
+	layout.AddWidget(pathLabel.QWidget, 0, 0)
 
 	// Navigation buttons
-	navLayout := widgets.NewQHBoxLayout()
+	navLayout := qt.NewQHBoxLayout2()
 
-	upButton := widgets.NewQPushButton2("Up", nil)
-	upButton.ConnectClicked(func(bool) { navigateUp() })
-	navLayout.AddWidget(upButton, 0, 0)
+	upButton := qt.NewQPushButton3("Up", nil)
+	upButton.OnClicked(func() { navigateUp() })
+	navLayout.AddWidget(upButton.QWidget, 0, 0)
 
-	browseButton := widgets.NewQPushButton2("Browse...", nil)
-	browseButton.ConnectClicked(func(bool) { browseFolder() })
-	navLayout.AddWidget(browseButton, 0, 0)
+	browseButton := qt.NewQPushButton3("Browse...", nil)
+	browseButton.OnClicked(func() { browseFolder() })
+	navLayout.AddWidget(browseButton.QWidget, 0, 0)
 
-	layout.AddLayout(navLayout, 0)
+	layout.AddLayout(navLayout.QLayout, 0)
 
 	// File list
-	fileList = widgets.NewQListWidget(nil)
-	fileList.ConnectItemDoubleClicked(func(item *widgets.QListWidgetItem) {
+	fileList = qt.NewQListWidget2(nil)
+	fileList.OnItemDoubleClicked(func(item *qt.QListWidgetItem) {
 		handleFileActivated(item)
 	})
-	layout.AddWidget(fileList, 1, 0)
+	layout.AddWidget(fileList.QWidget, 1, 0)
 
 	// Run button
-	runButton = widgets.NewQPushButton2("Run", nil)
-	runButton.ConnectClicked(func(bool) { runSelectedFile() })
-	layout.AddWidget(runButton, 0, 0)
+	runButton = qt.NewQPushButton3("Run", nil)
+	runButton.OnClicked(func() { runSelectedFile() })
+	layout.AddWidget(runButton.QWidget, 0, 0)
 
 	return panel
 }
 
-func createTerminalPanel() *widgets.QWidget {
-	panel := widgets.NewQWidget(nil, 0)
-	layout := widgets.NewQVBoxLayout()
-	panel.SetLayout(layout)
+func createTerminalPanel() *qt.QWidget {
+	panel := qt.NewQWidget2(nil)
+	layout := qt.NewQVBoxLayout2()
+	panel.SetLayout(layout.QLayout)
 
 	// Create terminal
 	var err error
@@ -434,11 +422,25 @@ func startREPL() {
 	consoleREPL.Start()
 }
 
+// fileItemData stores path and isDir for list items
+type fileItemData struct {
+	path  string
+	isDir bool
+}
+
+var fileItemDataMap = make(map[uintptr]fileItemData)
+var fileItemDataMu sync.Mutex
+
 func loadDirectory(dir string) {
 	currentDir = dir
 	pathLabel.SetText(dir)
 
 	fileList.Clear()
+
+	// Clear old item data
+	fileItemDataMu.Lock()
+	fileItemDataMap = make(map[uintptr]fileItemData)
+	fileItemDataMu.Unlock()
 
 	entries, err := os.ReadDir(dir)
 	if err != nil {
@@ -448,32 +450,47 @@ func loadDirectory(dir string) {
 	// Add directories first
 	for _, entry := range entries {
 		if entry.IsDir() && !strings.HasPrefix(entry.Name(), ".") {
-			item := widgets.NewQListWidgetItem2("["+entry.Name()+"]", fileList, 0)
-			item.SetData(int(core.Qt__UserRole), core.NewQVariant1(filepath.Join(dir, entry.Name())))
-			item.SetData(int(core.Qt__UserRole)+1, core.NewQVariant1(true)) // isDir
+			item := qt.NewQListWidgetItem3("["+entry.Name()+"]", fileList.QListWidget)
+			// Store data using pointer map
+			fileItemDataMu.Lock()
+			fileItemDataMap[item.UnsafePointer()] = fileItemData{
+				path:  filepath.Join(dir, entry.Name()),
+				isDir: true,
+			}
+			fileItemDataMu.Unlock()
 		}
 	}
 
 	// Add .paw files
 	for _, entry := range entries {
 		if !entry.IsDir() && strings.HasSuffix(entry.Name(), ".paw") {
-			item := widgets.NewQListWidgetItem2(entry.Name(), fileList, 0)
-			item.SetData(int(core.Qt__UserRole), core.NewQVariant1(filepath.Join(dir, entry.Name())))
-			item.SetData(int(core.Qt__UserRole)+1, core.NewQVariant1(false)) // isDir
+			item := qt.NewQListWidgetItem3(entry.Name(), fileList.QListWidget)
+			// Store data using pointer map
+			fileItemDataMu.Lock()
+			fileItemDataMap[item.UnsafePointer()] = fileItemData{
+				path:  filepath.Join(dir, entry.Name()),
+				isDir: false,
+			}
+			fileItemDataMu.Unlock()
 		}
 	}
 
 	saveBrowseDir(dir)
 }
 
-func handleFileActivated(item *widgets.QListWidgetItem) {
-	path := item.Data(int(core.Qt__UserRole)).ToString()
-	isDir := item.Data(int(core.Qt__UserRole) + 1).ToBool()
+func handleFileActivated(item *qt.QListWidgetItem) {
+	fileItemDataMu.Lock()
+	data, ok := fileItemDataMap[item.UnsafePointer()]
+	fileItemDataMu.Unlock()
 
-	if isDir {
-		loadDirectory(path)
+	if !ok {
+		return
+	}
+
+	if data.isDir {
+		loadDirectory(data.path)
 	} else {
-		runScript(path)
+		runScript(data.path)
 	}
 }
 
@@ -485,15 +502,9 @@ func navigateUp() {
 }
 
 func browseFolder() {
-	dialog := widgets.NewQFileDialog2(mainWindow, "Select Folder", currentDir, "")
-	dialog.SetFileMode(widgets.QFileDialog__Directory)
-	dialog.SetOption(widgets.QFileDialog__ShowDirsOnly, true)
-
-	if dialog.Exec() == int(widgets.QDialog__Accepted) {
-		dirs := dialog.SelectedFiles()
-		if len(dirs) > 0 {
-			loadDirectory(dirs[0])
-		}
+	dir := qt.QFileDialog_GetExistingDirectory2(mainWindow.QWidget, "Select Folder", currentDir)
+	if dir != "" {
+		loadDirectory(dir)
 	}
 }
 
@@ -504,11 +515,16 @@ func runSelectedFile() {
 	}
 
 	item := items[0]
-	path := item.Data(int(core.Qt__UserRole)).ToString()
-	isDir := item.Data(int(core.Qt__UserRole) + 1).ToBool()
+	fileItemDataMu.Lock()
+	data, ok := fileItemDataMap[item.UnsafePointer()]
+	fileItemDataMu.Unlock()
 
-	if !isDir {
-		runScript(path)
+	if !ok {
+		return
+	}
+
+	if !data.isDir {
+		runScript(data.path)
 	}
 }
 
@@ -621,11 +637,4 @@ func runScript(filePath string) {
 			consoleREPL.Start()
 		}
 	}()
-}
-
-// Custom event handler to update UI from background threads
-func init() {
-	// Note: Qt event handling would need proper implementation
-	// This is a simplified version - full implementation would use
-	// custom QEvent subclasses and proper event filtering
 }

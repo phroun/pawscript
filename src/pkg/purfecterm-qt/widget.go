@@ -4,10 +4,8 @@ import (
 	"math"
 	"sync"
 
+	"github.com/mappu/miqt/qt"
 	"github.com/phroun/pawscript/pkg/purfecterm"
-	"github.com/therecipe/qt/core"
-	"github.com/therecipe/qt/gui"
-	"github.com/therecipe/qt/widgets"
 )
 
 // Left padding for terminal content (pixels)
@@ -15,7 +13,7 @@ const terminalLeftPadding = 8
 
 // Widget is a Qt terminal emulator widget
 type Widget struct {
-	widget *widgets.QWidget
+	widget *qt.QWidget
 
 	mu sync.Mutex
 
@@ -44,7 +42,7 @@ type Widget struct {
 
 	// Cursor blink
 	cursorBlinkOn  bool
-	blinkTimer     *core.QTimer
+	blinkTimer     *qt.QTimer
 	blinkTickCount int
 
 	// Text blink animation (bobbing wave)
@@ -60,7 +58,7 @@ type Widget struct {
 // NewWidget creates a new terminal widget with the specified dimensions
 func NewWidget(cols, rows, scrollbackSize int) *Widget {
 	w := &Widget{
-		widget:        widgets.NewQWidget(nil, 0),
+		widget:        qt.NewQWidget2(nil),
 		fontFamily:    "Monospace",
 		fontSize:      14,
 		charWidth:     10,
@@ -80,9 +78,9 @@ func NewWidget(cols, rows, scrollbackSize int) *Widget {
 	})
 
 	// Enable focus and mouse tracking
-	w.widget.SetFocusPolicy(core.Qt__StrongFocus)
+	w.widget.SetFocusPolicy(qt.StrongFocus)
 	w.widget.SetMouseTracking(true)
-	w.widget.SetAttribute(core.Qt__WA_InputMethodEnabled, true)
+	w.widget.SetAttribute(qt.WA_InputMethodEnabled, true)
 
 	// Calculate font metrics
 	w.updateFontMetrics()
@@ -91,26 +89,46 @@ func NewWidget(cols, rows, scrollbackSize int) *Widget {
 	w.widget.SetMinimumSize2(cols*w.charWidth+terminalLeftPadding, rows*w.charHeight)
 
 	// Create blink timer (50ms for smooth animation)
-	w.blinkTimer = core.NewQTimer(w.widget)
-	w.blinkTimer.ConnectTimeout(w.onBlinkTimer)
+	w.blinkTimer = qt.NewQTimer2(w.widget.QObject)
+	w.blinkTimer.OnTimeout(func() {
+		w.onBlinkTimer()
+	})
 	w.blinkTimer.Start(50)
 
-	// Connect paint event
-	w.widget.ConnectPaintEvent(w.paintEvent)
-	w.widget.ConnectKeyPressEvent(w.keyPressEvent)
-	w.widget.ConnectMousePressEvent(w.mousePressEvent)
-	w.widget.ConnectMouseReleaseEvent(w.mouseReleaseEvent)
-	w.widget.ConnectMouseMoveEvent(w.mouseMoveEvent)
-	w.widget.ConnectWheelEvent(w.wheelEvent)
-	w.widget.ConnectFocusInEvent(w.focusInEvent)
-	w.widget.ConnectFocusOutEvent(w.focusOutEvent)
-	w.widget.ConnectResizeEvent(w.resizeEvent)
+	// Connect events using miqt's OnXxxEvent pattern
+	w.widget.OnPaintEvent(func(super func(event *qt.QPaintEvent), event *qt.QPaintEvent) {
+		w.paintEvent(event)
+	})
+	w.widget.OnKeyPressEvent(func(super func(event *qt.QKeyEvent), event *qt.QKeyEvent) {
+		w.keyPressEvent(event)
+	})
+	w.widget.OnMousePressEvent(func(super func(event *qt.QMouseEvent), event *qt.QMouseEvent) {
+		w.mousePressEvent(event)
+	})
+	w.widget.OnMouseReleaseEvent(func(super func(event *qt.QMouseEvent), event *qt.QMouseEvent) {
+		w.mouseReleaseEvent(event)
+	})
+	w.widget.OnMouseMoveEvent(func(super func(event *qt.QMouseEvent), event *qt.QMouseEvent) {
+		w.mouseMoveEvent(event)
+	})
+	w.widget.OnWheelEvent(func(super func(event *qt.QWheelEvent), event *qt.QWheelEvent) {
+		w.wheelEvent(event)
+	})
+	w.widget.OnFocusInEvent(func(super func(event *qt.QFocusEvent), event *qt.QFocusEvent) {
+		w.focusInEvent(event)
+	})
+	w.widget.OnFocusOutEvent(func(super func(event *qt.QFocusEvent), event *qt.QFocusEvent) {
+		w.focusOutEvent(event)
+	})
+	w.widget.OnResizeEvent(func(super func(event *qt.QResizeEvent), event *qt.QResizeEvent) {
+		w.resizeEvent(event)
+	})
 
 	return w
 }
 
 // QWidget returns the underlying Qt widget
-func (w *Widget) QWidget() *widgets.QWidget {
+func (w *Widget) QWidget() *qt.QWidget {
 	return w.widget
 }
 
@@ -189,9 +207,9 @@ func (w *Widget) Buffer() *purfecterm.Buffer {
 }
 
 func (w *Widget) updateFontMetrics() {
-	font := gui.NewQFont2(w.fontFamily, w.fontSize, -1, false)
+	font := qt.NewQFont4(w.fontFamily, w.fontSize)
 	font.SetFixedPitch(true)
-	metrics := gui.NewQFontMetrics(font)
+	metrics := qt.NewQFontMetrics(font)
 	w.charWidth = metrics.AverageCharWidth()
 	w.charHeight = metrics.Height()
 	w.charAscent = metrics.Ascent()
@@ -203,7 +221,7 @@ func (w *Widget) updateFontMetrics() {
 	}
 }
 
-func (w *Widget) paintEvent(event *gui.QPaintEvent) {
+func (w *Widget) paintEvent(event *qt.QPaintEvent) {
 	w.mu.Lock()
 	scheme := w.scheme
 	fontFamily := w.fontFamily
@@ -224,15 +242,15 @@ func (w *Widget) paintEvent(event *gui.QPaintEvent) {
 		cursorVisible = false
 	}
 
-	painter := gui.NewQPainter2(w.widget)
-	defer painter.DestroyQPainter()
+	painter := qt.NewQPainter2(w.widget.QPaintDevice)
+	defer painter.End()
 
 	// Fill background
-	bgColor := gui.NewQColor3(int(scheme.Background.R), int(scheme.Background.G), int(scheme.Background.B), 255)
-	painter.FillRect5(0, 0, w.widget.Width(), w.widget.Height(), bgColor)
+	bgColor := qt.NewQColor3(int(scheme.Background.R), int(scheme.Background.G), int(scheme.Background.B))
+	painter.FillRect6(0, 0, w.widget.Width(), w.widget.Height(), bgColor)
 
 	// Set up font
-	font := gui.NewQFont2(fontFamily, fontSize, -1, false)
+	font := qt.NewQFont4(fontFamily, fontSize)
 	font.SetFixedPitch(true)
 	painter.SetFont(font)
 
@@ -309,18 +327,19 @@ func (w *Widget) paintEvent(event *gui.QPaintEvent) {
 
 			// Draw background if different from terminal background
 			if bg != scheme.Background {
-				bgQColor := gui.NewQColor3(int(bg.R), int(bg.G), int(bg.B), 255)
-				painter.FillRect5(cellX, cellY, cellW, cellH, bgQColor)
+				bgQColor := qt.NewQColor3(int(bg.R), int(bg.G), int(bg.B))
+				painter.FillRect6(cellX, cellY, cellW, cellH, bgQColor)
 			}
 
 			// Draw character
 			if cell.Char != ' ' && cell.Char != 0 && blinkVisible {
-				fgQColor := gui.NewQColor3(int(fg.R), int(fg.G), int(fg.B), 255)
-				painter.SetPen2(fgQColor)
+				fgQColor := qt.NewQColor3(int(fg.R), int(fg.G), int(fg.B))
+				painter.SetPen5(fgQColor)
 
 				if cell.Bold {
-					boldFont := gui.NewQFont2(fontFamily, fontSize, int(gui.QFont__Bold), false)
+					boldFont := qt.NewQFont4(fontFamily, fontSize)
 					boldFont.SetFixedPitch(true)
+					boldFont.SetWeight(qt.QFont__Bold)
 					painter.SetFont(boldFont)
 				}
 
@@ -336,21 +355,21 @@ func (w *Widget) paintEvent(event *gui.QPaintEvent) {
 					painter.DrawText3(cellX, cellY+charAscent+int(yOffset), string(cell.Char))
 				case purfecterm.LineAttrDoubleWidth:
 					painter.Save()
-					painter.Translate3(float64(cellX), float64(cellY+charAscent)+yOffset)
+					painter.Translate2(float64(cellX), float64(cellY+charAscent)+yOffset)
 					painter.Scale(2.0, 1.0)
 					painter.DrawText3(0, 0, string(cell.Char))
 					painter.Restore()
 				case purfecterm.LineAttrDoubleTop:
 					painter.Save()
-					painter.SetClipRect2(core.NewQRect4(cellX, cellY, cellW, cellH), core.Qt__ReplaceClip)
-					painter.Translate3(float64(cellX), float64(cellY+charAscent*2)+yOffset*2)
+					painter.SetClipRect(qt.NewQRect4(cellX, cellY, cellW, cellH))
+					painter.Translate2(float64(cellX), float64(cellY+charAscent*2)+yOffset*2)
 					painter.Scale(2.0, 2.0)
 					painter.DrawText3(0, 0, string(cell.Char))
 					painter.Restore()
 				case purfecterm.LineAttrDoubleBottom:
 					painter.Save()
-					painter.SetClipRect2(core.NewQRect4(cellX, cellY, cellW, cellH), core.Qt__ReplaceClip)
-					painter.Translate3(float64(cellX), float64(cellY+charAscent*2-charHeight)+yOffset*2)
+					painter.SetClipRect(qt.NewQRect4(cellX, cellY, cellW, cellH))
+					painter.Translate2(float64(cellX), float64(cellY+charAscent*2-charHeight)+yOffset*2)
 					painter.Scale(2.0, 2.0)
 					painter.DrawText3(0, 0, string(cell.Char))
 					painter.Restore()
@@ -363,21 +382,21 @@ func (w *Widget) paintEvent(event *gui.QPaintEvent) {
 
 			// Draw underline
 			if cell.Underline {
-				fgQColor := gui.NewQColor3(int(fg.R), int(fg.G), int(fg.B), 255)
+				fgQColor := qt.NewQColor3(int(fg.R), int(fg.G), int(fg.B))
 				underlineH := 1
 				if lineAttr == purfecterm.LineAttrDoubleTop || lineAttr == purfecterm.LineAttrDoubleBottom {
 					underlineH = 2
 				}
-				painter.FillRect5(cellX, cellY+cellH-1, cellW, underlineH, fgQColor)
+				painter.FillRect6(cellX, cellY+cellH-1, cellW, underlineH, fgQColor)
 			}
 
 			// Draw cursor
 			if isCursor {
-				cursorQColor := gui.NewQColor3(int(scheme.Cursor.R), int(scheme.Cursor.G), int(scheme.Cursor.B), 255)
+				cursorQColor := qt.NewQColor3(int(scheme.Cursor.R), int(scheme.Cursor.G), int(scheme.Cursor.B))
 				switch cursorShape {
 				case 0: // Block
 					if !w.hasFocus {
-						pen := gui.NewQPen3(cursorQColor)
+						pen := qt.NewQPen4(cursorQColor)
 						pen.SetWidth(1)
 						painter.SetPen(pen)
 						painter.DrawRect2(cellX, cellY, cellW-1, cellH-1)
@@ -387,13 +406,13 @@ func (w *Widget) paintEvent(event *gui.QPaintEvent) {
 					if !w.hasFocus {
 						thickness = cellH / 6
 					}
-					painter.FillRect5(cellX, cellY+cellH-thickness, cellW, thickness, cursorQColor)
+					painter.FillRect6(cellX, cellY+cellH-thickness, cellW, thickness, cursorQColor)
 				case 2: // Bar
 					thickness := 2
 					if !w.hasFocus {
 						thickness = 1
 					}
-					painter.FillRect5(cellX, cellY, thickness, cellH, cursorQColor)
+					painter.FillRect6(cellX, cellY, thickness, cellH, cursorQColor)
 				}
 			}
 		}
@@ -435,7 +454,7 @@ func (w *Widget) screenToCell(screenX, screenY int) (cellX, cellY int) {
 	return
 }
 
-func (w *Widget) keyPressEvent(event *gui.QKeyEvent) {
+func (w *Widget) keyPressEvent(event *qt.QKeyEvent) {
 	w.mu.Lock()
 	onInput := w.onInput
 	w.mu.Unlock()
@@ -447,17 +466,17 @@ func (w *Widget) keyPressEvent(event *gui.QKeyEvent) {
 	key := event.Key()
 	modifiers := event.Modifiers()
 
-	hasShift := modifiers&core.Qt__ShiftModifier != 0
-	hasCtrl := modifiers&core.Qt__ControlModifier != 0
-	hasAlt := modifiers&core.Qt__AltModifier != 0
-	hasMeta := modifiers&core.Qt__MetaModifier != 0
+	hasShift := modifiers&qt.ShiftModifier != 0
+	hasCtrl := modifiers&qt.ControlModifier != 0
+	hasAlt := modifiers&qt.AltModifier != 0
+	hasMeta := modifiers&qt.MetaModifier != 0
 
 	var data []byte
 
-	switch core.Qt__Key(key) {
-	case core.Qt__Key_Return, core.Qt__Key_Enter:
+	switch qt.Key(key) {
+	case qt.Key_Return, qt.Key_Enter:
 		data = []byte{'\r'}
-	case core.Qt__Key_Backspace:
+	case qt.Key_Backspace:
 		if hasCtrl {
 			data = []byte{0x08}
 		} else if hasAlt {
@@ -465,57 +484,57 @@ func (w *Widget) keyPressEvent(event *gui.QKeyEvent) {
 		} else {
 			data = []byte{0x7f}
 		}
-	case core.Qt__Key_Tab:
+	case qt.Key_Tab:
 		if hasShift {
 			data = []byte{0x1b, '[', 'Z'}
 		} else {
 			data = []byte{'\t'}
 		}
-	case core.Qt__Key_Escape:
+	case qt.Key_Escape:
 		data = []byte{0x1b}
-	case core.Qt__Key_Up:
+	case qt.Key_Up:
 		data = w.cursorKey('A', hasShift, hasCtrl, hasAlt, hasMeta)
-	case core.Qt__Key_Down:
+	case qt.Key_Down:
 		data = w.cursorKey('B', hasShift, hasCtrl, hasAlt, hasMeta)
-	case core.Qt__Key_Right:
+	case qt.Key_Right:
 		data = w.cursorKey('C', hasShift, hasCtrl, hasAlt, hasMeta)
-	case core.Qt__Key_Left:
+	case qt.Key_Left:
 		data = w.cursorKey('D', hasShift, hasCtrl, hasAlt, hasMeta)
-	case core.Qt__Key_Home:
+	case qt.Key_Home:
 		data = w.cursorKey('H', hasShift, hasCtrl, hasAlt, hasMeta)
-	case core.Qt__Key_End:
+	case qt.Key_End:
 		data = w.cursorKey('F', hasShift, hasCtrl, hasAlt, hasMeta)
-	case core.Qt__Key_PageUp:
+	case qt.Key_PageUp:
 		data = w.tildeKey(5, hasShift, hasCtrl, hasAlt, hasMeta)
-	case core.Qt__Key_PageDown:
+	case qt.Key_PageDown:
 		data = w.tildeKey(6, hasShift, hasCtrl, hasAlt, hasMeta)
-	case core.Qt__Key_Insert:
+	case qt.Key_Insert:
 		data = w.tildeKey(2, hasShift, hasCtrl, hasAlt, hasMeta)
-	case core.Qt__Key_Delete:
+	case qt.Key_Delete:
 		data = w.tildeKey(3, hasShift, hasCtrl, hasAlt, hasMeta)
-	case core.Qt__Key_F1:
+	case qt.Key_F1:
 		data = w.functionKey('P', hasShift, hasCtrl, hasAlt, hasMeta)
-	case core.Qt__Key_F2:
+	case qt.Key_F2:
 		data = w.functionKey('Q', hasShift, hasCtrl, hasAlt, hasMeta)
-	case core.Qt__Key_F3:
+	case qt.Key_F3:
 		data = w.functionKey('R', hasShift, hasCtrl, hasAlt, hasMeta)
-	case core.Qt__Key_F4:
+	case qt.Key_F4:
 		data = w.functionKey('S', hasShift, hasCtrl, hasAlt, hasMeta)
-	case core.Qt__Key_F5:
+	case qt.Key_F5:
 		data = w.tildeKey(15, hasShift, hasCtrl, hasAlt, hasMeta)
-	case core.Qt__Key_F6:
+	case qt.Key_F6:
 		data = w.tildeKey(17, hasShift, hasCtrl, hasAlt, hasMeta)
-	case core.Qt__Key_F7:
+	case qt.Key_F7:
 		data = w.tildeKey(18, hasShift, hasCtrl, hasAlt, hasMeta)
-	case core.Qt__Key_F8:
+	case qt.Key_F8:
 		data = w.tildeKey(19, hasShift, hasCtrl, hasAlt, hasMeta)
-	case core.Qt__Key_F9:
+	case qt.Key_F9:
 		data = w.tildeKey(20, hasShift, hasCtrl, hasAlt, hasMeta)
-	case core.Qt__Key_F10:
+	case qt.Key_F10:
 		data = w.tildeKey(21, hasShift, hasCtrl, hasAlt, hasMeta)
-	case core.Qt__Key_F11:
+	case qt.Key_F11:
 		data = w.tildeKey(23, hasShift, hasCtrl, hasAlt, hasMeta)
-	case core.Qt__Key_F12:
+	case qt.Key_F12:
 		data = w.tildeKey(24, hasShift, hasCtrl, hasAlt, hasMeta)
 	default:
 		// Regular character
@@ -581,8 +600,8 @@ func (w *Widget) calcMod(hasShift, hasCtrl, hasAlt, hasMeta bool) int {
 	return mod
 }
 
-func (w *Widget) mousePressEvent(event *gui.QMouseEvent) {
-	if event.Button() == core.Qt__LeftButton {
+func (w *Widget) mousePressEvent(event *qt.QMouseEvent) {
+	if event.Button() == qt.LeftButton {
 		pos := event.Pos()
 		cellX, cellY := w.screenToCell(pos.X(), pos.Y())
 		w.mouseDown = true
@@ -590,12 +609,12 @@ func (w *Widget) mousePressEvent(event *gui.QMouseEvent) {
 		w.mouseDownY = cellY
 		w.selectionMoved = false
 		w.buffer.ClearSelection()
-		w.widget.SetFocus2()
+		w.widget.SetFocus()
 	}
 }
 
-func (w *Widget) mouseReleaseEvent(event *gui.QMouseEvent) {
-	if event.Button() == core.Qt__LeftButton {
+func (w *Widget) mouseReleaseEvent(event *qt.QMouseEvent) {
+	if event.Button() == qt.LeftButton {
 		w.mouseDown = false
 		if w.selecting {
 			w.selecting = false
@@ -604,7 +623,7 @@ func (w *Widget) mouseReleaseEvent(event *gui.QMouseEvent) {
 	}
 }
 
-func (w *Widget) mouseMoveEvent(event *gui.QMouseEvent) {
+func (w *Widget) mouseMoveEvent(event *qt.QMouseEvent) {
 	if !w.mouseDown {
 		return
 	}
@@ -627,7 +646,7 @@ func (w *Widget) mouseMoveEvent(event *gui.QMouseEvent) {
 	w.buffer.UpdateSelection(cellX, cellY)
 }
 
-func (w *Widget) wheelEvent(event *gui.QWheelEvent) {
+func (w *Widget) wheelEvent(event *qt.QWheelEvent) {
 	delta := event.AngleDelta().Y()
 	offset := w.buffer.GetScrollOffset()
 	scrollbackSize := w.buffer.GetScrollbackSize()
@@ -647,18 +666,18 @@ func (w *Widget) wheelEvent(event *gui.QWheelEvent) {
 	w.buffer.SetScrollOffset(offset)
 }
 
-func (w *Widget) focusInEvent(event *gui.QFocusEvent) {
+func (w *Widget) focusInEvent(event *qt.QFocusEvent) {
 	w.hasFocus = true
 	w.cursorBlinkOn = true
 	w.widget.Update()
 }
 
-func (w *Widget) focusOutEvent(event *gui.QFocusEvent) {
+func (w *Widget) focusOutEvent(event *qt.QFocusEvent) {
 	w.hasFocus = false
 	w.widget.Update()
 }
 
-func (w *Widget) resizeEvent(event *gui.QResizeEvent) {
+func (w *Widget) resizeEvent(event *qt.QResizeEvent) {
 	w.updateFontMetrics()
 
 	newCols := (w.widget.Width() - terminalLeftPadding) / w.charWidth
@@ -693,8 +712,8 @@ func (w *Widget) GetSelectedText() string {
 func (w *Widget) CopySelection() {
 	if w.buffer.HasSelection() {
 		text := w.buffer.GetSelectedText()
-		clipboard := gui.QGuiApplication_Clipboard()
-		clipboard.SetText(text, gui.QClipboard__Clipboard)
+		clipboard := qt.QGuiApplication_Clipboard()
+		clipboard.SetText(text)
 	}
 }
 
@@ -708,8 +727,8 @@ func (w *Widget) PasteClipboard() {
 		return
 	}
 
-	clipboard := gui.QGuiApplication_Clipboard()
-	text := clipboard.Text(gui.QClipboard__Clipboard)
+	clipboard := qt.QGuiApplication_Clipboard()
+	text := clipboard.Text()
 	if text != "" {
 		useBracketedPaste := w.buffer.IsBracketedPasteModeEnabled()
 
