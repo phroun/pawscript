@@ -8,6 +8,7 @@ require (
 	fyne.io/fyne/v2 v2.7.1
 	github.com/fyne-io/terminal v0.0.0-20251010081556-6f9c3819f75f
 	github.com/gotk3/gotk3 v0.6.4-0.20240618185848-ff349ae13f56
+	github.com/mappu/miqt v0.12.0
 	github.com/sqweek/dialog v0.0.0-20240226140203-065105509627
 	golang.org/x/term v0.37.0
 )
@@ -35,7 +36,6 @@ require (
 	github.com/hack-pad/safejs v0.1.0 // indirect
 	github.com/jeandeaual/go-locale v0.0.0-20250612000132-0ef82f21eade // indirect
 	github.com/jsummers/gobmp v0.0.0-20230614200233-a9de23ed2e25 // indirect
-	github.com/mappu/miqt v0.12.0 // indirect
 	github.com/nfnt/resize v0.0.0-20180221191011-83c6a9932646 // indirect
 	github.com/nicksnyder/go-i18n/v2 v2.5.1 // indirect
 	github.com/pmezard/go-difflib v1.0.0 // indirect
