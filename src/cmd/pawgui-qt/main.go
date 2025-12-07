@@ -149,17 +149,17 @@ func main() {
 	qt.NewQApplication(os.Args)
 
 	// Create main window
-	mainWindow = qt.NewQMainWindow2(nil)
+	mainWindow = qt.NewQMainWindow2()
 	mainWindow.SetWindowTitle(appName)
 	mainWindow.SetMinimumSize2(900, 700)
 
 	// Create central widget with horizontal splitter
-	centralWidget := qt.NewQWidget2(nil)
+	centralWidget := qt.NewQWidget2()
 	mainLayout := qt.NewQHBoxLayout2()
 	centralWidget.SetLayout(mainLayout.QLayout)
 
 	// Create splitter
-	splitter := qt.NewQSplitter3(qt.Horizontal, nil)
+	splitter := qt.NewQSplitter3(qt.Horizontal)
 
 	// Left panel (file browser)
 	leftPanel := createFilePanel()
@@ -172,7 +172,7 @@ func main() {
 	// Set splitter sizes (30% left, 70% right)
 	splitter.SetSizes([]int{270, 630})
 
-	mainLayout.AddWidget(splitter.QWidget, 0, 0)
+	mainLayout.AddWidget(splitter.QWidget)
 	mainWindow.SetCentralWidget(centralWidget)
 
 	// Set up console I/O
@@ -192,45 +192,45 @@ func main() {
 }
 
 func createFilePanel() *qt.QWidget {
-	panel := qt.NewQWidget2(nil)
+	panel := qt.NewQWidget2()
 	layout := qt.NewQVBoxLayout2()
 	panel.SetLayout(layout.QLayout)
 
 	// Path label
-	pathLabel = qt.NewQLabel3("", nil)
+	pathLabel = qt.NewQLabel3("")
 	pathLabel.SetWordWrap(true)
-	layout.AddWidget(pathLabel.QWidget, 0, 0)
+	layout.AddWidget(pathLabel.QWidget)
 
 	// Navigation buttons
 	navLayout := qt.NewQHBoxLayout2()
 
-	upButton := qt.NewQPushButton3("Up", nil)
+	upButton := qt.NewQPushButton3("Up")
 	upButton.OnClicked(func() { navigateUp() })
-	navLayout.AddWidget(upButton.QWidget, 0, 0)
+	navLayout.AddWidget(upButton.QWidget)
 
-	browseButton := qt.NewQPushButton3("Browse...", nil)
+	browseButton := qt.NewQPushButton3("Browse...")
 	browseButton.OnClicked(func() { browseFolder() })
-	navLayout.AddWidget(browseButton.QWidget, 0, 0)
+	navLayout.AddWidget(browseButton.QWidget)
 
-	layout.AddLayout(navLayout.QLayout, 0)
+	layout.AddLayout(navLayout.QLayout)
 
 	// File list
-	fileList = qt.NewQListWidget2(nil)
+	fileList = qt.NewQListWidget2()
 	fileList.OnItemDoubleClicked(func(item *qt.QListWidgetItem) {
 		handleFileActivated(item)
 	})
-	layout.AddWidget(fileList.QWidget, 1, 0)
+	layout.AddWidget2(fileList.QWidget, 1)
 
 	// Run button
-	runButton = qt.NewQPushButton3("Run", nil)
+	runButton = qt.NewQPushButton3("Run")
 	runButton.OnClicked(func() { runSelectedFile() })
-	layout.AddWidget(runButton.QWidget, 0, 0)
+	layout.AddWidget(runButton.QWidget)
 
 	return panel
 }
 
 func createTerminalPanel() *qt.QWidget {
-	panel := qt.NewQWidget2(nil)
+	panel := qt.NewQWidget2()
 	layout := qt.NewQVBoxLayout2()
 	panel.SetLayout(layout.QLayout)
 
@@ -248,7 +248,7 @@ func createTerminalPanel() *qt.QWidget {
 		os.Exit(1)
 	}
 
-	layout.AddWidget(terminal.Widget(), 1, 0)
+	layout.AddWidget2(terminal.Widget(), 1)
 
 	return panel
 }
