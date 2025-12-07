@@ -20,7 +20,7 @@ else
     BINARY_NAME := paw
 endif
 
-.PHONY: build-all build-all-gui clean-releases build build-gui build-gui-debug build-gui-software build-gui-gtk install test test-coverage run-example clean fmt lint help \
+.PHONY: build-all build-all-gui clean-releases build build-gui build-gui-debug build-gui-software build-gui-gtk build-gui-qt install test test-coverage run-example clean fmt lint help \
 	build-gui-macos-arm64 build-gui-macos-x64 build-gui-ms-arm64 build-gui-ms-x64 build-gui-linux-arm64 build-gui-linux-x64 ensure-fyne
 
 # Build native version for local use
@@ -89,6 +89,22 @@ ifeq ($(NATIVE_OS),windows)
 else
 	cd $(SRC_DIR) && go build -o ../pawgui-gtk ./cmd/pawgui-gtk
 	@echo "Created: pawgui-gtk"
+endif
+
+# Build Qt-based GUI (alternative to GTK, requires Qt5 development libraries)
+# Requires therecipe/qt bindings: https://github.com/therecipe/qt
+# Linux: apt install qtbase5-dev qtdeclarative5-dev
+# macOS: brew install qt@5
+# Windows: Install Qt from qt.io
+build-gui-qt:
+	@echo "Building pawgui-qt for native platform ($(NATIVE_OS)/$(NATIVE_ARCH))..."
+	@cd $(SRC_DIR) && go mod tidy
+ifeq ($(NATIVE_OS),windows)
+	cd $(SRC_DIR) && go build -o ../pawgui-qt.exe ./cmd/pawgui-qt
+	@echo "Created: pawgui-qt.exe"
+else
+	cd $(SRC_DIR) && go build -o ../pawgui-qt ./cmd/pawgui-qt
+	@echo "Created: pawgui-qt"
 endif
 
 # Default install prefix
@@ -243,7 +259,7 @@ run-example:
 
 clean:
 	@echo "Cleaning..."
-	@rm -f paw pawgui pawgui.exe pawgui-debug pawgui-debug.exe pawgui-software pawgui-software.exe pawgui-gtk pawgui-gtk.exe $(SRC_DIR)/coverage.out $(SRC_DIR)/coverage.html
+	@rm -f paw pawgui pawgui.exe pawgui-debug pawgui-debug.exe pawgui-software pawgui-software.exe pawgui-gtk pawgui-gtk.exe pawgui-qt pawgui-qt.exe $(SRC_DIR)/coverage.out $(SRC_DIR)/coverage.html
 	@rm -rf pawgui.app
 	@echo "Clean complete"
 
@@ -265,7 +281,8 @@ help:
 	@echo "  build-gui      - Build pawgui (Fyne GUI) for native platform"
 	@echo "  build-gui-debug - Build pawgui with debug symbols (for crash debugging)"
 	@echo "  build-gui-software - Build pawgui with software rendering (for driver issues)"
-	@echo "  build-gui-gtk - Build pawgui-gtk (GTK3+VTE alternative, no OpenGL)"
+	@echo "  build-gui-gtk  - Build pawgui-gtk (GTK3 alternative, no OpenGL)"
+	@echo "  build-gui-qt   - Build pawgui-qt (Qt5 alternative, no OpenGL)"
 	@echo "  build-all      - Build and package paw CLI for all platforms"
 	@echo "  build-all-gui  - Build and package pawgui for all platforms (requires Docker)"
 	@echo "  run-example    - Run hello.paw example"
