@@ -7,18 +7,19 @@ import (
 	"sync"
 
 	"github.com/gotk3/gotk3/gtk"
+	"github.com/phroun/pawscript/pkg/purfecterm"
 )
 
 // Options configures terminal creation
 type Options struct {
-	Cols           int         // Terminal width in columns (default: 80)
-	Rows           int         // Terminal height in rows (default: 24)
-	ScrollbackSize int         // Number of scrollback lines (default: 10000)
-	FontFamily     string      // Font family (default: "Monospace")
-	FontSize       int         // Font size in points (default: 14)
-	Scheme         ColorScheme // Color scheme (default: DefaultColorScheme())
-	Shell          string      // Shell to run (default: $SHELL or /bin/sh)
-	WorkingDir     string      // Initial working directory (default: current dir)
+	Cols           int                    // Terminal width in columns (default: 80)
+	Rows           int                    // Terminal height in rows (default: 24)
+	ScrollbackSize int                    // Number of scrollback lines (default: 10000)
+	FontFamily     string                 // Font family (default: "Monospace")
+	FontSize       int                    // Font size in points (default: 14)
+	Scheme         purfecterm.ColorScheme // Color scheme (default: DefaultColorScheme())
+	Shell          string                 // Shell to run (default: $SHELL or /bin/sh)
+	WorkingDir     string                 // Initial working directory (default: current dir)
 }
 
 // Terminal is a complete terminal emulator widget
@@ -26,31 +27,13 @@ type Terminal struct {
 	mu sync.Mutex
 
 	widget  *Widget
-	pty     PTY
+	pty     purfecterm.PTY
 	cmd     *exec.Cmd
 	options Options
 
 	// I/O
 	running bool
 	done    chan struct{}
-}
-
-// PTY is the interface for platform-specific pseudo-terminal implementations
-type PTY interface {
-	// Start starts the PTY with the given command
-	Start(cmd *exec.Cmd) error
-
-	// Read reads from the PTY
-	Read(p []byte) (n int, err error)
-
-	// Write writes to the PTY
-	Write(p []byte) (n int, err error)
-
-	// Resize resizes the PTY
-	Resize(cols, rows int) error
-
-	// Close closes the PTY
-	Close() error
 }
 
 // New creates a new terminal emulator
@@ -80,8 +63,8 @@ func New(opts Options) (*Terminal, error) {
 	if opts.WorkingDir == "" {
 		opts.WorkingDir, _ = os.Getwd()
 	}
-	if opts.Scheme.Foreground == (Color{}) {
-		opts.Scheme = DefaultColorScheme()
+	if opts.Scheme.Foreground == (purfecterm.Color{}) {
+		opts.Scheme = purfecterm.DefaultColorScheme()
 	}
 
 	// Create widget
@@ -144,7 +127,7 @@ func (t *Terminal) RunCommand(name string, args ...string) error {
 	t.mu.Unlock()
 
 	// Create PTY
-	pty, err := NewPTY()
+	pty, err := purfecterm.NewPTY()
 	if err != nil {
 		return err
 	}

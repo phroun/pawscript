@@ -1,7 +1,7 @@
 //go:build !windows
 // +build !windows
 
-package purfectermgtk
+package purfecterm
 
 /*
 #define _XOPEN_SOURCE 600

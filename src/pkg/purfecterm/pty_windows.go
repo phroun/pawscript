@@ -1,7 +1,7 @@
 //go:build windows
 // +build windows
 
-package purfectermgtk
+package purfecterm
 
 import (
 	"errors"
@@ -13,12 +13,12 @@ import (
 )
 
 var (
-	kernel32                       = syscall.NewLazyDLL("kernel32.dll")
-	procCreatePseudoConsole        = kernel32.NewProc("CreatePseudoConsole")
-	procResizePseudoConsole        = kernel32.NewProc("ResizePseudoConsole")
-	procClosePseudoConsole         = kernel32.NewProc("ClosePseudoConsole")
-	procInitializeProcThreadAttrList = kernel32.NewProc("InitializeProcThreadAttributeList")
-	procUpdateProcThreadAttribute  = kernel32.NewProc("UpdateProcThreadAttribute")
+	kernel32                          = syscall.NewLazyDLL("kernel32.dll")
+	procCreatePseudoConsole           = kernel32.NewProc("CreatePseudoConsole")
+	procResizePseudoConsole           = kernel32.NewProc("ResizePseudoConsole")
+	procClosePseudoConsole            = kernel32.NewProc("ClosePseudoConsole")
+	procInitializeProcThreadAttrList  = kernel32.NewProc("InitializeProcThreadAttributeList")
+	procUpdateProcThreadAttribute     = kernel32.NewProc("UpdateProcThreadAttribute")
 	procDeleteProcThreadAttributeList = kernel32.NewProc("DeleteProcThreadAttributeList")
 )
 
@@ -76,10 +76,10 @@ func newConPTY(cols, rows int) (*ConPTY, error) {
 
 	r, _, err := procCreatePseudoConsole.Call(
 		uintptr(*(*uint32)(unsafe.Pointer(&size))), // size as COORD packed into DWORD
-		inputRead.Fd(),                              // hInput
-		outputWrite.Fd(),                            // hOutput
-		0,                                           // dwFlags
-		uintptr(unsafe.Pointer(&hpc)),               // phPC
+		inputRead.Fd(),                // hInput
+		outputWrite.Fd(),              // hOutput
+		0,                             // dwFlags
+		uintptr(unsafe.Pointer(&hpc)), // phPC
 	)
 
 	if r != 0 {

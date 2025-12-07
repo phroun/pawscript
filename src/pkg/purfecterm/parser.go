@@ -1,4 +1,4 @@
-package purfectermgtk
+package purfecterm
 
 import (
 	"strconv"
@@ -9,14 +9,14 @@ import (
 type parserState int
 
 const (
-	stateGround parserState = iota
-	stateEscape             // After ESC
-	stateCSI                // After ESC [
-	stateCSIParam           // Reading CSI parameters
-	stateOSC                // After ESC ]
-	stateOSCString          // Reading OSC string
-	stateCharset            // After ESC ( or ESC )
-	stateDECLineAttr        // After ESC # (waiting for line attribute command)
+	stateGround      parserState = iota
+	stateEscape                  // After ESC
+	stateCSI                     // After ESC [
+	stateCSIParam                // Reading CSI parameters
+	stateOSC                     // After ESC ]
+	stateOSCString               // Reading OSC string
+	stateCharset                 // After ESC ( or ESC )
+	stateDECLineAttr             // After ESC # (waiting for line attribute command)
 )
 
 // Parser parses ANSI escape sequences and updates a Buffer
@@ -25,17 +25,17 @@ type Parser struct {
 	state  parserState
 
 	// CSI sequence accumulator
-	csiParams        []int
-	csiPrivate       byte // For private sequences like ?25h
-	csiIntermediate  byte // For sequences with intermediate bytes like DECSCUSR (SP q)
-	csiBuf           strings.Builder
+	csiParams       []int
+	csiPrivate      byte // For private sequences like ?25h
+	csiIntermediate byte // For sequences with intermediate bytes like DECSCUSR (SP q)
+	csiBuf          strings.Builder
 
 	// OSC accumulator
 	oscBuf strings.Builder
 
 	// UTF-8 multi-byte handling
-	utf8Buf   []byte
-	utf8Need  int
+	utf8Buf  []byte
+	utf8Need int
 }
 
 // NewParser creates a new ANSI parser for the given buffer

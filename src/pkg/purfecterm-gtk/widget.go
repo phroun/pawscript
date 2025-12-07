@@ -47,6 +47,7 @@ import (
 	"github.com/gotk3/gotk3/gdk"
 	"github.com/gotk3/gotk3/glib"
 	"github.com/gotk3/gotk3/gtk"
+	"github.com/phroun/pawscript/pkg/purfecterm"
 )
 
 // Left padding for terminal content (pixels)
@@ -62,8 +63,8 @@ type Widget struct {
 	box         *gtk.Box
 
 	// Terminal state
-	buffer *Buffer
-	parser *Parser
+	buffer *purfecterm.Buffer
+	parser *purfecterm.Parser
 
 	// Font settings
 	fontFamily string
@@ -73,7 +74,7 @@ type Widget struct {
 	charAscent int
 
 	// Color scheme
-	scheme ColorScheme
+	scheme purfecterm.ColorScheme
 
 	// Selection state
 	selecting      bool
@@ -110,13 +111,13 @@ func NewWidget(cols, rows, scrollbackSize int) (*Widget, error) {
 		charWidth:     10, // Will be calculated properly
 		charHeight:    20,
 		charAscent:    16,
-		scheme:        DefaultColorScheme(),
+		scheme:        purfecterm.DefaultColorScheme(),
 		cursorBlinkOn: true,
 	}
 
 	// Create buffer and parser
-	w.buffer = NewBuffer(cols, rows, scrollbackSize)
-	w.parser = NewParser(w.buffer)
+	w.buffer = purfecterm.NewBuffer(cols, rows, scrollbackSize)
+	w.parser = purfecterm.NewParser(w.buffer)
 
 	// Set up dirty callback to trigger redraws
 	w.buffer.SetDirtyCallback(func() {
@@ -181,7 +182,7 @@ func NewWidget(cols, rows, scrollbackSize int) (*Widget, error) {
 	// Also handles cursor blink timing
 	w.blinkTimerID = glib.TimeoutAdd(50, func() bool {
 		// Update text blink animation phase (complete wave cycle in ~1.5 seconds)
-		w.blinkPhase += 0.21 // ~1.5 second cycle
+		w.blinkPhase += 0.21         // ~1.5 second cycle
 		if w.blinkPhase > 6.283185 { // 2*PI
 			w.blinkPhase -= 6.283185
 		}
@@ -261,7 +262,7 @@ func resolveFirstAvailableFont(familyList string) string {
 }
 
 // SetColorScheme sets the color scheme
-func (w *Widget) SetColorScheme(scheme ColorScheme) {
+func (w *Widget) SetColorScheme(scheme purfecterm.ColorScheme) {
 	w.mu.Lock()
 	w.scheme = scheme
 	w.mu.Unlock()
@@ -292,13 +293,13 @@ func (w *Widget) Clear() {
 }
 
 // Buffer returns the underlying buffer
-func (w *Widget) Buffer() *Buffer {
+func (w *Widget) Buffer() *purfecterm.Buffer {
 	return w.buffer
 }
 
 func (w *Widget) updateFontMetrics() {
 	// Use approximate metrics based on font size
-	w.charWidth = w.fontSize * 6 / 10  // Approximate for monospace
+	w.charWidth = w.fontSize * 6 / 10 // Approximate for monospace
 	w.charHeight = w.fontSize * 12 / 10
 	w.charAscent = w.fontSize
 	if w.charWidth < 1 {
@@ -351,7 +352,7 @@ func (w *Widget) onDraw(da *gtk.DrawingArea, cr *cairo.Context) bool {
 
 		// Calculate effective columns for this line (half for double-width/height)
 		effectiveCols := cols
-		if lineAttr != LineAttrNormal {
+		if lineAttr != purfecterm.LineAttrNormal {
 			effectiveCols = cols / 2
 		}
 
@@ -372,7 +373,7 @@ func (w *Widget) onDraw(da *gtk.DrawingArea, cr *cairo.Context) bool {
 			blinkVisible := true // For traditional blink mode
 			if cell.Blink {
 				switch scheme.BlinkMode {
-				case BlinkModeBright:
+				case purfecterm.BlinkModeBright:
 					// Interpret blink as bright background (VGA style)
 					// Find if bg matches a dark color (0-7) and use bright version (8-15)
 					for i := 0; i < 8; i++ {
@@ -384,10 +385,10 @@ func (w *Widget) onDraw(da *gtk.DrawingArea, cr *cairo.Context) bool {
 							break
 						}
 					}
-				case BlinkModeBlink:
+				case purfecterm.BlinkModeBlink:
 					// Traditional on/off blink - visible when phase is in first half
 					blinkVisible = blinkPhase < 3.14159
-				// BlinkModeBounce is handled later in character drawing
+					// BlinkModeBounce is handled later in character drawing
 				}
 			}
 
@@ -406,18 +407,18 @@ func (w *Widget) onDraw(da *gtk.DrawingArea, cr *cairo.Context) bool {
 			// Calculate cell position and size based on line attributes
 			var cellX, cellY, cellW, cellH float64
 			switch lineAttr {
-			case LineAttrNormal:
+			case purfecterm.LineAttrNormal:
 				cellX = float64(x*charWidth + terminalLeftPadding)
 				cellY = float64(y * charHeight)
 				cellW = float64(charWidth)
 				cellH = float64(charHeight)
-			case LineAttrDoubleWidth:
+			case purfecterm.LineAttrDoubleWidth:
 				// Each character takes up 2 cell widths
 				cellX = float64(x*2*charWidth + terminalLeftPadding)
 				cellY = float64(y * charHeight)
 				cellW = float64(charWidth * 2)
 				cellH = float64(charHeight)
-			case LineAttrDoubleTop, LineAttrDoubleBottom:
+			case purfecterm.LineAttrDoubleTop, purfecterm.LineAttrDoubleBottom:
 				// Each character takes up 2 cell widths, text is rendered 2x height
 				cellX = float64(x*2*charWidth + terminalLeftPadding)
 				cellY = float64(y * charHeight)
@@ -451,7 +452,7 @@ func (w *Widget) onDraw(da *gtk.DrawingArea, cr *cairo.Context) bool {
 				// Each character is offset by a phase shift based on its x position,
 				// creating a "wave" effect where characters bob up and down in sequence
 				yOffset := 0.0
-				if cell.Blink && scheme.BlinkMode == BlinkModeBounce {
+				if cell.Blink && scheme.BlinkMode == purfecterm.BlinkModeBounce {
 					// Wave parameters: each character is phase-shifted by 0.5 radians from its neighbor
 					// Amplitude is about 3 pixels up and down
 					wavePhase := blinkPhase + float64(x)*0.5
@@ -459,12 +460,12 @@ func (w *Widget) onDraw(da *gtk.DrawingArea, cr *cairo.Context) bool {
 				}
 
 				switch lineAttr {
-				case LineAttrNormal:
+				case purfecterm.LineAttrNormal:
 					// Normal rendering
 					cr.MoveTo(float64(x*charWidth+terminalLeftPadding), float64(y*charHeight+charAscent)+yOffset)
 					cr.ShowText(string(cell.Char))
 
-				case LineAttrDoubleWidth:
+				case purfecterm.LineAttrDoubleWidth:
 					// Double width: scale text 2x horizontally
 					cr.Save()
 					// Position at cell, scale 2x horizontally
@@ -476,7 +477,7 @@ func (w *Widget) onDraw(da *gtk.DrawingArea, cr *cairo.Context) bool {
 					cr.ShowText(string(cell.Char))
 					cr.Restore()
 
-				case LineAttrDoubleTop:
+				case purfecterm.LineAttrDoubleTop:
 					// Double height top: scale 2x, show top half only
 					cr.Save()
 					// Clip to just this cell's area
@@ -491,7 +492,7 @@ func (w *Widget) onDraw(da *gtk.DrawingArea, cr *cairo.Context) bool {
 					cr.ShowText(string(cell.Char))
 					cr.Restore()
 
-				case LineAttrDoubleBottom:
+				case purfecterm.LineAttrDoubleBottom:
 					// Double height bottom: scale 2x, show bottom half only
 					cr.Save()
 					// Clip to just this cell's area
@@ -521,7 +522,7 @@ func (w *Widget) onDraw(da *gtk.DrawingArea, cr *cairo.Context) bool {
 					float64(fg.B)/255.0)
 				underlineY := cellY + cellH - 1
 				underlineH := 1.0
-				if lineAttr == LineAttrDoubleTop || lineAttr == LineAttrDoubleBottom {
+				if lineAttr == purfecterm.LineAttrDoubleTop || lineAttr == purfecterm.LineAttrDoubleBottom {
 					underlineH = 2.0
 				}
 				cr.Rectangle(cellX, underlineY, cellW, underlineH)
@@ -590,7 +591,7 @@ func (w *Widget) screenToCell(screenX, screenY float64) (cellX, cellY int) {
 	lineAttr := w.buffer.GetVisibleLineAttribute(cellY)
 	effectiveCharWidth := charWidth
 	effectiveCols := cols
-	if lineAttr != LineAttrNormal {
+	if lineAttr != purfecterm.LineAttrNormal {
 		// Doubled lines: each logical cell is 2x wide visually
 		effectiveCharWidth = charWidth * 2
 		effectiveCols = cols / 2
@@ -1324,16 +1325,16 @@ func hardwareKeycodeToChar(hwcode uint16, shift bool) byte {
 		shift  byte
 	}
 	oemKeys := map[uint16]keyMapping{
-		186: {';', ':'}, // VK_OEM_1
-		187: {'=', '+'}, // VK_OEM_PLUS
-		188: {',', '<'}, // VK_OEM_COMMA
-		189: {'-', '_'}, // VK_OEM_MINUS
-		190: {'.', '>'}, // VK_OEM_PERIOD
-		191: {'/', '?'}, // VK_OEM_2
-		192: {'`', '~'}, // VK_OEM_3
-		219: {'[', '{'}, // VK_OEM_4
+		186: {';', ':'},  // VK_OEM_1
+		187: {'=', '+'},  // VK_OEM_PLUS
+		188: {',', '<'},  // VK_OEM_COMMA
+		189: {'-', '_'},  // VK_OEM_MINUS
+		190: {'.', '>'},  // VK_OEM_PERIOD
+		191: {'/', '?'},  // VK_OEM_2
+		192: {'`', '~'},  // VK_OEM_3
+		219: {'[', '{'},  // VK_OEM_4
 		220: {'\\', '|'}, // VK_OEM_5
-		221: {']', '}'}, // VK_OEM_6
+		221: {']', '}'},  // VK_OEM_6
 		222: {'\'', '"'}, // VK_OEM_7
 	}
 
@@ -1429,16 +1430,16 @@ func isModifierKey(keyval uint) bool {
 // This catches modifier keys on Wine/Windows when GDK keyval detection fails
 func isModifierKeycode(hwcode uint16) bool {
 	switch hwcode {
-	case 16,         // VK_SHIFT
-		17,          // VK_CONTROL
-		18,          // VK_MENU (Alt)
-		20,          // VK_CAPITAL (Caps Lock)
-		91, 92,      // VK_LWIN, VK_RWIN (Windows/Command keys)
-		144,         // VK_NUMLOCK
-		145,         // VK_SCROLL
-		160, 161,    // VK_LSHIFT, VK_RSHIFT
-		162, 163,    // VK_LCONTROL, VK_RCONTROL
-		164, 165:    // VK_LMENU, VK_RMENU (Left/Right Alt)
+	case 16, // VK_SHIFT
+		17,     // VK_CONTROL
+		18,     // VK_MENU (Alt)
+		20,     // VK_CAPITAL (Caps Lock)
+		91, 92, // VK_LWIN, VK_RWIN (Windows/Command keys)
+		144,      // VK_NUMLOCK
+		145,      // VK_SCROLL
+		160, 161, // VK_LSHIFT, VK_RSHIFT
+		162, 163, // VK_LCONTROL, VK_RCONTROL
+		164, 165: // VK_LMENU, VK_RMENU (Left/Right Alt)
 		return true
 	}
 	return false
