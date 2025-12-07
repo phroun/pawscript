@@ -22,7 +22,8 @@ type REPLConfig struct {
 	Debug        bool
 	Unrestricted bool
 	OptLevel     int
-	ShowBanner   bool // Whether to show the startup banner
+	ShowBanner   bool              // Whether to show the startup banner
+	IOConfig     *IOChannelConfig  // Optional IO channels (for GUI terminals)
 }
 
 // REPL provides an interactive Read-Eval-Print Loop for PawScript
@@ -67,7 +68,13 @@ func NewREPL(config REPLConfig, output func(string)) *REPL {
 		FileAccess:           fileAccess,
 		OptLevel:             OptimizationLevel(config.OptLevel),
 	})
-	ps.RegisterStandardLibrary([]string{})
+
+	// Register standard library with IO channels if provided
+	if config.IOConfig != nil {
+		ps.RegisterStandardLibraryWithIO([]string{}, config.IOConfig)
+	} else {
+		ps.RegisterStandardLibrary([]string{})
+	}
 
 	return &REPL{
 		ps:        ps,

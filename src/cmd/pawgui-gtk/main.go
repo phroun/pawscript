@@ -914,6 +914,11 @@ func runScript(filePath string) {
 				Unrestricted: false,
 				OptLevel:     getOptimizationLevel(),
 				ShowBanner:   false, // Don't show banner again
+				IOConfig: &pawscript.IOChannelConfig{
+					Stdout: consoleOutCh,
+					Stdin:  consoleInCh,
+					Stderr: consoleOutCh,
+				},
 			}, func(s string) {
 				glib.IdleAdd(func() bool {
 					terminal.Feed(s)
@@ -1096,6 +1101,11 @@ func createConsoleChannels(width, height int) {
 		Unrestricted: false,
 		OptLevel:     getOptimizationLevel(),
 		ShowBanner:   true,
+		IOConfig: &pawscript.IOChannelConfig{
+			Stdout: consoleOutCh,
+			Stdin:  consoleInCh,
+			Stderr: consoleOutCh,
+		},
 	}, func(s string) {
 		// Output to terminal on GTK main thread
 		glib.IdleAdd(func() bool {
