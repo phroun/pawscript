@@ -81,32 +81,10 @@ func NewWidget(cols, rows, scrollbackSize int) *Widget {
 	w.buffer = purfecterm.NewBuffer(cols, rows, scrollbackSize)
 	w.parser = purfecterm.NewParser(w.buffer)
 
-	// Set up dirty callback to trigger redraws and update scrollbar
+	// Set up dirty callback to trigger redraws
 	w.buffer.SetDirtyCallback(func() {
 		w.widget.Update()
-		w.updateScrollbar()
 	})
-
-	// Create scrollbar
-	w.scrollbar = qt.NewQScrollBar2()
-	w.scrollbar.SetOrientation(qt.Vertical)
-	w.scrollbar.SetMinimum(0)
-	w.scrollbar.SetMaximum(0)
-	w.scrollbar.OnValueChanged(func(value int) {
-		if !w.scrollbarUpdating {
-			// Scrollbar value is inverted (0 = bottom, max = top)
-			maxScroll := w.scrollbar.Maximum()
-			w.buffer.SetScrollOffset(maxScroll - value)
-		}
-	})
-
-	// Create horizontal layout for terminal + scrollbar
-	layout := qt.NewQHBoxLayout2()
-	layout.SetContentsMargins(0, 0, 0, 0)
-	layout.SetSpacing(0)
-	layout.AddWidget2(w.widget, 1)
-	layout.AddWidget(w.scrollbar.QWidget)
-	w.container.SetLayout(layout.QLayout)
 
 	// Enable focus and mouse tracking on the terminal widget
 	w.widget.SetFocusPolicy(qt.StrongFocus)
@@ -191,7 +169,7 @@ func NewWidget(cols, rows, scrollbackSize int) *Widget {
 
 // QWidget returns the container widget (terminal + scrollbar)
 func (w *Widget) QWidget() *qt.QWidget {
-	return w.container
+	return w.widget
 }
 
 // updateScrollbar updates the scrollbar to match the buffer state
