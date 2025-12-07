@@ -1,5 +1,46 @@
 ## Changelog
 
+### 0.2.10 -- December 2-7, 2025
+- Split `lib_types.go` into logical smaller files for maintainability
+- `lib_dump` and `env_dump` headers now show command counts
+- `eqs` and `neqs` commands for shallow (reference) equality comparison
+- `slice` command extended with `only: arr` or `only: map` to extract list
+  portions by entry type
+- `json` command for list serialization with `pretty:` and `color:` options
+- `string` command extended with `pretty:` and `color:` parameters
+- `list` command extended with `from: json` for JSON deserialization
+  - `merge: 0` option for array_1 format (no key merging)
+- `arrlen` and `maplen` commands for quick list length by type
+- `len` command enhanced with `keys: true` parameter
+- `macro_forward` command for forward declarations, enabling mutual recursion
+- `LIBRARY` command enhancements:
+  - `LIBRARY "restrict module::item1,item2"` restricts specific items
+  - `LIBRARY "allow ::module::items"` supports scoped syntax
+- Performance optimizations:
+  - AST caching for macro and loop body execution
+  - Object pooling for `ExecutionState` to reduce GC pressure
+  - Substitution templating for improved macro performance
+  - Lazy-create `ModuleExports` and `bubbleMap` to reduce allocations
+  - Handler caching with generation-based invalidation
+- Raw keyboard input support:
+  - `readkey_init` enables raw mode with optional echo channel
+  - `readkey` returns single keypress as bytes
+  - `readkey_end` restores normal terminal mode
+- Fixed `ret` in brace expressions to not propagate failure status
+- Fixed `msleep` corrupting execution state after async resume
+- Pawgui console improvements:
+  - Non-blocking input queue for GUI console
+  - Byte-driven channels for raw input support
+  - Flow control to prevent output deadlock
+  - Line assembly for read command in raw byte mode
+- Fixed cursor ANSI output to route through channel properly
+- Build system improvements:
+  - Auto-install fyne CLI if not present when building GUI
+  - `build-gui-software` target for systems with graphics driver issues
+  - `build-gui-debug` target for crash debugging
+  - ANGLE (DirectX) backend for Windows GUI builds
+  - Proper `.app` bundle generation on macOS with `fyne package`
+
 ### 0.2.9 -- November 29 - December 2, 2025
 - `break` and `continue` commands for loop control, with async resumption fixes
 - Fixed command position execution for macros and parenthetic blocks
