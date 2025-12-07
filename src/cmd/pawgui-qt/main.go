@@ -188,12 +188,12 @@ func applyTheme(theme pawgui.ThemeMode) {
 			QSplitter::handle {
 				background-color: #454545;
 			}
-			QScrollBar:vertical {
+			QScrollBar:vertical, QAbstractScrollArea QScrollBar:vertical, QListWidget QScrollBar:vertical {
 				background: transparent;
 				width: 12px;
 				margin: 2px 2px 2px 0px;
 			}
-			QScrollBar::handle:vertical {
+			QScrollBar::handle:vertical, QAbstractScrollArea QScrollBar::handle:vertical, QListWidget QScrollBar::handle:vertical {
 				background: rgba(255, 255, 255, 0.3);
 				min-height: 30px;
 				border-radius: 4px;
@@ -211,12 +211,12 @@ func applyTheme(theme pawgui.ThemeMode) {
 			QScrollBar::add-page:vertical, QScrollBar::sub-page:vertical {
 				background: transparent;
 			}
-			QScrollBar:horizontal {
+			QScrollBar:horizontal, QAbstractScrollArea QScrollBar:horizontal, QListWidget QScrollBar:horizontal {
 				background: transparent;
 				height: 12px;
 				margin: 0px 2px 2px 2px;
 			}
-			QScrollBar::handle:horizontal {
+			QScrollBar::handle:horizontal, QAbstractScrollArea QScrollBar::handle:horizontal, QListWidget QScrollBar::handle:horizontal {
 				background: rgba(255, 255, 255, 0.3);
 				min-width: 30px;
 				border-radius: 4px;
@@ -272,12 +272,12 @@ func applyTheme(theme pawgui.ThemeMode) {
 			QSplitter::handle {
 				background-color: #c0c0c0;
 			}
-			QScrollBar:vertical {
+			QScrollBar:vertical, QAbstractScrollArea QScrollBar:vertical, QListWidget QScrollBar:vertical {
 				background: transparent;
 				width: 12px;
 				margin: 2px 2px 2px 0px;
 			}
-			QScrollBar::handle:vertical {
+			QScrollBar::handle:vertical, QAbstractScrollArea QScrollBar::handle:vertical, QListWidget QScrollBar::handle:vertical {
 				background: rgba(0, 0, 0, 0.3);
 				min-height: 30px;
 				border-radius: 4px;
@@ -295,12 +295,12 @@ func applyTheme(theme pawgui.ThemeMode) {
 			QScrollBar::add-page:vertical, QScrollBar::sub-page:vertical {
 				background: transparent;
 			}
-			QScrollBar:horizontal {
+			QScrollBar:horizontal, QAbstractScrollArea QScrollBar:horizontal, QListWidget QScrollBar:horizontal {
 				background: transparent;
 				height: 12px;
 				margin: 0px 2px 2px 2px;
 			}
-			QScrollBar::handle:horizontal {
+			QScrollBar::handle:horizontal, QAbstractScrollArea QScrollBar::handle:horizontal, QListWidget QScrollBar::handle:horizontal {
 				background: rgba(0, 0, 0, 0.3);
 				min-width: 30px;
 				border-radius: 4px;

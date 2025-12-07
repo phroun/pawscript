@@ -167,6 +167,10 @@ func NewWidget(cols, rows, scrollbackSize int) (*Widget, error) {
 	}
 	w.scrollbar.Connect("value-changed", w.onScrollbarChanged)
 
+	// Apply macOS-style scrollbar CSS using a unique style class
+	w.scrollbar.SetName("purfecterm-scrollbar")
+	w.applyScrollbarCSS()
+
 	// Pack widgets
 	w.box.PackStart(w.drawingArea, true, true, 0)
 	w.box.PackStart(w.scrollbar, false, false, 0)
@@ -266,7 +270,49 @@ func (w *Widget) SetColorScheme(scheme purfecterm.ColorScheme) {
 	w.mu.Lock()
 	w.scheme = scheme
 	w.mu.Unlock()
+	w.applyScrollbarCSS() // Update scrollbar background to match
 	w.drawingArea.QueueDraw()
+}
+
+// applyScrollbarCSS applies macOS-style CSS to the scrollbar with the current scheme's background
+func (w *Widget) applyScrollbarCSS() {
+	w.mu.Lock()
+	bg := w.scheme.Background
+	w.mu.Unlock()
+
+	cssProvider, err := gtk.CssProviderNew()
+	if err != nil {
+		return
+	}
+
+	css := fmt.Sprintf(`
+		#purfecterm-scrollbar {
+			background-color: rgb(%d, %d, %d);
+		}
+		#purfecterm-scrollbar slider {
+			min-width: 8px;
+			min-height: 30px;
+			border-radius: 4px;
+			background-color: rgba(128, 128, 128, 0.5);
+		}
+		#purfecterm-scrollbar slider:hover {
+			background-color: rgba(128, 128, 128, 0.7);
+		}
+		#purfecterm-scrollbar slider:active {
+			background-color: rgba(100, 100, 100, 0.8);
+		}
+		#purfecterm-scrollbar button {
+			min-width: 0;
+			min-height: 0;
+			padding: 0;
+		}
+	`, bg.R, bg.G, bg.B)
+
+	cssProvider.LoadFromData(css)
+	screen, err := gdk.ScreenGetDefault()
+	if err == nil {
+		gtk.AddProviderForScreen(screen, cssProvider, gtk.STYLE_PROVIDER_PRIORITY_APPLICATION)
+	}
 }
 
 // SetInputCallback sets the callback for handling input
