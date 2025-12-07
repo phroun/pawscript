@@ -15,7 +15,6 @@ import (
 	"github.com/phroun/pawscript"
 	purfectermqt "github.com/phroun/pawscript/pkg/purfecterm-qt"
 	"github.com/therecipe/qt/core"
-	"github.com/therecipe/qt/gui"
 	"github.com/therecipe/qt/widgets"
 )
 
@@ -259,73 +258,172 @@ func createTerminalPanel() *widgets.QWidget {
 }
 
 func setupConsoleIO() {
-	// Create channels for PawScript I/O
-	consoleOutCh = pawscript.NewStoredChannel()
-	consoleInCh = pawscript.NewStoredChannel()
-
 	// Create pipes for stdin
 	stdinReader, stdinWriter = io.Pipe()
 
-	// Set terminal input callback
-	terminal.SetInputCallback(func(data []byte) {
-		scriptMu.Lock()
-		running := scriptRunning
-		scriptMu.Unlock()
+	// Output queue for non-blocking writes to terminal
+	outputQueue := make(chan interface{}, 256)
 
-		if running {
-			// Send to script via stdin
-			stdinWriter.Write(data)
-		} else if consoleREPL != nil {
-			// Send to REPL
-			stdinWriter.Write(data)
-		}
-	})
-
-	// Start output reader goroutine
+	// Start output writer goroutine
 	go func() {
-		for {
-			result, ok := consoleOutCh.Receive()
-			if !ok {
-				break
-			}
-			if str, isStr := result.(string); isStr {
-				core.QCoreApplication_PostEvent(mainWindow, core.NewQEvent(core.QEvent__User), 0)
-				terminal.Feed(str)
+		for v := range outputQueue {
+			switch d := v.(type) {
+			case []byte:
+				terminal.Feed(string(d))
+			case string:
+				terminal.Feed(d)
+			case chan struct{}:
+				// Sentinel for flush synchronization
+				close(d)
 			}
 		}
 	}()
-}
 
-func startREPL() {
-	// Create REPL with console channels
-	consoleREPL = pawscript.NewREPL(&pawscript.EvalConfig{
-		StdoutCh: consoleOutCh,
-		StdinCh:  consoleInCh,
-	})
+	// Create console output channel
+	consoleOutCh = &pawscript.StoredChannel{
+		BufferSize:       0,
+		Messages:         make([]pawscript.ChannelMessage, 0),
+		Subscribers:      make(map[int]*pawscript.StoredChannel),
+		NextSubscriberID: 1,
+		IsClosed:         false,
+		Timestamp:        time.Now(),
+		NativeSend: func(v interface{}) error {
+			var text string
+			switch d := v.(type) {
+			case []byte:
+				text = string(d)
+			case string:
+				text = d
+			default:
+				text = fmt.Sprintf("%v", v)
+			}
+			// Normalize newlines for terminal
+			text = strings.ReplaceAll(text, "\r\n", "\n")
+			text = strings.ReplaceAll(text, "\n", "\r\n")
+			select {
+			case outputQueue <- []byte(text):
+			default:
+				// Queue full - drop to prevent deadlock
+			}
+			return nil
+		},
+		NativeRecv: func() (interface{}, error) {
+			return nil, fmt.Errorf("cannot receive from console_out")
+		},
+		NativeFlush: func() error {
+			// Wait for outputQueue to drain
+			writerDone := make(chan struct{})
+			select {
+			case outputQueue <- writerDone:
+				<-writerDone
+			default:
+			}
+			return nil
+		},
+	}
 
-	// Start REPL reader goroutine
+	// Set up the global flushFunc
+	flushFunc = func() {
+		if consoleOutCh != nil {
+			consoleOutCh.Flush()
+		}
+	}
+
+	// Non-blocking input queue
+	inputQueue := make(chan byte, 256)
+
+	// Reader goroutine: drains pipe and puts bytes into queue
 	go func() {
-		buf := make([]byte, 1024)
+		buf := make([]byte, 1)
 		for {
 			n, err := stdinReader.Read(buf)
-			if err != nil {
-				break
+			if err != nil || n == 0 {
+				close(inputQueue)
+				return
 			}
-			if n > 0 {
-				scriptMu.Lock()
-				running := scriptRunning
-				scriptMu.Unlock()
-
-				if !running && consoleREPL != nil {
-					consoleREPL.Input(string(buf[:n]))
+			select {
+			case inputQueue <- buf[0]:
+			default:
+				// Drop oldest if full
+				select {
+				case <-inputQueue:
+				default:
+				}
+				select {
+				case inputQueue <- buf[0]:
+				default:
 				}
 			}
 		}
 	}()
 
-	// Print initial prompt
-	consoleOutCh.Send("PawScript REPL - Type 'help' for commands\n")
-	consoleOutCh.Send(consoleREPL.Prompt())
+	// Create console input channel
+	consoleInCh = &pawscript.StoredChannel{
+		BufferSize:       0,
+		Messages:         make([]pawscript.ChannelMessage, 0),
+		Subscribers:      make(map[int]*pawscript.StoredChannel),
+		NextSubscriberID: 1,
+		IsClosed:         false,
+		Timestamp:        time.Now(),
+		NativeRecv: func() (interface{}, error) {
+			b, ok := <-inputQueue
+			if !ok {
+				return nil, fmt.Errorf("input closed")
+			}
+			return []byte{b}, nil
+		},
+		NativeSend: func(v interface{}) error {
+			return fmt.Errorf("cannot send to console_in")
+		},
+	}
+
+	clearInputFunc = func() {
+		for {
+			select {
+			case <-inputQueue:
+			default:
+				return
+			}
+		}
+	}
+
+	// Wire keyboard input from terminal to stdin pipe or REPL
+	terminal.SetInputCallback(func(data []byte) {
+		scriptMu.Lock()
+		isRunning := scriptRunning
+		scriptMu.Unlock()
+
+		if isRunning {
+			// Script is running, send to stdin pipe
+			if stdinWriter != nil {
+				stdinWriter.Write(data)
+			}
+		} else {
+			// No script running, send to REPL
+			if consoleREPL != nil && consoleREPL.IsRunning() {
+				consoleREPL.HandleInput(data)
+			}
+		}
+	})
+}
+
+func startREPL() {
+	// Create and start the REPL for interactive mode
+	consoleREPL = pawscript.NewREPL(pawscript.REPLConfig{
+		Debug:        false,
+		Unrestricted: false,
+		OptLevel:     0,
+		ShowBanner:   true,
+		IOConfig: &pawscript.IOChannelConfig{
+			Stdout: consoleOutCh,
+			Stdin:  consoleInCh,
+			Stderr: consoleOutCh,
+		},
+	}, func(s string) {
+		// Output to terminal
+		terminal.Feed(s)
+	})
+	consoleREPL.Start()
 }
 
 func loadDirectory(dir string) {
@@ -410,69 +508,111 @@ func runScript(filePath string) {
 	scriptMu.Lock()
 	if scriptRunning {
 		scriptMu.Unlock()
-		consoleOutCh.Send("\nA script is already running.\n")
+		terminal.Feed("\r\nA script is already running.\r\n")
 		return
 	}
 	scriptRunning = true
 	scriptMu.Unlock()
 
-	// Disable run button
-	runButton.SetEnabled(false)
-
-	// Clear terminal and show message
-	terminal.Clear()
-	consoleOutCh.Send(fmt.Sprintf("Running: %s\n\n", filepath.Base(filePath)))
-
-	go func() {
-		// Read script
-		data, err := os.ReadFile(filePath)
-		if err != nil {
-			consoleOutCh.Send(fmt.Sprintf("Error reading file: %v\n", err))
-			finishScript()
-			return
-		}
-
-		// Parse script
-		program, parseErr := pawscript.ParseScript(string(data), filePath)
-		if parseErr != nil {
-			consoleOutCh.Send(fmt.Sprintf("Parse error: %v\n", parseErr))
-			finishScript()
-			return
-		}
-
-		// Create evaluator
-		eval := pawscript.NewEvaluator(&pawscript.EvalConfig{
-			StdoutCh:   consoleOutCh,
-			StdinCh:    consoleInCh,
-			ScriptPath: filePath,
-		})
-
-		// Run script
-		startTime := time.Now()
-		_, evalErr := eval.Evaluate(program)
-		duration := time.Since(startTime)
-
-		if evalErr != nil {
-			consoleOutCh.Send(fmt.Sprintf("\nScript error: %v\n", evalErr))
-		}
-
-		consoleOutCh.Send(fmt.Sprintf("\n--- Script completed in %v ---\n", duration.Round(time.Millisecond)))
-		finishScript()
-	}()
-}
-
-func finishScript() {
-	scriptMu.Lock()
-	scriptRunning = false
-	scriptMu.Unlock()
-
-	// Re-enable run button on main thread
-	core.QCoreApplication_PostEvent(mainWindow, core.NewQEvent(core.QEvent__User), 0)
-
-	// Show REPL prompt
+	// Stop the REPL while script runs
 	if consoleREPL != nil {
-		consoleOutCh.Send(consoleREPL.Prompt())
+		consoleREPL.Stop()
 	}
+
+	terminal.Feed(fmt.Sprintf("\r\n--- Running: %s ---\r\n\r\n", filepath.Base(filePath)))
+
+	// Clear any buffered input from previous script runs
+	if clearInputFunc != nil {
+		clearInputFunc()
+	}
+
+	// Read script content
+	content, err := os.ReadFile(filePath)
+	if err != nil {
+		terminal.Feed(fmt.Sprintf("Error reading script file: %v\r\n", err))
+		scriptMu.Lock()
+		scriptRunning = false
+		scriptMu.Unlock()
+		return
+	}
+
+	scriptDir := filepath.Dir(filePath)
+	absScript, _ := filepath.Abs(filePath)
+	if absScript != "" {
+		scriptDir = filepath.Dir(absScript)
+	}
+
+	// Create file access config
+	cwd, _ := os.Getwd()
+	tmpDir := os.TempDir()
+	fileAccess := &pawscript.FileAccessConfig{
+		ReadRoots:  []string{scriptDir, cwd, tmpDir},
+		WriteRoots: []string{filepath.Join(scriptDir, "saves"), filepath.Join(scriptDir, "output"), filepath.Join(cwd, "saves"), filepath.Join(cwd, "output"), tmpDir},
+		ExecRoots:  []string{filepath.Join(scriptDir, "helpers"), filepath.Join(scriptDir, "bin")},
+	}
+
+	// Create a new PawScript instance for this script
+	ps := pawscript.New(&pawscript.Config{
+		Debug:                false,
+		AllowMacros:          true,
+		EnableSyntacticSugar: true,
+		ShowErrorContext:     true,
+		ContextLines:         2,
+		FileAccess:           fileAccess,
+		ScriptDir:            scriptDir,
+		OptLevel:             pawscript.OptimizationLevel(0),
+	})
+
+	// Register standard library with the console IO
+	ioConfig := &pawscript.IOChannelConfig{
+		Stdout: consoleOutCh,
+		Stdin:  consoleInCh,
+		Stderr: consoleOutCh,
+	}
+	ps.RegisterStandardLibraryWithIO([]string{}, ioConfig)
+
+	// Run script in goroutine so UI stays responsive
+	go func() {
+		// Create an isolated snapshot for execution
+		snapshot := ps.CreateRestrictedSnapshot()
+
+		// Run the script in the isolated environment
+		result := ps.ExecuteWithEnvironment(string(content), snapshot, filePath, 0, 0)
+
+		// Flush any pending output before printing completion message
+		if flushFunc != nil {
+			flushFunc()
+		}
+
+		if result == pawscript.BoolStatus(false) {
+			terminal.Feed("\r\n--- Script execution failed ---\r\n")
+		} else {
+			terminal.Feed("\r\n--- Script completed ---\r\n")
+		}
+
+		scriptMu.Lock()
+		scriptRunning = false
+		scriptMu.Unlock()
+
+		// Restart the REPL
+		if consoleREPL != nil {
+			// Create a new REPL instance (fresh state)
+			consoleREPL = pawscript.NewREPL(pawscript.REPLConfig{
+				Debug:        false,
+				Unrestricted: false,
+				OptLevel:     0,
+				ShowBanner:   false, // Don't show banner again
+				IOConfig: &pawscript.IOChannelConfig{
+					Stdout: consoleOutCh,
+					Stdin:  consoleInCh,
+					Stderr: consoleOutCh,
+				},
+			}, func(s string) {
+				terminal.Feed(s)
+			})
+			consoleREPL.Start()
+		}
+	}()
 }
 
 // Custom event handler to update UI from background threads
