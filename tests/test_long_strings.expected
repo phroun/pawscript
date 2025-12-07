@@ -30,6 +30,6 @@ Test 9: Long string with special characters
   special text length: 213
 
 Test 10: String command with long string in list
-  display length: 18
+  display length: 21
 
 === All Long String Tests Complete ===

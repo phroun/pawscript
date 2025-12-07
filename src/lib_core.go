@@ -324,7 +324,7 @@ func (ps *PawScript) RegisterCoreLib() {
 				case string:
 					// Check if it's an object marker
 					markerType, objectID := parseObjectMarker(v)
-					if markerType == "str" && objectID >= 0 {
+					if markerType == "string" && objectID >= 0 {
 						if obj, exists := ctx.executor.getObject(objectID); exists {
 							if ss, ok := obj.(StoredString); ok {
 								jsonStr = string(ss)
@@ -345,7 +345,7 @@ func (ps *PawScript) RegisterCoreLib() {
 					str := string(v)
 					// Check if it's an object marker
 					markerType, objectID := parseObjectMarker(str)
-					if markerType == "str" && objectID >= 0 {
+					if markerType == "string" && objectID >= 0 {
 						if obj, exists := ctx.executor.getObject(objectID); exists {
 							if ss, ok := obj.(StoredString); ok {
 								jsonStr = string(ss)

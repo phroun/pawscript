@@ -294,14 +294,14 @@ func formatListForDisplay(list StoredList) string {
 			case Symbol:
 				// Check if this is an object marker that should be formatted specially
 				if objType, objID := parseObjectMarker(string(v)); objID >= 0 {
-					valueStr = fmt.Sprintf("{EVIL OBJECT MARKER<%s %d>}", objType, objID)
+					valueStr = fmt.Sprintf("<%s %d>", objType, objID)
 				} else {
 					valueStr = string(v)
 				}
 			case string:
 				// Check if this is an object marker that should be formatted specially
 				if objType, objID := parseObjectMarker(v); objID >= 0 {
-					valueStr = fmt.Sprintf("{EVIL OBJECT MARKER<%s %d>}", objType, objID)
+					valueStr = fmt.Sprintf("<%s %d>", objType, objID)
 				} else {
 					escaped := strings.ReplaceAll(v, "\\", "\\\\")
 					escaped = strings.ReplaceAll(escaped, "\"", "\\\"")
@@ -340,14 +340,14 @@ func formatListForDisplay(list StoredList) string {
 		case Symbol:
 			// Check if this is an object marker that should be formatted specially
 			if objType, objID := parseObjectMarker(string(v)); objID >= 0 {
-				parts = append(parts, fmt.Sprintf("{EVIL OBJECT MARKER<%s %d>}", objType, objID))
+				parts = append(parts, fmt.Sprintf("<%s %d>", objType, objID))
 			} else {
 				parts = append(parts, string(v))
 			}
 		case string:
 			// Check if this is an object marker that should be formatted specially
 			if objType, objID := parseObjectMarker(v); objID >= 0 {
-				parts = append(parts, fmt.Sprintf("{EVIL OBJECT MARKER<%s %d>}", objType, objID))
+				parts = append(parts, fmt.Sprintf("<%s %d>", objType, objID))
 			} else {
 				// Regular strings get quoted
 				escaped := strings.ReplaceAll(v, "\\", "\\\\")
@@ -402,13 +402,13 @@ func formatListForDisplayPretty(list StoredList, indent int) string {
 				valueStr = "\"" + escaped + "\""
 			case Symbol:
 				if objType, objID := parseObjectMarker(string(v)); objID >= 0 {
-					valueStr = fmt.Sprintf("{EVIL OBJECT MARKER<%s %d>}", objType, objID)
+					valueStr = fmt.Sprintf("<%s %d>", objType, objID)
 				} else {
 					valueStr = string(v)
 				}
 			case string:
 				if objType, objID := parseObjectMarker(v); objID >= 0 {
-					valueStr = fmt.Sprintf("{EVIL OBJECT MARKER<%s %d>}", objType, objID)
+					valueStr = fmt.Sprintf("<%s %d>", objType, objID)
 				} else {
 					escaped := strings.ReplaceAll(v, "\\", "\\\\")
 					escaped = strings.ReplaceAll(escaped, "\"", "\\\"")
@@ -441,13 +441,13 @@ func formatListForDisplayPretty(list StoredList, indent int) string {
 			parts = append(parts, "\""+escaped+"\"")
 		case Symbol:
 			if objType, objID := parseObjectMarker(string(v)); objID >= 0 {
-				parts = append(parts, fmt.Sprintf("{EVIL OBJECT MARKER<%s %d>}", objType, objID))
+				parts = append(parts, fmt.Sprintf("<%s %d>", objType, objID))
 			} else {
 				parts = append(parts, string(v))
 			}
 		case string:
 			if objType, objID := parseObjectMarker(v); objID >= 0 {
-				parts = append(parts, fmt.Sprintf("{EVIL OBJECT MARKER<%s %d>}", objType, objID))
+				parts = append(parts, fmt.Sprintf("<%s %d>", objType, objID))
 			} else {
 				escaped := strings.ReplaceAll(v, "\\", "\\\\")
 				escaped = strings.ReplaceAll(escaped, "\"", "\\\"")
@@ -540,7 +540,7 @@ func formatListForDisplayColored(list StoredList, indent int, pretty bool, cfg D
 		case Symbol:
 			s := string(v)
 			if objType, objID := parseObjectMarker(s); objID >= 0 {
-				return cfg.Nil + fmt.Sprintf("{EVIL OBJECT MARKER<%s %d>}", objType, objID) + cfg.Reset
+				return cfg.Nil + fmt.Sprintf("<%s %d>", objType, objID) + cfg.Reset
 			}
 			if s == "true" || s == "false" {
 				return cfg.Bool + s + cfg.Reset
@@ -551,7 +551,7 @@ func formatListForDisplayColored(list StoredList, indent int, pretty bool, cfg D
 			return s
 		case string:
 			if objType, objID := parseObjectMarker(v); objID >= 0 {
-				return cfg.Nil + fmt.Sprintf("{EVIL OBJECT MARKER<%s %d>}", objType, objID) + cfg.Reset
+				return cfg.Nil + fmt.Sprintf("<%s %d>", objType, objID) + cfg.Reset
 			}
 			escaped := strings.ReplaceAll(v, "\\", "\\\\")
 			escaped = strings.ReplaceAll(escaped, "\"", "\\\"")
@@ -691,12 +691,12 @@ func formatArgForDisplay(arg interface{}, executor *Executor) string {
 		// This handles cases where the object was garbage collected or not found
 		if sym, ok := arg.(Symbol); ok {
 			if objType, objID := parseObjectMarker(string(sym)); objID >= 0 {
-				return fmt.Sprintf("{EVIL OBJECT MARKER<%s %d>}", objType, objID)
+				return fmt.Sprintf("<%s %d>", objType, objID)
 			}
 		}
 		if str, ok := arg.(string); ok {
 			if objType, objID := parseObjectMarker(str); objID >= 0 {
-				return fmt.Sprintf("{EVIL OBJECT MARKER<%s %d>}", objType, objID)
+				return fmt.Sprintf("<%s %d>", objType, objID)
 			}
 		}
 		return fmt.Sprintf("%v", arg)

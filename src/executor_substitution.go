@@ -1019,6 +1019,34 @@ func (e *Executor) formatBraceResult(value interface{}, originalString string, b
 			state.ClaimObjectReference(ref.ID)
 		}
 		return ref.ToMarker()
+	case ObjectRef:
+		// ObjectRef is an internal reference to a stored object
+		// The object already exists in storage, so just return the marker
+		if !v.IsValid() {
+			return "nil"
+		}
+		if insideQuotes {
+			// Inside quotes: resolve and format for display
+			if actualValue, exists := e.getObject(v.ID); exists {
+				switch resolved := actualValue.(type) {
+				case StoredList:
+					return formatListForDisplay(resolved)
+				case StoredBytes:
+					return resolved.String()
+				case StoredStruct:
+					return resolved.String()
+				case StoredString:
+					return e.escapeQuotesAndBackslashes(string(resolved))
+				case StoredBlock:
+					return e.escapeQuotesAndBackslashes(string(resolved))
+				default:
+					return fmt.Sprintf("%v", resolved)
+				}
+			}
+			return "<invalid-ref>"
+		}
+		// Outside quotes: return the marker to preserve the reference
+		return v.ToMarker()
 	// Note: StructDef is now a StoredList, handled above
 	case int64, float64:
 		// Numbers as-is
