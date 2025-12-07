@@ -13,6 +13,7 @@ type PawScript struct {
 	logger        *Logger
 	executor      *Executor
 	rootModuleEnv *ModuleEnvironment // Root module environment for all execution states
+	rootState     *ExecutionState    // Persistent execution state for host application use
 	startTime     time.Time          // Time when interpreter was initialized
 	terminalState *TerminalState     // Terminal/cursor state for io commands
 	lastResult    interface{}        // Last execution result value (for REPL)
@@ -102,6 +103,12 @@ func New(config *Config) *PawScript {
 			return nil
 		})
 	}
+
+	// Create persistent root execution state
+	// This state persists across Execute calls for REPL and host application use
+	ps.rootState = NewExecutionState()
+	ps.rootState.moduleEnv = NewChildModuleEnvironment(rootModuleEnv)
+	ps.rootState.executor = executor
 
 	return ps
 }
@@ -222,11 +229,12 @@ func (ps *PawScript) dumpRemainingBubbles(state *ExecutionState) {
 }
 
 // ExecuteFile executes a script file with proper filename tracking.
+// Uses the persistent root state so variables, macros, and objects persist.
 // If the script contains async operations (like msleep), this function waits
 // for the entire script to complete before returning and merging exports.
 func (ps *PawScript) ExecuteFile(commandString, filename string) Result {
-	state := ps.NewExecutionStateFromRoot()
-	result := ps.executor.ExecuteWithState(commandString, state, nil, filename, 0, 0)
+	// Use the persistent root state - variables and objects persist across calls
+	result := ps.executor.ExecuteWithState(commandString, ps.rootState, nil, filename, 0, 0)
 
 	// If the result is an async token, we need to wait for the script to complete
 	// before we can merge exports (MODULE/EXPORT may run after async operations)
@@ -251,42 +259,43 @@ func (ps *PawScript) ExecuteFile(commandString, filename string) Result {
 	}
 
 	// Debug: log what's in ModuleExports before merge
-	state.moduleEnv.mu.RLock()
-	numExports := len(state.moduleEnv.ModuleExports)
+	ps.rootState.moduleEnv.mu.RLock()
+	numExports := len(ps.rootState.moduleEnv.ModuleExports)
 	ps.logger.DebugCat(CatSystem, "ExecuteFile('%s'): ModuleExports has %d modules", filename, numExports)
-	for modName, section := range state.moduleEnv.ModuleExports {
+	for modName, section := range ps.rootState.moduleEnv.ModuleExports {
 		ps.logger.DebugCat(CatSystem, "ExecuteFile('%s'): ModuleExports['%s'] has %d items", filename, modName, len(section))
 	}
-	state.moduleEnv.mu.RUnlock()
+	ps.rootState.moduleEnv.mu.RUnlock()
 
 	// Merge any module exports into the root environment for persistence
-	state.moduleEnv.MergeExportsInto(ps.rootModuleEnv)
+	ps.rootState.moduleEnv.MergeExportsInto(ps.rootModuleEnv)
 
 	// Dump any remaining bubbles to stderr before returning control to host
-	ps.dumpRemainingBubbles(state)
+	ps.dumpRemainingBubbles(ps.rootState)
+
+	// Note: We do NOT release references here - the root state persists
 
 	return result
 }
 
-// Execute executes a command string
+// Execute executes a command string using the persistent root state.
+// Variables, macros, and objects persist across calls for REPL and host application use.
+// Call Cleanup() to explicitly release resources when done with the interpreter.
 func (ps *PawScript) Execute(commandString string, args ...interface{}) Result {
-	state := ps.NewExecutionStateFromRoot()
-	result := ps.executor.ExecuteWithState(commandString, state, nil, "", 0, 0)
+	// Use the persistent root state - variables and objects persist across calls
+	result := ps.executor.ExecuteWithState(commandString, ps.rootState, nil, "", 0, 0)
 
-	// Save the result value before releasing references (for REPL access)
-	ps.lastResult = state.GetResult()
+	// Save the result value for REPL access
+	ps.lastResult = ps.rootState.GetResult()
 
 	// Merge any module exports into the root environment for persistence
-	state.moduleEnv.MergeExportsInto(ps.rootModuleEnv)
+	ps.rootState.moduleEnv.MergeExportsInto(ps.rootModuleEnv)
 
 	// Dump any remaining bubbles to stderr before returning control to host
-	ps.dumpRemainingBubbles(state)
+	ps.dumpRemainingBubbles(ps.rootState)
 
-	// Only release state if not returning a token (async operation)
-	// The token system will release the state when the async operation completes
-	if _, isToken := result.(TokenResult); !isToken {
-		state.ReleaseAllReferences()
-	}
+	// Note: We do NOT release references here - the root state persists
+	// The host application should call Cleanup() when done
 
 	return result
 }
@@ -294,6 +303,23 @@ func (ps *PawScript) Execute(commandString string, args ...interface{}) Result {
 // GetResultValue returns the last execution result value (for REPL)
 func (ps *PawScript) GetResultValue() interface{} {
 	return ps.lastResult
+}
+
+// Cleanup releases all resources held by the interpreter.
+// Call this when the host application is done with the interpreter.
+// After calling Cleanup, the interpreter should not be used.
+func (ps *PawScript) Cleanup() {
+	if ps.rootState != nil {
+		ps.rootState.ReleaseAllReferences()
+		ps.rootState = nil
+	}
+	ps.lastResult = nil
+}
+
+// GetRootState returns the persistent root execution state.
+// This allows host applications to inspect or manipulate the execution environment.
+func (ps *PawScript) GetRootState() *ExecutionState {
+	return ps.rootState
 }
 
 // HasLibraryModule checks if a module exists in the library.
@@ -444,14 +470,13 @@ func (ps *PawScript) DefineMacro(name, commandSequence string) bool {
 	return true
 }
 
-// ExecuteMacro executes a macro by name from the root module environment
+// ExecuteMacro executes a macro by name from the root module environment.
+// Uses the persistent root state so variables and objects persist.
 func (ps *PawScript) ExecuteMacro(name string) Result {
 	if !ps.config.AllowMacros {
 		ps.logger.WarnCat(CatMacro, "Macros are disabled in configuration")
 		return BoolStatus(false)
 	}
-
-	state := ps.NewExecutionStateFromRoot()
 
 	// Look up macro in root module environment (COW - only check MacrosModule)
 	var macro *StoredMacro
@@ -466,6 +491,7 @@ func (ps *PawScript) ExecuteMacro(name string) Result {
 		return BoolStatus(false)
 	}
 
+	// Use the persistent root state
 	return ps.executor.ExecuteStoredMacro(macro, func(commands string, macroState *ExecutionState, ctx *SubstitutionContext) Result {
 		// Use filename from substitution context for proper error reporting
 		filename := ""
@@ -473,7 +499,7 @@ func (ps *PawScript) ExecuteMacro(name string) Result {
 			filename = ctx.Filename
 		}
 		return ps.executor.ExecuteWithState(commands, macroState, ctx, filename, 0, 0)
-	}, []interface{}{}, nil, state, nil, nil) // No parent for top-level call
+	}, []interface{}{}, nil, ps.rootState, nil, nil) // No parent for top-level call
 }
 
 // ListMacros returns a list of all macro names from the root module environment
