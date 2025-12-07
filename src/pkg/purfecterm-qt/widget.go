@@ -396,7 +396,7 @@ func (w *Widget) paintEvent(event *qt.QPaintEvent) {
 				switch cursorShape {
 				case 0: // Block
 					if !w.hasFocus {
-						pen := qt.NewQPen4(cursorQColor)
+						pen := qt.NewQPen3(cursorQColor)
 						pen.SetWidth(1)
 						painter.SetPenWithPen(pen)
 						painter.DrawRect2(cellX, cellY, cellW-1, cellH-1)
