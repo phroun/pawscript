@@ -62,9 +62,8 @@ func (e *Executor) RequestCompletionToken(
 	objectID := e.registerObjectLocked(nil, ObjToken) // Temporarily nil, will update
 	e.tokenStringToID[tokenID] = objectID
 
-	// Executor claims a reference - keeps token alive while running
-	// Token will be GC'd when executor releases ref AND no external refs remain
-	e.storedObjects[objectID].RefCount = 1
+	// RefCount starts at 0 - external claims (SetResult, SetVariable) will increment
+	// Token is kept alive by activeTokens map while running
 
 	tokenData := &TokenData{
 		StringID:           tokenID,
@@ -148,8 +147,8 @@ func (e *Executor) RequestBraceCoordinatorToken(
 	objectID := e.registerObjectLocked(nil, ObjToken) // Temporarily nil, will update
 	e.tokenStringToID[tokenID] = objectID
 
-	// Executor claims a reference - keeps token alive while running
-	e.storedObjects[objectID].RefCount = 1
+	// RefCount starts at 0 - external claims will increment
+	// Token is kept alive by activeTokens map while running
 
 	tokenData := &TokenData{
 		StringID:         tokenID,
@@ -669,11 +668,11 @@ func (e *Executor) completeTokenLocked(tokenID string, status bool, result inter
 	// Remove from string→ID lookup (no longer need reverse lookup for resume)
 	delete(e.tokenStringToID, tokenID)
 
-	// Release executor's reference - may trigger GC if no external refs
+	// Check if token can be freed (no external refs)
+	// Executor doesn't hold a claim - only external claims (SetResult, SetVariable) affect refcount
 	objectID := tokenData.ObjectID
 	if obj, objExists := e.storedObjects[objectID]; objExists && !obj.Deleted {
-		obj.RefCount--
-		e.logger.DebugCat(CatMemory, "Token %s completed, refcount decremented to %d", tokenID, obj.RefCount)
+		e.logger.DebugCat(CatMemory, "Token %s completed, refcount is %d", tokenID, obj.RefCount)
 		if obj.RefCount <= 0 {
 			// No external references, can be freed
 			// First release the FinalResult ref if it was an ObjectRef
