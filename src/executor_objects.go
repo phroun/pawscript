@@ -1,9 +1,5 @@
 package pawscript
 
-import (
-	"fmt"
-)
-
 // maybeStoreValue checks if a value should be stored as an object and returns the appropriate representation
 // Note: Does NOT claim references - the caller must claim the returned object ID
 func (e *Executor) maybeStoreValue(value interface{}, state *ExecutionState) interface{} {
