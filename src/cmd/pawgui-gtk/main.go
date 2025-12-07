@@ -1024,12 +1024,19 @@ func createConsoleChannels(width, height int) {
 
 			// Step 2: Wait for all pending glib.IdleAdd callbacks to complete
 			// This ensures all FeedBytes calls have finished before we return
+			// Use a timeout to avoid deadlock if GTK main loop isn't running yet
+			// (e.g., during startup before app.Run() is called)
 			glibDone := make(chan struct{})
 			glib.IdleAdd(func() bool {
 				close(glibDone)
 				return false
 			})
-			<-glibDone
+			select {
+			case <-glibDone:
+				// Successfully waited for GTK main loop
+			case <-time.After(100 * time.Millisecond):
+				// GTK main loop not running yet, proceed anyway
+			}
 
 			return nil
 		},
