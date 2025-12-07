@@ -92,7 +92,7 @@ func (ps *PawScript) RegisterFibersLib() {
 		handle := ctx.executor.SpawnFiber(macro, fiberArgs, namedArgs, parentModuleEnv)
 
 		fiberRef := ctx.executor.RegisterObject(handle, ObjFiber)
-		ctx.state.SetResult(Symbol(fiberRef.ToMarker()))
+		ctx.state.SetResult(fiberRef)
 
 		ps.logger.DebugCat(CatAsync, "Spawned fiber %d (object %d)", handle.ID, fiberRef.ID)
 		return BoolStatus(true)

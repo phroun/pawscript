@@ -74,7 +74,7 @@ func (ps *PawScript) RegisterSystemLib(scriptArgs []string) {
 	setListResult := func(ctx *Context, list StoredList) {
 		// RegisterObject claims refs for all nested items automatically
 		ref := ctx.executor.RegisterObject(list, ObjList)
-		ctx.state.SetResultWithoutClaim(Symbol(ref.ToMarker()))
+		ctx.state.SetResultWithoutClaim(ref)
 	}
 
 	// Helper to resolve a value to a StoredList (handles markers, direct objects, ParenGroups)
@@ -1187,7 +1187,7 @@ func (ps *PawScript) RegisterSystemLib(scriptArgs []string) {
 				// Return empty bytes on EOF
 				result := NewStoredBytes(nil)
 				ref := ctx.executor.RegisterObject(result, ObjBytes)
-				ctx.state.SetResultWithoutClaim(Symbol(ref.ToMarker()))
+				ctx.state.SetResultWithoutClaim(ref)
 				return BoolStatus(false)
 			}
 			ctx.LogError(CatIO, fmt.Sprintf("read_bytes: %v", err))
@@ -1197,7 +1197,7 @@ func (ps *PawScript) RegisterSystemLib(scriptArgs []string) {
 		// Create StoredBytes result
 		result := NewStoredBytes(data)
 		ref := ctx.executor.RegisterObject(result, ObjBytes)
-		ctx.state.SetResultWithoutClaim(Symbol(ref.ToMarker()))
+		ctx.state.SetResultWithoutClaim(ref)
 		return BoolStatus(true)
 	})
 
@@ -1288,9 +1288,9 @@ func (ps *PawScript) RegisterSystemLib(scriptArgs []string) {
 		keysRef := ctx.executor.RegisterObject(keysCh, ObjChannel)
 
 		// Use NewStoredListWithRefs to properly claim references to the channels
-		resultList := NewStoredListWithRefs([]interface{}{Symbol(linesRef.ToMarker()), Symbol(keysRef.ToMarker())}, nil, ctx.executor)
+		resultList := NewStoredListWithRefs([]interface{}{linesRef, keysRef}, nil, ctx.executor)
 		listRef := ctx.executor.RegisterObject(resultList, ObjList)
-		ctx.state.SetResultWithoutClaim(Symbol(listRef.ToMarker()))
+		ctx.state.SetResultWithoutClaim(listRef)
 
 		return BoolStatus(true)
 	})
@@ -1657,7 +1657,7 @@ func (ps *PawScript) RegisterSystemLib(scriptArgs []string) {
 			}, resultNamedArgs)
 
 			ref := ctx.executor.RegisterObject(result, ObjList)
-			ctx.state.SetResultWithoutClaim(Symbol(ref.ToMarker()))
+			ctx.state.SetResultWithoutClaim(ref)
 			return BoolStatus(true)
 		}
 
@@ -1797,7 +1797,7 @@ func (ps *PawScript) RegisterSystemLib(scriptArgs []string) {
 		}, resultNamedArgs)
 
 		ref := ctx.executor.RegisterObject(result, ObjList)
-		ctx.state.SetResultWithoutClaim(Symbol(ref.ToMarker()))
+		ctx.state.SetResultWithoutClaim(ref)
 
 		return BoolStatus(true)
 	})
@@ -2010,7 +2010,7 @@ func (ps *PawScript) RegisterSystemLib(scriptArgs []string) {
 
 		// Store and return the list
 		ref := ctx.executor.RegisterObject(result, ObjList)
-		ctx.state.SetResultWithoutClaim(Symbol(ref.ToMarker()))
+		ctx.state.SetResultWithoutClaim(ref)
 
 		return BoolStatus(true)
 	})
@@ -2771,7 +2771,7 @@ func configureLogFilter(ctx *Context, ps *PawScript, filterType string) Result {
 
 	result := NewStoredListWithNamed([]interface{}{}, resultNamedArgs)
 	ref := ctx.executor.RegisterObject(result, ObjList)
-	ctx.state.SetResultWithoutClaim(Symbol(ref.ToMarker()))
+	ctx.state.SetResultWithoutClaim(ref)
 
 	return BoolStatus(true)
 }

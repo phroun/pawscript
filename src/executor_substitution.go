@@ -57,8 +57,13 @@ func (e *Executor) applySubstitution(str string, ctx *SubstitutionContext) strin
 		// This preserves the LIST object through substitution
 		if ctx.ExecutionState != nil {
 			if argsVar, exists := ctx.ExecutionState.GetVariable("$@"); exists {
-				// The variable contains the \x00LIST:id\x00 marker
-				argsMarker := fmt.Sprintf("%v", argsVar)
+				// Handle both ObjectRef and Symbol(marker) formats
+				var argsMarker string
+				if ref, ok := argsVar.(ObjectRef); ok {
+					argsMarker = ref.ToMarker()
+				} else {
+					argsMarker = fmt.Sprintf("%v", argsVar)
+				}
 				result = strings.ReplaceAll(result, "$@", argsMarker)
 			} else {
 				// No $@ variable - empty list
@@ -71,14 +76,20 @@ func (e *Executor) applySubstitution(str string, ctx *SubstitutionContext) strin
 		// Apply $# (arg count) - use argc on $@ list
 		if ctx.ExecutionState != nil {
 			if argsVar, exists := ctx.ExecutionState.GetVariable("$@"); exists {
-				// Get the LIST object
-				if sym, ok := argsVar.(Symbol); ok {
+				// Handle both ObjectRef and Symbol(marker) formats
+				var listID int = -1
+				if ref, ok := argsVar.(ObjectRef); ok && ref.Type == ObjList {
+					listID = ref.ID
+				} else if sym, ok := argsVar.(Symbol); ok {
 					marker := string(sym)
 					if objType, id := parseObjectMarker(marker); objType == "list" && id >= 0 {
-						if listObj, exists := e.getObject(id); exists {
-							if storedList, ok := listObj.(StoredList); ok {
-								result = strings.ReplaceAll(result, "$#", fmt.Sprintf("%d", storedList.Len()))
-							}
+						listID = id
+					}
+				}
+				if listID >= 0 {
+					if listObj, exists := e.getObject(listID); exists {
+						if storedList, ok := listObj.(StoredList); ok {
+							result = strings.ReplaceAll(result, "$#", fmt.Sprintf("%d", storedList.Len()))
 						}
 					}
 				}
@@ -1198,17 +1209,24 @@ func (e *Executor) substituteDollarArgs(str string, ctx *SubstitutionContext) st
 			// Try to get from $@ list first
 			if ctx.ExecutionState != nil {
 				if argsVar, exists := ctx.ExecutionState.GetVariable("$@"); exists {
-					if sym, ok := argsVar.(Symbol); ok {
+					// Handle both ObjectRef and Symbol(marker) formats
+					var listID int = -1
+					if ref, ok := argsVar.(ObjectRef); ok && ref.Type == ObjList {
+						listID = ref.ID
+					} else if sym, ok := argsVar.(Symbol); ok {
 						marker := string(sym)
 						if objType, objID := parseObjectMarker(marker); objType == "list" && objID >= 0 {
-							if listObj, exists := e.getObject(objID); exists {
-								if storedList, ok := listObj.(StoredList); ok {
-									// index is 1-based, convert to 0-based
-									item := storedList.Get(index - 1)
-									if item != nil {
-										argValue = item
-										found = true
-									}
+							listID = objID
+						}
+					}
+					if listID >= 0 {
+						if listObj, exists := e.getObject(listID); exists {
+							if storedList, ok := listObj.(StoredList); ok {
+								// index is 1-based, convert to 0-based
+								item := storedList.Get(index - 1)
+								if item != nil {
+									argValue = item
+									found = true
 								}
 							}
 						}
@@ -1716,16 +1734,23 @@ func (e *Executor) lookupDollarArgWithContext(argNum int, inQuote bool, ctx *Sub
 	// Try to get from $@ list first
 	if ctx.ExecutionState != nil {
 		if argsVar, exists := ctx.ExecutionState.GetVariable("$@"); exists {
-			if sym, ok := argsVar.(Symbol); ok {
+			// Handle both ObjectRef and Symbol(marker) formats
+			var listID int = -1
+			if ref, ok := argsVar.(ObjectRef); ok && ref.Type == ObjList {
+				listID = ref.ID
+			} else if sym, ok := argsVar.(Symbol); ok {
 				marker := string(sym)
 				if objType, objID := parseObjectMarker(marker); objType == "list" && objID >= 0 {
-					if listObj, exists := e.getObject(objID); exists {
-						if storedList, ok := listObj.(StoredList); ok {
-							item := storedList.Get(argNum - 1)
-							if item != nil {
-								argValue = item
-								found = true
-							}
+					listID = objID
+				}
+			}
+			if listID >= 0 {
+				if listObj, exists := e.getObject(listID); exists {
+					if storedList, ok := listObj.(StoredList); ok {
+						item := storedList.Get(argNum - 1)
+						if item != nil {
+							argValue = item
+							found = true
 						}
 					}
 				}
@@ -1761,16 +1786,23 @@ func (e *Executor) lookupDollarArg(argNum int, ctx *SubstitutionContext) string 
 	// Try to get from $@ list first
 	if ctx.ExecutionState != nil {
 		if argsVar, exists := ctx.ExecutionState.GetVariable("$@"); exists {
-			if sym, ok := argsVar.(Symbol); ok {
+			// Handle both ObjectRef and Symbol(marker) formats
+			var listID int = -1
+			if ref, ok := argsVar.(ObjectRef); ok && ref.Type == ObjList {
+				listID = ref.ID
+			} else if sym, ok := argsVar.(Symbol); ok {
 				marker := string(sym)
 				if objType, objID := parseObjectMarker(marker); objType == "list" && objID >= 0 {
-					if listObj, exists := e.getObject(objID); exists {
-						if storedList, ok := listObj.(StoredList); ok {
-							item := storedList.Get(argNum - 1)
-							if item != nil {
-								argValue = item
-								found = true
-							}
+					listID = objID
+				}
+			}
+			if listID >= 0 {
+				if listObj, exists := e.getObject(listID); exists {
+					if storedList, ok := listObj.(StoredList); ok {
+						item := storedList.Get(argNum - 1)
+						if item != nil {
+							argValue = item
+							found = true
 						}
 					}
 				}
@@ -1811,6 +1843,10 @@ func (e *Executor) formatAllArgsComma(ctx *SubstitutionContext) string {
 func (e *Executor) formatArgsAsList(ctx *SubstitutionContext) string {
 	if ctx.ExecutionState != nil {
 		if argsVar, exists := ctx.ExecutionState.GetVariable("$@"); exists {
+			// Handle ObjectRef by converting to marker
+			if ref, ok := argsVar.(ObjectRef); ok {
+				return ref.ToMarker()
+			}
 			return fmt.Sprintf("%v", argsVar)
 		}
 	}
@@ -1821,13 +1857,20 @@ func (e *Executor) formatArgsAsList(ctx *SubstitutionContext) string {
 func (e *Executor) formatArgCount(ctx *SubstitutionContext) string {
 	if ctx.ExecutionState != nil {
 		if argsVar, exists := ctx.ExecutionState.GetVariable("$@"); exists {
-			if sym, ok := argsVar.(Symbol); ok {
+			// Handle both ObjectRef and Symbol(marker) formats
+			var listID int = -1
+			if ref, ok := argsVar.(ObjectRef); ok && ref.Type == ObjList {
+				listID = ref.ID
+			} else if sym, ok := argsVar.(Symbol); ok {
 				marker := string(sym)
 				if objType, id := parseObjectMarker(marker); objType == "list" && id >= 0 {
-					if listObj, exists := e.getObject(id); exists {
-						if storedList, ok := listObj.(StoredList); ok {
-							return fmt.Sprintf("%d", storedList.Len())
-						}
+					listID = id
+				}
+			}
+			if listID >= 0 {
+				if listObj, exists := e.getObject(listID); exists {
+					if storedList, ok := listObj.(StoredList); ok {
+						return fmt.Sprintf("%d", storedList.Len())
 					}
 				}
 			}

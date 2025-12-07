@@ -234,7 +234,7 @@ func (e *Executor) executeSingleCommand(
 					// Create args list for $@ and store it
 					argsList := NewStoredListWithoutRefs(args)
 					argsListRef := e.RegisterObject(argsList, ObjList)
-					argsMarker := argsListRef.ToMarker()
+					// argsListRef is already an ObjectRef - use directly
 
 					// Create a minimal MacroContext to enable $1, $2 substitution
 					blockMacroCtx := &MacroContext{
@@ -254,7 +254,7 @@ func (e *Executor) executeSingleCommand(
 					}
 
 					// Set $@ in state for dollar substitution
-					state.SetVariable("$@", Symbol(argsMarker))
+					state.SetVariable("$@", argsListRef)
 				}
 
 				// Execute block content in the SAME state (no child scope)
@@ -456,7 +456,7 @@ func (e *Executor) executeSingleCommand(
 										args = e.processArguments(args, capturedState, capturedSubstitutionCtx, capturedPosition)
 										argsList := NewStoredListWithoutRefs(args)
 										argsListRef := e.RegisterObject(argsList, ObjList)
-										argsMarker := argsListRef.ToMarker()
+										// argsListRef is already an ObjectRef - use directly
 										blockMacroCtx := &MacroContext{
 											MacroName:      "(block)",
 											InvocationFile: capturedPosition.Filename,
@@ -470,7 +470,7 @@ func (e *Executor) executeSingleCommand(
 											CurrentColumnOffset: 0,
 											Filename:            capturedPosition.Filename,
 										}
-										capturedState.SetVariable("$@", Symbol(argsMarker))
+										capturedState.SetVariable("$@", argsListRef)
 									}
 									result := e.ExecuteWithState(
 										string(storedBlock),
@@ -535,7 +535,7 @@ func (e *Executor) executeSingleCommand(
 								args = e.processArguments(args, capturedState, capturedSubstitutionCtx, capturedPosition)
 								argsList := NewStoredListWithoutRefs(args)
 								argsListRef := e.RegisterObject(argsList, ObjList)
-								argsMarker := argsListRef.ToMarker()
+								// argsListRef is already an ObjectRef - use directly
 								blockMacroCtx := &MacroContext{
 									MacroName:      "(block)",
 									InvocationFile: capturedPosition.Filename,
@@ -549,7 +549,7 @@ func (e *Executor) executeSingleCommand(
 									CurrentColumnOffset: 0,
 									Filename:            capturedPosition.Filename,
 								}
-								capturedState.SetVariable("$@", Symbol(argsMarker))
+								capturedState.SetVariable("$@", argsListRef)
 							}
 							result := e.ExecuteWithState(
 								blockContent,
@@ -721,7 +721,7 @@ func (e *Executor) executeSingleCommand(
 							// Create args list for $@ and store it
 							argsList := NewStoredListWithoutRefs(args)
 							argsListRef := e.RegisterObject(argsList, ObjList)
-							argsMarker := argsListRef.ToMarker()
+							// argsListRef is already an ObjectRef - use directly
 
 							// Create a minimal MacroContext to enable $1, $2 substitution
 							blockMacroCtx := &MacroContext{
@@ -741,7 +741,7 @@ func (e *Executor) executeSingleCommand(
 							}
 
 							// Set $@ in state for dollar substitution
-							state.SetVariable("$@", Symbol(argsMarker))
+							state.SetVariable("$@", argsListRef)
 						}
 
 						// Execute block content in current scope
@@ -825,7 +825,7 @@ func (e *Executor) executeSingleCommand(
 					// Create args list for $@ and store it
 					argsList := NewStoredListWithoutRefs(args)
 					argsListRef := e.RegisterObject(argsList, ObjList)
-					argsMarker := argsListRef.ToMarker()
+					// argsListRef is already an ObjectRef - use directly
 
 					// Create a minimal MacroContext to enable $1, $2 substitution
 					blockMacroCtx := &MacroContext{
@@ -845,7 +845,7 @@ func (e *Executor) executeSingleCommand(
 					}
 
 					// Set $@ in state for dollar substitution
-					state.SetVariable("$@", Symbol(argsMarker))
+					state.SetVariable("$@", argsListRef)
 				}
 
 				// Execute block content in the SAME state (no child scope)
@@ -2009,8 +2009,8 @@ func (e *Executor) executeMacro(
 	argsList := NewStoredListWithRefs(args, namedArgs, e)
 	argsListRef := e.RegisterObject(argsList, ObjList)
 
-	// Store the list marker in the macro state's variables as $@
-	macroState.SetVariable("$@", Symbol(argsListRef.ToMarker()))
+	// Store the list ObjectRef in the macro state's variables as $@
+	macroState.SetVariable("$@", argsListRef)
 
 	// Create substitution context for macro arguments (from pool)
 	// Pass macro.ModuleEnv as the captured environment for handler caching

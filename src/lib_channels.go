@@ -76,7 +76,7 @@ func (ps *PawScript) RegisterChannelsLib() {
 		ch.CustomClose = customClose
 
 		chRef := ctx.executor.RegisterObject(ch, ObjChannel)
-		ctx.state.SetResult(Symbol(chRef.ToMarker()))
+		ctx.state.SetResult(chRef)
 
 		ps.logger.DebugCat(CatAsync, "Created channel (object %d) with buffer size %d", chRef.ID, bufferSize)
 		return BoolStatus(true)
@@ -101,7 +101,7 @@ func (ps *PawScript) RegisterChannelsLib() {
 		}
 
 		subRef := ctx.executor.RegisterObject(subscriber, ObjChannel)
-		ctx.state.SetResult(Symbol(subRef.ToMarker()))
+		ctx.state.SetResult(subRef)
 
 		ps.logger.DebugCat(CatAsync, "Created subscriber %d for channel (object %d)", subscriber.SubscriberID, subRef.ID)
 		return BoolStatus(true)
@@ -310,7 +310,7 @@ func (ps *PawScript) RegisterChannelsLib() {
 
 		tuple := NewStoredListWithoutRefs([]interface{}{senderID, value})
 		tupleRef := ctx.executor.RegisterObject(tuple, ObjList)
-		ctx.state.SetResult(Symbol(tupleRef.ToMarker()))
+		ctx.state.SetResult(tupleRef)
 
 		return BoolStatus(true)
 	})

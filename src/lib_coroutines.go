@@ -123,7 +123,7 @@ func (ps *PawScript) RegisterGeneratorLib() {
 		// Create a LIST from the arguments and store as $@
 		argsList := NewStoredListWithRefs(macroArgs, ctx.NamedArgs, ctx.executor)
 		argsListRef := ctx.executor.RegisterObject(argsList, ObjList)
-		genState.SetVariable("$@", Symbol(argsListRef.ToMarker()))
+		genState.SetVariable("$@", argsListRef)
 
 		// Parse the macro body into commands
 		parser := NewParser(macro.Commands, macro.DefinitionFile)
@@ -330,7 +330,6 @@ func (ps *PawScript) RegisterGeneratorLib() {
 				// Create a list with [key, value]
 				pairList := NewStoredListWithoutRefs([]interface{}{key, value})
 				pairRef := ctx.executor.RegisterObject(pairList, ObjList)
-				pairMarker := pairRef.ToMarker()
 
 				// Advance index
 				ctx.executor.mu.Lock()
@@ -339,7 +338,7 @@ func (ps *PawScript) RegisterGeneratorLib() {
 				}
 				ctx.executor.mu.Unlock()
 
-				ctx.SetResult(Symbol(pairMarker))
+				ctx.SetResult(pairRef)
 				return BoolStatus(true)
 
 			case "rng":
@@ -1421,7 +1420,7 @@ func (ps *PawScript) RegisterGeneratorLib() {
 						resultList := NewStoredListWithNamed(results, namedArgs)
 						listRef := ctx.executor.RegisterObject(resultList, ObjList)
 						ctx.executor.incrementObjectRefCount(listRef.ID)
-						ctx.SetResult(Symbol(listRef.ToMarker()))
+						ctx.SetResult(listRef)
 						return BoolStatus(true)
 					}
 					return BreakResult{Levels: breakResult.Levels - 1}
@@ -1473,7 +1472,7 @@ func (ps *PawScript) RegisterGeneratorLib() {
 				resultList := NewStoredListWithNamed(results, namedArgs)
 				listRef := ctx.executor.RegisterObject(resultList, ObjList)
 				ctx.executor.incrementObjectRefCount(listRef.ID)
-				ctx.SetResult(Symbol(listRef.ToMarker()))
+				ctx.SetResult(listRef)
 
 				ctx.state.MergeBubbles(repeatCont.State)
 				repeatCont.State.mu.Lock()
@@ -1582,7 +1581,7 @@ func (ps *PawScript) RegisterGeneratorLib() {
 						resultList := NewStoredListWithNamed(results, namedArgs)
 						listRef := ctx.executor.RegisterObject(resultList, ObjList)
 						ctx.executor.incrementObjectRefCount(listRef.ID)
-						ctx.SetResult(Symbol(listRef.ToMarker()))
+						ctx.SetResult(listRef)
 						repeatCont = nil // Exit outer loop
 						break
 					}
@@ -1635,7 +1634,7 @@ func (ps *PawScript) RegisterGeneratorLib() {
 				resultList := NewStoredListWithNamed(results, namedArgs)
 				listRef := ctx.executor.RegisterObject(resultList, ObjList)
 				ctx.executor.incrementObjectRefCount(listRef.ID)
-				ctx.SetResult(Symbol(listRef.ToMarker()))
+				ctx.SetResult(listRef)
 				break
 			}
 
@@ -1801,7 +1800,7 @@ func (ps *PawScript) RegisterGeneratorLib() {
 				}
 				metaList := NewStoredListWithNamed(nil, metaNamedArgs)
 				metaRef := ctx.executor.RegisterObject(metaList, ObjList)
-				fizzCont.State.SetVariable(fizzCont.MetaVarName, Symbol(metaRef.ToMarker()))
+				fizzCont.State.SetVariable(fizzCont.MetaVarName, metaRef)
 			}
 
 			fizzCont.State.mu.Lock()

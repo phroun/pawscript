@@ -37,7 +37,7 @@ func (ps *PawScript) RegisterFilesLib() {
 	setListResult := func(ctx *Context, list StoredList) {
 		// RegisterObject claims refs for all nested items automatically
 		ref := ctx.executor.RegisterObject(list, ObjList)
-		ctx.state.SetResultWithoutClaim(Symbol(ref.ToMarker()))
+		ctx.state.SetResultWithoutClaim(ref)
 	}
 
 	// Helper to validate path access against configured roots

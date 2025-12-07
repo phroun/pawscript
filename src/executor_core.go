@@ -587,9 +587,9 @@ func (e *Executor) executeStoredMacro(
 	argsList := NewStoredListWithRefs(args, namedArgs, state.executor)
 	argsListRef := state.executor.RegisterObject(argsList, ObjList)
 
-	// Store the list marker in the state's variables as $@
+	// Store the list ObjectRef in the state's variables as $@
 	// SetVariable will claim the reference
-	state.SetVariable("$@", Symbol(argsListRef.ToMarker()))
+	state.SetVariable("$@", argsListRef)
 
 	// Create substitution context for macro arguments
 	// Use macro definition location for error reporting within macro body

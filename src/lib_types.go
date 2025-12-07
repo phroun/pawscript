@@ -16,19 +16,19 @@ func (ps *PawScript) RegisterTypesLib() {
 	setListResult := func(ctx *Context, list StoredList) {
 		// RegisterObject claims refs for all nested items automatically
 		ref := ctx.executor.RegisterObject(list, ObjList)
-		ctx.state.SetResultWithoutClaim(Symbol(ref.ToMarker()))
+		ctx.state.SetResultWithoutClaim(ref)
 	}
 
 	// Helper function to set a StoredBytes as result with proper reference counting
 	setBytesResult := func(ctx *Context, bytes StoredBytes) {
 		ref := ctx.executor.RegisterObject(bytes, ObjBytes)
-		ctx.state.SetResultWithoutClaim(Symbol(ref.ToMarker()))
+		ctx.state.SetResultWithoutClaim(ref)
 	}
 
 	// Helper function to set a StoredStruct as result with proper reference counting
 	setStructResult := func(ctx *Context, s StoredStruct) {
 		ref := ctx.executor.RegisterObject(s, ObjStruct)
-		ctx.state.SetResultWithoutClaim(Symbol(ref.ToMarker()))
+		ctx.state.SetResultWithoutClaim(ref)
 	}
 
 	// Note: struct definitions are now just StoredLists, so use setListResult for them
@@ -675,7 +675,7 @@ func (ps *PawScript) RegisterTypesLib() {
 				for i, segment := range result {
 					segList := NewStoredListWithoutRefs(segment)
 					ref := ctx.executor.RegisterObject(segList, ObjList)
-					resultItems[i] = Symbol(ref.ToMarker())
+					resultItems[i] = ref
 				}
 				setListResult(ctx, NewStoredListWithRefs(resultItems, nil, ctx.executor))
 				return BoolStatus(true)
@@ -702,7 +702,7 @@ func (ps *PawScript) RegisterTypesLib() {
 			for i, segment := range result {
 				segList := NewStoredListWithoutRefs(segment)
 				ref := ctx.executor.RegisterObject(segList, ObjList)
-				resultItems[i] = Symbol(ref.ToMarker())
+				resultItems[i] = ref
 			}
 			setListResult(ctx, NewStoredListWithRefs(resultItems, nil, ctx.executor))
 			return BoolStatus(true)
@@ -2118,7 +2118,7 @@ func (ps *PawScript) RegisterTypesLib() {
 				}
 				matchList := NewStoredListWithoutRefs(matchItems)
 				matchRef := ctx.executor.RegisterObject(matchList, ObjList)
-				resultItems = append(resultItems, Symbol(matchRef.ToMarker()))
+				resultItems = append(resultItems, matchRef)
 			}
 			// Use NewStoredListWithRefs to properly claim references to nested lists
 			resultList := NewStoredListWithRefs(resultItems, nil, ctx.executor)
@@ -2645,10 +2645,10 @@ func (ps *PawScript) RegisterTypesLib() {
 			return BoolStatus(false)
 		}
 
-		// Store as StoredBlock and return marker
+		// Store as StoredBlock and return ObjectRef
 		block := StoredBlock(code)
 		blockRef := ctx.executor.RegisterObject(block, ObjBlock)
-		ctx.state.SetResultWithoutClaim(Symbol(blockRef.ToMarker()))
+		ctx.state.SetResultWithoutClaim(blockRef)
 		return BoolStatus(true)
 	})
 
@@ -2848,7 +2848,7 @@ func (ps *PawScript) RegisterTypesLib() {
 			fieldInfoRef := ctx.executor.RegisterObject(fieldInfoList, ObjList)
 
 			// Add to result named args
-			resultNamedArgs[fieldName] = Symbol(fieldInfoRef.ToMarker())
+			resultNamedArgs[fieldName] = fieldInfoRef
 
 			currentOffset += fieldSize
 		}
@@ -2864,7 +2864,7 @@ func (ps *PawScript) RegisterTypesLib() {
 			}
 			namedList := NewStoredListWithNamed(nil, namedMeta)
 			namedRef := ctx.executor.RegisterObject(namedList, ObjList)
-			resultNamedArgs["__named"] = Symbol(namedRef.ToMarker())
+			resultNamedArgs["__named"] = namedRef
 		}
 
 		// Create the result list (no positional items, only named args)

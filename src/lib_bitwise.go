@@ -10,7 +10,7 @@ func (ps *PawScript) RegisterBitwiseLib() {
 	// Helper function to set a StoredBytes as result with proper reference counting
 	setBytesResult := func(ctx *Context, bytes StoredBytes) {
 		ref := ctx.executor.RegisterObject(bytes, ObjBytes)
-		ctx.state.SetResultWithoutClaim(Symbol(ref.ToMarker()))
+		ctx.state.SetResultWithoutClaim(ref)
 	}
 
 	// Helper function to set a StoredList as result with proper reference counting
@@ -18,7 +18,7 @@ func (ps *PawScript) RegisterBitwiseLib() {
 	setListResult := func(ctx *Context, list StoredList) {
 		// RegisterObject claims refs for all nested items automatically
 		ref := ctx.executor.RegisterObject(list, ObjList)
-		ctx.state.SetResultWithoutClaim(Symbol(ref.ToMarker()))
+		ctx.state.SetResultWithoutClaim(ref)
 	}
 
 	// Helper to extract int64 or bytes from argument

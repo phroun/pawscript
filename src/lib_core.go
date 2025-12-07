@@ -21,8 +21,7 @@ func (ps *PawScript) RegisterCoreLib() {
 		// Store using RegisterObject directly since list is already constructed
 		// RegisterObject claims refs for all nested items automatically
 		ref := ctx.executor.RegisterObject(list, ObjList)
-		// Set result using marker for now (ObjectRef integration in SetResult is gradual)
-		ctx.state.SetResultWithoutClaim(Symbol(ref.ToMarker()))
+		ctx.state.SetResultWithoutClaim(ref)
 	}
 
 	// hasBlockIndicators checks if a string contains block indicators (;, &, |, !)
@@ -1381,12 +1380,12 @@ func (ps *PawScript) RegisterCoreLib() {
 				"def_file": mc.DefinitionFile,
 				"def_line": int64(mc.DefinitionLine),
 			})
-			// Store frame and create marker
+			// Store frame and get ObjectRef
 			frameRef := ctx.executor.RegisterObject(frame, ObjList)
-			frames = append(frames, Symbol(frameRef.ToMarker()))
+			frames = append(frames, frameRef)
 		}
 
-		setListResult(ctx, NewStoredListWithoutRefs(frames))
+		setListResult(ctx, NewStoredListWithRefs(frames, nil, ctx.executor))
 		return BoolStatus(true)
 	})
 
@@ -1748,17 +1747,17 @@ func (ps *PawScript) RegisterCoreLib() {
 						if frameMap, ok := frame.(map[string]interface{}); ok {
 							frameList := NewStoredListWithNamed(nil, frameMap)
 							frameRef := ctx.executor.RegisterObject(frameList, ObjList)
-							traceList = append(traceList, Symbol(frameRef.ToMarker()))
+							traceList = append(traceList, frameRef)
 						}
 					}
-					stackList := NewStoredListWithoutRefs(traceList)
+					stackList := NewStoredListWithRefs(traceList, nil, ctx.executor)
 					stackRef := ctx.executor.RegisterObject(stackList, ObjList)
-					metaNamedArgs["stack_trace"] = Symbol(stackRef.ToMarker())
+					metaNamedArgs["stack_trace"] = stackRef
 				}
 
 				metaList := NewStoredListWithNamed(nil, metaNamedArgs)
 				metaRef := ctx.executor.RegisterObject(metaList, ObjList)
-				ctx.state.SetVariable(metaVarName, Symbol(metaRef.ToMarker()))
+				ctx.state.SetVariable(metaVarName, metaRef)
 			}
 
 			// Store current bubble pointer for 'burst' command
@@ -1926,7 +1925,7 @@ func (ps *PawScript) RegisterCoreLib() {
 
 			macro := NewStoredMacroWithEnv(commands, ctx.Position, macroEnv)
 			macroRef := ctx.executor.RegisterObject(macro, ObjMacro)
-			ctx.state.SetResult(Symbol(macroRef.ToMarker()))
+			ctx.state.SetResult(macroRef)
 
 			ps.logger.DebugCat(CatMacro,"Created anonymous macro (object %d)", macroRef.ID)
 			return BoolStatus(true)
@@ -2313,7 +2312,7 @@ func (ps *PawScript) RegisterCoreLib() {
 
 		cmd := NewStoredCommand(commandName, handler)
 		cmdRef := ctx.executor.RegisterObject(cmd, ObjCommand)
-		ctx.state.SetResult(Symbol(cmdRef.ToMarker()))
+		ctx.state.SetResult(cmdRef)
 
 		ps.logger.DebugCat(CatMacro,"Created command reference for '%s' (object %d)", commandName, cmdRef.ID)
 		return BoolStatus(true)
@@ -3189,9 +3188,9 @@ func (ps *PawScript) RegisterCoreLib() {
 					elem := struc.Get(idx)
 					ctx.state.SetVariable(keyVar, int64(idx))
 
-					// Store element and create marker
+					// Store element and set as ObjectRef
 					elemRef := ctx.executor.RegisterObject(elem, ObjStruct)
-					ctx.state.SetVariable(valueVar, Symbol(elemRef.ToMarker()))
+					ctx.state.SetVariable(valueVar, elemRef)
 
 					if iterVar != "" {
 						ctx.state.SetVariable(iterVar, int64(iterNum))
