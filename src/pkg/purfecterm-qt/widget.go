@@ -82,10 +82,11 @@ func NewWidget(cols, rows, scrollbackSize int) *Widget {
 	w.buffer = purfecterm.NewBuffer(cols, rows, scrollbackSize)
 	w.parser = purfecterm.NewParser(w.buffer)
 
-	// Set up dirty callback to trigger redraws and update scrollbar
+	// Set up dirty callback to trigger redraws
+	// Note: Don't call updateScrollbar here - it causes deadlock since
+	// the dirty callback is called while buffer holds its lock
 	w.buffer.SetDirtyCallback(func() {
 		w.widget.Update()
-		w.updateScrollbar()
 	})
 
 	// Scrollbar will be created lazily on first resize to avoid initialization issues
@@ -823,6 +824,8 @@ func (w *Widget) resizeEvent(event *qt.QResizeEvent) {
 
 	fmt.Printf("DEBUG: resizeEvent - about to resize buffer to %dx%d\n", newCols, newRows)
 	w.buffer.Resize(newCols, newRows)
+	// Update scrollbar after resize (buffer lock is now released)
+	w.updateScrollbar()
 	fmt.Println("DEBUG: resizeEvent - done")
 }
 
