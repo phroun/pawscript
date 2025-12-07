@@ -54,7 +54,7 @@ Test 11: List of booleans
   arrser: true
 
 Test 12: List of blocks
-  arrtype: list
+  arrtype: block
   arrser: true
 
 === Tests Complete ===
