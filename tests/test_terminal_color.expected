@@ -1,5 +1,5 @@
 === Test 1: Color command returns list ===
-Color returns: undefined
+Color returns: list
 
 === Test 2: Color list has fg and bg ===
 Initial fg: -1

@@ -372,7 +372,7 @@ Expected: 2 objects (large_base + items list)
 Test 25: join large result
 === Memory Statistics ===
 Total stored objects: 9
-Total estimated size: 980 bytes
+Total estimated size: 986 bytes
 
 ID    Type      RefCount  Size(bytes)
 ----  --------  --------  -----------
@@ -383,7 +383,7 @@ ID    Type      RefCount  Size(bytes)
 5     channel   0         32
 6     string    3         232
 16    list      1         75
-17    list      1         70
+17    list      1         76
 18    string    2         451
 Expected: 4 objects (large_base + items + big_items + large_join)
 

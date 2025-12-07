@@ -1,5 +1,5 @@
 === Test 1: Cursor returns list ===
-Cursor returns: undefined
+Cursor returns: list
 
 === Test 2: Cursor list has positional values ===
 First 4 positional values present: yes
