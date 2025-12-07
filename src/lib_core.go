@@ -2604,10 +2604,23 @@ func (ps *PawScript) RegisterCoreLib() {
 		// Helper to check if arg is a token (generator/iterator)
 		isToken := func(arg interface{}) bool {
 			switch v := arg.(type) {
+			case ObjectRef:
+				return v.Type == ObjToken && v.IsValid()
+			case TokenResult:
+				return true
 			case Symbol:
-				return strings.HasPrefix(string(v), "\x00TOKEN:")
+				// Check if it's a token string ID (lookup in activeTokens)
+				tokenID := string(v)
+				ctx.executor.tokenMu.Lock()
+				_, exists := ctx.executor.activeTokens[tokenID]
+				ctx.executor.tokenMu.Unlock()
+				return exists
 			case string:
-				return strings.HasPrefix(v, "\x00TOKEN:")
+				// Check if it's a token string ID
+				ctx.executor.tokenMu.Lock()
+				_, exists := ctx.executor.activeTokens[v]
+				ctx.executor.tokenMu.Unlock()
+				return exists
 			}
 			return false
 		}

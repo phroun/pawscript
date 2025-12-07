@@ -1116,12 +1116,30 @@ func getTypeName(val interface{}) string {
 	case QuotedString:
 		// QuotedString is still a string type, just with different formatting
 		return "string"
+	case ObjectRef:
+		// Object references - return type based on ObjectType
+		switch v.Type {
+		case ObjToken:
+			return "token"
+		case ObjList:
+			return "list"
+		case ObjBytes:
+			return "bytes"
+		case ObjStruct:
+			return "struct"
+		case ObjString:
+			return "string"
+		case ObjBlock:
+			return "block"
+		case ObjChannel:
+			return "channel"
+		case ObjFile:
+			return "file"
+		default:
+			return "object"
+		}
 	case Symbol:
 		str := string(v)
-		// Check for token marker (special case - token IDs are strings, not ints)
-		if strings.HasPrefix(str, "\x00TOKEN:") && strings.HasSuffix(str, "\x00") {
-			return "token"
-		}
 		// Check if it's an object marker - if so, return the stored type
 		if objType, objID := parseObjectMarker(str); objID >= 0 {
 			// Return the marker type directly (list, string, block)
@@ -1140,10 +1158,6 @@ func getTypeName(val interface{}) string {
 	case float32:
 		return "float"
 	case string:
-		// Check for token marker (special case - token IDs are strings, not ints)
-		if strings.HasPrefix(v, "\x00TOKEN:") && strings.HasSuffix(v, "\x00") {
-			return "token"
-		}
 		// Check if it's an object marker
 		if objType, objID := parseObjectMarker(v); objID >= 0 {
 			return fmt.Sprintf("EVIL_OBJECT<%s>", objType)

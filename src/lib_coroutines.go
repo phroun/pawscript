@@ -11,34 +11,44 @@ import (
 // RegisterGeneratorLib registers generator and coroutine commands
 // Module: core
 func (ps *PawScript) RegisterGeneratorLib() {
-	// Helper to resolve a token from an argument (marker, Symbol, or string)
-	resolveToken := func(ctx *Context, arg interface{}) (string, bool) {
-		var tokenStr string
+	// Helper to resolve a token from an argument
+	// Accepts: ObjectRef (ObjToken), string ID, or Symbol
+	// Returns the string token ID (for lookup in activeTokens) or empty string if invalid
+	resolveTokenID := func(ctx *Context, arg interface{}) string {
 		switch v := arg.(type) {
+		case ObjectRef:
+			if v.Type != ObjToken {
+				return ""
+			}
+			// Look up TokenData from storedObjects
+			ctx.executor.objectMu.Lock()
+			obj, exists := ctx.executor.storedObjects[v.ID]
+			ctx.executor.objectMu.Unlock()
+			if !exists || obj.Deleted {
+				return ""
+			}
+			if tokenData, ok := obj.Value.(*TokenData); ok {
+				return tokenData.StringID
+			}
+			return ""
 		case Symbol:
-			tokenStr = string(v)
+			return string(v)
 		case string:
-			tokenStr = v
+			return v
 		default:
-			return "", false
-		}
-
-		// Check if it's a token marker (format: \x00TOKEN:tokenID\x00)
-		// Token IDs are strings, not integers, so we can't use parseObjectMarker
-		if strings.HasPrefix(tokenStr, "\x00TOKEN:") && strings.HasSuffix(tokenStr, "\x00") {
-			return tokenStr, true
-		}
-
-		return "", false
-	}
-
-	// Helper to get token ID from a marker
-	getTokenIDFromMarker := func(marker string) string {
-		// Token marker format: \x00TOKEN:tokenID\x00
-		if !strings.HasPrefix(marker, "\x00TOKEN:") || !strings.HasSuffix(marker, "\x00") {
 			return ""
 		}
-		return marker[len("\x00TOKEN:") : len(marker)-1]
+	}
+
+	// Helper to create an ObjectRef for a token given its string ID
+	getTokenRef := func(ctx *Context, tokenID string) ObjectRef {
+		ctx.executor.objectMu.Lock()
+		objectID, exists := ctx.executor.tokenStringToID[tokenID]
+		ctx.executor.objectMu.Unlock()
+		if !exists {
+			return ObjectRef{}
+		}
+		return ObjectRef{Type: ObjToken, ID: objectID}
 	}
 
 	// generator - Create a generator from a macro without executing it
@@ -190,14 +200,14 @@ func (ps *PawScript) RegisterGeneratorLib() {
 		}
 		ctx.executor.mu.Unlock()
 
-		// Create the token marker and store as object
-		tokenMarker := fmt.Sprintf("\x00TOKEN:%s\x00", tokenID)
+		// Get the ObjectRef for this token
+		tokenRef := getTokenRef(ctx, tokenID)
 
 		// Store #token in the generator's state so yield can find it
-		genState.SetVariable("#token", Symbol(tokenMarker))
+		genState.SetVariable("#token", tokenRef)
 
-		// Return the token marker as the result
-		ctx.SetResult(Symbol(tokenMarker))
+		// Return the token ObjectRef as the result
+		ctx.SetResult(tokenRef)
 		return BoolStatus(true)
 	})
 
@@ -209,16 +219,10 @@ func (ps *PawScript) RegisterGeneratorLib() {
 			return BoolStatus(false)
 		}
 
-		// Resolve the token
-		tokenMarker, ok := resolveToken(ctx, ctx.Args[0])
-		if !ok {
-			ctx.LogError(CatCommand, "resume: invalid token")
-			return BoolStatus(false)
-		}
-
-		tokenID := getTokenIDFromMarker(tokenMarker)
+		// Resolve the token (accepts ObjectRef or string ID)
+		tokenID := resolveTokenID(ctx, ctx.Args[0])
 		if tokenID == "" {
-			ctx.LogError(CatCommand, "resume: could not extract token ID")
+			ctx.LogError(CatCommand, "resume: invalid token")
 			return BoolStatus(false)
 		}
 
@@ -2040,10 +2044,10 @@ func (ps *PawScript) RegisterGeneratorLib() {
 				delete(ctx.executor.activeTokens, tokenID)
 				ctx.executor.mu.Unlock()
 
-				// Return the new token
-				newTokenMarker := fmt.Sprintf("\x00TOKEN:%s\x00", newTokenID)
-				state.SetVariable("#token", Symbol(newTokenMarker))
-				ctx.SetResult(Symbol(newTokenMarker))
+				// Return the new token as ObjectRef
+				newTokenRef := getTokenRef(ctx, newTokenID)
+				state.SetVariable("#token", newTokenRef)
+				ctx.SetResult(newTokenRef)
 				return BoolStatus(true)
 			}
 
@@ -2126,15 +2130,11 @@ func (ps *PawScript) RegisterGeneratorLib() {
 			// yield <value> - use #token from local state
 			value = ctx.Args[0]
 			if tokenVar, exists := ctx.state.GetVariable("#token"); exists {
-				if marker, ok := resolveToken(ctx, tokenVar); ok {
-					tokenID = getTokenIDFromMarker(marker)
-				}
+				tokenID = resolveTokenID(ctx, tokenVar)
 			}
 		case 2:
 			// yield <token>, <value>
-			if marker, ok := resolveToken(ctx, ctx.Args[0]); ok {
-				tokenID = getTokenIDFromMarker(marker)
-			}
+			tokenID = resolveTokenID(ctx, ctx.Args[0])
 			value = ctx.Args[1]
 		default:
 			ctx.LogError(CatCommand, "Usage: yield [token], <value>")
@@ -2170,13 +2170,8 @@ func (ps *PawScript) RegisterGeneratorLib() {
 			return BoolStatus(false)
 		}
 
-		tokenMarker, ok := resolveToken(ctx, ctx.Args[0])
-		if !ok {
-			ctx.SetResult(false)
-			return BoolStatus(false)
-		}
-
-		tokenID := getTokenIDFromMarker(tokenMarker)
+		// Resolve the token (accepts ObjectRef or string ID)
+		tokenID := resolveTokenID(ctx, ctx.Args[0])
 		if tokenID == "" {
 			ctx.SetResult(false)
 			return BoolStatus(false)
@@ -2185,16 +2180,14 @@ func (ps *PawScript) RegisterGeneratorLib() {
 		// Check if token exists
 		ctx.executor.mu.RLock()
 		_, exists := ctx.executor.activeTokens[tokenID]
+		ctx.executor.mu.RUnlock()
 		if !exists {
-			ctx.executor.mu.RUnlock()
 			ctx.SetResult(false)
 			return BoolStatus(false)
 		}
 
 		// token_valid just checks if the token exists - no look-ahead
 		// Use while (v: {resume ~token}) pattern to consume iterators/generators
-		ctx.executor.mu.RUnlock()
-
 		ctx.SetResult(exists)
 		return BoolStatus(exists)
 	})
@@ -2282,9 +2275,9 @@ func (ps *PawScript) RegisterGeneratorLib() {
 		}
 		ctx.executor.mu.Unlock()
 
-		// Return the token marker
-		tokenMarker := fmt.Sprintf("\x00TOKEN:%s\x00", tokenID)
-		ctx.SetResult(Symbol(tokenMarker))
+		// Return the token as ObjectRef
+		tokenRef := getTokenRef(ctx, tokenID)
+		ctx.SetResult(tokenRef)
 		return BoolStatus(true)
 	})
 
@@ -2341,9 +2334,9 @@ func (ps *PawScript) RegisterGeneratorLib() {
 		}
 		ctx.executor.mu.Unlock()
 
-		// Return the token marker
-		tokenMarker := fmt.Sprintf("\x00TOKEN:%s\x00", tokenID)
-		ctx.SetResult(Symbol(tokenMarker))
+		// Return the token as ObjectRef
+		tokenRef := getTokenRef(ctx, tokenID)
+		ctx.SetResult(tokenRef)
 		return BoolStatus(true)
 	})
 
@@ -2414,9 +2407,9 @@ func (ps *PawScript) RegisterGeneratorLib() {
 		}
 		ctx.executor.mu.Unlock()
 
-		// Return the token marker
-		tokenMarker := fmt.Sprintf("\x00TOKEN:%s\x00", tokenID)
-		ctx.SetResult(Symbol(tokenMarker))
+		// Return the token as ObjectRef
+		tokenRef := getTokenRef(ctx, tokenID)
+		ctx.SetResult(tokenRef)
 		return BoolStatus(true)
 	})
 
@@ -2459,35 +2452,25 @@ func (ps *PawScript) RegisterGeneratorLib() {
 		}
 		ctx.executor.mu.Unlock()
 
-		// Return the token marker
-		tokenMarker := fmt.Sprintf("\x00TOKEN:%s\x00", tokenID)
-		ctx.SetResult(Symbol(tokenMarker))
+		// Return the token as ObjectRef
+		tokenRef := getTokenRef(ctx, tokenID)
+		ctx.SetResult(tokenRef)
 		return BoolStatus(true)
 	})
 
-	// Helper to resolve an RNG token from a value
-	resolveRngToken := func(ctx *Context, value interface{}) string {
-		var tokenStr string
-		switch v := value.(type) {
-		case Symbol:
-			tokenStr = string(v)
-		case string:
-			tokenStr = v
-		default:
-			return ""
-		}
-		if strings.HasPrefix(tokenStr, "\x00TOKEN:") && strings.HasSuffix(tokenStr, "\x00") {
-			return tokenStr
-		}
-		return ""
+	// Helper to resolve an RNG token ID from a value
+	// Accepts ObjectRef (ObjToken) or string ID
+	resolveRngTokenID := func(ctx *Context, value interface{}) string {
+		return resolveTokenID(ctx, value)
 	}
 
 	// Helper to resolve #random from local vars -> ObjectsModule -> ObjectsInherited
-	resolveRandomToken := func(ctx *Context, name string) string {
+	// Returns the token string ID (for lookup) or empty string
+	resolveRandomTokenID := func(ctx *Context, name string) string {
 		// First, check local macro variables
 		if value, exists := ctx.state.GetVariable(name); exists {
-			if token := resolveRngToken(ctx, value); token != "" {
-				return token
+			if tokenID := resolveRngTokenID(ctx, value); tokenID != "" {
+				return tokenID
 			}
 		}
 
@@ -2499,8 +2482,8 @@ func (ps *PawScript) RegisterGeneratorLib() {
 			// Check ObjectsModule (copy-on-write layer)
 			if ctx.state.moduleEnv.ObjectsModule != nil {
 				if obj, exists := ctx.state.moduleEnv.ObjectsModule[name]; exists {
-					if token := resolveRngToken(ctx, obj); token != "" {
-						return token
+					if tokenID := resolveRngTokenID(ctx, obj); tokenID != "" {
+						return tokenID
 					}
 				}
 			}
@@ -2508,8 +2491,8 @@ func (ps *PawScript) RegisterGeneratorLib() {
 			// Check ObjectsInherited (root layer where io::#random lives)
 			if ctx.state.moduleEnv.ObjectsInherited != nil {
 				if obj, exists := ctx.state.moduleEnv.ObjectsInherited[name]; exists {
-					if token := resolveRngToken(ctx, obj); token != "" {
-						return token
+					if tokenID := resolveRngTokenID(ctx, obj); tokenID != "" {
+						return tokenID
 					}
 				}
 			}
@@ -2522,19 +2505,19 @@ func (ps *PawScript) RegisterGeneratorLib() {
 	// Usage: random [max] or random min, max - uses default #random
 	//        random <token> [max] or random <token> min, max - uses custom generator
 	ps.RegisterCommandInModule("coroutines", "random", func(ctx *Context) Result {
-		var tokenStr string
+		var tokenID string
 		var rangeArgs []interface{}
 
 		// Check if first arg is an RNG token or a #-prefixed name
 		if len(ctx.Args) > 0 {
-			// Try to extract as token marker directly
-			if token := resolveRngToken(ctx, ctx.Args[0]); token != "" {
-				tokenStr = token
+			// Try to resolve as token (ObjectRef or string ID)
+			if id := resolveRngTokenID(ctx, ctx.Args[0]); id != "" {
+				tokenID = id
 				rangeArgs = ctx.Args[1:]
 			} else if sym, ok := ctx.Args[0].(Symbol); ok && strings.HasPrefix(string(sym), "#") {
 				// It's a #-prefixed symbol, resolve it like echo resolves channels
-				if token := resolveRandomToken(ctx, string(sym)); token != "" {
-					tokenStr = token
+				if id := resolveRandomTokenID(ctx, string(sym)); id != "" {
+					tokenID = id
 					rangeArgs = ctx.Args[1:]
 				} else {
 					// Could not resolve as RNG, treat as range arg
@@ -2547,16 +2530,13 @@ func (ps *PawScript) RegisterGeneratorLib() {
 		}
 
 		// If no token provided, use default #random
-		if tokenStr == "" {
-			tokenStr = resolveRandomToken(ctx, "#random")
-			if tokenStr == "" {
+		if tokenID == "" {
+			tokenID = resolveRandomTokenID(ctx, "#random")
+			if tokenID == "" {
 				ctx.LogError(CatCommand, "random: #random not found in environment")
 				return BoolStatus(false)
 			}
 		}
-
-		// Extract token ID
-		tokenID := tokenStr[len("\x00TOKEN:") : len(tokenStr)-1]
 
 		// Get the token data
 		ctx.executor.mu.Lock()
@@ -2621,37 +2601,16 @@ func (ps *PawScript) RegisterGeneratorLib() {
 			return BoolStatus(false)
 		}
 
-		// Get the token ID
-		var tokenID string
-		arg := ctx.executor.resolveValue(ctx.Args[0])
-
-		switch v := arg.(type) {
-		case Symbol:
-			tokenStr := string(v)
-			// Check if it's a token marker
-			if strings.HasPrefix(tokenStr, "\x00TOKEN:") && strings.HasSuffix(tokenStr, "\x00") {
-				tokenID = tokenStr[len("\x00TOKEN:") : len(tokenStr)-1]
-			} else {
-				ctx.LogError(CatCommand, "stop: argument is not a valid token")
-				return BoolStatus(false)
-			}
-		case string:
-			// Check if it's a token marker
-			if strings.HasPrefix(v, "\x00TOKEN:") && strings.HasSuffix(v, "\x00") {
-				tokenID = v[len("\x00TOKEN:") : len(v)-1]
-			} else {
-				// Try as raw token ID
-				tokenID = v
-			}
-		case TokenResult:
-			tokenID = string(v)
-		default:
-			ctx.LogError(CatCommand, "stop: argument must be a token")
-			return BoolStatus(false)
-		}
-
+		// Get the token ID (accepts ObjectRef, string, or Symbol)
+		tokenID := resolveTokenID(ctx, ctx.Args[0])
 		if tokenID == "" {
-			ctx.LogError(CatCommand, "stop: empty token ID")
+			// Also try TokenResult type
+			if tr, ok := ctx.Args[0].(TokenResult); ok {
+				tokenID = string(tr)
+			}
+		}
+		if tokenID == "" {
+			ctx.LogError(CatCommand, "stop: argument must be a valid token")
 			return BoolStatus(false)
 		}
 

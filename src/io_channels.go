@@ -464,8 +464,14 @@ func (env *ModuleEnvironment) PopulateIOModule(config *IOChannelConfig, executor
 			}
 		}
 		executor.mu.Unlock()
-		tokenMarker := fmt.Sprintf("\x00TOKEN:%s\x00", tokenID)
-		ioModule["#random"] = &ModuleItem{Type: "object", Value: Symbol(tokenMarker)}
+		// Get ObjectRef for the token
+		executor.objectMu.Lock()
+		objectID, exists := executor.tokenStringToID[tokenID]
+		executor.objectMu.Unlock()
+		if exists {
+			tokenRef := ObjectRef{Type: ObjToken, ID: objectID}
+			ioModule["#random"] = &ModuleItem{Type: "object", Value: tokenRef}
+		}
 	}
 
 	// Register any custom channels from config

@@ -126,15 +126,21 @@ func (e *Executor) executeCommandSequence(commands []*ParsedCommand, state *Exec
 				e.mu.Unlock()
 			}
 
-			// Create token marker and store in state's #token
-			tokenMarker := fmt.Sprintf("\x00TOKEN:%s\x00", suspendToken)
-			state.SetVariable("#token", Symbol(tokenMarker))
+			// Create ObjectRef for the token and store in state's #token
+			e.objectMu.Lock()
+			objectID, exists := e.tokenStringToID[suspendToken]
+			e.objectMu.Unlock()
+			var tokenRef ObjectRef
+			if exists {
+				tokenRef = ObjectRef{Type: ObjToken, ID: objectID}
+			}
+			state.SetVariable("#token", tokenRef)
 
-			// Return as EarlyReturn with the token marker
-			state.SetResult(Symbol(tokenMarker))
+			// Return as EarlyReturn with the token ObjectRef
+			state.SetResult(tokenRef)
 			return EarlyReturn{
 				Status:    BoolStatus(true),
-				Result:    Symbol(tokenMarker),
+				Result:    tokenRef,
 				HasResult: true,
 			}
 		}
