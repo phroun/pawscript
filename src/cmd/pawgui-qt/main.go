@@ -18,6 +18,12 @@ import (
 	purfectermqt "github.com/phroun/pawscript/pkg/purfecterm-qt"
 )
 
+func init() {
+	// Lock the main goroutine to the main OS thread.
+	// This is required for Qt on macOS to avoid signal handling conflicts.
+	runtime.LockOSThread()
+}
+
 // Default font settings
 const defaultFontSize = 22
 
