@@ -53,6 +53,9 @@ type Widget struct {
 
 	// Callback when data should be written to PTY
 	onInput func([]byte)
+
+	// Context menu
+	contextMenu *qt.QMenu
 }
 
 // NewWidget creates a new terminal widget with the specified dimensions
@@ -122,6 +125,37 @@ func NewWidget(cols, rows, scrollbackSize int) *Widget {
 	})
 	w.widget.OnResizeEvent(func(super func(event *qt.QResizeEvent), event *qt.QResizeEvent) {
 		w.resizeEvent(event)
+	})
+
+	// Create context menu for right-click
+	w.contextMenu = qt.NewQMenu2(w.widget)
+
+	copyAction := w.contextMenu.AddAction("Copy")
+	copyAction.OnTriggered(func() {
+		w.CopySelection()
+	})
+
+	pasteAction := w.contextMenu.AddAction("Paste")
+	pasteAction.OnTriggered(func() {
+		w.PasteClipboard()
+	})
+
+	w.contextMenu.AddSeparator()
+
+	selectAllAction := w.contextMenu.AddAction("Select All")
+	selectAllAction.OnTriggered(func() {
+		w.SelectAll()
+	})
+
+	clearAction := w.contextMenu.AddAction("Clear")
+	clearAction.OnTriggered(func() {
+		w.Clear()
+	})
+
+	// Enable context menu policy for right-click
+	w.widget.SetContextMenuPolicy(qt.CustomContextMenu)
+	w.widget.OnCustomContextMenuRequested(func(pos *qt.QPoint) {
+		w.contextMenu.Exec2(w.widget.MapToGlobal(pos))
 	})
 
 	return w
