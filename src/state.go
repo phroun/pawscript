@@ -1,7 +1,6 @@
 package pawscript
 
 import (
-	"fmt"
 	"sort"
 	"strconv"
 	"strings"
@@ -210,52 +209,29 @@ func (s *ExecutionState) SetResult(value interface{}) {
 		return
 	}
 
-	// Convert raw objects to markers automatically
-	// This handles cases where commands pass resolved objects through the system
+	// Handle ObjectRef directly - no conversion needed
+	// For raw stored objects (StoredList, StoredBytes, etc.), maybeStoreValue will
+	// convert them to ObjectRef by finding their existing ID or registering them
 	if s.executor != nil {
 		switch v := value.(type) {
-		case StoredList:
-			// Find existing ID or store the list
-			if id := s.executor.findStoredListID(v); id >= 0 {
-				value = Symbol(fmt.Sprintf("\x00LIST:%d\x00", id))
-			} else {
-				// Not found, store it
-				ref := s.executor.RegisterObject(v, ObjList)
-				value = Symbol(ref.ToMarker())
-			}
+		case ObjectRef:
+			// Already an ObjectRef - use it directly (this is the correct path)
+			value = v
 		case *StoredChannel:
-			// Find existing channel ID
-			if id := s.executor.findStoredChannelID(v); id >= 0 {
-				value = Symbol(fmt.Sprintf("\x00CHANNEL:%d\x00", id))
-			} else {
-				// Store the channel
-				ref := s.executor.RegisterObject(v, ObjChannel)
-				value = Symbol(ref.ToMarker())
-			}
+			// Channels need special handling - register if not already stored
+			ref := s.executor.RegisterObject(v, ObjChannel)
+			value = ref
 		case *StoredFile:
-			// Find existing file ID
-			if id := s.executor.findStoredFileID(v); id >= 0 {
-				value = Symbol(fmt.Sprintf("\x00FILE:%d\x00", id))
-			} else {
-				// Store the file
-				ref := s.executor.RegisterObject(v, ObjFile)
-				value = Symbol(ref.ToMarker())
-			}
-		case StoredBytes:
-			// Find existing bytes ID
-			if id := s.executor.findStoredBytesID(v); id >= 0 {
-				value = Symbol(fmt.Sprintf("\x00BYTES:%d\x00", id))
-			} else {
-				// Store the bytes
-				ref := s.executor.RegisterObject(v, ObjBytes)
-				value = Symbol(ref.ToMarker())
-			}
+			// Files need special handling - register if not already stored
+			ref := s.executor.RegisterObject(v, ObjFile)
+			value = ref
 		case []interface{}:
-			// Convert raw slice to StoredList
+			// Convert raw slice to StoredList (this is OK for new list creation)
 			list := NewStoredListWithoutRefs(v)
 			ref := s.executor.RegisterObject(list, ObjList)
-			value = Symbol(ref.ToMarker())
+			value = ref
 		}
+		// Note: StoredList, StoredBytes, StoredStruct are handled by maybeStoreValue below
 	}
 
 	// Check if large strings/blocks should be stored

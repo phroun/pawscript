@@ -1992,6 +1992,53 @@ func (e *Executor) formatBraceResultFromTemplate(value interface{}, isUnescape b
 		return string(sym)
 	}
 
+	// Handle ObjectRef directly (new preferred way)
+	if ref, ok := value.(ObjectRef); ok {
+		if !ref.IsValid() {
+			return "nil"
+		}
+		if isUnescape {
+			// ${...} - resolve and splat
+			if actualValue, exists := e.getObject(ref.ID); exists {
+				switch ref.Type {
+				case ObjList:
+					if list, ok := actualValue.(StoredList); ok {
+						return e.formatListItems(list)
+					}
+				case ObjString:
+					if storedStr, ok := actualValue.(StoredString); ok {
+						return string(storedStr)
+					}
+				case ObjBlock:
+					if storedBlock, ok := actualValue.(StoredBlock); ok {
+						return string(storedBlock)
+					}
+				}
+			}
+		}
+		// Inside quotes, display object contents
+		if inQuote {
+			if actualValue, exists := e.getObject(ref.ID); exists {
+				switch ref.Type {
+				case ObjList:
+					if list, ok := actualValue.(StoredList); ok {
+						return formatListForDisplay(list)
+					}
+				case ObjString:
+					if storedStr, ok := actualValue.(StoredString); ok {
+						return string(storedStr)
+					}
+				case ObjBlock:
+					if storedBlock, ok := actualValue.(StoredBlock); ok {
+						return string(storedBlock)
+					}
+				}
+			}
+		}
+		// Return marker for reference passing
+		return ref.ToMarker()
+	}
+
 	// Format based on type
 	switch v := value.(type) {
 	case bool:
