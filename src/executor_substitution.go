@@ -1522,6 +1522,19 @@ func (e *Executor) ParseSubstitutionTemplate(str string, filename string) *Subst
 	// Flush remaining literal
 	flushLiteral(len(runes))
 
+	// Check if this is a single expression (can be evaluated to typed value directly)
+	// A single expression is: exactly one non-literal segment with no surrounding text
+	// Examples: ~var, {block}, $1
+	// Non-examples: "hello ~name", ~a ~b, prefix~var
+	if len(template.Segments) == 1 {
+		seg := template.Segments[0]
+		template.IsSingleExpr = seg.Type == SegmentTildeVar ||
+			seg.Type == SegmentBrace ||
+			seg.Type == SegmentDollarArg ||
+			seg.Type == SegmentDollarAt ||
+			seg.Type == SegmentDollarStar
+	}
+
 	return template
 }
 
@@ -1666,6 +1679,244 @@ func (e *Executor) ApplyTemplate(template *SubstitutionTemplate, ctx *Substituti
 	}
 
 	return result.String(), false
+}
+
+// ApplyTemplateTyped evaluates a single-expression template and returns the typed value directly.
+// This avoids the round-trip through string markers for brace expressions, tilde variables, and dollar args.
+// Returns (value, isTyped, isAsync):
+//   - isTyped=true means value is the typed result (use directly)
+//   - isTyped=false means fall back to string-based ApplyTemplate
+//   - isAsync=true means async coordination is needed
+func (e *Executor) ApplyTemplateTyped(template *SubstitutionTemplate, ctx *SubstitutionContext) (interface{}, bool, bool) {
+	// Only handle single-expression templates
+	if template == nil || !template.IsSingleExpr || len(template.Segments) != 1 {
+		return nil, false, false
+	}
+
+	seg := template.Segments[0]
+
+	switch seg.Type {
+	case SegmentTildeVar:
+		// ~varname - return the typed value directly
+		value, isTyped := e.lookupTildeVarTyped(seg.VarName, seg.IsQuestion, ctx)
+		return value, isTyped, false
+
+	case SegmentBrace:
+		// {block} - evaluate and return typed result
+		value, isAsync := e.executeBraceTyped(seg, ctx)
+		if isAsync {
+			return nil, false, true
+		}
+		return value, true, false
+
+	case SegmentDollarArg:
+		// $1, $2, etc - return the typed value directly
+		if ctx.MacroContext == nil {
+			return nil, false, false
+		}
+		value, found := e.lookupDollarArgTyped(seg.ArgNum, ctx)
+		return value, found, false
+
+	case SegmentDollarAt:
+		// $@ - return the args list directly
+		if ctx.MacroContext == nil {
+			return nil, false, false
+		}
+		if ctx.ExecutionState != nil {
+			if argsVar, exists := ctx.ExecutionState.GetVariable("$@"); exists {
+				return argsVar, true, false
+			}
+		}
+		// Return empty list
+		return NewStoredListWithoutRefs(nil), true, false
+
+	case SegmentDollarStar:
+		// $* - can't return typed (it's a comma-separated string format)
+		return nil, false, false
+
+	default:
+		return nil, false, false
+	}
+}
+
+// lookupTildeVarTyped looks up a tilde variable and returns the typed value
+func (e *Executor) lookupTildeVarTyped(varName string, isQuestion bool, ctx *SubstitutionContext) (interface{}, bool) {
+	if ctx.ExecutionState == nil {
+		if isQuestion {
+			return false, true
+		}
+		return nil, false
+	}
+
+	// Look up variable
+	value, exists := ctx.ExecutionState.GetVariable(varName)
+	if !exists && ctx.ExecutionState.moduleEnv != nil {
+		ctx.ExecutionState.moduleEnv.mu.RLock()
+		if obj, found := ctx.ExecutionState.moduleEnv.ObjectsModule[varName]; found {
+			value = obj
+			exists = true
+		}
+		ctx.ExecutionState.moduleEnv.mu.RUnlock()
+	}
+
+	if isQuestion {
+		// ? expression - return boolean for existence
+		if exists {
+			if _, ok := value.(ActualUndefined); ok {
+				return false, true
+			}
+			if sym, ok := value.(Symbol); ok {
+				if string(sym) == "undefined" {
+					return false, true
+				}
+			}
+			return true, true
+		}
+		return false, true
+	}
+
+	// ~ expression - return typed value
+	if !exists {
+		return nil, false
+	}
+
+	// Return the value directly without stringification
+	// For markers, resolve to actual objects
+	return e.resolveValue(value), true
+}
+
+// lookupDollarArgTyped looks up a numbered argument and returns the typed value
+func (e *Executor) lookupDollarArgTyped(argNum int, ctx *SubstitutionContext) (interface{}, bool) {
+	// Try to get from $@ list first
+	if ctx.ExecutionState != nil {
+		if argsVar, exists := ctx.ExecutionState.GetVariable("$@"); exists {
+			var listID int = -1
+			if ref, ok := argsVar.(ObjectRef); ok && ref.Type == ObjList {
+				listID = ref.ID
+			} else if sym, ok := argsVar.(Symbol); ok {
+				marker := string(sym)
+				if objType, objID := parseObjectMarker(marker); objType == "list" && objID >= 0 {
+					listID = objID
+				}
+			}
+			if listID >= 0 {
+				if listObj, exists := e.getObject(listID); exists {
+					if storedList, ok := listObj.(StoredList); ok {
+						item := storedList.Get(argNum - 1)
+						if item != nil {
+							return item, true
+						}
+					}
+				}
+			}
+		}
+	}
+
+	// Fallback to ctx.Args
+	idx := argNum - 1
+	if idx >= 0 && idx < len(ctx.Args) {
+		return ctx.Args[idx], true
+	}
+
+	return nil, false
+}
+
+// executeBraceTyped executes a brace segment and returns the typed result
+func (e *Executor) executeBraceTyped(seg TemplateSegment, ctx *SubstitutionContext) (interface{}, bool) {
+	if seg.BraceAST == nil {
+		return nil, false
+	}
+
+	// Create child state for brace execution
+	braceState := NewExecutionStateFromSharedVars(ctx.ExecutionState)
+	braceState.InBraceExpression = true
+
+	// Create substitution context for the brace
+	braceSubCtx := &SubstitutionContext{
+		Args:                ctx.Args,
+		ExecutionState:      braceState,
+		MacroContext:        ctx.MacroContext,
+		CurrentLineOffset:   ctx.CurrentLineOffset,
+		CurrentColumnOffset: ctx.CurrentColumnOffset,
+		Filename:            ctx.Filename,
+		CapturedModuleEnv:   ctx.CapturedModuleEnv,
+	}
+
+	// Execute the pre-parsed commands
+	executeResult := e.ExecuteParsedCommands(
+		seg.BraceAST,
+		braceState,
+		braceSubCtx,
+		ctx.CurrentLineOffset,
+		ctx.CurrentColumnOffset,
+	)
+
+	// Track brace evaluation
+	ctx.BracesEvaluated++
+
+	// Capture result
+	var capturedResult interface{}
+	var hasCapturedResult bool
+	if braceState.HasResult() {
+		capturedResult = braceState.GetResult()
+		hasCapturedResult = true
+	}
+
+	// Check for async
+	if _, ok := executeResult.(TokenResult); ok {
+		return nil, true // isAsync = true
+	}
+
+	// Handle early return
+	if earlyReturn, ok := executeResult.(EarlyReturn); ok {
+		if !bool(earlyReturn.Status) {
+			ctx.BraceFailureCount++
+		}
+		if earlyReturn.HasResult {
+			capturedResult = earlyReturn.Result
+			hasCapturedResult = true
+		}
+	}
+
+	// Handle synchronous completion
+	if boolStatus, ok := executeResult.(BoolStatus); ok && !bool(boolStatus) {
+		ctx.BraceFailureCount++
+	}
+
+	// Transfer object ownership from brace state to parent
+	braceState.mu.Lock()
+	ownedByBrace := make(map[int]int)
+	for refID, count := range braceState.ownedObjects {
+		ownedByBrace[refID] = count
+	}
+	braceState.mu.Unlock()
+
+	for refID, childCount := range ownedByBrace {
+		if childCount > 0 {
+			ctx.ExecutionState.mu.Lock()
+			parentOwns := ctx.ExecutionState.ownedObjects[refID] > 0
+			ctx.ExecutionState.mu.Unlock()
+			if !parentOwns {
+				ctx.ExecutionState.ClaimObjectReference(refID)
+			}
+		}
+	}
+
+	// Clean up brace state
+	braceState.ReleaseAllReferences()
+	braceState.Recycle(false, false)
+
+	// Return the typed result directly
+	if hasCapturedResult {
+		return capturedResult, false
+	}
+
+	// If no explicit result, return the boolean status
+	if boolStatus, ok := executeResult.(BoolStatus); ok {
+		return bool(boolStatus), false
+	}
+
+	return nil, false
 }
 
 // lookupTildeVar looks up a tilde variable and formats the result

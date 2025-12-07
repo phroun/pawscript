@@ -127,9 +127,9 @@ func (e *Executor) executeCommandSequence(commands []*ParsedCommand, state *Exec
 			}
 
 			// Create ObjectRef for the token and store in state's #token
-			e.objectMu.Lock()
+			e.mu.Lock()
 			objectID, exists := e.tokenStringToID[suspendToken]
-			e.objectMu.Unlock()
+			e.mu.Unlock()
 			var tokenRef ObjectRef
 			if exists {
 				tokenRef = ObjectRef{Type: ObjToken, ID: objectID}

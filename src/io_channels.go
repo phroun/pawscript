@@ -465,9 +465,9 @@ func (env *ModuleEnvironment) PopulateIOModule(config *IOChannelConfig, executor
 		}
 		executor.mu.Unlock()
 		// Get ObjectRef for the token
-		executor.objectMu.Lock()
+		executor.mu.Lock()
 		objectID, exists := executor.tokenStringToID[tokenID]
-		executor.objectMu.Unlock()
+		executor.mu.Unlock()
 		if exists {
 			tokenRef := ObjectRef{Type: ObjToken, ID: objectID}
 			ioModule["#random"] = &ModuleItem{Type: "object", Value: tokenRef}

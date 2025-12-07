@@ -2611,15 +2611,15 @@ func (ps *PawScript) RegisterCoreLib() {
 			case Symbol:
 				// Check if it's a token string ID (lookup in activeTokens)
 				tokenID := string(v)
-				ctx.executor.tokenMu.Lock()
+				ctx.executor.mu.Lock()
 				_, exists := ctx.executor.activeTokens[tokenID]
-				ctx.executor.tokenMu.Unlock()
+				ctx.executor.mu.Unlock()
 				return exists
 			case string:
 				// Check if it's a token string ID
-				ctx.executor.tokenMu.Lock()
+				ctx.executor.mu.Lock()
 				_, exists := ctx.executor.activeTokens[v]
-				ctx.executor.tokenMu.Unlock()
+				ctx.executor.mu.Unlock()
 				return exists
 			}
 			return false

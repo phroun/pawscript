@@ -432,6 +432,7 @@ type SubstitutionTemplate struct {
 	HasDollarSub bool // true if any $N, $*, $@, $# segments (requires MacroContext)
 	HasTildeSub  bool // true if any ~var segments
 	HasBraceSub  bool // true if any {...} segments
+	IsSingleExpr bool // true if template is a single expression (can be evaluated typed)
 }
 
 // BraceEvaluation tracks the evaluation state of a single brace expression

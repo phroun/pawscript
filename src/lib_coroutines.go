@@ -21,9 +21,9 @@ func (ps *PawScript) RegisterGeneratorLib() {
 				return ""
 			}
 			// Look up TokenData from storedObjects
-			ctx.executor.objectMu.Lock()
+			ctx.executor.mu.Lock()
 			obj, exists := ctx.executor.storedObjects[v.ID]
-			ctx.executor.objectMu.Unlock()
+			ctx.executor.mu.Unlock()
 			if !exists || obj.Deleted {
 				return ""
 			}
@@ -42,9 +42,9 @@ func (ps *PawScript) RegisterGeneratorLib() {
 
 	// Helper to create an ObjectRef for a token given its string ID
 	getTokenRef := func(ctx *Context, tokenID string) ObjectRef {
-		ctx.executor.objectMu.Lock()
+		ctx.executor.mu.Lock()
 		objectID, exists := ctx.executor.tokenStringToID[tokenID]
-		ctx.executor.objectMu.Unlock()
+		ctx.executor.mu.Unlock()
 		if !exists {
 			return ObjectRef{}
 		}
