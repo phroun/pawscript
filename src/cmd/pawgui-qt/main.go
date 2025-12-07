@@ -701,7 +701,7 @@ func loadDirectory(dir string) {
 	}
 
 	// Get standard icons from Qt style
-	style := qtApp.Style()
+	style := qt.QApplication_Style()
 	folderIcon := style.StandardIcon(qt.QStyle__SP_DirIcon, nil, nil)
 	fileIcon := style.StandardIcon(qt.QStyle__SP_FileIcon, nil, nil)
 	upIcon := style.StandardIcon(qt.QStyle__SP_ArrowUp, nil, nil)
