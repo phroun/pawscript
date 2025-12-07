@@ -136,6 +136,30 @@ func getPromptColor() string {
 	}
 }
 
+// getEqualsColor returns the color for the "=" prefix in result display
+func getEqualsColor() string {
+	switch cliConfig.TermBackground {
+	case "light":
+		return colorDarkGreen
+	case "dark":
+		return colorBrightGreen
+	default: // "auto" defaults to dark
+		return colorBrightGreen
+	}
+}
+
+// getResultColor returns the color for the result value text
+func getResultColor() string {
+	switch cliConfig.TermBackground {
+	case "light":
+		return colorSilver
+	case "dark":
+		return colorDarkGray
+	default: // "auto" defaults to dark
+		return colorDarkGray
+	}
+}
+
 // stderrSupportsColor checks if stderr is a terminal that supports color output
 // Returns true if we should use ANSI color codes
 func stderrSupportsColor() bool {
@@ -577,10 +601,15 @@ Examples:
 
 // REPL color codes
 const (
-	colorWhite = "\x1b[97m"
-	colorRed   = "\x1b[91m"
-	colorGray  = "\x1b[90m"
-	colorCyan  = "\x1b[96m"
+	colorWhite       = "\x1b[97m"
+	colorRed         = "\x1b[91m"
+	colorGray        = "\x1b[90m"
+	colorCyan        = "\x1b[96m"
+	colorDarkCyan    = "\x1b[36m"
+	colorBrightGreen = "\x1b[92m" // Bright green for dark backgrounds
+	colorDarkGreen   = "\x1b[32m" // Dark green for light backgrounds
+	colorDarkGray    = "\x1b[90m" // Dark gray for dark backgrounds
+	colorSilver      = "\x1b[37m" // Silver/light gray for light backgrounds
 )
 
 // runREPL runs an interactive Read-Eval-Print Loop
@@ -673,6 +702,94 @@ func runREPL(debug, unrestricted bool, optLevel int) {
 	}
 }
 
+// getContinuationPrompt analyzes the input and returns the appropriate continuation prompt
+// showing all nesting levels that need to be closed
+func getContinuationPrompt(input string) string {
+	// Stack to track what's open (in order of opening)
+	// We'll use strings: "(", "{", "\"", "'", "#("
+	var stack []string
+	prevChar := rune(0)
+
+	for _, ch := range input {
+		// Check if we're inside a string
+		inString := false
+		closedString := false
+		for j := len(stack) - 1; j >= 0; j-- {
+			if stack[j] == "\"" || stack[j] == "'" {
+				inString = true
+				// Check if this character closes the string
+				if (stack[j] == "\"" && ch == '"' && prevChar != '\\') ||
+					(stack[j] == "'" && ch == '\'' && prevChar != '\\') {
+					stack = stack[:j] // Pop the string opener
+					closedString = true
+				}
+				break
+			}
+		}
+
+		// Don't process openers if we're in a string OR if we just closed one
+		// (closing quote shouldn't also open a new string)
+		if !inString && !closedString {
+			switch ch {
+			case '"':
+				stack = append(stack, "\"")
+			case '\'':
+				stack = append(stack, "'")
+			case '(':
+				// Check if preceded by # for vector syntax
+				if prevChar == '#' {
+					stack = append(stack, "#(")
+				} else {
+					stack = append(stack, "(")
+				}
+			case ')':
+				// Pop the most recent ( or #(
+				for j := len(stack) - 1; j >= 0; j-- {
+					if stack[j] == "(" || stack[j] == "#(" {
+						stack = append(stack[:j], stack[j+1:]...)
+						break
+					}
+				}
+			case '{':
+				stack = append(stack, "{")
+			case '}':
+				// Pop the most recent {
+				for j := len(stack) - 1; j >= 0; j-- {
+					if stack[j] == "{" {
+						stack = append(stack[:j], stack[j+1:]...)
+						break
+					}
+				}
+			}
+		}
+		prevChar = ch
+	}
+
+	// Build prompt showing all nesting levels
+	if len(stack) == 0 {
+		return "paw*" // Shouldn't happen if we're in continuation, but fallback
+	}
+
+	// Build the nesting indicator from the stack
+	var prompt strings.Builder
+	for _, item := range stack {
+		switch item {
+		case "(":
+			prompt.WriteString("(")
+		case "{":
+			prompt.WriteString("{")
+		case "\"":
+			prompt.WriteString("\"")
+		case "'":
+			prompt.WriteString("'")
+		case "#(":
+			prompt.WriteString("#(")
+		}
+	}
+	prompt.WriteString("*")
+	return prompt.String()
+}
+
 // readStatement reads a complete statement, handling multi-line input
 func readStatement(fd int, history []string, historyPos *int) (string, bool) {
 	var lines []string
@@ -681,15 +798,17 @@ func readStatement(fd int, history []string, historyPos *int) (string, bool) {
 	savedLine := ""     // Saved current line when browsing history
 	inHistory := false  // Are we browsing history?
 
-	prompt := "\"\":"
-	contPrompt := "..:"
-
 	printPrompt := func() {
 		promptClr := getPromptColor()
 		if len(lines) == 0 {
-			fmt.Print(promptClr + prompt + colorReset + " ")
+			fmt.Print(promptClr + "paw*" + colorReset + " ")
 		} else {
-			fmt.Print(promptClr + contPrompt + colorReset + " ")
+			// Determine what needs to be closed based on accumulated input
+			fullInput := strings.Join(lines, "\n")
+			prompt := getContinuationPrompt(fullInput)
+			// Show line number in dark cyan, rest of prompt in appropriate color
+			lineNum := len(lines) + 1
+			fmt.Printf("%s%d %s%s%s ", colorDarkCyan, lineNum, promptClr, prompt, colorReset)
 		}
 	}
 
@@ -940,26 +1059,27 @@ func displayResult(ps *pawscript.PawScript, result pawscript.Result) {
 	if boolStatus, ok := result.(pawscript.BoolStatus); ok {
 		if bool(boolStatus) {
 			prefix = "="
-			prefixColor = colorWhite
+			prefixColor = getEqualsColor()
 		} else {
 			prefix = "E"
 			prefixColor = colorRed
 		}
 	} else {
 		prefix = "="
-		prefixColor = colorWhite
+		prefixColor = getEqualsColor()
 	}
 
 	// Format the result value as JSON
 	formatted := formatValueAsJSON(ps, resultValue)
+	resultClr := getResultColor()
 
 	// Print with prefix
 	lines := strings.Split(formatted, "\n")
 	for i, line := range lines {
 		if i == 0 {
-			fmt.Printf("%s%s%s %s\n", prefixColor, prefix, colorReset, line)
+			fmt.Printf("%s%s%s %s%s%s\n", prefixColor, prefix, colorReset, resultClr, line, colorReset)
 		} else {
-			fmt.Printf("  %s\n", line)
+			fmt.Printf("  %s%s%s\n", resultClr, line, colorReset)
 		}
 	}
 }
