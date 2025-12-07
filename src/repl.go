@@ -260,10 +260,98 @@ func (r *REPL) HandleInput(data []byte) bool {
 
 func (r *REPL) printPrompt() {
 	if len(r.lines) == 0 {
-		r.output(replColorYellow + "\"\":" + replColorReset + " ")
+		r.output(replColorYellow + "paw*" + replColorReset + " ")
 	} else {
-		r.output(replColorYellow + "..:" + replColorReset + " ")
+		// Determine what needs to be closed based on accumulated input
+		fullInput := strings.Join(r.lines, "\n")
+		prompt := r.getContinuationPrompt(fullInput)
+		r.output(replColorYellow + prompt + replColorReset + " ")
 	}
+}
+
+// getContinuationPrompt analyzes the input and returns the appropriate continuation prompt
+// showing all nesting levels that need to be closed
+func (r *REPL) getContinuationPrompt(input string) string {
+	// Stack to track what's open (in order of opening)
+	// We'll use strings: "(", "{", "\"", "'", "#("
+	var stack []string
+	prevChar := rune(0)
+
+	for _, ch := range input {
+		// Check if we're inside a string
+		inString := false
+		for j := len(stack) - 1; j >= 0; j-- {
+			if stack[j] == "\"" || stack[j] == "'" {
+				inString = true
+				// Check if this character closes the string
+				if (stack[j] == "\"" && ch == '"' && prevChar != '\\') ||
+					(stack[j] == "'" && ch == '\'' && prevChar != '\\') {
+					stack = stack[:j] // Pop the string opener
+					inString = false
+				}
+				break
+			}
+		}
+
+		if !inString {
+			switch ch {
+			case '"':
+				stack = append(stack, "\"")
+			case '\'':
+				stack = append(stack, "'")
+			case '(':
+				// Check if preceded by # for vector syntax
+				if prevChar == '#' {
+					stack = append(stack, "#(")
+				} else {
+					stack = append(stack, "(")
+				}
+			case ')':
+				// Pop the most recent ( or #(
+				for j := len(stack) - 1; j >= 0; j-- {
+					if stack[j] == "(" || stack[j] == "#(" {
+						stack = append(stack[:j], stack[j+1:]...)
+						break
+					}
+				}
+			case '{':
+				stack = append(stack, "{")
+			case '}':
+				// Pop the most recent {
+				for j := len(stack) - 1; j >= 0; j-- {
+					if stack[j] == "{" {
+						stack = append(stack[:j], stack[j+1:]...)
+						break
+					}
+				}
+			}
+		}
+		prevChar = ch
+	}
+
+	// Build prompt showing all nesting levels
+	if len(stack) == 0 {
+		return "paw*" // Shouldn't happen if we're in continuation, but fallback
+	}
+
+	// Build the nesting indicator from the stack
+	var prompt strings.Builder
+	for _, item := range stack {
+		switch item {
+		case "(":
+			prompt.WriteString("(")
+		case "{":
+			prompt.WriteString("{")
+		case "\"":
+			prompt.WriteString("\"")
+		case "'":
+			prompt.WriteString("'")
+		case "#(":
+			prompt.WriteString("#(")
+		}
+	}
+	prompt.WriteString("*")
+	return prompt.String()
 }
 
 func (r *REPL) redrawLine() {
