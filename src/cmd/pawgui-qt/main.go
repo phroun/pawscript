@@ -349,11 +349,39 @@ func main() {
 	// Load initial directory
 	loadDirectory(currentDir)
 
+	// Set up quit shortcut based on config
+	setupQuitShortcut()
+
 	// Show window
 	mainWindow.Show()
 
 	// Run application
 	qt.QApplication_Exec()
+}
+
+// setupQuitShortcut configures the keyboard shortcut to quit the application
+func setupQuitShortcut() {
+	quitShortcut := getQuitShortcut()
+	if quitShortcut == "" {
+		return // Disabled
+	}
+
+	var keySequence string
+	switch quitShortcut {
+	case "Cmd+Q":
+		keySequence = "Meta+Q"
+	case "Ctrl+Q":
+		keySequence = "Ctrl+Q"
+	case "Alt+F4":
+		keySequence = "Alt+F4"
+	default:
+		return
+	}
+
+	shortcut := qt.NewQShortcut(qt.NewQKeySequence5(keySequence), mainWindow.QWidget)
+	shortcut.OnActivated(func() {
+		mainWindow.Close()
+	})
 }
 
 func createFilePanel() *qt.QWidget {
@@ -433,6 +461,22 @@ func setupConsoleIO() {
 	// Create pipes for stdin
 	stdinReader, stdinWriter = io.Pipe()
 
+	// Terminal capabilities for PawScript
+	width, height := 100, 30
+	termCaps := &pawscript.TerminalCapabilities{
+		TermType:      "gui-console",
+		IsTerminal:    true,
+		SupportsANSI:  true,
+		SupportsColor: true,
+		ColorDepth:    256,
+		Width:         width,
+		Height:        height,
+		SupportsInput: true,
+		EchoEnabled:   false,
+		LineMode:      false,
+		Metadata:      make(map[string]interface{}),
+	}
+
 	// Output queue for non-blocking writes to terminal
 	outputQueue := make(chan interface{}, 256)
 
@@ -459,6 +503,7 @@ func setupConsoleIO() {
 		NextSubscriberID: 1,
 		IsClosed:         false,
 		Timestamp:        time.Now(),
+		Terminal:         termCaps,
 		NativeSend: func(v interface{}) error {
 			var text string
 			switch d := v.(type) {
@@ -537,6 +582,7 @@ func setupConsoleIO() {
 		NextSubscriberID: 1,
 		IsClosed:         false,
 		Timestamp:        time.Now(),
+		Terminal:         termCaps,
 		NativeRecv: func() (interface{}, error) {
 			b, ok := <-inputQueue
 			if !ok {
@@ -711,9 +757,18 @@ func onSelectionChanged(item *qt.QListWidgetItem) {
 }
 
 func browseFolder() {
-	dir := qt.QFileDialog_GetExistingDirectory3(mainWindow.QWidget, "Select Folder", currentDir)
-	if dir != "" {
-		loadDirectory(dir)
+	// Open file dialog filtered to .paw files
+	file := qt.QFileDialog_GetOpenFileName4(
+		mainWindow.QWidget,
+		"Open PawScript File",
+		currentDir,
+		"PawScript files (*.paw);;All files (*)",
+	)
+	if file != "" {
+		// Navigate to the file's directory and run the script
+		currentDir = filepath.Dir(file)
+		loadDirectory(currentDir)
+		runScript(file)
 	}
 }
 
@@ -878,6 +933,7 @@ func createConsoleWindow(filePath string) {
 	})
 	if err != nil {
 		terminal.Feed(fmt.Sprintf("\r\nFailed to create console window: %v\r\n", err))
+		win.Close()
 		return
 	}
 
@@ -886,6 +942,22 @@ func createConsoleWindow(filePath string) {
 
 	// Create I/O channels for this window's console
 	winStdinReader, winStdinWriter := io.Pipe()
+
+	// Terminal capabilities for this window
+	winWidth, winHeight := 100, 30
+	winTermCaps := &pawscript.TerminalCapabilities{
+		TermType:      "gui-console",
+		IsTerminal:    true,
+		SupportsANSI:  true,
+		SupportsColor: true,
+		ColorDepth:    256,
+		Width:         winWidth,
+		Height:        winHeight,
+		SupportsInput: true,
+		EchoEnabled:   false,
+		LineMode:      false,
+		Metadata:      make(map[string]interface{}),
+	}
 
 	// Non-blocking output queue
 	winOutputQueue := make(chan interface{}, 256)
@@ -909,6 +981,7 @@ func createConsoleWindow(filePath string) {
 		NextSubscriberID: 1,
 		IsClosed:         false,
 		Timestamp:        time.Now(),
+		Terminal:         winTermCaps,
 		NativeSend: func(v interface{}) error {
 			var text string
 			switch d := v.(type) {
@@ -973,6 +1046,7 @@ func createConsoleWindow(filePath string) {
 		NextSubscriberID: 1,
 		IsClosed:         false,
 		Timestamp:        time.Now(),
+		Terminal:         winTermCaps,
 		NativeRecv: func() (interface{}, error) {
 			b, ok := <-winInputQueue
 			if !ok {
