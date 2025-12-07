@@ -12,7 +12,7 @@ import (
 // Module: core
 func (ps *PawScript) RegisterGeneratorLib() {
 	// Helper to resolve a token from an argument
-	// Accepts: ObjectRef (ObjToken), string ID, or Symbol
+	// Accepts: ObjectRef (ObjToken), marker string, plain string ID, or Symbol
 	// Returns the string token ID (for lookup in activeTokens) or empty string if invalid
 	resolveTokenID := func(ctx *Context, arg interface{}) string {
 		switch v := arg.(type) {
@@ -32,8 +32,39 @@ func (ps *PawScript) RegisterGeneratorLib() {
 			}
 			return ""
 		case Symbol:
-			return string(v)
+			str := string(v)
+			// Check if it's a marker format (from tilde substitution)
+			if objType, objID := parseObjectMarker(str); objType == "token" && objID >= 0 {
+				// Look up TokenData from storedObjects to get the real string ID
+				ctx.executor.mu.Lock()
+				obj, exists := ctx.executor.storedObjects[objID]
+				ctx.executor.mu.Unlock()
+				if !exists || obj.Deleted {
+					return ""
+				}
+				if tokenData, ok := obj.Value.(*TokenData); ok {
+					return tokenData.StringID
+				}
+				return ""
+			}
+			// Plain string ID (backwards compat)
+			return str
 		case string:
+			// Check if it's a marker format (from tilde substitution)
+			if objType, objID := parseObjectMarker(v); objType == "token" && objID >= 0 {
+				// Look up TokenData from storedObjects to get the real string ID
+				ctx.executor.mu.Lock()
+				obj, exists := ctx.executor.storedObjects[objID]
+				ctx.executor.mu.Unlock()
+				if !exists || obj.Deleted {
+					return ""
+				}
+				if tokenData, ok := obj.Value.(*TokenData); ok {
+					return tokenData.StringID
+				}
+				return ""
+			}
+			// Plain string ID (backwards compat)
 			return v
 		default:
 			return ""
