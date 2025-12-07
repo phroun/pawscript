@@ -612,6 +612,19 @@ type ActualUndefined struct{}
 
 func (u ActualUndefined) String() string { return "undefined" }
 
+// SubstitutionResult represents the result of command string substitution
+// This replaces the old PAWS marker strings for cleaner type handling
+type SubstitutionResult struct {
+	Value      string // The substituted string (when not failed/async)
+	Failed     bool   // True if brace evaluation failed
+	AsyncToken string // Non-empty if async coordination is needed
+}
+
+// IsAsync returns true if this result requires async coordination
+func (r SubstitutionResult) IsAsync() bool {
+	return r.AsyncToken != ""
+}
+
 // Storage thresholds - values larger than these are stored as objects
 const (
 	StringStorageThreshold = 200 // characters - strings larger than this become StoredString

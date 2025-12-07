@@ -339,34 +339,27 @@ func (e *Executor) executeSingleCommand(
 			commandStr = strings.ReplaceAll(commandStr, `\~`, "~")
 		}
 	} else {
-		commandStr = e.applySubstitution(commandStr, substitutionCtx)
-	}
-
-	// Store the brace failure count for get_substatus, but only if:
-	// 1. Braces were evaluated in this command
-	// 2. We're not inside a brace expression (avoid inner commands overwriting outer count)
-	if substitutionCtx.BracesEvaluated > 0 && !state.InBraceExpression {
-		state.SetLastBraceFailureCount(substitutionCtx.BraceFailureCount)
-	}
-
-	// Check if brace evaluation failed
-	if commandStr == "\x00PAWS_FAILED\x00" {
-		// Error already logged by ExecuteWithState with correct position
-		e.logger.DebugCat(CatCommand,"Brace evaluation failed, returning false")
-		result := BoolStatus(false)
-		if shouldInvert {
-			return BoolStatus(!bool(result))
+		subResult := e.applySubstitution(commandStr, substitutionCtx)
+		if subResult.Failed {
+			// Store the brace failure count for get_substatus
+			if substitutionCtx.BracesEvaluated > 0 && !state.InBraceExpression {
+				state.SetLastBraceFailureCount(substitutionCtx.BraceFailureCount)
+			}
+			// Error already logged by ExecuteWithState with correct position
+			e.logger.DebugCat(CatCommand, "Brace evaluation failed, returning false")
+			result := BoolStatus(false)
+			if shouldInvert {
+				return BoolStatus(!bool(result))
+			}
+			return result
 		}
-		return result
-	}
-
-	// Check if substitution returned an async brace marker
-	if strings.HasPrefix(commandStr, "\x00PAWS:") && strings.HasSuffix(commandStr, "\x00") {
-		// Extract the coordinator token ID
-		markerLen := len("\x00PAWS:")
-		coordinatorToken := commandStr[markerLen : len(commandStr)-1]
-
-		e.logger.DebugCat(CatCommand,"Async brace evaluation detected, coordinator token: %s", coordinatorToken)
+		if subResult.IsAsync() {
+			// Store the brace failure count for get_substatus
+			if substitutionCtx.BracesEvaluated > 0 && !state.InBraceExpression {
+				state.SetLastBraceFailureCount(substitutionCtx.BraceFailureCount)
+			}
+			coordinatorToken := subResult.AsyncToken
+			e.logger.DebugCat(CatCommand, "Async brace evaluation detected, coordinator token: %s", coordinatorToken)
 
 		// We need to update the coordinator's resume callback to continue this command
 		e.mu.Lock()
@@ -648,6 +641,13 @@ func (e *Executor) executeSingleCommand(
 
 		// Return the coordinator token to suspend this command
 		return TokenResult(coordinatorToken)
+		}
+		// Normal case - use the substituted value
+		commandStr = subResult.Value
+		// Store the brace failure count for get_substatus
+		if substitutionCtx.BracesEvaluated > 0 && !state.InBraceExpression {
+			state.SetLastBraceFailureCount(substitutionCtx.BraceFailureCount)
+		}
 	}
 
 	e.logger.DebugCat(CatCommand,"After substitution: \"%s\"", commandStr)

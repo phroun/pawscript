@@ -8,11 +8,11 @@ import (
 )
 
 // applySubstitution applies macro argument substitution
-func (e *Executor) applySubstitution(str string, ctx *SubstitutionContext) string {
+func (e *Executor) applySubstitution(str string, ctx *SubstitutionContext) SubstitutionResult {
 	// fmt.Fprintf(os.Stderr, "[DEBUG applySubstitution] Input: %q\n", str)
 	// Note: ctx should never be nil - caller should create a minimal context if needed
 	if ctx == nil {
-		return str
+		return SubstitutionResult{Value: str}
 	}
 
 	result := str
@@ -24,20 +24,16 @@ func (e *Executor) applySubstitution(str string, ctx *SubstitutionContext) strin
 	result = strings.ReplaceAll(result, `\~`, escapedTildePlaceholder)
 
 	// Apply brace expression substitution first
-	result = e.substituteBraceExpressions(result, ctx)
+	braceResult := e.substituteBraceExpressions(result, ctx)
 
-	// Check if brace substitution failed
-	if result == "\x00PAWS_FAILED\x00" {
-		// Error already logged by ExecuteWithState, just propagate the failure
-		return result
+	// Check if brace substitution failed or is async
+	if braceResult.Failed || braceResult.IsAsync() {
+		// Propagate the failure or async result
+		return braceResult
 	}
 
-	// Check if brace substitution returned an async marker
-	if strings.HasPrefix(result, "\x00PAWS:") && strings.HasSuffix(result, "\x00") {
-		// Extract the token and return it as-is
-		// The caller (executeSingleCommand) will handle this
-		return result
-	}
+	// Use the substituted value
+	result = braceResult.Value
 
 	// CRITICAL: Only apply $*, $#, and $N substitutions when we're in a macro execution context
 	// This prevents premature substitution when defining nested macros
@@ -121,17 +117,17 @@ func (e *Executor) applySubstitution(str string, ctx *SubstitutionContext) strin
 	result = strings.ReplaceAll(result, escapedTildePlaceholder, "~")
 	result = strings.ReplaceAll(result, `\~`, "~")
 
-	return result
+	return SubstitutionResult{Value: result}
 }
 
 // substituteBraceExpressions substitutes brace expressions {command}
 // This version supports parallel async evaluation of all braces at the same nesting level
-func (e *Executor) substituteBraceExpressions(str string, ctx *SubstitutionContext) string {
+func (e *Executor) substituteBraceExpressions(str string, ctx *SubstitutionContext) SubstitutionResult {
 	// Find all top-level braces in this string
 	braces := e.findAllTopLevelBraces(str, ctx)
 
 	if len(braces) == 0 {
-		return str // No braces to process
+		return SubstitutionResult{Value: str} // No braces to process
 	}
 
 	e.logger.DebugCat(CatCommand,"Found %d top-level braces to evaluate", len(braces))
@@ -149,7 +145,7 @@ func (e *Executor) substituteBraceExpressions(str string, ctx *SubstitutionConte
 
 		if ctx == nil {
 			// Handle the nil case - either return an error or use a default
-			return str // nil, fmt.Errorf("context cannot be nil")
+			return SubstitutionResult{Value: str}
 		}
 		braceState := NewExecutionStateFromSharedVars(ctx.ExecutionState)
 		// Mark this state as being inside a brace expression
@@ -391,9 +387,9 @@ func (e *Executor) substituteBraceExpressions(str string, ctx *SubstitutionConte
 			nil,
 		)
 
-		// Return a special marker that includes the coordinator token
+		// Return async result with the coordinator token
 		// The executeSingleCommand will need to detect this and return the token
-		return fmt.Sprintf("\x00PAWS:%s\x00", coordinatorToken)
+		return SubstitutionResult{AsyncToken: coordinatorToken}
 	}
 
 	// All synchronous - check for any failures
@@ -416,8 +412,8 @@ func (e *Executor) substituteBraceExpressions(str string, ctx *SubstitutionConte
 
 			e.logger.WarnCat(CatCommand,errorMsg, eval.Position, sourceContext)
 			e.logger.DebugCat(CatCommand,"Synchronous brace evaluation %d failed, aborting command", i)
-			// Return special marker to indicate brace failure
-			return "\x00PAWS_FAILED\x00"
+			// Return failure result
+			return SubstitutionResult{Failed: true}
 		}
 	}
 
@@ -425,7 +421,7 @@ func (e *Executor) substituteBraceExpressions(str string, ctx *SubstitutionConte
 	result := e.substituteAllBraces(str, evaluations, ctx.ExecutionState)
 	e.logger.DebugCat(CatCommand,"All braces synchronous, substituted result: %s", result)
 
-	return result
+	return SubstitutionResult{Value: result}
 }
 
 // substituteTildeExpressions substitutes ~varname and ?varname patterns in strings
