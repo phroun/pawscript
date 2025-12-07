@@ -11,11 +11,12 @@ import (
 
 // REPL color codes
 const (
-	replColorYellow   = "\x1b[93m"
-	replColorWhite    = "\x1b[97m"
-	replColorRed      = "\x1b[91m"
-	replColorDarkCyan = "\x1b[36m"
-	replColorReset    = "\x1b[0m"
+	replColorYellow    = "\x1b[93m"
+	replColorDarkBrown = "\x1b[33m" // Dark yellow/brown for light backgrounds
+	replColorWhite     = "\x1b[97m"
+	replColorRed       = "\x1b[91m"
+	replColorDarkCyan  = "\x1b[36m"
+	replColorReset     = "\x1b[0m"
 )
 
 // REPLConfig configures the REPL behavior
@@ -29,20 +30,21 @@ type REPLConfig struct {
 
 // REPL provides an interactive Read-Eval-Print Loop for PawScript
 type REPL struct {
-	mu          sync.Mutex
-	ps          *PawScript
-	config      REPLConfig
-	output      func(string)           // Output function (writes to terminal)
-	history     []string               // Command history
-	historyPos  int                    // Current position in history
-	currentLine []rune                 // Current input line
-	cursorPos   int                    // Cursor position in currentLine
-	lines       []string               // Lines for multi-line input
-	savedLine   string                 // Saved line when browsing history
-	inHistory   bool                   // Are we browsing history?
-	running     bool                   // Is REPL active?
-	inputChan   chan string            // Channel for complete input
-	quitChan    chan struct{}          // Signal to quit
+	mu              sync.Mutex
+	ps              *PawScript
+	config          REPLConfig
+	output          func(string)           // Output function (writes to terminal)
+	history         []string               // Command history
+	historyPos      int                    // Current position in history
+	currentLine     []rune                 // Current input line
+	cursorPos       int                    // Cursor position in currentLine
+	lines           []string               // Lines for multi-line input
+	savedLine       string                 // Saved line when browsing history
+	inHistory       bool                   // Are we browsing history?
+	running         bool                   // Is REPL active?
+	inputChan       chan string            // Channel for complete input
+	quitChan        chan struct{}          // Signal to quit
+	lightBackground bool                   // True if background is bright (>50%)
 }
 
 // NewREPL creates a new REPL instance
@@ -130,6 +132,27 @@ func (r *REPL) IsRunning() bool {
 	r.mu.Lock()
 	defer r.mu.Unlock()
 	return r.running
+}
+
+// SetBackgroundRGB sets the background color to determine prompt colors
+// Uses brightness calculation: if brightness > 0.5, uses dark brown instead of yellow
+func (r *REPL) SetBackgroundRGB(red, green, blue uint8) {
+	// Calculate perceived brightness using standard luminance formula
+	brightness := (0.299*float64(red) + 0.587*float64(green) + 0.114*float64(blue)) / 255.0
+	r.mu.Lock()
+	r.lightBackground = brightness > 0.5
+	r.mu.Unlock()
+}
+
+// promptColor returns the appropriate prompt color based on background brightness
+func (r *REPL) promptColor() string {
+	r.mu.Lock()
+	light := r.lightBackground
+	r.mu.Unlock()
+	if light {
+		return replColorDarkBrown
+	}
+	return replColorYellow
 }
 
 // HandleInput processes input bytes from the terminal
@@ -260,15 +283,16 @@ func (r *REPL) HandleInput(data []byte) bool {
 }
 
 func (r *REPL) printPrompt() {
+	promptClr := r.promptColor()
 	if len(r.lines) == 0 {
-		r.output(replColorYellow + "paw*" + replColorReset + " ")
+		r.output(promptClr + "paw*" + replColorReset + " ")
 	} else {
 		// Determine what needs to be closed based on accumulated input
 		fullInput := strings.Join(r.lines, "\n")
 		prompt := r.getContinuationPrompt(fullInput)
-		// Show line number in dark cyan, rest of prompt in yellow
+		// Show line number in dark cyan, rest of prompt in appropriate color
 		lineNum := len(r.lines) + 1
-		r.output(fmt.Sprintf("%s%d %s%s%s ", replColorDarkCyan, lineNum, replColorYellow, prompt, replColorReset))
+		r.output(fmt.Sprintf("%s%d %s%s%s ", replColorDarkCyan, lineNum, promptClr, prompt, replColorReset))
 	}
 }
 

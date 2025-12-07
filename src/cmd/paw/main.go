@@ -21,9 +21,119 @@ var version = "dev" // set via -ldflags at build time
 
 // ANSI color codes for terminal output
 const (
-	colorYellow = "\x1b[93m" // Bright yellow foreground
-	colorReset  = "\x1b[0m"  // Reset to default
+	colorYellow    = "\x1b[93m" // Bright yellow foreground
+	colorDarkBrown = "\x1b[33m" // Dark yellow/brown for light backgrounds
+	colorReset     = "\x1b[0m"  // Reset to default
 )
+
+// CLIConfig holds configuration loaded from ~/.paw/paw-cli.psl
+type CLIConfig struct {
+	TermBackground string // "light", "dark", or "auto" (auto defaults to dark)
+}
+
+// Default CLI config
+var cliConfig = CLIConfig{
+	TermBackground: "auto",
+}
+
+// getConfigDir returns the path to ~/.paw directory
+func getConfigDir() string {
+	home, err := os.UserHomeDir()
+	if err != nil {
+		return ""
+	}
+	return filepath.Join(home, ".paw")
+}
+
+// getConfigFilePath returns the path to ~/.paw/paw-cli.psl
+func getConfigFilePath() string {
+	dir := getConfigDir()
+	if dir == "" {
+		return ""
+	}
+	return filepath.Join(dir, "paw-cli.psl")
+}
+
+// loadCLIConfig loads configuration from ~/.paw/paw-cli.psl
+// Creates the config file with defaults if it doesn't exist
+func loadCLIConfig() {
+	configPath := getConfigFilePath()
+	if configPath == "" {
+		return
+	}
+
+	// Check if config file exists
+	if _, err := os.Stat(configPath); os.IsNotExist(err) {
+		// Create config directory and file with defaults
+		createDefaultConfig(configPath)
+		return
+	}
+
+	// Read and parse the config file
+	content, err := os.ReadFile(configPath)
+	if err != nil {
+		return // Graceful failure - use defaults
+	}
+
+	// Simple parsing for key: value format
+	// Looking for: term_background: "auto" or term_background: auto
+	lines := strings.Split(string(content), "\n")
+	for _, line := range lines {
+		line = strings.TrimSpace(line)
+		// Skip comments and empty lines
+		if line == "" || strings.HasPrefix(line, ";") || strings.HasPrefix(line, "#") {
+			continue
+		}
+		// Look for term_background setting
+		if strings.HasPrefix(line, "term_background:") {
+			value := strings.TrimPrefix(line, "term_background:")
+			value = strings.TrimSpace(value)
+			// Remove quotes if present
+			value = strings.Trim(value, "\"'")
+			value = strings.ToLower(value)
+			if value == "light" || value == "dark" || value == "auto" {
+				cliConfig.TermBackground = value
+			}
+		}
+	}
+}
+
+// createDefaultConfig creates the default config file
+func createDefaultConfig(configPath string) {
+	configDir := filepath.Dir(configPath)
+
+	// Try to create the directory
+	if err := os.MkdirAll(configDir, 0755); err != nil {
+		return // Graceful failure
+	}
+
+	// Default config content
+	defaultConfig := `; PawScript CLI Configuration
+; This file is automatically created on first run
+
+; Terminal background color for REPL prompt colors
+; Options: "auto", "dark", "light"
+; - auto: assumes dark background (for now)
+; - dark: uses bright yellow prompt
+; - light: uses dark brown prompt
+term_background: "auto"
+`
+
+	// Try to write the file
+	_ = os.WriteFile(configPath, []byte(defaultConfig), 0644) // Ignore error - graceful failure
+}
+
+// getPromptColor returns the appropriate prompt color based on config
+func getPromptColor() string {
+	switch cliConfig.TermBackground {
+	case "light":
+		return colorDarkBrown
+	case "dark":
+		return colorYellow
+	default: // "auto" defaults to dark
+		return colorYellow
+	}
+}
 
 // stderrSupportsColor checks if stderr is a terminal that supports color output
 // Returns true if we should use ANSI color codes
@@ -62,6 +172,9 @@ func errorPrintf(format string, args ...interface{}) {
 }
 
 func main() {
+	// Load CLI configuration from ~/.paw/paw-cli.psl
+	loadCLIConfig()
+
 	// Ensure terminal is restored to normal state on exit
 	// This is critical when using raw mode (readkey_init) to prevent
 	// the terminal from being left in a broken state (no newline translation, etc.)
@@ -571,10 +684,11 @@ func readStatement(fd int, history []string, historyPos *int) (string, bool) {
 	contPrompt := "..:"
 
 	printPrompt := func() {
+		promptClr := getPromptColor()
 		if len(lines) == 0 {
-			fmt.Print(colorYellow + prompt + colorReset + " ")
+			fmt.Print(promptClr + prompt + colorReset + " ")
 		} else {
-			fmt.Print(colorYellow + contPrompt + colorReset + " ")
+			fmt.Print(promptClr + contPrompt + colorReset + " ")
 		}
 	}
 

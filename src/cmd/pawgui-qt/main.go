@@ -763,6 +763,9 @@ func startREPL() {
 		// Output to terminal
 		terminal.Feed(s)
 	})
+	// Set background color for prompt color selection
+	bg := getTerminalBackground()
+	consoleREPL.SetBackgroundRGB(bg.R, bg.G, bg.B)
 	consoleREPL.Start()
 }
 
@@ -1041,6 +1044,9 @@ func runScript(filePath string) {
 			}, func(s string) {
 				terminal.Feed(s)
 			})
+			// Set background color for prompt color selection
+			bg := getTerminalBackground()
+			consoleREPL.SetBackgroundRGB(bg.R, bg.G, bg.B)
 			consoleREPL.Start()
 		}
 	}()
@@ -1295,6 +1301,9 @@ func createConsoleWindow(filePath string) {
 		}, func(s string) {
 			winTerminal.Feed(s)
 		})
+		// Set background color for prompt color selection
+		bg := getTerminalBackground()
+		winREPL.SetBackgroundRGB(bg.R, bg.G, bg.B)
 		winREPL.Start()
 	}()
 }
