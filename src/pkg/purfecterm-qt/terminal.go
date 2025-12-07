@@ -93,7 +93,7 @@ func New(opts Options) (*Terminal, error) {
 
 // Widget returns the Qt widget
 func (t *Terminal) Widget() *widgets.QWidget {
-	return &t.widget.QWidget
+	return t.widget.QWidget()
 }
 
 // Feed writes data directly to the terminal display

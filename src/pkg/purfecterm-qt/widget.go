@@ -380,7 +380,7 @@ func (w *Widget) paintEvent(event *gui.QPaintEvent) {
 						pen := gui.NewQPen3(cursorQColor)
 						pen.SetWidth(1)
 						painter.SetPen(pen)
-						painter.DrawRect2(core.NewQRect4(cellX, cellY, cellW-1, cellH-1))
+						painter.DrawRect2(cellX, cellY, cellW-1, cellH-1)
 					}
 				case 1: // Underline
 					thickness := cellH / 4
