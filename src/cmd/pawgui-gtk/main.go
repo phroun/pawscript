@@ -16,38 +16,14 @@ import (
 	"github.com/gotk3/gotk3/glib"
 	"github.com/gotk3/gotk3/gtk"
 	"github.com/phroun/pawscript"
+	"github.com/phroun/pawscript/pkg/pawgui"
 	"github.com/phroun/pawscript/pkg/purfecterm"
 	purfectermgtk "github.com/phroun/pawscript/pkg/purfecterm-gtk"
 	"github.com/sqweek/dialog"
 )
 
-// Default font settings
-// Font priority: platform-specific defaults with cross-platform fallbacks
-// Config files can be shared across OS - each platform includes other platforms' fonts
-// - macOS: Menlo, JetBrains Mono, SF Mono, Cascadia Mono, Consolas, Monaco, Courier New
-// - Windows: Cascadia Mono, Consolas, JetBrains Mono, Menlo, SF Mono, Monaco, Courier New
-// - Linux: JetBrains Mono, DejaVu Sans Mono, Liberation Mono, Menlo, Consolas, monospace
-const (
-	defaultFontSize = 22
-)
-
-// getDefaultFont returns the best monospace font for the current platform
-// Includes cross-platform fallbacks so config files can be shared between OS
-func getDefaultFont() string {
-	switch runtime.GOOS {
-	case "darwin":
-		// macOS: Menlo (10.6+), JetBrains Mono (popular dev font), SF Mono (Xcode/dev downloads),
-		// then Windows fonts for portability, Monaco (classic), Courier New (universal)
-		return "Menlo, JetBrains Mono, SF Mono, Cascadia Mono, Consolas, Monaco, Courier New"
-	case "windows":
-		// Windows: Cascadia Mono (11+/Terminal), Consolas (Vista+), JetBrains Mono (popular),
-		// then macOS fonts, Courier New (universal)
-		return "Cascadia Mono, Consolas, JetBrains Mono, Menlo, SF Mono, Monaco, Courier New"
-	default:
-		// Linux: popular coding fonts, then cross-platform fallbacks
-		return "JetBrains Mono, DejaVu Sans Mono, Liberation Mono, Menlo, Consolas, monospace"
-	}
-}
+// Default font size constant (uses shared package value)
+const defaultFontSize = pawgui.DefaultFontSize
 
 const (
 	appID   = "com.pawscript.pawgui-gtk"
@@ -105,7 +81,7 @@ var (
 	stdinReader    *io.PipeReader
 	stdinWriter    *io.PipeWriter
 	clearInputFunc func()
-	flushFunc      func()          // Flush pending output
+	flushFunc      func() // Flush pending output
 	scriptRunning  bool
 	scriptMu       sync.Mutex
 
@@ -113,7 +89,8 @@ var (
 	consoleREPL *pawscript.REPL
 
 	// Configuration loaded at startup
-	appConfig pawscript.PSLConfig
+	appConfig    pawscript.PSLConfig
+	configHelper *pawgui.ConfigHelper
 )
 
 // --- Configuration Management ---
@@ -181,140 +158,17 @@ func saveBrowseDir(dir string) {
 	saveConfig(appConfig)
 }
 
-// getFontFamily returns the configured font family or platform default
-func getFontFamily() string {
-	if appConfig != nil {
-		if font := appConfig.GetString("font_family", ""); font != "" {
-			return font
-		}
-	}
-	return getDefaultFont()
-}
-
-// getFontSize returns the configured font size or default
-func getFontSize() int {
-	if appConfig != nil {
-		if size := appConfig.GetInt("font_size", 0); size > 0 {
-			return size
-		}
-	}
-	return defaultFontSize
-}
-
-// getUIScale returns the configured UI scale factor (default 1.0)
-func getUIScale() float64 {
-	if appConfig != nil {
-		if scale := appConfig.GetFloat("ui_scale", 0); scale > 0 {
-			return scale
-		}
-	}
-	return 1.0
-}
-
-// getOptimizationLevel returns the configured optimization level (default 1)
-// 0 = no caching, 1 = cache macro/loop bodies
-func getOptimizationLevel() int {
-	if appConfig != nil {
-		return appConfig.GetInt("optimization_level", 1)
-	}
-	return 1
-}
-
-// getTerminalBackground returns the configured terminal background color
-func getTerminalBackground() purfecterm.Color {
-	if appConfig != nil {
-		if hex := appConfig.GetString("terminal_background", ""); hex != "" {
-			if c, ok := purfecterm.ParseHexColor(hex); ok {
-				return c
-			}
-		}
-	}
-	return purfecterm.Color{R: 30, G: 30, B: 30} // Default dark background
-}
-
-// getTerminalForeground returns the configured terminal foreground color
-func getTerminalForeground() purfecterm.Color {
-	if appConfig != nil {
-		if hex := appConfig.GetString("terminal_foreground", ""); hex != "" {
-			if c, ok := purfecterm.ParseHexColor(hex); ok {
-				return c
-			}
-		}
-	}
-	return purfecterm.Color{R: 212, G: 212, B: 212} // Default light gray
-}
-
-// getColorPalette returns the configured 16-color ANSI palette
-// Config uses VGA-style naming (01_dark_blue, etc.) but ANSI escape codes
-// expect ANSI order (index 1 = red). We map VGA config indices to ANSI palette indices.
-func getColorPalette() []purfecterm.Color {
-	palette := make([]purfecterm.Color, 16)
-	copy(palette, purfecterm.ANSIColors)
-
-	if appConfig == nil {
-		return palette
-	}
-
-	// Check for palette_colors nested config
-	if paletteConfig, ok := appConfig["palette_colors"]; ok {
-		if pc, ok := paletteConfig.(pawscript.PSLConfig); ok {
-			names := purfecterm.PaletteColorNames()
-			for vgaIdx, name := range names {
-				if hex := pc.GetString(name, ""); hex != "" {
-					if c, ok := purfecterm.ParseHexColor(hex); ok {
-						// Map VGA config index to ANSI palette index
-						ansiIdx := purfecterm.VGAToANSI[vgaIdx]
-						palette[ansiIdx] = c
-					}
-				}
-			}
-		}
-	}
-
-	return palette
-}
-
-// getBlinkMode returns the configured blink mode
-// "bounce" = bobbing wave animation (default)
-// "blink" = traditional on/off blinking
-// "bright" = interpret as bright background (VGA style)
-func getBlinkMode() purfecterm.BlinkMode {
-	if appConfig != nil {
-		mode := appConfig.GetString("default_blink", "bounce")
-		return purfecterm.ParseBlinkMode(mode)
-	}
-	return purfecterm.BlinkModeBounce
-}
-
-// getQuitShortcut returns the configured quit shortcut
-// Valid values: "Cmd+Q", "Ctrl+Q", "Alt+F4", or "" (disabled)
-// Default: "Cmd+Q" on macOS, "Ctrl+Q" on Linux/Windows
-func getQuitShortcut() string {
-	if appConfig != nil {
-		// Check if explicitly set (even to empty string)
-		if val, exists := appConfig["quit_shortcut"]; exists {
-			if val == nil {
-				return "" // nil means disabled
-			}
-			if s, ok := val.(string); ok {
-				return s
-			}
-		}
-	}
-	// Platform default
-	if runtime.GOOS == "darwin" {
-		return "Cmd+Q"
-	}
-	return "Ctrl+Q"
-}
-
-// getDefaultQuitShortcut returns the platform-appropriate default quit shortcut
-func getDefaultQuitShortcut() string {
-	if runtime.GOOS == "darwin" {
-		return "Cmd+Q"
-	}
-	return "Ctrl+Q"
-}
+// Configuration getter wrappers using shared configHelper
+func getFontFamily() string          { return configHelper.GetFontFamily() }
+func getFontSize() int               { return configHelper.GetFontSize() }
+func getUIScale() float64            { return configHelper.GetUIScale() }
+func getOptimizationLevel() int      { return configHelper.GetOptimizationLevel() }
+func getTerminalBackground() purfecterm.Color { return configHelper.GetTerminalBackground() }
+func getTerminalForeground() purfecterm.Color { return configHelper.GetTerminalForeground() }
+func getColorPalette() []purfecterm.Color     { return configHelper.GetColorPalette() }
+func getBlinkMode() purfecterm.BlinkMode      { return configHelper.GetBlinkMode() }
+func getQuitShortcut() string        { return configHelper.GetQuitShortcut() }
+func getDefaultQuitShortcut() string { return pawgui.GetDefaultQuitShortcut() }
 
 func main() {
 	app, err := gtk.ApplicationNew(appID, glib.APPLICATION_FLAGS_NONE)
@@ -334,61 +188,12 @@ func activate(application *gtk.Application) {
 	// Store app reference globally for creating new windows
 	app = application
 
-	// Load configuration
+	// Load configuration and create config helper
 	appConfig = loadConfig()
+	configHelper = pawgui.NewConfigHelper(appConfig)
 
-	// Ensure config has all known fields with defaults (makes them discoverable)
-	// Only add fields that don't exist - preserve user's intentional values (even 0 or empty)
-	configModified := false
-	if _, exists := appConfig["font_family"]; !exists {
-		appConfig.Set("font_family", getDefaultFont())
-		configModified = true
-	}
-	if _, exists := appConfig["font_size"]; !exists {
-		appConfig.Set("font_size", defaultFontSize)
-		configModified = true
-	}
-	if _, exists := appConfig["ui_scale"]; !exists {
-		appConfig.Set("ui_scale", 1.0)
-		configModified = true
-	}
-	// optimization_level: 0=no caching, 1=cache macro/loop bodies (default)
-	if _, exists := appConfig["optimization_level"]; !exists {
-		appConfig.Set("optimization_level", 1)
-		configModified = true
-	}
-	// quit_shortcut: "Cmd+Q", "Ctrl+Q", "Alt+F4", or nil to disable
-	if _, exists := appConfig["quit_shortcut"]; !exists {
-		appConfig.Set("quit_shortcut", getDefaultQuitShortcut())
-		configModified = true
-	}
-	// terminal_background: default console background color as "#RRGGBB"
-	if _, exists := appConfig["terminal_background"]; !exists {
-		appConfig.Set("terminal_background", "#1E1E1E")
-		configModified = true
-	}
-	// terminal_foreground: default console foreground color as "#RRGGBB"
-	if _, exists := appConfig["terminal_foreground"]; !exists {
-		appConfig.Set("terminal_foreground", "#D4D4D4")
-		configModified = true
-	}
-	// palette_colors: 16 ANSI color palette as named hex colors
-	if _, exists := appConfig["palette_colors"]; !exists {
-		paletteConfig := pawscript.PSLConfig{}
-		names := purfecterm.PaletteColorNames()
-		hexColors := purfecterm.DefaultPaletteHex()
-		for i, name := range names {
-			paletteConfig.Set(name, hexColors[i])
-		}
-		appConfig.Set("palette_colors", paletteConfig)
-		configModified = true
-	}
-	// default_blink: "bounce" (wave animation), "blink" (traditional), or "bright" (VGA style)
-	if _, exists := appConfig["default_blink"]; !exists {
-		appConfig.Set("default_blink", "bounce")
-		configModified = true
-	}
-	if configModified {
+	// Populate defaults using shared package
+	if configHelper.PopulateDefaults() {
 		saveConfig(appConfig)
 	}
 
