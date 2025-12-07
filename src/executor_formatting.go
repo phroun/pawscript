@@ -290,11 +290,11 @@ func (e *Executor) isSafeIdentifier(s string) bool {
 	return true
 }
 
-// formatListItems formats the items of a StoredList as comma-separated values
+// encodeListItems encodes the items of a StoredList as comma-separated values
 // without the outer parentheses (for use with unescape operator ${...})
 // IMPORTANT: Escapes tildes to prevent tilde injection (tildes in values should not
 // be interpreted as variable references)
-func (e *Executor) formatListItems(list StoredList) string {
+func (e *Executor) encodeListItems(list StoredList) string {
 	const escapedTildePlaceholder = "\x00TILDE\x00"
 	items := list.Items()
 	if len(items) == 0 {

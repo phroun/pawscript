@@ -778,7 +778,7 @@ func (e *Executor) substituteAllBraces(originalString string, evaluations []*Bra
 
 			// For StoredList, unwrap outer parens (just like ParenGroup)
 			if list, ok := rawValue.(StoredList); ok {
-				resultValue = e.formatListItems(list)
+				resultValue = e.encodeListItems(list)
 			} else if sym, ok := rawValue.(Symbol); ok {
 				// Check if it's an object marker
 				if objType, objID := parseObjectMarker(string(sym)); objID >= 0 {
@@ -787,7 +787,7 @@ func (e *Executor) substituteAllBraces(originalString string, evaluations []*Bra
 						switch objType {
 						case "list":
 							if list, ok := actualValue.(StoredList); ok {
-								resultValue = e.formatListItems(list)
+								resultValue = e.encodeListItems(list)
 							} else {
 								resultValue = fmt.Sprintf("<%s %d>", objType, objID)
 							}
@@ -822,7 +822,7 @@ func (e *Executor) substituteAllBraces(originalString string, evaluations []*Bra
 			}
 		} else {
 			// {...} - preserve types properly, considering quote context
-			resultValue = e.formatBraceResult(rawValue, originalString, eval.Location.StartPos, state)
+			resultValue = e.encodeBraceResult(rawValue, originalString, eval.Location.StartPos, state)
 		}
 
 		// Substitute: replace from StartPos to EndPos+1 with resultValue
@@ -835,9 +835,9 @@ func (e *Executor) substituteAllBraces(originalString string, evaluations []*Bra
 	return result
 }
 
-// formatBraceResult formats a brace evaluation result for substitution
+// encodeBraceResult encodes a brace evaluation result for substitution
 // Takes the original string and brace position to detect quote context
-// formatBraceResult formats a brace evaluation result for substitution
+// encodeBraceResult encodes a brace evaluation result for substitution
 // Takes the original string and brace position to detect quote context
 //
 // CRITICAL: Object markers (like \x00LIST:7\x00) are handled based on context:
@@ -848,7 +848,7 @@ func (e *Executor) substituteAllBraces(originalString string, evaluations []*Bra
 //
 // This ensures nested structures maintain shared storage via reference passing
 // while still supporting human-readable display in string contexts.
-func (e *Executor) formatBraceResult(value interface{}, originalString string, bracePos int, state *ExecutionState) string {
+func (e *Executor) encodeBraceResult(value interface{}, originalString string, bracePos int, state *ExecutionState) string {
 	// Placeholder for escaped tildes - must match the one used in applySubstitution
 	const escapedTildePlaceholder = "\x00TILDE\x00"
 
@@ -2198,7 +2198,7 @@ func (e *Executor) executeBraceFromTemplate(seg TemplateSegment, ctx *Substituti
 	// Format result
 	var resultValue string
 	if hasCapturedResult {
-		resultValue = e.formatBraceResultFromTemplate(capturedResult, seg.IsUnescape, seg.InQuote, ctx)
+		resultValue = e.encodeBraceResultFromTemplate(capturedResult, seg.IsUnescape, seg.InQuote, ctx)
 	} else if boolStatus, ok := executeResult.(BoolStatus); ok {
 		resultValue = fmt.Sprintf("%v", bool(boolStatus))
 	}
@@ -2229,8 +2229,8 @@ func (e *Executor) executeBraceFromTemplate(seg TemplateSegment, ctx *Substituti
 	return resultValue, false
 }
 
-// formatBraceResultFromTemplate formats a brace result for template substitution
-func (e *Executor) formatBraceResultFromTemplate(value interface{}, isUnescape bool, inQuote bool, ctx *SubstitutionContext) string {
+// encodeBraceResultFromTemplate encodes a brace result for template substitution
+func (e *Executor) encodeBraceResultFromTemplate(value interface{}, isUnescape bool, inQuote bool, ctx *SubstitutionContext) string {
 	if value == nil {
 		return "nil"
 	}
@@ -2252,7 +2252,7 @@ func (e *Executor) formatBraceResultFromTemplate(value interface{}, isUnescape b
 					switch objType {
 					case "list":
 						if list, ok := actualValue.(StoredList); ok {
-							return e.formatListItems(list)
+							return e.encodeListItems(list)
 						}
 					case "str":
 						if storedStr, ok := actualValue.(StoredString); ok {
@@ -2301,7 +2301,7 @@ func (e *Executor) formatBraceResultFromTemplate(value interface{}, isUnescape b
 				switch ref.Type {
 				case ObjList:
 					if list, ok := actualValue.(StoredList); ok {
-						return e.formatListItems(list)
+						return e.encodeListItems(list)
 					}
 				case ObjString:
 					if storedStr, ok := actualValue.(StoredString); ok {
@@ -2346,7 +2346,7 @@ func (e *Executor) formatBraceResultFromTemplate(value interface{}, isUnescape b
 		return "false"
 	case StoredList:
 		if isUnescape {
-			return e.formatListItems(v)
+			return e.encodeListItems(v)
 		}
 		// Store and return marker
 		ref := e.RegisterObject(value, ObjList)
