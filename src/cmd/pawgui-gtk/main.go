@@ -170,6 +170,25 @@ func getBlinkMode() purfecterm.BlinkMode      { return configHelper.GetBlinkMode
 func getQuitShortcut() string        { return configHelper.GetQuitShortcut() }
 func getDefaultQuitShortcut() string { return pawgui.GetDefaultQuitShortcut() }
 
+// applyTheme sets the GTK theme based on the configuration.
+// "auto" = let GTK/OS decide, "dark" = force dark, "light" = force light
+func applyTheme(theme pawgui.ThemeMode) {
+	settings, err := gtk.SettingsGetDefault()
+	if err != nil {
+		return
+	}
+
+	switch theme {
+	case pawgui.ThemeDark:
+		settings.SetProperty("gtk-application-prefer-dark-theme", true)
+	case pawgui.ThemeLight:
+		settings.SetProperty("gtk-application-prefer-dark-theme", false)
+	case pawgui.ThemeAuto:
+		// Let GTK use the system default - no explicit setting needed
+		// On most systems, this will follow the OS dark/light mode preference
+	}
+}
+
 func main() {
 	app, err := gtk.ApplicationNew(appID, glib.APPLICATION_FLAGS_NONE)
 	if err != nil {
@@ -196,6 +215,9 @@ func activate(application *gtk.Application) {
 	if configHelper.PopulateDefaults() {
 		saveConfig(appConfig)
 	}
+
+	// Apply theme setting
+	applyTheme(configHelper.GetTheme())
 
 	// Create main window
 	var err error

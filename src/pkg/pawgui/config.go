@@ -14,6 +14,15 @@ import (
 // Default font settings
 const DefaultFontSize = 22
 
+// ThemeMode represents the GUI theme setting
+type ThemeMode string
+
+const (
+	ThemeAuto  ThemeMode = "auto"  // Follow OS preference
+	ThemeDark  ThemeMode = "dark"  // Force dark theme
+	ThemeLight ThemeMode = "light" // Force light theme
+)
+
 // GetDefaultFont returns the best monospace font for the current platform.
 // Includes cross-platform fallbacks so config files can be shared between OS.
 func GetDefaultFont() string {
@@ -166,6 +175,21 @@ func (h *ConfigHelper) GetQuitShortcut() string {
 	return GetDefaultQuitShortcut()
 }
 
+// GetTheme returns the configured GUI theme mode.
+// Valid values: "auto", "dark", "light"
+func (h *ConfigHelper) GetTheme() ThemeMode {
+	if h.Config != nil {
+		theme := h.Config.GetString("theme", "auto")
+		switch theme {
+		case "dark":
+			return ThemeDark
+		case "light":
+			return ThemeLight
+		}
+	}
+	return ThemeAuto
+}
+
 // GetColorScheme returns a complete ColorScheme from config.
 func (h *ConfigHelper) GetColorScheme() purfecterm.ColorScheme {
 	return purfecterm.ColorScheme{
@@ -205,6 +229,10 @@ func (h *ConfigHelper) PopulateDefaults() bool {
 	}
 	if _, exists := h.Config["quit_shortcut"]; !exists {
 		h.Config.Set("quit_shortcut", GetDefaultQuitShortcut())
+		modified = true
+	}
+	if _, exists := h.Config["theme"]; !exists {
+		h.Config.Set("theme", "auto")
 		modified = true
 	}
 	if _, exists := h.Config["terminal_background"]; !exists {

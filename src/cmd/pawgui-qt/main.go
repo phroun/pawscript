@@ -143,6 +143,71 @@ func getBlinkMode() purfecterm.BlinkMode      { return configHelper.GetBlinkMode
 func getQuitShortcut() string                 { return configHelper.GetQuitShortcut() }
 func getDefaultQuitShortcut() string          { return pawgui.GetDefaultQuitShortcut() }
 
+// applyTheme sets the Qt application palette based on the configuration.
+// "auto" = let Qt/OS decide, "dark" = force dark palette, "light" = force light palette
+func applyTheme(theme pawgui.ThemeMode) {
+	switch theme {
+	case pawgui.ThemeDark:
+		// Create a dark palette
+		palette := qt.NewQPalette()
+		darkGray := qt.NewQColor3(53, 53, 53)
+		darkerGray := qt.NewQColor3(25, 25, 25)
+		white := qt.NewQColor3(255, 255, 255)
+		blue := qt.NewQColor3(42, 130, 218)
+
+		palette.SetColor(qt.QPalette__Window, darkGray.QColor)
+		palette.SetColor(qt.QPalette__WindowText, white.QColor)
+		palette.SetColor(qt.QPalette__Base, darkerGray.QColor)
+		palette.SetColor(qt.QPalette__AlternateBase, darkGray.QColor)
+		palette.SetColor(qt.QPalette__ToolTipBase, white.QColor)
+		palette.SetColor(qt.QPalette__ToolTipText, white.QColor)
+		palette.SetColor(qt.QPalette__Text, white.QColor)
+		palette.SetColor(qt.QPalette__Button, darkGray.QColor)
+		palette.SetColor(qt.QPalette__ButtonText, white.QColor)
+		palette.SetColor(qt.QPalette__BrightText, qt.QColor_FromRgb(255, 0, 0).QColor)
+		palette.SetColor(qt.QPalette__Link, blue.QColor)
+		palette.SetColor(qt.QPalette__Highlight, blue.QColor)
+		palette.SetColor(qt.QPalette__HighlightedText, darkerGray.QColor)
+
+		// Disabled colors
+		disabledGray := qt.NewQColor3(127, 127, 127)
+		palette.SetColor2(qt.QPalette__Disabled, qt.QPalette__WindowText, disabledGray.QColor)
+		palette.SetColor2(qt.QPalette__Disabled, qt.QPalette__Text, disabledGray.QColor)
+		palette.SetColor2(qt.QPalette__Disabled, qt.QPalette__ButtonText, disabledGray.QColor)
+		palette.SetColor2(qt.QPalette__Disabled, qt.QPalette__HighlightedText, disabledGray.QColor)
+
+		qt.QApplication_SetPalette(palette)
+
+	case pawgui.ThemeLight:
+		// Create a light palette (standard Qt light theme)
+		palette := qt.NewQPalette()
+		white := qt.NewQColor3(255, 255, 255)
+		lightGray := qt.NewQColor3(239, 239, 239)
+		black := qt.NewQColor3(0, 0, 0)
+		blue := qt.NewQColor3(0, 120, 215)
+
+		palette.SetColor(qt.QPalette__Window, lightGray.QColor)
+		palette.SetColor(qt.QPalette__WindowText, black.QColor)
+		palette.SetColor(qt.QPalette__Base, white.QColor)
+		palette.SetColor(qt.QPalette__AlternateBase, lightGray.QColor)
+		palette.SetColor(qt.QPalette__ToolTipBase, white.QColor)
+		palette.SetColor(qt.QPalette__ToolTipText, black.QColor)
+		palette.SetColor(qt.QPalette__Text, black.QColor)
+		palette.SetColor(qt.QPalette__Button, lightGray.QColor)
+		palette.SetColor(qt.QPalette__ButtonText, black.QColor)
+		palette.SetColor(qt.QPalette__BrightText, qt.QColor_FromRgb(255, 0, 0).QColor)
+		palette.SetColor(qt.QPalette__Link, blue.QColor)
+		palette.SetColor(qt.QPalette__Highlight, blue.QColor)
+		palette.SetColor(qt.QPalette__HighlightedText, white.QColor)
+
+		qt.QApplication_SetPalette(palette)
+
+	case pawgui.ThemeAuto:
+		// Let Qt use the system default - no explicit setting needed
+		// Qt will follow the OS dark/light mode preference on supported platforms
+	}
+}
+
 func main() {
 	// Load configuration
 	appConfig = loadConfig()
@@ -161,6 +226,9 @@ func main() {
 
 	// Initialize Qt application
 	qt.NewQApplication(os.Args)
+
+	// Apply theme setting
+	applyTheme(configHelper.GetTheme())
 
 	// Create main window
 	mainWindow = qt.NewQMainWindow2()
