@@ -2321,7 +2321,7 @@ func (ps *PawScript) RegisterTypesLib() {
 			} else if pretty {
 				result = formatListForDisplayPretty(v, 0)
 			} else {
-				result = formatListForDisplay(v)
+				result = formatListForDisplay(v, ctx.executor)
 			}
 		case ParenGroup:
 			// Block/code - return the block content
@@ -2526,7 +2526,7 @@ func (ps *PawScript) RegisterTypesLib() {
 			result = v
 		case StoredList:
 			// Use formatListForDisplay for lists
-			result = formatListForDisplay(v)
+			result = formatListForDisplay(v, ctx.executor)
 		case ParenGroup:
 			// Block/code - return the block content
 			result = string(v)

@@ -306,7 +306,7 @@ func (e *Executor) formatListItems(list StoredList) string {
 		switch v := item.(type) {
 		case StoredList:
 			// Nested lists keep their parentheses
-			parts[i] = formatListForDisplay(v)
+			parts[i] = formatListForDisplay(v, e)
 		case ParenGroup:
 			parts[i] = "(" + string(v) + ")"
 		case QuotedString:

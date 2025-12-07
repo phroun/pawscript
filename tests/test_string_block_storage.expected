@@ -2,182 +2,194 @@
 
 Test 1: Small string (under 200 chars) - should NOT be stored
 === Memory Statistics ===
-Total stored objects: 5
-Total estimated size: 152 bytes
+Total stored objects: 6
+Total estimated size: 184 bytes
 
 ID    Type      RefCount  Size(bytes)
 ----  --------  --------  -----------
 1     list      1000000   24
-2     channel   0         32
+2     token     1         32
 3     channel   0         32
 4     channel   0         32
 5     channel   0         32
+6     channel   0         32
 Expected: 0 objects (small string stays inline)
 
 Test 2: Large string (over 200 chars) - should be stored
 === Memory Statistics ===
-Total stored objects: 7
-Total estimated size: 744 bytes
+Total stored objects: 8
+Total estimated size: 776 bytes
 
 ID    Type      RefCount  Size(bytes)
 ----  --------  --------  -----------
 1     list      1000000   24
-2     channel   0         32
+2     token     1         32
 3     channel   0         32
 4     channel   0         32
 5     channel   0         32
-6     string    1         296
+6     channel   0         32
 7     string    1         296
+8     string    1         296
 Expected: 1 object (type: string, refcount: 1)
 
 Test 3: Clear large string
 === Memory Statistics ===
-Total stored objects: 5
-Total estimated size: 152 bytes
+Total stored objects: 6
+Total estimated size: 184 bytes
 
 ID    Type      RefCount  Size(bytes)
 ----  --------  --------  -----------
 1     list      1000000   24
-2     channel   0         32
+2     token     1         32
 3     channel   0         32
 4     channel   0         32
 5     channel   0         32
+6     channel   0         32
 Expected: 0 objects (should be freed)
 
 Test 4: Small block (under 500 chars) - should NOT be stored
 === Memory Statistics ===
-Total stored objects: 5
-Total estimated size: 152 bytes
+Total stored objects: 6
+Total estimated size: 184 bytes
 
 ID    Type      RefCount  Size(bytes)
 ----  --------  --------  -----------
 1     list      1000000   24
-2     channel   0         32
+2     token     1         32
 3     channel   0         32
 4     channel   0         32
 5     channel   0         32
+6     channel   0         32
 Expected: 0 objects (small block stays inline)
 
 Test 5: Large block (over 500 chars) - should be stored
 === Memory Statistics ===
-Total stored objects: 7
-Total estimated size: 1296 bytes
+Total stored objects: 8
+Total estimated size: 1328 bytes
 
 ID    Type      RefCount  Size(bytes)
 ----  --------  --------  -----------
 1     list      1000000   24
-2     channel   0         32
+2     token     1         32
 3     channel   0         32
 4     channel   0         32
 5     channel   0         32
-8     block     1         572
+6     channel   0         32
 9     block     1         572
+10    block     1         572
 Expected: 1 object (type: block, refcount: 1)
 
 Test 6: Clear large block
 === Memory Statistics ===
-Total stored objects: 5
-Total estimated size: 152 bytes
+Total stored objects: 6
+Total estimated size: 184 bytes
 
 ID    Type      RefCount  Size(bytes)
 ----  --------  --------  -----------
 1     list      1000000   24
-2     channel   0         32
+2     token     1         32
 3     channel   0         32
 4     channel   0         32
 5     channel   0         32
+6     channel   0         32
 Expected: 0 objects (should be freed)
 
 Test 7: Multiple large strings
 === Memory Statistics ===
-Total stored objects: 8
-Total estimated size: 854 bytes
+Total stored objects: 9
+Total estimated size: 886 bytes
 
 ID    Type      RefCount  Size(bytes)
 ----  --------  --------  -----------
 1     list      1000000   24
-2     channel   0         32
+2     token     1         32
 3     channel   0         32
 4     channel   0         32
 5     channel   0         32
-10    string    1         238
-12    string    1         232
+6     channel   0         32
+11    string    1         238
 13    string    1         232
+14    string    1         232
 Expected: 2 objects (both type: string, both refcount: 1)
 
 Test 8: Clear all large strings
 === Memory Statistics ===
-Total stored objects: 5
-Total estimated size: 152 bytes
+Total stored objects: 6
+Total estimated size: 184 bytes
 
 ID    Type      RefCount  Size(bytes)
 ----  --------  --------  -----------
 1     list      1000000   24
-2     channel   0         32
+2     token     1         32
 3     channel   0         32
 4     channel   0         32
 5     channel   0         32
+6     channel   0         32
 Expected: 0 objects (all freed)
 
 Test 9: Large string in result
 === Memory Statistics ===
-Total stored objects: 6
-Total estimated size: 423 bytes
+Total stored objects: 7
+Total estimated size: 455 bytes
 
 ID    Type      RefCount  Size(bytes)
 ----  --------  --------  -----------
 1     list      1000000   24
-2     channel   0         32
+2     token     1         32
 3     channel   0         32
 4     channel   0         32
 5     channel   0         32
-14    string    1         271
+6     channel   0         32
+15    string    1         271
 Expected: 1 object (type: string, refcount: 1)
 
 Test 10: Clear result
 === Memory Statistics ===
-Total stored objects: 5
-Total estimated size: 152 bytes
+Total stored objects: 6
+Total estimated size: 184 bytes
 
 ID    Type      RefCount  Size(bytes)
 ----  --------  --------  -----------
 1     list      1000000   24
-2     channel   0         32
+2     token     1         32
 3     channel   0         32
 4     channel   0         32
 5     channel   0         32
+6     channel   0         32
 Expected: 0 objects (should be freed)
 
 Test 11: String operations with stored strings
 Upper length: 261
 Expected: length > 200 (operations work on stored strings)
 === Memory Statistics ===
-Total stored objects: 7
-Total estimated size: 706 bytes
+Total stored objects: 8
+Total estimated size: 738 bytes
 
 ID    Type      RefCount  Size(bytes)
 ----  --------  --------  -----------
 1     list      1000000   24
-2     channel   0         32
+2     token     1         32
 3     channel   0         32
 4     channel   0         32
 5     channel   0         32
-15    string    1         277
-17    string    2         277
+6     channel   0         32
+16    string    1         277
+18    string    2         277
 Expected: 2 objects (original + uppercase result)
 
 Test 12: Clean up
 === Memory Statistics ===
-Total stored objects: 5
-Total estimated size: 152 bytes
+Total stored objects: 6
+Total estimated size: 184 bytes
 
 ID    Type      RefCount  Size(bytes)
 ----  --------  --------  -----------
 1     list      1000000   24
-2     channel   0         32
+2     token     1         32
 3     channel   0         32
 4     channel   0         32
 5     channel   0         32
+6     channel   0         32
 Expected: 0 objects
 
 === Test Complete ===

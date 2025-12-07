@@ -487,7 +487,7 @@ func (e *Executor) substituteTildeExpressions(str string, state *ExecutionState,
 				var valueStr string
 				// Handle StoredList and StoredBytes specially to format contents
 				if list, ok := resolved.(StoredList); ok {
-					valueStr = formatListForDisplay(list)
+					valueStr = formatListForDisplay(list, e)
 				} else if bytes, ok := resolved.(StoredBytes); ok {
 					valueStr = bytes.String()
 				} else {
@@ -880,7 +880,7 @@ func (e *Executor) formatBraceResult(value interface{}, originalString string, b
 					switch objType {
 					case "list":
 						if list, ok := actualValue.(StoredList); ok {
-							return formatListForDisplay(list)
+							return formatListForDisplay(list, e)
 						}
 					case "str":
 						// Resolve and display string content
@@ -980,7 +980,7 @@ func (e *Executor) formatBraceResult(value interface{}, originalString string, b
 	case StoredList:
 		if insideQuotes {
 			// Inside quotes: format as readable list display
-			return formatListForDisplay(v)
+			return formatListForDisplay(v, e)
 		}
 		// Outside quotes: use a special marker that preserves the object
 		// Format: \x00LIST:index\x00 where index is stored in the execution state
@@ -1040,7 +1040,7 @@ func (e *Executor) formatBraceResult(value interface{}, originalString string, b
 			if actualValue, exists := e.getObject(v.ID); exists {
 				switch resolved := actualValue.(type) {
 				case StoredList:
-					return formatListForDisplay(resolved)
+					return formatListForDisplay(resolved, e)
 				case StoredBytes:
 					return resolved.String()
 				case StoredStruct:
@@ -1964,7 +1964,7 @@ func (e *Executor) lookupTildeVar(varName string, isQuestion bool, ctx *Substitu
 	resolved := e.resolveValue(value)
 	var valueStr string
 	if list, ok := resolved.(StoredList); ok {
-		valueStr = formatListForDisplay(list)
+		valueStr = formatListForDisplay(list, e)
 	} else if bytes, ok := resolved.(StoredBytes); ok {
 		valueStr = bytes.String()
 	} else {
@@ -2271,7 +2271,7 @@ func (e *Executor) formatBraceResultFromTemplate(value interface{}, isUnescape b
 					switch objType {
 					case "list":
 						if list, ok := actualValue.(StoredList); ok {
-							return formatListForDisplay(list)
+							return formatListForDisplay(list, e)
 						}
 					case "str":
 						if storedStr, ok := actualValue.(StoredString); ok {
@@ -2320,7 +2320,7 @@ func (e *Executor) formatBraceResultFromTemplate(value interface{}, isUnescape b
 				switch ref.Type {
 				case ObjList:
 					if list, ok := actualValue.(StoredList); ok {
-						return formatListForDisplay(list)
+						return formatListForDisplay(list, e)
 					}
 				case ObjString:
 					if storedStr, ok := actualValue.(StoredString); ok {

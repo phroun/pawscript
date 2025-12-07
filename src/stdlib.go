@@ -264,7 +264,13 @@ func formatBlockForPSL(content string) string {
 }
 
 // formatListForDisplay formats a StoredList as a ParenGroup-like representation
-func formatListForDisplay(list StoredList) string {
+// The optional executor parameter allows resolving ObjectRefs to their actual values.
+func formatListForDisplay(list StoredList, exec ...*Executor) string {
+	var e *Executor
+	if len(exec) > 0 {
+		e = exec[0]
+	}
+
 	var parts []string
 
 	// First, add named arguments (key: value pairs)
@@ -281,8 +287,23 @@ func formatListForDisplay(list StoredList) string {
 			value := namedArgs[key]
 			var valueStr string
 			switch v := value.(type) {
+			case ObjectRef:
+				// Handle ObjectRef - resolve if executor available
+				if e != nil && v.Type == ObjList {
+					if resolved, exists := e.getObject(v.ID); exists {
+						if resolvedList, ok := resolved.(StoredList); ok {
+							valueStr = formatListForDisplay(resolvedList, e)
+						} else {
+							valueStr = fmt.Sprintf("<%s %d>", v.Type.String(), v.ID)
+						}
+					} else {
+						valueStr = fmt.Sprintf("<%s %d>", v.Type.String(), v.ID)
+					}
+				} else {
+					valueStr = fmt.Sprintf("<%s %d>", v.Type.String(), v.ID)
+				}
 			case StoredList:
-				valueStr = formatListForDisplay(v)
+				valueStr = formatListForDisplay(v, e)
 			case ParenGroup:
 				valueStr = formatBlockForPSL(string(v))
 			case StoredBlock:
@@ -324,9 +345,24 @@ func formatListForDisplay(list StoredList) string {
 	items := list.Items()
 	for _, item := range items {
 		switch v := item.(type) {
+		case ObjectRef:
+			// Handle ObjectRef - resolve if executor available
+			if e != nil && v.Type == ObjList {
+				if resolved, exists := e.getObject(v.ID); exists {
+					if resolvedList, ok := resolved.(StoredList); ok {
+						parts = append(parts, formatListForDisplay(resolvedList, e))
+					} else {
+						parts = append(parts, fmt.Sprintf("<%s %d>", v.Type.String(), v.ID))
+					}
+				} else {
+					parts = append(parts, fmt.Sprintf("<%s %d>", v.Type.String(), v.ID))
+				}
+			} else {
+				parts = append(parts, fmt.Sprintf("<%s %d>", v.Type.String(), v.ID))
+			}
 		case StoredList:
 			// Recursively format nested lists
-			parts = append(parts, formatListForDisplay(v))
+			parts = append(parts, formatListForDisplay(v, e))
 		case ParenGroup:
 			parts = append(parts, formatBlockForPSL(string(v)))
 		case StoredBlock:
@@ -649,7 +685,7 @@ func formatArgForDisplay(arg interface{}, executor *Executor) string {
 	// Now format the resolved value
 	switch v := arg.(type) {
 	case StoredList:
-		return formatListForDisplay(v)
+		return formatListForDisplay(v, executor)
 	case *StoredChannel:
 		// Display as <channel N> to avoid leaking internal representation
 		if executor != nil {
