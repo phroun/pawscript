@@ -13,7 +13,9 @@ const terminalLeftPadding = 8
 
 // Widget is a Qt terminal emulator widget
 type Widget struct {
-	widget *qt.QWidget
+	container *qt.QWidget // Container holding terminal + scrollbar
+	widget    *qt.QWidget // The actual terminal drawing area
+	scrollbar *qt.QScrollBar
 
 	mu sync.Mutex
 
@@ -56,11 +58,15 @@ type Widget struct {
 
 	// Context menu
 	contextMenu *qt.QMenu
+
+	// Scrollbar update flag
+	scrollbarUpdating bool
 }
 
 // NewWidget creates a new terminal widget with the specified dimensions
 func NewWidget(cols, rows, scrollbackSize int) *Widget {
 	w := &Widget{
+		container:     qt.NewQWidget2(),
 		widget:        qt.NewQWidget2(),
 		fontFamily:    "Monospace",
 		fontSize:      14,
@@ -75,12 +81,33 @@ func NewWidget(cols, rows, scrollbackSize int) *Widget {
 	w.buffer = purfecterm.NewBuffer(cols, rows, scrollbackSize)
 	w.parser = purfecterm.NewParser(w.buffer)
 
-	// Set up dirty callback to trigger redraws
+	// Set up dirty callback to trigger redraws and update scrollbar
 	w.buffer.SetDirtyCallback(func() {
 		w.widget.Update()
+		w.updateScrollbar()
 	})
 
-	// Enable focus and mouse tracking
+	// Create scrollbar
+	w.scrollbar = qt.NewQScrollBar2(qt.Vertical, w.container)
+	w.scrollbar.SetMinimum(0)
+	w.scrollbar.SetMaximum(0)
+	w.scrollbar.OnValueChanged(func(value int) {
+		if !w.scrollbarUpdating {
+			// Scrollbar value is inverted (0 = bottom, max = top)
+			maxScroll := w.scrollbar.Maximum()
+			w.buffer.SetScrollOffset(maxScroll - value)
+		}
+	})
+
+	// Create horizontal layout for terminal + scrollbar
+	layout := qt.NewQHBoxLayout2()
+	layout.SetContentsMargins(0, 0, 0, 0)
+	layout.SetSpacing(0)
+	layout.AddWidget2(w.widget, 1)
+	layout.AddWidget(w.scrollbar.QWidget)
+	w.container.SetLayout(layout.QLayout)
+
+	// Enable focus and mouse tracking on the terminal widget
 	w.widget.SetFocusPolicy(qt.StrongFocus)
 	w.widget.SetMouseTracking(true)
 	w.widget.SetAttribute(qt.WA_InputMethodEnabled)
@@ -161,9 +188,25 @@ func NewWidget(cols, rows, scrollbackSize int) *Widget {
 	return w
 }
 
-// QWidget returns the underlying Qt widget
+// QWidget returns the container widget (terminal + scrollbar)
 func (w *Widget) QWidget() *qt.QWidget {
-	return w.widget
+	return w.container
+}
+
+// updateScrollbar updates the scrollbar to match the buffer state
+func (w *Widget) updateScrollbar() {
+	w.scrollbarUpdating = true
+	defer func() { w.scrollbarUpdating = false }()
+
+	scrollbackSize := w.buffer.GetScrollbackSize()
+	scrollOffset := w.buffer.GetScrollOffset()
+
+	w.scrollbar.SetMaximum(scrollbackSize)
+	w.scrollbar.SetValue(scrollbackSize - scrollOffset)
+
+	// Set page step to terminal height in lines
+	_, rows := w.buffer.GetSize()
+	w.scrollbar.SetPageStep(rows)
 }
 
 func (w *Widget) onBlinkTimer() {
@@ -698,6 +741,7 @@ func (w *Widget) wheelEvent(event *qt.QWheelEvent) {
 	}
 
 	w.buffer.SetScrollOffset(offset)
+	w.updateScrollbar()
 }
 
 func (w *Widget) focusInEvent(event *qt.QFocusEvent) {
