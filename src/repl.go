@@ -11,10 +11,11 @@ import (
 
 // REPL color codes
 const (
-	replColorYellow = "\x1b[93m"
-	replColorWhite  = "\x1b[97m"
-	replColorRed    = "\x1b[91m"
-	replColorReset  = "\x1b[0m"
+	replColorYellow   = "\x1b[93m"
+	replColorWhite    = "\x1b[97m"
+	replColorRed      = "\x1b[91m"
+	replColorDarkCyan = "\x1b[36m"
+	replColorReset    = "\x1b[0m"
 )
 
 // REPLConfig configures the REPL behavior
@@ -265,9 +266,9 @@ func (r *REPL) printPrompt() {
 		// Determine what needs to be closed based on accumulated input
 		fullInput := strings.Join(r.lines, "\n")
 		prompt := r.getContinuationPrompt(fullInput)
-		// Show line number (current line is len(r.lines) + 1)
+		// Show line number in dark cyan, rest of prompt in yellow
 		lineNum := len(r.lines) + 1
-		r.output(fmt.Sprintf("%s%d %s%s ", replColorYellow, lineNum, prompt, replColorReset))
+		r.output(fmt.Sprintf("%s%d %s%s%s ", replColorDarkCyan, lineNum, replColorYellow, prompt, replColorReset))
 	}
 }
 
