@@ -148,64 +148,115 @@ func getDefaultQuitShortcut() string          { return pawgui.GetDefaultQuitShor
 func applyTheme(theme pawgui.ThemeMode) {
 	switch theme {
 	case pawgui.ThemeDark:
-		// Create a dark palette
-		palette := qt.NewQPalette()
-		darkGray := qt.NewQColor3(53, 53, 53)
-		darkerGray := qt.NewQColor3(25, 25, 25)
-		white := qt.NewQColor3(255, 255, 255)
-		blue := qt.NewQColor3(42, 130, 218)
-
-		palette.SetColor(qt.QPalette__Window, darkGray.QColor)
-		palette.SetColor(qt.QPalette__WindowText, white.QColor)
-		palette.SetColor(qt.QPalette__Base, darkerGray.QColor)
-		palette.SetColor(qt.QPalette__AlternateBase, darkGray.QColor)
-		palette.SetColor(qt.QPalette__ToolTipBase, white.QColor)
-		palette.SetColor(qt.QPalette__ToolTipText, white.QColor)
-		palette.SetColor(qt.QPalette__Text, white.QColor)
-		palette.SetColor(qt.QPalette__Button, darkGray.QColor)
-		palette.SetColor(qt.QPalette__ButtonText, white.QColor)
-		palette.SetColor(qt.QPalette__BrightText, qt.QColor_FromRgb(255, 0, 0).QColor)
-		palette.SetColor(qt.QPalette__Link, blue.QColor)
-		palette.SetColor(qt.QPalette__Highlight, blue.QColor)
-		palette.SetColor(qt.QPalette__HighlightedText, darkerGray.QColor)
-
-		// Disabled colors
-		disabledGray := qt.NewQColor3(127, 127, 127)
-		palette.SetColor2(qt.QPalette__Disabled, qt.QPalette__WindowText, disabledGray.QColor)
-		palette.SetColor2(qt.QPalette__Disabled, qt.QPalette__Text, disabledGray.QColor)
-		palette.SetColor2(qt.QPalette__Disabled, qt.QPalette__ButtonText, disabledGray.QColor)
-		palette.SetColor2(qt.QPalette__Disabled, qt.QPalette__HighlightedText, disabledGray.QColor)
-
-		qt.QApplication_SetPalette(palette)
+		// Create a dark palette using stylesheet for better cross-platform support
+		qt.QApplication_SetStyleSheet(`
+			QWidget {
+				background-color: #353535;
+				color: #ffffff;
+			}
+			QMainWindow, QDialog {
+				background-color: #353535;
+			}
+			QPushButton {
+				background-color: #454545;
+				border: 1px solid #555555;
+				padding: 5px 15px;
+				border-radius: 3px;
+			}
+			QPushButton:hover {
+				background-color: #505050;
+			}
+			QPushButton:pressed {
+				background-color: #404040;
+			}
+			QListWidget {
+				background-color: #252525;
+				border: 1px solid #454545;
+			}
+			QListWidget::item:selected {
+				background-color: #2a82da;
+			}
+			QLabel {
+				background-color: transparent;
+			}
+			QSplitter::handle {
+				background-color: #454545;
+			}
+		`)
 
 	case pawgui.ThemeLight:
-		// Create a light palette (standard Qt light theme)
-		palette := qt.NewQPalette()
-		white := qt.NewQColor3(255, 255, 255)
-		lightGray := qt.NewQColor3(239, 239, 239)
-		black := qt.NewQColor3(0, 0, 0)
-		blue := qt.NewQColor3(0, 120, 215)
-
-		palette.SetColor(qt.QPalette__Window, lightGray.QColor)
-		palette.SetColor(qt.QPalette__WindowText, black.QColor)
-		palette.SetColor(qt.QPalette__Base, white.QColor)
-		palette.SetColor(qt.QPalette__AlternateBase, lightGray.QColor)
-		palette.SetColor(qt.QPalette__ToolTipBase, white.QColor)
-		palette.SetColor(qt.QPalette__ToolTipText, black.QColor)
-		palette.SetColor(qt.QPalette__Text, black.QColor)
-		palette.SetColor(qt.QPalette__Button, lightGray.QColor)
-		palette.SetColor(qt.QPalette__ButtonText, black.QColor)
-		palette.SetColor(qt.QPalette__BrightText, qt.QColor_FromRgb(255, 0, 0).QColor)
-		palette.SetColor(qt.QPalette__Link, blue.QColor)
-		palette.SetColor(qt.QPalette__Highlight, blue.QColor)
-		palette.SetColor(qt.QPalette__HighlightedText, white.QColor)
-
-		qt.QApplication_SetPalette(palette)
+		// Create a light palette using stylesheet
+		qt.QApplication_SetStyleSheet(`
+			QWidget {
+				background-color: #f0f0f0;
+				color: #000000;
+			}
+			QMainWindow, QDialog {
+				background-color: #f0f0f0;
+			}
+			QPushButton {
+				background-color: #e0e0e0;
+				border: 1px solid #c0c0c0;
+				padding: 5px 15px;
+				border-radius: 3px;
+			}
+			QPushButton:hover {
+				background-color: #d0d0d0;
+			}
+			QPushButton:pressed {
+				background-color: #c0c0c0;
+			}
+			QListWidget {
+				background-color: #ffffff;
+				border: 1px solid #c0c0c0;
+			}
+			QListWidget::item:selected {
+				background-color: #0078d7;
+				color: #ffffff;
+			}
+			QLabel {
+				background-color: transparent;
+			}
+			QSplitter::handle {
+				background-color: #c0c0c0;
+			}
+		`)
 
 	case pawgui.ThemeAuto:
 		// Let Qt use the system default - no explicit setting needed
 		// Qt will follow the OS dark/light mode preference on supported platforms
 	}
+}
+
+// applyUIScale applies UI scaling via stylesheet (does not affect terminal)
+func applyUIScale(scale float64) {
+	if scale == 1.0 {
+		return // No scaling needed
+	}
+
+	baseFontSize := int(12.0 * scale)
+	buttonPadding := int(5.0 * scale)
+	buttonPaddingH := int(15.0 * scale)
+
+	// Get existing stylesheet and append scaling rules
+	existing := qt.QApplication_StyleSheet()
+	scaled := fmt.Sprintf(`
+		QWidget {
+			font-size: %dpx;
+		}
+		QPushButton {
+			padding: %dpx %dpx;
+			font-size: %dpx;
+		}
+		QLabel {
+			font-size: %dpx;
+		}
+		QListWidget {
+			font-size: %dpx;
+		}
+	`, baseFontSize, buttonPadding, buttonPaddingH, baseFontSize, baseFontSize, baseFontSize)
+
+	qt.QApplication_SetStyleSheet(existing + scaled)
 }
 
 func main() {
@@ -229,6 +280,9 @@ func main() {
 
 	// Apply theme setting
 	applyTheme(configHelper.GetTheme())
+
+	// Apply UI scaling via stylesheet (affects everything except terminal)
+	applyUIScale(getUIScale())
 
 	// Create main window
 	mainWindow = qt.NewQMainWindow2()

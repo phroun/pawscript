@@ -189,6 +189,52 @@ func applyTheme(theme pawgui.ThemeMode) {
 	}
 }
 
+// setupQuitShortcut configures the keyboard shortcut to quit the application
+func setupQuitShortcut() {
+	quitShortcut := getQuitShortcut()
+	if quitShortcut == "" {
+		return // Disabled
+	}
+
+	var targetKey uint
+	var targetMod gdk.ModifierType
+	switch quitShortcut {
+	case "Cmd+Q":
+		targetKey = gdk.KEY_q
+		targetMod = gdk.META_MASK
+	case "Ctrl+Q":
+		targetKey = gdk.KEY_q
+		targetMod = gdk.CONTROL_MASK
+	case "Alt+F4":
+		targetKey = gdk.KEY_F4
+		targetMod = gdk.MOD1_MASK
+	default:
+		return
+	}
+
+	// Connect to key-press-event on the main window
+	mainWindow.Connect("key-press-event", func(win *gtk.ApplicationWindow, event *gdk.Event) bool {
+		keyEvent := gdk.EventKeyNewFromEvent(event)
+		keyval := keyEvent.KeyVal()
+		state := gdk.ModifierType(keyEvent.State())
+
+		// Mask out non-modifier bits (like num lock, caps lock)
+		state = state & (gdk.CONTROL_MASK | gdk.SHIFT_MASK | gdk.MOD1_MASK | gdk.META_MASK)
+
+		// Check for lowercase or uppercase 'q'
+		if targetKey == gdk.KEY_q {
+			if (keyval == gdk.KEY_q || keyval == gdk.KEY_Q) && state == targetMod {
+				mainWindow.Close()
+				return true
+			}
+		} else if keyval == targetKey && state == targetMod {
+			mainWindow.Close()
+			return true
+		}
+		return false
+	})
+}
+
 func main() {
 	app, err := gtk.ApplicationNew(appID, glib.APPLICATION_FLAGS_NONE)
 	if err != nil {
@@ -248,36 +294,8 @@ func activate(application *gtk.Application) {
 	screen := mainWindow.GetScreen()
 	gtk.AddProviderForScreen(screen, cssProvider, gtk.STYLE_PROVIDER_PRIORITY_APPLICATION)
 
-	// Create accelerator group for keyboard shortcuts (quit shortcut)
-	accelGroup, _ := gtk.AccelGroupNew()
-	mainWindow.AddAccelGroup(accelGroup)
-
-	// Add quit shortcut based on config (can be disabled by setting to nil)
-	// Uses a hidden menu item to handle the accelerator
-	quitShortcut := getQuitShortcut()
-	if quitShortcut != "" {
-		var quitKey uint
-		var quitMod gdk.ModifierType
-		switch quitShortcut {
-		case "Cmd+Q":
-			quitKey = uint(gdk.KEY_q)
-			quitMod = gdk.META_MASK
-		case "Ctrl+Q":
-			quitKey = uint(gdk.KEY_q)
-			quitMod = gdk.CONTROL_MASK
-		case "Alt+F4":
-			quitKey = uint(gdk.KEY_F4)
-			quitMod = gdk.MOD1_MASK
-		}
-		if quitKey != 0 {
-			// Create hidden menu item just for the accelerator
-			quitItem, _ := gtk.MenuItemNew()
-			quitItem.Connect("activate", func() {
-				mainWindow.Close()
-			})
-			quitItem.AddAccelerator("activate", accelGroup, quitKey, quitMod, gtk.ACCEL_VISIBLE)
-		}
-	}
+	// Set up quit shortcut via key-press-event handler
+	setupQuitShortcut()
 
 	// Create context menu for terminal (right-click)
 	contextMenu, _ = gtk.MenuNew()
