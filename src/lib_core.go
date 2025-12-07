@@ -2609,14 +2609,28 @@ func (ps *PawScript) RegisterCoreLib() {
 			case TokenResult:
 				return true
 			case Symbol:
-				// Check if it's a token string ID (lookup in activeTokens)
-				tokenID := string(v)
+				// First check if it's a token marker (from brace substitution)
+				str := string(v)
+				if markerType, objID := parseObjectMarker(str); markerType == "token" && objID >= 0 {
+					// Verify the token object exists
+					if _, exists := ctx.executor.getObject(objID); exists {
+						return true
+					}
+				}
+				// Otherwise check if it's a token string ID (lookup in activeTokens)
 				ctx.executor.mu.Lock()
-				_, exists := ctx.executor.activeTokens[tokenID]
+				_, exists := ctx.executor.activeTokens[str]
 				ctx.executor.mu.Unlock()
 				return exists
 			case string:
-				// Check if it's a token string ID
+				// First check if it's a token marker (from brace substitution)
+				if markerType, objID := parseObjectMarker(v); markerType == "token" && objID >= 0 {
+					// Verify the token object exists
+					if _, exists := ctx.executor.getObject(objID); exists {
+						return true
+					}
+				}
+				// Otherwise check if it's a token string ID
 				ctx.executor.mu.Lock()
 				_, exists := ctx.executor.activeTokens[v]
 				ctx.executor.mu.Unlock()
