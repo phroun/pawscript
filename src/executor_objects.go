@@ -23,18 +23,18 @@ func (e *Executor) maybeStoreValue(value interface{}, state *ExecutionState) int
 		}
 		return v
 	case StoredList:
-		// StoredList objects come from processArguments resolving markers
-		// Convert to ObjectRef to maintain pass-by-reference semantics
+		// LEGACY: Raw StoredList objects should be ObjectRef by now
+		// This path exists for backwards compatibility during migration
+		e.logger.DebugCat(CatMemory, "WARNING: maybeStoreValue received raw StoredList instead of ObjectRef")
 		if id := e.findStoredListID(v); id >= 0 {
-			// The list already exists in storage - return ObjectRef
 			return ObjectRef{Type: ObjList, ID: id}
 		}
-		// List not found in store - this shouldn't happen normally
-		// Store it as a new object
+		// List not found in store - store as new object
 		ref := e.RegisterObject(v, ObjList)
 		return ref
 	case StoredBytes:
-		// StoredBytes objects - convert to ObjectRef
+		// LEGACY: Raw StoredBytes objects should be ObjectRef by now
+		e.logger.DebugCat(CatMemory, "WARNING: maybeStoreValue received raw StoredBytes instead of ObjectRef")
 		if id := e.findStoredBytesID(v); id >= 0 {
 			return ObjectRef{Type: ObjBytes, ID: id}
 		}
@@ -42,7 +42,8 @@ func (e *Executor) maybeStoreValue(value interface{}, state *ExecutionState) int
 		ref := e.RegisterObject(v, ObjBytes)
 		return ref
 	case StoredStruct:
-		// StoredStruct objects - convert to ObjectRef
+		// LEGACY: Raw StoredStruct objects should be ObjectRef by now
+		e.logger.DebugCat(CatMemory, "WARNING: maybeStoreValue received raw StoredStruct instead of ObjectRef")
 		if id := e.findStoredStructID(v); id >= 0 {
 			return ObjectRef{Type: ObjStruct, ID: id}
 		}
