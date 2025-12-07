@@ -8,7 +8,7 @@ Total estimated size: 184 bytes
 ID    Type      RefCount  Size(bytes)
 ----  --------  --------  -----------
 1     list      1000000   24
-2     token     1         32
+2     token     0         32
 3     channel   0         32
 4     channel   0         32
 5     channel   0         32
@@ -23,7 +23,7 @@ Total estimated size: 776 bytes
 ID    Type      RefCount  Size(bytes)
 ----  --------  --------  -----------
 1     list      1000000   24
-2     token     1         32
+2     token     0         32
 3     channel   0         32
 4     channel   0         32
 5     channel   0         32
@@ -40,7 +40,7 @@ Total estimated size: 184 bytes
 ID    Type      RefCount  Size(bytes)
 ----  --------  --------  -----------
 1     list      1000000   24
-2     token     1         32
+2     token     0         32
 3     channel   0         32
 4     channel   0         32
 5     channel   0         32
@@ -55,7 +55,7 @@ Total estimated size: 184 bytes
 ID    Type      RefCount  Size(bytes)
 ----  --------  --------  -----------
 1     list      1000000   24
-2     token     1         32
+2     token     0         32
 3     channel   0         32
 4     channel   0         32
 5     channel   0         32
@@ -70,7 +70,7 @@ Total estimated size: 1328 bytes
 ID    Type      RefCount  Size(bytes)
 ----  --------  --------  -----------
 1     list      1000000   24
-2     token     1         32
+2     token     0         32
 3     channel   0         32
 4     channel   0         32
 5     channel   0         32
@@ -87,7 +87,7 @@ Total estimated size: 184 bytes
 ID    Type      RefCount  Size(bytes)
 ----  --------  --------  -----------
 1     list      1000000   24
-2     token     1         32
+2     token     0         32
 3     channel   0         32
 4     channel   0         32
 5     channel   0         32
@@ -102,7 +102,7 @@ Total estimated size: 886 bytes
 ID    Type      RefCount  Size(bytes)
 ----  --------  --------  -----------
 1     list      1000000   24
-2     token     1         32
+2     token     0         32
 3     channel   0         32
 4     channel   0         32
 5     channel   0         32
@@ -120,7 +120,7 @@ Total estimated size: 184 bytes
 ID    Type      RefCount  Size(bytes)
 ----  --------  --------  -----------
 1     list      1000000   24
-2     token     1         32
+2     token     0         32
 3     channel   0         32
 4     channel   0         32
 5     channel   0         32
@@ -135,7 +135,7 @@ Total estimated size: 455 bytes
 ID    Type      RefCount  Size(bytes)
 ----  --------  --------  -----------
 1     list      1000000   24
-2     token     1         32
+2     token     0         32
 3     channel   0         32
 4     channel   0         32
 5     channel   0         32
@@ -151,7 +151,7 @@ Total estimated size: 184 bytes
 ID    Type      RefCount  Size(bytes)
 ----  --------  --------  -----------
 1     list      1000000   24
-2     token     1         32
+2     token     0         32
 3     channel   0         32
 4     channel   0         32
 5     channel   0         32
@@ -168,7 +168,7 @@ Total estimated size: 738 bytes
 ID    Type      RefCount  Size(bytes)
 ----  --------  --------  -----------
 1     list      1000000   24
-2     token     1         32
+2     token     0         32
 3     channel   0         32
 4     channel   0         32
 5     channel   0         32
@@ -185,7 +185,7 @@ Total estimated size: 184 bytes
 ID    Type      RefCount  Size(bytes)
 ----  --------  --------  -----------
 1     list      1000000   24
-2     token     1         32
+2     token     0         32
 3     channel   0         32
 4     channel   0         32
 5     channel   0         32
