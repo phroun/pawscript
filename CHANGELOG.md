@@ -56,17 +56,6 @@
 - Native OS dialog improvements: restored `.paw` file type filter, fixed nil
   pointer crash, suppressed macOS deprecation warnings
 - Split lib_types.go into logical smaller files for maintainability
-- `lib_dump` and `env_dump` headers now show command counts
-- `json` command for list serialization with `pretty:` and `color:` options
-- `string` command extended with `pretty:` and `color:` parameters
-- `list` command extended with `from: json` for JSON deserialization
-  - `merge: 0` option for array_1 format (no key merging)
-- `arrlen` and `maplen` commands for quick list length by type
-- `len` command enhanced with `keys: true` parameter
-- `macro_forward` command for forward declarations, enabling mutual recursion
-- `LIBRARY` command enhancements:
-  - `LIBRARY "restrict module::item1,item2"` restricts specific items
-  - `LIBRARY "allow ::module::items"` supports scoped syntax
 - Performance optimizations:
   - AST caching for macro and loop body execution
   - Object pooling for `ExecutionState` to reduce GC pressure
