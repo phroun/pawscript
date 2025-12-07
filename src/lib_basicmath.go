@@ -384,21 +384,18 @@ func (ps *PawScript) RegisterBasicMathLib() {
 			return 0, false
 		}
 
-		// Check if either value is an explicit string type (QuotedString or StoredString)
+		// Check if either value is an explicit string type (QuotedString)
 		// These should always compare alphabetically, not numerically
+		// Note: StoredString is resolved to string by resolveValue(), so only QuotedString applies here
 		var strA, strB string
 		var aIsExplicitStr, bIsExplicitStr bool
 
 		switch va := resolvedA.(type) {
-		case StoredString:
-			strA, aIsExplicitStr = string(va), true
 		case QuotedString:
 			strA, aIsExplicitStr = string(va), true
 		}
 
 		switch vb := resolvedB.(type) {
-		case StoredString:
-			strB, bIsExplicitStr = string(vb), true
 		case QuotedString:
 			strB, bIsExplicitStr = string(vb), true
 		}

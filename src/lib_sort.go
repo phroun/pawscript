@@ -58,9 +58,6 @@ func sortItemsDefaultWithExecutor(items []interface{}, executor *Executor) {
 		case QuotedString:
 			si.category = 5
 			si.strVal = string(v)
-		case StoredString:
-			si.category = 5
-			si.strVal = string(v)
 		case string:
 			si.category = 5
 			si.strVal = v

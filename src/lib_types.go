@@ -1980,6 +1980,7 @@ func (ps *PawScript) RegisterTypesLib() {
 	// Helper function to extract string content from various types for regex operations
 	extractStringContent := func(value interface{}, executor *Executor) (string, string) {
 		// Returns (content, sourceType) where sourceType is "string", "bytes", "block", "symbol"
+		// Note: resolveValue() converts StoredString -> string, so no StoredString case needed
 		if executor != nil {
 			value = executor.resolveValue(value)
 		}
@@ -1987,8 +1988,6 @@ func (ps *PawScript) RegisterTypesLib() {
 		case string:
 			return v, "string"
 		case QuotedString:
-			return string(v), "string"
-		case StoredString:
 			return string(v), "string"
 		case StoredBytes:
 			return string(v.Data()), "bytes"
@@ -2018,6 +2017,7 @@ func (ps *PawScript) RegisterTypesLib() {
 	}
 
 	// Helper to extract regex pattern from various input types
+	// Note: resolveValue() converts StoredString -> string, so no StoredString case needed
 	extractPattern := func(value interface{}, executor *Executor) string {
 		if executor != nil {
 			value = executor.resolveValue(value)
@@ -2026,8 +2026,6 @@ func (ps *PawScript) RegisterTypesLib() {
 		case string:
 			return v
 		case QuotedString:
-			return string(v)
-		case StoredString:
 			return string(v)
 		case ParenGroup:
 			return string(v)
@@ -2283,8 +2281,6 @@ func (ps *PawScript) RegisterTypesLib() {
 			}
 		case QuotedString:
 			result = string(v)
-		case StoredString:
-			result = string(v)
 		case string:
 			result = v
 		case StoredList:
@@ -2329,9 +2325,6 @@ func (ps *PawScript) RegisterTypesLib() {
 			}
 		case ParenGroup:
 			// Block/code - return the block content
-			result = string(v)
-		case StoredBlock:
-			// Stored block - return the block content
 			result = string(v)
 		case StoredMacro, *StoredMacro:
 			result = "<macro>"
@@ -2529,8 +2522,6 @@ func (ps *PawScript) RegisterTypesLib() {
 			result = string(v)
 		case QuotedString:
 			result = string(v)
-		case StoredString:
-			result = string(v)
 		case string:
 			result = v
 		case StoredList:
@@ -2538,9 +2529,6 @@ func (ps *PawScript) RegisterTypesLib() {
 			result = formatListForDisplay(v)
 		case ParenGroup:
 			// Block/code - return the block content
-			result = string(v)
-		case StoredBlock:
-			// Stored block - return the block content
 			result = string(v)
 		case StoredMacro, *StoredMacro:
 			result = "<macro>"
@@ -2617,8 +2605,6 @@ func (ps *PawScript) RegisterTypesLib() {
 			code = v
 		case QuotedString:
 			code = string(v)
-		case StoredString:
-			code = string(v)
 		case Symbol:
 			code = string(v)
 		case StoredList:
@@ -2635,9 +2621,6 @@ func (ps *PawScript) RegisterTypesLib() {
 			code = strings.Join(lines, "\n")
 		case ParenGroup:
 			// Already a block-like thing, just use its content
-			code = string(v)
-		case StoredBlock:
-			// Already a block, return as-is
 			code = string(v)
 		default:
 			ctx.LogError(CatType, fmt.Sprintf("Cannot convert %s to block", getTypeName(resolved)))

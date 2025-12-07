@@ -652,6 +652,9 @@ func (ps *PawScript) RegisterCoreLib() {
 			ctx.SetResult(int64(ChannelLen(v)))
 			return BoolStatus(true)
 		case StoredString:
+			// LEGACY: StoredString should typically be resolved to string by resolveValue()
+			// If this path is hit, it means a raw StoredString bypassed resolution
+			ctx.executor.logger.WarnCat(CatVariable, "LEGACY: len received raw StoredString - should use ObjectRef")
 			ctx.SetResult(int64(len(string(v))))
 			return BoolStatus(true)
 		case string, QuotedString, Symbol:
