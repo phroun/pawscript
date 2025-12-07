@@ -170,6 +170,8 @@ func main() {
 	// Create central widget with horizontal splitter
 	centralWidget := qt.NewQWidget2()
 	mainLayout := qt.NewQHBoxLayout2()
+	mainLayout.SetContentsMargins(0, 0, 0, 0)
+	mainLayout.SetSpacing(0)
 	centralWidget.SetLayout(mainLayout.QLayout)
 
 	// Create splitter
@@ -241,6 +243,8 @@ func setupQuitShortcut() {
 func createFilePanel() *qt.QWidget {
 	panel := qt.NewQWidget2()
 	layout := qt.NewQVBoxLayout2()
+	layout.SetContentsMargins(4, 4, 4, 4)
+	layout.SetSpacing(4)
 	panel.SetLayout(layout.QLayout)
 
 	// Path label
@@ -277,6 +281,8 @@ func createFilePanel() *qt.QWidget {
 func createTerminalPanel() *qt.QWidget {
 	panel := qt.NewQWidget2()
 	layout := qt.NewQVBoxLayout2()
+	layout.SetContentsMargins(0, 0, 0, 0)
+	layout.SetSpacing(0)
 	panel.SetLayout(layout.QLayout)
 
 	// Create terminal with color scheme from config
