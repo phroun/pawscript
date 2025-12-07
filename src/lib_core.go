@@ -2910,7 +2910,12 @@ func (ps *PawScript) RegisterCoreLib() {
 		// Check for iterator/generator/list/struct forms
 		if isToken(firstArg) {
 			// Generator/iterator form: for ~<token>, <var>, (body)
-			iteratorToken = fmt.Sprintf("%v", firstArg)
+			// Format the token appropriately for command string building
+			if ref, ok := firstArg.(ObjectRef); ok && ref.Type == ObjToken {
+				iteratorToken = ref.ToMarker()
+			} else {
+				iteratorToken = fmt.Sprintf("%v", firstArg)
+			}
 			iteratorType = "generator"
 
 			// Check if second arg is a ParenGroup (unpack) or variable name

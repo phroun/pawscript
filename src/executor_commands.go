@@ -1877,6 +1877,10 @@ func (e *Executor) processArguments(args []interface{}, state *ExecutionState, s
 						}
 						result[i] = finalValue
 						e.logger.DebugCat(CatCommand,"processArguments[%d]: Resolved struct marker to StoredStruct", i)
+					case "token":
+						// Return as ObjectRef - command handlers should receive typed tokens
+						result[i] = ObjectRef{Type: ObjToken, ID: objID}
+						e.logger.DebugCat(CatCommand,"processArguments[%d]: Resolved token marker to ObjectRef", i)
 					// Note: struct definitions are now just lists (handled by "list" case)
 					default:
 						// For unknown types, keep the marker to preserve reference semantics
