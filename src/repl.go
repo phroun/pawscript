@@ -280,6 +280,7 @@ func (r *REPL) getContinuationPrompt(input string) string {
 	for _, ch := range input {
 		// Check if we're inside a string
 		inString := false
+		closedString := false
 		for j := len(stack) - 1; j >= 0; j-- {
 			if stack[j] == "\"" || stack[j] == "'" {
 				inString = true
@@ -287,13 +288,15 @@ func (r *REPL) getContinuationPrompt(input string) string {
 				if (stack[j] == "\"" && ch == '"' && prevChar != '\\') ||
 					(stack[j] == "'" && ch == '\'' && prevChar != '\\') {
 					stack = stack[:j] // Pop the string opener
-					inString = false
+					closedString = true
 				}
 				break
 			}
 		}
 
-		if !inString {
+		// Don't process openers if we're in a string OR if we just closed one
+		// (closing quote shouldn't also open a new string)
+		if !inString && !closedString {
 			switch ch {
 			case '"':
 				stack = append(stack, "\"")
