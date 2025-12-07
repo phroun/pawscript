@@ -1758,7 +1758,10 @@ func (e *Executor) processArguments(args []interface{}, state *ExecutionState, s
 	for i, arg := range args {
 		// Check for argument parse errors
 		if parseErr, ok := arg.(ArgParseError); ok {
-			e.logger.ErrorCat(CatArgument, "%s", parseErr.Message)
+			// Set output context so error routes through #err channel
+			e.logger.SetOutputContext(NewOutputContext(state, e))
+			e.logger.CommandError(CatArgument, "", parseErr.Message, position)
+			e.logger.ClearOutputContext()
 			// Replace with nil to preserve argument count
 			result[i] = nil
 			continue
