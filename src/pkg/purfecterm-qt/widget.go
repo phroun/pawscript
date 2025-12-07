@@ -177,6 +177,34 @@ func (w *Widget) initScrollbar() {
 	w.scrollbar.SetOrientation(qt.Vertical)
 	w.scrollbar.SetMinimum(0)
 	w.scrollbar.SetMaximum(0)
+
+	// Apply macOS-style scrollbar appearance
+	w.scrollbar.SetStyleSheet(`
+		QScrollBar:vertical {
+			background: transparent;
+			width: 12px;
+			margin: 2px 2px 2px 0px;
+		}
+		QScrollBar::handle:vertical {
+			background: rgba(128, 128, 128, 0.5);
+			min-height: 30px;
+			border-radius: 4px;
+			margin: 0px 2px 0px 2px;
+		}
+		QScrollBar::handle:vertical:hover {
+			background: rgba(128, 128, 128, 0.7);
+		}
+		QScrollBar::handle:vertical:pressed {
+			background: rgba(100, 100, 100, 0.8);
+		}
+		QScrollBar::add-line:vertical, QScrollBar::sub-line:vertical {
+			height: 0px;
+		}
+		QScrollBar::add-page:vertical, QScrollBar::sub-page:vertical {
+			background: transparent;
+		}
+	`)
+
 	w.scrollbar.OnValueChanged(func(value int) {
 		if !w.scrollbarUpdating {
 			maxScroll := w.scrollbar.Maximum()
@@ -762,7 +790,7 @@ func (w *Widget) resizeEvent(event *qt.QResizeEvent) {
 	// Create scrollbar lazily on first resize (Qt is fully initialized by now)
 	w.initScrollbar()
 
-	scrollbarWidth := 16
+	scrollbarWidth := 12 // Thin macOS-style scrollbar
 	widgetWidth := w.widget.Width()
 	widgetHeight := w.widget.Height()
 
