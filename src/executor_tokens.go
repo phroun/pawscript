@@ -51,6 +51,7 @@ func (e *Executor) RequestCompletionToken(
 	}
 
 	tokenData := &TokenData{
+		StringID:           tokenID, // Store the string ID for external communication
 		CommandSequence:    nil,
 		ParentToken:        parentTokenID,
 		Children:           make(map[string]bool),
@@ -65,6 +66,10 @@ func (e *Executor) RequestCompletionToken(
 		FiberID:            fiberID,
 	}
 
+	// Register the token as a stored object
+	objectID := e.registerObjectLocked(tokenData, ObjToken)
+	e.tokenStringToID[tokenID] = objectID
+
 	e.activeTokens[tokenID] = tokenData
 
 	if parentTokenID != "" {
@@ -73,8 +78,8 @@ func (e *Executor) RequestCompletionToken(
 		}
 	}
 
-	e.logger.DebugCat(CatAsync,"Created completion token: %s (fiber %d), parent: %s, hasResult: %v",
-		tokenID, fiberID, parentTokenID, hasSuspendedResult)
+	e.logger.DebugCat(CatAsync,"Created completion token: %s (fiber %d, objID %d), parent: %s, hasResult: %v",
+		tokenID, fiberID, objectID, parentTokenID, hasSuspendedResult)
 
 	return tokenID
 }
@@ -121,6 +126,7 @@ func (e *Executor) RequestBraceCoordinatorToken(
 	}
 
 	tokenData := &TokenData{
+		StringID:         tokenID, // Store the string ID for external communication
 		CommandSequence:  nil,
 		ParentToken:      "",
 		Children:         make(map[string]bool),
@@ -132,6 +138,10 @@ func (e *Executor) RequestBraceCoordinatorToken(
 		Position:         position,
 		BraceCoordinator: coordinator,
 	}
+
+	// Register the token as a stored object
+	objectID := e.registerObjectLocked(tokenData, ObjToken)
+	e.tokenStringToID[tokenID] = objectID
 
 	e.activeTokens[tokenID] = tokenData
 
@@ -145,8 +155,8 @@ func (e *Executor) RequestBraceCoordinatorToken(
 		}
 	}
 
-	e.logger.DebugCat(CatAsync,"Created brace coordinator token: %s with %d evaluations (%d async)",
-		tokenID, len(evaluations), len(tokenData.Children))
+	e.logger.DebugCat(CatAsync,"Created brace coordinator token: %s (objID %d) with %d evaluations (%d async)",
+		tokenID, objectID, len(evaluations), len(tokenData.Children))
 
 	return tokenID
 }
@@ -595,6 +605,22 @@ func (e *Executor) cleanupTokenChildrenLocked(tokenID string) {
 	}
 }
 
+// deleteTokenLocked removes a token from both activeTokens and the object system
+// Must be called with e.mu lock held
+func (e *Executor) deleteTokenLocked(tokenID string) {
+	// Clean up from object system
+	if objectID, exists := e.tokenStringToID[tokenID]; exists {
+		// Mark the stored object for reuse
+		if obj, objExists := e.storedObjects[objectID]; objExists {
+			obj.Deleted = true
+			obj.Value = nil
+			e.freeIDs = append(e.freeIDs, objectID)
+		}
+		delete(e.tokenStringToID, tokenID)
+	}
+	delete(e.activeTokens, tokenID)
+}
+
 // ForceCleanupToken forces cleanup of a token
 func (e *Executor) ForceCleanupToken(tokenID string) {
 	e.mu.Lock()
@@ -636,7 +662,7 @@ func (e *Executor) forceCleanupTokenLocked(tokenID string) {
 		}
 	}
 
-	delete(e.activeTokens, tokenID)
+	e.deleteTokenLocked(tokenID)
 }
 
 // resumeCommandSequence resumes execution of a command sequence

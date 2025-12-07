@@ -21,6 +21,7 @@ const (
 	ObjStruct
 	ObjStructArray
 	ObjFile
+	ObjToken // Async completion token with lifecycle management
 )
 
 // String returns the string representation of an ObjectType
@@ -50,6 +51,8 @@ func (t ObjectType) String() string {
 		return "structarray"
 	case ObjFile:
 		return "file"
+	case ObjToken:
+		return "token"
 	default:
 		return "unknown"
 	}
@@ -80,6 +83,8 @@ func ObjectTypeFromString(s string) ObjectType {
 		return ObjStructArray
 	case "file":
 		return ObjFile
+	case "token":
+		return ObjToken
 	default:
 		return ObjNone
 	}

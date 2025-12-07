@@ -20,15 +20,16 @@ type StoredObject struct {
 type Executor struct {
 	mu               sync.RWMutex
 	commands         map[string]Handler
-	activeTokens     map[string]*TokenData
-	storedObjects    map[int]*StoredObject    // Global reference-counted object store
-	contentHash      map[uint64]int           // Hash → object ID for deduplication lookup
-	freeIDs          []int                    // Recycled IDs from deleted objects
-	activeFibers     map[int]*FiberHandle     // Currently running fibers
+	activeTokens     map[string]*TokenData     // String ID → TokenData (for backward compat, will migrate away)
+	tokenStringToID  map[string]int            // String ID → object ID (for host resume operations)
+	storedObjects    map[int]*StoredObject     // Global reference-counted object store
+	contentHash      map[uint64]int            // Hash → object ID for deduplication lookup
+	freeIDs          []int                     // Recycled IDs from deleted objects
+	activeFibers     map[int]*FiberHandle      // Currently running fibers
 	orphanedBubbles  map[string][]*BubbleEntry // Bubbles from abandoned fibers
 	blockCache       map[int][]*ParsedCommand  // Cached parsed forms for StoredBlock objects (by ID)
 	keyInputManager  *KeyInputManager          // Raw keyboard input manager (if initialized)
-	keyInputChannel  *StoredChannel           // Input channel being used by keyInputManager (for mode restore)
+	keyInputChannel  *StoredChannel            // Input channel being used by keyInputManager (for mode restore)
 	nextTokenID      int
 	nextObjectID     int
 	nextFiberID      int
@@ -45,6 +46,7 @@ func NewExecutor(logger *Logger) *Executor {
 	e := &Executor{
 		commands:             make(map[string]Handler),
 		activeTokens:         make(map[string]*TokenData),
+		tokenStringToID:      make(map[string]int),
 		storedObjects:        make(map[int]*StoredObject),
 		contentHash:          make(map[uint64]int),
 		freeIDs:              make([]int, 0),

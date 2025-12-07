@@ -460,7 +460,10 @@ type BraceCoordinator struct {
 }
 
 // TokenData stores information about an active token
+// Tokens are now stored as regular objects (ObjToken) with integer IDs, while
+// maintaining a string ID for external communication (host API, serialization)
 type TokenData struct {
+	StringID           string             // External string ID for host API (e.g., "fiber-0-token-5")
 	CommandSequence    *CommandSequence
 	ParentToken        string
 	Children           map[string]bool
