@@ -1,6 +1,7 @@
 package purfectermqt
 
 import (
+	"fmt"
 	"math"
 	"sync"
 
@@ -175,17 +176,23 @@ func (w *Widget) initScrollbar() {
 	if w.scrollbar != nil {
 		return
 	}
+	fmt.Println("DEBUG: initScrollbar - about to create scrollbar")
 	w.scrollbarUpdating = true
+	fmt.Println("DEBUG: initScrollbar - calling NewQScrollBar")
 	w.scrollbar = qt.NewQScrollBar(w.widget)
+	fmt.Println("DEBUG: initScrollbar - scrollbar created, setting orientation")
 	w.scrollbar.SetOrientation(qt.Vertical)
+	fmt.Println("DEBUG: initScrollbar - setting min/max")
 	w.scrollbar.SetMinimum(0)
 	w.scrollbar.SetMaximum(0)
+	fmt.Println("DEBUG: initScrollbar - connecting OnValueChanged")
 	w.scrollbar.OnValueChanged(func(value int) {
 		if !w.scrollbarUpdating {
 			maxScroll := w.scrollbar.Maximum()
 			w.buffer.SetScrollOffset(maxScroll - value)
 		}
 	})
+	fmt.Println("DEBUG: initScrollbar - done")
 	w.scrollbarUpdating = false
 }
 
@@ -778,10 +785,12 @@ func (w *Widget) focusOutEvent(event *qt.QFocusEvent) {
 }
 
 func (w *Widget) resizeEvent(event *qt.QResizeEvent) {
+	fmt.Println("DEBUG: resizeEvent called")
 	w.updateFontMetrics()
 
 	// Create scrollbar lazily on first resize (Qt is fully initialized by now)
 	w.initScrollbar()
+	fmt.Println("DEBUG: resizeEvent - after initScrollbar")
 
 	scrollbarWidth := 16
 	widgetWidth := w.widget.Width()
