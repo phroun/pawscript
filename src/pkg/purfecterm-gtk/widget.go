@@ -1,13 +1,36 @@
 package purfectermgtk
 
 /*
-#cgo pkg-config: gtk+-3.0
+#cgo pkg-config: gtk+-3.0 pangocairo
+#include <stdlib.h>
 #include <gtk/gtk.h>
 #include <gdk/gdk.h>
+#include <pango/pangocairo.h>
 
 // Helper to get event coordinates
 static void get_event_coords(GdkEvent *ev, double *x, double *y) {
     gdk_event_get_coords(ev, x, y);
+}
+
+// Check if a font family is available via Pango
+static int font_family_exists(const char *family_name) {
+    PangoFontMap *font_map = pango_cairo_font_map_get_default();
+    if (!font_map) return 0;
+
+    PangoFontFamily **families;
+    int n_families;
+    pango_font_map_list_families(font_map, &families, &n_families);
+
+    int found = 0;
+    for (int i = 0; i < n_families; i++) {
+        const char *name = pango_font_family_get_name(families[i]);
+        if (g_ascii_strcasecmp(name, family_name) == 0) {
+            found = 1;
+            break;
+        }
+    }
+    g_free(families);
+    return found;
 }
 */
 import "C"
@@ -16,6 +39,7 @@ import (
 	"fmt"
 	"math"
 	"runtime"
+	"strings"
 	"sync"
 	"unsafe"
 
@@ -200,13 +224,40 @@ func (w *Widget) DrawingArea() *gtk.DrawingArea {
 }
 
 // SetFont sets the terminal font
+// family can be a comma-separated list of fonts; the first available one is used
 func (w *Widget) SetFont(family string, size int) {
+	// Resolve the first available font from the fallback list
+	resolvedFont := resolveFirstAvailableFont(family)
+
 	w.mu.Lock()
-	w.fontFamily = family
+	w.fontFamily = resolvedFont
 	w.fontSize = size
 	w.mu.Unlock()
 	w.updateFontMetrics()
 	w.drawingArea.QueueDraw()
+}
+
+// resolveFirstAvailableFont parses a comma-separated font list and returns the first available font.
+// Uses Pango/Cairo font map to check font availability. Falls back to "Monospace" if none found.
+func resolveFirstAvailableFont(familyList string) string {
+	// Parse the comma-separated list and find the first available font
+	parts := strings.Split(familyList, ",")
+	for _, part := range parts {
+		fontName := strings.TrimSpace(part)
+		if fontName == "" {
+			continue
+		}
+		// Check if this font is available via Pango
+		cName := C.CString(fontName)
+		exists := C.font_family_exists(cName)
+		C.free(unsafe.Pointer(cName))
+		if exists != 0 {
+			return fontName
+		}
+	}
+
+	// None found, return "Monospace" as ultimate fallback
+	return "Monospace"
 }
 
 // SetColorScheme sets the color scheme
