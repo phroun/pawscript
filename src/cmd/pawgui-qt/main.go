@@ -354,13 +354,13 @@ func main() {
 	// Set up console I/O
 	setupConsoleIO()
 
-	// Start REPL
-	startREPL()
-
-	// Print welcome message
+	// Print welcome message before REPL starts (so prompt appears after)
 	terminal.Feed("PawScript Launcher (Qt)\r\n")
 	terminal.Feed("Cross-platform terminal emulator\r\n")
 	terminal.Feed("Select a .paw file and click Run to execute.\r\n\r\n")
+
+	// Start REPL (prompt will appear after welcome message)
+	startREPL()
 
 	// Load initial directory
 	loadDirectory(currentDir)
@@ -643,11 +643,12 @@ func setupConsoleIO() {
 
 func startREPL() {
 	// Create and start the REPL for interactive mode
+	// ShowBanner is false because we print our own welcome message before starting
 	consoleREPL = pawscript.NewREPL(pawscript.REPLConfig{
 		Debug:        false,
 		Unrestricted: false,
 		OptLevel:     getOptimizationLevel(),
-		ShowBanner:   true,
+		ShowBanner:   false,
 		IOConfig: &pawscript.IOChannelConfig{
 			Stdout: consoleOutCh,
 			Stdin:  consoleInCh,
