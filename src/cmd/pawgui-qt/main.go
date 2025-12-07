@@ -700,16 +700,20 @@ func loadDirectory(dir string) {
 		return
 	}
 
-	// Get standard icons from Qt style
-	style := qt.QApplication_Style()
-	folderIcon := style.StandardIcon(qt.QStyle__SP_DirIcon, nil, nil)
-	fileIcon := style.StandardIcon(qt.QStyle__SP_FileIcon, nil, nil)
-	upIcon := style.StandardIcon(qt.QStyle__SP_ArrowUp, nil, nil)
+	// Get standard icons from Qt style (may be nil before event loop)
+	var folderIcon, fileIcon, upIcon *qt.QIcon
+	if style := qt.QApplication_Style(); style != nil {
+		folderIcon = style.StandardIcon(qt.QStyle__SP_DirIcon, nil, nil)
+		fileIcon = style.StandardIcon(qt.QStyle__SP_FileIcon, nil, nil)
+		upIcon = style.StandardIcon(qt.QStyle__SP_ArrowUp, nil, nil)
+	}
 
 	// Add parent directory entry (except at root)
 	if dir != "/" && filepath.Dir(dir) != dir {
 		item := qt.NewQListWidgetItem7("..", fileList)
-		item.SetIcon(upIcon)
+		if upIcon != nil {
+			item.SetIcon(upIcon)
+		}
 		fileItemDataMu.Lock()
 		fileItemDataMap[item.UnsafePointer()] = fileItemData{
 			path:  filepath.Dir(dir),
@@ -722,7 +726,9 @@ func loadDirectory(dir string) {
 	for _, entry := range entries {
 		if entry.IsDir() && !strings.HasPrefix(entry.Name(), ".") {
 			item := qt.NewQListWidgetItem7(entry.Name(), fileList)
-			item.SetIcon(folderIcon)
+			if folderIcon != nil {
+				item.SetIcon(folderIcon)
+			}
 			// Store data using pointer map
 			fileItemDataMu.Lock()
 			fileItemDataMap[item.UnsafePointer()] = fileItemData{
@@ -737,7 +743,9 @@ func loadDirectory(dir string) {
 	for _, entry := range entries {
 		if !entry.IsDir() && strings.HasSuffix(strings.ToLower(entry.Name()), ".paw") {
 			item := qt.NewQListWidgetItem7(entry.Name(), fileList)
-			item.SetIcon(fileIcon)
+			if fileIcon != nil {
+				item.SetIcon(fileIcon)
+			}
 			// Store data using pointer map
 			fileItemDataMu.Lock()
 			fileItemDataMap[item.UnsafePointer()] = fileItemData{
