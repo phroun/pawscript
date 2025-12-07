@@ -88,7 +88,8 @@ func NewWidget(cols, rows, scrollbackSize int) *Widget {
 	})
 
 	// Create scrollbar
-	w.scrollbar = qt.NewQScrollBar2(qt.Vertical, w.container)
+	w.scrollbar = qt.NewQScrollBar2()
+	w.scrollbar.SetOrientation(qt.Vertical)
 	w.scrollbar.SetMinimum(0)
 	w.scrollbar.SetMaximum(0)
 	w.scrollbar.OnValueChanged(func(value int) {
