@@ -138,6 +138,28 @@ func getFontSize() int {
 	return defaultFontSize
 }
 
+func init() {
+	// Set Qt environment variables before Qt initializes to avoid screen scaling issues
+	// These must be set before any Qt code runs
+	if os.Getenv("QT_AUTO_SCREEN_SCALE_FACTOR") == "" {
+		os.Setenv("QT_AUTO_SCREEN_SCALE_FACTOR", "0")
+	}
+	if os.Getenv("QT_SCALE_FACTOR") == "" {
+		os.Setenv("QT_SCALE_FACTOR", "1")
+	}
+	if os.Getenv("QT_SCREEN_SCALE_FACTORS") == "" {
+		os.Setenv("QT_SCREEN_SCALE_FACTORS", "1")
+	}
+	// On macOS, ensure we use the cocoa platform
+	if runtime.GOOS == "darwin" && os.Getenv("QT_QPA_PLATFORM") == "" {
+		os.Setenv("QT_QPA_PLATFORM", "cocoa")
+	}
+	// Disable high DPI scaling which can cause divide-by-zero in therecipe/qt
+	if os.Getenv("QT_ENABLE_HIGHDPI_SCALING") == "" {
+		os.Setenv("QT_ENABLE_HIGHDPI_SCALING", "0")
+	}
+}
+
 func main() {
 	// Load configuration
 	appConfig = loadConfig()
@@ -148,8 +170,12 @@ func main() {
 		currentDir, _ = os.Getwd()
 	}
 
-	// Initialize Qt
-	qApp = widgets.NewQApplication(len(os.Args), os.Args)
+	// Initialize Qt with explicit args to avoid potential nil issues
+	args := os.Args
+	if len(args) == 0 {
+		args = []string{"pawgui-qt"}
+	}
+	qApp = widgets.NewQApplication(len(args), args)
 	qApp.SetApplicationName(appName)
 
 	// Create main window
