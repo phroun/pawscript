@@ -360,11 +360,8 @@ func (ps *PawScript) RegisterBasicMathLib() {
 		switch v := v.(type) {
 		case StoredList:
 			return true
-		case Symbol:
-			// Check if it's a list marker
-			if markerType, _ := parseObjectMarker(string(v)); markerType == "list" {
-				return true
-			}
+		case ObjectRef:
+			return v.Type == ObjList
 		}
 		return false
 	}

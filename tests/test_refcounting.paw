@@ -1,6 +1,12 @@
 #!/usr/bin/env paw
 # Test reference counting - showing refcount > 1 scenarios
 # Note: Assignments set the formal result, so refcounts include +1 for result
+#
+# Baseline objects always present in mem_stats:
+#   ID 1: immortal empty list (refcount=1000000, never freed)
+#   ID 2: #random token (refcount=1)
+#   IDs 3-6: stdio channels (refcount=0)
+# The "Expected:" comments refer to USER objects beyond this baseline.
 
 echo "=== Reference Counting Test ==="
 echo ""
