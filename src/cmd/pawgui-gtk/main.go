@@ -90,6 +90,7 @@ func init() {
 var (
 	currentDir  string
 	mainWindow  *gtk.ApplicationWindow
+	app         *gtk.Application // Store app reference for creating new windows
 	fileList    *gtk.ListBox
 	terminal    *purfectermgtk.Terminal
 	pathLabel   *gtk.Label
@@ -328,7 +329,10 @@ func main() {
 	os.Exit(app.Run(os.Args))
 }
 
-func activate(app *gtk.Application) {
+func activate(application *gtk.Application) {
+	// Store app reference globally for creating new windows
+	app = application
+
 	// Load configuration
 	appConfig = loadConfig()
 
@@ -827,7 +831,8 @@ func runScript(filePath string) {
 	scriptMu.Lock()
 	if scriptRunning {
 		scriptMu.Unlock()
-		terminal.Feed("A script is already running.\r\n")
+		// Script already running in main window - spawn a new console window
+		createConsoleWindow(filePath)
 		return
 	}
 	scriptRunning = true
@@ -934,6 +939,296 @@ func runScript(filePath string) {
 			})
 			consoleREPL.Start()
 		}
+	}()
+}
+
+// createConsoleWindow creates a new window with just a terminal (no launcher UI)
+// for running a script when the main window already has a script running
+func createConsoleWindow(filePath string) {
+	// Create new window
+	win, err := gtk.ApplicationWindowNew(app)
+	if err != nil {
+		terminal.Feed(fmt.Sprintf("Failed to create console window: %v\r\n", err))
+		return
+	}
+	win.SetTitle(fmt.Sprintf("PawScript - %s", filepath.Base(filePath)))
+	win.SetDefaultSize(900, 600)
+
+	// Create terminal for this window
+	winTerminal, err := purfectermgtk.New(purfectermgtk.Options{
+		Cols:           100,
+		Rows:           30,
+		ScrollbackSize: 10000,
+		FontFamily:     getFontFamily(),
+		FontSize:       getFontSize(),
+		Scheme: purfectermgtk.ColorScheme{
+			Foreground: getTerminalForeground(),
+			Background: getTerminalBackground(),
+			Cursor:     purfectermgtk.Color{R: 255, G: 255, B: 255},
+			Selection:  purfectermgtk.Color{R: 68, G: 68, B: 68},
+			Palette:    getColorPalette(),
+			BlinkMode:  getBlinkMode(),
+		},
+	})
+	if err != nil {
+		terminal.Feed(fmt.Sprintf("Failed to create terminal: %v\r\n", err))
+		win.Destroy()
+		return
+	}
+
+	// Add terminal to window
+	termWidget := winTerminal.Widget()
+	termWidget.SetVExpand(true)
+	termWidget.SetHExpand(true)
+	win.Add(termWidget)
+
+	// Create I/O channels for this window's console
+	stdoutReader, stdoutWriter := io.Pipe()
+	stdinReader, stdinWriter := io.Pipe()
+
+	width, height := 100, 30
+	termCaps := &pawscript.TerminalCapabilities{
+		TermType:      "gui-console",
+		IsTerminal:    true,
+		SupportsANSI:  true,
+		SupportsColor: true,
+		ColorDepth:    256,
+		Width:         width,
+		Height:        height,
+		SupportsInput: true,
+		EchoEnabled:   false,
+		LineMode:      false,
+		Metadata:      make(map[string]interface{}),
+	}
+
+	// Non-blocking output queue
+	outputQueue := make(chan interface{}, 256)
+	go func() {
+		for item := range outputQueue {
+			switch v := item.(type) {
+			case []byte:
+				stdoutWriter.Write(v)
+			case chan struct{}:
+				close(v)
+			}
+		}
+	}()
+
+	winOutCh := &pawscript.StoredChannel{
+		BufferSize:       0,
+		Messages:         make([]pawscript.ChannelMessage, 0),
+		Subscribers:      make(map[int]*pawscript.StoredChannel),
+		NextSubscriberID: 1,
+		IsClosed:         false,
+		Timestamp:        time.Now(),
+		Terminal:         termCaps,
+		NativeSend: func(v interface{}) error {
+			var text string
+			switch d := v.(type) {
+			case []byte:
+				text = string(d)
+			case string:
+				text = d
+			default:
+				text = fmt.Sprintf("%v", v)
+			}
+			text = strings.ReplaceAll(text, "\r\n", "\n")
+			text = strings.ReplaceAll(text, "\n", "\r\n")
+			data := []byte(text)
+			select {
+			case outputQueue <- data:
+			default:
+			}
+			return nil
+		},
+		NativeRecv: func() (interface{}, error) {
+			return nil, fmt.Errorf("cannot receive from console_out")
+		},
+		NativeFlush: func() error {
+			writerDone := make(chan struct{})
+			select {
+			case outputQueue <- writerDone:
+				<-writerDone
+			default:
+			}
+			glibDone := make(chan struct{})
+			glib.IdleAdd(func() bool {
+				close(glibDone)
+				return false
+			})
+			select {
+			case <-glibDone:
+			case <-time.After(100 * time.Millisecond):
+			}
+			return nil
+		},
+	}
+
+	// Non-blocking input queue
+	inputQueue := make(chan byte, 256)
+	go func() {
+		buf := make([]byte, 1)
+		for {
+			n, err := stdinReader.Read(buf)
+			if err != nil || n == 0 {
+				close(inputQueue)
+				return
+			}
+			select {
+			case inputQueue <- buf[0]:
+			default:
+				select {
+				case <-inputQueue:
+				default:
+				}
+				select {
+				case inputQueue <- buf[0]:
+				default:
+				}
+			}
+		}
+	}()
+
+	winInCh := &pawscript.StoredChannel{
+		BufferSize:       0,
+		Messages:         make([]pawscript.ChannelMessage, 0),
+		Subscribers:      make(map[int]*pawscript.StoredChannel),
+		NextSubscriberID: 1,
+		IsClosed:         false,
+		Timestamp:        time.Now(),
+		Terminal:         termCaps,
+		NativeRecv: func() (interface{}, error) {
+			b, ok := <-inputQueue
+			if !ok {
+				return nil, fmt.Errorf("input closed")
+			}
+			return []byte{b}, nil
+		},
+		NativeSend: func(v interface{}) error {
+			return fmt.Errorf("cannot send to console_in")
+		},
+	}
+
+	// Read from stdout pipe and feed to terminal
+	go func() {
+		buf := make([]byte, 4096)
+		for {
+			n, err := stdoutReader.Read(buf)
+			if n > 0 {
+				data := make([]byte, n)
+				copy(data, buf[:n])
+				glib.IdleAdd(func() bool {
+					winTerminal.FeedBytes(data)
+					return false
+				})
+			}
+			if err != nil {
+				return
+			}
+		}
+	}()
+
+	// Track script running state for this window
+	var winScriptRunning bool
+	var winScriptMu sync.Mutex
+	var winREPL *pawscript.REPL
+
+	// Wire keyboard input
+	winTerminal.SetInputCallback(func(data []byte) {
+		winScriptMu.Lock()
+		isRunning := winScriptRunning
+		winScriptMu.Unlock()
+
+		if isRunning {
+			stdinWriter.Write(data)
+		} else if winREPL != nil && winREPL.IsRunning() {
+			winREPL.HandleInput(data)
+		}
+	})
+
+	win.ShowAll()
+
+	// Run the script
+	winTerminal.Feed(fmt.Sprintf("--- Running: %s ---\r\n\r\n", filepath.Base(filePath)))
+
+	content, err := os.ReadFile(filePath)
+	if err != nil {
+		winTerminal.Feed(fmt.Sprintf("Error reading script file: %v\r\n", err))
+		return
+	}
+
+	scriptDir := filepath.Dir(filePath)
+	absScript, _ := filepath.Abs(filePath)
+	if absScript != "" {
+		scriptDir = filepath.Dir(absScript)
+	}
+
+	cwd, _ := os.Getwd()
+	tmpDir := os.TempDir()
+	fileAccess := &pawscript.FileAccessConfig{
+		ReadRoots:  []string{scriptDir, cwd, tmpDir},
+		WriteRoots: []string{filepath.Join(scriptDir, "saves"), filepath.Join(scriptDir, "output"), filepath.Join(cwd, "saves"), filepath.Join(cwd, "output"), tmpDir},
+		ExecRoots:  []string{filepath.Join(scriptDir, "helpers"), filepath.Join(scriptDir, "bin")},
+	}
+
+	ps := pawscript.New(&pawscript.Config{
+		Debug:                false,
+		AllowMacros:          true,
+		EnableSyntacticSugar: true,
+		ShowErrorContext:     true,
+		ContextLines:         2,
+		FileAccess:           fileAccess,
+		ScriptDir:            scriptDir,
+		OptLevel:             pawscript.OptimizationLevel(getOptimizationLevel()),
+	})
+
+	ioConfig := &pawscript.IOChannelConfig{
+		Stdout: winOutCh,
+		Stdin:  winInCh,
+		Stderr: winOutCh,
+	}
+	ps.RegisterStandardLibraryWithIO([]string{}, ioConfig)
+
+	winScriptMu.Lock()
+	winScriptRunning = true
+	winScriptMu.Unlock()
+
+	go func() {
+		snapshot := ps.CreateRestrictedSnapshot()
+		result := ps.ExecuteWithEnvironment(string(content), snapshot, filePath, 0, 0)
+
+		if winOutCh.NativeFlush != nil {
+			winOutCh.NativeFlush()
+		}
+
+		if result == pawscript.BoolStatus(false) {
+			winTerminal.Feed("\r\n--- Script execution failed ---\r\n")
+		} else {
+			winTerminal.Feed("\r\n--- Script completed ---\r\n")
+		}
+
+		winScriptMu.Lock()
+		winScriptRunning = false
+		winScriptMu.Unlock()
+
+		// Start REPL for this window
+		winREPL = pawscript.NewREPL(pawscript.REPLConfig{
+			Debug:        false,
+			Unrestricted: false,
+			OptLevel:     getOptimizationLevel(),
+			ShowBanner:   false,
+			IOConfig: &pawscript.IOChannelConfig{
+				Stdout: winOutCh,
+				Stdin:  winInCh,
+				Stderr: winOutCh,
+			},
+		}, func(s string) {
+			glib.IdleAdd(func() bool {
+				winTerminal.Feed(s)
+				return false
+			})
+		})
+		winREPL.Start()
 	}()
 }
 
