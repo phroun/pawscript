@@ -11,7 +11,6 @@ NATIVE_ARCH := $(shell go env GOARCH)
 
 # Fyne CLI path (in GOPATH/bin)
 GOBIN := $(shell go env GOPATH)/bin
-FYNE := $(GOBIN)/fyne
 
 # Set binary name based on OS
 ifeq ($(NATIVE_OS),windows)
@@ -20,8 +19,8 @@ else
     BINARY_NAME := paw
 endif
 
-.PHONY: build-all build-all-gui clean-releases build build-gui build-gui-debug build-gui-software build-gui-gtk build-gui-qt install test test-coverage run-example clean fmt lint help \
-	build-gui-macos-arm64 build-gui-macos-x64 build-gui-ms-arm64 build-gui-ms-x64 build-gui-linux-arm64 build-gui-linux-x64 ensure-fyne
+.PHONY: build-all build-all-gui clean-releases build build-gui-gtk build-gui-qt install test test-coverage run-example clean fmt lint help \
+	build-gui-macos-arm64 build-gui-macos-x64 build-gui-ms-arm64 build-gui-ms-x64 build-gui-linux-arm64 build-gui-linux-x64
 
 # Build native version for local use
 build:
@@ -34,50 +33,7 @@ build-token-example:
 	cd $(SRC_DIR) && go build -ldflags "-X main.version=$(VERSION)" -o ../token_example ./cmd/token_example
 	@echo "Created: token_example"
 
-# Ensure fyne CLI is installed (now at fyne.io/tools)
-ensure-fyne:
-	@test -f $(FYNE) || (echo "Installing fyne CLI..." && go install fyne.io/tools/cmd/fyne@latest)
-
-# Build GUI version (auto-installs fyne CLI if needed)
-build-gui: ensure-fyne
-	@echo "Building pawgui for native platform ($(NATIVE_OS)/$(NATIVE_ARCH))..."
-ifeq ($(NATIVE_OS),windows)
-	cd $(SRC_DIR)/cmd/pawgui && $(FYNE) build --tags openglangle -o ../../../pawgui.exe
-	@echo "Created: pawgui.exe (using ANGLE/DirectX backend)"
-else ifeq ($(NATIVE_OS),darwin)
-	cd $(SRC_DIR)/cmd/pawgui && $(FYNE) build -o ../../../pawgui
-	cd $(SRC_DIR)/cmd/pawgui && $(FYNE) package -name pawgui && rm -rf ../../../pawgui.app && mv pawgui.app ../../../
-	@echo "Created: pawgui (binary) and pawgui.app (bundle)"
-else
-	cd $(SRC_DIR)/cmd/pawgui && $(FYNE) build -o ../../../pawgui
-	@echo "Created: pawgui"
-endif
-
-# Build GUI with debug symbols (for crash debugging)
-# On Windows: use cv2pdb to convert DWARF to PDB, or use delve/gdb debugger
-build-gui-debug:
-	@echo "Building pawgui with debug symbols for $(NATIVE_OS)/$(NATIVE_ARCH)..."
-ifeq ($(NATIVE_OS),windows)
-	cd $(SRC_DIR) && go build -tags openglangle -gcflags "all=-N -l" -o ../pawgui-debug.exe ./cmd/pawgui
-	@echo "Created: pawgui-debug.exe (with DWARF symbols, using ANGLE/DirectX)"
-	@echo "To generate PDB: cv2pdb pawgui-debug.exe (requires cv2pdb tool)"
-else
-	cd $(SRC_DIR) && go build -gcflags "all=-N -l" -o ../pawgui-debug ./cmd/pawgui
-	@echo "Created: pawgui-debug (with DWARF symbols)"
-endif
-
-# Build GUI with software rendering (for systems with graphics driver issues)
-build-gui-software: ensure-fyne
-	@echo "Building pawgui with software rendering for $(NATIVE_OS)/$(NATIVE_ARCH)..."
-ifeq ($(NATIVE_OS),windows)
-	cd $(SRC_DIR)/cmd/pawgui && $(FYNE) build --tags software -o ../../../pawgui-software.exe
-	@echo "Created: pawgui-software.exe (software rendering - slower but compatible)"
-else
-	cd $(SRC_DIR)/cmd/pawgui && $(FYNE) build --tags software -o ../../../pawgui-software
-	@echo "Created: pawgui-software (software rendering - slower but compatible)"
-endif
-
-# Build GTK3+VTE-based GUI (alternative to Fyne, requires GTK3 and VTE development libraries)
+# Build GTK3+VTE-based GUI (requires GTK3 and VTE development libraries)
 # Linux: apt install libgtk-3-dev libvte-2.91-dev
 # macOS: brew install gtk+3 vte3
 build-gui-gtk:
@@ -138,7 +94,7 @@ endif
 # Build and package CLI for all platforms
 build-all: build-wasm build-macos-arm64 build-macos-x64 build-ms-arm64 build-ms-x64 build-linux-arm64 build-linux-x64
 
-# Build and package GUI for all platforms (requires fyne-cross and Docker)
+# Build and package GUI for all platforms
 build-all-gui: build-gui-macos-arm64 build-gui-macos-x64 build-gui-ms-arm64 build-gui-ms-x64 build-gui-linux-arm64 build-gui-linux-x64
 
 # Clean release artifacts
@@ -278,9 +234,6 @@ help:
 	@echo ""
 	@echo "Targets:"
 	@echo "  build          - Build paw for native platform"
-	@echo "  build-gui      - Build pawgui (Fyne GUI) for native platform"
-	@echo "  build-gui-debug - Build pawgui with debug symbols (for crash debugging)"
-	@echo "  build-gui-software - Build pawgui with software rendering (for driver issues)"
 	@echo "  build-gui-gtk  - Build pawgui-gtk (GTK3 alternative, no OpenGL)"
 	@echo "  build-gui-qt   - Build pawgui-qt (Qt5 alternative, no OpenGL)"
 	@echo "  build-all      - Build and package paw CLI for all platforms"
@@ -295,7 +248,4 @@ help:
 	@echo "  lint           - Run linter"
 	@echo "  help           - Show this help"
 	@echo ""
-	@echo "GUI cross-compilation requires fyne-cross, fyne CLI, and Docker:"
-	@echo "  go install github.com/fyne-io/fyne-cross@latest"
-	@echo "  go install fyne.io/tools/cmd/fyne@latest"
 	@echo "See BUILDING.md for troubleshooting version compatibility issues."
