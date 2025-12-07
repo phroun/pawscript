@@ -81,10 +81,17 @@ func NewWidget(cols, rows, scrollbackSize int) *Widget {
 	w.buffer = purfecterm.NewBuffer(cols, rows, scrollbackSize)
 	w.parser = purfecterm.NewParser(w.buffer)
 
-	// Set up dirty callback to trigger redraws
+	// Set up dirty callback to trigger redraws and update scrollbar
 	w.buffer.SetDirtyCallback(func() {
 		w.widget.Update()
+		w.updateScrollbar()
 	})
+
+	// Create scrollbar - try with parent in constructor
+	w.scrollbar = qt.NewQScrollBar(w.widget)
+	w.scrollbar.SetOrientation(qt.Vertical)
+	w.scrollbar.SetMinimum(0)
+	w.scrollbar.SetMaximum(0)
 
 	// Enable focus and mouse tracking on the terminal widget
 	w.widget.SetFocusPolicy(qt.StrongFocus)
@@ -162,6 +169,14 @@ func NewWidget(cols, rows, scrollbackSize int) *Widget {
 	w.widget.SetContextMenuPolicy(qt.CustomContextMenu)
 	w.widget.OnCustomContextMenuRequested(func(pos *qt.QPoint) {
 		w.contextMenu.ExecWithPos(w.widget.MapToGlobal(pos))
+	})
+
+	// Connect scrollbar value changed callback after all setup is done
+	w.scrollbar.OnValueChanged(func(value int) {
+		if !w.scrollbarUpdating {
+			maxScroll := w.scrollbar.Maximum()
+			w.buffer.SetScrollOffset(maxScroll - value)
+		}
 	})
 
 	return w
@@ -758,8 +773,19 @@ func (w *Widget) focusOutEvent(event *qt.QFocusEvent) {
 func (w *Widget) resizeEvent(event *qt.QResizeEvent) {
 	w.updateFontMetrics()
 
-	newCols := (w.widget.Width() - terminalLeftPadding) / w.charWidth
-	newRows := w.widget.Height() / w.charHeight
+	scrollbarWidth := 16
+	widgetWidth := w.widget.Width()
+	widgetHeight := w.widget.Height()
+
+	// Position scrollbar on the right edge
+	if w.scrollbar != nil {
+		w.scrollbar.SetGeometry(widgetWidth-scrollbarWidth, 0, scrollbarWidth, widgetHeight)
+		w.scrollbar.Show()
+	}
+
+	// Account for scrollbar when calculating columns
+	newCols := (widgetWidth - terminalLeftPadding - scrollbarWidth) / w.charWidth
+	newRows := widgetHeight / w.charHeight
 
 	if newCols < 1 {
 		newCols = 1
