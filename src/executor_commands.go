@@ -1238,7 +1238,7 @@ func (e *Executor) applyAccessorChain(value interface{}, accessors string, state
 			// Dot accessor for named argument or struct field
 			i++ // skip the dot
 			if i >= len(accessors) {
-				e.logger.ErrorCat(CatList, "Expected key name after dot")
+				e.logErrorWithContext(CatList, "Expected key name after dot", state, position)
 				return ActualUndefined{}
 			}
 
@@ -1270,7 +1270,7 @@ func (e *Executor) applyAccessorChain(value interface{}, accessors string, state
 				}
 				current = val
 			} else {
-				e.logger.ErrorCat(CatList, "Cannot use dot accessor on non-list/non-struct value")
+				e.logErrorWithContext(CatList, "Cannot use dot accessor on non-list/non-struct value", state, position)
 				return ActualUndefined{}
 			}
 
@@ -1284,14 +1284,14 @@ func (e *Executor) applyAccessorChain(value interface{}, accessors string, state
 			if i < len(accessors) && accessors[i] == '.' {
 				j := i + 1
 				if j < len(accessors) && accessors[j] >= '0' && accessors[j] <= '9' {
-					e.logger.ErrorCat(CatList, "Non-integer index not allowed")
+					e.logErrorWithContext(CatList, "Non-integer index not allowed", state, position)
 					return ActualUndefined{}
 				}
 			}
 			numStr := accessors[numStart:i]
 			idx, err := strconv.Atoi(numStr)
 			if err != nil {
-				e.logger.ErrorCat(CatList, "Invalid index: %s", numStr)
+				e.logErrorWithContext(CatList, fmt.Sprintf("Invalid index: %s", numStr), state, position)
 				return ActualUndefined{}
 			}
 
@@ -1311,7 +1311,7 @@ func (e *Executor) applyAccessorChain(value interface{}, accessors string, state
 			} else if isStruct {
 				// Struct array index access
 				if !structVal.IsArray() {
-					e.logger.ErrorCat(CatList, "Cannot use index accessor on single struct (use dot accessor for fields)")
+					e.logErrorWithContext(CatList, "Cannot use index accessor on single struct (use dot accessor for fields)", state, position)
 					return ActualUndefined{}
 				}
 				if idx < 0 || idx >= structVal.Len() {
@@ -1321,7 +1321,7 @@ func (e *Executor) applyAccessorChain(value interface{}, accessors string, state
 				// Return a single struct from the array
 				current = structVal.Get(idx)
 			} else {
-				e.logger.ErrorCat(CatList, "Cannot use index accessor on non-list/non-bytes/non-struct value")
+				e.logErrorWithContext(CatList, "Cannot use index accessor on non-list/non-bytes/non-struct value", state, position)
 				return ActualUndefined{}
 			}
 
@@ -1379,7 +1379,7 @@ func (e *Executor) applyAccessorChain(value interface{}, accessors string, state
 				// This becomes the end of accessor application
 				// Return the current value combined with the non-index accessor result
 				// For now, just log and return undefined
-				e.logger.ErrorCat(CatList, "Tilde accessor did not resolve to a number: %T", resolvedAccessor)
+				e.logErrorWithContext(CatList, fmt.Sprintf("Tilde accessor did not resolve to a number: %T", resolvedAccessor), state, position)
 				return ActualUndefined{}
 			}
 
@@ -1398,7 +1398,7 @@ func (e *Executor) applyAccessorChain(value interface{}, accessors string, state
 				current = bytes.Get(idx)
 			} else if isStruct {
 				if !structVal.IsArray() {
-					e.logger.ErrorCat(CatList, "Cannot use index accessor on single struct")
+					e.logErrorWithContext(CatList, "Cannot use index accessor on single struct", state, position)
 					return ActualUndefined{}
 				}
 				if idx < 0 || idx >= structVal.Len() {
@@ -1407,7 +1407,7 @@ func (e *Executor) applyAccessorChain(value interface{}, accessors string, state
 				}
 				current = structVal.Get(idx)
 			} else {
-				e.logger.ErrorCat(CatList, "Cannot use index accessor on non-list/non-bytes/non-struct value")
+				e.logErrorWithContext(CatList, "Cannot use index accessor on non-list/non-bytes/non-struct value", state, position)
 				return ActualUndefined{}
 			}
 
@@ -1758,10 +1758,7 @@ func (e *Executor) processArguments(args []interface{}, state *ExecutionState, s
 	for i, arg := range args {
 		// Check for argument parse errors
 		if parseErr, ok := arg.(ArgParseError); ok {
-			// Set output context so error routes through #err channel
-			e.logger.SetOutputContext(NewOutputContext(state, e))
-			e.logger.CommandError(CatArgument, "", parseErr.Message, position)
-			e.logger.ClearOutputContext()
+			e.logErrorWithContext(CatArgument, parseErr.Message, state, position)
 			// Replace with nil to preserve argument count
 			result[i] = nil
 			continue

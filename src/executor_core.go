@@ -106,6 +106,14 @@ func (e *Executor) GetMaxIterations() int {
 	return e.maxIterations
 }
 
+// logErrorWithContext logs an error through the #err channel using the execution state context
+// This ensures errors appear in the PawScript #err channel instead of system stderr
+func (e *Executor) logErrorWithContext(cat LogCategory, message string, state *ExecutionState, position *SourcePosition) {
+	e.logger.SetOutputContext(NewOutputContext(state, e))
+	e.logger.CommandError(cat, "", message, position)
+	e.logger.ClearOutputContext()
+}
+
 // GetOrParseMacroCommands returns cached parsed commands for a macro, or parses and caches them
 // If caching is disabled (OptimizeNone), it parses fresh each time
 // The returned commands can be executed with ExecuteParsedCommands
