@@ -569,6 +569,21 @@ func (r *REPL) toJSONValue(val interface{}) interface{} {
 		return "<channel>"
 	case *StoredFile:
 		return "<file>"
+	case StoredBytes:
+		return v.String()
+	case StoredStruct:
+		return v.String()
+	case ObjectRef:
+		// Resolve ObjectRef to actual value and format that
+		if !v.IsValid() {
+			return nil
+		}
+		resolved := r.ps.ResolveValue(v)
+		if resolved == v {
+			// Couldn't resolve, show type indicator
+			return fmt.Sprintf("<%s>", v.Type.String())
+		}
+		return r.toJSONValue(resolved)
 	default:
 		return fmt.Sprintf("%v", v)
 	}

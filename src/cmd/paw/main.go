@@ -836,7 +836,7 @@ func displayResult(ps *pawscript.PawScript, result pawscript.Result) {
 	}
 
 	// Format the result value as JSON
-	formatted := formatValueAsJSON(resultValue)
+	formatted := formatValueAsJSON(ps, resultValue)
 
 	// Print with prefix
 	lines := strings.Split(formatted, "\n")
@@ -850,13 +850,13 @@ func displayResult(ps *pawscript.PawScript, result pawscript.Result) {
 }
 
 // formatValueAsJSON converts a PawScript value to pretty-printed JSON
-func formatValueAsJSON(val interface{}) string {
+func formatValueAsJSON(ps *pawscript.PawScript, val interface{}) string {
 	if val == nil {
 		return "null"
 	}
 
 	// Convert to JSON-compatible form
-	jsonVal := toJSONValue(val)
+	jsonVal := toJSONValue(ps, val)
 
 	// Pretty print
 	jsonBytes, err := json.MarshalIndent(jsonVal, "", "  ")
@@ -868,7 +868,7 @@ func formatValueAsJSON(val interface{}) string {
 }
 
 // toJSONValue converts a PawScript value to a JSON-compatible Go value
-func toJSONValue(val interface{}) interface{} {
+func toJSONValue(ps *pawscript.PawScript, val interface{}) interface{} {
 	if val == nil {
 		return nil
 	}
@@ -910,7 +910,7 @@ func toJSONValue(val interface{}) interface{} {
 		if namedArgs == nil || len(namedArgs) == 0 {
 			arr := make([]interface{}, len(items))
 			for i, item := range items {
-				arr[i] = toJSONValue(item)
+				arr[i] = toJSONValue(ps, item)
 			}
 			return arr
 		}
@@ -920,18 +920,33 @@ func toJSONValue(val interface{}) interface{} {
 		if len(items) > 0 {
 			arr := make([]interface{}, len(items))
 			for i, item := range items {
-				arr[i] = toJSONValue(item)
+				arr[i] = toJSONValue(ps, item)
 			}
 			obj["_items"] = arr
 		}
 		for k, v := range namedArgs {
-			obj[k] = toJSONValue(v)
+			obj[k] = toJSONValue(ps, v)
 		}
 		return obj
 	case *pawscript.StoredChannel:
-		return fmt.Sprintf("<channel>")
+		return "<channel>"
 	case *pawscript.StoredFile:
-		return fmt.Sprintf("<file>")
+		return "<file>"
+	case pawscript.StoredBytes:
+		return v.String()
+	case pawscript.StoredStruct:
+		return v.String()
+	case pawscript.ObjectRef:
+		// Resolve ObjectRef to actual value and format that
+		if !v.IsValid() {
+			return nil
+		}
+		resolved := ps.ResolveValue(v)
+		if resolved == v {
+			// Couldn't resolve, show type indicator
+			return fmt.Sprintf("<%s>", v.Type.String())
+		}
+		return toJSONValue(ps, resolved)
 	default:
 		return fmt.Sprintf("%v", v)
 	}

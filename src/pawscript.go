@@ -305,6 +305,15 @@ func (ps *PawScript) GetResultValue() interface{} {
 	return ps.lastResult
 }
 
+// ResolveValue resolves ObjectRefs and other markers to their actual values.
+// This is useful for displaying values in a human-readable format.
+func (ps *PawScript) ResolveValue(val interface{}) interface{} {
+	if ps.executor == nil {
+		return val
+	}
+	return ps.executor.resolveValue(val)
+}
+
 // Cleanup releases all resources held by the interpreter.
 // Call this when the host application is done with the interpreter.
 // After calling Cleanup, the interpreter should not be used.
