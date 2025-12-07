@@ -128,7 +128,7 @@ func NewWidget(cols, rows, scrollbackSize int) *Widget {
 	})
 
 	// Create context menu for right-click
-	w.contextMenu = qt.NewQMenu2(w.widget)
+	w.contextMenu = qt.NewQMenu(w.widget)
 
 	copyAction := w.contextMenu.AddAction("Copy")
 	copyAction.OnTriggered(func() {
@@ -155,7 +155,7 @@ func NewWidget(cols, rows, scrollbackSize int) *Widget {
 	// Enable context menu policy for right-click
 	w.widget.SetContextMenuPolicy(qt.CustomContextMenu)
 	w.widget.OnCustomContextMenuRequested(func(pos *qt.QPoint) {
-		w.contextMenu.Exec2(w.widget.MapToGlobal(pos))
+		w.contextMenu.ExecWithPos(w.widget.MapToGlobal(pos))
 	})
 
 	return w
