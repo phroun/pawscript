@@ -248,19 +248,6 @@ func createFilePanel() *qt.QWidget {
 	pathLabel.SetWordWrap(true)
 	layout.AddWidget(pathLabel.QWidget)
 
-	// Navigation buttons
-	navLayout := qt.NewQHBoxLayout2()
-
-	upButton := qt.NewQPushButton3("Up")
-	upButton.OnClicked(func() { navigateUp() })
-	navLayout.AddWidget(upButton.QWidget)
-
-	browseButton := qt.NewQPushButton3("Browse...")
-	browseButton.OnClicked(func() { browseFolder() })
-	navLayout.AddWidget(browseButton.QWidget)
-
-	layout.AddLayout(navLayout.QLayout)
-
 	// File list
 	fileList = qt.NewQListWidget2()
 	fileList.OnItemDoubleClicked(func(item *qt.QListWidgetItem) {
@@ -271,10 +258,18 @@ func createFilePanel() *qt.QWidget {
 	})
 	layout.AddWidget2(fileList.QWidget, 1)
 
-	// Run button
+	// Run and Browse buttons
+	buttonLayout := qt.NewQHBoxLayout2()
+
 	runButton = qt.NewQPushButton3("Run")
 	runButton.OnClicked(func() { runSelectedFile() })
-	layout.AddWidget(runButton.QWidget)
+	buttonLayout.AddWidget(runButton.QWidget)
+
+	browseButton := qt.NewQPushButton3("Browse...")
+	browseButton.OnClicked(func() { browseFolder() })
+	buttonLayout.AddWidget(browseButton.QWidget)
+
+	layout.AddLayout(buttonLayout.QLayout)
 
 	return panel
 }
