@@ -134,11 +134,118 @@ jobs:
           find dist/windows -type f | head -50
           echo "Total files: $(find dist/windows -type f | wc -l)"
 
-      - name: Upload Windows artifacts
+      - name: Upload Windows GTK artifacts
         uses: actions/upload-artifact@v4
         with:
-          name: pawscript-windows-amd64
+          name: pawscript-gtk-windows-amd64
           path: dist/windows/
+          retention-days: 30
+
+  build-windows-qt:
+    runs-on: windows-latest
+    defaults:
+      run:
+        shell: msys2 {0}
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Setup MSYS2
+        uses: msys2/setup-msys2@v2
+        with:
+          msystem: MINGW64
+          update: true
+          install: >-
+            mingw-w64-x86_64-qt5-base
+            mingw-w64-x86_64-go
+            mingw-w64-x86_64-pkg-config
+            mingw-w64-x86_64-gcc
+            git
+
+      - name: Build pawgui-qt
+        run: |
+          cd src
+          export CGO_ENABLED=1
+          export PKG_CONFIG_PATH="/mingw64/lib/pkgconfig:$PKG_CONFIG_PATH"
+          go build -ldflags="-H windowsgui -s -w" -o ../pawgui-qt-windows-amd64.exe ./cmd/pawgui-qt/
+
+      - name: Build paw CLI
+        run: |
+          cd src
+          go build -ldflags="-s -w" -o ../paw-windows-amd64.exe ./cmd/paw/
+
+      - name: Collect Qt DLLs
+        run: |
+          set -x  # Debug: show commands as they run
+
+          mkdir -p dist/windows-qt
+
+          # Verify builds exist
+          ls -la *.exe
+
+          cp pawgui-qt-windows-amd64.exe dist/windows-qt/
+          cp paw-windows-amd64.exe dist/windows-qt/
+
+          # Copy required Qt DLLs to same folder as exe (Windows loads DLLs before any code runs)
+          # Use a file as a queue to process DLLs iteratively
+          echo "pawgui-qt-windows-amd64.exe" > /tmp/dll_queue.txt
+          touch /tmp/dll_done.txt
+
+          while [ -s /tmp/dll_queue.txt ]; do
+            # Get first item from queue
+            current=$(head -1 /tmp/dll_queue.txt)
+            tail -n +2 /tmp/dll_queue.txt > /tmp/dll_queue_tmp.txt
+            mv /tmp/dll_queue_tmp.txt /tmp/dll_queue.txt
+
+            # Skip if already processed
+            if grep -qxF "$current" /tmp/dll_done.txt 2>/dev/null; then
+              continue
+            fi
+            echo "$current" >> /tmp/dll_done.txt
+
+            # Get dependencies
+            ldd "$current" 2>/dev/null | grep mingw64 | awk '{print $3}' > /tmp/deps.txt || true
+            while IFS= read -r dll; do
+              if [ -f "$dll" ] && [ ! -f "dist/windows-qt/$(basename "$dll")" ]; then
+                cp "$dll" dist/windows-qt/
+                echo "$dll" >> /tmp/dll_queue.txt
+              fi
+            done < /tmp/deps.txt
+          done
+
+          echo "Copied $(ls dist/windows-qt/*.dll 2>/dev/null | wc -l) DLLs"
+
+          # Copy Qt platform plugins (required for Qt apps to run on Windows)
+          mkdir -p dist/windows-qt/plugins/platforms
+          cp /mingw64/share/qt5/plugins/platforms/qwindows.dll dist/windows-qt/plugins/platforms/ 2>/dev/null || true
+
+          # Copy Qt style plugins for native look
+          mkdir -p dist/windows-qt/plugins/styles
+          cp /mingw64/share/qt5/plugins/styles/*.dll dist/windows-qt/plugins/styles/ 2>/dev/null || true
+
+          # Copy Qt imageformats plugins
+          mkdir -p dist/windows-qt/plugins/imageformats
+          cp /mingw64/share/qt5/plugins/imageformats/*.dll dist/windows-qt/plugins/imageformats/ 2>/dev/null || true
+
+          # Create qt.conf to tell Qt where to find plugins
+          cat > dist/windows-qt/qt.conf << 'EOF'
+          [Paths]
+          Plugins = plugins
+          EOF
+
+          # Copy examples
+          cp -r examples dist/windows-qt/
+
+          echo "=== Final distribution contents ==="
+          find dist/windows-qt -type f | head -50
+          echo "Total files: $(find dist/windows-qt -type f | wc -l)"
+
+      - name: Upload Windows Qt artifacts
+        uses: actions/upload-artifact@v4
+        with:
+          name: pawscript-qt-windows-amd64
+          path: dist/windows-qt/
           retention-days: 30
 
   build-cli-crossplatform:

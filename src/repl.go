@@ -11,12 +11,16 @@ import (
 
 // REPL color codes
 const (
-	replColorYellow    = "\x1b[93m"
-	replColorDarkBrown = "\x1b[33m" // Dark yellow/brown for light backgrounds
-	replColorWhite     = "\x1b[97m"
-	replColorRed       = "\x1b[91m"
-	replColorDarkCyan  = "\x1b[36m"
-	replColorReset     = "\x1b[0m"
+	replColorYellow      = "\x1b[93m"
+	replColorDarkBrown   = "\x1b[33m" // Dark yellow/brown for light backgrounds
+	replColorWhite       = "\x1b[97m"
+	replColorRed         = "\x1b[91m"
+	replColorDarkCyan    = "\x1b[36m"
+	replColorBrightGreen = "\x1b[92m" // Bright green for dark backgrounds
+	replColorDarkGreen   = "\x1b[32m" // Dark green for light backgrounds
+	replColorDarkGray    = "\x1b[90m" // Dark gray for dark backgrounds
+	replColorSilver      = "\x1b[37m" // Silver/light gray for light backgrounds
+	replColorReset       = "\x1b[0m"
 )
 
 // REPLConfig configures the REPL behavior
@@ -153,6 +157,28 @@ func (r *REPL) promptColor() string {
 		return replColorDarkBrown
 	}
 	return replColorYellow
+}
+
+// equalsColor returns the color for the "=" prefix in result display
+func (r *REPL) equalsColor() string {
+	r.mu.Lock()
+	light := r.lightBackground
+	r.mu.Unlock()
+	if light {
+		return replColorDarkGreen
+	}
+	return replColorBrightGreen
+}
+
+// resultColor returns the color for the result value text
+func (r *REPL) resultColor() string {
+	r.mu.Lock()
+	light := r.lightBackground
+	r.mu.Unlock()
+	if light {
+		return replColorSilver
+	}
+	return replColorDarkGray
 }
 
 // HandleInput processes input bytes from the terminal
@@ -585,26 +611,27 @@ func (r *REPL) displayResult(result Result) {
 	if boolStatus, ok := result.(BoolStatus); ok {
 		if bool(boolStatus) {
 			prefix = "="
-			prefixColor = replColorWhite
+			prefixColor = r.equalsColor()
 		} else {
 			prefix = "E"
 			prefixColor = replColorRed
 		}
 	} else {
 		prefix = "="
-		prefixColor = replColorWhite
+		prefixColor = r.equalsColor()
 	}
 
 	// Format the result value as JSON
 	formatted := r.formatValueAsJSON(resultValue)
+	resultClr := r.resultColor()
 
 	// Print with prefix
 	lines := strings.Split(formatted, "\n")
 	for i, line := range lines {
 		if i == 0 {
-			r.output(fmt.Sprintf("%s%s%s %s\r\n", prefixColor, prefix, replColorReset, line))
+			r.output(fmt.Sprintf("%s%s%s %s%s%s\r\n", prefixColor, prefix, replColorReset, resultClr, line, replColorReset))
 		} else {
-			r.output(fmt.Sprintf("  %s\r\n", line))
+			r.output(fmt.Sprintf("  %s%s%s\r\n", resultClr, line, replColorReset))
 		}
 	}
 }

@@ -111,6 +111,15 @@ func ParsePSL(input string) (PSLConfig, error) {
 		return PSLConfig{}, nil
 	}
 
+	// Remove comments before parsing (# line comments and #( )# block comments)
+	parser := NewParser(input, "")
+	input = parser.RemoveComments(input)
+	input = strings.TrimSpace(input)
+
+	if input == "" || input == "()" {
+		return PSLConfig{}, nil
+	}
+
 	// Must be wrapped in parentheses
 	if !strings.HasPrefix(input, "(") || !strings.HasSuffix(input, ")") {
 		return nil, fmt.Errorf("PSL must be enclosed in parentheses")
@@ -139,6 +148,15 @@ func ParsePSL(input string) (PSLConfig, error) {
 
 // ParsePSLList parses a PSL format string into a PSLList
 func ParsePSLList(input string) (PSLList, error) {
+	input = strings.TrimSpace(input)
+
+	if input == "" || input == "()" {
+		return PSLList{}, nil
+	}
+
+	// Remove comments before parsing (# line comments and #( )# block comments)
+	parser := NewParser(input, "")
+	input = parser.RemoveComments(input)
 	input = strings.TrimSpace(input)
 
 	if input == "" || input == "()" {
