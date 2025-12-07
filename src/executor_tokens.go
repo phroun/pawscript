@@ -8,6 +8,7 @@ import (
 )
 
 // RequestCompletionToken requests a new completion token for async operations
+// If timeout <= 0, no timeout is set (token relies on explicit completion)
 func (e *Executor) RequestCompletionToken(
 	cleanupCallback func(string),
 	parentTokenID string,
@@ -28,16 +29,23 @@ func (e *Executor) RequestCompletionToken(
 	tokenID := fmt.Sprintf("fiber-%d-token-%d", fiberID, e.nextTokenID)
 	e.nextTokenID++
 
-	ctx, cancel := context.WithTimeout(context.Background(), timeout)
-
-	// Set up timeout handler
-	go func() {
-		<-ctx.Done()
-		if ctx.Err() == context.DeadlineExceeded {
-			e.logger.WarnCat(CatAsync,"Token %s timed out, forcing cleanup", tokenID)
-			e.ForceCleanupToken(tokenID)
-		}
-	}()
+	// Set up context and optional timeout
+	var cancel context.CancelFunc
+	if timeout > 0 {
+		var ctx context.Context
+		ctx, cancel = context.WithTimeout(context.Background(), timeout)
+		// Set up timeout handler
+		go func() {
+			<-ctx.Done()
+			if ctx.Err() == context.DeadlineExceeded {
+				e.logger.WarnCat(CatAsync, "Token %s timed out, forcing cleanup", tokenID)
+				e.ForceCleanupToken(tokenID)
+			}
+		}()
+	} else {
+		// No timeout - token relies on explicit completion
+		_, cancel = context.WithCancel(context.Background())
+	}
 
 	// Handle nil state for system-level tokens (e.g., #random in io module)
 	var suspendedResult interface{}
@@ -50,8 +58,20 @@ func (e *Executor) RequestCompletionToken(
 		}
 	}
 
+	// Register the token as a stored object first to get ObjectID
+	objectID := e.registerObjectLocked(nil, ObjToken) // Temporarily nil, will update
+	e.tokenStringToID[tokenID] = objectID
+
+	// Executor claims a reference - keeps token alive while running
+	// Token will be GC'd when executor releases ref AND no external refs remain
+	e.storedObjects[objectID].RefCount = 1
+
 	tokenData := &TokenData{
-		StringID:           tokenID, // Store the string ID for external communication
+		StringID:           tokenID,
+		ObjectID:           objectID,
+		Completed:          false,
+		FinalStatus:        false,
+		FinalResult:        nil,
 		CommandSequence:    nil,
 		ParentToken:        parentTokenID,
 		Children:           make(map[string]bool),
@@ -66,9 +86,8 @@ func (e *Executor) RequestCompletionToken(
 		FiberID:            fiberID,
 	}
 
-	// Register the token as a stored object
-	objectID := e.registerObjectLocked(tokenData, ObjToken)
-	e.tokenStringToID[tokenID] = objectID
+	// Update the stored object with the actual tokenData
+	e.storedObjects[objectID].Value = tokenData
 
 	e.activeTokens[tokenID] = tokenData
 
@@ -78,8 +97,8 @@ func (e *Executor) RequestCompletionToken(
 		}
 	}
 
-	e.logger.DebugCat(CatAsync,"Created completion token: %s (fiber %d, objID %d), parent: %s, hasResult: %v",
-		tokenID, fiberID, objectID, parentTokenID, hasSuspendedResult)
+	e.logger.DebugCat(CatAsync, "Created completion token: %s (fiber %d, objID %d), parent: %s, hasResult: %v, timeout: %v",
+		tokenID, fiberID, objectID, parentTokenID, hasSuspendedResult, timeout)
 
 	return tokenID
 }
@@ -105,7 +124,7 @@ func (e *Executor) RequestBraceCoordinatorToken(
 	go func() {
 		<-ctx.Done()
 		if ctx.Err() == context.DeadlineExceeded {
-			e.logger.WarnCat(CatAsync,"Brace coordinator token %s timed out, forcing cleanup", tokenID)
+			e.logger.WarnCat(CatAsync, "Brace coordinator token %s timed out, forcing cleanup", tokenID)
 			e.ForceCleanupToken(tokenID)
 		}
 	}()
@@ -125,8 +144,19 @@ func (e *Executor) RequestBraceCoordinatorToken(
 		state.executor = e
 	}
 
+	// Register the token as a stored object first to get ObjectID
+	objectID := e.registerObjectLocked(nil, ObjToken) // Temporarily nil, will update
+	e.tokenStringToID[tokenID] = objectID
+
+	// Executor claims a reference - keeps token alive while running
+	e.storedObjects[objectID].RefCount = 1
+
 	tokenData := &TokenData{
-		StringID:         tokenID, // Store the string ID for external communication
+		StringID:         tokenID,
+		ObjectID:         objectID,
+		Completed:        false,
+		FinalStatus:      false,
+		FinalResult:      nil,
 		CommandSequence:  nil,
 		ParentToken:      "",
 		Children:         make(map[string]bool),
@@ -139,9 +169,8 @@ func (e *Executor) RequestBraceCoordinatorToken(
 		BraceCoordinator: coordinator,
 	}
 
-	// Register the token as a stored object
-	objectID := e.registerObjectLocked(tokenData, ObjToken)
-	e.tokenStringToID[tokenID] = objectID
+	// Update the stored object with the actual tokenData
+	e.storedObjects[objectID].Value = tokenData
 
 	e.activeTokens[tokenID] = tokenData
 
@@ -275,13 +304,8 @@ func (e *Executor) finalizeBraceCoordinator(coordinatorToken string) {
 	// Clean up all children (this will call their cleanup callbacks)
 	e.cleanupTokenChildrenLocked(coordinatorToken)
 
-	// Cancel timeout
-	if coordData.CancelFunc != nil {
-		coordData.CancelFunc()
-	}
-
-	// Remove coordinator token from active tokens
-	delete(e.activeTokens, coordinatorToken)
+	// Complete the coordinator token (marks as done, releases executor's ref)
+	e.completeTokenLocked(coordinatorToken, !hasFailure, nil)
 
 	e.mu.Unlock()
 
@@ -430,14 +454,11 @@ func (e *Executor) PopAndResumeCommandSequence(tokenID string, status bool) bool
 
 		// Clean up before forwarding
 		e.cleanupTokenChildrenLocked(tokenID)
-		if tokenData.CancelFunc != nil {
-			tokenData.CancelFunc()
-		}
-		delete(e.activeTokens, tokenID)
+		e.completeTokenLocked(tokenID, success, resultValue)
 
 		e.mu.Unlock()
 
-		e.logger.DebugCat(CatAsync,"Token %s is child of brace coordinator %s, forwarding result: %v", tokenID, coordinatorToken, resultValue)
+		e.logger.DebugCat(CatAsync, "Token %s is child of brace coordinator %s, forwarding result: %v", tokenID, coordinatorToken, resultValue)
 		e.ResumeBraceEvaluation(coordinatorToken, tokenID, resultValue, success)
 
 		// Release state references
@@ -483,13 +504,21 @@ func (e *Executor) PopAndResumeCommandSequence(tokenID string, status bool) bool
 		fiberHandle = e.activeFibers[fiberID]
 	}
 
-	delete(e.activeTokens, tokenID)
+	// Get the result value before completing
+	var resultValue interface{}
+	if state != nil {
+		resultValue = state.GetResult()
+	}
 
+	// Remove this token from parent's children list
 	if parentToken != "" {
 		if parent, exists := e.activeTokens[parentToken]; exists {
 			delete(parent.Children, tokenID)
 		}
 	}
+
+	// Complete the token (marks as done, releases executor's ref)
+	e.completeTokenLocked(tokenID, success, resultValue)
 
 	e.mu.Unlock()
 
@@ -605,20 +634,92 @@ func (e *Executor) cleanupTokenChildrenLocked(tokenID string) {
 	}
 }
 
-// deleteTokenLocked removes a token from both activeTokens and the object system
-// Must be called with e.mu lock held
-func (e *Executor) deleteTokenLocked(tokenID string) {
-	// Clean up from object system
-	if objectID, exists := e.tokenStringToID[tokenID]; exists {
-		// Mark the stored object for reuse
-		if obj, objExists := e.storedObjects[objectID]; objExists {
+// completeTokenLocked marks a token as completed and releases the executor's reference.
+// The token remains in storedObjects until its refcount reaches 0 (GC'd).
+// Must be called with e.mu lock held.
+func (e *Executor) completeTokenLocked(tokenID string, status bool, result interface{}) {
+	tokenData, exists := e.activeTokens[tokenID]
+	if !exists {
+		return
+	}
+
+	// Mark as completed with final status/result
+	tokenData.Completed = true
+	tokenData.FinalStatus = status
+	tokenData.FinalResult = result
+
+	// If the result is an ObjectRef, claim a reference so it's not GC'd
+	// while the token still holds it (same pattern as lists claiming nested items)
+	if resultRef, ok := result.(ObjectRef); ok && resultRef.IsValid() {
+		if obj, objExists := e.storedObjects[resultRef.ID]; objExists && !obj.Deleted {
+			obj.RefCount++
+			e.logger.DebugCat(CatMemory, "Token %s claims result ref %v, refcount now %d",
+				tokenID, resultRef, obj.RefCount)
+		}
+	}
+
+	// Cancel the context (stops timeout goroutine)
+	if tokenData.CancelFunc != nil {
+		tokenData.CancelFunc()
+	}
+
+	// Remove from activeTokens (no longer actively running)
+	delete(e.activeTokens, tokenID)
+
+	// Remove from string→ID lookup (no longer need reverse lookup for resume)
+	delete(e.tokenStringToID, tokenID)
+
+	// Release executor's reference - may trigger GC if no external refs
+	objectID := tokenData.ObjectID
+	if obj, objExists := e.storedObjects[objectID]; objExists && !obj.Deleted {
+		obj.RefCount--
+		e.logger.DebugCat(CatMemory, "Token %s completed, refcount decremented to %d", tokenID, obj.RefCount)
+		if obj.RefCount <= 0 {
+			// No external references, can be freed
+			// First release the FinalResult ref if it was an ObjectRef
+			if resultRef, ok := tokenData.FinalResult.(ObjectRef); ok && resultRef.IsValid() {
+				if resultObj, resultExists := e.storedObjects[resultRef.ID]; resultExists && !resultObj.Deleted {
+					resultObj.RefCount--
+					e.logger.DebugCat(CatMemory, "Token %s releasing result ref %v, refcount now %d",
+						tokenID, resultRef, resultObj.RefCount)
+				}
+			}
 			obj.Deleted = true
 			obj.Value = nil
 			e.freeIDs = append(e.freeIDs, objectID)
+			e.logger.DebugCat(CatMemory, "Token object %d freed (no refs)", objectID)
 		}
-		delete(e.tokenStringToID, tokenID)
 	}
+}
+
+// forceDeleteTokenLocked immediately removes a token from the object system.
+// Used for forced cleanup (timeout, cancellation). Bypasses normal GC.
+// Must be called with e.mu lock held.
+func (e *Executor) forceDeleteTokenLocked(tokenID string) {
+	tokenData, exists := e.activeTokens[tokenID]
+	if !exists {
+		return
+	}
+
+	// Cancel the context
+	if tokenData.CancelFunc != nil {
+		tokenData.CancelFunc()
+	}
+
+	// Remove from activeTokens
 	delete(e.activeTokens, tokenID)
+
+	// Remove from string→ID lookup
+	delete(e.tokenStringToID, tokenID)
+
+	// Force delete from object system (bypass refcount)
+	objectID := tokenData.ObjectID
+	if obj, objExists := e.storedObjects[objectID]; objExists {
+		obj.Deleted = true
+		obj.Value = nil
+		e.freeIDs = append(e.freeIDs, objectID)
+		e.logger.DebugCat(CatMemory, "Token object %d force deleted", objectID)
+	}
 }
 
 // ForceCleanupToken forces cleanup of a token
@@ -635,14 +736,10 @@ func (e *Executor) forceCleanupTokenLocked(tokenID string) {
 		return
 	}
 
-	e.logger.DebugCat(CatAsync,"Force cleaning up token: %s", tokenID)
+	e.logger.DebugCat(CatAsync, "Force cleaning up token: %s", tokenID)
 
 	if tokenData.CleanupCallback != nil {
 		tokenData.CleanupCallback(tokenID)
-	}
-
-	if tokenData.CancelFunc != nil {
-		tokenData.CancelFunc()
 	}
 
 	e.cleanupTokenChildrenLocked(tokenID)
@@ -662,7 +759,7 @@ func (e *Executor) forceCleanupTokenLocked(tokenID string) {
 		}
 	}
 
-	e.deleteTokenLocked(tokenID)
+	e.forceDeleteTokenLocked(tokenID)
 }
 
 // resumeCommandSequence resumes execution of a command sequence

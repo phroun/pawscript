@@ -461,9 +461,15 @@ type BraceCoordinator struct {
 
 // TokenData stores information about an active token
 // Tokens are now stored as regular objects (ObjToken) with integer IDs, while
-// maintaining a string ID for external communication (host API, serialization)
+// maintaining a string ID for external communication (host API, serialization).
+// Tokens use reference counting for lifecycle: executor claims a ref on creation,
+// releases it on completion. Scripts can hold additional refs to query status later.
 type TokenData struct {
 	StringID           string             // External string ID for host API (e.g., "fiber-0-token-5")
+	ObjectID           int                // Internal object ID in storedObjects
+	Completed          bool               // True when async operation has finished
+	FinalStatus        bool               // Success/failure status when completed
+	FinalResult        interface{}        // Result value when completed
 	CommandSequence    *CommandSequence
 	ParentToken        string
 	Children           map[string]bool

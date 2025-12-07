@@ -2611,4 +2611,65 @@ func (ps *PawScript) RegisterGeneratorLib() {
 		ctx.SetResult(result)
 		return BoolStatus(true)
 	})
+
+	// stop - Force cleanup and stop an async token
+	// Cancels timeout, calls cleanup callbacks, releases resources
+	// stop <token>
+	ps.RegisterCommandInModule("coroutines", "stop", func(ctx *Context) Result {
+		if len(ctx.Args) < 1 {
+			ctx.LogError(CatCommand, "Usage: stop <token>")
+			return BoolStatus(false)
+		}
+
+		// Get the token ID
+		var tokenID string
+		arg := ctx.executor.resolveValue(ctx.Args[0])
+
+		switch v := arg.(type) {
+		case Symbol:
+			tokenStr := string(v)
+			// Check if it's a token marker
+			if strings.HasPrefix(tokenStr, "\x00TOKEN:") && strings.HasSuffix(tokenStr, "\x00") {
+				tokenID = tokenStr[len("\x00TOKEN:") : len(tokenStr)-1]
+			} else {
+				ctx.LogError(CatCommand, "stop: argument is not a valid token")
+				return BoolStatus(false)
+			}
+		case string:
+			// Check if it's a token marker
+			if strings.HasPrefix(v, "\x00TOKEN:") && strings.HasSuffix(v, "\x00") {
+				tokenID = v[len("\x00TOKEN:") : len(v)-1]
+			} else {
+				// Try as raw token ID
+				tokenID = v
+			}
+		case TokenResult:
+			tokenID = string(v)
+		default:
+			ctx.LogError(CatCommand, "stop: argument must be a token")
+			return BoolStatus(false)
+		}
+
+		if tokenID == "" {
+			ctx.LogError(CatCommand, "stop: empty token ID")
+			return BoolStatus(false)
+		}
+
+		// Check if token exists before trying to clean it up
+		ctx.executor.mu.RLock()
+		_, exists := ctx.executor.activeTokens[tokenID]
+		ctx.executor.mu.RUnlock()
+
+		if !exists {
+			// Token doesn't exist (already completed or never existed)
+			ps.logger.DebugCat(CatAsync, "stop: token %s not found (already completed?)", tokenID)
+			return BoolStatus(false)
+		}
+
+		// Force cleanup the token
+		ctx.executor.ForceCleanupToken(tokenID)
+		ps.logger.DebugCat(CatAsync, "stop: force cleaned up token %s", tokenID)
+
+		return BoolStatus(true)
+	})
 }
