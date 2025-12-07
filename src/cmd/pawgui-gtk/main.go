@@ -16,6 +16,7 @@ import (
 	"github.com/gotk3/gotk3/glib"
 	"github.com/gotk3/gotk3/gtk"
 	"github.com/phroun/pawscript"
+	"github.com/phroun/pawscript/pkg/purfecterm"
 	purfectermgtk "github.com/phroun/pawscript/pkg/purfecterm-gtk"
 	"github.com/sqweek/dialog"
 )
@@ -220,35 +221,35 @@ func getOptimizationLevel() int {
 }
 
 // getTerminalBackground returns the configured terminal background color
-func getTerminalBackground() purfectermgtk.Color {
+func getTerminalBackground() purfecterm.Color {
 	if appConfig != nil {
 		if hex := appConfig.GetString("terminal_background", ""); hex != "" {
-			if c, ok := purfectermgtk.ParseHexColor(hex); ok {
+			if c, ok := purfecterm.ParseHexColor(hex); ok {
 				return c
 			}
 		}
 	}
-	return purfectermgtk.Color{R: 30, G: 30, B: 30} // Default dark background
+	return purfecterm.Color{R: 30, G: 30, B: 30} // Default dark background
 }
 
 // getTerminalForeground returns the configured terminal foreground color
-func getTerminalForeground() purfectermgtk.Color {
+func getTerminalForeground() purfecterm.Color {
 	if appConfig != nil {
 		if hex := appConfig.GetString("terminal_foreground", ""); hex != "" {
-			if c, ok := purfectermgtk.ParseHexColor(hex); ok {
+			if c, ok := purfecterm.ParseHexColor(hex); ok {
 				return c
 			}
 		}
 	}
-	return purfectermgtk.Color{R: 212, G: 212, B: 212} // Default light gray
+	return purfecterm.Color{R: 212, G: 212, B: 212} // Default light gray
 }
 
 // getColorPalette returns the configured 16-color ANSI palette
 // Config uses VGA-style naming (01_dark_blue, etc.) but ANSI escape codes
 // expect ANSI order (index 1 = red). We map VGA config indices to ANSI palette indices.
-func getColorPalette() []purfectermgtk.Color {
-	palette := make([]purfectermgtk.Color, 16)
-	copy(palette, purfectermgtk.ANSIColors)
+func getColorPalette() []purfecterm.Color {
+	palette := make([]purfecterm.Color, 16)
+	copy(palette, purfecterm.ANSIColors)
 
 	if appConfig == nil {
 		return palette
@@ -257,12 +258,12 @@ func getColorPalette() []purfectermgtk.Color {
 	// Check for palette_colors nested config
 	if paletteConfig, ok := appConfig["palette_colors"]; ok {
 		if pc, ok := paletteConfig.(pawscript.PSLConfig); ok {
-			names := purfectermgtk.PaletteColorNames()
+			names := purfecterm.PaletteColorNames()
 			for vgaIdx, name := range names {
 				if hex := pc.GetString(name, ""); hex != "" {
-					if c, ok := purfectermgtk.ParseHexColor(hex); ok {
+					if c, ok := purfecterm.ParseHexColor(hex); ok {
 						// Map VGA config index to ANSI palette index
-						ansiIdx := purfectermgtk.VGAToANSI[vgaIdx]
+						ansiIdx := purfecterm.VGAToANSI[vgaIdx]
 						palette[ansiIdx] = c
 					}
 				}
@@ -277,12 +278,12 @@ func getColorPalette() []purfectermgtk.Color {
 // "bounce" = bobbing wave animation (default)
 // "blink" = traditional on/off blinking
 // "bright" = interpret as bright background (VGA style)
-func getBlinkMode() purfectermgtk.BlinkMode {
+func getBlinkMode() purfecterm.BlinkMode {
 	if appConfig != nil {
 		mode := appConfig.GetString("default_blink", "bounce")
-		return purfectermgtk.ParseBlinkMode(mode)
+		return purfecterm.ParseBlinkMode(mode)
 	}
-	return purfectermgtk.BlinkModeBounce
+	return purfecterm.BlinkModeBounce
 }
 
 // getQuitShortcut returns the configured quit shortcut
@@ -374,8 +375,8 @@ func activate(application *gtk.Application) {
 	// palette_colors: 16 ANSI color palette as named hex colors
 	if _, exists := appConfig["palette_colors"]; !exists {
 		paletteConfig := pawscript.PSLConfig{}
-		names := purfectermgtk.PaletteColorNames()
-		hexColors := purfectermgtk.DefaultPaletteHex()
+		names := purfecterm.PaletteColorNames()
+		hexColors := purfecterm.DefaultPaletteHex()
 		for i, name := range names {
 			paletteConfig.Set(name, hexColors[i])
 		}
@@ -617,11 +618,11 @@ func createTerminal() *gtk.Box {
 		ScrollbackSize: 10000,
 		FontFamily:     getFontFamily(),
 		FontSize:       getFontSize(),
-		Scheme: purfectermgtk.ColorScheme{
+		Scheme: purfecterm.ColorScheme{
 			Foreground: getTerminalForeground(),
 			Background: getTerminalBackground(),
-			Cursor:     purfectermgtk.Color{R: 255, G: 255, B: 255},
-			Selection:  purfectermgtk.Color{R: 68, G: 68, B: 68},
+			Cursor:     purfecterm.Color{R: 255, G: 255, B: 255},
+			Selection:  purfecterm.Color{R: 68, G: 68, B: 68},
 			Palette:    getColorPalette(),
 			BlinkMode:  getBlinkMode(),
 		},
@@ -961,11 +962,11 @@ func createConsoleWindow(filePath string) {
 		ScrollbackSize: 10000,
 		FontFamily:     getFontFamily(),
 		FontSize:       getFontSize(),
-		Scheme: purfectermgtk.ColorScheme{
+		Scheme: purfecterm.ColorScheme{
 			Foreground: getTerminalForeground(),
 			Background: getTerminalBackground(),
-			Cursor:     purfectermgtk.Color{R: 255, G: 255, B: 255},
-			Selection:  purfectermgtk.Color{R: 68, G: 68, B: 68},
+			Cursor:     purfecterm.Color{R: 255, G: 255, B: 255},
+			Selection:  purfecterm.Color{R: 68, G: 68, B: 68},
 			Palette:    getColorPalette(),
 			BlinkMode:  getBlinkMode(),
 		},
