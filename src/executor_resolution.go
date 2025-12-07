@@ -5,13 +5,19 @@ import (
 	"strings"
 )
 
-// UndefinedMarker is the special marker for undefined values
+// UndefinedMarker is the legacy string marker for undefined values
+// Kept for backward compatibility - new code should use ActualUndefined{} instead
 const UndefinedMarker = "\x00UNDEFINED\x00"
 
 // resolveValue resolves any object marker (LIST/STRING/BLOCK) to its actual value
 // If the value is not a marker, returns it unchanged
 // This is the central resolution function - all resolution should go through here
 func (e *Executor) resolveValue(value interface{}) interface{} {
+	// ActualUndefined passes through unchanged
+	if _, ok := value.(ActualUndefined); ok {
+		return value
+	}
+
 	// Check if it's an ObjectRef (the preferred internal representation)
 	if ref, ok := value.(ObjectRef); ok {
 		if ref.IsValid() {
@@ -34,9 +40,9 @@ func (e *Executor) resolveValue(value interface{}) interface{} {
 	// Check if it's a Symbol that might be a marker
 	if sym, ok := value.(Symbol); ok {
 		str := string(sym)
-		// Check for undefined marker - convert to bare undefined symbol
+		// Check for legacy undefined marker - convert to ActualUndefined
 		if str == UndefinedMarker {
-			return Symbol("undefined")
+			return ActualUndefined{}
 		}
 		if objType, objID := parseObjectMarker(str); objID >= 0 {
 			if actualValue, exists := e.getObject(objID); exists {
@@ -56,9 +62,9 @@ func (e *Executor) resolveValue(value interface{}) interface{} {
 
 	// Check if it's a string that might be a marker
 	if str, ok := value.(string); ok {
-		// Check for undefined marker - convert to bare undefined symbol
+		// Check for legacy undefined marker - convert to ActualUndefined
 		if str == UndefinedMarker {
-			return Symbol("undefined")
+			return ActualUndefined{}
 		}
 		if objType, objID := parseObjectMarker(str); objID >= 0 {
 			if actualValue, exists := e.getObject(objID); exists {
@@ -215,8 +221,11 @@ func (e *Executor) resolveQuestionExpression(expr string, state *ExecutionState,
 	}
 
 	// Check if resolved value is undefined
+	if _, ok := resolved.(ActualUndefined); ok {
+		return false
+	}
 	if sym, isSym := resolved.(Symbol); isSym {
-		if string(sym) == UndefinedMarker || string(sym) == "undefined" {
+		if string(sym) == "undefined" {
 			return false
 		}
 	}

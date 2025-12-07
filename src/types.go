@@ -606,6 +606,12 @@ type StoredBlock string
 
 func (s StoredBlock) String() string { return string(s) }
 
+// ActualUndefined represents the undefined value as a proper type
+// This replaces the old UndefinedMarker string approach for cleaner type handling
+type ActualUndefined struct{}
+
+func (u ActualUndefined) String() string { return "undefined" }
+
 // Storage thresholds - values larger than these are stored as objects
 const (
 	StringStorageThreshold = 200 // characters - strings larger than this become StoredString
@@ -1091,21 +1097,22 @@ func classifyValue(value interface{}, executor *Executor) (typeName string, isSe
 		return objRef.Type.String(), false, false
 	}
 
+	// Check for ActualUndefined type first
+	if _, ok := value.(ActualUndefined); ok {
+		return "undefined", true, true
+	}
+
 	// Check for markers and resolve them
 	var markerStr string
 	switch v := value.(type) {
 	case Symbol:
 		markerStr = string(v)
 		// Check for undefined symbol
-		if markerStr == "undefined" || markerStr == UndefinedMarker {
+		if markerStr == "undefined" {
 			return "undefined", true, true
 		}
 	case string:
 		markerStr = v
-		// Check for undefined marker
-		if markerStr == UndefinedMarker {
-			return "undefined", true, true
-		}
 	}
 
 	if markerStr != "" {

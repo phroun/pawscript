@@ -1081,6 +1081,8 @@ func getTypeName(val interface{}) string {
 	}
 
 	switch v := val.(type) {
+	case ActualUndefined:
+		return "undefined"
 	case StoredMacro:
 		return "macro"
 	case *StoredMacro:
@@ -1116,10 +1118,6 @@ func getTypeName(val interface{}) string {
 		return "string"
 	case Symbol:
 		str := string(v)
-		// Check for undefined marker
-		if str == UndefinedMarker {
-			return "undefined"
-		}
 		// Check for token marker (special case - token IDs are strings, not ints)
 		if strings.HasPrefix(str, "\x00TOKEN:") && strings.HasSuffix(str, "\x00") {
 			return "token"

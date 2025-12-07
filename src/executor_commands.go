@@ -1002,12 +1002,12 @@ func (e *Executor) executeSingleCommand(
 		}
 	}
 
-	// Command not found - set result to undefined marker and return false status
-	// Note: Using UndefinedMarker not Symbol("undefined") because the bare
+	// Command not found - set result to ActualUndefined and return false status
+	// Note: Using ActualUndefined{} not Symbol("undefined") because the bare
 	// symbol has special handling in SetResult that clears the result
 	e.logger.SetOutputContext(NewOutputContext(state, e))
 	e.logger.UnknownCommandError(cmdName, position, nil)
-	state.SetResult(Symbol(UndefinedMarker))
+	state.SetResult(ActualUndefined{})
 	if shouldInvert {
 		return BoolStatus(true)
 	}
@@ -1207,7 +1207,7 @@ func (e *Executor) applyAccessorChain(value interface{}, accessors string, state
 			i++ // skip the dot
 			if i >= len(accessors) {
 				e.logger.ErrorCat(CatList, "Expected key name after dot")
-				return Symbol(UndefinedMarker)
+				return ActualUndefined{}
 			}
 
 			// Collect the key name
@@ -1222,24 +1222,24 @@ func (e *Executor) applyAccessorChain(value interface{}, accessors string, state
 				val, exists := e.getStructFieldValue(structVal, key)
 				if !exists {
 					e.logger.DebugCat(CatList, "Field '%s' not found in struct", key)
-					return Symbol(UndefinedMarker)
+					return ActualUndefined{}
 				}
 				current = val
 			} else if isList {
 				namedArgs := list.NamedArgs()
 				if namedArgs == nil {
 					e.logger.DebugCat(CatList, "List has no named arguments, cannot access .%s", key)
-					return Symbol(UndefinedMarker)
+					return ActualUndefined{}
 				}
 				val, exists := namedArgs[key]
 				if !exists {
 					e.logger.DebugCat(CatList, "Named argument '%s' not found in list", key)
-					return Symbol(UndefinedMarker)
+					return ActualUndefined{}
 				}
 				current = val
 			} else {
 				e.logger.ErrorCat(CatList, "Cannot use dot accessor on non-list/non-struct value")
-				return Symbol(UndefinedMarker)
+				return ActualUndefined{}
 			}
 
 		} else if accessors[i] >= '0' && accessors[i] <= '9' {
@@ -1253,26 +1253,26 @@ func (e *Executor) applyAccessorChain(value interface{}, accessors string, state
 				j := i + 1
 				if j < len(accessors) && accessors[j] >= '0' && accessors[j] <= '9' {
 					e.logger.ErrorCat(CatList, "Non-integer index not allowed")
-					return Symbol(UndefinedMarker)
+					return ActualUndefined{}
 				}
 			}
 			numStr := accessors[numStart:i]
 			idx, err := strconv.Atoi(numStr)
 			if err != nil {
 				e.logger.ErrorCat(CatList, "Invalid index: %s", numStr)
-				return Symbol(UndefinedMarker)
+				return ActualUndefined{}
 			}
 
 			if isList {
 				if idx < 0 || idx >= list.Len() {
 					e.logger.DebugCat(CatList, "Index %d out of bounds (list has %d items)", idx, list.Len())
-					return Symbol(UndefinedMarker)
+					return ActualUndefined{}
 				}
 				current = list.Get(idx)
 			} else if isBytes {
 				if idx < 0 || idx >= bytes.Len() {
 					e.logger.DebugCat(CatList, "Index %d out of bounds (bytes has %d items)", idx, bytes.Len())
-					return Symbol(UndefinedMarker)
+					return ActualUndefined{}
 				}
 				// Return byte as int64
 				current = bytes.Get(idx)
@@ -1280,17 +1280,17 @@ func (e *Executor) applyAccessorChain(value interface{}, accessors string, state
 				// Struct array index access
 				if !structVal.IsArray() {
 					e.logger.ErrorCat(CatList, "Cannot use index accessor on single struct (use dot accessor for fields)")
-					return Symbol(UndefinedMarker)
+					return ActualUndefined{}
 				}
 				if idx < 0 || idx >= structVal.Len() {
 					e.logger.DebugCat(CatList, "Index %d out of bounds (struct array has %d items)", idx, structVal.Len())
-					return Symbol(UndefinedMarker)
+					return ActualUndefined{}
 				}
 				// Return a single struct from the array
 				current = structVal.Get(idx)
 			} else {
 				e.logger.ErrorCat(CatList, "Cannot use index accessor on non-list/non-bytes/non-struct value")
-				return Symbol(UndefinedMarker)
+				return ActualUndefined{}
 			}
 
 		} else if accessors[i] == '~' {
@@ -1330,7 +1330,7 @@ func (e *Executor) applyAccessorChain(value interface{}, accessors string, state
 			// Resolve this immediate tilde expression
 			resolvedAccessor, ok := e.resolveTildeExpression(tildeExpr, state, substitutionCtx, position)
 			if !ok {
-				return Symbol(UndefinedMarker)
+				return ActualUndefined{}
 			}
 
 			// Check if resolved value is a valid index
@@ -1348,35 +1348,35 @@ func (e *Executor) applyAccessorChain(value interface{}, accessors string, state
 				// Return the current value combined with the non-index accessor result
 				// For now, just log and return undefined
 				e.logger.ErrorCat(CatList, "Tilde accessor did not resolve to a number: %T", resolvedAccessor)
-				return Symbol(UndefinedMarker)
+				return ActualUndefined{}
 			}
 
 			// Apply the index
 			if isList {
 				if idx < 0 || idx >= list.Len() {
 					e.logger.DebugCat(CatList, "Index %d out of bounds (list has %d items)", idx, list.Len())
-					return Symbol(UndefinedMarker)
+					return ActualUndefined{}
 				}
 				current = list.Get(idx)
 			} else if isBytes {
 				if idx < 0 || idx >= bytes.Len() {
 					e.logger.DebugCat(CatList, "Index %d out of bounds (bytes has %d items)", idx, bytes.Len())
-					return Symbol(UndefinedMarker)
+					return ActualUndefined{}
 				}
 				current = bytes.Get(idx)
 			} else if isStruct {
 				if !structVal.IsArray() {
 					e.logger.ErrorCat(CatList, "Cannot use index accessor on single struct")
-					return Symbol(UndefinedMarker)
+					return ActualUndefined{}
 				}
 				if idx < 0 || idx >= structVal.Len() {
 					e.logger.DebugCat(CatList, "Index %d out of bounds (struct array has %d items)", idx, structVal.Len())
-					return Symbol(UndefinedMarker)
+					return ActualUndefined{}
 				}
 				current = structVal.Get(idx)
 			} else {
 				e.logger.ErrorCat(CatList, "Cannot use index accessor on non-list/non-bytes/non-struct value")
-				return Symbol(UndefinedMarker)
+				return ActualUndefined{}
 			}
 
 		} else {
@@ -1493,8 +1493,11 @@ func (e *Executor) accessorChainExists(value interface{}, accessors string) bool
 	}
 
 	// Check if final value is undefined
+	if _, ok := current.(ActualUndefined); ok {
+		return false
+	}
 	if sym, ok := current.(Symbol); ok {
-		if string(sym) == UndefinedMarker || string(sym) == "undefined" {
+		if string(sym) == "undefined" {
 			return false
 		}
 	}
@@ -1758,8 +1761,12 @@ func (e *Executor) processArguments(args []interface{}, state *ExecutionState, s
 				} else {
 					// Variable exists, no accessors to check
 					// But check if the value itself is undefined
+					if _, ok := resolved.(ActualUndefined); ok {
+						result[i] = false
+						continue
+					}
 					if sym, ok := resolved.(Symbol); ok {
-						if string(sym) == UndefinedMarker || string(sym) == "undefined" {
+						if string(sym) == "undefined" {
 							result[i] = false
 							continue
 						}

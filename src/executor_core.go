@@ -393,7 +393,7 @@ func (e *Executor) Execute(commandStr string, args ...interface{}) Result {
 		}
 
 		e.logger.UnknownCommandError(commandStr, nil, nil)
-		state.SetResult(Symbol(UndefinedMarker)) // Marker not bare Symbol - bare Symbol("undefined") clears the result
+		state.SetResult(ActualUndefined{}) // ActualUndefined not bare Symbol - bare Symbol("undefined") clears the result
 		state.ReleaseAllReferences()
 		return BoolStatus(false)
 	}

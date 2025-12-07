@@ -1096,6 +1096,8 @@ func (ps *PawScript) RegisterCoreLib() {
 
 			// Handle markers
 			switch v := val.(type) {
+			case ActualUndefined:
+				return nil, nil
 			case ObjectRef:
 				// ObjectRef is the preferred way to reference stored objects
 				if v.IsValid() {
@@ -1106,7 +1108,7 @@ func (ps *PawScript) RegisterCoreLib() {
 				return nil, nil
 			case Symbol:
 				str := string(v)
-				if str == "undefined" || str == UndefinedMarker {
+				if str == "undefined" {
 					return nil, nil
 				}
 				if str == "true" {
@@ -1124,9 +1126,6 @@ func (ps *PawScript) RegisterCoreLib() {
 				}
 				return str, nil
 			case string:
-				if v == UndefinedMarker {
-					return nil, nil
-				}
 				_, objectID := parseObjectMarker(v)
 				if objectID >= 0 {
 					if obj, exists := ctx.executor.getObject(objectID); exists {
