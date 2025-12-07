@@ -378,6 +378,10 @@ func activate(application *gtk.Application) {
 	terminal.Feed("Select a .paw file and click Run to execute.\r\n\r\n")
 
 	mainWindow.ShowAll()
+
+	// Deselect any text in the path label and focus the Run button
+	pathLabel.SelectRegion(0, 0)
+	runButton.GrabFocus()
 }
 
 func getDefaultDir() string {

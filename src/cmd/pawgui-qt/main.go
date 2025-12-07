@@ -54,8 +54,9 @@ var (
 	mainWindow *qt.QMainWindow
 	fileList   *qt.QListWidget
 	terminal   *purfectermqt.Terminal
-	pathLabel  *qt.QLabel
-	runButton  *qt.QPushButton
+	pathLabel    *qt.QLabel
+	runButton    *qt.QPushButton
+	browseButton *qt.QPushButton
 
 	// Console I/O for PawScript
 	consoleOutCh   *pawscript.StoredChannel
@@ -339,8 +340,19 @@ func main() {
 	// Set up quit shortcut based on config
 	setupQuitShortcut()
 
+	// Set up tab order: fileList -> runButton -> browseButton -> terminal
+	qt.QWidget_SetTabOrder(fileList.QWidget, runButton.QWidget)
+	qt.QWidget_SetTabOrder(runButton.QWidget, browseButton.QWidget)
+	qt.QWidget_SetTabOrder(browseButton.QWidget, terminal.Widget())
+
+	// Set up terminal to capture Tab key (but allow Shift+Tab to navigate back)
+	setupTerminalTabHandling()
+
 	// Show window
 	mainWindow.Show()
+
+	// Focus the Run button by default
+	runButton.SetFocus()
 
 	// Run application
 	qt.QApplication_Exec()
@@ -368,6 +380,37 @@ func setupQuitShortcut() {
 	shortcut := qt.NewQShortcut2(qt.NewQKeySequence2(keySequence), mainWindow.QWidget)
 	shortcut.OnActivated(func() {
 		mainWindow.Close()
+	})
+}
+
+// setupTerminalTabHandling configures Tab key handling for the terminal.
+// Tab and Tab with modifiers (Ctrl+Tab, etc.) are captured and sent to the terminal.
+// Only Shift+Tab navigates back to other controls.
+func setupTerminalTabHandling() {
+	termWidget := terminal.Widget()
+
+	// Capture Tab key when terminal has focus - send it to terminal input
+	tabShortcut := qt.NewQShortcut2(qt.NewQKeySequence2("Tab"), termWidget)
+	tabShortcut.SetContext(qt.ShortcutContext(2)) // WidgetWithChildrenShortcut
+	tabShortcut.OnActivated(func() {
+		// Send Tab character to terminal
+		if consoleREPL != nil && consoleREPL.IsRunning() {
+			consoleREPL.HandleInput([]byte{'\t'})
+		} else if stdinWriter != nil {
+			stdinWriter.Write([]byte{'\t'})
+		}
+	})
+
+	// Capture Ctrl+Tab when terminal has focus
+	ctrlTabShortcut := qt.NewQShortcut2(qt.NewQKeySequence2("Ctrl+Tab"), termWidget)
+	ctrlTabShortcut.SetContext(qt.ShortcutContext(2))
+	ctrlTabShortcut.OnActivated(func() {
+		// Send Ctrl+Tab (escape sequence) to terminal - just use Tab for now
+		if consoleREPL != nil && consoleREPL.IsRunning() {
+			consoleREPL.HandleInput([]byte{'\t'})
+		} else if stdinWriter != nil {
+			stdinWriter.Write([]byte{'\t'})
+		}
 	})
 }
 
@@ -400,7 +443,7 @@ func createFilePanel() *qt.QWidget {
 	runButton.OnClicked(func() { runSelectedFile() })
 	buttonLayout.AddWidget(runButton.QWidget)
 
-	browseButton := qt.NewQPushButton3("Browse...")
+	browseButton = qt.NewQPushButton3("Browse...")
 	browseButton.OnClicked(func() { browseFolder() })
 	buttonLayout.AddWidget(browseButton.QWidget)
 
