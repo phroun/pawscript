@@ -2,53 +2,60 @@
 
 This document tracks feature parity between the Qt and GTK versions of pawgui.
 
-## Missing Configuration Features
+## Configuration Features
 
 | Feature | GTK Status | Qt Status |
 |---------|------------|-----------|
-| `ui_scale` - UI scaling factor | Applied via CSS | Missing |
-| `optimization_level` - script caching | Used (default 1) | Hardcoded to 0 |
-| `terminal_background` - custom bg color | From config | Uses default |
-| `terminal_foreground` - custom fg color | From config | Uses default |
-| `palette_colors` - 16 ANSI colors | Configurable | Uses default |
-| `default_blink` - blink mode | bounce/blink/bright | Uses default |
-| `quit_shortcut` - Cmd+Q/Ctrl+Q/Alt+F4 | Configurable | Missing |
-| Auto-populate config with defaults | Writes missing keys | Missing |
+| `ui_scale` - UI scaling factor | Applied via CSS | ✅ Config supported (not yet applied) |
+| `optimization_level` - script caching | Used (default 1) | ✅ Implemented |
+| `terminal_background` - custom bg color | From config | ✅ Implemented |
+| `terminal_foreground` - custom fg color | From config | ✅ Implemented |
+| `palette_colors` - 16 ANSI colors | Configurable | ✅ Implemented |
+| `default_blink` - blink mode | bounce/blink/bright | ✅ Implemented |
+| `quit_shortcut` - Cmd+Q/Ctrl+Q/Alt+F4 | Configurable | ✅ Implemented |
+| Auto-populate config with defaults | Writes missing keys | ✅ Implemented |
 
-## Missing UI Features
-
-| Feature | GTK | Qt |
-|---------|-----|-----|
-| Font fallback list | `"Menlo, JetBrains Mono, SF Mono, ..."` | Single font only |
-| ".." parent directory entry | In file list | Uses "Up" button |
-| Run button label changes | "Open" for dirs, "Run" for files | Always "Run" |
-| Icons in file list | folder/file/go-up icons | Text only |
-| Welcome message | Startup banner | Missing |
-| Path label selectable | Can copy path | Not selectable |
-| Window default size | 1100x700 | 900x700 (minimum) |
-| Quit keyboard shortcut | Cmd+Q/Ctrl+Q | Missing |
-| Alt+F4 handler | Explicit handler | Missing |
-| File list scroll container | ScrolledWindow | May need fixing |
-
-## Missing Terminal Features
+## UI Features
 
 | Feature | GTK | Qt |
 |---------|-----|-----|
-| Scrollbar widget | Visible scrollbar | Missing |
-| Terminal capabilities | Sets TermCaps on channels | Missing |
-| Case-insensitive `.paw` | `ToLower()` check | Exact match only |
+| Font fallback list | Multi-font fallback | ✅ Implemented |
+| ".." parent directory entry | In file list | ✅ Implemented |
+| Run button label changes | "Open" for dirs, "Run" for files | ✅ Implemented |
+| Icons in file list | folder/file/go-up icons | ❌ Text only (Qt icons are complex) |
+| Welcome message | Startup banner | ✅ Implemented |
+| Path label selectable | Can copy path | ❌ Not selectable |
+| Window default size | 1100x700 | ✅ Implemented |
+| Quit keyboard shortcut | Cmd+Q/Ctrl+Q | ✅ Implemented |
+| Alt+F4 handler | Explicit handler | ✅ Via quit shortcut config |
 
-## Browse Button Behavior
+## Terminal Features
 
-- **GTK**: Opens a file picker filtered to `.paw` files, then runs the selected file
-- **Qt**: Opens a folder picker only
+| Feature | GTK | Qt |
+|---------|-----|-----|
+| Right-click context menu | Copy/Paste/SelectAll/Clear | ✅ Implemented |
+| Scrollbar widget | Visible scrollbar | ❌ Requires widget changes |
+| Terminal capabilities | Sets TermCaps on channels | ✅ Implemented |
+| Case-insensitive `.paw` | `ToLower()` check | ✅ Implemented |
 
-## Error Handling
+## File Browser
 
-- **GTK**: Prints directory read errors to terminal; destroys failed console windows
-- **Qt**: Silent failures; doesn't clean up on console window errors
+| Feature | GTK | Qt |
+|---------|-----|-----|
+| Browse button | Opens file picker with .paw filter | ✅ Implemented |
+| Directory read errors | Shown in terminal | ✅ Implemented |
+| Console window cleanup | Destroys on failure | ✅ Implemented |
 
-## Likely OK Differences
+## Remaining Items
 
-- GTK uses `glib.IdleAdd` for thread safety; Qt handles this differently through its event loop
-- GTK has Windows-specific `init()` for GTK data paths (pixbuf, schemas) - may not be needed for Qt
+The following features are not yet implemented:
+
+1. **Scrollbar** - Requires changes to purfecterm-qt widget
+2. **File list icons** - Qt icon handling is more complex
+3. **Selectable path label** - Minor UI enhancement
+4. **UI scale application** - Config is read but not applied to Qt widgets
+
+## Differences That Are OK
+
+- GTK uses `glib.IdleAdd` for thread safety; Qt handles this through its event loop
+- GTK has Windows-specific `init()` for GTK data paths - not needed for Qt
