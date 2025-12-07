@@ -50,6 +50,7 @@ const appName = "PawScript Launcher (Qt)"
 // Global state
 var (
 	currentDir string
+	qtApp      *qt.QApplication
 	mainWindow *qt.QMainWindow
 	fileList   *qt.QListWidget
 	terminal   *purfectermqt.Terminal
@@ -146,10 +147,14 @@ func getDefaultQuitShortcut() string          { return pawgui.GetDefaultQuitShor
 // applyTheme sets the Qt application palette based on the configuration.
 // "auto" = let Qt/OS decide, "dark" = force dark palette, "light" = force light palette
 func applyTheme(theme pawgui.ThemeMode) {
+	if qtApp == nil {
+		return
+	}
+
 	switch theme {
 	case pawgui.ThemeDark:
 		// Create a dark palette using stylesheet for better cross-platform support
-		qt.QApplication_SetStyleSheet(`
+		qtApp.SetStyleSheet(`
 			QWidget {
 				background-color: #353535;
 				color: #ffffff;
@@ -186,7 +191,7 @@ func applyTheme(theme pawgui.ThemeMode) {
 
 	case pawgui.ThemeLight:
 		// Create a light palette using stylesheet
-		qt.QApplication_SetStyleSheet(`
+		qtApp.SetStyleSheet(`
 			QWidget {
 				background-color: #f0f0f0;
 				color: #000000;
@@ -230,8 +235,8 @@ func applyTheme(theme pawgui.ThemeMode) {
 
 // applyUIScale applies UI scaling via stylesheet (does not affect terminal)
 func applyUIScale(scale float64) {
-	if scale == 1.0 {
-		return // No scaling needed
+	if scale == 1.0 || qtApp == nil {
+		return // No scaling needed or app not initialized
 	}
 
 	baseFontSize := int(12.0 * scale)
@@ -239,7 +244,7 @@ func applyUIScale(scale float64) {
 	buttonPaddingH := int(15.0 * scale)
 
 	// Get existing stylesheet and append scaling rules
-	existing := qt.QApplication_StyleSheet()
+	existing := qtApp.StyleSheet()
 	scaled := fmt.Sprintf(`
 		QWidget {
 			font-size: %dpx;
@@ -256,7 +261,7 @@ func applyUIScale(scale float64) {
 		}
 	`, baseFontSize, buttonPadding, buttonPaddingH, baseFontSize, baseFontSize, baseFontSize)
 
-	qt.QApplication_SetStyleSheet(existing + scaled)
+	qtApp.SetStyleSheet(existing + scaled)
 }
 
 func main() {
@@ -276,7 +281,7 @@ func main() {
 	}
 
 	// Initialize Qt application
-	qt.NewQApplication(os.Args)
+	qtApp = qt.NewQApplication(os.Args)
 
 	// Apply theme setting
 	applyTheme(configHelper.GetTheme())
