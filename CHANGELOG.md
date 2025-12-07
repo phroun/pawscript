@@ -43,10 +43,16 @@
   - Execute macros/blocks from tilde expressions in statement position
 - Variable index accessor support for tilde expressions (`~list ~idx`)
 - Route errors through `#err` channel for better error handling
-- Fixed `ret` in brace expressions to not propagate failure status
-- Fixed `msleep` corrupting execution state after async resume
-- Fixed cursor ANSI output to route through channel properly
 - Fixed unpacking assignment with `=>` operator
+- Fixed `ret` in brace expressions to not cancel the outer command:
+  - Brace expression failure can be found with {get_substatus}
+- Fixed `msleep` corrupting execution state after async resume
+- Pawgui console improvements:
+  - Non-blocking input queue for GUI console
+  - Byte-driven channels for raw input support
+  - Flow control to prevent output deadlock
+  - Line assembly for read command in raw byte mode
+- Fixed cursor ANSI output to route through channel properly
 
 ### 0.2.9 -- November 29 - December 2, 2025
 - `break` and `continue` commands for loop control, with async resumption fixes
