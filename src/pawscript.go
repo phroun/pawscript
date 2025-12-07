@@ -110,6 +110,9 @@ func New(config *Config) *PawScript {
 	ps.rootState.moduleEnv = NewChildModuleEnvironment(rootModuleEnv)
 	ps.rootState.executor = executor
 
+	// Set root state on executor for error routing fallback
+	executor.SetRootState(ps.rootState)
+
 	return ps
 }
 

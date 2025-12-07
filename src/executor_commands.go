@@ -162,7 +162,7 @@ func (e *Executor) executeCommandSequence(commands []*ParsedCommand, state *Exec
 
 				err := e.PushCommandSequence(sequenceToken, "sequence", remainingCommands, i+1, "sequence", state, cmd.Position)
 				if err != nil {
-					e.logger.ErrorCat(CatCommand,"Failed to push command sequence: %v", err)
+					e.logErrorWithContext(CatCommand, fmt.Sprintf("Failed to push command sequence: %v", err), state, cmd.Position)
 					return BoolStatus(false)
 				}
 
@@ -637,7 +637,7 @@ func (e *Executor) executeSingleCommand(
 			e.mu.Unlock()
 		} else {
 			e.mu.Unlock()
-			e.logger.ErrorCat(CatCommand,"Coordinator token %s not found or invalid", coordinatorToken)
+			e.logErrorWithContext(CatCommand, fmt.Sprintf("Coordinator token %s not found or invalid", coordinatorToken), state, position)
 			result := BoolStatus(false)
 			if shouldInvert {
 				return BoolStatus(!bool(result))

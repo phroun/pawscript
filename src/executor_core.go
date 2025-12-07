@@ -38,6 +38,7 @@ type Executor struct {
 	logger           *Logger
 	optLevel         OptimizationLevel // AST caching level
 	maxIterations    int               // Maximum loop iterations (0 or negative = unlimited)
+	rootState        *ExecutionState   // Root execution state for routing errors when no specific state is available
 	fallbackHandler  func(cmdName string, args []interface{}, namedArgs map[string]interface{}, state *ExecutionState, position *SourcePosition) Result
 }
 
@@ -106,9 +107,20 @@ func (e *Executor) GetMaxIterations() int {
 	return e.maxIterations
 }
 
+// SetRootState sets the root execution state for error routing fallback
+func (e *Executor) SetRootState(state *ExecutionState) {
+	e.mu.Lock()
+	defer e.mu.Unlock()
+	e.rootState = state
+}
+
 // logErrorWithContext logs an error through the #err channel using the execution state context
 // This ensures errors appear in the PawScript #err channel instead of system stderr
+// If state is nil, falls back to the root execution state
 func (e *Executor) logErrorWithContext(cat LogCategory, message string, state *ExecutionState, position *SourcePosition) {
+	if state == nil {
+		state = e.rootState
+	}
 	e.logger.SetOutputContext(NewOutputContext(state, e))
 	e.logger.CommandError(cat, "", message, position)
 	e.logger.ClearOutputContext()
@@ -535,7 +547,7 @@ func (e *Executor) executeStoredMacro(
 		if macroDesc == "" {
 			macroDesc = "<anonymous>"
 		}
-		e.logger.ErrorCat(CatMacro, "Cannot call macro '%s': forward declaration was never resolved with a macro definition", macroDesc)
+		e.logErrorWithContext(CatMacro, fmt.Sprintf("Cannot call macro '%s': forward declaration was never resolved with a macro definition", macroDesc), state, invocationPosition)
 		if state != nil {
 			state.SetResult(Symbol("undefined"))
 		}

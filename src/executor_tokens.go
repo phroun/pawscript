@@ -202,7 +202,7 @@ func (e *Executor) ResumeBraceEvaluation(coordinatorToken, childToken string, re
 
 	if coordData.BraceCoordinator == nil {
 		e.mu.Unlock()
-		e.logger.ErrorCat(CatAsync,"Token %s is not a brace coordinator", coordinatorToken)
+		e.logErrorWithContext(CatAsync, fmt.Sprintf("Token %s is not a brace coordinator", coordinatorToken), coordData.ExecutionState, coordData.Position)
 		return
 	}
 
@@ -772,7 +772,7 @@ func (e *Executor) resumeCommandSequence(seq *CommandSequence, status bool, stat
 	case "or":
 		return e.resumeOr(seq, status, state)
 	default:
-		e.logger.ErrorCat(CatAsync,"Unknown command sequence type: %s", seq.Type)
+		e.logErrorWithContext(CatAsync, fmt.Sprintf("Unknown command sequence type: %s", seq.Type), state, nil)
 		return false, ""
 	}
 }
@@ -817,7 +817,7 @@ func (e *Executor) resumeSequence(seq *CommandSequence, status bool, state *Exec
 
 				err := e.PushCommandSequence(sequenceToken, "sequence", remainingCommands, 0, "sequence", state, parsedCmd.Position)
 				if err != nil {
-					e.logger.ErrorCat(CatAsync,"Failed to push command sequence: %v", err)
+					e.logErrorWithContext(CatAsync, fmt.Sprintf("Failed to push command sequence: %v", err), state, parsedCmd.Position)
 					return false, ""
 				}
 
@@ -883,7 +883,7 @@ func (e *Executor) resumeConditional(seq *CommandSequence, status bool, state *E
 
 				err := e.PushCommandSequence(sequenceToken, "conditional", remainingCommands, 0, "conditional", state, parsedCmd.Position)
 				if err != nil {
-					e.logger.ErrorCat(CatAsync,"Failed to push command sequence: %v", err)
+					e.logErrorWithContext(CatAsync, fmt.Sprintf("Failed to push command sequence: %v", err), state, parsedCmd.Position)
 					return false, ""
 				}
 
@@ -952,7 +952,7 @@ func (e *Executor) resumeOr(seq *CommandSequence, status bool, state *ExecutionS
 
 				err := e.PushCommandSequence(sequenceToken, "or", remainingCommands, 0, "or", state, parsedCmd.Position)
 				if err != nil {
-					e.logger.ErrorCat(CatAsync,"Failed to push command sequence: %v", err)
+					e.logErrorWithContext(CatAsync, fmt.Sprintf("Failed to push command sequence: %v", err), state, parsedCmd.Position)
 					return false, ""
 				}
 
@@ -986,7 +986,14 @@ func (e *Executor) chainTokens(firstToken, secondToken string) {
 	secondTokenData, exists2 := e.activeTokens[secondToken]
 
 	if !exists1 || !exists2 {
-		e.logger.ErrorCat(CatAsync,"Cannot chain tokens: %s or %s not found", firstToken, secondToken)
+		// Try to get a state from whichever token exists for error routing
+		var state *ExecutionState
+		if exists1 {
+			state = firstTokenData.ExecutionState
+		} else if exists2 {
+			state = secondTokenData.ExecutionState
+		}
+		e.logErrorWithContext(CatAsync, fmt.Sprintf("Cannot chain tokens: %s or %s not found", firstToken, secondToken), state, nil)
 		return
 	}
 
