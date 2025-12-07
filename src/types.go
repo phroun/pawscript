@@ -1051,6 +1051,46 @@ func classifyValue(value interface{}, executor *Executor) (typeName string, isSe
 		return "nil", true, true
 	}
 
+	// Handle ObjectRef - the preferred way to reference stored objects
+	if objRef, ok := value.(ObjectRef); ok {
+		if !objRef.IsValid() {
+			return "undefined", true, true
+		}
+		if executor != nil {
+			if obj, exists := executor.getObject(objRef.ID); exists {
+				switch objRef.Type {
+				case ObjList:
+					if list, ok := obj.(StoredList); ok {
+						return "list", list.arrSerializable && list.mapSerializable, false
+					}
+					return "list", true, false
+				case ObjBytes:
+					return "bytes", true, false
+				case ObjBlock:
+					return "block", true, false
+				case ObjChannel:
+					return "channel", false, false
+				case ObjFiber:
+					return "fiber", false, false
+				case ObjCommand:
+					return "command", false, false
+				case ObjMacro:
+					return "macro", false, false
+				case ObjStruct:
+					if ss, ok := obj.(*StoredStruct); ok && ss.IsArray() {
+						return "structarray", false, false
+					}
+					return "struct", false, false
+				case ObjString:
+					return "string", true, false
+				default:
+					return objRef.Type.String(), false, false
+				}
+			}
+		}
+		return objRef.Type.String(), false, false
+	}
+
 	// Check for markers and resolve them
 	var markerStr string
 	switch v := value.(type) {

@@ -11,50 +11,48 @@ func (e *Executor) maybeStoreValue(value interface{}, state *ExecutionState) int
 	case string:
 		if len(v) > StringStorageThreshold {
 			ref := e.RegisterObject(StoredString(v), ObjString)
-			return Symbol(ref.ToMarker())
+			return ref // Return ObjectRef directly instead of marker
 		}
 		return v
 	case QuotedString:
 		if len(v) > StringStorageThreshold {
 			ref := e.RegisterObject(StoredString(v), ObjString)
-			return Symbol(ref.ToMarker())
+			return ref // Return ObjectRef directly instead of marker
 		}
 		return v
 	case ParenGroup:
 		if len(v) > BlockStorageThreshold {
 			ref := e.RegisterObject(StoredBlock(v), ObjBlock)
-			return Symbol(ref.ToMarker())
+			return ref // Return ObjectRef directly instead of marker
 		}
 		return v
 	case StoredList:
 		// StoredList objects come from processArguments resolving markers
-		// Convert back to marker to maintain pass-by-reference semantics
+		// Convert to ObjectRef to maintain pass-by-reference semantics
 		if id := e.findStoredListID(v); id >= 0 {
-			// The list already exists in storage
-			// Don't claim here - we're just converting from StoredList to Symbol
-			// The state will claim it through normal SetVariable/SetResult flow
-			return Symbol(fmt.Sprintf("\x00LIST:%d\x00", id))
+			// The list already exists in storage - return ObjectRef
+			return ObjectRef{Type: ObjList, ID: id}
 		}
 		// List not found in store - this shouldn't happen normally
 		// Store it as a new object
 		ref := e.RegisterObject(v, ObjList)
-		return Symbol(ref.ToMarker())
+		return ref
 	case StoredBytes:
-		// StoredBytes objects - convert to marker
+		// StoredBytes objects - convert to ObjectRef
 		if id := e.findStoredBytesID(v); id >= 0 {
-			return Symbol(fmt.Sprintf("\x00BYTES:%d\x00", id))
+			return ObjectRef{Type: ObjBytes, ID: id}
 		}
 		// Not found, store as new object
 		ref := e.RegisterObject(v, ObjBytes)
-		return Symbol(ref.ToMarker())
+		return ref
 	case StoredStruct:
-		// StoredStruct objects - convert to marker
+		// StoredStruct objects - convert to ObjectRef
 		if id := e.findStoredStructID(v); id >= 0 {
-			return Symbol(fmt.Sprintf("\x00STRUCT:%d\x00", id))
+			return ObjectRef{Type: ObjStruct, ID: id}
 		}
 		// Not found, store as new object
 		ref := e.RegisterObject(v, ObjStruct)
-		return Symbol(ref.ToMarker())
+		return ref
 	// Note: StructDef is now a StoredList, no special handling needed
 	default:
 		return value

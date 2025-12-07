@@ -366,6 +366,27 @@ func (ps *PawScript) RegisterCoreLib() {
 					jsonStr = string(v)
 				case StoredString:
 					jsonStr = string(v)
+				case ObjectRef:
+					// ObjectRef is the preferred way to reference stored objects
+					if v.Type == ObjString && v.IsValid() {
+						if obj, exists := ctx.executor.getObject(v.ID); exists {
+							if ss, ok := obj.(StoredString); ok {
+								jsonStr = string(ss)
+							} else {
+								ctx.LogError(CatType, "list from: json: stored object is not a string")
+								setListResult(ctx, NewStoredListWithoutRefs(nil))
+								return BoolStatus(false)
+							}
+						} else {
+							ctx.LogError(CatType, "list from: json: stored string not found")
+							setListResult(ctx, NewStoredListWithoutRefs(nil))
+							return BoolStatus(false)
+						}
+					} else {
+						ctx.LogError(CatType, fmt.Sprintf("list from: json requires a string argument, got ObjectRef type %v", v.Type))
+						setListResult(ctx, NewStoredListWithoutRefs(nil))
+						return BoolStatus(false)
+					}
 				default:
 					ctx.LogError(CatType, fmt.Sprintf("list from: json requires a string argument, got %T: %v", ctx.Args[0], ctx.Args[0]))
 					setListResult(ctx, NewStoredListWithoutRefs(nil))
@@ -1073,6 +1094,14 @@ func (ps *PawScript) RegisterCoreLib() {
 
 			// Handle markers
 			switch v := val.(type) {
+			case ObjectRef:
+				// ObjectRef is the preferred way to reference stored objects
+				if v.IsValid() {
+					if obj, exists := ctx.executor.getObject(v.ID); exists {
+						return toJSONValue(obj)
+					}
+				}
+				return nil, nil
 			case Symbol:
 				str := string(v)
 				if str == "undefined" || str == UndefinedMarker {
