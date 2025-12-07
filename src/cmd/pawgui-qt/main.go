@@ -15,6 +15,7 @@ import (
 
 	"github.com/mappu/miqt/qt"
 	"github.com/phroun/pawscript"
+	"github.com/phroun/pawscript/pkg/purfecterm"
 	purfectermqt "github.com/phroun/pawscript/pkg/purfecterm-qt"
 )
 
@@ -28,14 +29,15 @@ func init() {
 const defaultFontSize = 22
 
 // getDefaultFont returns the best monospace font for the current platform
+// Includes cross-platform fallbacks so config files can be shared between OS
 func getDefaultFont() string {
 	switch runtime.GOOS {
 	case "darwin":
-		return "Menlo"
+		return "Menlo, JetBrains Mono, SF Mono, Cascadia Mono, Consolas, Monaco, Courier New"
 	case "windows":
-		return "Cascadia Mono"
+		return "Cascadia Mono, Consolas, JetBrains Mono, Menlo, SF Mono, Monaco, Courier New"
 	default:
-		return "DejaVu Sans Mono"
+		return "JetBrains Mono, DejaVu Sans Mono, Liberation Mono, Menlo, Consolas, monospace"
 	}
 }
 
@@ -142,9 +144,160 @@ func getFontSize() int {
 	return defaultFontSize
 }
 
+// getUIScale returns the configured UI scale factor (default 1.0)
+func getUIScale() float64 {
+	if appConfig != nil {
+		if scale := appConfig.GetFloat("ui_scale", 0); scale > 0 {
+			return scale
+		}
+	}
+	return 1.0
+}
+
+// getOptimizationLevel returns the configured optimization level (default 1)
+// 0 = no caching, 1 = cache macro/loop bodies
+func getOptimizationLevel() int {
+	if appConfig != nil {
+		return appConfig.GetInt("optimization_level", 1)
+	}
+	return 1
+}
+
+// getTerminalBackground returns the configured terminal background color
+func getTerminalBackground() purfecterm.Color {
+	if appConfig != nil {
+		if hex := appConfig.GetString("terminal_background", ""); hex != "" {
+			if c, ok := purfecterm.ParseHexColor(hex); ok {
+				return c
+			}
+		}
+	}
+	return purfecterm.Color{R: 30, G: 30, B: 30} // Default dark background
+}
+
+// getTerminalForeground returns the configured terminal foreground color
+func getTerminalForeground() purfecterm.Color {
+	if appConfig != nil {
+		if hex := appConfig.GetString("terminal_foreground", ""); hex != "" {
+			if c, ok := purfecterm.ParseHexColor(hex); ok {
+				return c
+			}
+		}
+	}
+	return purfecterm.Color{R: 212, G: 212, B: 212} // Default light gray
+}
+
+// getColorPalette returns the configured 16-color ANSI palette
+func getColorPalette() []purfecterm.Color {
+	palette := make([]purfecterm.Color, 16)
+	copy(palette, purfecterm.ANSIColors)
+
+	if appConfig == nil {
+		return palette
+	}
+
+	// Check for palette_colors nested config
+	if paletteConfig, ok := appConfig["palette_colors"]; ok {
+		if pc, ok := paletteConfig.(pawscript.PSLConfig); ok {
+			names := purfecterm.PaletteColorNames()
+			for vgaIdx, name := range names {
+				if hex := pc.GetString(name, ""); hex != "" {
+					if c, ok := purfecterm.ParseHexColor(hex); ok {
+						// Map VGA config index to ANSI palette index
+						ansiIdx := purfecterm.VGAToANSI[vgaIdx]
+						palette[ansiIdx] = c
+					}
+				}
+			}
+		}
+	}
+
+	return palette
+}
+
+// getBlinkMode returns the configured blink mode
+func getBlinkMode() purfecterm.BlinkMode {
+	if appConfig != nil {
+		mode := appConfig.GetString("default_blink", "bounce")
+		return purfecterm.ParseBlinkMode(mode)
+	}
+	return purfecterm.BlinkModeBounce
+}
+
+// getQuitShortcut returns the configured quit shortcut
+func getQuitShortcut() string {
+	if appConfig != nil {
+		if val, exists := appConfig["quit_shortcut"]; exists {
+			if val == nil {
+				return "" // nil means disabled
+			}
+			if s, ok := val.(string); ok {
+				return s
+			}
+		}
+	}
+	return getDefaultQuitShortcut()
+}
+
+// getDefaultQuitShortcut returns the platform-appropriate default quit shortcut
+func getDefaultQuitShortcut() string {
+	if runtime.GOOS == "darwin" {
+		return "Cmd+Q"
+	}
+	return "Ctrl+Q"
+}
+
 func main() {
 	// Load configuration
 	appConfig = loadConfig()
+
+	// Auto-populate config with defaults (makes them discoverable)
+	configModified := false
+	if _, exists := appConfig["font_family"]; !exists {
+		appConfig.Set("font_family", getDefaultFont())
+		configModified = true
+	}
+	if _, exists := appConfig["font_size"]; !exists {
+		appConfig.Set("font_size", defaultFontSize)
+		configModified = true
+	}
+	if _, exists := appConfig["ui_scale"]; !exists {
+		appConfig.Set("ui_scale", 1.0)
+		configModified = true
+	}
+	if _, exists := appConfig["optimization_level"]; !exists {
+		appConfig.Set("optimization_level", 1)
+		configModified = true
+	}
+	if _, exists := appConfig["quit_shortcut"]; !exists {
+		appConfig.Set("quit_shortcut", getDefaultQuitShortcut())
+		configModified = true
+	}
+	if _, exists := appConfig["terminal_background"]; !exists {
+		appConfig.Set("terminal_background", "#1E1E1E")
+		configModified = true
+	}
+	if _, exists := appConfig["terminal_foreground"]; !exists {
+		appConfig.Set("terminal_foreground", "#D4D4D4")
+		configModified = true
+	}
+	if _, exists := appConfig["palette_colors"]; !exists {
+		paletteConfig := pawscript.PSLConfig{}
+		names := purfecterm.PaletteColorNames()
+		hexColors := purfecterm.DefaultPaletteHex()
+		for i, name := range names {
+			paletteConfig.Set(name, hexColors[i])
+		}
+		appConfig.Set("palette_colors", paletteConfig)
+		configModified = true
+	}
+	if _, exists := appConfig["default_blink"]; !exists {
+		appConfig.Set("default_blink", "bounce")
+		configModified = true
+	}
+	if configModified {
+		saveConfig(appConfig)
+	}
 
 	// Get initial directory
 	currentDir = appConfig.GetString("last_browse_dir", "")
@@ -158,7 +311,7 @@ func main() {
 	// Create main window
 	mainWindow = qt.NewQMainWindow2()
 	mainWindow.SetWindowTitle(appName)
-	mainWindow.SetMinimumSize2(900, 700)
+	mainWindow.Resize2(1100, 700)
 
 	// Create central widget with horizontal splitter
 	centralWidget := qt.NewQWidget2()
@@ -187,6 +340,11 @@ func main() {
 
 	// Start REPL
 	startREPL()
+
+	// Print welcome message
+	terminal.Feed("PawScript Launcher (Qt)\r\n")
+	terminal.Feed("Cross-platform terminal emulator\r\n")
+	terminal.Feed("Select a .paw file and click Run to execute.\r\n\r\n")
 
 	// Load initial directory
 	loadDirectory(currentDir)
@@ -226,6 +384,9 @@ func createFilePanel() *qt.QWidget {
 	fileList.OnItemDoubleClicked(func(item *qt.QListWidgetItem) {
 		handleFileActivated(item)
 	})
+	fileList.OnCurrentItemChanged(func(current *qt.QListWidgetItem, previous *qt.QListWidgetItem) {
+		onSelectionChanged(current)
+	})
 	layout.AddWidget2(fileList.QWidget, 1)
 
 	// Run button
@@ -241,14 +402,22 @@ func createTerminalPanel() *qt.QWidget {
 	layout := qt.NewQVBoxLayout2()
 	panel.SetLayout(layout.QLayout)
 
-	// Create terminal
+	// Create terminal with color scheme from config
 	var err error
 	terminal, err = purfectermqt.New(purfectermqt.Options{
-		Cols:           80,
-		Rows:           24,
+		Cols:           100,
+		Rows:           30,
 		ScrollbackSize: 10000,
 		FontFamily:     getFontFamily(),
 		FontSize:       getFontSize(),
+		Scheme: purfecterm.ColorScheme{
+			Foreground: getTerminalForeground(),
+			Background: getTerminalBackground(),
+			Cursor:     purfecterm.Color{R: 255, G: 255, B: 255},
+			Selection:  purfecterm.Color{R: 68, G: 68, B: 68},
+			Palette:    getColorPalette(),
+			BlinkMode:  getBlinkMode(),
+		},
 	})
 	if err != nil {
 		fmt.Fprintf(os.Stderr, "Failed to create terminal: %v\n", err)
@@ -415,7 +584,7 @@ func startREPL() {
 	consoleREPL = pawscript.NewREPL(pawscript.REPLConfig{
 		Debug:        false,
 		Unrestricted: false,
-		OptLevel:     0,
+		OptLevel:     getOptimizationLevel(),
 		ShowBanner:   true,
 		IOConfig: &pawscript.IOChannelConfig{
 			Stdout: consoleOutCh,
@@ -451,7 +620,19 @@ func loadDirectory(dir string) {
 
 	entries, err := os.ReadDir(dir)
 	if err != nil {
+		terminal.Feed(fmt.Sprintf("Error reading directory: %v\r\n", err))
 		return
+	}
+
+	// Add parent directory entry (except at root)
+	if dir != "/" && filepath.Dir(dir) != dir {
+		item := qt.NewQListWidgetItem7("..", fileList)
+		fileItemDataMu.Lock()
+		fileItemDataMap[item.UnsafePointer()] = fileItemData{
+			path:  filepath.Dir(dir),
+			isDir: true,
+		}
+		fileItemDataMu.Unlock()
 	}
 
 	// Add directories first
@@ -468,9 +649,9 @@ func loadDirectory(dir string) {
 		}
 	}
 
-	// Add .paw files
+	// Add .paw files (case-insensitive)
 	for _, entry := range entries {
-		if !entry.IsDir() && strings.HasSuffix(entry.Name(), ".paw") {
+		if !entry.IsDir() && strings.HasSuffix(strings.ToLower(entry.Name()), ".paw") {
 			item := qt.NewQListWidgetItem7(entry.Name(), fileList)
 			// Store data using pointer map
 			fileItemDataMu.Lock()
@@ -508,6 +689,27 @@ func navigateUp() {
 	}
 }
 
+func onSelectionChanged(item *qt.QListWidgetItem) {
+	if item == nil || runButton == nil {
+		return
+	}
+
+	fileItemDataMu.Lock()
+	data, ok := fileItemDataMap[item.UnsafePointer()]
+	fileItemDataMu.Unlock()
+
+	if !ok {
+		runButton.SetText("Run")
+		return
+	}
+
+	if data.isDir {
+		runButton.SetText("Open")
+	} else {
+		runButton.SetText("Run")
+	}
+}
+
 func browseFolder() {
 	dir := qt.QFileDialog_GetExistingDirectory3(mainWindow.QWidget, "Select Folder", currentDir)
 	if dir != "" {
@@ -518,6 +720,7 @@ func browseFolder() {
 func runSelectedFile() {
 	items := fileList.SelectedItems()
 	if len(items) == 0 {
+		terminal.Feed("No file selected.\r\n")
 		return
 	}
 
@@ -530,7 +733,9 @@ func runSelectedFile() {
 		return
 	}
 
-	if !data.isDir {
+	if data.isDir {
+		loadDirectory(data.path)
+	} else {
 		runScript(data.path)
 	}
 }
@@ -592,7 +797,7 @@ func runScript(filePath string) {
 		ContextLines:         2,
 		FileAccess:           fileAccess,
 		ScriptDir:            scriptDir,
-		OptLevel:             pawscript.OptimizationLevel(0),
+		OptLevel:             pawscript.OptimizationLevel(getOptimizationLevel()),
 	})
 
 	// Register standard library with the console IO
@@ -632,7 +837,7 @@ func runScript(filePath string) {
 			consoleREPL = pawscript.NewREPL(pawscript.REPLConfig{
 				Debug:        false,
 				Unrestricted: false,
-				OptLevel:     0,
+				OptLevel:     getOptimizationLevel(),
 				ShowBanner:   false, // Don't show banner again
 				IOConfig: &pawscript.IOChannelConfig{
 					Stdout: consoleOutCh,
@@ -655,13 +860,21 @@ func createConsoleWindow(filePath string) {
 	win.SetWindowTitle(fmt.Sprintf("PawScript - %s", filepath.Base(filePath)))
 	win.SetMinimumSize2(900, 600)
 
-	// Create terminal for this window
+	// Create terminal for this window with color scheme from config
 	winTerminal, err := purfectermqt.New(purfectermqt.Options{
 		Cols:           100,
 		Rows:           30,
 		ScrollbackSize: 10000,
 		FontFamily:     getFontFamily(),
 		FontSize:       getFontSize(),
+		Scheme: purfecterm.ColorScheme{
+			Foreground: getTerminalForeground(),
+			Background: getTerminalBackground(),
+			Cursor:     purfecterm.Color{R: 255, G: 255, B: 255},
+			Selection:  purfecterm.Color{R: 68, G: 68, B: 68},
+			Palette:    getColorPalette(),
+			BlinkMode:  getBlinkMode(),
+		},
 	})
 	if err != nil {
 		terminal.Feed(fmt.Sprintf("\r\nFailed to create console window: %v\r\n", err))
@@ -823,7 +1036,7 @@ func createConsoleWindow(filePath string) {
 		ContextLines:         2,
 		FileAccess:           fileAccess,
 		ScriptDir:            scriptDir,
-		OptLevel:             pawscript.OptimizationLevel(0),
+		OptLevel:             pawscript.OptimizationLevel(getOptimizationLevel()),
 	})
 
 	ioConfig := &pawscript.IOChannelConfig{
@@ -859,7 +1072,7 @@ func createConsoleWindow(filePath string) {
 		winREPL = pawscript.NewREPL(pawscript.REPLConfig{
 			Debug:        false,
 			Unrestricted: false,
-			OptLevel:     0,
+			OptLevel:     getOptimizationLevel(),
 			ShowBanner:   false,
 			IOConfig: &pawscript.IOChannelConfig{
 				Stdout: winOutCh,
