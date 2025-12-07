@@ -11,6 +11,7 @@ import (
 	"strings"
 	"sync"
 	"time"
+	"unsafe"
 
 	"github.com/mappu/miqt/qt"
 	"github.com/phroun/pawscript"
@@ -428,7 +429,7 @@ type fileItemData struct {
 	isDir bool
 }
 
-var fileItemDataMap = make(map[uintptr]fileItemData)
+var fileItemDataMap = make(map[unsafe.Pointer]fileItemData)
 var fileItemDataMu sync.Mutex
 
 func loadDirectory(dir string) {
@@ -439,7 +440,7 @@ func loadDirectory(dir string) {
 
 	// Clear old item data
 	fileItemDataMu.Lock()
-	fileItemDataMap = make(map[uintptr]fileItemData)
+	fileItemDataMap = make(map[unsafe.Pointer]fileItemData)
 	fileItemDataMu.Unlock()
 
 	entries, err := os.ReadDir(dir)
@@ -450,7 +451,7 @@ func loadDirectory(dir string) {
 	// Add directories first
 	for _, entry := range entries {
 		if entry.IsDir() && !strings.HasPrefix(entry.Name(), ".") {
-			item := qt.NewQListWidgetItem3("["+entry.Name()+"]", fileList.QListWidget)
+			item := qt.NewQListWidgetItem7("["+entry.Name()+"]", fileList)
 			// Store data using pointer map
 			fileItemDataMu.Lock()
 			fileItemDataMap[item.UnsafePointer()] = fileItemData{
@@ -464,7 +465,7 @@ func loadDirectory(dir string) {
 	// Add .paw files
 	for _, entry := range entries {
 		if !entry.IsDir() && strings.HasSuffix(entry.Name(), ".paw") {
-			item := qt.NewQListWidgetItem3(entry.Name(), fileList.QListWidget)
+			item := qt.NewQListWidgetItem7(entry.Name(), fileList)
 			// Store data using pointer map
 			fileItemDataMu.Lock()
 			fileItemDataMap[item.UnsafePointer()] = fileItemData{
@@ -502,7 +503,7 @@ func navigateUp() {
 }
 
 func browseFolder() {
-	dir := qt.QFileDialog_GetExistingDirectory2(mainWindow.QWidget, "Select Folder", currentDir)
+	dir := qt.QFileDialog_GetExistingDirectory3(mainWindow.QWidget, "Select Folder", currentDir)
 	if dir != "" {
 		loadDirectory(dir)
 	}
