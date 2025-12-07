@@ -15,7 +15,7 @@ const terminalLeftPadding = 8
 
 // Widget is a Qt terminal emulator widget
 type Widget struct {
-	widgets.QWidget
+	widget *widgets.QWidget
 
 	mu sync.Mutex
 
@@ -55,26 +55,20 @@ type Widget struct {
 
 	// Callback when data should be written to PTY
 	onInput func([]byte)
-
-	// Custom signals
-	_ func() `signal:"terminalUpdated"`
 }
 
 // NewWidget creates a new terminal widget with the specified dimensions
 func NewWidget(cols, rows, scrollbackSize int) *Widget {
-	w := NewWidget2(nil, 0)
-	w.init(cols, rows, scrollbackSize)
-	return w
-}
-
-func (w *Widget) init(cols, rows, scrollbackSize int) {
-	w.fontFamily = "Menlo"
-	w.fontSize = 14
-	w.charWidth = 10
-	w.charHeight = 20
-	w.charAscent = 16
-	w.scheme = purfecterm.DefaultColorScheme()
-	w.cursorBlinkOn = true
+	w := &Widget{
+		widget:        widgets.NewQWidget(nil, 0),
+		fontFamily:    "Monospace",
+		fontSize:      14,
+		charWidth:     10,
+		charHeight:    20,
+		charAscent:    16,
+		scheme:        purfecterm.DefaultColorScheme(),
+		cursorBlinkOn: true,
+	}
 
 	// Create buffer and parser
 	w.buffer = purfecterm.NewBuffer(cols, rows, scrollbackSize)
@@ -82,36 +76,42 @@ func (w *Widget) init(cols, rows, scrollbackSize int) {
 
 	// Set up dirty callback to trigger redraws
 	w.buffer.SetDirtyCallback(func() {
-		// Queue a repaint on the main thread
-		core.QCoreApplication_PostEvent(w, core.NewQEvent(core.QEvent__UpdateRequest), 0)
+		w.widget.Update()
 	})
 
 	// Enable focus and mouse tracking
-	w.SetFocusPolicy(core.Qt__StrongFocus)
-	w.SetMouseTracking(true)
-	w.SetAttribute(core.Qt__WA_InputMethodEnabled, true)
+	w.widget.SetFocusPolicy(core.Qt__StrongFocus)
+	w.widget.SetMouseTracking(true)
+	w.widget.SetAttribute(core.Qt__WA_InputMethodEnabled, true)
 
 	// Calculate font metrics
 	w.updateFontMetrics()
 
 	// Set initial size
-	w.SetMinimumSize2(cols*w.charWidth+terminalLeftPadding, rows*w.charHeight)
+	w.widget.SetMinimumSize2(cols*w.charWidth+terminalLeftPadding, rows*w.charHeight)
 
 	// Create blink timer (50ms for smooth animation)
-	w.blinkTimer = core.NewQTimer(w)
+	w.blinkTimer = core.NewQTimer(w.widget)
 	w.blinkTimer.ConnectTimeout(w.onBlinkTimer)
 	w.blinkTimer.Start(50)
 
 	// Connect paint event
-	w.ConnectPaintEvent(w.paintEvent)
-	w.ConnectKeyPressEvent(w.keyPressEvent)
-	w.ConnectMousePressEvent(w.mousePressEvent)
-	w.ConnectMouseReleaseEvent(w.mouseReleaseEvent)
-	w.ConnectMouseMoveEvent(w.mouseMoveEvent)
-	w.ConnectWheelEvent(w.wheelEvent)
-	w.ConnectFocusInEvent(w.focusInEvent)
-	w.ConnectFocusOutEvent(w.focusOutEvent)
-	w.ConnectResizeEvent(w.resizeEvent)
+	w.widget.ConnectPaintEvent(w.paintEvent)
+	w.widget.ConnectKeyPressEvent(w.keyPressEvent)
+	w.widget.ConnectMousePressEvent(w.mousePressEvent)
+	w.widget.ConnectMouseReleaseEvent(w.mouseReleaseEvent)
+	w.widget.ConnectMouseMoveEvent(w.mouseMoveEvent)
+	w.widget.ConnectWheelEvent(w.wheelEvent)
+	w.widget.ConnectFocusInEvent(w.focusInEvent)
+	w.widget.ConnectFocusOutEvent(w.focusOutEvent)
+	w.widget.ConnectResizeEvent(w.resizeEvent)
+
+	return w
+}
+
+// QWidget returns the underlying Qt widget
+func (w *Widget) QWidget() *widgets.QWidget {
+	return w.widget
 }
 
 func (w *Widget) onBlinkTimer() {
@@ -139,7 +139,7 @@ func (w *Widget) onBlinkTimer() {
 		}
 	}
 
-	w.Update()
+	w.widget.Update()
 }
 
 // SetFont sets the terminal font
@@ -149,7 +149,7 @@ func (w *Widget) SetFont(family string, size int) {
 	w.fontSize = size
 	w.mu.Unlock()
 	w.updateFontMetrics()
-	w.Update()
+	w.widget.Update()
 }
 
 // SetColorScheme sets the color scheme
@@ -157,7 +157,7 @@ func (w *Widget) SetColorScheme(scheme purfecterm.ColorScheme) {
 	w.mu.Lock()
 	w.scheme = scheme
 	w.mu.Unlock()
-	w.Update()
+	w.widget.Update()
 }
 
 // SetInputCallback sets the callback for handling input
@@ -224,12 +224,12 @@ func (w *Widget) paintEvent(event *gui.QPaintEvent) {
 		cursorVisible = false
 	}
 
-	painter := gui.NewQPainter2(w)
+	painter := gui.NewQPainter2(w.widget)
 	defer painter.DestroyQPainter()
 
 	// Fill background
 	bgColor := gui.NewQColor3(int(scheme.Background.R), int(scheme.Background.G), int(scheme.Background.B), 255)
-	painter.FillRect5(0, 0, w.Width(), w.Height(), bgColor)
+	painter.FillRect5(0, 0, w.widget.Width(), w.widget.Height(), bgColor)
 
 	// Set up font
 	font := gui.NewQFont2(fontFamily, fontSize, -1, false)
@@ -336,21 +336,21 @@ func (w *Widget) paintEvent(event *gui.QPaintEvent) {
 					painter.DrawText3(cellX, cellY+charAscent+int(yOffset), string(cell.Char))
 				case purfecterm.LineAttrDoubleWidth:
 					painter.Save()
-					painter.Translate2(float64(cellX), float64(cellY+charAscent)+yOffset)
+					painter.Translate3(float64(cellX), float64(cellY+charAscent)+yOffset)
 					painter.Scale(2.0, 1.0)
 					painter.DrawText3(0, 0, string(cell.Char))
 					painter.Restore()
 				case purfecterm.LineAttrDoubleTop:
 					painter.Save()
-					painter.SetClipRect4(cellX, cellY, cellW, cellH)
-					painter.Translate2(float64(cellX), float64(cellY+charAscent*2)+yOffset*2)
+					painter.SetClipRect2(core.NewQRect4(cellX, cellY, cellW, cellH), core.Qt__ReplaceClip)
+					painter.Translate3(float64(cellX), float64(cellY+charAscent*2)+yOffset*2)
 					painter.Scale(2.0, 2.0)
 					painter.DrawText3(0, 0, string(cell.Char))
 					painter.Restore()
 				case purfecterm.LineAttrDoubleBottom:
 					painter.Save()
-					painter.SetClipRect4(cellX, cellY, cellW, cellH)
-					painter.Translate2(float64(cellX), float64(cellY+charAscent*2-charHeight)+yOffset*2)
+					painter.SetClipRect2(core.NewQRect4(cellX, cellY, cellW, cellH), core.Qt__ReplaceClip)
+					painter.Translate3(float64(cellX), float64(cellY+charAscent*2-charHeight)+yOffset*2)
 					painter.Scale(2.0, 2.0)
 					painter.DrawText3(0, 0, string(cell.Char))
 					painter.Restore()
@@ -380,7 +380,7 @@ func (w *Widget) paintEvent(event *gui.QPaintEvent) {
 						pen := gui.NewQPen3(cursorQColor)
 						pen.SetWidth(1)
 						painter.SetPen(pen)
-						painter.DrawRect4(cellX, cellY, cellW-1, cellH-1)
+						painter.DrawRect2(core.NewQRect4(cellX, cellY, cellW-1, cellH-1))
 					}
 				case 1: // Underline
 					thickness := cellH / 4
@@ -583,13 +583,14 @@ func (w *Widget) calcMod(hasShift, hasCtrl, hasAlt, hasMeta bool) int {
 
 func (w *Widget) mousePressEvent(event *gui.QMouseEvent) {
 	if event.Button() == core.Qt__LeftButton {
-		cellX, cellY := w.screenToCell(int(event.X()), int(event.Y()))
+		pos := event.Pos()
+		cellX, cellY := w.screenToCell(pos.X(), pos.Y())
 		w.mouseDown = true
 		w.mouseDownX = cellX
 		w.mouseDownY = cellY
 		w.selectionMoved = false
 		w.buffer.ClearSelection()
-		w.SetFocus2()
+		w.widget.SetFocus2()
 	}
 }
 
@@ -608,7 +609,8 @@ func (w *Widget) mouseMoveEvent(event *gui.QMouseEvent) {
 		return
 	}
 
-	cellX, cellY := w.screenToCell(int(event.X()), int(event.Y()))
+	pos := event.Pos()
+	cellX, cellY := w.screenToCell(pos.X(), pos.Y())
 
 	if !w.selectionMoved {
 		if cellX != w.mouseDownX || cellY != w.mouseDownY {
@@ -648,19 +650,19 @@ func (w *Widget) wheelEvent(event *gui.QWheelEvent) {
 func (w *Widget) focusInEvent(event *gui.QFocusEvent) {
 	w.hasFocus = true
 	w.cursorBlinkOn = true
-	w.Update()
+	w.widget.Update()
 }
 
 func (w *Widget) focusOutEvent(event *gui.QFocusEvent) {
 	w.hasFocus = false
-	w.Update()
+	w.widget.Update()
 }
 
 func (w *Widget) resizeEvent(event *gui.QResizeEvent) {
 	w.updateFontMetrics()
 
-	newCols := (w.Width() - terminalLeftPadding) / w.charWidth
-	newRows := w.Height() / w.charHeight
+	newCols := (w.widget.Width() - terminalLeftPadding) / w.charWidth
+	newRows := w.widget.Height() / w.charHeight
 
 	if newCols < 1 {
 		newCols = 1
