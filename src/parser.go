@@ -595,6 +595,34 @@ const (
 	unitComplex // object markers, etc.
 )
 
+// unitTypeName returns a human-readable name for an argument unit type
+func unitTypeName(t argUnitType) string {
+	switch t {
+	case unitString:
+		return "string"
+	case unitNumber:
+		return "number"
+	case unitSymbol:
+		return "symbol"
+	case unitNil:
+		return "nil"
+	case unitBool:
+		return "bool"
+	case unitBlock:
+		return "block"
+	case unitComplex:
+		return "object"
+	default:
+		return "unknown"
+	}
+}
+
+// ArgParseError represents an error that occurred during argument parsing
+// It can be included in the returned args slice and detected by the executor
+type ArgParseError struct {
+	Message string
+}
+
 // parseArguments parses argument string into slice of positional args and named args
 // Implements concatenation rules for adjacent units without commas
 func parseArguments(argsStr string) ([]interface{}, map[string]interface{}) {
@@ -609,6 +637,8 @@ func parseArguments(argsStr string) ([]interface{}, map[string]interface{}) {
 	var currentType argUnitType
 	var potentialString bool
 	var originalItem interface{}
+	var originalType argUnitType  // Type of first item when entering potentialString
+	var conflictType argUnitType  // Type of second item that triggered potentialString
 	var lastWasNumber bool
 	var sugar bool
 	var pendingPositional strings.Builder // For tracking invalid positional after paren without comma
@@ -621,9 +651,10 @@ func parseArguments(argsStr string) ([]interface{}, map[string]interface{}) {
 			return
 		}
 		if potentialString {
-			// potentialString was never confirmed - error, revert to original
-			// For now, just use originalItem
-			args = append(args, originalItem)
+			// potentialString was never confirmed by a string or block - generate error
+			errMsg := fmt.Sprintf("Cannot follow %s with %s in a single argument",
+				unitTypeName(originalType), unitTypeName(conflictType))
+			args = append(args, ArgParseError{Message: errMsg})
 		} else {
 			// Always append - even if currentValue is nil (the PawScript nil literal)
 			// We know we have a valid value because currentType != unitNone
@@ -633,6 +664,8 @@ func parseArguments(argsStr string) ([]interface{}, map[string]interface{}) {
 		currentType = unitNone
 		potentialString = false
 		originalItem = nil
+		originalType = unitNone
+		conflictType = unitNone
 		lastWasNumber = false
 	}
 
@@ -818,6 +851,8 @@ func parseArguments(argsStr string) ([]interface{}, map[string]interface{}) {
 				if !potentialString {
 					potentialString = true
 					originalItem = currentValue
+					originalType = currentType
+					conflictType = newType
 				}
 				// Build string
 				s := valueToString(currentValue)

@@ -1756,6 +1756,14 @@ func (e *Executor) processArguments(args []interface{}, state *ExecutionState, s
 
 	result := make([]interface{}, len(args))
 	for i, arg := range args {
+		// Check for argument parse errors
+		if parseErr, ok := arg.(ArgParseError); ok {
+			e.logger.ErrorCat(CatArgument, "%s", parseErr.Message)
+			// Replace with nil to preserve argument count
+			result[i] = nil
+			continue
+		}
+
 		var markerStr string
 		var isMarker bool
 
