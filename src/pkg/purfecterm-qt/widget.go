@@ -87,11 +87,7 @@ func NewWidget(cols, rows, scrollbackSize int) *Widget {
 		w.updateScrollbar()
 	})
 
-	// Create scrollbar - try with parent in constructor
-	w.scrollbar = qt.NewQScrollBar(w.widget)
-	w.scrollbar.SetOrientation(qt.Vertical)
-	w.scrollbar.SetMinimum(0)
-	w.scrollbar.SetMaximum(0)
+	// Scrollbar will be created lazily on first resize to avoid initialization issues
 
 	// Enable focus and mouse tracking on the terminal widget
 	w.widget.SetFocusPolicy(qt.StrongFocus)
@@ -171,15 +167,26 @@ func NewWidget(cols, rows, scrollbackSize int) *Widget {
 		w.contextMenu.ExecWithPos(w.widget.MapToGlobal(pos))
 	})
 
-	// Connect scrollbar value changed callback after all setup is done
+	return w
+}
+
+// initScrollbar creates the scrollbar lazily (called on first resize)
+func (w *Widget) initScrollbar() {
+	if w.scrollbar != nil {
+		return
+	}
+	w.scrollbarUpdating = true
+	w.scrollbar = qt.NewQScrollBar(w.widget)
+	w.scrollbar.SetOrientation(qt.Vertical)
+	w.scrollbar.SetMinimum(0)
+	w.scrollbar.SetMaximum(0)
 	w.scrollbar.OnValueChanged(func(value int) {
 		if !w.scrollbarUpdating {
 			maxScroll := w.scrollbar.Maximum()
 			w.buffer.SetScrollOffset(maxScroll - value)
 		}
 	})
-
-	return w
+	w.scrollbarUpdating = false
 }
 
 // QWidget returns the terminal widget
@@ -772,6 +779,9 @@ func (w *Widget) focusOutEvent(event *qt.QFocusEvent) {
 
 func (w *Widget) resizeEvent(event *qt.QResizeEvent) {
 	w.updateFontMetrics()
+
+	// Create scrollbar lazily on first resize (Qt is fully initialized by now)
+	w.initScrollbar()
 
 	scrollbarWidth := 16
 	widgetWidth := w.widget.Width()
