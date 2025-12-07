@@ -42,7 +42,7 @@ func (e *Executor) applySubstitution(str string, ctx *SubstitutionContext) Subst
 		if len(ctx.Args) > 0 {
 			allArgs := make([]string, len(ctx.Args))
 			for i, arg := range ctx.Args {
-				allArgs[i] = e.formatArgumentForList(arg)
+				allArgs[i] = e.encodeArgumentForList(arg)
 			}
 			result = strings.ReplaceAll(result, "$*", strings.Join(allArgs, ", "))
 		} else {
@@ -1247,10 +1247,10 @@ func (e *Executor) substituteDollarArgs(str string, ctx *SubstitutionContext) st
 				var substitution string
 				if inQuote {
 					// Inside quotes: just insert content, no extra quotes
-					substitution = e.formatArgumentForQuotedContext(argValue)
+					substitution = e.encodeArgumentForQuotedContext(argValue)
 				} else {
 					// Outside quotes: may need to add quotes to preserve token boundaries
-					substitution = e.formatArgumentForSubstitution(argValue)
+					substitution = e.encodeArgumentForSubstitution(argValue)
 				}
 				result.WriteString(substitution)
 			} else {
@@ -2026,9 +2026,9 @@ func (e *Executor) lookupDollarArgWithContext(argNum int, inQuote bool, ctx *Sub
 
 	// Format based on quote context
 	if inQuote {
-		return e.formatArgumentForQuotedContext(argValue)
+		return e.encodeArgumentForQuotedContext(argValue)
 	}
-	return e.formatArgumentForSubstitution(argValue)
+	return e.encodeArgumentForSubstitution(argValue)
 }
 
 // lookupDollarArg looks up a numbered argument and formats it (outside quote context)
@@ -2077,7 +2077,7 @@ func (e *Executor) lookupDollarArg(argNum int, ctx *SubstitutionContext) string 
 	}
 
 	// Format the argument
-	return e.formatArgumentForSubstitution(argValue)
+	return e.encodeArgumentForSubstitution(argValue)
 }
 
 // formatAllArgsComma formats all args as comma-separated list
@@ -2087,7 +2087,7 @@ func (e *Executor) formatAllArgsComma(ctx *SubstitutionContext) string {
 	}
 	allArgs := make([]string, len(ctx.Args))
 	for i, arg := range ctx.Args {
-		allArgs[i] = e.formatArgumentForList(arg)
+		allArgs[i] = e.encodeArgumentForList(arg)
 	}
 	return strings.Join(allArgs, ", ")
 }

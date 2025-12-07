@@ -683,14 +683,40 @@ func (e *Executor) executeSingleCommand(
 	// Check for tilde expression (pure value expression as command)
 	// This is an implicit "set_result" - the tilde expression is parsed as an argument
 	// with full accessor and unit combination support.
-	// For block execution with args, use: {~block}, args
+	// EXCEPT: if the resolved value is a StoredMacro or StoredBlock, execute it.
+	// For block/macro execution with args, use: {~block}, args
 	if strings.HasPrefix(commandStr, "~") {
 		e.logger.DebugCat(CatCommand, "Detected tilde expression (implicit set_result): %s", commandStr)
 		// Treat as "set_result <expr>" - parse and process as argument
 		_, args, _ := ParseCommand("set_result " + commandStr)
 		args = e.processArguments(args, state, substitutionCtx, position)
 		if len(args) > 0 {
-			state.SetResult(args[0])
+			resolved := args[0]
+			// If it's a macro, execute it
+			if macro, ok := resolved.(StoredMacro); ok {
+				result := e.executeMacro(&macro, nil, nil, state, position)
+				if shouldInvert {
+					return e.invertStatus(result, state, position)
+				}
+				return result
+			}
+			if macroPtr, ok := resolved.(*StoredMacro); ok {
+				result := e.executeMacro(macroPtr, nil, nil, state, position)
+				if shouldInvert {
+					return e.invertStatus(result, state, position)
+				}
+				return result
+			}
+			// If it's a block, execute it
+			if block, ok := resolved.(StoredBlock); ok {
+				result := e.ExecuteWithState(string(block), state, substitutionCtx, position.Filename, 0, 0)
+				if shouldInvert {
+					return e.invertStatus(result, state, position)
+				}
+				return result
+			}
+			// Otherwise, just set as result
+			state.SetResult(resolved)
 		}
 		if shouldInvert {
 			return BoolStatus(false)

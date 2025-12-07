@@ -23,13 +23,13 @@ func (e *Executor) escapeSpecialCharacters(str string) string {
 	return result.String()
 }
 
-// formatArgumentForParenGroup formats an argument for $@ substitution
+// encodeArgumentForParenGroup encodes an argument for $@ substitution
 // Preserves original forms for creating ParenGroup literals
-// Similar to formatArgumentForList but without escaping quotes (not in string context)
+// Similar to encodeArgumentForList but without escaping quotes (not in string context)
 // IMPORTANT: Escapes tildes to prevent tilde injection (tildes in values should not
 // be interpreted as variable references)
 // nolint:unused // Reserved for future use
-func (e *Executor) formatArgumentForParenGroup(arg interface{}) string {
+func (e *Executor) encodeArgumentForParenGroup(arg interface{}) string {
 	const escapedTildePlaceholder = "\x00TILDE\x00"
 	var result string
 
@@ -68,12 +68,12 @@ func (e *Executor) formatArgumentForParenGroup(arg interface{}) string {
 	return result
 }
 
-// formatArgumentForList formats an argument for $* substitution
+// encodeArgumentForList encodes an argument for $* substitution
 // Preserves original forms but escapes quotes for string contexts
 // This is used when creating comma-separated lists where structure matters
 // IMPORTANT: Escapes tildes to prevent tilde injection (tildes in values should not
 // be interpreted as variable references)
-func (e *Executor) formatArgumentForList(arg interface{}) string {
+func (e *Executor) encodeArgumentForList(arg interface{}) string {
 	const escapedTildePlaceholder = "\x00TILDE\x00"
 	var result string
 
@@ -121,12 +121,12 @@ func (e *Executor) escapeQuotesAndBackslashes(s string) string {
 	return s
 }
 
-// formatArgumentForSubstitution formats an argument for $1, $2, etc. substitution
+// encodeArgumentForSubstitution encodes an argument for $1, $2, etc. substitution
 // Unwraps quotes and parentheses to get raw content
 // This is used when substituting into string contexts where we don't want nesting
 // IMPORTANT: Escapes tildes as \~ to prevent tilde injection (tildes in values should not
 // be interpreted as variable references)
-func (e *Executor) formatArgumentForSubstitution(arg interface{}) string {
+func (e *Executor) encodeArgumentForSubstitution(arg interface{}) string {
 	var result string
 	switch v := arg.(type) {
 	case ParenGroup:
@@ -212,9 +212,9 @@ func (e *Executor) formatArgumentForSubstitution(arg interface{}) string {
 	return result
 }
 
-// formatArgumentForQuotedContext formats an argument for substitution inside quotes
+// encodeArgumentForQuotedContext encodes an argument for substitution inside quotes
 // This extracts just the content without adding extra quotes, but escapes internal quotes/backslashes
-func (e *Executor) formatArgumentForQuotedContext(arg interface{}) string {
+func (e *Executor) encodeArgumentForQuotedContext(arg interface{}) string {
 	var content string
 	switch v := arg.(type) {
 	case ParenGroup:
