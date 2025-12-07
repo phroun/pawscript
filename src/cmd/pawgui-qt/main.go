@@ -311,7 +311,7 @@ func main() {
 	// Create main window
 	mainWindow = qt.NewQMainWindow2()
 	mainWindow.SetWindowTitle(appName)
-	mainWindow.Resize2(1100, 700)
+	mainWindow.Resize(1100, 700)
 
 	// Create central widget with horizontal splitter
 	centralWidget := qt.NewQWidget2()
@@ -378,7 +378,7 @@ func setupQuitShortcut() {
 		return
 	}
 
-	shortcut := qt.NewQShortcut(qt.NewQKeySequence5(keySequence), mainWindow.QWidget)
+	shortcut := qt.NewQShortcut2(qt.NewQKeySequence2(keySequence), mainWindow.QWidget)
 	shortcut.OnActivated(func() {
 		mainWindow.Close()
 	})
