@@ -58,7 +58,7 @@ type Widget struct {
 // NewWidget creates a new terminal widget with the specified dimensions
 func NewWidget(cols, rows, scrollbackSize int) *Widget {
 	w := &Widget{
-		widget:        qt.NewQWidget2(nil),
+		widget:        qt.NewQWidget2(),
 		fontFamily:    "Monospace",
 		fontSize:      14,
 		charWidth:     10,
@@ -80,7 +80,7 @@ func NewWidget(cols, rows, scrollbackSize int) *Widget {
 	// Enable focus and mouse tracking
 	w.widget.SetFocusPolicy(qt.StrongFocus)
 	w.widget.SetMouseTracking(true)
-	w.widget.SetAttribute(qt.WA_InputMethodEnabled, true)
+	w.widget.SetAttribute(qt.WA_InputMethodEnabled)
 
 	// Calculate font metrics
 	w.updateFontMetrics()
@@ -207,7 +207,7 @@ func (w *Widget) Buffer() *purfecterm.Buffer {
 }
 
 func (w *Widget) updateFontMetrics() {
-	font := qt.NewQFont4(w.fontFamily, w.fontSize)
+	font := qt.NewQFont6(w.fontFamily, w.fontSize)
 	font.SetFixedPitch(true)
 	metrics := qt.NewQFontMetrics(font)
 	w.charWidth = metrics.AverageCharWidth()
@@ -247,10 +247,10 @@ func (w *Widget) paintEvent(event *qt.QPaintEvent) {
 
 	// Fill background
 	bgColor := qt.NewQColor3(int(scheme.Background.R), int(scheme.Background.G), int(scheme.Background.B))
-	painter.FillRect6(0, 0, w.widget.Width(), w.widget.Height(), bgColor)
+	painter.FillRect5(0, 0, w.widget.Width(), w.widget.Height(), bgColor)
 
 	// Set up font
-	font := qt.NewQFont4(fontFamily, fontSize)
+	font := qt.NewQFont6(fontFamily, fontSize)
 	font.SetFixedPitch(true)
 	painter.SetFont(font)
 
@@ -328,18 +328,18 @@ func (w *Widget) paintEvent(event *qt.QPaintEvent) {
 			// Draw background if different from terminal background
 			if bg != scheme.Background {
 				bgQColor := qt.NewQColor3(int(bg.R), int(bg.G), int(bg.B))
-				painter.FillRect6(cellX, cellY, cellW, cellH, bgQColor)
+				painter.FillRect5(cellX, cellY, cellW, cellH, bgQColor)
 			}
 
 			// Draw character
 			if cell.Char != ' ' && cell.Char != 0 && blinkVisible {
 				fgQColor := qt.NewQColor3(int(fg.R), int(fg.G), int(fg.B))
-				painter.SetPen5(fgQColor)
+				painter.SetPen(fgQColor)
 
 				if cell.Bold {
-					boldFont := qt.NewQFont4(fontFamily, fontSize)
+					boldFont := qt.NewQFont6(fontFamily, fontSize)
 					boldFont.SetFixedPitch(true)
-					boldFont.SetWeight(qt.QFont__Bold)
+					boldFont.SetBold(true)
 					painter.SetFont(boldFont)
 				}
 
@@ -361,14 +361,14 @@ func (w *Widget) paintEvent(event *qt.QPaintEvent) {
 					painter.Restore()
 				case purfecterm.LineAttrDoubleTop:
 					painter.Save()
-					painter.SetClipRect(qt.NewQRect4(cellX, cellY, cellW, cellH))
+					painter.SetClipRect2(cellX, cellY, cellW, cellH)
 					painter.Translate2(float64(cellX), float64(cellY+charAscent*2)+yOffset*2)
 					painter.Scale(2.0, 2.0)
 					painter.DrawText3(0, 0, string(cell.Char))
 					painter.Restore()
 				case purfecterm.LineAttrDoubleBottom:
 					painter.Save()
-					painter.SetClipRect(qt.NewQRect4(cellX, cellY, cellW, cellH))
+					painter.SetClipRect2(cellX, cellY, cellW, cellH)
 					painter.Translate2(float64(cellX), float64(cellY+charAscent*2-charHeight)+yOffset*2)
 					painter.Scale(2.0, 2.0)
 					painter.DrawText3(0, 0, string(cell.Char))
@@ -387,7 +387,7 @@ func (w *Widget) paintEvent(event *qt.QPaintEvent) {
 				if lineAttr == purfecterm.LineAttrDoubleTop || lineAttr == purfecterm.LineAttrDoubleBottom {
 					underlineH = 2
 				}
-				painter.FillRect6(cellX, cellY+cellH-1, cellW, underlineH, fgQColor)
+				painter.FillRect5(cellX, cellY+cellH-1, cellW, underlineH, fgQColor)
 			}
 
 			// Draw cursor
@@ -398,7 +398,7 @@ func (w *Widget) paintEvent(event *qt.QPaintEvent) {
 					if !w.hasFocus {
 						pen := qt.NewQPen4(cursorQColor)
 						pen.SetWidth(1)
-						painter.SetPen(pen)
+						painter.SetPenWithPen(pen)
 						painter.DrawRect2(cellX, cellY, cellW-1, cellH-1)
 					}
 				case 1: // Underline
@@ -406,13 +406,13 @@ func (w *Widget) paintEvent(event *qt.QPaintEvent) {
 					if !w.hasFocus {
 						thickness = cellH / 6
 					}
-					painter.FillRect6(cellX, cellY+cellH-thickness, cellW, thickness, cursorQColor)
+					painter.FillRect5(cellX, cellY+cellH-thickness, cellW, thickness, cursorQColor)
 				case 2: // Bar
 					thickness := 2
 					if !w.hasFocus {
 						thickness = 1
 					}
-					painter.FillRect6(cellX, cellY, thickness, cellH, cursorQColor)
+					painter.FillRect5(cellX, cellY, thickness, cellH, cursorQColor)
 				}
 			}
 		}
