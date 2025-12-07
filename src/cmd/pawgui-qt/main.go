@@ -234,14 +234,18 @@ func applyTheme(theme pawgui.ThemeMode) {
 }
 
 // applyUIScale applies UI scaling via stylesheet (does not affect terminal)
+// Qt uses 1.75x the config scale to match visual appearance with GTK
 func applyUIScale(scale float64) {
-	if scale == 1.0 || qtApp == nil {
-		return // No scaling needed or app not initialized
+	if qtApp == nil {
+		return
 	}
 
-	baseFontSize := int(12.0 * scale)
-	buttonPadding := int(5.0 * scale)
-	buttonPaddingH := int(15.0 * scale)
+	// Qt needs 1.75x scale factor to match GTK visual appearance
+	effectiveScale := scale * 1.75
+
+	baseFontSize := int(12.0 * effectiveScale)
+	buttonPadding := int(5.0 * effectiveScale)
+	buttonPaddingH := int(15.0 * effectiveScale)
 
 	// Get existing stylesheet and append scaling rules
 	existing := qtApp.StyleSheet()

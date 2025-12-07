@@ -276,7 +276,8 @@ func activate(application *gtk.Application) {
 	mainWindow.SetDefaultSize(1100, 700)
 
 	// Apply CSS for UI scaling (base size 10px, scaled by ui_scale config)
-	uiScale := getUIScale()
+	// GTK uses 0.8x the config scale to match visual appearance with Qt
+	uiScale := getUIScale() * 0.8
 	baseFontSize := int(10.0 * uiScale)
 	buttonPadding := int(6.0 * uiScale)
 	cssProvider, _ := gtk.CssProviderNew()
