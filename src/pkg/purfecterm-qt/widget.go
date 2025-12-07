@@ -224,14 +224,18 @@ func (w *Widget) updateScrollbar() {
 	if w.scrollbar == nil {
 		return
 	}
+	fmt.Println("DEBUG: updateScrollbar called")
 	w.scrollbarUpdating = true
 	defer func() { w.scrollbarUpdating = false }()
 
 	scrollbackSize := w.buffer.GetScrollbackSize()
 	scrollOffset := w.buffer.GetScrollOffset()
 
+	fmt.Printf("DEBUG: updateScrollbar - SetMaximum(%d)\n", scrollbackSize)
 	w.scrollbar.SetMaximum(scrollbackSize)
+	fmt.Printf("DEBUG: updateScrollbar - SetValue(%d)\n", scrollbackSize-scrollOffset)
 	w.scrollbar.SetValue(scrollbackSize - scrollOffset)
+	fmt.Println("DEBUG: updateScrollbar done")
 
 	// Set page step to terminal height in lines
 	_, rows := w.buffer.GetSize()
@@ -795,11 +799,15 @@ func (w *Widget) resizeEvent(event *qt.QResizeEvent) {
 	scrollbarWidth := 16
 	widgetWidth := w.widget.Width()
 	widgetHeight := w.widget.Height()
+	fmt.Printf("DEBUG: resizeEvent - widget size: %dx%d\n", widgetWidth, widgetHeight)
 
 	// Position scrollbar on the right edge
 	if w.scrollbar != nil {
+		fmt.Println("DEBUG: resizeEvent - about to SetGeometry on scrollbar")
 		w.scrollbar.SetGeometry(widgetWidth-scrollbarWidth, 0, scrollbarWidth, widgetHeight)
+		fmt.Println("DEBUG: resizeEvent - about to Show scrollbar")
 		w.scrollbar.Show()
+		fmt.Println("DEBUG: resizeEvent - scrollbar shown")
 	}
 
 	// Account for scrollbar when calculating columns
@@ -813,7 +821,9 @@ func (w *Widget) resizeEvent(event *qt.QResizeEvent) {
 		newRows = 1
 	}
 
+	fmt.Printf("DEBUG: resizeEvent - about to resize buffer to %dx%d\n", newCols, newRows)
 	w.buffer.Resize(newCols, newRows)
+	fmt.Println("DEBUG: resizeEvent - done")
 }
 
 // Resize resizes the terminal to the specified dimensions
