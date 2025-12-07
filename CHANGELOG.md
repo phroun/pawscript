@@ -78,9 +78,28 @@
   - Bobbing wave animation for blink text attribute
   - Context menu with paste support
   - VGA/ANSI color palette mapping
+  - macOS-style scrollbar styling using terminal background color
 - Interactive REPL mode when `paw` is run without arguments
   - Persistent `ExecutionState` for REPL and host application use
   - Execute macros/blocks from tilde expressions in statement position
+- REPL prompt improvements:
+  - `paw*` prompt for normal input (replaces `"":`)
+  - Nesting-aware continuation prompts: `(*`, `{*`, `"*`, `'*`, `#(*`
+  - Full nesting stack shown (e.g., `({*` for braces inside parens)
+  - Line numbers in dark cyan on continuation lines (starting from 2)
+  - Background-aware prompt colors: yellow (dark bg) or dark brown (light bg)
+  - Result `=` prefix: bright green (dark bg) or dark green (light bg)
+  - Result values: dark gray (dark bg) or silver (light bg)
+- CLI config file `~/.paw/paw-cli.psl`:
+  - `term_background` setting: "auto", "dark", or "light"
+  - Auto-created on first run with graceful failure if not writable
+- PSL parsing improvements:
+  - `ParsePSL` and `ParsePSLList` now strip comments before parsing
+  - Supports `# ` line comments and `#( )#` block comments in config files
+- Build system improvements:
+  - GitHub workflow builds both GTK and Qt versions for Windows
+  - Makefile targets for macOS .app bundles: `package-gtk-macos`, `package-qt-macos`
+  - Removed fyne cross-compilation targets
 - Variable index accessor support for tilde expressions (`~list ~idx`)
 - Route errors through `#err` channel for better error handling
 - Fixed unpacking assignment with `=>` operator
