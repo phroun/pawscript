@@ -259,6 +259,9 @@ func (r *REPL) HandleInput(data []byte) bool {
 }
 
 func (r *REPL) printPrompt() {
+	// Flush any pending output before printing the prompt
+	r.ps.FlushIO()
+
 	if len(r.lines) == 0 {
 		r.output(replColorYellow + "\"\":" + replColorReset + " ")
 	} else {

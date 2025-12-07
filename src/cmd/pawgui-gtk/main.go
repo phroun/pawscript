@@ -103,6 +103,7 @@ var (
 	stdinReader    *io.PipeReader
 	stdinWriter    *io.PipeWriter
 	clearInputFunc func()
+	flushFunc      func()          // Flush pending output
 	scriptRunning  bool
 	scriptMu       sync.Mutex
 
@@ -896,6 +897,12 @@ func runScript(filePath string) {
 
 		// Run the script in the isolated environment
 		result := ps.ExecuteWithEnvironment(string(content), snapshot, filePath, 0, 0)
+
+		// Flush any pending output before printing completion message
+		if flushFunc != nil {
+			flushFunc()
+		}
+
 		if result == pawscript.BoolStatus(false) {
 			terminal.Feed("\r\n--- Script execution failed ---\r\n")
 		} else {
@@ -954,12 +961,19 @@ func createConsoleChannels(width, height int) {
 	}
 
 	// Non-blocking output: large buffer absorbs bursts
-	outputQueue := make(chan []byte, 256)
+	// Uses interface{} to allow flush sentinels (chan struct{}) alongside data ([]byte)
+	outputQueue := make(chan interface{}, 256)
 
 	// Writer goroutine: drains queue and writes to terminal pipe
 	go func() {
-		for data := range outputQueue {
-			stdoutWriter.Write(data)
+		for item := range outputQueue {
+			switch v := item.(type) {
+			case []byte:
+				stdoutWriter.Write(v)
+			case chan struct{}:
+				// Flush sentinel - signal that queue has drained up to this point
+				close(v)
+			}
 		}
 	}()
 
@@ -996,6 +1010,36 @@ func createConsoleChannels(width, height int) {
 		NativeRecv: func() (interface{}, error) {
 			return nil, fmt.Errorf("cannot receive from console_out")
 		},
+		NativeFlush: func() error {
+			// Step 1: Wait for outputQueue to drain and pipe to be read
+			// Since io.Pipe blocks until read, when this completes all prior data
+			// has been read from the pipe (though glib.IdleAdd may still be pending)
+			writerDone := make(chan struct{})
+			select {
+			case outputQueue <- writerDone:
+				<-writerDone // Wait for writer goroutine to process sentinel
+			default:
+				// Queue full - shouldn't happen with 256 buffer, but proceed anyway
+			}
+
+			// Step 2: Wait for all pending glib.IdleAdd callbacks to complete
+			// This ensures all FeedBytes calls have finished before we return
+			glibDone := make(chan struct{})
+			glib.IdleAdd(func() bool {
+				close(glibDone)
+				return false
+			})
+			<-glibDone
+
+			return nil
+		},
+	}
+
+	// Set up the global flushFunc
+	flushFunc = func() {
+		if consoleOutCh != nil {
+			consoleOutCh.Flush()
+		}
 	}
 
 	// Non-blocking input queue

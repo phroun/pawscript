@@ -741,6 +741,7 @@ type StoredChannel struct {
 	NativeRecv      func() (interface{}, error)     // Native receive handler
 	NativeClose     func() error                    // Native close handler
 	NativeLen       func() int                      // Native length handler (for Go channel backing)
+	NativeFlush     func() error                    // Native flush handler (waits for pending output)
 	// Terminal capabilities associated with this channel
 	// Allows channels to report their own ANSI/color/size support
 	// If nil, system terminal capabilities are used as fallback
@@ -792,6 +793,22 @@ func (ch *StoredChannel) SetTerminalCapabilities(caps *TerminalCapabilities) {
 	ch.mu.Lock()
 	defer ch.mu.Unlock()
 	ch.Terminal = caps
+}
+
+// Flush waits for any pending output to be written.
+// If NativeFlush is set, it calls that handler.
+// Returns nil if no flush handler is set.
+func (ch *StoredChannel) Flush() error {
+	if ch == nil {
+		return nil
+	}
+	ch.mu.RLock()
+	flush := ch.NativeFlush
+	ch.mu.RUnlock()
+	if flush != nil {
+		return flush()
+	}
+	return nil
 }
 
 // NewStoredChannel creates a new channel with optional buffer size

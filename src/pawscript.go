@@ -314,6 +314,28 @@ func (ps *PawScript) ResolveValue(val interface{}) interface{} {
 	return ps.executor.resolveValue(val)
 }
 
+// FlushIO waits for any pending output on stdout and stderr to be written.
+// This should be called before printing prompts or completion messages to ensure
+// all previous output has been displayed.
+func (ps *PawScript) FlushIO() {
+	if ps.rootModuleEnv == nil {
+		return
+	}
+	ps.rootModuleEnv.mu.RLock()
+	stdout := ps.rootModuleEnv.ObjectsInherited["#stdout"]
+	stderr := ps.rootModuleEnv.ObjectsInherited["#stderr"]
+	ps.rootModuleEnv.mu.RUnlock()
+
+	// Flush stdout
+	if ch, ok := stdout.(*StoredChannel); ok && ch != nil {
+		ch.Flush()
+	}
+	// Flush stderr (if different from stdout)
+	if ch, ok := stderr.(*StoredChannel); ok && ch != nil && stderr != stdout {
+		ch.Flush()
+	}
+}
+
 // Cleanup releases all resources held by the interpreter.
 // Call this when the host application is done with the interpreter.
 // After calling Cleanup, the interpreter should not be used.
