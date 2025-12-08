@@ -6,12 +6,9 @@ import (
 	"fmt"
 	"io"
 	"os"
-	"os/signal"
 	"path/filepath"
-	"runtime"
 	"strings"
 	"sync"
-	"syscall"
 	"time"
 	"unsafe"
 
@@ -21,26 +18,6 @@ import (
 	"github.com/phroun/pawscript/pkg/purfecterm"
 	purfectermqt "github.com/phroun/pawscript/pkg/purfecterm-qt"
 )
-
-func init() {
-	// Lock the main goroutine to the main OS thread.
-	// This is required for Qt on macOS to avoid signal handling conflicts.
-	runtime.LockOSThread()
-
-	// On macOS, Qt (or its underlying frameworks) installs signal handlers
-	// without the SA_ONSTACK flag, which conflicts with Go's signal handling.
-	// We take control of SIGURG before Qt initializes to prevent the crash.
-	// SIGURG is used for out-of-band data on sockets.
-	if runtime.GOOS == "darwin" {
-		sigCh := make(chan os.Signal, 1)
-		signal.Notify(sigCh, syscall.SIGURG)
-		go func() {
-			for range sigCh {
-				// Ignore SIGURG - it's not needed for our application
-			}
-		}()
-	}
-}
 
 // Default font size constant (uses shared package value)
 const defaultFontSize = pawgui.DefaultFontSize
