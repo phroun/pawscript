@@ -85,17 +85,34 @@ result: {ffi_call ~user32, "MessageBoxW",
 
 ### Out Parameters (Structs filled by callee)
 
+Since PawScript structs are immutable, out parameters work by passing the struct
+**definition** and receiving a newly-minted struct back:
+
 ```pawscript
 # Call that fills a struct (out parameter)
-event: {struct ~SDL_Event}
-has_event: {ffi_call ~sdl, "SDL_PollEvent",
-    args: (~event),           # Pointer to struct passed
+# Pass the struct DEFINITION, get back (return_value, new_struct)
+(has_event, event): {ffi_call ~sdl, "SDL_PollEvent",
+    out: ~SDL_Event,          # Pass the definition, not an instance
     returns: "int32"
 }
+# event is a NEW struct created from the buffer after the call
 if ~has_event then (
     echo "Event type:", ~event.type
 )
+
+# Multiple out parameters
+(result, info, extra): {ffi_call ~lib, "SomeFunction",
+    args: (123),
+    out: (~InfoStruct, ~ExtraStruct),   # Multiple out structs
+    returns: "int32"
+}
 ```
+
+The FFI system:
+1. Allocates temporary buffer(s) for out parameters
+2. Passes pointer(s) to the native function
+3. After the call, creates new immutable struct(s) from the buffer(s)
+4. Returns a tuple of (return_value, out_struct1, out_struct2, ...)
 
 ### String Handling
 
@@ -186,17 +203,20 @@ SDL_MouseMotionEvent: {struct_def
 }
 
 # Poll event and interpret based on type
-event_bytes: {bytes 56}  # Raw event buffer
-has_event: {ffi_call ~sdl, "SDL_PollEvent", args: (~event_bytes), returns: "int32"}
+# Use out: to get a new struct back (immutable pattern)
+(has_event, event_bytes): {ffi_call ~sdl, "SDL_PollEvent",
+    out: ~SDL_Event_base,     # Get raw event as base struct
+    returns: "int32"
+}
 
 if ~has_event then (
-    # Check type field
-    base: {struct ~SDL_Event_base, from: ~event_bytes}
-
-    if {eq ~base.type, 768} then (  # SDL_KEYDOWN
+    # Check type field from the returned struct
+    if {eq ~event_bytes.type, 768} then (  # SDL_KEYDOWN
+        # Reinterpret the same bytes as keyboard event
         key_event: {struct ~SDL_KeyboardEvent, from: ~event_bytes}
         echo "Key pressed:", ~key_event.keycode
-    ) else if {eq ~base.type, 1024} then (  # SDL_MOUSEMOTION
+    ) else if {eq ~event_bytes.type, 1024} then (  # SDL_MOUSEMOTION
+        # Reinterpret as mouse event
         mouse_event: {struct ~SDL_MouseMotionEvent, from: ~event_bytes}
         echo "Mouse:", ~mouse_event.x, ~mouse_event.y
     )
@@ -420,12 +440,11 @@ renderer: {ffi_call ~sdl, "SDL_CreateRenderer",
     thread: "main"
 }
 
-# Event handling structs
+# Event handling struct definition
 SDL_Event: {struct_def
     type: (0, 4, "uint_le"),
     padding: (4, 52, "bytes")
 }
-event: {struct ~SDL_Event}
 
 # Rectangle for rendering
 SDL_Rect: {struct_def
@@ -444,11 +463,20 @@ echo "Starting game loop..."
 
 # Main game loop
 while ~running, (
-    # Poll events
-    while {ffi_call ~sdl, "SDL_PollEvent", args: (~event), returns: "int32"}, (
+    # Poll events - out: returns a NEW struct each call (immutable pattern)
+    (has_event, event): {ffi_call ~sdl, "SDL_PollEvent",
+        out: ~SDL_Event,
+        returns: "int32"
+    }
+    while ~has_event, (
         if {eq ~event.type, ~SDL_QUIT} then (
             running: false
         )
+        # Poll next event
+        (has_event, event): {ffi_call ~sdl, "SDL_PollEvent",
+            out: ~SDL_Event,
+            returns: "int32"
+        }
     )
 
     # Clear screen (black)
