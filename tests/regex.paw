@@ -1,0 +1,119 @@
+#!/usr/bin/env pawscript
+# Comprehensive tests for regex commands: match, regex_find, regex_replace
+
+echo "=== MATCH TESTS ==="
+
+# Basic match tests
+echo "Basic match (should be true):", {match "hello world", "hello"}
+echo "Basic match fail (should be false):", {match "hello world", "goodbye"}
+echo "Match with anchors:", {match "hello", "^hello$"}
+echo "Match partial:", {match "hello", "^hel"}
+
+# Match with special characters
+echo "Match digits:", {match "abc123def", (\d+)}
+echo "Match word boundary:", {match "hello world", (\bhello\b)}
+echo "Match any char:", {match "hat", (h.t)}
+
+# Case insensitive matching
+echo "Case sensitive (should fail):", {match "HELLO", "hello"}
+echo "Case insensitive:", {match "HELLO", "hello", case_insensitive: true}
+
+# Match with capture groups (groups don't affect boolean result)
+echo "Match with groups:", {match "2024-12-08", ((\d+)-(\d+)-(\d+))}
+
+echo ""
+echo "=== REGEX_FIND TESTS ==="
+
+# Find first match
+echo "Find first match:"
+result: {regex_find "hello world hello", "hello"}
+echo "  Result:", ~result
+
+# Find with capture groups (using ~var N indexing, 0-based)
+echo "Find date parts:"
+date_parts: {regex_find "Date: 2024-12-08", ((\d+)-(\d+)-(\d+))}
+echo "  Full match:", ~date_parts 0
+echo "  Year:", ~date_parts 1
+echo "  Month:", ~date_parts 2
+echo "  Day:", ~date_parts 3
+
+# Find all matches
+echo "Find all matches:"
+all_nums: {regex_find "a1b2c3d4", (\d), all: true}
+echo "  Count:", {len ~all_nums}
+for ~all_nums, m, (
+    echo "    Match:", ~m 0
+)
+
+# Find all with groups
+echo "Find all word pairs:"
+pairs: {regex_find "foo=bar baz=qux", ((\w+)=(\w+)), all: true}
+for ~pairs, pair, (
+    echo "  Pair:", ~pair 0, "-> key:", ~pair 1, "val:", ~pair 2
+)
+
+# Find with case insensitive
+echo "Case insensitive find:"
+ci_result: {regex_find "Hello HELLO hello", "hello", all: true, case_insensitive: true}
+echo "  Found", {len ~ci_result}, "matches"
+
+# Find with no match
+echo "Find no match:"
+no_match: {regex_find "hello", (\d+)}
+echo "  Result is nil:", {eq ~no_match, nil}
+
+echo ""
+echo "=== REGEX_REPLACE TESTS ==="
+
+# Basic replacement
+echo "Basic replace:", {regex_replace "hello world", "world", "universe"}
+
+# Replace with capture groups
+echo "Swap words:", {regex_replace "hello world", ((\w+) (\w+)), "$2 $1"}
+
+# Replace all occurrences
+echo "Replace all digits:", {regex_replace "a1b2c3", (\d), "X"}
+
+# Replace with count limit
+echo "Replace first 2:", {regex_replace "aaa", "a", "b", count: 2}
+
+# Replace none (count: 0 means all)
+echo "Replace all (count 0):", {regex_replace "aaa", "a", "b", count: 0}
+
+# Case insensitive replacement
+echo "Case insensitive replace:", {regex_replace "Hello HELLO hello", "hello", "hi", case_insensitive: true}
+
+# Replace with empty string (deletion)
+echo "Delete pattern:", {regex_replace "a1b2c3", (\d), ""}
+
+# Replace with backreferences
+echo "Wrap matches:", {regex_replace "cat dog bird", (\w+), "[$0]"}
+
+# Format phone number using groups
+echo "Format phone:", {regex_replace "5551234567", ((\d\d\d)(\d\d\d)(\d\d\d\d)), "($1) $2-$3"}
+
+echo ""
+echo "=== EDGE CASES ==="
+
+# Empty input
+echo "Empty input match:", {match "", (.*)}
+echo "Empty input find:", {regex_find "", (.*)}
+echo "Empty input replace:", {regex_replace "", "a", "b"}
+
+# Empty pattern
+echo "Empty pattern match:", {match "hello", ""}
+
+# Special regex characters in pattern
+echo "Match literal dot:", {match "hello.world", (\.)}
+echo "Match literal brackets:", {match "[test]", (\[test\])}
+
+# Unicode support
+echo "Match unicode:", {match "hello world", (\w+)}
+echo "Replace unicode:", {regex_replace "cafe", "e", "E"}
+
+# Multiline and complex patterns
+echo "Match start of string:", {match "hello\nworld", (^hello)}
+echo "Match email-like:", {match "test@example.com", (\w+@\w+\.\w+)}
+
+echo ""
+echo "=== DONE ==="
