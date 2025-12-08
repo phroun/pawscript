@@ -574,6 +574,248 @@ Tool to generate PawScript struct definitions from C headers:
 paw-bindgen SDL.h > sdl_bindings.paw
 ```
 
+## Native-Feel Bindings
+
+### The Problem
+
+Raw FFI calls work but are verbose and require intimate knowledge of library details:
+
+```pawscript
+# Raw FFI - verbose and OS-specific details exposed
+sdl: {ffi_load "SDL2"}
+result: {ffi_call ~sdl, "SDL_Init", args: (0x20), returns: "int32"}
+window: {ffi_call ~sdl, "SDL_CreateWindow",
+    args: ("Title", 100, 100, 800, 600, 0),
+    returns: "pointer",
+    thread: "main"
+}
+```
+
+### The Solution: Bindings
+
+Bindings let FFI calls feel like native PawScript commands:
+
+```pawscript
+# With bindings - clean, native feel
+result: {sdl_init 0x20}
+window: {sdl_create_window "Title", 100, 100, 800, 600, 0}
+```
+
+### Host-Side Binding Registration (Go)
+
+Hosts can register bindings that map PawScript commands to FFI calls:
+
+```go
+ps.RegisterFFIBinding(&pawscript.FFIBinding{
+    Command: "sdl_init",
+    Library: pawscript.LibraryPaths{
+        Windows: "SDL2.dll",
+        Darwin:  "libSDL2.dylib",
+        Linux:   "libSDL2.so",
+    },
+    Symbol:     "SDL_Init",
+    Args:       []string{"uint32"},
+    Returns:    "int32",
+    Thread:     "main",
+    Convention: "cdecl",
+})
+
+ps.RegisterFFIBinding(&pawscript.FFIBinding{
+    Command: "sdl_create_window",
+    Library: pawscript.LibraryPaths{
+        Windows: "SDL2.dll",
+        Darwin:  "libSDL2.dylib",
+        Linux:   "libSDL2.so",
+    },
+    Symbol:  "SDL_CreateWindow",
+    Args:    []string{"string", "int32", "int32", "int32", "int32", "uint32"},
+    Returns: "pointer",
+    Thread:  "main",
+})
+```
+
+### PawScript-Side Binding Definitions
+
+Bindings can also be defined in PawScript itself using `ffi_command`:
+
+```pawscript
+# Define a cross-platform binding
+ffi_command sdl_init, (
+    windows: ("SDL2.dll", "SDL_Init"),
+    darwin:  ("libSDL2.dylib", "SDL_Init"),
+    linux:   ("libSDL2.so", "SDL_Init"),
+    args:    (uint32: "flags"),
+    returns: "int32",
+    thread:  "main"
+)
+
+ffi_command sdl_create_window, (
+    windows: ("SDL2.dll", "SDL_CreateWindow"),
+    darwin:  ("libSDL2.dylib", "SDL_CreateWindow"),
+    linux:   ("libSDL2.so", "SDL_CreateWindow"),
+    args:    (string: "title", int32: "x", int32: "y", int32: "w", int32: "h", uint32: "flags"),
+    returns: "pointer",
+    thread:  "main"
+)
+
+ffi_command sdl_poll_event, (
+    windows: ("SDL2.dll", "SDL_PollEvent"),
+    darwin:  ("libSDL2.dylib", "SDL_PollEvent"),
+    linux:   ("libSDL2.so", "SDL_PollEvent"),
+    args:    (),
+    out:     ~SDL_Event,
+    returns: "int32"
+)
+
+# Now use them naturally
+result: {sdl_init 0x20}
+window: {sdl_create_window "My Game", 100, 100, 800, 600, 0}
+(has_event, event): {sdl_poll_event}
+```
+
+### Binding Libraries
+
+Collections of bindings can be packaged as `.paw` files and imported:
+
+```pawscript
+# Import binding library
+import "sdl2_bindings.paw"
+
+# All SDL2 commands now available as native commands
+{sdl_init SDL_INIT_VIDEO}
+window: {sdl_create_window "Game", 100, 100, 800, 600, 0}
+renderer: {sdl_create_renderer ~window, -1, SDL_RENDERER_ACCELERATED}
+
+# Event loop
+while ~running, (
+    (has_event, event): {sdl_poll_event}
+    if ~has_event then (
+        if {eq ~event.type, SDL_QUIT} then (
+            running: false
+        )
+    )
+
+    {sdl_render_clear ~renderer}
+    {sdl_render_present ~renderer}
+)
+
+{sdl_quit}
+```
+
+### Standard Binding Libraries
+
+The host application or PawScript distribution could include pre-built bindings for common libraries:
+
+| Library | Binding File | Commands |
+|---------|--------------|----------|
+| SDL2 | `sdl2_bindings.paw` | `sdl_init`, `sdl_quit`, `sdl_create_window`, ... |
+| SDL2_image | `sdl2_image_bindings.paw` | `img_load`, `img_save_png`, ... |
+| SDL2_mixer | `sdl2_mixer_bindings.paw` | `mix_open_audio`, `mix_play_channel`, ... |
+| SDL2_ttf | `sdl2_ttf_bindings.paw` | `ttf_open_font`, `ttf_render_text`, ... |
+| OpenGL | `opengl_bindings.paw` | `gl_clear`, `gl_draw_arrays`, ... |
+| GLFW | `glfw_bindings.paw` | `glfw_init`, `glfw_create_window`, ... |
+
+### Handling Platform Differences
+
+For APIs that differ between platforms (not just library paths), use platform-specific overrides:
+
+```pawscript
+# Windows-specific MessageBox
+ffi_command message_box, (
+    windows: ("user32.dll", "MessageBoxW"),
+    args:    (pointer: "hwnd", string: "text", string: "caption", uint32: "type"),
+    returns: "int32",
+    convention: "stdcall"  # Windows calling convention
+)
+
+# macOS-specific notification (Cocoa via FFI bridge)
+ffi_command show_notification, (
+    darwin: ("libnotify_bridge.dylib", "show_notification"),
+    args:   (string: "title", string: "message"),
+    returns: "void"
+)
+
+# Cross-platform fallback pattern
+if {os} eq "windows" then (
+    {message_box 0, "Hello", "Title", 0}
+) else if {os} eq "darwin" then (
+    {show_notification "Title", "Hello"}
+) else (
+    echo "Hello"  # Linux fallback
+)
+```
+
+### Struct Definitions in Binding Libraries
+
+Binding libraries can include struct definitions alongside commands:
+
+```pawscript
+# sdl2_bindings.paw
+
+# Struct definitions
+SDL_Rect: {struct_def
+    x: (0, 4, "int_le"),
+    y: (4, 4, "int_le"),
+    w: (8, 4, "int_le"),
+    h: (12, 4, "int_le")
+}
+
+SDL_Event: {struct_def
+    type: (0, 4, "uint_le"),
+    padding: (4, 52, "bytes")
+}
+
+SDL_KeyboardEvent: {struct_def
+    type:      (0, 4, "uint_le"),
+    timestamp: (4, 4, "uint_le"),
+    windowID:  (8, 4, "uint_le"),
+    state:     (12, 1, "uint8"),
+    repeat:    (13, 1, "uint8"),
+    scancode:  (16, 4, "int_le"),
+    keycode:   (20, 4, "int_le"),
+    mod:       (24, 2, "uint_le")
+}
+
+# Constants
+SDL_INIT_VIDEO:    0x00000020
+SDL_INIT_AUDIO:    0x00000010
+SDL_QUIT:          256
+SDL_KEYDOWN:       768
+SDL_KEYUP:         769
+SDL_MOUSEMOTION:   1024
+SDL_MOUSEBUTTONDOWN: 1025
+
+# Command bindings
+ffi_command sdl_init, (
+    windows: ("SDL2.dll", "SDL_Init"),
+    darwin:  ("libSDL2.dylib", "SDL_Init"),
+    linux:   ("libSDL2.so", "SDL_Init"),
+    args:    (uint32: "flags"),
+    returns: "int32",
+    thread:  "main"
+)
+
+# ... more bindings ...
+```
+
+### Security with Bindings
+
+Bindings respect the same security model as raw FFI:
+
+1. **Host whitelist still applies** - `ffi_command` can only create bindings for whitelisted libraries
+2. **Imported binding files are validated** - Bindings can only reference allowed libraries
+3. **No privilege escalation** - A binding can't grant access the host didn't provide
+
+```go
+// Host configuration determines what bindings can actually work
+ps.SetFFIConfig(&pawscript.FFIConfig{
+    AllowedLibraries: map[string]FFILibraryConfig{
+        "SDL2": {...},  // Only SDL2 allowed
+        // OpenGL NOT in list - any opengl bindings will fail to load
+    },
+})
+```
+
 ## Summary
 
 This FFI design:
@@ -583,5 +825,6 @@ This FFI design:
 3. **Supports real-world use** - Thread affinity for GUI/graphics libraries
 4. **Enables game development** - SDL2, OpenGL, audio libraries all accessible
 5. **Stays cross-platform** - Pure Go implementation possible with purego
+6. **Provides native feel** - Binding system makes FFI calls feel like built-in commands
 
-The existing Struct system with its endianness support, bit fields, and union-via-overlay capability provides exactly the foundation needed for robust FFI.
+The existing Struct system with its endianness support, bit fields, and union-via-overlay capability provides exactly the foundation needed for robust FFI. The binding system then builds on this to provide a clean, native-feeling API that abstracts away platform differences.
