@@ -2,7 +2,8 @@ package purfecterm
 
 // Cell represents a single character cell in the terminal
 type Cell struct {
-	Char       rune
+	Char       rune   // Base character
+	Combining  string // Combining marks (vowel points, diacritics, etc.)
 	Foreground Color
 	Background Color
 	Bold       bool
@@ -10,6 +11,105 @@ type Cell struct {
 	Underline  bool
 	Reverse    bool
 	Blink      bool // When true, character animates (bobbing wave instead of traditional blink)
+}
+
+// String returns the full character including any combining marks
+func (c *Cell) String() string {
+	if c.Combining == "" {
+		return string(c.Char)
+	}
+	return string(c.Char) + c.Combining
+}
+
+// IsCombiningMark returns true if the rune is a Unicode combining character.
+// This includes:
+// - Combining Diacritical Marks (0x0300-0x036F)
+// - Hebrew vowel points and marks (0x0591-0x05C7)
+// - Arabic marks (0x0610-0x065F, 0x0670, 0x06D6-0x06ED)
+// - Other combining marks (Mn, Mc, Me categories)
+func IsCombiningMark(r rune) bool {
+	// Common combining diacritical marks
+	if r >= 0x0300 && r <= 0x036F {
+		return true
+	}
+	// Combining Diacritical Marks Extended
+	if r >= 0x1AB0 && r <= 0x1AFF {
+		return true
+	}
+	// Combining Diacritical Marks Supplement
+	if r >= 0x1DC0 && r <= 0x1DFF {
+		return true
+	}
+	// Combining Diacritical Marks for Symbols
+	if r >= 0x20D0 && r <= 0x20FF {
+		return true
+	}
+	// Combining Half Marks
+	if r >= 0xFE20 && r <= 0xFE2F {
+		return true
+	}
+	// Hebrew points and marks (cantillation, vowels, etc.)
+	if r >= 0x0591 && r <= 0x05BD {
+		return true
+	}
+	if r == 0x05BF || r == 0x05C1 || r == 0x05C2 || r == 0x05C4 || r == 0x05C5 || r == 0x05C7 {
+		return true
+	}
+	// Arabic marks
+	if r >= 0x0610 && r <= 0x061A {
+		return true
+	}
+	if r >= 0x064B && r <= 0x065F {
+		return true
+	}
+	if r == 0x0670 {
+		return true
+	}
+	if r >= 0x06D6 && r <= 0x06DC {
+		return true
+	}
+	if r >= 0x06DF && r <= 0x06E4 {
+		return true
+	}
+	if r >= 0x06E7 && r <= 0x06E8 {
+		return true
+	}
+	if r >= 0x06EA && r <= 0x06ED {
+		return true
+	}
+	// Thai marks
+	if r >= 0x0E31 && r <= 0x0E3A {
+		return true
+	}
+	if r >= 0x0E47 && r <= 0x0E4E {
+		return true
+	}
+	// Devanagari, Bengali, and other Indic vowel signs (combining)
+	if r >= 0x0901 && r <= 0x0903 { // Devanagari
+		return true
+	}
+	if r >= 0x093A && r <= 0x094F {
+		return true
+	}
+	if r >= 0x0951 && r <= 0x0957 {
+		return true
+	}
+	if r >= 0x0962 && r <= 0x0963 {
+		return true
+	}
+	// Korean Hangul Jungseong and Jongseong (combining vowels/finals for Jamo)
+	if r >= 0x1160 && r <= 0x11FF {
+		return true
+	}
+	// Variation selectors
+	if r >= 0xFE00 && r <= 0xFE0F {
+		return true
+	}
+	// Zero-width joiner and non-joiner (used in complex scripts)
+	if r == 0x200C || r == 0x200D {
+		return true
+	}
+	return false
 }
 
 // EmptyCell returns an empty cell with default attributes

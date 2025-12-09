@@ -723,7 +723,7 @@ func (w *Widget) paintEvent(event *qt.QPaintEvent) {
 
 				// Measure actual character width
 				metrics := qt.NewQFontMetrics(drawFont)
-				charStr := string(cell.Char)
+				charStr := cell.String() // Includes base char + any combining marks
 				actualWidth := metrics.HorizontalAdvance(charStr)
 
 				// Calculate bobbing wave offset

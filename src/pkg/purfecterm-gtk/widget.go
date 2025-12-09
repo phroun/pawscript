@@ -668,7 +668,7 @@ func (w *Widget) onDraw(da *gtk.DrawingArea, cr *cairo.Context) bool {
 				}
 
 				// Measure actual character width using Cairo TextExtents
-				charStr := string(cell.Char)
+				charStr := cell.String() // Includes base char + any combining marks
 				extents := cr.TextExtents(charStr)
 				actualWidth := extents.XAdvance
 
