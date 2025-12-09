@@ -86,6 +86,24 @@ type Buffer struct {
 	cropRects    map[int]*CropRectangle // Crop rectangle ID -> CropRectangle
 	spriteUnitX  int                    // Subdivisions per cell horizontally (default 8)
 	spriteUnitY  int                    // Subdivisions per cell vertically (default 8)
+
+	// Screen crop (in sprite coordinate units, -1 = no crop)
+	widthCrop  int // X coordinate beyond which nothing renders
+	heightCrop int // Y coordinate below which nothing renders
+
+	// Screen splits for multi-region rendering
+	screenSplits map[int]*ScreenSplit // Split ID -> ScreenSplit
+}
+
+// ScreenSplit defines a split region that can show a different part of the buffer
+type ScreenSplit struct {
+	ScreenY         int     // Y coordinate in sprite units where this split begins on screen
+	BufferRow       int     // 0-indexed row in logical screen to start drawing from
+	BufferCol       int     // 0-indexed column in logical screen to start drawing from
+	TopFineScroll   int     // 0 to (subdivisions-1), higher = more of top row clipped
+	LeftFineScroll  int     // 0 to (subdivisions-1), higher = more of left column clipped
+	CharWidthScale  float64 // Character width multiplier (-1 = inherit from main screen)
+	LineDensity     int     // Line density override (0 = inherit from main screen)
 }
 
 // NewBuffer creates a new terminal buffer
@@ -107,8 +125,11 @@ func NewBuffer(cols, rows, maxScrollback int) *Buffer {
 		customGlyphs:  make(map[rune]*CustomGlyph),
 		sprites:       make(map[int]*Sprite),
 		cropRects:     make(map[int]*CropRectangle),
-		spriteUnitX:   8, // Default: 8 subdivisions per cell
-		spriteUnitY:   8, // Default: 8 subdivisions per cell
+		spriteUnitX:   8,  // Default: 8 subdivisions per cell
+		spriteUnitY:   8,  // Default: 8 subdivisions per cell
+		widthCrop:     -1, // -1 = no crop
+		heightCrop:    -1, // -1 = no crop
+		screenSplits:  make(map[int]*ScreenSplit),
 	}
 	b.initScreen()
 	return b
@@ -2566,6 +2587,212 @@ func (b *Buffer) GetCropRect(id int) *CropRectangle {
 	b.mu.RLock()
 	defer b.mu.RUnlock()
 	return b.cropRects[id]
+}
+
+// --- Screen Crop Methods ---
+
+// SetScreenCrop sets the width and height crop in sprite coordinate units.
+// -1 means no crop for that dimension.
+func (b *Buffer) SetScreenCrop(widthCrop, heightCrop int) {
+	b.mu.Lock()
+	defer b.mu.Unlock()
+	b.widthCrop = widthCrop
+	b.heightCrop = heightCrop
+	b.markDirty()
+}
+
+// GetScreenCrop returns the current width and height crop values.
+// -1 means no crop for that dimension.
+func (b *Buffer) GetScreenCrop() (widthCrop, heightCrop int) {
+	b.mu.RLock()
+	defer b.mu.RUnlock()
+	return b.widthCrop, b.heightCrop
+}
+
+// ClearScreenCrop removes both width and height crops.
+func (b *Buffer) ClearScreenCrop() {
+	b.mu.Lock()
+	defer b.mu.Unlock()
+	b.widthCrop = -1
+	b.heightCrop = -1
+	b.markDirty()
+}
+
+// --- Screen Split Methods ---
+
+// DeleteAllScreenSplits removes all screen splits.
+func (b *Buffer) DeleteAllScreenSplits() {
+	b.mu.Lock()
+	defer b.mu.Unlock()
+	b.screenSplits = make(map[int]*ScreenSplit)
+	b.markDirty()
+}
+
+// DeleteScreenSplit removes a specific screen split by ID.
+func (b *Buffer) DeleteScreenSplit(id int) {
+	b.mu.Lock()
+	defer b.mu.Unlock()
+	delete(b.screenSplits, id)
+	b.markDirty()
+}
+
+// SetScreenSplit creates or updates a screen split.
+// screenY: Y coordinate in sprite units where this split begins on screen
+// bufferRow, bufferCol: 0-indexed logical screen coordinates to draw from
+// topFineScroll, leftFineScroll: 0 to (subdivisions-1), higher = more clipped
+// charWidthScale: character width multiplier (-1 = inherit)
+// lineDensity: line density override (0 = inherit)
+func (b *Buffer) SetScreenSplit(id int, screenY, bufferRow, bufferCol, topFineScroll, leftFineScroll int, charWidthScale float64, lineDensity int) {
+	b.mu.Lock()
+	defer b.mu.Unlock()
+
+	// Clamp fine scroll values
+	if topFineScroll < 0 {
+		topFineScroll = 0
+	}
+	if topFineScroll >= b.spriteUnitY {
+		topFineScroll = b.spriteUnitY - 1
+	}
+	if leftFineScroll < 0 {
+		leftFineScroll = 0
+	}
+	if leftFineScroll >= b.spriteUnitX {
+		leftFineScroll = b.spriteUnitX - 1
+	}
+
+	b.screenSplits[id] = &ScreenSplit{
+		ScreenY:        screenY,
+		BufferRow:      bufferRow,
+		BufferCol:      bufferCol,
+		TopFineScroll:  topFineScroll,
+		LeftFineScroll: leftFineScroll,
+		CharWidthScale: charWidthScale,
+		LineDensity:    lineDensity,
+	}
+	b.markDirty()
+}
+
+// GetScreenSplit returns a screen split by ID, or nil if not found.
+func (b *Buffer) GetScreenSplit(id int) *ScreenSplit {
+	b.mu.RLock()
+	defer b.mu.RUnlock()
+	return b.screenSplits[id]
+}
+
+// GetScreenSplitsSorted returns all screen splits sorted by ScreenY coordinate.
+func (b *Buffer) GetScreenSplitsSorted() []*ScreenSplit {
+	b.mu.RLock()
+	defer b.mu.RUnlock()
+
+	if len(b.screenSplits) == 0 {
+		return nil
+	}
+
+	// Collect all splits
+	splits := make([]*ScreenSplit, 0, len(b.screenSplits))
+	for _, split := range b.screenSplits {
+		splits = append(splits, split)
+	}
+
+	// Sort by ScreenY
+	for i := 0; i < len(splits)-1; i++ {
+		for j := i + 1; j < len(splits); j++ {
+			if splits[j].ScreenY < splits[i].ScreenY {
+				splits[i], splits[j] = splits[j], splits[i]
+			}
+		}
+	}
+
+	return splits
+}
+
+// GetCellForSplit returns a cell for split rendering.
+// screenX/screenY: position within the split region (0 = first cell of split)
+// bufferRow/bufferCol: buffer offset for this split (0-indexed)
+// The cell is fetched from the logical screen at position (screenX + bufferCol, screenY + bufferRow)
+// accounting for the current scroll offset.
+func (b *Buffer) GetCellForSplit(screenX, screenY, bufferRow, bufferCol int) Cell {
+	b.mu.RLock()
+	defer b.mu.RUnlock()
+
+	// Calculate actual buffer position
+	actualX := screenX + bufferCol
+	actualY := screenY + bufferRow
+
+	if actualY < 0 || actualY >= b.rows {
+		return b.screenInfo.DefaultCell
+	}
+
+	effectiveRows := b.EffectiveRows()
+	scrollbackSize := len(b.scrollback)
+
+	// Calculate how much of the logical screen is hidden above
+	logicalHiddenAbove := 0
+	if effectiveRows > b.rows {
+		logicalHiddenAbove = effectiveRows - b.rows
+	}
+
+	// Total scrollable area above visible
+	totalScrollableAbove := scrollbackSize + logicalHiddenAbove
+
+	if b.scrollOffset == 0 {
+		// Not scrolled - show bottom of logical screen
+		logicalY := logicalHiddenAbove + actualY
+		return b.getLogicalCell(actualX, logicalY)
+	}
+
+	// Scrolled up
+	absoluteY := totalScrollableAbove - b.scrollOffset + actualY
+
+	if absoluteY < scrollbackSize {
+		return b.getScrollbackCell(actualX, absoluteY)
+	}
+
+	logicalY := absoluteY - scrollbackSize
+	return b.getLogicalCell(actualX, logicalY)
+}
+
+// GetLineAttributeForSplit returns the line attribute for split rendering.
+func (b *Buffer) GetLineAttributeForSplit(screenY, bufferRow int) LineAttribute {
+	b.mu.RLock()
+	defer b.mu.RUnlock()
+
+	actualY := screenY + bufferRow
+
+	if actualY < 0 || actualY >= b.rows {
+		return LineAttrNormal
+	}
+
+	effectiveRows := b.EffectiveRows()
+	scrollbackSize := len(b.scrollback)
+
+	logicalHiddenAbove := 0
+	if effectiveRows > b.rows {
+		logicalHiddenAbove = effectiveRows - b.rows
+	}
+
+	totalScrollableAbove := scrollbackSize + logicalHiddenAbove
+
+	if b.scrollOffset == 0 {
+		logicalY := logicalHiddenAbove + actualY
+		if logicalY >= 0 && logicalY < len(b.lineInfos) {
+			return b.lineInfos[logicalY].Attribute
+		}
+		return LineAttrNormal
+	}
+
+	absoluteY := totalScrollableAbove - b.scrollOffset + actualY
+
+	if absoluteY < scrollbackSize {
+		// Scrollback lines don't have special attributes
+		return LineAttrNormal
+	}
+
+	logicalY := absoluteY - scrollbackSize
+	if logicalY >= 0 && logicalY < len(b.lineInfos) {
+		return b.lineInfos[logicalY].Attribute
+	}
+	return LineAttrNormal
 }
 
 // ResolveSpriteGlyphColor resolves a palette index to a color for sprite rendering

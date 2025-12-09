@@ -1008,6 +1008,128 @@ func (w *Widget) updateFontMetrics() {
 	_ = descent // descent is included in height
 }
 
+// renderScreenSplits renders screen split regions that show different buffer positions
+func (w *Widget) renderScreenSplits(cr *cairo.Context, splits []*purfecterm.ScreenSplit,
+	cols, rows, charWidth, charHeight, unitX, unitY int,
+	fontFamily string, fontSize int, scheme purfecterm.ColorScheme, blinkPhase float64,
+	cursorVisible bool, cursorVisibleX, cursorVisibleY int, cursorShape int,
+	horizScale, vertScale float64) {
+
+	// Calculate screen height in sprite units
+	screenHeightUnits := rows * unitY
+
+	for i, split := range splits {
+		// Skip splits at ScreenY=0 (that's the main screen, already rendered)
+		if split.ScreenY == 0 {
+			continue
+		}
+
+		// Calculate pixel Y range for this split
+		startY := float64(split.ScreenY) * float64(charHeight) / float64(unitY)
+
+		// End Y is either the next split's start or screen bottom
+		var endY float64
+		if i+1 < len(splits) {
+			endY = float64(splits[i+1].ScreenY) * float64(charHeight) / float64(unitY)
+		} else {
+			endY = float64(screenHeightUnits) * float64(charHeight) / float64(unitY)
+		}
+
+		// Apply fine scroll offset
+		fineOffsetY := float64(split.TopFineScroll) * float64(charHeight) / float64(unitY)
+		fineOffsetX := float64(split.LeftFineScroll) * float64(charWidth) / float64(unitX)
+
+		// Save context and apply clipping for this split region
+		cr.Save()
+		cr.Rectangle(0, startY, float64(cols*charWidth+terminalLeftPadding), endY-startY)
+		cr.Clip()
+
+		// Fill with background
+		cr.SetSourceRGB(
+			float64(scheme.Background.R)/255.0,
+			float64(scheme.Background.G)/255.0,
+			float64(scheme.Background.B)/255.0)
+		cr.Rectangle(0, startY, float64(cols*charWidth+terminalLeftPadding), endY-startY)
+		cr.Fill()
+
+		// Set up font
+		cr.SelectFontFace(fontFamily, cairo.FONT_SLANT_NORMAL, cairo.FONT_WEIGHT_NORMAL)
+		cr.SetFontSize(float64(fontSize))
+
+		// Calculate how many rows this split spans
+		splitRows := int((endY - startY) / float64(charHeight))
+		if splitRows < 1 {
+			splitRows = 1
+		}
+
+		// Render cells for this split
+		for screenRow := 0; screenRow < splitRows; screenRow++ {
+			// Get line attribute for this buffer row
+			lineAttr := w.buffer.GetLineAttributeForSplit(screenRow, split.BufferRow)
+
+			effectiveCols := cols
+			if lineAttr != purfecterm.LineAttrNormal {
+				effectiveCols = cols / 2
+			}
+
+			for screenCol := 0; screenCol < effectiveCols; screenCol++ {
+				// Get cell from split's buffer position
+				cell := w.buffer.GetCellForSplit(screenCol, screenRow, split.BufferRow, split.BufferCol)
+
+				// Determine colors
+				fg := cell.Foreground
+				bg := cell.Background
+				if fg.Default {
+					fg = scheme.Foreground
+				}
+				if bg.Default {
+					bg = scheme.Background
+				}
+
+				// Calculate cell position (accounting for fine scroll)
+				cellX := float64(screenCol*charWidth) + float64(terminalLeftPadding) - fineOffsetX
+				cellY := startY + float64(screenRow*charHeight) - fineOffsetY
+				cellW := float64(charWidth)
+				cellH := float64(charHeight)
+
+				// For double-width lines, adjust dimensions
+				if lineAttr != purfecterm.LineAttrNormal {
+					cellX = float64(screenCol*charWidth*2) + float64(terminalLeftPadding) - fineOffsetX
+					cellW = float64(charWidth * 2)
+				}
+
+				// Draw cell background if different from terminal background
+				if bg != scheme.Background {
+					cr.SetSourceRGB(
+						float64(bg.R)/255.0,
+						float64(bg.G)/255.0,
+						float64(bg.B)/255.0)
+					cr.Rectangle(cellX, cellY, cellW, cellH)
+					cr.Fill()
+				}
+
+				// Draw character
+				if cell.Char != ' ' && cell.Char != 0 {
+					charStr := cell.String()
+					charFont := w.getFontForCharacter(cell.Char, fontFamily, fontSize)
+
+					fgR := float64(fg.R) / 255.0
+					fgG := float64(fg.G) / 255.0
+					fgB := float64(fg.B) / 255.0
+
+					cr.Save()
+					cr.Translate(cellX, cellY)
+					cr.Scale(horizScale, vertScale)
+					pangoRenderText(cr, charStr, charFont, fontSize, cell.Bold, fgR, fgG, fgB)
+					cr.Restore()
+				}
+			}
+		}
+
+		cr.Restore()
+	}
+}
+
 func (w *Widget) onDraw(da *gtk.DrawingArea, cr *cairo.Context) bool {
 	w.mu.Lock()
 	scheme := w.scheme
@@ -1046,6 +1168,27 @@ func (w *Widget) onDraw(da *gtk.DrawingArea, cr *cairo.Context) bool {
 		float64(scheme.Background.B)/255.0)
 	cr.Rectangle(0, 0, float64(alloc.GetWidth()), float64(alloc.GetHeight()))
 	cr.Fill()
+
+	// Apply screen crop clipping if set (crop values are in sprite coordinate units)
+	widthCrop, heightCrop := w.buffer.GetScreenCrop()
+	unitX, unitY := w.buffer.GetSpriteUnits()
+	hasCrop := widthCrop > 0 || heightCrop > 0
+	if hasCrop {
+		cr.Save()
+		cropW := float64(alloc.GetWidth())
+		cropH := float64(alloc.GetHeight())
+		if widthCrop > 0 {
+			// Convert sprite units to pixels: widthCrop units * (charWidth / unitX) pixels per unit
+			cropW = float64(widthCrop) * float64(charWidth) / float64(unitX)
+			// Add left padding
+			cropW += float64(terminalLeftPadding)
+		}
+		if heightCrop > 0 {
+			cropH = float64(heightCrop) * float64(charHeight) / float64(unitY)
+		}
+		cr.Rectangle(0, 0, cropW, cropH)
+		cr.Clip()
+	}
 
 	// Get scroll offsets for sprite positioning
 	horizOffset := w.buffer.GetHorizOffset()
@@ -1372,6 +1515,15 @@ func (w *Widget) onDraw(da *gtk.DrawingArea, cr *cairo.Context) bool {
 	// Render front sprites (overlay on top of text)
 	w.renderSprites(cr, frontSprites, charWidth, charHeight, scheme, scrollOffset, horizOffset)
 
+	// Render screen splits if any are defined
+	// Splits overlay specific screen regions with different buffer positions
+	splits := w.buffer.GetScreenSplitsSorted()
+	if len(splits) > 0 {
+		w.renderScreenSplits(cr, splits, cols, rows, charWidth, charHeight, unitX, unitY,
+			fontFamily, fontSize, scheme, blinkPhase, cursorVisible, cursorVisibleX, cursorVisibleY,
+			cursorShape, horizScale, vertScale)
+	}
+
 	// Draw yellow dashed line between scrollback and logical screen
 	boundaryRow := w.buffer.GetScrollbackBoundaryVisibleRow()
 	if boundaryRow > 0 {
@@ -1383,6 +1535,11 @@ func (w *Widget) onDraw(da *gtk.DrawingArea, cr *cairo.Context) bool {
 		cr.LineTo(float64(alloc.GetWidth()), lineY)
 		cr.Stroke()
 		cr.SetDash([]float64{}, 0) // Reset dash pattern
+	}
+
+	// Restore from crop clipping if it was applied
+	if hasCrop {
+		cr.Restore()
 	}
 
 	w.buffer.ClearDirty()

@@ -710,6 +710,8 @@ func (p *Parser) executeOSC() {
 		p.executeOSCGlyph(args)
 	case 7002: // Sprite management
 		p.executeOSCSprite(args)
+	case 7003: // Screen crop and splits
+		p.executeOSCScreenCrop(args)
 	// Other OSC commands (title, etc.) could be added here
 	}
 }
@@ -999,6 +1001,76 @@ func (p *Parser) executeOSCSprite(args string) {
 			maxX, _ := strconv.ParseFloat(parts[4], 64)
 			maxY, _ := strconv.ParseFloat(parts[5], 64)
 			p.buffer.SetCropRect(id, minX, minY, maxX, maxY)
+		}
+	}
+}
+
+// executeOSCScreenCrop handles OSC 7003 screen crop and split commands
+// Format: ESC ] 7003 ; cmd BEL
+// Commands:
+//
+//	c                                                       - clear screen crop (reset to no crop)
+//	cs;WIDTH;HEIGHT                                         - set screen crop (in sprite coordinate units, -1 = no crop)
+//	sda                                                     - delete all screen splits
+//	sd;ID                                                   - delete screen split by ID
+//	ss;ID;SCREENY;BUFROW;BUFCOL;TOPFINE;LEFTFINE;CWS;LD     - set screen split
+//	    ID: split identifier
+//	    SCREENY: Y coordinate in sprite units where split begins on screen
+//	    BUFROW, BUFCOL: 1-indexed logical screen coordinates (0 = inherit/default)
+//	    TOPFINE, LEFTFINE: fine scroll (0 to subdivisions-1, higher = more clipped)
+//	    CWS: character width scale (-1 = inherit)
+//	    LD: line density override (0 = inherit)
+func (p *Parser) executeOSCScreenCrop(args string) {
+	parts := strings.Split(args, ";")
+	if len(parts) == 0 {
+		return
+	}
+
+	cmd := parts[0]
+	switch cmd {
+	case "c": // Clear screen crop
+		p.buffer.ClearScreenCrop()
+
+	case "cs": // Set screen crop
+		// Format: cs;WIDTH;HEIGHT
+		if len(parts) >= 3 {
+			width, _ := strconv.Atoi(parts[1])
+			height, _ := strconv.Atoi(parts[2])
+			p.buffer.SetScreenCrop(width, height)
+		}
+
+	case "sda": // Delete all screen splits
+		p.buffer.DeleteAllScreenSplits()
+
+	case "sd": // Delete screen split
+		// Format: sd;ID
+		if len(parts) >= 2 {
+			id, _ := strconv.Atoi(parts[1])
+			p.buffer.DeleteScreenSplit(id)
+		}
+
+	case "ss": // Set screen split
+		// Format: ss;ID;SCREENY;BUFROW;BUFCOL;TOPFINE;LEFTFINE;CWS;LD
+		if len(parts) >= 9 {
+			id, _ := strconv.Atoi(parts[1])
+			screenY, _ := strconv.Atoi(parts[2])
+			bufRow, _ := strconv.Atoi(parts[3])
+			bufCol, _ := strconv.Atoi(parts[4])
+			topFine, _ := strconv.Atoi(parts[5])
+			leftFine, _ := strconv.Atoi(parts[6])
+			charWidthScale, _ := strconv.ParseFloat(parts[7], 64)
+			lineDensity, _ := strconv.Atoi(parts[8])
+
+			// Convert 1-indexed buffer coordinates to 0-indexed
+			// (0 in escape means inherit/default, maps to 0 internally)
+			if bufRow > 0 {
+				bufRow--
+			}
+			if bufCol > 0 {
+				bufCol--
+			}
+
+			p.buffer.SetScreenSplit(id, screenY, bufRow, bufCol, topFine, leftFine, charWidthScale, lineDensity)
 		}
 	}
 }

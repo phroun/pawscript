@@ -863,6 +863,112 @@ func (w *Widget) renderSpriteGlyph(painter *qt.QPainter, glyph *purfecterm.Custo
 	}
 }
 
+// renderScreenSplits renders screen split regions that show different buffer positions
+func (w *Widget) renderScreenSplits(painter *qt.QPainter, splits []*purfecterm.ScreenSplit,
+	cols, rows, charWidth, charHeight, unitX, unitY int,
+	fontFamily string, fontSize int, scheme purfecterm.ColorScheme, blinkPhase float64,
+	cursorVisible bool, cursorVisibleX, cursorVisibleY int, cursorShape int,
+	horizScale, vertScale float64) {
+
+	// Calculate screen height in sprite units
+	screenHeightUnits := rows * unitY
+
+	for i, split := range splits {
+		// Skip splits at ScreenY=0 (that's the main screen, already rendered)
+		if split.ScreenY == 0 {
+			continue
+		}
+
+		// Calculate pixel Y range for this split
+		startY := split.ScreenY * charHeight / unitY
+
+		// End Y is either the next split's start or screen bottom
+		var endY int
+		if i+1 < len(splits) {
+			endY = splits[i+1].ScreenY * charHeight / unitY
+		} else {
+			endY = screenHeightUnits * charHeight / unitY
+		}
+
+		// Apply fine scroll offset
+		fineOffsetY := split.TopFineScroll * charHeight / unitY
+		fineOffsetX := split.LeftFineScroll * charWidth / unitX
+
+		// Save context and apply clipping for this split region
+		painter.Save()
+		painter.SetClipRect(qt.NewQRect5(0, startY, cols*charWidth+terminalLeftPadding, endY-startY))
+
+		// Fill with background
+		bgColor := qt.NewQColor3(int(scheme.Background.R), int(scheme.Background.G), int(scheme.Background.B))
+		painter.FillRect5(0, startY, cols*charWidth+terminalLeftPadding, endY-startY, bgColor)
+
+		// Set up font
+		font := qt.NewQFont6(fontFamily, fontSize)
+		font.SetFixedPitch(true)
+		painter.SetFont(font)
+
+		// Calculate how many rows this split spans
+		splitRows := (endY - startY) / charHeight
+		if splitRows < 1 {
+			splitRows = 1
+		}
+
+		// Render cells for this split
+		for screenRow := 0; screenRow < splitRows; screenRow++ {
+			// Get line attribute for this buffer row
+			lineAttr := w.buffer.GetLineAttributeForSplit(screenRow, split.BufferRow)
+
+			effectiveCols := cols
+			if lineAttr != purfecterm.LineAttrNormal {
+				effectiveCols = cols / 2
+			}
+
+			for screenCol := 0; screenCol < effectiveCols; screenCol++ {
+				// Get cell from split's buffer position
+				cell := w.buffer.GetCellForSplit(screenCol, screenRow, split.BufferRow, split.BufferCol)
+
+				// Determine colors
+				fg := cell.Foreground
+				bg := cell.Background
+				if fg.Default {
+					fg = scheme.Foreground
+				}
+				if bg.Default {
+					bg = scheme.Background
+				}
+
+				// Calculate cell position (accounting for fine scroll)
+				cellX := screenCol*charWidth + terminalLeftPadding - fineOffsetX
+				cellY := startY + screenRow*charHeight - fineOffsetY
+				cellW := charWidth
+				cellH := charHeight
+
+				// For double-width lines, adjust dimensions
+				if lineAttr != purfecterm.LineAttrNormal {
+					cellX = screenCol*charWidth*2 + terminalLeftPadding - fineOffsetX
+					cellW = charWidth * 2
+				}
+
+				// Draw cell background if different from terminal background
+				if bg != scheme.Background {
+					bgQColor := qt.NewQColor3(int(bg.R), int(bg.G), int(bg.B))
+					painter.FillRect5(cellX, cellY, cellW, cellH, bgQColor)
+				}
+
+				// Draw character
+				if cell.Char != ' ' && cell.Char != 0 {
+					fgQColor := qt.NewQColor3(int(fg.R), int(fg.G), int(fg.B))
+					pen := qt.NewQPen3(fgQColor)
+					painter.SetPenWithPen(pen)
+					painter.DrawText2(cellX, cellY+charHeight*3/4, cell.String())
+				}
+			}
+		}
+
+		painter.Restore()
+	}
+}
+
 func (w *Widget) paintEvent(event *qt.QPaintEvent) {
 	w.mu.Lock()
 	scheme := w.scheme
@@ -900,6 +1006,23 @@ func (w *Widget) paintEvent(event *qt.QPaintEvent) {
 	// Fill background
 	bgColor := qt.NewQColor3(int(scheme.Background.R), int(scheme.Background.G), int(scheme.Background.B))
 	painter.FillRect5(0, 0, w.widget.Width(), w.widget.Height(), bgColor)
+
+	// Apply screen crop clipping if set (crop values are in sprite coordinate units)
+	widthCrop, heightCrop := w.buffer.GetScreenCrop()
+	unitX, unitY := w.buffer.GetSpriteUnits()
+	hasCrop := widthCrop > 0 || heightCrop > 0
+	if hasCrop {
+		painter.Save()
+		cropW := w.widget.Width()
+		cropH := w.widget.Height()
+		if widthCrop > 0 {
+			cropW = widthCrop*charWidth/unitX + terminalLeftPadding
+		}
+		if heightCrop > 0 {
+			cropH = heightCrop * charHeight / unitY
+		}
+		painter.SetClipRect(qt.NewQRect5(0, 0, cropW, cropH))
+	}
 
 	// Get sprites for rendering (behind = negative Z, front = non-negative Z)
 	behindSprites, frontSprites := w.buffer.GetSpritesForRendering()
@@ -1197,6 +1320,14 @@ func (w *Widget) paintEvent(event *qt.QPaintEvent) {
 	// Render front sprites (overlay on top of text)
 	w.renderSprites(painter, frontSprites, charWidth, charHeight, scheme, scrollOffset, horizOffset)
 
+	// Render screen splits if any are defined
+	splits := w.buffer.GetScreenSplitsSorted()
+	if len(splits) > 0 {
+		w.renderScreenSplits(painter, splits, cols, rows, charWidth, charHeight, unitX, unitY,
+			fontFamily, fontSize, scheme, blinkPhase, cursorVisible, cursorVisibleX, cursorVisibleY,
+			cursorShape, horizScale, vertScale)
+	}
+
 	// Draw yellow dashed line between scrollback and logical screen
 	boundaryRow := w.buffer.GetScrollbackBoundaryVisibleRow()
 	if boundaryRow > 0 {
@@ -1207,6 +1338,11 @@ func (w *Widget) paintEvent(event *qt.QPaintEvent) {
 		pen.SetStyle(qt.DashLine)
 		painter.SetPenWithPen(pen)
 		painter.DrawLine3(qt.NewQPoint2(0, lineY), qt.NewQPoint2(w.widget.Width(), lineY))
+	}
+
+	// Restore from crop clipping if it was applied
+	if hasCrop {
+		painter.Restore()
 	}
 
 	w.buffer.ClearDirty()
