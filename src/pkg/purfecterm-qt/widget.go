@@ -1021,9 +1021,13 @@ func (w *Widget) paintEvent(event *qt.QPaintEvent) {
 						// Wide char: squeeze to fit cell width, then apply global scale
 						textScaleX *= targetCellWidth / float64(actualWidth)
 					} else if float64(actualWidth) < targetCellWidth {
-						// Note: Ambiguous char stretching disabled in Qt - causes signal crash.
-						// All narrow chars are centered. Feature works in GTK only.
-						xOffset = (targetCellWidth - float64(actualWidth)) / 2.0 * horizScale
+						if cellVisualWidth > 1.0 {
+							// Wide cell: use fixed 2x stretch like DEC double modes
+							textScaleX *= 2.0
+						} else {
+							// Normal cell: center narrow char
+							xOffset = (targetCellWidth - float64(actualWidth)) / 2.0 * horizScale
+						}
 					}
 
 					painter.Translate2(float64(cellX)+xOffset, float64(cellY)+float64(baseCharAscent)*vertScale+yOffset)
