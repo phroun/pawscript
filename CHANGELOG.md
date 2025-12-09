@@ -27,6 +27,12 @@
     - Optimized move command (m) for smooth animations
     - Sprites positioned relative to logical screen origin
     - Proper scroll offset handling: sprites scroll with content
+  - Cursor ANSI codes (CUP, Tab, etc.) respect logical screen dimensions
+  - Blink attribute applies to custom glyphs with wave animation (BlinkModeBounce)
+  - Pixel seam fix: extend rectangles by 1px where adjacent non-transparent pixels
+    exist to eliminate hairline gaps in sprite/glyph rendering
+  - Ambiguous width mode (CSI ? 2029/2030) applies to custom glyph characters:
+    auto mode uses underlying character's width category with fallback
   - Private ANSI codes documented in docs/private-ansi-codes.md
   - Fixed ClearToStartOfLine and ClearToStartOfScreen not to pad lines with
     blank cells unnecessarily (fixes horizontal scrollbar showing extra width)

@@ -665,15 +665,19 @@ func (b *Buffer) writeCharInternal(ch rune) {
 	var charWidth float64
 	if b.currentFlexWidth {
 		if hasCustomGlyph {
-			// Custom glyphs use ambiguous width mode to determine their width
+			// Custom glyphs: check ambiguous width mode first for explicit overrides
 			switch b.ambiguousWidthMode {
 			case AmbiguousWidthNarrow:
 				charWidth = 1.0
 			case AmbiguousWidthWide:
 				charWidth = 2.0
 			default: // AmbiguousWidthAuto
-				// Auto mode: use 1.0 as default for custom glyphs
-				charWidth = 1.0
+				// Auto mode: use the underlying character's width category
+				charWidth = GetEastAsianWidth(ch)
+				// If the underlying character is ambiguous, match previous cell
+				if charWidth < 0 {
+					charWidth = b.getPreviousCellWidth()
+				}
 			}
 		} else {
 			charWidth = GetEastAsianWidth(ch)
