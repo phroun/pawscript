@@ -669,7 +669,7 @@ func (w *Widget) screenToCell(screenX, screenY int) (cellX, cellY int) {
 	w.mu.Unlock()
 
 	cellY = screenY / charHeight
-	cols, rows := w.buffer.GetSize()
+	_, rows := w.buffer.GetSize()
 	if cellY < 0 {
 		cellY = 0
 	}
