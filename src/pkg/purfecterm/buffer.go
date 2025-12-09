@@ -658,20 +658,36 @@ func (b *Buffer) writeCharInternal(ch rune) {
 	effectiveCols := b.EffectiveCols()
 	effectiveRows := b.EffectiveRows()
 
+	// Check if this character has a custom glyph defined
+	hasCustomGlyph := b.customGlyphs[ch] != nil
+
 	// Calculate the width this character will take
 	var charWidth float64
 	if b.currentFlexWidth {
-		charWidth = GetEastAsianWidth(ch)
-		// Handle ambiguous width characters (-1.0 means ambiguous)
-		if charWidth < 0 {
+		if hasCustomGlyph {
+			// Custom glyphs use ambiguous width mode to determine their width
 			switch b.ambiguousWidthMode {
 			case AmbiguousWidthNarrow:
 				charWidth = 1.0
 			case AmbiguousWidthWide:
 				charWidth = 2.0
 			default: // AmbiguousWidthAuto
-				// Match width of previous character
-				charWidth = b.getPreviousCellWidth()
+				// Auto mode: use 1.0 as default for custom glyphs
+				charWidth = 1.0
+			}
+		} else {
+			charWidth = GetEastAsianWidth(ch)
+			// Handle ambiguous width characters (-1.0 means ambiguous)
+			if charWidth < 0 {
+				switch b.ambiguousWidthMode {
+				case AmbiguousWidthNarrow:
+					charWidth = 1.0
+				case AmbiguousWidthWide:
+					charWidth = 2.0
+				default: // AmbiguousWidthAuto
+					// Match width of previous character
+					charWidth = b.getPreviousCellWidth()
+				}
 			}
 		}
 	} else {
@@ -729,12 +745,8 @@ func (b *Buffer) writeCharInternal(ch rune) {
 		YFlip:      b.currentYFlip,
 	}
 
-	// Calculate cell width when in flex width mode
-	if b.currentFlexWidth {
-		cell.CellWidth = GetEastAsianWidth(ch)
-	} else {
-		cell.CellWidth = 1.0 // Default width when not in flex mode
-	}
+	// Use the calculated charWidth (already accounts for custom glyphs and ambiguous width mode)
+	cell.CellWidth = charWidth
 
 	b.screen[b.cursorY][b.cursorX] = cell
 	b.cursorX++
