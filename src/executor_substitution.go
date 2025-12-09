@@ -17,11 +17,13 @@ func (e *Executor) applySubstitution(str string, ctx *SubstitutionContext) Subst
 
 	result := str
 
-	// First, protect escaped dollar signs and tildes by replacing with placeholders
+	// First, protect escaped dollar signs, tildes, and question marks by replacing with placeholders
 	const escapedDollarPlaceholder = "\x00SUB\x00"
 	const escapedTildePlaceholder = "\x00TILDE\x00"
+	const escapedQmarkPlaceholder = "\x00QMARK\x00"
 	result = strings.ReplaceAll(result, `\$`, escapedDollarPlaceholder)
 	result = strings.ReplaceAll(result, `\~`, escapedTildePlaceholder)
+	result = strings.ReplaceAll(result, `\?`, escapedQmarkPlaceholder)
 
 	// Apply brace expression substitution first
 	braceResult := e.substituteBraceExpressions(result, ctx)
@@ -113,9 +115,11 @@ func (e *Executor) applySubstitution(str string, ctx *SubstitutionContext) Subst
 	}
 	result = e.substituteTildeExpressions(result, ctx.ExecutionState, position)
 
-	// Restore escaped tildes (both placeholder from original \~ and backslash escapes from $N substitution)
+	// Restore escaped tildes and question marks to literal characters
+	// The placeholder prevented ~varname and ?varname from being interpreted during substitution
+	// Now that substitution is complete, convert back to literal ~ and ? for the output
 	result = strings.ReplaceAll(result, escapedTildePlaceholder, "~")
-	result = strings.ReplaceAll(result, `\~`, "~")
+	result = strings.ReplaceAll(result, escapedQmarkPlaceholder, "?")
 
 	return SubstitutionResult{Value: result}
 }
@@ -428,8 +432,9 @@ func (e *Executor) substituteBraceExpressions(str string, ctx *SubstitutionConte
 // ~varname substitutes with the variable value
 // ?varname substitutes with "true" if variable exists, "false" otherwise
 func (e *Executor) substituteTildeExpressions(str string, state *ExecutionState, position *SourcePosition) string {
-	// Placeholder for escaped tildes - must match the one used in applySubstitution
+	// Placeholders for escaped tildes and question marks - must match the ones used in applySubstitution
 	const escapedTildePlaceholder = "\x00TILDE\x00"
+	const escapedQmarkPlaceholder = "\x00QMARK\x00"
 
 	if state == nil {
 		return str
@@ -496,14 +501,15 @@ func (e *Executor) substituteTildeExpressions(str string, state *ExecutionState,
 				// Since tildes are only found inside double-quoted strings,
 				// we need to escape backslashes and quotes in the substituted value
 				// to prevent breaking the quote structure.
-				// IMPORTANT: These must come BEFORE tilde escaping, otherwise the
+				// IMPORTANT: These must come BEFORE tilde/qmark escaping, otherwise the
 				// placeholder's \x00 bytes would get double-escaped to \\x00
 				valueStr = strings.ReplaceAll(valueStr, `\`, `\\`)
 				valueStr = strings.ReplaceAll(valueStr, `"`, `\"`)
-				// Escape tildes in the resolved value to prevent tilde injection
-				// This ensures user input containing tildes doesn't get interpreted
-				// as variable references when the result string is re-parsed
+				// Escape tildes and question marks in the resolved value to prevent injection
+				// This ensures user input containing tildes or question marks doesn't get interpreted
+				// as variable references or existence checks when the result string is re-parsed
 				valueStr = strings.ReplaceAll(valueStr, "~", escapedTildePlaceholder)
+				valueStr = strings.ReplaceAll(valueStr, "?", escapedQmarkPlaceholder)
 				result = append(result, []rune(valueStr)...)
 			} else {
 				// Variable not found - log error and leave empty
@@ -849,8 +855,9 @@ func (e *Executor) substituteAllBraces(originalString string, evaluations []*Bra
 // This ensures nested structures maintain shared storage via reference passing
 // while still supporting human-readable display in string contexts.
 func (e *Executor) encodeBraceResult(value interface{}, originalString string, bracePos int, state *ExecutionState) string {
-	// Placeholder for escaped tildes - must match the one used in applySubstitution
+	// Placeholders for escaped tildes and question marks - must match the ones used in applySubstitution
 	const escapedTildePlaceholder = "\x00TILDE\x00"
+	const escapedQmarkPlaceholder = "\x00QMARK\x00"
 
 	// Handle nil specially - output as bare word "nil"
 	if value == nil {
@@ -915,29 +922,29 @@ func (e *Executor) encodeBraceResult(value interface{}, originalString string, b
 		}
 		return "false"
 	case ParenGroup:
+		// ParenGroup contains CODE that will be executed later, not data.
+		// Do NOT escape tildes or question marks - they need to be resolved when executed.
 		if insideQuotes {
 			// Inside quotes: unwrap and escape only quotes/backslashes
-			// Also escape tildes to prevent tilde injection
 			result := e.escapeQuotesAndBackslashes(string(v))
-			result = strings.ReplaceAll(result, "~", escapedTildePlaceholder)
 			return result
 		}
 		// Outside quotes: preserve as parentheses
-		// Also escape tildes to prevent tilde injection
-		content := strings.ReplaceAll(string(v), "~", escapedTildePlaceholder)
-		return "(" + content + ")"
+		return "(" + string(v) + ")"
 	case QuotedString:
 		if insideQuotes {
 			// Inside quotes: unwrap and escape only quotes/backslashes
-			// Also escape tildes to prevent tilde injection
+			// Also escape tildes and question marks to prevent injection
 			result := e.escapeQuotesAndBackslashes(string(v))
 			result = strings.ReplaceAll(result, "~", escapedTildePlaceholder)
+			result = strings.ReplaceAll(result, "?", escapedQmarkPlaceholder)
 			return result
 		}
 		// Outside quotes: preserve as quoted string, escaping internal quotes
-		// Also escape tildes to prevent tilde injection
+		// Also escape tildes and question marks to prevent injection
 		escaped := e.escapeQuotesAndBackslashes(string(v))
 		escaped = strings.ReplaceAll(escaped, "~", escapedTildePlaceholder)
+		escaped = strings.ReplaceAll(escaped, "?", escapedQmarkPlaceholder)
 		return "\"" + escaped + "\""
 	case Symbol:
 		// If it's a Symbol that might be a marker, resolve it first for proper formatting
@@ -966,16 +973,18 @@ func (e *Executor) encodeBraceResult(value interface{}, originalString string, b
 	case string:
 		if insideQuotes {
 			// Inside quotes: escape only quotes/backslashes
-			// Also escape tildes to prevent tilde injection
+			// Also escape tildes and question marks to prevent injection
 			result := e.escapeQuotesAndBackslashes(v)
 			result = strings.ReplaceAll(result, "~", escapedTildePlaceholder)
+			result = strings.ReplaceAll(result, "?", escapedQmarkPlaceholder)
 			return result
 		}
 		// Outside quotes: wrap in quotes to preserve the string value
 		// (don't escape spaces/special chars - that's for bare words only)
-		// Also escape tildes to prevent tilde injection
+		// Also escape tildes and question marks to prevent injection
 		escaped := e.escapeQuotesAndBackslashes(v)
 		escaped = strings.ReplaceAll(escaped, "~", escapedTildePlaceholder)
+		escaped = strings.ReplaceAll(escaped, "?", escapedQmarkPlaceholder)
 		return "\"" + escaped + "\""
 	case StoredList:
 		if insideQuotes {
@@ -1067,12 +1076,14 @@ func (e *Executor) encodeBraceResult(value interface{}, originalString string, b
 		if insideQuotes {
 			result := e.escapeQuotesAndBackslashes(str)
 			result = strings.ReplaceAll(result, "~", escapedTildePlaceholder)
+			result = strings.ReplaceAll(result, "?", escapedQmarkPlaceholder)
 			return result
 		}
 		// Wrap in quotes to preserve value
-		// Also escape tildes to prevent tilde injection
+		// Also escape tildes and question marks to prevent injection
 		escaped := e.escapeQuotesAndBackslashes(str)
 		escaped = strings.ReplaceAll(escaped, "~", escapedTildePlaceholder)
+		escaped = strings.ReplaceAll(escaped, "?", escapedQmarkPlaceholder)
 		return "\"" + escaped + "\""
 	}
 }
@@ -1306,9 +1317,9 @@ func (e *Executor) ParseSubstitutionTemplate(str string, filename string) *Subst
 		// The escaped sequence stays in the literal for later processing
 		if char == '\\' && i+1 < len(runes) {
 			nextChar := runes[i+1]
-			// For \$ and \~, skip past both to avoid treating as substitution
-			// They'll remain in the literal as \$ or \~ for later processing
-			if nextChar == '$' || nextChar == '~' || nextChar == '\\' || nextChar == '{' {
+			// For \$, \~, \?, skip past both to avoid treating as substitution
+			// They'll remain in the literal as \$, \~, or \? for later processing
+			if nextChar == '$' || nextChar == '~' || nextChar == '?' || nextChar == '\\' || nextChar == '{' {
 				i += 2
 				continue
 			}
@@ -1597,7 +1608,7 @@ func containsSubstitution(s string) bool {
 		// Escape sequences need runtime processing
 		if c == '\\' && i+1 < len(s) {
 			next := s[i+1]
-			if next == '$' || next == '~' || next == '\\' || next == '{' {
+			if next == '$' || next == '~' || next == '?' || next == '\\' || next == '{' {
 				return false // Fall back to original substitution
 			}
 		}
