@@ -574,7 +574,7 @@ func (w *Widget) updateFontMetrics() {
 
 // renderCustomGlyph renders a custom glyph for a cell at the specified position
 // Returns true if a custom glyph was rendered, false if normal text rendering should be used
-func (w *Widget) renderCustomGlyph(painter *qt.QPainter, cell *purfecterm.Cell, cellX, cellY, cellW, cellH int) bool {
+func (w *Widget) renderCustomGlyph(painter *qt.QPainter, cell *purfecterm.Cell, cellX, cellY, cellW, cellH int, cellCol int, blinkPhase float64, blinkMode purfecterm.BlinkMode) bool {
 	glyph := w.buffer.GetGlyph(cell.Char)
 	if glyph == nil {
 		return false
@@ -586,6 +586,16 @@ func (w *Widget) renderCustomGlyph(painter *qt.QPainter, cell *purfecterm.Cell, 
 	if glyphW == 0 || glyphH == 0 {
 		return false
 	}
+
+	// Calculate wave offset for blink bounce mode
+	yOffset := 0.0
+	if cell.Blink && blinkMode == purfecterm.BlinkModeBounce {
+		wavePhase := blinkPhase + float64(cellCol)*0.5
+		yOffset = math.Sin(wavePhase) * 3.0
+	}
+
+	// Apply yOffset to cellY (convert to float for calculation)
+	cellYFloat := float64(cellY) + yOffset
 
 	// Calculate pixel size (scale glyph to fill cell)
 	pixelW := float64(cellW) / float64(glyphW)
@@ -607,9 +617,9 @@ func (w *Widget) renderCustomGlyph(painter *qt.QPainter, cell *purfecterm.Cell, 
 				drawY = glyphH - 1 - gy
 			}
 
-			// Calculate screen position
+			// Calculate screen position (using cellYFloat which includes wave offset)
 			px := float64(cellX) + float64(drawX)*pixelW
-			py := float64(cellY) + float64(drawY)*pixelH
+			py := cellYFloat + float64(drawY)*pixelH
 
 			// Check for adjacent non-transparent pixels in source glyph to hide seams
 			rightNeighborIdx := glyph.GetPixel(gx+1, gy)
@@ -959,7 +969,7 @@ func (w *Widget) paintEvent(event *qt.QPaintEvent) {
 			// Draw character
 			if cell.Char != ' ' && cell.Char != 0 && blinkVisible {
 				// Check for custom glyph first
-				if w.renderCustomGlyph(painter, &cell, cellX, cellY, cellW, cellH) {
+				if w.renderCustomGlyph(painter, &cell, cellX, cellY, cellW, cellH, x, blinkPhase, scheme.BlinkMode) {
 					// Custom glyph was rendered, skip normal text rendering
 					goto afterCharRenderQt
 				}

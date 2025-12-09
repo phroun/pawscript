@@ -589,7 +589,7 @@ func pangoTextWidthStandalone(text, fontFamily string, fontSize int, bold bool) 
 
 // renderCustomGlyph renders a custom glyph for a cell at the specified position
 // Returns true if a custom glyph was rendered, false if normal text rendering should be used
-func (w *Widget) renderCustomGlyph(cr *cairo.Context, cell *purfecterm.Cell, cellX, cellY, cellW, cellH float64) bool {
+func (w *Widget) renderCustomGlyph(cr *cairo.Context, cell *purfecterm.Cell, cellX, cellY, cellW, cellH float64, cellCol int, blinkPhase float64, blinkMode purfecterm.BlinkMode) bool {
 	glyph := w.buffer.GetGlyph(cell.Char)
 	if glyph == nil {
 		return false
@@ -601,6 +601,16 @@ func (w *Widget) renderCustomGlyph(cr *cairo.Context, cell *purfecterm.Cell, cel
 	if glyphW == 0 || glyphH == 0 {
 		return false
 	}
+
+	// Calculate wave offset for blink bounce mode
+	yOffset := 0.0
+	if cell.Blink && blinkMode == purfecterm.BlinkModeBounce {
+		wavePhase := blinkPhase + float64(cellCol)*0.5
+		yOffset = math.Sin(wavePhase) * 3.0
+	}
+
+	// Apply yOffset to cellY
+	cellY += yOffset
 
 	// Calculate pixel size (scale glyph to fill cell)
 	pixelW := cellW / float64(glyphW)
@@ -1115,7 +1125,7 @@ func (w *Widget) onDraw(da *gtk.DrawingArea, cr *cairo.Context) bool {
 			// Draw character (skip if traditional blink mode and currently invisible)
 			if cell.Char != ' ' && cell.Char != 0 && blinkVisible {
 				// Check for custom glyph first
-				if w.renderCustomGlyph(cr, &cell, cellX, cellY, cellW, cellH) {
+				if w.renderCustomGlyph(cr, &cell, cellX, cellY, cellW, cellH, x, blinkPhase, scheme.BlinkMode) {
 					// Custom glyph was rendered, skip normal text rendering
 					goto afterCharRender
 				}
