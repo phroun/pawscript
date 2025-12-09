@@ -1021,19 +1021,11 @@ func (w *Widget) paintEvent(event *qt.QPaintEvent) {
 						// Wide char: squeeze to fit cell width, then apply global scale
 						textScaleX *= targetCellWidth / float64(actualWidth)
 					} else if float64(actualWidth) < targetCellWidth {
-						// Check for ambiguous char in wide mode using inline check
-						// (external function call causes Qt signal handling crash)
-						r := cell.Char
-						isAmbiguous := (r >= 0x0370 && r <= 0x03FF) || // Greek
-							(r >= 0x0400 && r <= 0x04FF) || // Cyrillic
-							(r >= 0x2500 && r <= 0x257F) || // Box Drawing
-							(r >= 0x2580 && r <= 0x259F) || // Block Elements
-							(r >= 0x25A0 && r <= 0x25FF) // Geometric Shapes
-						if cellVisualWidth > 1.0 && isAmbiguous {
-							// Ambiguous char in wide mode: stretch to fill the cell
+						if cellVisualWidth > 1.0 {
+							// Wide cell with narrow char: stretch to fill
 							textScaleX *= targetCellWidth / float64(actualWidth)
 						} else {
-							// Normal cell or naturally wide char: center within the cell
+							// Normal cell: center narrow char
 							xOffset = (targetCellWidth - float64(actualWidth)) / 2.0 * horizScale
 						}
 					}
