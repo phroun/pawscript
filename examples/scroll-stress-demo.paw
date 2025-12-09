@@ -1,0 +1,320 @@
+#!/usr/bin/env paw
+# scroll-stress-demo.paw - Scrolling background with fixed sprites
+# Tests sprite overlay positioning while text layer scrolls continuously
+
+# Escape sequence helpers
+macro esc (write "\e")
+macro bel (write "\a")
+
+# OSC command helpers
+macro pal_clear_all (write "\e]7000;da\a")
+macro pal_init (write "\e]7000;i;$1;$2\a")
+macro pal_set (write "\e]7000;s;$1;$2;$3\a")
+macro glyph_clear_all (write "\e]7001;da\a")
+macro glyph_set (write "\e]7001;s;$1;$2;$3\a")
+macro sprite_clear_all (write "\e]7002;da\a")
+
+# --- Glyph pixel data (8x8 tiles) ---
+
+# Sky/cloud tile - light with some texture
+sky_pixels: "0;0;0;0;0;0;0;0;0;0;0;0;0;0;0;0;0;0;3;3;3;0;0;0;0;3;3;3;3;3;0;0;0;0;3;3;3;0;0;0;0;0;0;0;0;0;0;0;0;0;0;0;0;0;0;0;0;0;0;0;0;0;0;0"
+
+# Ground/grass tile
+grass_pixels: "1;3;1;3;1;3;1;3;3;1;3;1;3;1;3;1;1;1;1;1;1;1;1;1;2;2;2;2;2;2;2;2;2;2;2;2;2;2;2;2;2;2;2;2;2;2;2;2;2;2;2;2;2;2;2;2;2;2;2;2;2;2;2;2"
+
+# Water tile (animated look)
+water_pixels: "1;1;3;3;1;1;3;3;3;1;1;3;3;1;1;3;1;3;3;1;1;3;3;1;3;3;1;1;3;3;1;1;1;1;3;3;1;1;3;3;3;1;1;3;3;1;1;3;1;3;3;1;1;3;3;1;3;3;1;1;3;3;1;1"
+
+# Stone/rock tile
+stone_pixels: "2;2;1;1;1;1;2;2;2;1;1;1;1;1;1;2;1;1;1;3;3;1;1;1;1;1;3;3;3;3;1;1;1;1;3;3;3;3;1;1;1;1;1;3;3;1;1;1;2;1;1;1;1;1;1;2;2;2;1;1;1;1;2;2"
+
+# Tree top tile
+treetop_pixels: "0;0;1;1;1;1;0;0;0;1;1;3;3;1;1;0;1;1;3;3;3;3;1;1;1;3;3;3;3;3;3;1;1;3;3;3;3;3;3;1;1;1;3;3;3;3;1;1;0;1;1;3;3;1;1;0;0;0;1;1;1;1;0;0"
+
+# Tree trunk tile
+trunk_pixels: "0;0;0;1;1;0;0;0;0;0;0;1;1;0;0;0;0;0;0;1;1;0;0;0;0;0;0;1;1;0;0;0;0;0;0;1;1;0;0;0;0;0;0;1;1;0;0;0;0;0;0;1;1;0;0;0;0;0;0;2;2;0;0;0"
+
+# Brick tile
+brick_pixels: "2;2;1;1;1;1;2;2;2;1;1;1;1;1;1;2;1;1;1;1;1;1;1;1;2;2;2;2;2;2;2;2;1;1;2;2;1;1;2;2;1;1;1;2;1;1;1;2;1;1;1;1;1;1;1;1;2;2;2;2;2;2;2;2"
+
+# Star/sparkle for sprites
+star_pixels: "0;0;0;1;1;0;0;0;0;0;0;1;1;0;0;0;0;0;1;1;1;1;0;0;1;1;1;1;1;1;1;1;1;1;1;1;1;1;1;1;0;0;1;1;1;1;0;0;0;0;0;1;1;0;0;0;0;0;0;1;1;0;0;0"
+
+# Diamond/gem for sprites
+gem_pixels: "0;0;0;1;1;0;0;0;0;0;1;3;3;1;0;0;0;1;3;3;3;3;1;0;1;3;3;3;3;3;3;1;1;3;3;3;3;3;3;1;0;1;3;3;3;3;1;0;0;0;1;3;3;1;0;0;0;0;0;1;1;0;0;0"
+
+# Heart for sprites
+heart_pixels: "0;1;1;0;0;1;1;0;1;3;3;1;1;3;3;1;1;3;3;3;3;3;3;1;1;3;3;3;3;3;3;1;0;1;3;3;3;3;1;0;0;0;1;3;3;1;0;0;0;0;0;1;1;0;0;0;0;0;0;0;0;0;0;0"
+
+# Coin for sprites
+coin_pixels: "0;0;1;1;1;1;0;0;0;1;3;3;3;3;1;0;1;3;3;1;1;3;3;1;1;3;1;3;3;1;3;1;1;3;1;3;3;1;3;1;1;3;3;1;1;3;3;1;0;1;3;3;3;3;1;0;0;0;1;1;1;1;0;0"
+
+# --- Setup ---
+
+clear screen
+color cyan
+print "Scroll Stress Test Demo"
+color reset: true
+print ""
+print "This demo sets up an 80x25 logical screen, fills it with"
+print "custom glyph tiles, places sprites in the center, then"
+print "continuously scrolls the background for 30 seconds."
+print ""
+print "The sprites should remain fixed while the background scrolls!"
+print ""
+color yellow
+print "Press RETURN to begin..."
+color reset: true
+_: {read}
+
+# Clear everything first
+pal_clear_all
+glyph_clear_all
+sprite_clear_all
+
+# --- Create palettes ---
+
+# Palette 40: Sky (cyan tones)
+pal_init 40, 4
+pal_set 40, 0, 8
+pal_set 40, 1, 36
+pal_set 40, 2, 30
+pal_set 40, 3, 97
+
+# Palette 41: Grass (green tones)
+pal_init 41, 4
+pal_set 41, 0, 8
+pal_set 41, 1, 32
+pal_set 41, 2, 94
+pal_set 41, 3, 92
+
+# Palette 42: Water (blue tones)
+pal_init 42, 4
+pal_set 42, 0, 8
+pal_set 42, 1, 34
+pal_set 42, 2, 30
+pal_set 42, 3, 96
+
+# Palette 43: Stone (gray tones)
+pal_init 43, 4
+pal_set 43, 0, 8
+pal_set 43, 1, 37
+pal_set 43, 2, 90
+pal_set 43, 3, 97
+
+# Palette 44: Tree (brown/green)
+pal_init 44, 4
+pal_set 44, 0, 8
+pal_set 44, 1, 33
+pal_set 44, 2, 30
+pal_set 44, 3, 92
+
+# Palette 45: Brick (red tones)
+pal_init 45, 4
+pal_set 45, 0, 8
+pal_set 45, 1, 31
+pal_set 45, 2, 30
+pal_set 45, 3, 91
+
+# Palette 46: Yellow (for stars/coins)
+pal_init 46, 4
+pal_set 46, 0, 8
+pal_set 46, 1, 33
+pal_set 46, 2, 93
+pal_set 46, 3, 97
+
+# Palette 47: Magenta (for gems)
+pal_init 47, 4
+pal_set 47, 0, 8
+pal_set 47, 1, 35
+pal_set 47, 2, 30
+pal_set 47, 3, 95
+
+# Palette 48: Red (for hearts)
+pal_init 48, 4
+pal_set 48, 0, 8
+pal_set 48, 1, 91
+pal_set 48, 2, 31
+pal_set 48, 3, 97
+
+# --- Define glyphs ---
+
+# A = sky (65)
+glyph_set 65, 8, ~sky_pixels
+# G = grass (71)
+glyph_set 71, 8, ~grass_pixels
+# W = water (87)
+glyph_set 87, 8, ~water_pixels
+# R = rock/stone (82)
+glyph_set 82, 8, ~stone_pixels
+# T = tree top (84)
+glyph_set 84, 8, ~treetop_pixels
+# t = trunk (116)
+glyph_set 116, 8, ~trunk_pixels
+# B = brick (66)
+glyph_set 66, 8, ~brick_pixels
+
+# Sprite glyphs
+# S = star (83)
+glyph_set 83, 8, ~star_pixels
+# D = diamond/gem (68)
+glyph_set 68, 8, ~gem_pixels
+# H = heart (72)
+glyph_set 72, 8, ~heart_pixels
+# C = coin (67)
+glyph_set 67, 8, ~coin_pixels
+
+# --- Set logical screen size to 80x25 ---
+clear screen
+write "\e[8;25;80t"
+
+# Small delay to let terminal resize
+msleep 100
+
+# --- Fill screen with initial background pattern ---
+
+# Fill 25 rows with a landscape pattern
+# Rows 0-5: Sky
+# Rows 6-8: Sky with some trees
+# Rows 9-18: Grass with occasional features
+# Rows 19-22: Water
+# Rows 23-24: Stone/ground
+
+# Sky line (80 chars of 'A')
+sky_line: "AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA"
+# Grass line
+grass_line: "GGGGGGGGGGGGGGGGGGGGGGGGGGGGGGGGGGGGGGGGGGGGGGGGGGGGGGGGGGGGGGGGGGGGGGGGGGGGGGGG"
+# Water line
+water_line: "WWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWW"
+# Stone line
+stone_line: "RRRRRRRRRRRRRRRRRRRRRRRRRRRRRRRRRRRRRRRRRRRRRRRRRRRRRRRRRRRRRRRRRRRRRRRRRRRRRRRR"
+# Brick line
+brick_line: "BBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBB"
+# Tree line (sky with trees)
+tree_line: "AAAAAAAAATAAAAAAAAAAAATAAAAAAAAAATAAAAAAAAAAAAAATAAAAAAAAATAAAAAAAAAAAATAAAAAAAA"
+# Trunk line
+trunk_line: "AAAAAAAAAAtAAAAAAAAAAAtAAAAAAAAAtAAAAAAAAAAAAAtAAAAAAAAAAtAAAAAAAAAAAAtAAAAAAAA"
+# Mixed grass with stones
+mixed_line: "GGGGGGGRGGGGGGGGGGGGRGGGGGGGGGGGGGGRGGGGGGGGGGGGGGGGGRGGGGGGGGGGGGGGGGGRGGGGGGG"
+
+# Draw initial screen
+color cyan
+row: 0
+while (lt ~row, 6), (
+    print ~sky_line
+    row: {add ~row, 1}
+)
+
+color green
+print ~tree_line
+print ~trunk_line
+print ~grass_line
+
+row: 0
+while (lt ~row, 10), (
+    print ~mixed_line
+    row: {add ~row, 1}
+)
+
+color blue
+row: 0
+while (lt ~row, 4), (
+    print ~water_line
+    row: {add ~row, 1}
+)
+
+color white
+print ~stone_line
+print ~stone_line
+
+# --- Create sprites in the center (these should stay fixed) ---
+
+# Large star sprite at center (around position 38,12)
+write "\e]7002;s;1;36;10;1;46;0;2;2;-1;83\a"
+
+# Diamond sprites around the star
+write "\e]7002;s;2;32;11;1;47;0;1;1;-1;68\a"
+write "\e]7002;s;3;44;11;1;47;0;1;1;-1;68\a"
+write "\e]7002;s;4;38;8;1;47;0;1;1;-1;68\a"
+write "\e]7002;s;5;38;14;1;47;0;1;1;-1;68\a"
+
+# Hearts in corners of sprite cluster
+write "\e]7002;s;6;30;9;1;48;0;1;1;-1;72\a"
+write "\e]7002;s;7;46;9;1;48;0;1;1;-1;72\a"
+write "\e]7002;s;8;30;13;1;48;0;1;1;-1;72\a"
+write "\e]7002;s;9;46;13;1;48;0;1;1;-1;72\a"
+
+# Coins orbiting
+write "\e]7002;s;10;34;9;1;46;0;1;1;-1;67\a"
+write "\e]7002;s;11;42;9;1;46;0;1;1;-1;67\a"
+write "\e]7002;s;12;34;13;1;46;0;1;1;-1;67\a"
+write "\e]7002;s;13;42;13;1;46;0;1;1;-1;67\a"
+
+# --- Scrolling loop for 30 seconds ---
+
+# Prepare alternating line patterns for scrolling
+line_patterns: [~grass_line, ~mixed_line, ~water_line, ~sky_line, ~tree_line, ~brick_line, ~stone_line]
+pattern_colors: ["green", "green", "blue", "cyan", "green", "red", "white"]
+num_patterns: 7
+
+start_time: {time}
+end_time: {add ~start_time, 30}
+line_count: 0
+pattern_idx: 0
+
+# Main scroll loop
+while (lt {time}, ~end_time), (
+    # Get current pattern
+    current_line: {slice ~line_patterns, ~pattern_idx, 1}
+    current_color: {slice ~pattern_colors, ~pattern_idx, 1}
+
+    # Set color and print line (this scrolls the screen)
+    color ~current_color
+    print ~current_line
+
+    # Advance pattern every few lines for variety
+    line_count: {add ~line_count, 1}
+    if (eq {mod ~line_count, 8}, 0), (
+        pattern_idx: {add ~pattern_idx, 1}
+        if (gte ~pattern_idx, ~num_patterns), (
+            pattern_idx: 0
+        )
+    )
+)
+
+# --- Cleanup and summary ---
+
+# Calculate stats
+elapsed: {sub {time}, ~start_time}
+lines_per_sec: {div ~line_count, ~elapsed}
+
+sprite_clear_all
+color reset: true
+print ""
+print ""
+color green
+print "Scroll test complete!"
+color reset: true
+print ""
+write "Total lines scrolled: "
+print ~line_count
+write "Elapsed time: "
+write ~elapsed
+print " seconds"
+write "Lines per second: "
+print ~lines_per_sec
+print ""
+print "The sprites should have remained fixed in the center"
+print "while the background scrolled underneath them."
+print ""
+color yellow
+print "Press RETURN to clean up and exit..."
+color reset: true
+_: {read}
+
+# Final cleanup
+glyph_clear_all
+pal_clear_all
+clear screen
+write "\e[8;0;0t"
+print "Demo complete!"
