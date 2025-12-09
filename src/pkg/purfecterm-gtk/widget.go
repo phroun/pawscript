@@ -406,7 +406,6 @@ func (w *Widget) onDraw(da *gtk.DrawingArea, cr *cairo.Context) bool {
 	// Apply scaling to character dimensions
 	charWidth := int(float64(baseCharWidth) * horizScale)
 	charHeight := int(float64(baseCharHeight) * vertScale)
-	charAscent := int(float64(baseCharAscent) * vertScale)
 
 	// Hide cursor when scrolled back
 	if scrollOffset > 0 {
