@@ -9,31 +9,31 @@
 
 # Helper macros
 macro enable_flex_width (
-    write "\e[?2027h"
+    write "\e[\\?2027h"
 )
 
 macro disable_flex_width (
-    write "\e[?2027l"
+    write "\e[\\?2027l"
 )
 
 macro enable_visual_wrap (
-    write "\e[?2028h"
+    write "\e[\\?2028h"
 )
 
 macro disable_visual_wrap (
-    write "\e[?2028l"
+    write "\e[\\?2028l"
 )
 
 macro ambiguous_narrow (
-    write "\e[?2029h"
+    write "\e[\\?2029h"
 )
 
 macro ambiguous_wide (
-    write "\e[?2030h"
+    write "\e[\\?2030h"
 )
 
 macro ambiguous_auto (
-    write "\e[?2029l\e[?2030l"
+    write "\e[\\?2029l\e[\\?2030l"
 )
 
 # Clear screen and position at top
@@ -143,10 +143,10 @@ print ""
 print "=== Demo Complete ==="
 print ""
 print "Escape sequences used:"
-print "  \\e[?2027h  Enable flex width mode"
-print "  \\e[?2027l  Disable flex width mode"
-print "  \\e[?2028h  Enable visual width wrapping"
-print "  \\e[?2028l  Disable visual width wrapping"
-print "  \\e[?2029h  Ambiguous chars = narrow (1.0)"
-print "  \\e[?2030h  Ambiguous chars = wide (2.0)"
-print "  \\e[?2029l\\e[?2030l  Ambiguous chars = auto"
+print "  \\e[\?2027h  Enable flex width mode"
+print "  \\e[\?2027l  Disable flex width mode"
+print "  \\e[\?2028h  Enable visual width wrapping"
+print "  \\e[\?2028l  Disable visual width wrapping"
+print "  \\e[\?2029h  Ambiguous chars = narrow (1.0)"
+print "  \\e[\?2030h  Ambiguous chars = wide (2.0)"
+print "  \\e[\?2029l\\e[\?2030l  Ambiguous chars = auto"

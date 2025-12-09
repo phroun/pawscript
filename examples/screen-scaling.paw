@@ -35,7 +35,7 @@ clear_screen: {concat ~CSI, "2J", ~CSI, "H"}
 test_line: "The quick brown fox jumps over the lazy dog. 0123456789"
 
 # --- Demo Start ---
-
+print ~MODE_132_OFF
 print ~clear_screen
 print {concat ~DOUBLE_TOP, ~CYAN, "   Screen Scaling Demo", ~RESET}
 print {concat ~DOUBLE_BOTTOM, ~CYAN, "   Screen Scaling Demo", ~RESET}
