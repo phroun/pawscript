@@ -668,7 +668,7 @@ func (w *Widget) paintEvent(event *qt.QPaintEvent) {
 		pen.SetWidth(1)
 		pen.SetStyle(qt.DashLine)
 		painter.SetPenWithPen(pen)
-		painter.DrawLine3(0, lineY, w.widget.Width(), lineY)
+		painter.DrawLine3(qt.NewQPoint2(0, lineY), qt.NewQPoint2(w.widget.Width(), lineY))
 	}
 
 	w.buffer.ClearDirty()
