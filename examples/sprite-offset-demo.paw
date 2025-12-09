@@ -3,8 +3,9 @@
 # Places glyphs in text mode, then matching sprites offset by (+1, +0.5) cells
 #
 # COORDINATE SYSTEM:
-# - Default sprite units: 8 subdivisions per cell (set via OSC 7002 u;8;8)
-# - To place sprite at cell (col, row): use coordinates (col*8, row*8)
+# - Cursor uses 1-indexed coords, sprites use 0-indexed with 8 subdivisions per cell
+# - cursor(col, row) = sprite coords ((col-1)*8, (row-1)*8)
+# - For +1 col, +0.5 row offset: X = col*8, Y = row*8 - 4
 # - XScale=1, YScale=1 makes one rune sprite fill one cell
 
 # Define escape sequences
@@ -61,8 +62,9 @@ print "This demo places glyphs on the TEXT LAYER (background)"
 print "and matching SPRITES offset by +1 column and +0.5 rows."
 print ""
 print "COORDINATE SYSTEM:"
+print "  - Cursor uses 1-indexed coords, sprites use 0-indexed"
 print "  - Sprite units: 8 subdivisions per cell (default)"
-print "  - Cell (col, row) = sprite coords (col*8, row*8)"
+print "  - cursor(col,row) = sprite ((col-1)*8, (row-1)*8)"
 print "  - XScale=1, YScale=1 makes one rune fill one cell"
 print ""
 print "TEXT glyphs: red/green/yellow/blue"
@@ -192,38 +194,40 @@ write "E"
 color reset: true
 
 # --- Create SPRITES offset by +1 column, +0.5 rows ---
-# For text at cell (col, row), sprite is at:
-#   X = (col + 1) * 8    (one cell to the right)
-#   Y = row * 8 + 4      (half cell down, since 8/2 = 4 subdivisions)
+# Cursor uses 1-indexed coords, sprites use 0-indexed with 8 subdivisions per cell
+# Text at cursor(col, row) is at 0-indexed cell (col-1, row-1) = sprite coords ((col-1)*8, (row-1)*8)
+# For +1 column, +0.5 row offset from text:
+#   Sprite X = col * 8          (text is at (col-1)*8, so col*8 is +1 cell right)
+#   Sprite Y = row * 8 - 4      (text is at (row-1)*8, so row*8 - 4 is +0.5 cell down)
 # XScale=1, YScale=1 (one rune sprite fills one cell)
 
 # Sprite format: s;ID;X;Y;Z;FGP;FLIP;XS;YS;CROP;RUNES
 
-# Row 1 sprites: text at (2,1), (10,1), (20,1), (30,1)
-# Sprite positions: (3*8, 1*8+4)=24,12  (11*8, 12)=88,12  (21*8, 12)=168,12  (31*8, 12)=248,12
-write "\e]7002;s;1;24;12;1;35;0;1;1;-1;65\a"
-write "\e]7002;s;2;88;12;1;36;0;1;1;-1;66\a"
-write "\e]7002;s;3;168;12;1;35;0;1;1;-1;67\a"
-write "\e]7002;s;4;248;12;1;36;0;1;1;-1;68\a"
+# Row 1 sprites: text at cursor(2,1), (10,1), (20,1), (30,1)
+# Sprite positions: (2*8, 1*8-4)=16,4  (10*8, 4)=80,4  (20*8, 4)=160,4  (30*8, 4)=240,4
+write "\e]7002;s;1;16;4;1;35;0;1;1;-1;65\a"
+write "\e]7002;s;2;80;4;1;36;0;1;1;-1;66\a"
+write "\e]7002;s;3;160;4;1;35;0;1;1;-1;67\a"
+write "\e]7002;s;4;240;4;1;36;0;1;1;-1;68\a"
 
-# Row 3 sprites: text at (5,3), (15,3), (25,3)
-# Sprite positions: (6*8, 3*8+4)=48,28  (16*8, 28)=128,28  (26*8, 28)=208,28
-write "\e]7002;s;5;48;28;1;36;0;1;1;-1;69\a"
-write "\e]7002;s;6;128;28;1;35;0;1;1;-1;70\a"
-write "\e]7002;s;7;208;28;1;36;0;1;1;-1;71\a"
+# Row 3 sprites: text at cursor(5,3), (15,3), (25,3)
+# Sprite positions: (5*8, 3*8-4)=40,20  (15*8, 20)=120,20  (25*8, 20)=200,20
+write "\e]7002;s;5;40;20;1;36;0;1;1;-1;69\a"
+write "\e]7002;s;6;120;20;1;35;0;1;1;-1;70\a"
+write "\e]7002;s;7;200;20;1;36;0;1;1;-1;71\a"
 
-# Row 5 sprites: text at (8,5), (18,5), (28,5)
-# Sprite positions: (9*8, 5*8+4)=72,44  (19*8, 44)=152,44  (29*8, 44)=232,44
-write "\e]7002;s;8;72;44;1;35;0;1;1;-1;72\a"
-write "\e]7002;s;9;152;44;1;36;0;1;1;-1;73\a"
-write "\e]7002;s;10;232;44;1;35;0;1;1;-1;65\a"
+# Row 5 sprites: text at cursor(8,5), (18,5), (28,5)
+# Sprite positions: (8*8, 5*8-4)=64,36  (18*8, 36)=144,36  (28*8, 36)=224,36
+write "\e]7002;s;8;64;36;1;35;0;1;1;-1;72\a"
+write "\e]7002;s;9;144;36;1;36;0;1;1;-1;73\a"
+write "\e]7002;s;10;224;36;1;35;0;1;1;-1;65\a"
 
-# Row 7 sprites: text at (3,7), (12,7), (22,7), (32,7)
-# Sprite positions: (4*8, 7*8+4)=32,60  (13*8, 60)=104,60  (23*8, 60)=184,60  (33*8, 60)=264,60
-write "\e]7002;s;11;32;60;1;36;0;1;1;-1;66\a"
-write "\e]7002;s;12;104;60;1;35;0;1;1;-1;67\a"
-write "\e]7002;s;13;184;60;1;36;0;1;1;-1;68\a"
-write "\e]7002;s;14;264;60;1;35;0;1;1;-1;69\a"
+# Row 7 sprites: text at cursor(3,7), (12,7), (22,7), (32,7)
+# Sprite positions: (3*8, 7*8-4)=24,52  (12*8, 52)=96,52  (22*8, 52)=176,52  (32*8, 52)=256,52
+write "\e]7002;s;11;24;52;1;36;0;1;1;-1;66\a"
+write "\e]7002;s;12;96;52;1;35;0;1;1;-1;67\a"
+write "\e]7002;s;13;176;52;1;36;0;1;1;-1;68\a"
+write "\e]7002;s;14;256;52;1;35;0;1;1;-1;69\a"
 
 # --- Add legend ---
 cursor 1, 10
@@ -235,10 +239,10 @@ print "Each glyph appears TWICE:"
 print "  1. TEXT layer (red/green/yellow/blue) - original position"
 print "  2. SPRITE (magenta/cyan) - offset +1 col, +0.5 rows"
 print ""
-print "Coordinate math (with 8 subdivisions per cell):"
-print "  Text at cell (col, row)"
-print "  Sprite X = (col + 1) * 8  [one cell right]"
-print "  Sprite Y = row * 8 + 4    [half cell down]"
+print "Coordinate math (cursor is 1-indexed, sprites 0-indexed):"
+print "  Text at cursor(col, row) = sprite coords ((col-1)*8, (row-1)*8)"
+print "  Sprite X = col * 8        [+1 cell right from text]"
+print "  Sprite Y = row * 8 - 4    [+0.5 cell down from text]"
 print "  XScale=1, YScale=1        [one rune fills one cell]"
 print ""
 print "Glyphs: A=Star B=Heart C=Diamond D=Club E=Spade"
@@ -255,56 +259,56 @@ color cyan
 print "=== Animation: Sprites orbiting text glyphs ==="
 color reset: true
 
-# Animate sprite 1 (Star) around text at (2,1)
-# Text cell (2,1) = sprite coord (16,8)
-# Orbit positions: right(24,8), down-right(24,16), down(16,16), back(16,8)
+# Animate sprite 1 (Star) around text at cursor(2,1)
+# Text at cursor(2,1) = sprite coord ((2-1)*8, (1-1)*8) = (8,0)
+# Orbit positions: right(16,0), down-right(16,8), down(8,8), back(8,0)
 frame: 0
 while (lt ~frame, 16), (
     phase: {imodulo ~frame, 4}
 
-    # Sprite 1 orbit around cell (2,1)
+    # Sprite 1 orbit around text at cursor(2,1) = sprite (8,0)
     if {eq ~phase, 0}
     then (
-        write "\e]7002;m;1;24;8\a"
+        write "\e]7002;m;1;16;0\a"
     )
     if {eq ~phase, 1}
-    then (
-        write "\e]7002;m;1;24;16\a"
-    )
-    if {eq ~phase, 2}
-    then (
-        write "\e]7002;m;1;16;16\a"
-    )
-    if {eq ~phase, 3}
     then (
         write "\e]7002;m;1;16;8\a"
     )
-
-    # Sprite 7 orbit around cell (25,3) = (200,24)
-    if {eq ~phase, 0}
-    then (
-        write "\e]7002;m;7;208;24\a"
-    )
-    if {eq ~phase, 1}
-    then (
-        write "\e]7002;m;7;208;32\a"
-    )
     if {eq ~phase, 2}
     then (
-        write "\e]7002;m;7;200;32\a"
+        write "\e]7002;m;1;8;8\a"
     )
     if {eq ~phase, 3}
     then (
+        write "\e]7002;m;1;8;0\a"
+    )
+
+    # Sprite 7 orbit around text at cursor(25,3) = sprite ((25-1)*8, (3-1)*8) = (192,16)
+    if {eq ~phase, 0}
+    then (
+        write "\e]7002;m;7;200;16\a"
+    )
+    if {eq ~phase, 1}
+    then (
         write "\e]7002;m;7;200;24\a"
+    )
+    if {eq ~phase, 2}
+    then (
+        write "\e]7002;m;7;192;24\a"
+    )
+    if {eq ~phase, 3}
+    then (
+        write "\e]7002;m;7;192;16\a"
     )
 
     msleep 150
     frame: {add ~frame, 1}
 )
 
-# Reset sprites to offset position
-write "\e]7002;m;1;24;12\a"
-write "\e]7002;m;7;208;28\a"
+# Reset sprites to original offset position (+1 col, +0.5 row from text)
+write "\e]7002;m;1;16;4\a"
+write "\e]7002;m;7;200;20\a"
 
 print ""
 color green
@@ -325,7 +329,7 @@ clear screen
 print "Sprite Offset Demo complete!"
 print ""
 print "Key takeaways:"
-print "  - Sprite coords are in subdivision units (default 8 per cell)"
-print "  - Cell (col, row) = sprite (col*8, row*8)"
+print "  - Cursor is 1-indexed, sprites are 0-indexed with 8 subdivisions per cell"
+print "  - cursor(col, row) = sprite ((col-1)*8, (row-1)*8)"
 print "  - XScale=1, YScale=1 makes one rune sprite fill one cell"
 print ""
