@@ -1015,18 +1015,19 @@ func (w *Widget) paintEvent(event *qt.QPaintEvent) {
 
 					// Calculate target cell width for flex width cells
 					targetCellWidth := cellVisualWidth * float64(baseCharWidth)
+					actualWidthF := float64(actualWidth)
 					textScaleX := horizScale
 					xOffset := 0.0
-					if float64(actualWidth) > targetCellWidth {
+					if actualWidthF > targetCellWidth {
 						// Wide char: squeeze to fit cell width, then apply global scale
-						textScaleX *= targetCellWidth / float64(actualWidth)
-					} else if float64(actualWidth) < targetCellWidth {
+						textScaleX *= targetCellWidth / actualWidthF
+					} else if actualWidthF < targetCellWidth {
 						if cellVisualWidth > 1.0 {
-							// Wide cell: use fixed 2x stretch like DEC double modes
-							textScaleX *= 2.0
+							// Wide cell: stretch to fill (use cellVisualWidth as multiplier)
+							textScaleX *= cellVisualWidth
 						} else {
 							// Normal cell: center narrow char
-							xOffset = (targetCellWidth - float64(actualWidth)) / 2.0 * horizScale
+							xOffset = (targetCellWidth - actualWidthF) / 2.0 * horizScale
 						}
 					}
 
