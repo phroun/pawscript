@@ -1009,8 +1009,10 @@ func (p *Parser) executeOSCSprite(args string) {
 // Format: ESC ] 7003 ; cmd BEL
 // Commands:
 //
-//	c                                                       - clear screen crop (reset to no crop)
-//	cs;WIDTH;HEIGHT                                         - set screen crop (in sprite coordinate units, -1 = no crop)
+//	c                                                       - clear both crops
+//	c;WIDTH                                                 - set width crop only (in sprite units, -1 = no crop)
+//	c;;HEIGHT                                               - set height crop only
+//	c;WIDTH;HEIGHT                                          - set both crops
 //	sda                                                     - delete all screen splits
 //	sd;ID                                                   - delete screen split by ID
 //	ss;ID;SCREENY;BUFROW;BUFCOL;TOPFINE;LEFTFINE;CWS;LD     - set screen split
@@ -1018,7 +1020,7 @@ func (p *Parser) executeOSCSprite(args string) {
 //	    SCREENY: Y coordinate in sprite units where split begins on screen
 //	    BUFROW, BUFCOL: 1-indexed logical screen coordinates (0 = inherit/default)
 //	    TOPFINE, LEFTFINE: fine scroll (0 to subdivisions-1, higher = more clipped)
-//	    CWS: character width scale (-1 = inherit)
+//	    CWS: character width scale (0 = inherit)
 //	    LD: line density override (0 = inherit)
 func (p *Parser) executeOSCScreenCrop(args string) {
 	parts := strings.Split(args, ";")
@@ -1028,16 +1030,16 @@ func (p *Parser) executeOSCScreenCrop(args string) {
 
 	cmd := parts[0]
 	switch cmd {
-	case "c": // Clear screen crop
-		p.buffer.ClearScreenCrop()
-
-	case "cs": // Set screen crop
-		// Format: cs;WIDTH;HEIGHT
-		if len(parts) >= 3 {
-			width, _ := strconv.Atoi(parts[1])
-			height, _ := strconv.Atoi(parts[2])
-			p.buffer.SetScreenCrop(width, height)
+	case "c": // Screen crop: c (clear), c;W, c;;H, or c;W;H
+		widthCrop := -1
+		heightCrop := -1
+		if len(parts) >= 2 && parts[1] != "" {
+			widthCrop, _ = strconv.Atoi(parts[1])
 		}
+		if len(parts) >= 3 && parts[2] != "" {
+			heightCrop, _ = strconv.Atoi(parts[2])
+		}
+		p.buffer.SetScreenCrop(widthCrop, heightCrop)
 
 	case "sda": // Delete all screen splits
 		p.buffer.DeleteAllScreenSplits()

@@ -12,11 +12,12 @@ macro bel (write "\a")
 
 # OSC 7003 command helpers for crops and splits
 macro crop_clear (write "\e]7003;c\a")
-macro crop_set (write "\e]7003;cs;$1;$2\a")
+macro crop_set (write "\e]7003;c;$1;$2\a")
 macro split_clear_all (write "\e]7003;sda\a")
 macro split_delete (write "\e]7003;sd;$1\a")
 macro split_set (write "\e]7003;ss;$1;$2;$3;$4;$5;$6;$7;$8\a")
 # split_set ID, SCREENY, BUFROW, BUFCOL, TOPFINE, LEFTFINE, CWS, LD
+# CWS and LD: 0 = inherit from main screen
 
 # --- Demo Start ---
 clear screen
@@ -144,13 +145,13 @@ split_clear_all
 # Create splits:
 # Split 1: At screen Y=0 (top), show buffer row 20 (footer) - creates a status bar at top
 # Format: ID, SCREENY, BUFROW, BUFCOL, TOPFINE, LEFTFINE, CWS, LD
-split_set 1, 0, 20, 1, 0, 0, -1, 0
+split_set 1, 0, 20, 1, 0, 0, 0, 0
 
 # Split 2: At screen Y=16 (row 2), show buffer row 10 (content)
-split_set 2, 16, 10, 1, 0, 0, -1, 0
+split_set 2, 16, 10, 1, 0, 0, 0, 0
 
 # Split 3: At screen Y=160 (row 20), show buffer row 1 (header)
-split_set 3, 160, 1, 1, 0, 0, -1, 0
+split_set 3, 160, 1, 1, 0, 0, 0, 0
 
 cursor 1, 23
 color cyan
@@ -211,7 +212,7 @@ while (lt ~cycles, 3), (
     while (lt ~fineScroll, 8), (
         # Create split with current fine scroll value
         # Shows buffer row 1, with top portion clipped by fineScroll/8
-        split_set 1, 0, 1, 1, ~fineScroll, 0, -1, 0
+        split_set 1, 0, 1, 1, ~fineScroll, 0, 0, 0
 
         msleep 100
         fineScroll: {add ~fineScroll, 1}
@@ -220,7 +221,7 @@ while (lt ~cycles, 3), (
     # Reverse direction
     fineScroll: 7
     while (gte ~fineScroll, 0), (
-        split_set 1, 0, 1, 1, ~fineScroll, 0, -1, 0
+        split_set 1, 0, 1, 1, ~fineScroll, 0, 0, 0
 
         msleep 100
         fineScroll: {subtract ~fineScroll, 1}
@@ -249,8 +250,8 @@ print "=== Screen Crop and Split Demo Complete ==="
 color reset: true
 print ""
 print "Key OSC 7003 commands demonstrated:"
-print "  c                    - Clear screen crop"
-print "  cs;W;H               - Set crop to WxH sprite units"
+print "  c                    - Clear screen crops"
+print "  c;W;H                - Set crop to WxH sprite units"
 print "  sda                  - Delete all splits"
 print "  sd;ID                - Delete split by ID"
 print "  ss;ID;Y;R;C;TF;LF;CWS;LD - Set split"
@@ -262,6 +263,6 @@ print "  R      - Buffer row (1-indexed)"
 print "  C      - Buffer column (1-indexed)"
 print "  TF     - Top fine scroll (0-7)"
 print "  LF     - Left fine scroll (0-7)"
-print "  CWS    - Char width scale (-1=inherit)"
+print "  CWS    - Char width scale (0=inherit)"
 print "  LD     - Line density (0=inherit)"
 print ""

@@ -102,7 +102,7 @@ type ScreenSplit struct {
 	BufferCol       int     // 0-indexed column in logical screen to start drawing from
 	TopFineScroll   int     // 0 to (subdivisions-1), higher = more of top row clipped
 	LeftFineScroll  int     // 0 to (subdivisions-1), higher = more of left column clipped
-	CharWidthScale  float64 // Character width multiplier (-1 = inherit from main screen)
+	CharWidthScale  float64 // Character width multiplier (0 = inherit from main screen)
 	LineDensity     int     // Line density override (0 = inherit from main screen)
 }
 
@@ -2640,7 +2640,7 @@ func (b *Buffer) DeleteScreenSplit(id int) {
 // screenY: Y coordinate in sprite units where this split begins on screen
 // bufferRow, bufferCol: 0-indexed logical screen coordinates to draw from
 // topFineScroll, leftFineScroll: 0 to (subdivisions-1), higher = more clipped
-// charWidthScale: character width multiplier (-1 = inherit)
+// charWidthScale: character width multiplier (0 = inherit)
 // lineDensity: line density override (0 = inherit)
 func (b *Buffer) SetScreenSplit(id int, screenY, bufferRow, bufferCol, topFineScroll, leftFineScroll int, charWidthScale float64, lineDensity int) {
 	b.mu.Lock()

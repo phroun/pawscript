@@ -460,8 +460,10 @@ Operating System Command sequences for managing screen crops and splits:
 
 | Command | Format | Description |
 |---------|--------|-------------|
-| Clear Crop | `ESC ] 7003 ; c BEL` | Remove screen crop (reset to full screen) |
-| Set Crop | `ESC ] 7003 ; cs;WIDTH;HEIGHT BEL` | Set screen crop dimensions |
+| Clear Crop | `ESC ] 7003 ; c BEL` | Remove both crops |
+| Set Width Crop | `ESC ] 7003 ; c;WIDTH BEL` | Set width crop only |
+| Set Height Crop | `ESC ] 7003 ; c;;HEIGHT BEL` | Set height crop only |
+| Set Both Crops | `ESC ] 7003 ; c;WIDTH;HEIGHT BEL` | Set both crop dimensions |
 | Delete All Splits | `ESC ] 7003 ; sda BEL` | Remove all screen splits |
 | Delete Split | `ESC ] 7003 ; sd;ID BEL` | Delete split with ID |
 | Set Split | `ESC ] 7003 ; ss;ID;SCREENY;BUFROW;BUFCOL;TOPFINE;LEFTFINE;CWS;LD BEL` | Define screen split |
@@ -472,15 +474,21 @@ Screen crop limits the rendering area, specified in sprite coordinate units (def
 
 ```bash
 # Set crop to show only first 80x25 cells (640x200 sprite units)
-printf '\e]7003;cs;640;200\a'
+printf '\e]7003;c;640;200\a'
+
+# Set width crop only (height unlimited)
+printf '\e]7003;c;640\a'
+
+# Set height crop only (width unlimited)
+printf '\e]7003;c;;200\a'
 
 # Clear crop (full screen)
 printf '\e]7003;c\a'
 ```
 
 **Crop parameters:**
-- `WIDTH` - Maximum X coordinate in sprite units (-1 = no crop)
-- `HEIGHT` - Maximum Y coordinate in sprite units (-1 = no crop)
+- `WIDTH` - Maximum X coordinate in sprite units (-1 or omit = no crop)
+- `HEIGHT` - Maximum Y coordinate in sprite units (-1 or omit = no crop)
 
 Content and sprites beyond the crop boundary are clipped.
 
@@ -495,7 +503,7 @@ Screen splits allow different regions of the screen to show different parts of t
 - `BUFCOL` - 1-indexed column to start drawing from (0 = inherit)
 - `TOPFINE` - Top fine scroll: 0 = no clipping, 1-7 = clip top of first row (with 8 subdivisions)
 - `LEFTFINE` - Left fine scroll: 0 = no clipping, 1-7 = clip left of first column
-- `CWS` - Character width scale multiplier (-1 = inherit from main screen)
+- `CWS` - Character width scale multiplier (0 = inherit from main screen)
 - `LD` - Line density override (0 = inherit from main screen)
 
 The main screen (starting at ScreenY=0) is implicit. Splits with ScreenY > 0 overlay portions of the main screen.
@@ -505,7 +513,7 @@ The main screen (starting at ScreenY=0) is implicit. Splits with ScreenY > 0 ove
 ```bash
 # Create a status bar showing row 25 of the buffer at the top of the screen
 # Split at ScreenY=0 (top), showing buffer row 25, column 1
-printf '\e]7003;ss;1;0;25;1;0;0;-1;0\a'
+printf '\e]7003;ss;1;0;25;1;0;0;0;0\a'
 
 # Main content would start below (handled by another split or main screen)
 ```
@@ -515,11 +523,11 @@ printf '\e]7003;ss;1;0;25;1;0;0;-1;0\a'
 ```bash
 # Background layer (top portion) - scrolls slower
 # Split 1: ScreenY=0, shows buffer row 1, fine scroll for parallax effect
-printf '\e]7003;ss;1;0;1;1;2;0;-1;0\a'
+printf '\e]7003;ss;1;0;1;1;2;0;0;0\a'
 
 # Foreground layer - scrolls at normal speed
 # Split 2: ScreenY=64 (row 8), shows buffer row 8
-printf '\e]7003;ss;2;64;8;1;0;0;-1;0\a'
+printf '\e]7003;ss;2;64;8;1;0;0;0;0\a'
 ```
 
 ### Fine Scrolling
@@ -531,7 +539,7 @@ Fine scroll values (TOPFINE, LEFTFINE) enable sub-cell scrolling, useful for smo
 
 ```bash
 # Smooth vertical scroll: clip top 3/8 of first row
-printf '\e]7003;ss;1;0;5;1;3;0;-1;0\a'
+printf '\e]7003;ss;1;0;5;1;3;0;0;0\a'
 ```
 
 ### Split Behavior Notes
