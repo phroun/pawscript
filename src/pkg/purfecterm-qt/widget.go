@@ -617,11 +617,9 @@ func (w *Widget) renderCustomGlyph(painter *qt.QPainter, cell *purfecterm.Cell, 
 	pixelW := float64(cellW) / float64(glyphW)
 	pixelH := (float64(cellH) * scaleY) / float64(glyphH)
 
-	// Apply clipping for double-height lines
-	if clipNeeded {
-		painter.Save()
-		painter.SetClipRect2(cellX, cellY, cellW, cellH)
-	}
+	// Cell bounds for manual clipping (avoids Qt painter state changes that can cause signal issues)
+	cellTop := float64(cellY)
+	cellBottom := float64(cellY + cellH)
 
 	// Render each pixel
 	for gy := 0; gy < glyphH; gy++ {
@@ -657,6 +655,25 @@ func (w *Widget) renderCustomGlyph(painter *qt.QPainter, cell *purfecterm.Cell, 
 				drawH += 1
 			}
 
+			// Manual clipping for double-height lines (avoid Qt painter state changes)
+			if clipNeeded {
+				// Skip pixels entirely outside cell bounds
+				if py+drawH <= cellTop || py >= cellBottom {
+					continue
+				}
+				// Clip pixels that partially extend outside
+				if py < cellTop {
+					drawH -= cellTop - py
+					py = cellTop
+				}
+				if py+drawH > cellBottom {
+					drawH = cellBottom - py
+				}
+				if drawH <= 0 {
+					continue
+				}
+			}
+
 			// Resolve color from palette
 			color, _ := w.buffer.ResolveGlyphColor(cell, paletteIdx)
 
@@ -664,11 +681,6 @@ func (w *Widget) renderCustomGlyph(painter *qt.QPainter, cell *purfecterm.Cell, 
 			qColor := qt.NewQColor3(int(color.R), int(color.G), int(color.B))
 			painter.FillRect5(int(px), int(py), int(drawW+0.5), int(drawH+0.5), qColor)
 		}
-	}
-
-	// Restore clipping state if we applied it
-	if clipNeeded {
-		painter.Restore()
 	}
 
 	return true
