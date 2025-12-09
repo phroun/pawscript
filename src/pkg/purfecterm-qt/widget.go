@@ -36,13 +36,16 @@ type Widget struct {
 	scheme purfecterm.ColorScheme
 
 	// Selection state
-	selecting      bool
-	selectStartX   int
-	selectStartY   int
-	mouseDown      bool
-	mouseDownX     int
-	mouseDownY     int
-	selectionMoved bool
+	selecting       bool
+	selectStartX    int
+	selectStartY    int
+	mouseDown       bool
+	mouseDownX      int
+	mouseDownY      int
+	selectionMoved  bool
+	autoScrollTimer *qt.QTimer // Timer for auto-scrolling
+	autoScrollDelta int        // Scroll direction (-1=up, 1=down), magnitude used for speed
+	lastMouseX      int        // Last known mouse X cell position
 
 	// Cursor blink
 	cursorBlinkOn  bool
@@ -574,8 +577,7 @@ func (w *Widget) updateFontMetrics() {
 
 // renderCustomGlyph renders a custom glyph for a cell at the specified position
 // Returns true if a custom glyph was rendered, false if normal text rendering should be used
-// Note: Double-height line support disabled in Qt due to signal handling conflicts
-func (w *Widget) renderCustomGlyph(painter *qt.QPainter, cell *purfecterm.Cell, cellX, cellY, cellW, cellH int, cellCol int, blinkPhase float64, blinkMode purfecterm.BlinkMode) bool {
+func (w *Widget) renderCustomGlyph(painter *qt.QPainter, cell *purfecterm.Cell, cellX, cellY, cellW, cellH int, cellCol int, blinkPhase float64, blinkMode purfecterm.BlinkMode, lineAttr purfecterm.LineAttribute) bool {
 	glyph := w.buffer.GetGlyph(cell.Char)
 	if glyph == nil {
 		return false
@@ -595,12 +597,34 @@ func (w *Widget) renderCustomGlyph(painter *qt.QPainter, cell *purfecterm.Cell, 
 		yOffset = math.Sin(wavePhase) * 3.0
 	}
 
-	// Apply yOffset to cellY (convert to float for calculation)
-	cellYFloat := float64(cellY) + yOffset
+	// Handle double-height lines by clipping and scaling
+	renderY := float64(cellY) + yOffset
+	scaleY := 1.0
+	clipNeeded := false
+
+	switch lineAttr {
+	case purfecterm.LineAttrDoubleWidth:
+		// Just 2x horizontal, already handled by cellW being doubled
+	case purfecterm.LineAttrDoubleTop:
+		// Show top half of glyph, scaled 2x vertically
+		scaleY = 2.0
+		clipNeeded = true
+	case purfecterm.LineAttrDoubleBottom:
+		// Show bottom half of glyph, scaled 2x vertically
+		scaleY = 2.0
+		renderY = float64(cellY) - float64(cellH) + yOffset // Shift up so bottom half is visible
+		clipNeeded = true
+	}
 
 	// Calculate pixel size (scale glyph to fill cell)
 	pixelW := float64(cellW) / float64(glyphW)
-	pixelH := float64(cellH) / float64(glyphH)
+	pixelH := (float64(cellH) * scaleY) / float64(glyphH)
+
+	// Apply clipping for double-height lines
+	if clipNeeded {
+		painter.Save()
+		painter.SetClipRect2(cellX, cellY, cellW, cellH)
+	}
 
 	// Render each pixel
 	for gy := 0; gy < glyphH; gy++ {
@@ -618,9 +642,9 @@ func (w *Widget) renderCustomGlyph(painter *qt.QPainter, cell *purfecterm.Cell, 
 				drawY = glyphH - 1 - gy
 			}
 
-			// Calculate screen position (using cellYFloat which includes wave offset)
+			// Calculate screen position
 			px := float64(cellX) + float64(drawX)*pixelW
-			py := cellYFloat + float64(drawY)*pixelH
+			py := renderY + float64(drawY)*pixelH
 
 			// Check for adjacent non-transparent pixels in source glyph to hide seams
 			rightNeighborIdx := glyph.GetPixel(gx+1, gy)
@@ -643,6 +667,11 @@ func (w *Widget) renderCustomGlyph(painter *qt.QPainter, cell *purfecterm.Cell, 
 			qColor := qt.NewQColor3(int(color.R), int(color.G), int(color.B))
 			painter.FillRect5(int(px), int(py), int(drawW+0.5), int(drawH+0.5), qColor)
 		}
+	}
+
+	// Restore clipping state if we applied it
+	if clipNeeded {
+		painter.Restore()
 	}
 
 	return true
@@ -970,7 +999,7 @@ func (w *Widget) paintEvent(event *qt.QPaintEvent) {
 			// Draw character
 			if cell.Char != ' ' && cell.Char != 0 && blinkVisible {
 				// Check for custom glyph first
-				if w.renderCustomGlyph(painter, &cell, cellX, cellY, cellW, cellH, x, blinkPhase, scheme.BlinkMode) {
+				if w.renderCustomGlyph(painter, &cell, cellX, cellY, cellW, cellH, x, blinkPhase, scheme.BlinkMode, lineAttr) {
 					// Custom glyph was rendered, skip normal text rendering
 					goto afterCharRenderQt
 				}
@@ -1390,6 +1419,7 @@ func (w *Widget) mousePressEvent(event *qt.QMouseEvent) {
 func (w *Widget) mouseReleaseEvent(event *qt.QMouseEvent) {
 	if event.Button() == qt.LeftButton {
 		w.mouseDown = false
+		w.stopAutoScroll()
 		if w.selecting {
 			w.selecting = false
 			w.buffer.EndSelection()
@@ -1417,7 +1447,109 @@ func (w *Widget) mouseMoveEvent(event *qt.QMouseEvent) {
 		}
 	}
 
+	// Track last mouse X for auto-scroll selection updates
+	w.lastMouseX = cellX
+
+	// Check for auto-scroll: mouse beyond top or bottom edge
+	_, rows := w.buffer.GetSize()
+	charHeight := w.charHeight
+	mouseY := pos.Y()
+	terminalHeight := rows * charHeight
+
+	if mouseY < 0 {
+		// Above top edge - scroll up
+		rowsAbove := (-mouseY / charHeight) + 1
+		if rowsAbove > 5 {
+			rowsAbove = 5 // Cap speed
+		}
+		w.startAutoScroll(-rowsAbove)
+	} else if mouseY >= terminalHeight {
+		// Below bottom edge - scroll down
+		rowsBelow := ((mouseY - terminalHeight) / charHeight) + 1
+		if rowsBelow > 5 {
+			rowsBelow = 5 // Cap speed
+		}
+		w.startAutoScroll(rowsBelow)
+	} else {
+		// Mouse is within terminal area - stop auto-scroll
+		w.stopAutoScroll()
+	}
+
 	w.buffer.UpdateSelection(cellX, cellY)
+}
+
+// startAutoScroll begins auto-scrolling in the given direction
+// delta: negative = scroll up (toward scrollback), positive = scroll down (toward current)
+func (w *Widget) startAutoScroll(delta int) {
+	if delta == 0 {
+		w.stopAutoScroll()
+		return
+	}
+
+	w.autoScrollDelta = delta
+
+	// If timer already running, just update the delta
+	if w.autoScrollTimer != nil {
+		return
+	}
+
+	// Create and start auto-scroll timer (fires every 50ms for smooth scrolling)
+	w.autoScrollTimer = qt.NewQTimer2(w.widget)
+	w.autoScrollTimer.OnTimeout(func() {
+		if !w.selecting || w.autoScrollDelta == 0 {
+			w.stopAutoScroll()
+			return
+		}
+
+		// Get current scroll offset
+		offset := w.buffer.GetScrollOffset()
+		maxOffset := w.buffer.GetMaxScrollOffset()
+
+		// Calculate scroll amount based on delta magnitude
+		scrollAmount := w.autoScrollDelta
+		if scrollAmount < 0 {
+			scrollAmount = -scrollAmount
+		}
+
+		// Apply scroll
+		if w.autoScrollDelta < 0 {
+			// Scroll up (toward scrollback)
+			offset += scrollAmount
+			if offset > maxOffset {
+				offset = maxOffset
+			}
+		} else {
+			// Scroll down (toward current)
+			offset -= scrollAmount
+			if offset < 0 {
+				offset = 0
+			}
+		}
+		w.buffer.SetScrollOffset(offset)
+
+		// Update selection to edge
+		_, rows := w.buffer.GetSize()
+		if w.autoScrollDelta < 0 {
+			// Scrolling up - selection extends to top row
+			w.buffer.UpdateSelection(w.lastMouseX, 0)
+		} else {
+			// Scrolling down - selection extends to bottom row
+			w.buffer.UpdateSelection(w.lastMouseX, rows-1)
+		}
+
+		w.updateScrollbar()
+		w.widget.Update()
+	})
+	w.autoScrollTimer.Start(50)
+}
+
+// stopAutoScroll stops the auto-scroll timer
+func (w *Widget) stopAutoScroll() {
+	if w.autoScrollTimer != nil {
+		w.autoScrollTimer.Stop()
+		w.autoScrollTimer = nil
+	}
+	w.autoScrollDelta = 0
 }
 
 func (w *Widget) wheelEvent(event *qt.QWheelEvent) {
