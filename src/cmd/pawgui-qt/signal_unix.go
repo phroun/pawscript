@@ -2,11 +2,29 @@
 
 package main
 
+/*
+#include <signal.h>
+#include <string.h>
+
+// Empty signal handler that does nothing
+static void empty_handler(int sig) {
+    // Do nothing - just prevent the signal from being handled by Qt
+}
+
+// Install a signal handler with SA_ONSTACK flag before Qt can install one without it
+static void install_sigurg_handler() {
+    struct sigaction sa;
+    memset(&sa, 0, sizeof(sa));
+    sa.sa_handler = empty_handler;
+    sa.sa_flags = SA_ONSTACK;
+    sigemptyset(&sa.sa_mask);
+    sigaction(SIGURG, &sa, NULL);
+}
+*/
+import "C"
+
 import (
-	"os"
-	"os/signal"
 	"runtime"
-	"syscall"
 )
 
 func init() {
@@ -16,15 +34,8 @@ func init() {
 
 	// On macOS, Qt (or its underlying frameworks) installs signal handlers
 	// without the SA_ONSTACK flag, which conflicts with Go's signal handling.
-	// We take control of SIGURG before Qt initializes to prevent the crash.
-	// SIGURG is used for out-of-band data on sockets.
+	// We install our own handler with SA_ONSTACK before Qt initializes.
 	if runtime.GOOS == "darwin" {
-		sigCh := make(chan os.Signal, 1)
-		signal.Notify(sigCh, syscall.SIGURG)
-		go func() {
-			for range sigCh {
-				// Ignore SIGURG - it's not needed for our application
-			}
-		}()
+		C.install_sigurg_handler()
 	}
 }
