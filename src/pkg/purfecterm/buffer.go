@@ -440,17 +440,20 @@ func (b *Buffer) SetCursor(x, y int) {
 }
 
 func (b *Buffer) setCursorInternal(x, y int) {
+	// Use effective (logical) dimensions for cursor bounds
+	effectiveCols := b.EffectiveCols()
+	effectiveRows := b.EffectiveRows()
 	if x < 0 {
 		x = 0
 	}
-	if x >= b.cols {
-		x = b.cols - 1
+	if x >= effectiveCols {
+		x = effectiveCols - 1
 	}
 	if y < 0 {
 		y = 0
 	}
-	if y >= b.rows {
-		y = b.rows - 1
+	if y >= effectiveRows {
+		y = effectiveRows - 1
 	}
 	b.cursorX = x
 	b.cursorY = y
@@ -836,8 +839,9 @@ func (b *Buffer) Tab() {
 	b.mu.Lock()
 	defer b.mu.Unlock()
 	b.cursorX = ((b.cursorX / 8) + 1) * 8
-	if b.cursorX >= b.cols {
-		b.cursorX = b.cols - 1
+	effectiveCols := b.EffectiveCols()
+	if b.cursorX >= effectiveCols {
+		b.cursorX = effectiveCols - 1
 	}
 	b.markDirty()
 }
