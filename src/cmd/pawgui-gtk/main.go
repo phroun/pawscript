@@ -160,6 +160,8 @@ func saveBrowseDir(dir string) {
 
 // Configuration getter wrappers using shared configHelper
 func getFontFamily() string          { return configHelper.GetFontFamily() }
+func getFontFamilyUnicode() string   { return configHelper.GetFontFamilyUnicode() }
+func getFontFamilyCJK() string       { return configHelper.GetFontFamilyCJK() }
 func getFontSize() int               { return configHelper.GetFontSize() }
 func getUIScale() float64            { return configHelper.GetUIScale() }
 func getOptimizationLevel() int      { return configHelper.GetOptimizationLevel() }
@@ -484,6 +486,9 @@ func createTerminal() *gtk.Box {
 		box.PackStart(errLabel, true, true, 0)
 		return box
 	}
+
+	// Set font fallbacks for Unicode/CJK characters
+	terminal.SetFontFallbacks(getFontFamilyUnicode(), getFontFamilyCJK())
 
 	// Add terminal widget to box
 	termWidget := terminal.Widget()
@@ -829,6 +834,9 @@ func createConsoleWindow(filePath string) {
 		win.Destroy()
 		return
 	}
+
+	// Set font fallbacks for Unicode/CJK characters
+	winTerminal.SetFontFallbacks(getFontFamilyUnicode(), getFontFamilyCJK())
 
 	// Add terminal to window
 	termWidget := winTerminal.Widget()

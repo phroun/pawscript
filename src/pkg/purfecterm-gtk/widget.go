@@ -32,6 +32,37 @@ static int font_family_exists(const char *family_name) {
     g_free(families);
     return found;
 }
+
+// Check if a font has a glyph for a specific Unicode code point
+// Returns 1 if the font has the glyph, 0 otherwise
+static int font_has_glyph(const char *family_name, int font_size, gunichar codepoint) {
+    PangoFontMap *font_map = pango_cairo_font_map_get_default();
+    if (!font_map) return 0;
+
+    PangoContext *context = pango_font_map_create_context(font_map);
+    if (!context) return 0;
+
+    PangoFontDescription *desc = pango_font_description_new();
+    pango_font_description_set_family(desc, family_name);
+    pango_font_description_set_size(desc, font_size * PANGO_SCALE);
+
+    PangoFont *font = pango_font_map_load_font(font_map, context, desc);
+    pango_font_description_free(desc);
+
+    if (!font) {
+        g_object_unref(context);
+        return 0;
+    }
+
+    PangoCoverage *coverage = pango_font_get_coverage(font, pango_language_get_default());
+    int has_glyph = (pango_coverage_get(coverage, codepoint) == PANGO_COVERAGE_EXACT);
+
+    pango_coverage_unref(coverage);
+    g_object_unref(font);
+    g_object_unref(context);
+
+    return has_glyph;
+}
 */
 import "C"
 
@@ -69,11 +100,13 @@ type Widget struct {
 	parser *purfecterm.Parser
 
 	// Font settings
-	fontFamily string
-	fontSize   int
-	charWidth  int
-	charHeight int
-	charAscent int
+	fontFamily        string
+	fontFamilyUnicode string // Fallback for Unicode characters missing from main font
+	fontFamilyCJK     string // Fallback for CJK characters
+	fontSize          int
+	charWidth         int
+	charHeight        int
+	charAscent        int
 
 	// Color scheme
 	scheme purfecterm.ColorScheme
@@ -262,6 +295,98 @@ func (w *Widget) SetFont(family string, size int) {
 	w.mu.Unlock()
 	w.updateFontMetrics()
 	w.drawingArea.QueueDraw()
+}
+
+// SetFontFallbacks sets the Unicode and CJK fallback fonts
+// unicodeFont is used for characters missing from the main font (Hebrew, Greek, Cyrillic, etc.)
+// cjkFont is used specifically for CJK (Chinese/Japanese/Korean) characters
+func (w *Widget) SetFontFallbacks(unicodeFont, cjkFont string) {
+	resolvedUnicode := resolveFirstAvailableFont(unicodeFont)
+	resolvedCJK := resolveFirstAvailableFont(cjkFont)
+
+	w.mu.Lock()
+	w.fontFamilyUnicode = resolvedUnicode
+	w.fontFamilyCJK = resolvedCJK
+	w.mu.Unlock()
+}
+
+// isCJKCharacter returns true if the rune is a CJK character
+// This includes CJK Unified Ideographs, Hiragana, Katakana, Hangul, and related ranges
+func isCJKCharacter(r rune) bool {
+	// CJK Unified Ideographs
+	if r >= 0x4E00 && r <= 0x9FFF {
+		return true
+	}
+	// CJK Unified Ideographs Extension A
+	if r >= 0x3400 && r <= 0x4DBF {
+		return true
+	}
+	// CJK Unified Ideographs Extension B-F
+	if r >= 0x20000 && r <= 0x2CEAF {
+		return true
+	}
+	// CJK Compatibility Ideographs
+	if r >= 0xF900 && r <= 0xFAFF {
+		return true
+	}
+	// Hiragana
+	if r >= 0x3040 && r <= 0x309F {
+		return true
+	}
+	// Katakana
+	if r >= 0x30A0 && r <= 0x30FF {
+		return true
+	}
+	// Hangul Syllables
+	if r >= 0xAC00 && r <= 0xD7AF {
+		return true
+	}
+	// Hangul Jamo
+	if r >= 0x1100 && r <= 0x11FF {
+		return true
+	}
+	// Bopomofo
+	if r >= 0x3100 && r <= 0x312F {
+		return true
+	}
+	return false
+}
+
+// getFontForCharacter returns the appropriate font family for a character
+// It checks if the main font has the glyph, and falls back to Unicode or CJK fonts if needed
+func (w *Widget) getFontForCharacter(r rune, mainFont string, fontSize int) string {
+	// ASCII characters always use the main font
+	if r < 128 {
+		return mainFont
+	}
+
+	// Check if main font has this glyph
+	cFont := C.CString(mainFont)
+	hasGlyph := C.font_has_glyph(cFont, C.int(fontSize), C.gunichar(r))
+	C.free(unsafe.Pointer(cFont))
+
+	if hasGlyph != 0 {
+		return mainFont
+	}
+
+	// Main font doesn't have the glyph - use fallback
+	w.mu.Lock()
+	unicodeFont := w.fontFamilyUnicode
+	cjkFont := w.fontFamilyCJK
+	w.mu.Unlock()
+
+	// Use CJK font for CJK characters
+	if isCJKCharacter(r) && cjkFont != "" {
+		return cjkFont
+	}
+
+	// Use Unicode font for other characters
+	if unicodeFont != "" {
+		return unicodeFont
+	}
+
+	// Final fallback to main font
+	return mainFont
 }
 
 // resolveFirstAvailableFont parses a comma-separated font list and returns the first available font.
@@ -532,9 +657,14 @@ func (w *Widget) onDraw(da *gtk.DrawingArea, cr *cairo.Context) bool {
 					float64(fg.G)/255.0,
 					float64(fg.B)/255.0)
 
-				// Set font weight
+				// Determine which font to use for this character (with fallback for Unicode/CJK)
+				charFont := w.getFontForCharacter(cell.Char, fontFamily, fontSize)
+
+				// Set font face (with appropriate weight and fallback font)
 				if cell.Bold {
-					cr.SelectFontFace(fontFamily, cairo.FONT_SLANT_NORMAL, cairo.FONT_WEIGHT_BOLD)
+					cr.SelectFontFace(charFont, cairo.FONT_SLANT_NORMAL, cairo.FONT_WEIGHT_BOLD)
+				} else {
+					cr.SelectFontFace(charFont, cairo.FONT_SLANT_NORMAL, cairo.FONT_WEIGHT_NORMAL)
 				}
 
 				// Measure actual character width using Cairo TextExtents
@@ -649,10 +779,9 @@ func (w *Widget) onDraw(da *gtk.DrawingArea, cr *cairo.Context) bool {
 					cr.Restore()
 				}
 
-				// Reset font weight
-				if cell.Bold {
-					cr.SelectFontFace(fontFamily, cairo.FONT_SLANT_NORMAL, cairo.FONT_WEIGHT_NORMAL)
-				}
+				// Reset font to main font with normal weight
+				// (font is set per-character anyway, but this ensures clean state)
+				cr.SelectFontFace(fontFamily, cairo.FONT_SLANT_NORMAL, cairo.FONT_WEIGHT_NORMAL)
 			}
 
 			// Draw underline if needed

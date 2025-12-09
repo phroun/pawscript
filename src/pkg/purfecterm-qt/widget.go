@@ -24,11 +24,13 @@ type Widget struct {
 	parser *purfecterm.Parser
 
 	// Font settings
-	fontFamily string
-	fontSize   int
-	charWidth  int
-	charHeight int
-	charAscent int
+	fontFamily        string
+	fontFamilyUnicode string // Fallback for Unicode characters missing from main font
+	fontFamilyCJK     string // Fallback for CJK characters
+	fontSize          int
+	charWidth         int
+	charHeight        int
+	charAscent        int
 
 	// Color scheme
 	scheme purfecterm.ColorScheme
@@ -360,6 +362,172 @@ func (w *Widget) SetColorScheme(scheme purfecterm.ColorScheme) {
 	w.widget.Update()
 }
 
+// SetFontFallbacks sets the fallback fonts for Unicode and CJK characters.
+// These are used when the main font doesn't have a glyph for a character.
+func (w *Widget) SetFontFallbacks(unicodeFont, cjkFont string) {
+	// Resolve font families (Qt handles comma-separated lists itself)
+	resolvedUnicode := resolveFirstAvailableFont(unicodeFont)
+	resolvedCJK := resolveFirstAvailableFont(cjkFont)
+
+	w.mu.Lock()
+	w.fontFamilyUnicode = resolvedUnicode
+	w.fontFamilyCJK = resolvedCJK
+	w.mu.Unlock()
+}
+
+// resolveFirstAvailableFont takes a comma-separated list of font families
+// and returns the first one that is available on the system.
+func resolveFirstAvailableFont(fontList string) string {
+	if fontList == "" {
+		return ""
+	}
+
+	fontDB := qt.NewQFontDatabase()
+	families := qt.QFontDatabase_Families()
+
+	// Create a set of available fonts for fast lookup
+	available := make(map[string]bool)
+	for i := 0; i < families.Length(); i++ {
+		available[families.At(i)] = true
+	}
+
+	// Parse comma-separated list and find first available
+	parts := splitFontList(fontList)
+	for _, part := range parts {
+		if available[part] {
+			return part
+		}
+	}
+
+	// Fallback to first in list if none found
+	if len(parts) > 0 {
+		return parts[0]
+	}
+
+	_ = fontDB // Keep reference to prevent GC
+	return fontList
+}
+
+// splitFontList splits a comma-separated font list and trims whitespace
+func splitFontList(fontList string) []string {
+	var result []string
+	var current string
+	for _, c := range fontList {
+		if c == ',' {
+			trimmed := trimSpace(current)
+			if trimmed != "" {
+				result = append(result, trimmed)
+			}
+			current = ""
+		} else {
+			current += string(c)
+		}
+	}
+	trimmed := trimSpace(current)
+	if trimmed != "" {
+		result = append(result, trimmed)
+	}
+	return result
+}
+
+// trimSpace removes leading and trailing whitespace
+func trimSpace(s string) string {
+	start := 0
+	end := len(s)
+	for start < end && (s[start] == ' ' || s[start] == '\t') {
+		start++
+	}
+	for end > start && (s[end-1] == ' ' || s[end-1] == '\t') {
+		end--
+	}
+	return s[start:end]
+}
+
+// isCJKCharacter returns true if the rune is a CJK character
+func isCJKCharacter(r rune) bool {
+	// CJK Unified Ideographs
+	if r >= 0x4E00 && r <= 0x9FFF {
+		return true
+	}
+	// CJK Unified Ideographs Extension A
+	if r >= 0x3400 && r <= 0x4DBF {
+		return true
+	}
+	// CJK Unified Ideographs Extension B-F
+	if r >= 0x20000 && r <= 0x2CEAF {
+		return true
+	}
+	// Hiragana
+	if r >= 0x3040 && r <= 0x309F {
+		return true
+	}
+	// Katakana
+	if r >= 0x30A0 && r <= 0x30FF {
+		return true
+	}
+	// Hangul Syllables
+	if r >= 0xAC00 && r <= 0xD7AF {
+		return true
+	}
+	// Hangul Jamo
+	if r >= 0x1100 && r <= 0x11FF {
+		return true
+	}
+	// CJK Symbols and Punctuation
+	if r >= 0x3000 && r <= 0x303F {
+		return true
+	}
+	// Halfwidth and Fullwidth Forms
+	if r >= 0xFF00 && r <= 0xFFEF {
+		return true
+	}
+	// Bopomofo
+	if r >= 0x3100 && r <= 0x312F {
+		return true
+	}
+	return false
+}
+
+// fontHasGlyph checks if a font can render the given character
+func fontHasGlyph(fontFamily string, fontSize int, r rune) bool {
+	font := qt.NewQFont6(fontFamily, fontSize)
+	metrics := qt.NewQFontMetrics(font)
+	// Check if the font has a glyph for this character
+	// Qt's QFontMetrics.InFont checks if the character is in the font
+	return metrics.InFont(qt.NewQChar(uint(r)))
+}
+
+// getFontForCharacter returns the appropriate font family for a character
+func (w *Widget) getFontForCharacter(r rune, mainFont string, fontSize int) string {
+	// ASCII characters always use main font
+	if r < 128 {
+		return mainFont
+	}
+
+	// Check if main font has this character
+	if fontHasGlyph(mainFont, fontSize, r) {
+		return mainFont
+	}
+
+	w.mu.Lock()
+	unicodeFont := w.fontFamilyUnicode
+	cjkFont := w.fontFamilyCJK
+	w.mu.Unlock()
+
+	// Use CJK font for CJK characters
+	if isCJKCharacter(r) && cjkFont != "" {
+		return cjkFont
+	}
+
+	// Use Unicode fallback for other characters
+	if unicodeFont != "" {
+		return unicodeFont
+	}
+
+	// Fall back to main font
+	return mainFont
+}
+
 // SetInputCallback sets the callback for handling input
 func (w *Widget) SetInputCallback(fn func([]byte)) {
 	w.mu.Lock()
@@ -535,14 +703,21 @@ func (w *Widget) paintEvent(event *qt.QPaintEvent) {
 				fgQColor := qt.NewQColor3(int(fg.R), int(fg.G), int(fg.B))
 				painter.SetPen(fgQColor)
 
+				// Determine which font to use for this character (with fallback for Unicode/CJK)
+				charFontFamily := w.getFontForCharacter(cell.Char, fontFamily, fontSize)
+
 				// Create the appropriate font for this character
-				drawFont := font
-				if cell.Bold {
-					boldFont := qt.NewQFont6(fontFamily, fontSize)
-					boldFont.SetFixedPitch(true)
-					boldFont.SetBold(true)
-					drawFont = boldFont
-					painter.SetFont(boldFont)
+				var drawFont *qt.QFont
+				if charFontFamily != fontFamily || cell.Bold {
+					// Need a different font - either fallback or bold
+					drawFont = qt.NewQFont6(charFontFamily, fontSize)
+					drawFont.SetFixedPitch(charFontFamily == fontFamily) // Only fix pitch for main font
+					if cell.Bold {
+						drawFont.SetBold(true)
+					}
+					painter.SetFont(drawFont)
+				} else {
+					drawFont = font
 				}
 
 				// Measure actual character width
@@ -635,7 +810,8 @@ func (w *Widget) paintEvent(event *qt.QPaintEvent) {
 					painter.Restore()
 				}
 
-				if cell.Bold {
+				// Restore main font if we changed it (for bold or fallback)
+				if charFontFamily != fontFamily || cell.Bold {
 					painter.SetFont(font)
 				}
 			}

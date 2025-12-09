@@ -295,6 +295,11 @@ func (t *Terminal) SetInputCallback(fn func([]byte)) {
 	t.widget.SetInputCallback(fn)
 }
 
+// SetFontFallbacks sets the fallback fonts for Unicode and CJK characters
+func (t *Terminal) SetFontFallbacks(unicodeFont, cjkFont string) {
+	t.widget.SetFontFallbacks(unicodeFont, cjkFont)
+}
+
 // --- Screen Scaling Mode Methods ---
 
 // Set132ColumnMode enables or disables 132-column mode (horizontal scale 0.6060)

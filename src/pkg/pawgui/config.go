@@ -36,6 +36,32 @@ func GetDefaultFont() string {
 	}
 }
 
+// GetDefaultUnicodeFont returns the best Unicode fallback font for the current platform.
+// Used for characters missing from the main monospace font (Hebrew, Greek, Cyrillic, etc.)
+func GetDefaultUnicodeFont() string {
+	switch runtime.GOOS {
+	case "darwin":
+		return "Arial Unicode MS, Apple Symbols, Lucida Grande, Apple Color Emoji"
+	case "windows":
+		return "Segoe UI Symbol, Arial Unicode MS, Lucida Sans Unicode, Segoe UI Emoji"
+	default:
+		return "DejaVu Sans, Noto Sans, Noto Sans Symbols, FreeSans, Symbola"
+	}
+}
+
+// GetDefaultCJKFont returns the best CJK (Chinese/Japanese/Korean) font for the current platform.
+// Used specifically for CJK characters which often need specialized fonts.
+func GetDefaultCJKFont() string {
+	switch runtime.GOOS {
+	case "darwin":
+		return "Hiragino Sans, PingFang SC, Heiti SC, MS Gothic, Apple SD Gothic Neo"
+	case "windows":
+		return "Yu Gothic, Microsoft YaHei, MS Gothic, SimSun, Malgun Gothic"
+	default:
+		return "Noto Sans CJK SC, Noto Sans CJK JP, WenQuanYi Micro Hei, Droid Sans Fallback, Source Han Sans"
+	}
+}
+
 // GetDefaultQuitShortcut returns the platform-appropriate default quit shortcut.
 func GetDefaultQuitShortcut() string {
 	if runtime.GOOS == "darwin" {
@@ -72,6 +98,27 @@ func (h *ConfigHelper) GetFontSize() int {
 		}
 	}
 	return DefaultFontSize
+}
+
+// GetFontFamilyUnicode returns the configured Unicode fallback font family.
+// Used for characters missing from the main monospace font (Hebrew, Greek, Cyrillic, etc.)
+func (h *ConfigHelper) GetFontFamilyUnicode() string {
+	if h.Config != nil {
+		if family := h.Config.GetString("font_family_unicode", ""); family != "" {
+			return family
+		}
+	}
+	return GetDefaultUnicodeFont()
+}
+
+// GetFontFamilyCJK returns the configured CJK (Chinese/Japanese/Korean) font family.
+func (h *ConfigHelper) GetFontFamilyCJK() string {
+	if h.Config != nil {
+		if family := h.Config.GetString("font_family_cjk", ""); family != "" {
+			return family
+		}
+	}
+	return GetDefaultCJKFont()
 }
 
 // GetUIScale returns the configured UI scale factor (default 1.0).
@@ -217,6 +264,14 @@ func (h *ConfigHelper) PopulateDefaults() bool {
 	}
 	if _, exists := h.Config["font_size"]; !exists {
 		h.Config.Set("font_size", DefaultFontSize)
+		modified = true
+	}
+	if _, exists := h.Config["font_family_unicode"]; !exists {
+		h.Config.Set("font_family_unicode", GetDefaultUnicodeFont())
+		modified = true
+	}
+	if _, exists := h.Config["font_family_cjk"]; !exists {
+		h.Config.Set("font_family_cjk", GetDefaultCJKFont())
 		modified = true
 	}
 	if _, exists := h.Config["ui_scale"]; !exists {
