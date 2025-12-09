@@ -499,6 +499,87 @@ func (g *CustomGlyph) GetPixel(x, y int) int {
 	return g.Pixels[idx]
 }
 
+// Sprite represents an overlay sprite that can be positioned anywhere on screen
+type Sprite struct {
+	ID       int       // Unique identifier
+	X, Y     float64   // Position in coordinate units
+	ZIndex   int       // Z-order (negative = behind text layer)
+	FGP      int       // Foreground Glyph Palette (-1 = use default based on rune)
+	FlipCode int       // 0=none, 1=XFlip, 2=YFlip, 3=both
+	XScale   float64   // Horizontal scale multiplier
+	YScale   float64   // Vertical scale multiplier
+	CropRect int       // Crop rectangle ID (-1 = no cropping)
+	Runes    [][]rune  // 2D array of characters (rows of runes, for multi-tile sprites)
+}
+
+// NewSprite creates a new sprite with default values
+func NewSprite(id int) *Sprite {
+	return &Sprite{
+		ID:       id,
+		X:        0,
+		Y:        0,
+		ZIndex:   0,
+		FGP:      -1,
+		FlipCode: 0,
+		XScale:   1.0,
+		YScale:   1.0,
+		CropRect: -1,
+		Runes:    nil,
+	}
+}
+
+// SetRunes parses rune data, splitting on newline (rune 10) for multi-row sprites
+func (s *Sprite) SetRunes(runes []rune) {
+	s.Runes = make([][]rune, 0)
+	currentRow := make([]rune, 0)
+	for _, r := range runes {
+		if r == '\n' || r == 10 {
+			if len(currentRow) > 0 {
+				s.Runes = append(s.Runes, currentRow)
+				currentRow = make([]rune, 0)
+			}
+		} else {
+			currentRow = append(currentRow, r)
+		}
+	}
+	if len(currentRow) > 0 {
+		s.Runes = append(s.Runes, currentRow)
+	}
+}
+
+// GetXFlip returns true if sprite should be horizontally flipped
+func (s *Sprite) GetXFlip() bool {
+	return s.FlipCode == 1 || s.FlipCode == 3
+}
+
+// GetYFlip returns true if sprite should be vertically flipped
+func (s *Sprite) GetYFlip() bool {
+	return s.FlipCode == 2 || s.FlipCode == 3
+}
+
+// CropRectangle defines a rectangular clipping area for sprites
+type CropRectangle struct {
+	ID               int
+	MinX, MinY       float64
+	MaxX, MaxY       float64
+}
+
+// NewCropRectangle creates a new crop rectangle
+func NewCropRectangle(id int, minX, minY, maxX, maxY float64) *CropRectangle {
+	return &CropRectangle{
+		ID:   id,
+		MinX: minX,
+		MinY: minY,
+		MaxX: maxX,
+		MaxY: maxY,
+	}
+}
+
+// Contains returns true if the point is within the crop rectangle
+func (cr *CropRectangle) Contains(x, y float64) bool {
+	return x >= cr.MinX && x <= cr.MaxX && y >= cr.MinY && y <= cr.MaxY
+}
+
 // LineAttribute defines the display mode for a line (VT100 DECDHL/DECDWL)
 type LineAttribute int
 

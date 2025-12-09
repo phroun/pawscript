@@ -705,6 +705,8 @@ func (p *Parser) executeOSC() {
 		p.executeOSCPalette(args)
 	case 7001: // Glyph management
 		p.executeOSCGlyph(args)
+	case 7002: // Sprite management
+		p.executeOSCSprite(args)
 	// Other OSC commands (title, etc.) could be added here
 	}
 }
@@ -797,6 +799,167 @@ func (p *Parser) executeOSCGlyph(args string) {
 			if width > 0 && len(pixels) > 0 {
 				p.buffer.SetGlyph(rune(runeCode), width, pixels)
 			}
+		}
+	}
+}
+
+// executeOSCSprite handles OSC 7002 sprite commands
+// Format: ESC ] 7002 ; cmd BEL
+// Commands:
+//
+//	da                                         - delete all sprites
+//	d;ID                                       - delete sprite by ID
+//	s;ID;X;Y;Z;FGP;FLIP;XS;YS;CROP;R1;R2;...   - set sprite (rune codes, 10=newline)
+//	t;ID;X;Y;Z;FGP;FLIP;XS;YS;CROP;text        - set sprite (text string)
+//	m;ID;X;Y                                   - move sprite (position only)
+//	mr;ID;X;Y;R1;R2;...                        - move and update runes (rune codes)
+//	mrt;ID;X;Y;text                            - move and update runes (text)
+//	u;UX;UY                                    - set coordinate units
+//	cda                                        - delete all crop rectangles
+//	cd;ID                                      - delete crop rectangle
+//	cs;ID;MINX;MINY;MAXX;MAXY                  - set crop rectangle
+func (p *Parser) executeOSCSprite(args string) {
+	parts := strings.Split(args, ";")
+	if len(parts) == 0 {
+		return
+	}
+
+	cmd := parts[0]
+	switch cmd {
+	case "da": // Delete all sprites
+		p.buffer.DeleteAllSprites()
+
+	case "d": // Delete single sprite
+		if len(parts) >= 2 {
+			id, _ := strconv.Atoi(parts[1])
+			p.buffer.DeleteSprite(id)
+		}
+
+	case "s": // Set sprite with rune codes
+		// Format: s;ID;X;Y;Z;FGP;FLIP;XS;YS;CROP;R1;R2;...
+		if len(parts) >= 11 {
+			id, _ := strconv.Atoi(parts[1])
+			x, _ := strconv.ParseFloat(parts[2], 64)
+			y, _ := strconv.ParseFloat(parts[3], 64)
+			z, _ := strconv.Atoi(parts[4])
+			fgp, _ := strconv.Atoi(parts[5])
+			flipCode, _ := strconv.Atoi(parts[6])
+			xScale, _ := strconv.ParseFloat(parts[7], 64)
+			yScale, _ := strconv.ParseFloat(parts[8], 64)
+			cropRect, _ := strconv.Atoi(parts[9])
+
+			// Collect runes from remaining parts
+			runes := make([]rune, 0, len(parts)-10)
+			for i := 10; i < len(parts); i++ {
+				code, _ := strconv.Atoi(parts[i])
+				runes = append(runes, rune(code))
+			}
+
+			// Default scales if zero
+			if xScale == 0 {
+				xScale = 1.0
+			}
+			if yScale == 0 {
+				yScale = 1.0
+			}
+
+			p.buffer.SetSprite(id, x, y, z, fgp, flipCode, xScale, yScale, cropRect, runes)
+		}
+
+	case "t": // Set sprite with text string
+		// Format: t;ID;X;Y;Z;FGP;FLIP;XS;YS;CROP;text
+		if len(parts) >= 11 {
+			id, _ := strconv.Atoi(parts[1])
+			x, _ := strconv.ParseFloat(parts[2], 64)
+			y, _ := strconv.ParseFloat(parts[3], 64)
+			z, _ := strconv.Atoi(parts[4])
+			fgp, _ := strconv.Atoi(parts[5])
+			flipCode, _ := strconv.Atoi(parts[6])
+			xScale, _ := strconv.ParseFloat(parts[7], 64)
+			yScale, _ := strconv.ParseFloat(parts[8], 64)
+			cropRect, _ := strconv.Atoi(parts[9])
+
+			// Text is everything after the 9th semicolon (may contain semicolons)
+			text := strings.Join(parts[10:], ";")
+			runes := []rune(text)
+
+			// Default scales if zero
+			if xScale == 0 {
+				xScale = 1.0
+			}
+			if yScale == 0 {
+				yScale = 1.0
+			}
+
+			p.buffer.SetSprite(id, x, y, z, fgp, flipCode, xScale, yScale, cropRect, runes)
+		}
+
+	case "m": // Move sprite (position only)
+		// Format: m;ID;X;Y
+		if len(parts) >= 4 {
+			id, _ := strconv.Atoi(parts[1])
+			x, _ := strconv.ParseFloat(parts[2], 64)
+			y, _ := strconv.ParseFloat(parts[3], 64)
+			p.buffer.MoveSprite(id, x, y)
+		}
+
+	case "mr": // Move and update runes (rune codes)
+		// Format: mr;ID;X;Y;R1;R2;...
+		if len(parts) >= 5 {
+			id, _ := strconv.Atoi(parts[1])
+			x, _ := strconv.ParseFloat(parts[2], 64)
+			y, _ := strconv.ParseFloat(parts[3], 64)
+
+			// Collect runes from remaining parts
+			runes := make([]rune, 0, len(parts)-4)
+			for i := 4; i < len(parts); i++ {
+				code, _ := strconv.Atoi(parts[i])
+				runes = append(runes, rune(code))
+			}
+
+			p.buffer.MoveSpriteAndRunes(id, x, y, runes)
+		}
+
+	case "mrt": // Move and update runes (text)
+		// Format: mrt;ID;X;Y;text
+		if len(parts) >= 5 {
+			id, _ := strconv.Atoi(parts[1])
+			x, _ := strconv.ParseFloat(parts[2], 64)
+			y, _ := strconv.ParseFloat(parts[3], 64)
+
+			// Text is everything after the 3rd semicolon (may contain semicolons)
+			text := strings.Join(parts[4:], ";")
+			runes := []rune(text)
+
+			p.buffer.MoveSpriteAndRunes(id, x, y, runes)
+		}
+
+	case "u": // Set coordinate units
+		// Format: u;UX;UY
+		if len(parts) >= 3 {
+			ux, _ := strconv.ParseFloat(parts[1], 64)
+			uy, _ := strconv.ParseFloat(parts[2], 64)
+			p.buffer.SetSpriteUnits(ux, uy)
+		}
+
+	case "cda": // Delete all crop rectangles
+		p.buffer.DeleteAllCropRects()
+
+	case "cd": // Delete crop rectangle
+		if len(parts) >= 2 {
+			id, _ := strconv.Atoi(parts[1])
+			p.buffer.DeleteCropRect(id)
+		}
+
+	case "cs": // Set crop rectangle
+		// Format: cs;ID;MINX;MINY;MAXX;MAXY
+		if len(parts) >= 6 {
+			id, _ := strconv.Atoi(parts[1])
+			minX, _ := strconv.ParseFloat(parts[2], 64)
+			minY, _ := strconv.ParseFloat(parts[3], 64)
+			maxX, _ := strconv.ParseFloat(parts[4], 64)
+			maxY, _ := strconv.ParseFloat(parts[5], 64)
+			p.buffer.SetCropRect(id, minX, minY, maxX, maxY)
 		}
 	}
 }
