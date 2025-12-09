@@ -117,7 +117,7 @@ while (lt ~animCycles, ~maxCycles), (
         # Create the split
         # ID = splitY + 1 (1-indexed)
         splitID: {add ~splitY, 1}
-        split_set ~splitID, ~splitY, ~bufRow, 1, ~topFine, ~leftFine, -1, 0
+        split_set ~splitID, ~splitY, ~bufRow, 1, ~topFine, ~leftFine, 0, 0
 
         splitY: {add ~splitY, 1}
     )
