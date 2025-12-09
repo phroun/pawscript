@@ -464,7 +464,44 @@ type PaletteEntry struct {
 
 // Palette represents a custom color palette for glyph rendering
 type Palette struct {
-	Entries []PaletteEntry
+	Entries       []PaletteEntry
+	UsesDefaultFG bool // True if any entry uses PaletteEntryDefaultFG (affects cache invalidation)
+}
+
+// ComputeHash returns a hash of the palette content for cache key purposes.
+// This hash changes whenever the palette's visual output would change.
+// Note: Does not include foreground color - caller must add that if UsesDefaultFG is true.
+func (p *Palette) ComputeHash() uint64 {
+	if p == nil || len(p.Entries) == 0 {
+		return 0
+	}
+
+	// FNV-1a hash
+	var hash uint64 = 14695981039346656037
+
+	for _, e := range p.Entries {
+		// Mix in entry type
+		hash ^= uint64(e.Type)
+		hash *= 1099511628211
+
+		// Mix in color if applicable
+		if e.Type == PaletteEntryColor {
+			hash ^= uint64(e.Color.R)
+			hash *= 1099511628211
+			hash ^= uint64(e.Color.G)
+			hash *= 1099511628211
+			hash ^= uint64(e.Color.B)
+			hash *= 1099511628211
+		}
+
+		// Mix in dim flag
+		if e.Dim {
+			hash ^= 1
+			hash *= 1099511628211
+		}
+	}
+
+	return hash
 }
 
 // CustomGlyph represents a custom pixel-art glyph that replaces a Unicode character
@@ -472,6 +509,31 @@ type CustomGlyph struct {
 	Width  int   // Width in pixels
 	Height int   // Height in pixels (derived from len(Pixels)/Width)
 	Pixels []int // Palette indices, row by row, left to right, top to bottom
+}
+
+// ComputeHash returns a hash of the glyph data for cache key purposes.
+// This hash changes whenever the glyph's pixel data would change.
+func (g *CustomGlyph) ComputeHash() uint64 {
+	if g == nil || len(g.Pixels) == 0 {
+		return 0
+	}
+
+	// FNV-1a hash
+	var hash uint64 = 14695981039346656037
+
+	// Mix in dimensions
+	hash ^= uint64(g.Width)
+	hash *= 1099511628211
+	hash ^= uint64(g.Height)
+	hash *= 1099511628211
+
+	// Mix in pixel data
+	for _, p := range g.Pixels {
+		hash ^= uint64(p)
+		hash *= 1099511628211
+	}
+
+	return hash
 }
 
 // NewPalette creates a new palette with the specified number of entries
@@ -511,6 +573,38 @@ func (g *CustomGlyph) GetPixel(x, y int) int {
 		return 0
 	}
 	return g.Pixels[idx]
+}
+
+// GlyphCacheKey uniquely identifies a rendered glyph for caching.
+// For text glyphs: uses Rune, Width, Height, Bold, Italic, FgR/G/B
+// For custom glyphs: uses Rune, Width, Height, XFlip, YFlip, PaletteHash, GlyphHash,
+//
+//	and FgR/G/B/BgR/G/B (for fallback rendering or palettes with default FG entries)
+type GlyphCacheKey struct {
+	Rune   rune
+	Width  int16 // Target width in pixels
+	Height int16 // Target height in pixels
+
+	// Text glyph attributes
+	Bold   bool
+	Italic bool
+
+	// Custom glyph attributes
+	IsCustomGlyph bool
+	XFlip         bool
+	YFlip         bool
+	PaletteHash   uint64 // Hash of palette content (0 = no palette/fallback mode)
+	GlyphHash     uint64 // Hash of custom glyph pixel data (allows animated glyphs to cache all frames)
+
+	// Resolved foreground color - needed when:
+	// - Text glyph (always)
+	// - Custom glyph with missing palette (fallback uses cell foreground)
+	// - Custom glyph with palette containing PaletteEntryDefaultFG entries
+	FgR, FgG, FgB uint8
+
+	// Resolved background color - needed for custom glyphs with
+	// transparent entries or single-entry palettes (index 0 = background)
+	BgR, BgG, BgB uint8
 }
 
 // Sprite represents an overlay sprite that can be positioned anywhere on screen

@@ -81,6 +81,9 @@ type Buffer struct {
 	palettes     map[int]*Palette      // Palette number -> Palette
 	customGlyphs map[rune]*CustomGlyph // Rune -> CustomGlyph
 
+	// Note: Glyph cache invalidation uses content hashing (Palette.ComputeHash, CustomGlyph.ComputeHash)
+	// instead of version tracking, so alternating between glyph frames will be cache hits
+
 	// Sprite overlay system
 	sprites      map[int]*Sprite        // Sprite ID -> Sprite
 	cropRects    map[int]*CropRectangle // Crop rectangle ID -> CropRectangle
@@ -115,27 +118,27 @@ type ScreenSplit struct {
 // NewBuffer creates a new terminal buffer
 func NewBuffer(cols, rows, maxScrollback int) *Buffer {
 	b := &Buffer{
-		cols:          cols,
-		rows:          rows,
-		logicalCols:   0, // 0 means use physical
-		logicalRows:   0, // 0 means use physical
-		cursorVisible: true,
-		currentFg:     DefaultForeground,
-		currentBg:     DefaultBackground,
-		maxScrollback: maxScrollback,
-		screenInfo:    DefaultScreenInfo(),
-		dirty:         true,
-		lineDensity:   25,            // Default line density
-		currentBGP:    -1,            // -1 = use foreground color code as palette
-		palettes:      make(map[int]*Palette),
-		customGlyphs:  make(map[rune]*CustomGlyph),
-		sprites:       make(map[int]*Sprite),
-		cropRects:     make(map[int]*CropRectangle),
-		spriteUnitX:   8,  // Default: 8 subdivisions per cell
-		spriteUnitY:   8,  // Default: 8 subdivisions per cell
-		widthCrop:     -1, // -1 = no crop
-		heightCrop:    -1, // -1 = no crop
-		screenSplits:  make(map[int]*ScreenSplit),
+		cols:                cols,
+		rows:                rows,
+		logicalCols:         0, // 0 means use physical
+		logicalRows:         0, // 0 means use physical
+		cursorVisible:       true,
+		currentFg:           DefaultForeground,
+		currentBg:           DefaultBackground,
+		maxScrollback:       maxScrollback,
+		screenInfo:          DefaultScreenInfo(),
+		dirty:               true,
+		lineDensity:         25,            // Default line density
+		currentBGP:          -1,            // -1 = use foreground color code as palette
+		palettes:     make(map[int]*Palette),
+		customGlyphs: make(map[rune]*CustomGlyph),
+		sprites:             make(map[int]*Sprite),
+		cropRects:           make(map[int]*CropRectangle),
+		spriteUnitX:         8,  // Default: 8 subdivisions per cell
+		spriteUnitY:         8,  // Default: 8 subdivisions per cell
+		widthCrop:           -1, // -1 = no crop
+		heightCrop:          -1, // -1 = no crop
+		screenSplits:        make(map[int]*ScreenSplit),
 	}
 	b.initScreen()
 	return b
@@ -2237,6 +2240,7 @@ func (b *Buffer) SetPaletteEntry(paletteNum int, idx int, colorCode int, dim boo
 		entry.Type = PaletteEntryTransparent
 	case 9:
 		entry.Type = PaletteEntryDefaultFG
+		palette.UsesDefaultFG = true // Track for cache invalidation
 	default:
 		entry.Type = PaletteEntryColor
 		// Map SGR color codes to actual colors
@@ -2259,6 +2263,7 @@ func (b *Buffer) SetPaletteEntry(paletteNum int, idx int, colorCode int, dim boo
 			entry.Color = ANSIColors[colorIdx]
 		}
 	}
+
 	b.markDirty()
 }
 

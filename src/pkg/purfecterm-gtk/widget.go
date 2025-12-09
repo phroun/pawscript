@@ -197,19 +197,141 @@ import (
 const terminalLeftPadding = 8
 
 // Widget is a GTK terminal emulator widget
+// glyphCacheEntry stores a cached rendered glyph surface
+type glyphCacheEntry struct {
+	surface    *cairo.Surface
+	lastAccess uint64 // Access counter for LRU eviction
+}
+
+// glyphCache provides LRU caching for rendered glyphs
+type glyphCache struct {
+	entries       map[purfecterm.GlyphCacheKey]*glyphCacheEntry
+	accessCounter uint64 // Global counter incremented on each access
+	maxEntries    int    // Maximum cache size
+}
+
+func newGlyphCache(maxEntries int) *glyphCache {
+	return &glyphCache{
+		entries:    make(map[purfecterm.GlyphCacheKey]*glyphCacheEntry),
+		maxEntries: maxEntries,
+	}
+}
+
+// get retrieves a cached glyph surface, updating its access time
+func (c *glyphCache) get(key purfecterm.GlyphCacheKey) *cairo.Surface {
+	if entry, ok := c.entries[key]; ok {
+		c.accessCounter++
+		entry.lastAccess = c.accessCounter
+		return entry.surface
+	}
+	return nil
+}
+
+// put adds a glyph surface to the cache, evicting old entries if needed
+func (c *glyphCache) put(key purfecterm.GlyphCacheKey, surface *cairo.Surface) {
+	// Evict old entries if at capacity
+	if len(c.entries) >= c.maxEntries {
+		c.evictOldest(c.maxEntries / 4) // Evict 25% of entries
+	}
+
+	c.accessCounter++
+	c.entries[key] = &glyphCacheEntry{
+		surface:    surface,
+		lastAccess: c.accessCounter,
+	}
+}
+
+// evictOldest removes the n oldest entries from the cache
+func (c *glyphCache) evictOldest(n int) {
+	if n <= 0 || len(c.entries) == 0 {
+		return
+	}
+
+	// Find the n entries with lowest lastAccess
+	type entryInfo struct {
+		key        purfecterm.GlyphCacheKey
+		lastAccess uint64
+	}
+
+	entries := make([]entryInfo, 0, len(c.entries))
+	for k, v := range c.entries {
+		entries = append(entries, entryInfo{k, v.lastAccess})
+	}
+
+	// Partial sort to find n smallest (simple selection for small n)
+	for i := 0; i < n && i < len(entries); i++ {
+		minIdx := i
+		for j := i + 1; j < len(entries); j++ {
+			if entries[j].lastAccess < entries[minIdx].lastAccess {
+				minIdx = j
+			}
+		}
+		entries[i], entries[minIdx] = entries[minIdx], entries[i]
+	}
+
+	// Remove the oldest n entries
+	for i := 0; i < n && i < len(entries); i++ {
+		delete(c.entries, entries[i].key)
+	}
+}
+
+// clear removes all entries from the cache
+func (c *glyphCache) clear() {
+	c.entries = make(map[purfecterm.GlyphCacheKey]*glyphCacheEntry)
+}
+
+// buildTextGlyphKey creates a cache key for a text glyph (non-custom)
+func buildTextGlyphKey(r rune, combining string, width, height int, bold, italic bool, fg purfecterm.Color) purfecterm.GlyphCacheKey {
+	return purfecterm.GlyphCacheKey{
+		Rune:          r,
+		Width:         int16(width),
+		Height:        int16(height),
+		Bold:          bold,
+		Italic:        italic,
+		IsCustomGlyph: false,
+		FgR:           fg.R,
+		FgG:           fg.G,
+		FgB:           fg.B,
+	}
+}
+
+// buildCustomGlyphKey creates a cache key for a custom glyph
+func buildCustomGlyphKey(r rune, width, height int, xFlip, yFlip bool,
+	paletteHash uint64, glyphHash uint64, fg, bg purfecterm.Color) purfecterm.GlyphCacheKey {
+	return purfecterm.GlyphCacheKey{
+		Rune:          r,
+		Width:         int16(width),
+		Height:        int16(height),
+		IsCustomGlyph: true,
+		XFlip:         xFlip,
+		YFlip:         yFlip,
+		PaletteHash:   paletteHash,
+		GlyphHash:     glyphHash,
+		FgR:           fg.R,
+		FgG:           fg.G,
+		FgB:           fg.B,
+		BgR:           bg.R,
+		BgG:           bg.G,
+		BgB:           bg.B,
+	}
+}
+
 type Widget struct {
 	mu sync.Mutex
 
 	// GTK widgets
-	drawingArea      *gtk.DrawingArea
-	scrollbar        *gtk.Scrollbar   // Vertical scrollbar
-	horizScrollbar   *gtk.Scrollbar   // Horizontal scrollbar
-	box              *gtk.Box         // Outer vertical box
-	innerBox         *gtk.Box         // Inner horizontal box (drawingArea + vscrollbar)
+	drawingArea    *gtk.DrawingArea
+	scrollbar      *gtk.Scrollbar // Vertical scrollbar
+	horizScrollbar *gtk.Scrollbar // Horizontal scrollbar
+	box            *gtk.Box       // Outer vertical box
+	innerBox       *gtk.Box       // Inner horizontal box (drawingArea + vscrollbar)
 
 	// Terminal state
 	buffer *purfecterm.Buffer
 	parser *purfecterm.Parser
+
+	// Glyph cache for rendered characters
+	glyphCache *glyphCache
 
 	// Font settings
 	fontFamily        string
@@ -265,6 +387,7 @@ func NewWidget(cols, rows, scrollbackSize int) (*Widget, error) {
 		charAscent:    16,
 		scheme:        purfecterm.DefaultColorScheme(),
 		cursorBlinkOn: true,
+		glyphCache:    newGlyphCache(4096), // Cache up to 4096 rendered glyphs
 	}
 
 	// Create buffer and parser
