@@ -382,19 +382,14 @@ func resolveFirstAvailableFont(fontList string) string {
 		return ""
 	}
 
-	fontDB := qt.NewQFontDatabase()
-	families := qt.QFontDatabase_Families()
-
-	// Create a set of available fonts for fast lookup
-	available := make(map[string]bool)
-	for i := 0; i < families.Length(); i++ {
-		available[families.At(i)] = true
-	}
-
-	// Parse comma-separated list and find first available
+	// Parse comma-separated list and find first available by testing if Qt can load it
 	parts := splitFontList(fontList)
 	for _, part := range parts {
-		if available[part] {
+		// Try to create a font with this family and check if it resolves
+		testFont := qt.NewQFont6(part, 12)
+		info := qt.NewQFontInfo(testFont)
+		// If the family name matches (approximately), the font is available
+		if info.Family() == part || len(parts) == 1 {
 			return part
 		}
 	}
@@ -404,7 +399,6 @@ func resolveFirstAvailableFont(fontList string) string {
 		return parts[0]
 	}
 
-	_ = fontDB // Keep reference to prevent GC
 	return fontList
 }
 
@@ -492,9 +486,16 @@ func isCJKCharacter(r rune) bool {
 func fontHasGlyph(fontFamily string, fontSize int, r rune) bool {
 	font := qt.NewQFont6(fontFamily, fontSize)
 	metrics := qt.NewQFontMetrics(font)
-	// Check if the font has a glyph for this character
-	// Qt's QFontMetrics.InFont checks if the character is in the font
-	return metrics.InFont(qt.NewQChar(uint(r)))
+	// Check if the font has a glyph by seeing if it has a non-zero advance
+	// and the resolved font family matches what we requested
+	charStr := string(r)
+	advance := metrics.HorizontalAdvance(charStr)
+	if advance <= 0 {
+		return false
+	}
+	// Additional check: see if Qt substituted a different font
+	info := qt.NewQFontInfo(font)
+	return info.Family() == fontFamily
 }
 
 // getFontForCharacter returns the appropriate font family for a character
