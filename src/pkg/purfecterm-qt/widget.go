@@ -1021,8 +1021,13 @@ func (w *Widget) paintEvent(event *qt.QPaintEvent) {
 						// Wide char: squeeze to fit cell width, then apply global scale
 						textScaleX *= targetCellWidth / float64(actualWidth)
 					} else if float64(actualWidth) < targetCellWidth {
-						// Narrow char: center within the cell (offset is in scaled coordinates)
-						xOffset = (targetCellWidth - float64(actualWidth)) / 2.0 * horizScale
+						if cellVisualWidth > 1.0 && purfecterm.IsAmbiguousWidth(cell.Char) {
+							// Ambiguous char in wide mode: stretch to fill the cell
+							textScaleX *= targetCellWidth / float64(actualWidth)
+						} else {
+							// Normal cell or naturally wide char: center within the cell
+							xOffset = (targetCellWidth - float64(actualWidth)) / 2.0 * horizScale
+						}
 					}
 
 					painter.Translate2(float64(cellX)+xOffset, float64(cellY)+float64(baseCharAscent)*vertScale+yOffset)
