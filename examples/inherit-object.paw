@@ -1,0 +1,22 @@
+#(
+#   This demo shows how to make an inheritable global object, able to
+#   be seen by macros declared later.
+)#
+
+
+macro objectSource(
+  #o: {list "it works"}
+  EXPORT #o
+)
+objectSource  # calling our macro adds things to exports:: namespace
+IMPORT "exports::#o"  # we import it into our local objects list
+LIBRARY "forget exports"  # optionally clear them out of main Library
+LIBRARY "restrict exports"  # remove it from Restricted Library as well
+
+
+macro checkInheritableObject(
+  echo ~#o
+)
+
+checkInheritableObject
+
