@@ -830,20 +830,10 @@ func (w *Widget) renderSpriteGlyph(painter *qt.QPainter, glyph *purfecterm.Custo
 			rightNeighborIdx := glyph.GetPixel(gx+1, gy)
 			belowNeighborIdx := glyph.GetPixel(gx, gy+1)
 
-			// Extend pixel to cover seams with adjacent non-transparent pixels
-			drawW := pixelW
-			drawH := pixelH
-			if rightNeighborIdx != 0 {
-				drawW += 1
-			}
-			if belowNeighborIdx != 0 {
-				drawH += 1
-			}
-
 			// Apply crop if specified
 			if hasCrop {
-				if px+drawW <= cropMinX || px >= cropMaxX ||
-					py+drawH <= cropMinY || py >= cropMaxY {
+				if px+pixelW <= cropMinX || px >= cropMaxX ||
+					py+pixelH <= cropMinY || py >= cropMaxY {
 					continue
 				}
 			}
@@ -854,9 +844,21 @@ func (w *Widget) renderSpriteGlyph(painter *qt.QPainter, glyph *purfecterm.Custo
 				continue
 			}
 
-			// Draw pixel
 			qColor := qt.NewQColor3(int(color.R), int(color.G), int(color.B))
-			painter.FillRect5(int(px), int(py), int(drawW+0.5), int(drawH+0.5), qColor)
+
+			// Draw main pixel
+			painter.FillRect5(int(px), int(py), int(pixelW+0.5), int(pixelH+0.5), qColor)
+
+			// Draw seam extensions as separate strips (1 screen pixel each)
+			// to prevent hairline gaps without creating corner artifacts
+			if rightNeighborIdx != 0 {
+				// Right extension: 1 screen pixel wide strip
+				painter.FillRect5(int(px+pixelW), int(py), 1, int(pixelH+0.5), qColor)
+			}
+			if belowNeighborIdx != 0 {
+				// Bottom extension: 1 screen pixel tall strip
+				painter.FillRect5(int(px), int(py+pixelH), int(pixelW+0.5), 1, qColor)
+			}
 		}
 	}
 }

@@ -858,20 +858,10 @@ func (w *Widget) renderSpriteGlyph(cr *cairo.Context, glyph *purfecterm.CustomGl
 			rightNeighborIdx := glyph.GetPixel(gx+1, gy)
 			belowNeighborIdx := glyph.GetPixel(gx, gy+1)
 
-			// Extend pixel to cover seams with adjacent non-transparent pixels
-			drawW := pixelW
-			drawH := pixelH
-			if rightNeighborIdx != 0 {
-				drawW += 1
-			}
-			if belowNeighborIdx != 0 {
-				drawH += 1
-			}
-
 			// Apply crop if specified
 			if hasCrop {
-				if px+drawW <= cropMinX || px >= cropMaxX ||
-					py+drawH <= cropMinY || py >= cropMaxY {
+				if px+pixelW <= cropMinX || px >= cropMaxX ||
+					py+pixelH <= cropMinY || py >= cropMaxY {
 					continue
 				}
 			}
@@ -882,13 +872,28 @@ func (w *Widget) renderSpriteGlyph(cr *cairo.Context, glyph *purfecterm.CustomGl
 				continue // Transparent pixel
 			}
 
-			// Draw pixel
+			// Set color for drawing
 			cr.SetSourceRGB(
 				float64(color.R)/255.0,
 				float64(color.G)/255.0,
 				float64(color.B)/255.0)
-			cr.Rectangle(px, py, drawW, drawH)
+
+			// Draw main pixel
+			cr.Rectangle(px, py, pixelW, pixelH)
 			cr.Fill()
+
+			// Draw seam extensions as separate strips (1 screen pixel each)
+			// to prevent hairline gaps without creating corner artifacts
+			if rightNeighborIdx != 0 {
+				// Right extension: 1 screen pixel wide strip
+				cr.Rectangle(px+pixelW, py, 1, pixelH)
+				cr.Fill()
+			}
+			if belowNeighborIdx != 0 {
+				// Bottom extension: 1 screen pixel tall strip
+				cr.Rectangle(px, py+pixelH, pixelW, 1)
+				cr.Fill()
+			}
 		}
 	}
 }
