@@ -757,10 +757,20 @@ func (w *Widget) onDraw(da *gtk.DrawingArea, cr *cairo.Context) bool {
 		startCol := horizOffset
 		endCol := horizOffset + effectiveCols
 
+		// Track accumulated visual width for flex-width rendering
+		// This is the accumulated width in base cell units (before line attribute scaling)
+		visibleAccumulatedWidth := 0.0
+
 		for logicalX := startCol; logicalX < endCol; logicalX++ {
 			// Screen position (0-based from visible area)
 			x := logicalX - horizOffset
 			cell := w.buffer.GetVisibleCell(logicalX, y)
+
+			// Calculate this cell's visual width
+			cellVisualWidth := 1.0
+			if cell.FlexWidth && cell.CellWidth > 0 {
+				cellVisualWidth = cell.CellWidth
+			}
 
 			// Determine colors
 			fg := cell.Foreground
@@ -807,27 +817,32 @@ func (w *Widget) onDraw(da *gtk.DrawingArea, cr *cairo.Context) bool {
 				fg, bg = bg, fg
 			}
 
-			// Calculate cell position and size based on line attributes
+			// Calculate cell position and size based on line attributes and flex width
 			var cellX, cellY, cellW, cellH float64
 			switch lineAttr {
 			case purfecterm.LineAttrNormal:
-				cellX = float64(x*charWidth + terminalLeftPadding)
+				// Use accumulated width for X position when cells have flex width
+				cellX = visibleAccumulatedWidth*float64(charWidth) + float64(terminalLeftPadding)
 				cellY = float64(y * charHeight)
-				cellW = float64(charWidth)
+				cellW = cellVisualWidth * float64(charWidth)
 				cellH = float64(charHeight)
 			case purfecterm.LineAttrDoubleWidth:
-				// Each character takes up 2 cell widths
-				cellX = float64(x*2*charWidth + terminalLeftPadding)
+				// Each character takes up 2x its normal width
+				cellX = visibleAccumulatedWidth*2.0*float64(charWidth) + float64(terminalLeftPadding)
 				cellY = float64(y * charHeight)
-				cellW = float64(charWidth * 2)
+				cellW = cellVisualWidth * float64(charWidth) * 2.0
 				cellH = float64(charHeight)
 			case purfecterm.LineAttrDoubleTop, purfecterm.LineAttrDoubleBottom:
-				// Each character takes up 2 cell widths, text is rendered 2x height
-				cellX = float64(x*2*charWidth + terminalLeftPadding)
+				// Each character takes up 2x its normal width, text is rendered 2x height
+				cellX = visibleAccumulatedWidth*2.0*float64(charWidth) + float64(terminalLeftPadding)
 				cellY = float64(y * charHeight)
-				cellW = float64(charWidth * 2)
+				cellW = cellVisualWidth * float64(charWidth) * 2.0
 				cellH = float64(charHeight)
 			}
+
+			// Track accumulated width for next cell (after position calculation)
+			_ = x // x is still useful for wave animation phase calculation
+			visibleAccumulatedWidth += cellVisualWidth
 
 			// Draw cell background if different from terminal background
 			if bg != scheme.Background {
@@ -872,20 +887,20 @@ func (w *Widget) onDraw(da *gtk.DrawingArea, cr *cairo.Context) bool {
 					// Characters are drawn at scaled size to fit in scaled cells
 					cr.Save()
 
-					// Calculate horizontal scale factor:
-					// 1. Start with global horizScale
-					// 2. If character is wider than base cell, squeeze it
+					// Calculate horizontal scale factor for flex width cells
+					// The cell's target width is cellW (which accounts for CellWidth)
+					targetCellWidth := cellW / horizScale // Unscaled target width
 					textScaleX := horizScale
 					xOff := 0.0
-					if actualWidth > float64(baseCharWidth) {
-						// Wide char: squeeze to fit base cell width, then apply global scale
-						textScaleX *= float64(baseCharWidth) / actualWidth
-					} else if actualWidth < float64(baseCharWidth) {
+					if actualWidth > targetCellWidth {
+						// Wide char: squeeze to fit cell width, then apply global scale
+						textScaleX *= targetCellWidth / actualWidth
+					} else if actualWidth < targetCellWidth {
 						// Narrow char: center within the cell (offset is in scaled coordinates)
-						xOff = (float64(baseCharWidth) - actualWidth) / 2.0 * horizScale
+						xOff = (targetCellWidth - actualWidth) / 2.0 * horizScale
 					}
 
-					textBaseX := float64(x*charWidth+terminalLeftPadding) + xOff
+					textBaseX := cellX + xOff
 					textBaseY := float64(y*charHeight) + yOffset
 					cr.Translate(textBaseX, textBaseY)
 					cr.Scale(textScaleX, vertScale)
@@ -896,18 +911,19 @@ func (w *Widget) onDraw(da *gtk.DrawingArea, cr *cairo.Context) bool {
 				case purfecterm.LineAttrDoubleWidth:
 					// Double-width line: 2x horizontal scale on top of global scaling
 					cr.Save()
-					// Combine global horizScale with 2x for double-width
+					// The cell's target width is cellW (which includes 2x for double-width)
+					targetCellWidth := cellW / (horizScale * 2.0) // Unscaled target width
 					textScaleX := horizScale * 2.0
 					xOff := 0.0
-					if actualWidth > float64(baseCharWidth) {
-						// Wide char: squeeze to fit base cell
-						textScaleX *= float64(baseCharWidth) / actualWidth
-					} else if actualWidth < float64(baseCharWidth) {
+					if actualWidth > targetCellWidth {
+						// Wide char: squeeze to fit cell
+						textScaleX *= targetCellWidth / actualWidth
+					} else if actualWidth < targetCellWidth {
 						// Center narrow char (offset in final scaled coordinates)
-						xOff = (float64(baseCharWidth) - actualWidth) * horizScale
+						xOff = (targetCellWidth - actualWidth) * horizScale
 					}
-					textX := float64(cellX) + xOff
-					textY := float64(cellY) + yOffset
+					textX := cellX + xOff
+					textY := cellY + yOffset
 					cr.Translate(textX, textY)
 					cr.Scale(textScaleX, vertScale)
 					pangoRenderText(cr, charStr, charFont, fontSize, cell.Bold, fgR, fgG, fgB)
@@ -919,18 +935,19 @@ func (w *Widget) onDraw(da *gtk.DrawingArea, cr *cairo.Context) bool {
 					// Clip to just this cell's area
 					cr.Rectangle(cellX, cellY, cellW, cellH)
 					cr.Clip()
-					// Combine global scaling with 2x for double size
+					// The cell's target width is cellW (which includes 2x for double-width)
+					targetCellWidth := cellW / (horizScale * 2.0) // Unscaled target width
 					textScaleX := horizScale * 2.0
 					textScaleY := vertScale * 2.0
 					xOff := 0.0
-					if actualWidth > float64(baseCharWidth) {
-						textScaleX *= float64(baseCharWidth) / actualWidth
-					} else if actualWidth < float64(baseCharWidth) {
-						xOff = (float64(baseCharWidth) - actualWidth) * horizScale
+					if actualWidth > targetCellWidth {
+						textScaleX *= targetCellWidth / actualWidth
+					} else if actualWidth < targetCellWidth {
+						xOff = (targetCellWidth - actualWidth) * horizScale
 					}
 					// Position baseline at 2x ascent (only top half visible due to clip)
-					textX := float64(cellX) + xOff
-					textY := float64(cellY) + yOffset*2
+					textX := cellX + xOff
+					textY := cellY + yOffset*2
 					cr.Translate(textX, textY)
 					cr.Scale(textScaleX, textScaleY)
 					pangoRenderText(cr, charStr, charFont, fontSize, cell.Bold, fgR, fgG, fgB)
@@ -942,17 +959,19 @@ func (w *Widget) onDraw(da *gtk.DrawingArea, cr *cairo.Context) bool {
 					// Clip to just this cell's area
 					cr.Rectangle(cellX, cellY, cellW, cellH)
 					cr.Clip()
+					// The cell's target width is cellW (which includes 2x for double-width)
+					targetCellWidth := cellW / (horizScale * 2.0) // Unscaled target width
 					textScaleX := horizScale * 2.0
 					textScaleY := vertScale * 2.0
 					xOff := 0.0
-					if actualWidth > float64(baseCharWidth) {
-						textScaleX *= float64(baseCharWidth) / actualWidth
-					} else if actualWidth < float64(baseCharWidth) {
-						xOff = (float64(baseCharWidth) - actualWidth) * horizScale
+					if actualWidth > targetCellWidth {
+						textScaleX *= targetCellWidth / actualWidth
+					} else if actualWidth < targetCellWidth {
+						xOff = (targetCellWidth - actualWidth) * horizScale
 					}
 					// Position so bottom half is visible (shift up by one cell height)
-					textX := float64(cellX) + xOff
-					textY := float64(cellY) - float64(charHeight) + yOffset*2
+					textX := cellX + xOff
+					textY := cellY - float64(charHeight) + yOffset*2
 					cr.Translate(textX, textY)
 					cr.Scale(textScaleX, textScaleY)
 					pangoRenderText(cr, charStr, charFont, fontSize, cell.Bold, fgR, fgG, fgB)
@@ -1043,7 +1062,7 @@ func (w *Widget) screenToCell(screenX, screenY float64) (cellX, cellY int) {
 	// Calculate row first (needed to check line attributes)
 	cellY = int(screenY) / charHeight
 
-	_, rows := w.buffer.GetSize()
+	cols, rows := w.buffer.GetSize()
 	if cellY < 0 {
 		cellY = 0
 	}
@@ -1053,22 +1072,52 @@ func (w *Widget) screenToCell(screenX, screenY float64) (cellX, cellY int) {
 
 	// Check if this line has doubled attributes (affects column calculation)
 	lineAttr := w.buffer.GetVisibleLineAttribute(cellY)
-	effectiveCharWidth := charWidth
+	lineScale := 1.0
 	if lineAttr != purfecterm.LineAttrNormal {
 		// Doubled lines: each logical cell is 2x wide visually
-		effectiveCharWidth = charWidth * 2
+		lineScale = 2.0
 	}
 
-	// Calculate screen column, then add horizontal offset to get logical column
-	horizOffset := w.buffer.GetHorizOffset()
-	screenCol := (int(screenX) - terminalLeftPadding) / effectiveCharWidth
-	cellX = screenCol + horizOffset
+	// Calculate which cell the mouse is in, accounting for flex width
+	// First, get the x position relative to content area
+	relativeX := screenX - float64(terminalLeftPadding)
+	if relativeX < 0 {
+		cellX = 0
+		return
+	}
 
+	// Get horizontal scroll offset
+	horizOffset := w.buffer.GetHorizOffset()
+
+	// Iterate through cells to find which one contains this x position
+	// accumulatedPixels tracks the right edge of each cell
+	accumulatedPixels := 0.0
+	for col := horizOffset; col < cols+horizOffset; col++ {
+		cell := w.buffer.GetVisibleCell(col, cellY)
+
+		// Calculate this cell's visual width
+		cellVisualWidth := 1.0
+		if cell.FlexWidth && cell.CellWidth > 0 {
+			cellVisualWidth = cell.CellWidth
+		}
+
+		// Calculate pixel width of this cell
+		cellPixelWidth := cellVisualWidth * float64(charWidth) * lineScale
+
+		// Check if the click is within this cell
+		if relativeX < accumulatedPixels+cellPixelWidth {
+			cellX = col
+			return
+		}
+
+		accumulatedPixels += cellPixelWidth
+	}
+
+	// If we've gone past all cells, return the last cell
+	cellX = cols + horizOffset - 1
 	if cellX < 0 {
 		cellX = 0
 	}
-	// No upper bound check on cellX - allow selecting beyond visible area
-	// (the buffer will handle out of bounds access)
 	return
 }
 

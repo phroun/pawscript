@@ -2,15 +2,17 @@ package purfecterm
 
 // Cell represents a single character cell in the terminal
 type Cell struct {
-	Char       rune   // Base character
-	Combining  string // Combining marks (vowel points, diacritics, etc.)
+	Char       rune    // Base character
+	Combining  string  // Combining marks (vowel points, diacritics, etc.)
 	Foreground Color
 	Background Color
 	Bold       bool
 	Italic     bool
 	Underline  bool
 	Reverse    bool
-	Blink      bool // When true, character animates (bobbing wave instead of traditional blink)
+	Blink      bool    // When true, character animates (bobbing wave instead of traditional blink)
+	FlexWidth  bool    // When true, cell uses East Asian Width for variable width rendering
+	CellWidth  float64 // Visual width in cell units (0.5, 1.0, 1.5, 2.0) - only used when FlexWidth is true
 }
 
 // String returns the full character including any combining marks
@@ -110,6 +112,289 @@ func IsCombiningMark(r rune) bool {
 		return true
 	}
 	return false
+}
+
+// EastAsianWidth represents the Unicode East Asian Width property
+type EastAsianWidth int
+
+const (
+	EAWidthNeutral   EastAsianWidth = iota // N - Neutral (most Western characters)
+	EAWidthAmbiguous                       // A - Ambiguous (characters that can be narrow or wide)
+	EAWidthHalfwidth                       // H - Halfwidth (halfwidth CJK punctuation, Katakana)
+	EAWidthFullwidth                       // F - Fullwidth (fullwidth ASCII, punctuation)
+	EAWidthNarrow                          // Na - Narrow (narrow but not neutral)
+	EAWidthWide                            // W - Wide (CJK ideographs, etc.)
+)
+
+// AmbiguousWidthMode controls how ambiguous East Asian Width characters are rendered
+type AmbiguousWidthMode int
+
+const (
+	AmbiguousWidthAuto   AmbiguousWidthMode = iota // Match width of previous character
+	AmbiguousWidthNarrow                           // Force 1.0 width
+	AmbiguousWidthWide                             // Force 2.0 width
+)
+
+// GetEastAsianWidth returns the East Asian Width property for a rune.
+// Returns the width in cell units:
+// - Halfwidth (H): 1.0 (half compared to normal CJK = same as Latin)
+// - Narrow (Na) / Neutral (N): 1.0
+// - Ambiguous (A): returns -1.0 to indicate "use context" (caller handles)
+// - Fullwidth (F) / Wide (W): 2.0
+func GetEastAsianWidth(r rune) float64 {
+	cat := getEastAsianWidthCategory(r)
+	switch cat {
+	case EAWidthAmbiguous:
+		return -1.0 // Special value: ambiguous, needs context
+	case EAWidthFullwidth, EAWidthWide:
+		return 2.0
+	default: // Neutral, Narrow, Halfwidth - all normal width
+		return 1.0
+	}
+}
+
+// GetEastAsianWidthCategory returns the category for a rune (exported for debugging)
+func GetEastAsianWidthCategory(r rune) EastAsianWidth {
+	return getEastAsianWidthCategory(r)
+}
+
+// IsAmbiguousWidth returns true if the character has ambiguous East Asian Width
+func IsAmbiguousWidth(r rune) bool {
+	return getEastAsianWidthCategory(r) == EAWidthAmbiguous
+}
+
+// getEastAsianWidthCategory returns the East Asian Width category for a rune.
+// Based on Unicode 15.0 East_Asian_Width property.
+func getEastAsianWidthCategory(r rune) EastAsianWidth {
+	// Halfwidth forms (H)
+	// Halfwidth CJK punctuation
+	if r >= 0xFF61 && r <= 0xFF64 {
+		return EAWidthHalfwidth
+	}
+	// Halfwidth Katakana
+	if r >= 0xFF65 && r <= 0xFF9F {
+		return EAWidthHalfwidth
+	}
+	// Halfwidth Hangul
+	if r >= 0xFFA0 && r <= 0xFFDC {
+		return EAWidthHalfwidth
+	}
+	// Halfwidth symbols
+	if r >= 0xFFE8 && r <= 0xFFEE {
+		return EAWidthHalfwidth
+	}
+
+	// Fullwidth forms (F)
+	// Fullwidth ASCII variants
+	if r >= 0xFF01 && r <= 0xFF60 {
+		return EAWidthFullwidth
+	}
+	// Fullwidth currency symbols
+	if r >= 0xFFE0 && r <= 0xFFE6 {
+		return EAWidthFullwidth
+	}
+
+	// Wide characters (W)
+	// CJK Radicals Supplement
+	if r >= 0x2E80 && r <= 0x2EFF {
+		return EAWidthWide
+	}
+	// Kangxi Radicals
+	if r >= 0x2F00 && r <= 0x2FDF {
+		return EAWidthWide
+	}
+	// CJK Symbols and Punctuation
+	if r >= 0x3000 && r <= 0x303F {
+		return EAWidthWide
+	}
+	// Hiragana
+	if r >= 0x3040 && r <= 0x309F {
+		return EAWidthWide
+	}
+	// Katakana
+	if r >= 0x30A0 && r <= 0x30FF {
+		return EAWidthWide
+	}
+	// Bopomofo
+	if r >= 0x3100 && r <= 0x312F {
+		return EAWidthWide
+	}
+	// Hangul Compatibility Jamo
+	if r >= 0x3130 && r <= 0x318F {
+		return EAWidthWide
+	}
+	// Kanbun
+	if r >= 0x3190 && r <= 0x319F {
+		return EAWidthWide
+	}
+	// Bopomofo Extended
+	if r >= 0x31A0 && r <= 0x31BF {
+		return EAWidthWide
+	}
+	// CJK Strokes
+	if r >= 0x31C0 && r <= 0x31EF {
+		return EAWidthWide
+	}
+	// Katakana Phonetic Extensions
+	if r >= 0x31F0 && r <= 0x31FF {
+		return EAWidthWide
+	}
+	// Enclosed CJK Letters and Months
+	if r >= 0x3200 && r <= 0x32FF {
+		return EAWidthWide
+	}
+	// CJK Compatibility
+	if r >= 0x3300 && r <= 0x33FF {
+		return EAWidthWide
+	}
+	// CJK Unified Ideographs Extension A
+	if r >= 0x3400 && r <= 0x4DBF {
+		return EAWidthWide
+	}
+	// CJK Unified Ideographs
+	if r >= 0x4E00 && r <= 0x9FFF {
+		return EAWidthWide
+	}
+	// Yi Syllables
+	if r >= 0xA000 && r <= 0xA48F {
+		return EAWidthWide
+	}
+	// Yi Radicals
+	if r >= 0xA490 && r <= 0xA4CF {
+		return EAWidthWide
+	}
+	// Hangul Syllables
+	if r >= 0xAC00 && r <= 0xD7AF {
+		return EAWidthWide
+	}
+	// CJK Compatibility Ideographs
+	if r >= 0xF900 && r <= 0xFAFF {
+		return EAWidthWide
+	}
+	// Vertical Forms
+	if r >= 0xFE10 && r <= 0xFE1F {
+		return EAWidthWide
+	}
+	// CJK Compatibility Forms
+	if r >= 0xFE30 && r <= 0xFE4F {
+		return EAWidthWide
+	}
+	// Small Form Variants
+	if r >= 0xFE50 && r <= 0xFE6F {
+		return EAWidthWide
+	}
+	// CJK Unified Ideographs Extension B
+	if r >= 0x20000 && r <= 0x2A6DF {
+		return EAWidthWide
+	}
+	// CJK Unified Ideographs Extension C
+	if r >= 0x2A700 && r <= 0x2B73F {
+		return EAWidthWide
+	}
+	// CJK Unified Ideographs Extension D
+	if r >= 0x2B740 && r <= 0x2B81F {
+		return EAWidthWide
+	}
+	// CJK Unified Ideographs Extension E
+	if r >= 0x2B820 && r <= 0x2CEAF {
+		return EAWidthWide
+	}
+	// CJK Unified Ideographs Extension F
+	if r >= 0x2CEB0 && r <= 0x2EBEF {
+		return EAWidthWide
+	}
+	// CJK Compatibility Ideographs Supplement
+	if r >= 0x2F800 && r <= 0x2FA1F {
+		return EAWidthWide
+	}
+	// CJK Unified Ideographs Extension G
+	if r >= 0x30000 && r <= 0x3134F {
+		return EAWidthWide
+	}
+	// Emoji (many are wide)
+	if r >= 0x1F300 && r <= 0x1F9FF {
+		return EAWidthWide
+	}
+	// More emoji
+	if r >= 0x1FA00 && r <= 0x1FAFF {
+		return EAWidthWide
+	}
+
+	// Ambiguous characters (A)
+	// These are characters that could be narrow or wide depending on context
+	// Greek
+	if r >= 0x0370 && r <= 0x03FF {
+		return EAWidthAmbiguous
+	}
+	// Cyrillic
+	if r >= 0x0400 && r <= 0x04FF {
+		return EAWidthAmbiguous
+	}
+	// Latin Extended Additional
+	if r >= 0x1E00 && r <= 0x1EFF {
+		return EAWidthAmbiguous
+	}
+	// General Punctuation (some)
+	if r >= 0x2010 && r <= 0x2027 {
+		return EAWidthAmbiguous
+	}
+	// Currency Symbols
+	if r >= 0x20A0 && r <= 0x20CF {
+		return EAWidthAmbiguous
+	}
+	// Letterlike Symbols
+	if r >= 0x2100 && r <= 0x214F {
+		return EAWidthAmbiguous
+	}
+	// Number Forms
+	if r >= 0x2150 && r <= 0x218F {
+		return EAWidthAmbiguous
+	}
+	// Arrows
+	if r >= 0x2190 && r <= 0x21FF {
+		return EAWidthAmbiguous
+	}
+	// Mathematical Operators
+	if r >= 0x2200 && r <= 0x22FF {
+		return EAWidthAmbiguous
+	}
+	// Miscellaneous Technical
+	if r >= 0x2300 && r <= 0x23FF {
+		return EAWidthAmbiguous
+	}
+	// Box Drawing
+	if r >= 0x2500 && r <= 0x257F {
+		return EAWidthAmbiguous
+	}
+	// Block Elements
+	if r >= 0x2580 && r <= 0x259F {
+		return EAWidthAmbiguous
+	}
+	// Geometric Shapes
+	if r >= 0x25A0 && r <= 0x25FF {
+		return EAWidthAmbiguous
+	}
+	// Miscellaneous Symbols
+	if r >= 0x2600 && r <= 0x26FF {
+		return EAWidthAmbiguous
+	}
+	// Dingbats
+	if r >= 0x2700 && r <= 0x27BF {
+		return EAWidthAmbiguous
+	}
+
+	// Narrow (Na)
+	// Basic Latin (ASCII)
+	if r >= 0x0020 && r <= 0x007E {
+		return EAWidthNarrow
+	}
+	// Latin-1 Supplement
+	if r >= 0x00A0 && r <= 0x00FF {
+		return EAWidthNarrow
+	}
+
+	// Default to Neutral
+	return EAWidthNeutral
 }
 
 // EmptyCell returns an empty cell with default attributes

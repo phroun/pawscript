@@ -2,6 +2,14 @@
 
 ### 0.2.9 -- November 29 - December 9, 2025
 - PurfecTerm terminal emulator enhancements:
+  - Flexible East Asian Width mode (private mode 2027): cells can have variable
+    visual widths (1.0 or 2.0) based on Unicode East_Asian_Width property
+  - Visual width wrap mode (private mode 2028): line wrapping based on
+    accumulated visual width rather than cell count
+  - Ambiguous width modes (private modes 2029/2030): control rendering of
+    ambiguous characters as narrow (1.0), wide (2.0), or auto-match previous
+  - Mouse selection and rendering properly handle variable cell widths
+  - Private ANSI codes documented in docs/private-ansi-codes.md
   - Unicode combining character support: Hebrew vowel points (nikkud),
     Arabic marks, Thai marks, Devanagari vowel signs, and other diacritics
     properly attach to previous cell rather than taking new cells
