@@ -257,13 +257,13 @@ line_patterns: {list ~grass_line, ~mixed_line, ~water_line, ~sky_line, ~tree_lin
 pattern_colors: {list "green", "green", "blue", "cyan", "green", "red", "white"}
 num_patterns: 7
 
-start_time: {time}
-end_time: {add ~start_time, 30}
+start_time: {microtime}
+end_time: {add ~start_time, 30000000}
 line_count: 0
 pattern_idx: 0
 
-# Main scroll loop
-while (lt {time}, ~end_time), (
+# Main scroll loop (30 seconds = 30000000 microseconds)
+while (lt {microtime}, ~end_time), (
     # Get current pattern
     current_line: {slice ~line_patterns, ~pattern_idx, 1}
     current_color: {slice ~pattern_colors, ~pattern_idx, 1}
@@ -284,8 +284,9 @@ while (lt {time}, ~end_time), (
 
 # --- Cleanup and summary ---
 
-# Calculate stats
-elapsed: {sub {time}, ~start_time}
+# Calculate stats (microtime is in microseconds, convert to seconds)
+elapsed_us: {sub {microtime}, ~start_time}
+elapsed: {div ~elapsed_us, 1000000}
 lines_per_sec: {div ~line_count, ~elapsed}
 
 sprite_clear_all
