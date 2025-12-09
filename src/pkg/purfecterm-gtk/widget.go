@@ -2482,13 +2482,18 @@ func (w *Widget) updateScrollbar() {
 
 func (w *Widget) updateHorizScrollbar() {
 	cols, _ := w.buffer.GetSize()
-	longestLine := w.buffer.GetLongestLineVisible()
 	splitContentWidth := w.buffer.GetSplitContentWidth()
 	horizOffset := w.buffer.GetHorizOffset()
+	scrollOffset := w.buffer.GetScrollOffset()
 
-	// Use the maximum of scrollback content width and split content width
-	// Split content width is independent and may be wider due to different buffer positions
-	maxContentWidth := longestLine
+	// Only include scrollback content width if scrollback is visible
+	// (i.e., scrollOffset > 0, meaning the yellow dashed line is shown)
+	maxContentWidth := 0
+	if scrollOffset > 0 {
+		maxContentWidth = w.buffer.GetLongestLineVisible()
+	}
+
+	// Always consider split content width for the logical screen
 	if splitContentWidth > maxContentWidth {
 		maxContentWidth = splitContentWidth
 	}

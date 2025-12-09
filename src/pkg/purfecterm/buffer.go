@@ -1503,12 +1503,20 @@ func (b *Buffer) GetLongestLineVisible() int {
 
 // NeedsHorizScrollbar returns true if there's content beyond the visible width
 func (b *Buffer) NeedsHorizScrollbar() bool {
-	longest := b.GetLongestLineVisible()
 	b.mu.RLock()
 	cols := b.cols
 	splitWidth := b.splitContentWidth
+	scrollOffset := b.scrollOffset
 	b.mu.RUnlock()
-	// Consider both scrollback content and split content
+
+	// Only include scrollback content width if scrollback is visible
+	// (i.e., scrollOffset > 0, meaning the yellow dashed line is shown)
+	longest := 0
+	if scrollOffset > 0 {
+		longest = b.GetLongestLineVisible()
+	}
+
+	// Always consider split content width for the logical screen
 	if splitWidth > longest {
 		longest = splitWidth
 	}
@@ -1517,12 +1525,20 @@ func (b *Buffer) NeedsHorizScrollbar() bool {
 
 // GetMaxHorizOffset returns the maximum horizontal scroll offset
 func (b *Buffer) GetMaxHorizOffset() int {
-	longest := b.GetLongestLineVisible()
 	b.mu.RLock()
 	cols := b.cols
 	splitWidth := b.splitContentWidth
+	scrollOffset := b.scrollOffset
 	b.mu.RUnlock()
-	// Consider both scrollback content and split content
+
+	// Only include scrollback content width if scrollback is visible
+	// (i.e., scrollOffset > 0, meaning the yellow dashed line is shown)
+	longest := 0
+	if scrollOffset > 0 {
+		longest = b.GetLongestLineVisible()
+	}
+
+	// Always consider split content width for the logical screen
 	if splitWidth > longest {
 		longest = splitWidth
 	}
