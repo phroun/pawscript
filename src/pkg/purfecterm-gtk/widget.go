@@ -1518,7 +1518,7 @@ func (w *Widget) startAutoScroll(delta int) {
 	}
 
 	// Start auto-scroll timer (fires every 50ms for smooth scrolling)
-	w.autoScrollTimerID, _ = glib.TimeoutAdd(50, func() bool {
+	w.autoScrollTimerID = glib.TimeoutAdd(50, func() bool {
 		if !w.selecting || w.autoScrollDelta == 0 {
 			w.autoScrollTimerID = 0
 			return false // Stop timer
