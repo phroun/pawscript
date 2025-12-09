@@ -58,9 +58,11 @@ type Widget struct {
 	mu sync.Mutex
 
 	// GTK widgets
-	drawingArea *gtk.DrawingArea
-	scrollbar   *gtk.Scrollbar
-	box         *gtk.Box
+	drawingArea      *gtk.DrawingArea
+	scrollbar        *gtk.Scrollbar   // Vertical scrollbar
+	horizScrollbar   *gtk.Scrollbar   // Horizontal scrollbar
+	box              *gtk.Box         // Outer vertical box
+	innerBox         *gtk.Box         // Inner horizontal box (drawingArea + vscrollbar)
 
 	// Terminal state
 	buffer *purfecterm.Buffer
@@ -131,8 +133,14 @@ func NewWidget(cols, rows, scrollbackSize int) (*Widget, error) {
 	// Create GTK widgets
 	var err error
 
-	// Main container
-	w.box, err = gtk.BoxNew(gtk.ORIENTATION_HORIZONTAL, 0)
+	// Outer container (vertical: content area + horizontal scrollbar)
+	w.box, err = gtk.BoxNew(gtk.ORIENTATION_VERTICAL, 0)
+	if err != nil {
+		return nil, err
+	}
+
+	// Inner container (horizontal: drawing area + vertical scrollbar)
+	w.innerBox, err = gtk.BoxNew(gtk.ORIENTATION_HORIZONTAL, 0)
 	if err != nil {
 		return nil, err
 	}
@@ -159,7 +167,7 @@ func NewWidget(cols, rows, scrollbackSize int) (*Widget, error) {
 	w.drawingArea.Connect("focus-in-event", w.onFocusIn)
 	w.drawingArea.Connect("focus-out-event", w.onFocusOut)
 
-	// Create scrollbar
+	// Create vertical scrollbar
 	adjustment, _ := gtk.AdjustmentNew(0, 0, 100, 1, 10, 10)
 	w.scrollbar, err = gtk.ScrollbarNew(gtk.ORIENTATION_VERTICAL, adjustment)
 	if err != nil {
@@ -167,13 +175,27 @@ func NewWidget(cols, rows, scrollbackSize int) (*Widget, error) {
 	}
 	w.scrollbar.Connect("value-changed", w.onScrollbarChanged)
 
+	// Create horizontal scrollbar
+	hAdjustment, _ := gtk.AdjustmentNew(0, 0, 100, 1, 10, 10)
+	w.horizScrollbar, err = gtk.ScrollbarNew(gtk.ORIENTATION_HORIZONTAL, hAdjustment)
+	if err != nil {
+		return nil, err
+	}
+	w.horizScrollbar.Connect("value-changed", w.onHorizScrollbarChanged)
+	w.horizScrollbar.SetNoShowAll(true) // Don't show when parent shows all
+
 	// Apply macOS-style scrollbar CSS using a unique style class
 	w.scrollbar.SetName("purfecterm-scrollbar")
+	w.horizScrollbar.SetName("purfecterm-hscrollbar")
 	w.applyScrollbarCSS()
 
-	// Pack widgets
-	w.box.PackStart(w.drawingArea, true, true, 0)
-	w.box.PackStart(w.scrollbar, false, false, 0)
+	// Pack widgets: inner box holds drawing area and vertical scrollbar
+	w.innerBox.PackStart(w.drawingArea, true, true, 0)
+	w.innerBox.PackStart(w.scrollbar, false, false, 0)
+
+	// Outer box holds inner box and horizontal scrollbar
+	w.box.PackStart(w.innerBox, true, true, 0)
+	w.box.PackStart(w.horizScrollbar, false, false, 0)
 
 	// Get clipboard
 	w.clipboard, _ = gtk.ClipboardGet(gdk.SELECTION_CLIPBOARD)
@@ -286,25 +308,29 @@ func (w *Widget) applyScrollbarCSS() {
 	}
 
 	css := fmt.Sprintf(`
-		#purfecterm-scrollbar {
+		#purfecterm-scrollbar, #purfecterm-hscrollbar {
 			background-color: rgb(%d, %d, %d);
 		}
-		#purfecterm-scrollbar slider {
+		#purfecterm-scrollbar slider, #purfecterm-hscrollbar slider {
 			min-width: 8px;
 			min-height: 30px;
 			border-radius: 4px;
 			background-color: rgba(128, 128, 128, 0.5);
 		}
-		#purfecterm-scrollbar slider:hover {
+		#purfecterm-scrollbar slider:hover, #purfecterm-hscrollbar slider:hover {
 			background-color: rgba(128, 128, 128, 0.7);
 		}
-		#purfecterm-scrollbar slider:active {
+		#purfecterm-scrollbar slider:active, #purfecterm-hscrollbar slider:active {
 			background-color: rgba(100, 100, 100, 0.8);
 		}
-		#purfecterm-scrollbar button {
+		#purfecterm-scrollbar button, #purfecterm-hscrollbar button {
 			min-width: 0;
 			min-height: 0;
 			padding: 0;
+		}
+		#purfecterm-hscrollbar slider {
+			min-width: 30px;
+			min-height: 8px;
 		}
 	`, bg.R, bg.G, bg.B)
 
@@ -392,6 +418,9 @@ func (w *Widget) onDraw(da *gtk.DrawingArea, cr *cairo.Context) bool {
 	cr.SelectFontFace(fontFamily, cairo.FONT_SLANT_NORMAL, cairo.FONT_WEIGHT_NORMAL)
 	cr.SetFontSize(float64(fontSize))
 
+	// Get horizontal scroll offset
+	horizOffset := w.buffer.GetHorizOffset()
+
 	// Draw each cell (use GetVisibleCell to account for scroll offset)
 	for y := 0; y < rows; y++ {
 		lineAttr := w.buffer.GetVisibleLineAttribute(y)
@@ -402,8 +431,14 @@ func (w *Widget) onDraw(da *gtk.DrawingArea, cr *cairo.Context) bool {
 			effectiveCols = cols / 2
 		}
 
-		for x := 0; x < effectiveCols; x++ {
-			cell := w.buffer.GetVisibleCell(x, y)
+		// Calculate the range of logical columns to render
+		startCol := horizOffset
+		endCol := horizOffset + effectiveCols
+
+		for logicalX := startCol; logicalX < endCol; logicalX++ {
+			// Screen position (0-based from visible area)
+			x := logicalX - horizOffset
+			cell := w.buffer.GetVisibleCell(logicalX, y)
 
 			// Determine colors
 			fg := cell.Foreground
@@ -438,13 +473,13 @@ func (w *Widget) onDraw(da *gtk.DrawingArea, cr *cairo.Context) bool {
 				}
 			}
 
-			// Handle selection highlighting
-			if w.buffer.IsInSelection(x, y) {
+			// Handle selection highlighting (use logicalX for buffer position)
+			if w.buffer.IsInSelection(logicalX, y) {
 				bg = scheme.Selection
 			}
 
 			// Handle cursor - only swap colors for solid block cursor when focused
-			isCursor := cursorVisible && x == cursorX && y == cursorY && w.cursorBlinkOn
+			isCursor := cursorVisible && logicalX == cursorX && y == cursorY && w.cursorBlinkOn
 			if isCursor && w.hasFocus && cursorShape == 0 {
 				// Swap colors for solid block cursor when focused
 				fg, bg = bg, fg
@@ -494,6 +529,11 @@ func (w *Widget) onDraw(da *gtk.DrawingArea, cr *cairo.Context) bool {
 					cr.SelectFontFace(fontFamily, cairo.FONT_SLANT_NORMAL, cairo.FONT_WEIGHT_BOLD)
 				}
 
+				// Measure actual character width using Cairo TextExtents
+				charStr := string(cell.Char)
+				extents := cr.TextExtents(charStr)
+				actualWidth := extents.XAdvance
+
 				// Calculate vertical offset for bobbing wave animation on blink text
 				// Each character is offset by a phase shift based on its x position,
 				// creating a "wave" effect where characters bob up and down in sequence
@@ -507,21 +547,55 @@ func (w *Widget) onDraw(da *gtk.DrawingArea, cr *cairo.Context) bool {
 
 				switch lineAttr {
 				case purfecterm.LineAttrNormal:
-					// Normal rendering
-					cr.MoveTo(float64(x*charWidth+terminalLeftPadding), float64(y*charHeight+charAscent)+yOffset)
-					cr.ShowText(string(cell.Char))
+					// Handle character width adjustment:
+					// - If wider than cell: squeeze to fit
+					// - If narrower than cell: center horizontally
+					textBaseX := float64(x*charWidth + terminalLeftPadding)
+					textBaseY := float64(y*charHeight+charAscent) + yOffset
+
+					if actualWidth > cellW {
+						// Squeeze wide character
+						scaleX := cellW / actualWidth
+						cr.Save()
+						cr.Translate(textBaseX, textBaseY)
+						cr.Scale(scaleX, 1.0)
+						cr.MoveTo(0, 0)
+						cr.ShowText(charStr)
+						cr.Restore()
+					} else if actualWidth < cellW {
+						// Center narrow character
+						xOffset := (cellW - actualWidth) / 2
+						cr.MoveTo(textBaseX+xOffset, textBaseY)
+						cr.ShowText(charStr)
+					} else {
+						// Perfect fit
+						cr.MoveTo(textBaseX, textBaseY)
+						cr.ShowText(charStr)
+					}
 
 				case purfecterm.LineAttrDoubleWidth:
-					// Double width: scale text 2x horizontally
-					cr.Save()
-					// Position at cell, scale 2x horizontally
+					// Double width: scale text 2x horizontally, with character width adjustment
 					textX := float64(x*2*charWidth + terminalLeftPadding)
 					textY := float64(y*charHeight + charAscent)
-					cr.Translate(textX, textY+yOffset)
-					cr.Scale(2.0, 1.0)
-					cr.MoveTo(0, 0)
-					cr.ShowText(string(cell.Char))
-					cr.Restore()
+
+					if actualWidth > cellW {
+						// Squeeze - scale down to fit
+						scaleX := cellW / actualWidth
+						cr.Save()
+						cr.Translate(textX, textY+yOffset)
+						cr.Scale(scaleX, 1.0)
+						cr.MoveTo(0, 0)
+						cr.ShowText(charStr)
+						cr.Restore()
+					} else {
+						// Center within double-width cell
+						xOffset := (cellW - actualWidth) / 2
+						cr.Save()
+						cr.Translate(textX+xOffset, textY+yOffset)
+						cr.MoveTo(0, 0)
+						cr.ShowText(charStr)
+						cr.Restore()
+					}
 
 				case purfecterm.LineAttrDoubleTop:
 					// Double height top: scale 2x, show top half only
@@ -532,10 +606,18 @@ func (w *Widget) onDraw(da *gtk.DrawingArea, cr *cairo.Context) bool {
 					// Position text: baseline at 2x ascent position from cell top
 					textX := float64(x*2*charWidth + terminalLeftPadding)
 					textY := float64(y*charHeight + charAscent*2)
-					cr.Translate(textX, textY+yOffset*2)
-					cr.Scale(2.0, 2.0)
+
+					if actualWidth*2 > cellW {
+						scaleX := cellW / (actualWidth * 2)
+						cr.Translate(textX, textY+yOffset*2)
+						cr.Scale(scaleX*2.0, 2.0)
+					} else {
+						xOffset := (cellW - actualWidth*2) / 2
+						cr.Translate(textX+xOffset, textY+yOffset*2)
+						cr.Scale(2.0, 2.0)
+					}
 					cr.MoveTo(0, 0)
-					cr.ShowText(string(cell.Char))
+					cr.ShowText(charStr)
 					cr.Restore()
 
 				case purfecterm.LineAttrDoubleBottom:
@@ -547,10 +629,18 @@ func (w *Widget) onDraw(da *gtk.DrawingArea, cr *cairo.Context) bool {
 					// Position text: the top half would be at y-1, so shift up by one cell height
 					textX := float64(x*2*charWidth + terminalLeftPadding)
 					textY := float64(y*charHeight + charAscent*2 - charHeight)
-					cr.Translate(textX, textY+yOffset*2)
-					cr.Scale(2.0, 2.0)
+
+					if actualWidth*2 > cellW {
+						scaleX := cellW / (actualWidth * 2)
+						cr.Translate(textX, textY+yOffset*2)
+						cr.Scale(scaleX*2.0, 2.0)
+					} else {
+						xOffset := (cellW - actualWidth*2) / 2
+						cr.Translate(textX+xOffset, textY+yOffset*2)
+						cr.Scale(2.0, 2.0)
+					}
 					cr.MoveTo(0, 0)
-					cr.ShowText(string(cell.Char))
+					cr.ShowText(charStr)
 					cr.Restore()
 				}
 
@@ -636,22 +726,21 @@ func (w *Widget) screenToCell(screenX, screenY float64) (cellX, cellY int) {
 	// Check if this line has doubled attributes (affects column calculation)
 	lineAttr := w.buffer.GetVisibleLineAttribute(cellY)
 	effectiveCharWidth := charWidth
-	effectiveCols := cols
 	if lineAttr != purfecterm.LineAttrNormal {
 		// Doubled lines: each logical cell is 2x wide visually
 		effectiveCharWidth = charWidth * 2
-		effectiveCols = cols / 2
 	}
 
-	// Account for left padding when converting screen coords to cell
-	cellX = (int(screenX) - terminalLeftPadding) / effectiveCharWidth
+	// Calculate screen column, then add horizontal offset to get logical column
+	horizOffset := w.buffer.GetHorizOffset()
+	screenCol := (int(screenX) - terminalLeftPadding) / effectiveCharWidth
+	cellX = screenCol + horizOffset
 
 	if cellX < 0 {
 		cellX = 0
 	}
-	if cellX >= effectiveCols {
-		cellX = effectiveCols - 1
-	}
+	// No upper bound check on cellX - allow selecting beyond visible area
+	// (the buffer will handle out of bounds access)
 	return
 }
 
@@ -720,24 +809,70 @@ func (w *Widget) onMotionNotify(da *gtk.DrawingArea, ev *gdk.Event) bool {
 func (w *Widget) onScroll(da *gtk.DrawingArea, ev *gdk.Event) bool {
 	scroll := gdk.EventScrollNewFromEvent(ev)
 	dir := scroll.Direction()
+	state := scroll.State()
 
-	offset := w.buffer.GetScrollOffset()
-	scrollbackSize := w.buffer.GetScrollbackSize()
+	// Check for Shift modifier for horizontal scrolling
+	hasShift := state&uint(gdk.SHIFT_MASK) != 0
+
+	maxOffset := w.buffer.GetMaxScrollOffset()
 
 	switch dir {
 	case gdk.SCROLL_UP:
-		offset += 3
-		if offset > scrollbackSize {
-			offset = scrollbackSize
+		if hasShift {
+			// Horizontal scroll left
+			horizOffset := w.buffer.GetHorizOffset()
+			horizOffset -= 3
+			if horizOffset < 0 {
+				horizOffset = 0
+			}
+			w.buffer.SetHorizOffset(horizOffset)
+		} else {
+			// Vertical scroll up
+			offset := w.buffer.GetScrollOffset()
+			offset += 3
+			if offset > maxOffset {
+				offset = maxOffset
+			}
+			w.buffer.SetScrollOffset(offset)
 		}
 	case gdk.SCROLL_DOWN:
-		offset -= 3
-		if offset < 0 {
-			offset = 0
+		if hasShift {
+			// Horizontal scroll right
+			horizOffset := w.buffer.GetHorizOffset()
+			maxHoriz := w.buffer.GetMaxHorizOffset()
+			horizOffset += 3
+			if horizOffset > maxHoriz {
+				horizOffset = maxHoriz
+			}
+			w.buffer.SetHorizOffset(horizOffset)
+		} else {
+			// Vertical scroll down
+			offset := w.buffer.GetScrollOffset()
+			offset -= 3
+			if offset < 0 {
+				offset = 0
+			}
+			w.buffer.SetScrollOffset(offset)
 		}
+	case gdk.SCROLL_LEFT:
+		// Horizontal scroll left
+		horizOffset := w.buffer.GetHorizOffset()
+		horizOffset -= 3
+		if horizOffset < 0 {
+			horizOffset = 0
+		}
+		w.buffer.SetHorizOffset(horizOffset)
+	case gdk.SCROLL_RIGHT:
+		// Horizontal scroll right
+		horizOffset := w.buffer.GetHorizOffset()
+		maxHoriz := w.buffer.GetMaxHorizOffset()
+		horizOffset += 3
+		if horizOffset > maxHoriz {
+			horizOffset = maxHoriz
+		}
+		w.buffer.SetHorizOffset(horizOffset)
 	}
 
-	w.buffer.SetScrollOffset(offset)
 	w.updateScrollbar()
 	return true
 }
@@ -1174,21 +1309,54 @@ func (w *Widget) onFocusOut(da *gtk.DrawingArea, ev *gdk.Event) bool {
 func (w *Widget) onScrollbarChanged(sb *gtk.Scrollbar) {
 	adj := sb.GetAdjustment()
 	val := int(adj.GetValue())
-	scrollbackSize := w.buffer.GetScrollbackSize()
+	maxOffset := w.buffer.GetMaxScrollOffset()
 	// Invert - scrollbar at top means scrolled back
-	w.buffer.SetScrollOffset(scrollbackSize - val)
+	w.buffer.SetScrollOffset(maxOffset - val)
+	w.updateHorizScrollbar() // Horizontal scrollbar depends on scroll position
+}
+
+func (w *Widget) onHorizScrollbarChanged(sb *gtk.Scrollbar) {
+	adj := sb.GetAdjustment()
+	val := int(adj.GetValue())
+	w.buffer.SetHorizOffset(val)
 }
 
 func (w *Widget) updateScrollbar() {
-	scrollbackSize := w.buffer.GetScrollbackSize()
+	maxOffset := w.buffer.GetMaxScrollOffset()
 	offset := w.buffer.GetScrollOffset()
 	_, rows := w.buffer.GetSize()
 
 	adj := w.scrollbar.GetAdjustment()
 	adj.SetLower(0)
-	adj.SetUpper(float64(scrollbackSize + rows))
+	adj.SetUpper(float64(maxOffset + rows))
 	adj.SetPageSize(float64(rows))
-	adj.SetValue(float64(scrollbackSize - offset))
+	adj.SetValue(float64(maxOffset - offset))
+
+	// Also update horizontal scrollbar
+	w.updateHorizScrollbar()
+}
+
+func (w *Widget) updateHorizScrollbar() {
+	cols, _ := w.buffer.GetSize()
+	longestLine := w.buffer.GetLongestLineVisible()
+	horizOffset := w.buffer.GetHorizOffset()
+
+	// Show horizontal scrollbar only if content is wider than visible area
+	if longestLine > cols {
+		w.horizScrollbar.Show()
+
+		adj := w.horizScrollbar.GetAdjustment()
+		adj.SetLower(0)
+		adj.SetUpper(float64(longestLine))
+		adj.SetPageSize(float64(cols))
+		adj.SetValue(float64(horizOffset))
+	} else {
+		w.horizScrollbar.Hide()
+		// Reset horizontal offset if no longer needed
+		if horizOffset > 0 {
+			w.buffer.SetHorizOffset(0)
+		}
+	}
 }
 
 // Resize resizes the terminal to the specified dimensions

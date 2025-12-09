@@ -4,22 +4,18 @@ import (
 	"sync"
 )
 
-// LineAttribute defines the display mode for a line (VT100 DECDHL/DECDWL)
-type LineAttribute int
-
-const (
-	LineAttrNormal       LineAttribute = iota // Normal single-width, single-height
-	LineAttrDoubleWidth                       // DECDWL: Double-width line (ESC#6)
-	LineAttrDoubleTop                         // DECDHL: Double-height top half (ESC#3)
-	LineAttrDoubleBottom                      // DECDHL: Double-height bottom half (ESC#4)
-)
-
 // Buffer manages the terminal screen and scrollback buffer
 type Buffer struct {
 	mu sync.RWMutex
 
+	// Physical dimensions (visible area from widget)
 	cols int
 	rows int
+
+	// Logical dimensions (terminal's idea of its size, may differ from physical)
+	// 0 means "use physical dimension"
+	logicalCols int
+	logicalRows int
 
 	cursorX       int
 	cursorY       int
@@ -37,13 +33,21 @@ type Buffer struct {
 	currentReverse   bool
 	currentBlink     bool
 
+	// Screen storage - lines can have variable width
 	screen    [][]Cell
-	lineAttrs []LineAttribute
+	lineInfos []LineInfo
 
+	// Buffer-wide default for logical lines with no stored data
+	screenInfo ScreenInfo
+
+	// Scrollback storage
 	scrollback     [][]Cell
-	scrollbackAttr []LineAttribute
+	scrollbackInfo []LineInfo
 	maxScrollback  int
-	scrollOffset   int
+	scrollOffset   int // Vertical scroll offset
+
+	// Horizontal scrolling
+	horizOffset int // Horizontal scroll offset (in columns)
 
 	selectionActive      bool
 	selStartX, selStartY int
@@ -61,14 +65,33 @@ func NewBuffer(cols, rows, maxScrollback int) *Buffer {
 	b := &Buffer{
 		cols:          cols,
 		rows:          rows,
+		logicalCols:   0, // 0 means use physical
+		logicalRows:   0, // 0 means use physical
 		cursorVisible: true,
 		currentFg:     DefaultForeground,
 		currentBg:     DefaultBackground,
 		maxScrollback: maxScrollback,
+		screenInfo:    DefaultScreenInfo(),
 		dirty:         true,
 	}
 	b.initScreen()
 	return b
+}
+
+// EffectiveCols returns the logical column count (physical if logical is 0)
+func (b *Buffer) EffectiveCols() int {
+	if b.logicalCols > 0 {
+		return b.logicalCols
+	}
+	return b.cols
+}
+
+// EffectiveRows returns the logical row count (physical if logical is 0)
+func (b *Buffer) EffectiveRows() int {
+	if b.logicalRows > 0 {
+		return b.logicalRows
+	}
+	return b.rows
 }
 
 // SetDirtyCallback sets a callback to be invoked when the buffer changes
@@ -86,23 +109,49 @@ func (b *Buffer) markDirty() {
 }
 
 func (b *Buffer) initScreen() {
-	b.screen = make([][]Cell, b.rows)
-	b.lineAttrs = make([]LineAttribute, b.rows)
+	effectiveRows := b.EffectiveRows()
+	b.screen = make([][]Cell, effectiveRows)
+	b.lineInfos = make([]LineInfo, effectiveRows)
 	for i := range b.screen {
 		b.screen[i] = b.makeEmptyLine()
-		b.lineAttrs[i] = LineAttrNormal
+		b.lineInfos[i] = b.makeDefaultLineInfo()
 	}
 }
 
+// makeEmptyLine creates an empty line (zero length - will grow as chars are written)
 func (b *Buffer) makeEmptyLine() []Cell {
-	line := make([]Cell, b.cols)
-	for i := range line {
-		line[i] = EmptyCell()
-	}
-	return line
+	// Start with zero length - lines grow dynamically as characters are written
+	return make([]Cell, 0)
 }
 
-// Resize resizes the terminal buffer
+// makeDefaultLineInfo creates a LineInfo with current attributes
+func (b *Buffer) makeDefaultLineInfo() LineInfo {
+	return LineInfo{
+		Attribute:   LineAttrNormal,
+		DefaultCell: b.currentDefaultCell(),
+	}
+}
+
+// currentDefaultCell creates an empty cell with current attribute settings
+func (b *Buffer) currentDefaultCell() Cell {
+	fg := b.currentFg
+	bg := b.currentBg
+	if b.currentReverse {
+		fg, bg = bg, fg
+	}
+	return EmptyCellWithAttrs(fg, bg, b.currentBold, b.currentItalic, b.currentUnderline, b.currentReverse, b.currentBlink)
+}
+
+// updateScreenInfo updates the screen info with current attributes
+// Called on clear screen, clear to end of screen, and formfeed
+func (b *Buffer) updateScreenInfo() {
+	b.screenInfo = ScreenInfo{
+		DefaultCell: b.currentDefaultCell(),
+	}
+}
+
+// Resize resizes the physical terminal dimensions
+// This updates the visible area but does NOT truncate line content
 func (b *Buffer) Resize(cols, rows int) {
 	b.mu.Lock()
 	defer b.mu.Unlock()
@@ -111,41 +160,174 @@ func (b *Buffer) Resize(cols, rows int) {
 		return
 	}
 
-	oldScreen := b.screen
-	oldLineAttrs := b.lineAttrs
-	oldRows := b.rows
-	oldCols := b.cols
-
 	b.cols = cols
 	b.rows = rows
-	b.initScreen()
 
-	copyRows := oldRows
-	if rows < copyRows {
-		copyRows = rows
-	}
-	copyCols := oldCols
-	if cols < copyCols {
-		copyCols = cols
+	// If logical dimensions are 0 (using physical), we may need to adjust screen size
+	if b.logicalRows == 0 {
+		b.adjustScreenToRows(rows)
 	}
 
-	for y := 0; y < copyRows && y < len(oldScreen); y++ {
-		for x := 0; x < copyCols && x < len(oldScreen[y]); x++ {
-			b.screen[y][x] = oldScreen[y][x]
-		}
-		if y < len(oldLineAttrs) {
-			b.lineAttrs[y] = oldLineAttrs[y]
-		}
+	// Clamp cursor to logical dimensions (not physical)
+	effectiveCols := b.EffectiveCols()
+	effectiveRows := b.EffectiveRows()
+	if b.cursorX >= effectiveCols {
+		b.cursorX = effectiveCols - 1
 	}
-
-	if b.cursorX >= cols {
-		b.cursorX = cols - 1
-	}
-	if b.cursorY >= rows {
-		b.cursorY = rows - 1
+	if b.cursorY >= effectiveRows {
+		b.cursorY = effectiveRows - 1
 	}
 
 	b.markDirty()
+}
+
+// adjustScreenToRows adjusts the screen slice to have the target number of rows
+// without truncating line content (lines remain variable width)
+func (b *Buffer) adjustScreenToRows(targetRows int) {
+	currentRows := len(b.screen)
+
+	if targetRows == currentRows {
+		return
+	}
+
+	if targetRows > currentRows {
+		// Add new empty lines
+		for i := currentRows; i < targetRows; i++ {
+			b.screen = append(b.screen, b.makeEmptyLine())
+			b.lineInfos = append(b.lineInfos, b.makeDefaultLineInfo())
+		}
+	} else {
+		// Shrink: move excess lines to scrollback
+		excessLines := currentRows - targetRows
+		for i := 0; i < excessLines; i++ {
+			b.pushLineToScrollback(b.screen[0], b.lineInfos[0])
+			b.screen = b.screen[1:]
+			b.lineInfos = b.lineInfos[1:]
+		}
+	}
+}
+
+// pushLineToScrollback adds a line to the scrollback buffer
+func (b *Buffer) pushLineToScrollback(line []Cell, info LineInfo) {
+	if len(b.scrollback) >= b.maxScrollback {
+		b.scrollback = b.scrollback[1:]
+		b.scrollbackInfo = b.scrollbackInfo[1:]
+	}
+	b.scrollback = append(b.scrollback, line)
+	b.scrollbackInfo = append(b.scrollbackInfo, info)
+}
+
+// SetLogicalSize sets the logical terminal dimensions
+// A value of 0 means "use physical dimension"
+// This implements the ESC [ 8 ; rows ; cols t escape sequence
+func (b *Buffer) SetLogicalSize(logicalRows, logicalCols int) {
+	b.mu.Lock()
+	defer b.mu.Unlock()
+
+	oldEffectiveRows := b.EffectiveRows()
+
+	// Update logical dimensions (0 means use physical)
+	b.logicalCols = logicalCols
+	b.logicalRows = logicalRows
+
+	newEffectiveRows := b.EffectiveRows()
+
+	if newEffectiveRows == oldEffectiveRows {
+		b.markDirty()
+		return
+	}
+
+	if newEffectiveRows > oldEffectiveRows {
+		// Growing - add empty lines at bottom if needed
+		// The logical top stays the same, we gain scrollable area
+		for len(b.screen) < newEffectiveRows {
+			b.screen = append(b.screen, b.makeEmptyLine())
+			b.lineInfos = append(b.lineInfos, LineInfo{
+				Attribute:   LineAttrNormal,
+				DefaultCell: b.screenInfo.DefaultCell,
+			})
+		}
+	} else {
+		// Shrinking - need to move excess lines to scrollback
+		// Find the last line with actual content
+		b.shrinkLogicalScreen(newEffectiveRows)
+	}
+
+	// Clamp cursor to new dimensions
+	effectiveCols := b.EffectiveCols()
+	if b.cursorX >= effectiveCols {
+		b.cursorX = effectiveCols - 1
+	}
+	if b.cursorY >= newEffectiveRows {
+		b.cursorY = newEffectiveRows - 1
+	}
+
+	b.markDirty()
+}
+
+// shrinkLogicalScreen shrinks the screen to targetRows
+// Lines above the new top are transferred to scrollback
+func (b *Buffer) shrinkLogicalScreen(targetRows int) {
+	if targetRows <= 0 || len(b.screen) <= targetRows {
+		return
+	}
+
+	// Find the last line that has actual content (non-empty)
+	lastContentLine := -1
+	for i := len(b.screen) - 1; i >= 0; i-- {
+		if len(b.screen[i]) > 0 {
+			lastContentLine = i
+			break
+		}
+	}
+
+	if lastContentLine < 0 {
+		// No content at all - just resize
+		b.screen = b.screen[:targetRows]
+		b.lineInfos = b.lineInfos[:targetRows]
+		return
+	}
+
+	// Count from lastContentLine up to get targetRows lines
+	// but never go beyond the current top (index 0)
+	newTopLine := lastContentLine - targetRows + 1
+	if newTopLine < 0 {
+		newTopLine = 0
+	}
+
+	// Transfer lines above newTopLine to scrollback
+	for i := 0; i < newTopLine; i++ {
+		b.pushLineToScrollback(b.screen[i], b.lineInfos[i])
+	}
+
+	// Keep lines from newTopLine to end, but only up to targetRows
+	if newTopLine > 0 {
+		b.screen = b.screen[newTopLine:]
+		b.lineInfos = b.lineInfos[newTopLine:]
+	}
+
+	// Trim to targetRows (this handles the case where we have more lines than target)
+	if len(b.screen) > targetRows {
+		b.screen = b.screen[:targetRows]
+		b.lineInfos = b.lineInfos[:targetRows]
+	}
+
+	// If we still have fewer lines than target, add empty ones
+	for len(b.screen) < targetRows {
+		b.screen = append(b.screen, b.makeEmptyLine())
+		b.lineInfos = append(b.lineInfos, LineInfo{
+			Attribute:   LineAttrNormal,
+			DefaultCell: b.screenInfo.DefaultCell,
+		})
+	}
+}
+
+// GetLogicalSize returns the logical terminal dimensions
+// Returns 0 for dimensions that are set to "use physical"
+func (b *Buffer) GetLogicalSize() (logicalRows, logicalCols int) {
+	b.mu.RLock()
+	defer b.mu.RUnlock()
+	return b.logicalRows, b.logicalCols
 }
 
 // GetSize returns the current terminal dimensions
@@ -257,14 +439,27 @@ func (b *Buffer) WriteChar(ch rune) {
 }
 
 func (b *Buffer) writeCharInternal(ch rune) {
-	if b.cursorX >= b.cols {
+	effectiveCols := b.EffectiveCols()
+	effectiveRows := b.EffectiveRows()
+
+	// Handle line wrap at logical column limit
+	if b.cursorX >= effectiveCols {
 		b.cursorX = 0
 		b.cursorY++
-		if b.cursorY >= b.rows {
+		if b.cursorY >= effectiveRows {
 			b.scrollUpInternal()
-			b.cursorY = b.rows - 1
+			b.cursorY = effectiveRows - 1
 		}
 	}
+
+	// Ensure screen has enough rows
+	for b.cursorY >= len(b.screen) {
+		b.screen = append(b.screen, b.makeEmptyLine())
+		b.lineInfos = append(b.lineInfos, b.makeDefaultLineInfo())
+	}
+
+	// Ensure line is long enough for the cursor position
+	b.ensureLineLength(b.cursorY, b.cursorX+1)
 
 	fg := b.currentFg
 	bg := b.currentBg
@@ -285,15 +480,41 @@ func (b *Buffer) writeCharInternal(ch rune) {
 	b.markDirty()
 }
 
+// ensureLineLength ensures a line has at least the specified length,
+// filling gaps with the line's default cell
+func (b *Buffer) ensureLineLength(row, length int) {
+	if row >= len(b.screen) {
+		return
+	}
+	line := b.screen[row]
+	if len(line) >= length {
+		return
+	}
+	// Get fill cell from line info or use empty cell
+	var fillCell Cell
+	if row < len(b.lineInfos) {
+		fillCell = b.lineInfos[row].DefaultCell
+		fillCell.Char = ' '
+	} else {
+		fillCell = EmptyCell()
+	}
+	// Extend line
+	for len(line) < length {
+		line = append(line, fillCell)
+	}
+	b.screen[row] = line
+}
+
 // Newline moves cursor to the beginning of the next line
 func (b *Buffer) Newline() {
 	b.mu.Lock()
 	defer b.mu.Unlock()
 	b.cursorX = 0
 	b.cursorY++
-	if b.cursorY >= b.rows {
+	effectiveRows := b.EffectiveRows()
+	if b.cursorY >= effectiveRows {
 		b.scrollUpInternal()
-		b.cursorY = b.rows - 1
+		b.cursorY = effectiveRows - 1
 	}
 	b.markDirty()
 }
@@ -311,9 +532,10 @@ func (b *Buffer) LineFeed() {
 	b.mu.Lock()
 	defer b.mu.Unlock()
 	b.cursorY++
-	if b.cursorY >= b.rows {
+	effectiveRows := b.EffectiveRows()
+	if b.cursorY >= effectiveRows {
 		b.scrollUpInternal()
-		b.cursorY = b.rows - 1
+		b.cursorY = effectiveRows - 1
 	}
 	b.markDirty()
 }
@@ -340,17 +562,21 @@ func (b *Buffer) Backspace() {
 }
 
 func (b *Buffer) scrollUpInternal() {
-	if len(b.scrollback) >= b.maxScrollback {
-		b.scrollback = b.scrollback[1:]
-		b.scrollbackAttr = b.scrollbackAttr[1:]
+	if len(b.screen) == 0 {
+		return
 	}
-	b.scrollback = append(b.scrollback, b.screen[0])
-	b.scrollbackAttr = append(b.scrollbackAttr, b.lineAttrs[0])
 
+	// Push top line to scrollback
+	b.pushLineToScrollback(b.screen[0], b.lineInfos[0])
+
+	// Shift screen up
 	copy(b.screen, b.screen[1:])
-	copy(b.lineAttrs, b.lineAttrs[1:])
-	b.screen[b.rows-1] = b.makeEmptyLine()
-	b.lineAttrs[b.rows-1] = LineAttrNormal
+	copy(b.lineInfos, b.lineInfos[1:])
+
+	// Add new empty line at bottom with current attributes
+	lastIdx := len(b.screen) - 1
+	b.screen[lastIdx] = b.makeEmptyLine()
+	b.lineInfos[lastIdx] = b.makeDefaultLineInfo()
 	b.markDirty()
 }
 
@@ -367,11 +593,12 @@ func (b *Buffer) ScrollUp(n int) {
 func (b *Buffer) ScrollDown(n int) {
 	b.mu.Lock()
 	defer b.mu.Unlock()
-	for i := 0; i < n; i++ {
-		copy(b.screen[1:], b.screen[:b.rows-1])
-		copy(b.lineAttrs[1:], b.lineAttrs[:b.rows-1])
+	screenLen := len(b.screen)
+	for i := 0; i < n && screenLen > 0; i++ {
+		copy(b.screen[1:], b.screen[:screenLen-1])
+		copy(b.lineInfos[1:], b.lineInfos[:screenLen-1])
 		b.screen[0] = b.makeEmptyLine()
-		b.lineAttrs[0] = LineAttrNormal
+		b.lineInfos[0] = b.makeDefaultLineInfo()
 	}
 	b.markDirty()
 }
@@ -380,60 +607,125 @@ func (b *Buffer) ScrollDown(n int) {
 func (b *Buffer) ClearScreen() {
 	b.mu.Lock()
 	defer b.mu.Unlock()
+	b.updateScreenInfo() // Update screen default attributes
 	b.initScreen()
 	b.markDirty()
 }
 
 // ClearToEndOfLine clears from cursor to end of line
+// This updates the line's default cell and truncates the line at cursor position
 func (b *Buffer) ClearToEndOfLine() {
 	b.mu.Lock()
 	defer b.mu.Unlock()
-	for x := b.cursorX; x < b.cols; x++ {
-		b.screen[b.cursorY][x] = EmptyCellWithColors(b.currentFg, b.currentBg)
+
+	if b.cursorY >= len(b.screen) {
+		return
 	}
+
+	// Update line info with current attributes (for rendering beyond stored content)
+	if b.cursorY < len(b.lineInfos) {
+		b.lineInfos[b.cursorY].DefaultCell = b.currentDefaultCell()
+	}
+
+	// Truncate line at cursor position (variable width lines)
+	if b.cursorX < len(b.screen[b.cursorY]) {
+		b.screen[b.cursorY] = b.screen[b.cursorY][:b.cursorX]
+	}
+
 	b.markDirty()
 }
 
 // ClearToStartOfLine clears from start of line to cursor
+// Note: Does NOT update LineInfo (LineInfo is for right side of line)
 func (b *Buffer) ClearToStartOfLine() {
 	b.mu.Lock()
 	defer b.mu.Unlock()
-	for x := 0; x <= b.cursorX && x < b.cols; x++ {
-		b.screen[b.cursorY][x] = EmptyCellWithColors(b.currentFg, b.currentBg)
+
+	if b.cursorY >= len(b.screen) {
+		return
+	}
+
+	// Ensure line is long enough
+	b.ensureLineLength(b.cursorY, b.cursorX+1)
+
+	// Clear cells from start to cursor with current attributes
+	clearCell := b.currentDefaultCell()
+	for x := 0; x <= b.cursorX && x < len(b.screen[b.cursorY]); x++ {
+		b.screen[b.cursorY][x] = clearCell
 	}
 	b.markDirty()
 }
 
 // ClearLine clears the entire current line
+// This updates the line's default cell
 func (b *Buffer) ClearLine() {
 	b.mu.Lock()
 	defer b.mu.Unlock()
+
+	if b.cursorY >= len(b.screen) {
+		return
+	}
+
+	// Update line info with current attributes
+	if b.cursorY < len(b.lineInfos) {
+		b.lineInfos[b.cursorY].DefaultCell = b.currentDefaultCell()
+	}
+
+	// Clear the line (make it empty - variable width)
 	b.screen[b.cursorY] = b.makeEmptyLine()
 	b.markDirty()
 }
 
 // ClearToEndOfScreen clears from cursor to end of screen
+// This updates the ScreenInfo default cell
 func (b *Buffer) ClearToEndOfScreen() {
 	b.mu.Lock()
 	defer b.mu.Unlock()
-	for x := b.cursorX; x < b.cols; x++ {
-		b.screen[b.cursorY][x] = EmptyCellWithColors(b.currentFg, b.currentBg)
+
+	// Update screen info with current attributes
+	b.updateScreenInfo()
+
+	// Clear current line from cursor to end
+	if b.cursorY < len(b.screen) {
+		if b.cursorY < len(b.lineInfos) {
+			b.lineInfos[b.cursorY].DefaultCell = b.currentDefaultCell()
+		}
+		if b.cursorX < len(b.screen[b.cursorY]) {
+			b.screen[b.cursorY] = b.screen[b.cursorY][:b.cursorX]
+		}
 	}
-	for y := b.cursorY + 1; y < b.rows; y++ {
+
+	// Clear all lines below cursor
+	for y := b.cursorY + 1; y < len(b.screen); y++ {
 		b.screen[y] = b.makeEmptyLine()
+		if y < len(b.lineInfos) {
+			b.lineInfos[y] = b.makeDefaultLineInfo()
+		}
 	}
 	b.markDirty()
 }
 
 // ClearToStartOfScreen clears from start of screen to cursor
+// Note: Does NOT update ScreenInfo (ScreenInfo is for lines below stored content)
 func (b *Buffer) ClearToStartOfScreen() {
 	b.mu.Lock()
 	defer b.mu.Unlock()
-	for y := 0; y < b.cursorY; y++ {
+
+	// Clear all lines above cursor
+	for y := 0; y < b.cursorY && y < len(b.screen); y++ {
 		b.screen[y] = b.makeEmptyLine()
+		if y < len(b.lineInfos) {
+			b.lineInfos[y] = b.makeDefaultLineInfo()
+		}
 	}
-	for x := 0; x <= b.cursorX && x < b.cols; x++ {
-		b.screen[b.cursorY][x] = EmptyCellWithColors(b.currentFg, b.currentBg)
+
+	// Clear current line from start to cursor
+	if b.cursorY < len(b.screen) {
+		b.ensureLineLength(b.cursorY, b.cursorX+1)
+		clearCell := b.currentDefaultCell()
+		for x := 0; x <= b.cursorX && x < len(b.screen[b.cursorY]); x++ {
+			b.screen[b.cursorY][x] = clearCell
+		}
 	}
 	b.markDirty()
 }
@@ -513,45 +805,125 @@ func (b *Buffer) SetBlink(blink bool) {
 }
 
 // GetCell returns the cell at the given screen position
+// For positions beyond stored line length, returns the line's default cell
 func (b *Buffer) GetCell(x, y int) Cell {
 	b.mu.RLock()
 	defer b.mu.RUnlock()
-	if y < 0 || y >= b.rows || x < 0 || x >= b.cols {
-		return EmptyCell()
-	}
-	return b.screen[y][x]
+	return b.getCellInternal(x, y)
 }
 
-// GetVisibleCell returns the cell accounting for scroll offset
+func (b *Buffer) getCellInternal(x, y int) Cell {
+	// Check if y is beyond stored lines
+	if y < 0 || y >= len(b.screen) {
+		// Return screen default for lines beyond stored content
+		return b.screenInfo.DefaultCell
+	}
+
+	line := b.screen[y]
+	// Check if x is beyond this line's stored content
+	if x < 0 || x >= len(line) {
+		// Return line's default cell
+		if y < len(b.lineInfos) {
+			cell := b.lineInfos[y].DefaultCell
+			cell.Char = ' '
+			return cell
+		}
+		return EmptyCell()
+	}
+
+	return line[x]
+}
+
+// GetVisibleCell returns the cell accounting for scroll offset (both vertical and horizontal)
 func (b *Buffer) GetVisibleCell(x, y int) Cell {
 	b.mu.RLock()
 	defer b.mu.RUnlock()
+	return b.getVisibleCellInternal(x, y)
+}
 
-	if x < 0 || x >= b.cols || y < 0 || y >= b.rows {
-		return EmptyCell()
+func (b *Buffer) getVisibleCellInternal(x, y int) Cell {
+	// Apply horizontal scroll offset
+	actualX := x + b.horizOffset
+
+	if y < 0 || y >= b.rows {
+		return b.screenInfo.DefaultCell
 	}
+
+	effectiveRows := b.EffectiveRows()
+	scrollbackSize := len(b.scrollback)
+
+	// Calculate how much of the logical screen is hidden above
+	// (if logical > physical, some logical rows are above the visible area)
+	logicalHiddenAbove := 0
+	if effectiveRows > b.rows {
+		logicalHiddenAbove = effectiveRows - b.rows
+	}
+
+	// Total scrollable area above visible: scrollback + hidden logical rows
+	totalScrollableAbove := scrollbackSize + logicalHiddenAbove
 
 	if b.scrollOffset == 0 {
-		return b.screen[y][x]
+		// Not scrolled - show bottom of logical screen
+		// Map visible y to logical y (bottom-aligned)
+		logicalY := logicalHiddenAbove + y
+		return b.getLogicalCell(actualX, logicalY)
 	}
 
-	scrollbackSize := len(b.scrollback)
-	if y < b.scrollOffset {
-		scrollbackIdx := scrollbackSize - b.scrollOffset + y
-		if scrollbackIdx < 0 || scrollbackIdx >= scrollbackSize {
-			return EmptyCell()
-		}
-		line := b.scrollback[scrollbackIdx]
-		if x < len(line) {
-			return line[x]
+	// Scrolled up - need to map visible y to either scrollback or logical screen
+	// scrollOffset goes from 0 (not scrolled) to totalScrollableAbove (scrolled to top)
+	absoluteY := totalScrollableAbove - b.scrollOffset + y
+
+	if absoluteY < scrollbackSize {
+		// In scrollback
+		return b.getScrollbackCell(actualX, absoluteY)
+	}
+
+	// In logical screen
+	logicalY := absoluteY - scrollbackSize
+	return b.getLogicalCell(actualX, logicalY)
+}
+
+// getScrollbackCell returns a cell from the scrollback buffer
+func (b *Buffer) getScrollbackCell(x, scrollbackY int) Cell {
+	if scrollbackY < 0 || scrollbackY >= len(b.scrollback) {
+		return b.screenInfo.DefaultCell
+	}
+
+	line := b.scrollback[scrollbackY]
+	if x < 0 || x >= len(line) {
+		// Beyond line content - use line's default
+		if scrollbackY < len(b.scrollbackInfo) {
+			cell := b.scrollbackInfo[scrollbackY].DefaultCell
+			cell.Char = ' '
+			return cell
 		}
 		return EmptyCell()
 	}
-	screenY := y - b.scrollOffset
-	if screenY >= 0 && screenY < b.rows {
-		return b.screen[screenY][x]
+	return line[x]
+}
+
+// getLogicalCell returns a cell from the logical screen
+func (b *Buffer) getLogicalCell(x, logicalY int) Cell {
+	if logicalY < 0 {
+		return b.screenInfo.DefaultCell
 	}
-	return EmptyCell()
+
+	if logicalY >= len(b.screen) {
+		// Beyond stored lines - use screen default
+		return b.screenInfo.DefaultCell
+	}
+
+	line := b.screen[logicalY]
+	if x < 0 || x >= len(line) {
+		// Beyond line content - use line's default
+		if logicalY < len(b.lineInfos) {
+			cell := b.lineInfos[logicalY].DefaultCell
+			cell.Char = ' '
+			return cell
+		}
+		return EmptyCell()
+	}
+	return line[x]
 }
 
 // GetScrollbackSize returns the number of lines in scrollback
@@ -561,15 +933,37 @@ func (b *Buffer) GetScrollbackSize() int {
 	return len(b.scrollback)
 }
 
+// GetMaxScrollOffset returns the maximum vertical scroll offset
+// This accounts for scrollback AND any logical rows hidden above the visible area
+func (b *Buffer) GetMaxScrollOffset() int {
+	b.mu.RLock()
+	defer b.mu.RUnlock()
+	return b.getMaxScrollOffsetInternal()
+}
+
+func (b *Buffer) getMaxScrollOffsetInternal() int {
+	effectiveRows := b.EffectiveRows()
+	scrollbackSize := len(b.scrollback)
+
+	// If logical screen is larger than physical, some rows are hidden
+	logicalHiddenAbove := 0
+	if effectiveRows > b.rows {
+		logicalHiddenAbove = effectiveRows - b.rows
+	}
+
+	return scrollbackSize + logicalHiddenAbove
+}
+
 // SetScrollOffset sets how many lines we're scrolled back
 func (b *Buffer) SetScrollOffset(offset int) {
 	b.mu.Lock()
 	defer b.mu.Unlock()
+	maxOffset := b.getMaxScrollOffsetInternal()
 	if offset < 0 {
 		offset = 0
 	}
-	if offset > len(b.scrollback) {
-		offset = len(b.scrollback)
+	if offset > maxOffset {
+		offset = maxOffset
 	}
 	b.scrollOffset = offset
 	b.markDirty()
@@ -580,6 +974,104 @@ func (b *Buffer) GetScrollOffset() int {
 	b.mu.RLock()
 	defer b.mu.RUnlock()
 	return b.scrollOffset
+}
+
+// SetHorizOffset sets the horizontal scroll offset
+func (b *Buffer) SetHorizOffset(offset int) {
+	b.mu.Lock()
+	defer b.mu.Unlock()
+	if offset < 0 {
+		offset = 0
+	}
+	b.horizOffset = offset
+	b.markDirty()
+}
+
+// GetHorizOffset returns current horizontal scroll offset
+func (b *Buffer) GetHorizOffset() int {
+	b.mu.RLock()
+	defer b.mu.RUnlock()
+	return b.horizOffset
+}
+
+// GetLongestLineOnScreen returns the length of the longest line currently on the logical screen
+func (b *Buffer) GetLongestLineOnScreen() int {
+	b.mu.RLock()
+	defer b.mu.RUnlock()
+	longest := 0
+	for _, line := range b.screen {
+		if len(line) > longest {
+			longest = len(line)
+		}
+	}
+	return longest
+}
+
+// GetLongestLineInScrollback returns the length of the longest line in scrollback
+func (b *Buffer) GetLongestLineInScrollback() int {
+	b.mu.RLock()
+	defer b.mu.RUnlock()
+	longest := 0
+	for _, line := range b.scrollback {
+		if len(line) > longest {
+			longest = len(line)
+		}
+	}
+	return longest
+}
+
+// GetLongestLineVisible returns the longest line length relevant for horizontal scrollbar
+// When not scrolled into scrollback: just the screen
+// When scrolled into scrollback: both scrollback and screen
+func (b *Buffer) GetLongestLineVisible() int {
+	b.mu.RLock()
+	defer b.mu.RUnlock()
+
+	if b.scrollOffset == 0 {
+		// Only screen matters
+		longest := 0
+		for _, line := range b.screen {
+			if len(line) > longest {
+				longest = len(line)
+			}
+		}
+		return longest
+	}
+
+	// Both scrollback and screen matter
+	longest := 0
+	for _, line := range b.scrollback {
+		if len(line) > longest {
+			longest = len(line)
+		}
+	}
+	for _, line := range b.screen {
+		if len(line) > longest {
+			longest = len(line)
+		}
+	}
+	return longest
+}
+
+// NeedsHorizScrollbar returns true if there's content beyond the visible width
+func (b *Buffer) NeedsHorizScrollbar() bool {
+	longest := b.GetLongestLineVisible()
+	b.mu.RLock()
+	cols := b.cols
+	b.mu.RUnlock()
+	return longest > cols
+}
+
+// GetMaxHorizOffset returns the maximum horizontal scroll offset
+func (b *Buffer) GetMaxHorizOffset() int {
+	longest := b.GetLongestLineVisible()
+	b.mu.RLock()
+	cols := b.cols
+	b.mu.RUnlock()
+	if longest <= cols {
+		return 0
+	}
+	return longest - cols
 }
 
 // IsDirty returns true if the buffer has changed since last render
@@ -612,8 +1104,9 @@ func (b *Buffer) MoveCursorDown(n int) {
 	b.mu.Lock()
 	defer b.mu.Unlock()
 	b.cursorY += n
-	if b.cursorY >= b.rows {
-		b.cursorY = b.rows - 1
+	effectiveRows := b.EffectiveRows()
+	if b.cursorY >= effectiveRows {
+		b.cursorY = effectiveRows - 1
 	}
 	b.markDirty()
 }
@@ -623,8 +1116,9 @@ func (b *Buffer) MoveCursorForward(n int) {
 	b.mu.Lock()
 	defer b.mu.Unlock()
 	b.cursorX += n
-	if b.cursorX >= b.cols {
-		b.cursorX = b.cols - 1
+	effectiveCols := b.EffectiveCols()
+	if b.cursorX >= effectiveCols {
+		b.cursorX = effectiveCols - 1
 	}
 	b.markDirty()
 }
@@ -644,13 +1138,14 @@ func (b *Buffer) MoveCursorBackward(n int) {
 func (b *Buffer) InsertLines(n int) {
 	b.mu.Lock()
 	defer b.mu.Unlock()
-	for i := 0; i < n; i++ {
-		if b.cursorY < b.rows-1 {
-			copy(b.screen[b.cursorY+1:], b.screen[b.cursorY:b.rows-1])
-			copy(b.lineAttrs[b.cursorY+1:], b.lineAttrs[b.cursorY:b.rows-1])
+	screenLen := len(b.screen)
+	for i := 0; i < n && screenLen > 0; i++ {
+		if b.cursorY < screenLen-1 {
+			copy(b.screen[b.cursorY+1:], b.screen[b.cursorY:screenLen-1])
+			copy(b.lineInfos[b.cursorY+1:], b.lineInfos[b.cursorY:screenLen-1])
 		}
 		b.screen[b.cursorY] = b.makeEmptyLine()
-		b.lineAttrs[b.cursorY] = LineAttrNormal
+		b.lineInfos[b.cursorY] = b.makeDefaultLineInfo()
 	}
 	b.markDirty()
 }
@@ -659,13 +1154,14 @@ func (b *Buffer) InsertLines(n int) {
 func (b *Buffer) DeleteLines(n int) {
 	b.mu.Lock()
 	defer b.mu.Unlock()
-	for i := 0; i < n; i++ {
-		if b.cursorY < b.rows-1 {
+	screenLen := len(b.screen)
+	for i := 0; i < n && screenLen > 0; i++ {
+		if b.cursorY < screenLen-1 {
 			copy(b.screen[b.cursorY:], b.screen[b.cursorY+1:])
-			copy(b.lineAttrs[b.cursorY:], b.lineAttrs[b.cursorY+1:])
+			copy(b.lineInfos[b.cursorY:], b.lineInfos[b.cursorY+1:])
 		}
-		b.screen[b.rows-1] = b.makeEmptyLine()
-		b.lineAttrs[b.rows-1] = LineAttrNormal
+		b.screen[screenLen-1] = b.makeEmptyLine()
+		b.lineInfos[screenLen-1] = b.makeDefaultLineInfo()
 	}
 	b.markDirty()
 }
@@ -674,14 +1170,24 @@ func (b *Buffer) DeleteLines(n int) {
 func (b *Buffer) DeleteChars(n int) {
 	b.mu.Lock()
 	defer b.mu.Unlock()
-	line := b.screen[b.cursorY]
-	if b.cursorX+n < b.cols {
-		copy(line[b.cursorX:], line[b.cursorX+n:])
+
+	if b.cursorY >= len(b.screen) {
+		return
 	}
-	for i := b.cols - n; i < b.cols; i++ {
-		if i >= 0 {
-			line[i] = EmptyCellWithColors(b.currentFg, b.currentBg)
-		}
+	line := b.screen[b.cursorY]
+	lineLen := len(line)
+
+	if b.cursorX >= lineLen {
+		return // Nothing to delete
+	}
+
+	// Shift characters left
+	if b.cursorX+n < lineLen {
+		copy(line[b.cursorX:], line[b.cursorX+n:])
+		b.screen[b.cursorY] = line[:lineLen-n]
+	} else {
+		// Delete extends past end of line - just truncate
+		b.screen[b.cursorY] = line[:b.cursorX]
 	}
 	b.markDirty()
 }
@@ -690,22 +1196,50 @@ func (b *Buffer) DeleteChars(n int) {
 func (b *Buffer) InsertChars(n int) {
 	b.mu.Lock()
 	defer b.mu.Unlock()
+
+	if b.cursorY >= len(b.screen) {
+		return
+	}
+
+	// Ensure line is long enough
+	b.ensureLineLength(b.cursorY, b.cursorX)
+
 	line := b.screen[b.cursorY]
-	if b.cursorX+n < b.cols {
-		copy(line[b.cursorX+n:], line[b.cursorX:b.cols-n])
+	lineLen := len(line)
+
+	// Create space for new characters
+	newCells := make([]Cell, n)
+	fillCell := b.currentDefaultCell()
+	for i := range newCells {
+		newCells[i] = fillCell
 	}
-	for i := 0; i < n && b.cursorX+i < b.cols; i++ {
-		line[b.cursorX+i] = EmptyCellWithColors(b.currentFg, b.currentBg)
+
+	// Insert at cursor position
+	if b.cursorX >= lineLen {
+		line = append(line, newCells...)
+	} else {
+		// Make room and insert
+		line = append(line[:b.cursorX], append(newCells, line[b.cursorX:]...)...)
 	}
+	b.screen[b.cursorY] = line
 	b.markDirty()
 }
 
-// EraseChars erases n characters at cursor
+// EraseChars erases n characters at cursor (replaces with blanks)
 func (b *Buffer) EraseChars(n int) {
 	b.mu.Lock()
 	defer b.mu.Unlock()
-	for i := 0; i < n && b.cursorX+i < b.cols; i++ {
-		b.screen[b.cursorY][b.cursorX+i] = EmptyCellWithColors(b.currentFg, b.currentBg)
+
+	if b.cursorY >= len(b.screen) {
+		return
+	}
+
+	// Ensure line is long enough
+	b.ensureLineLength(b.cursorY, b.cursorX+n)
+
+	fillCell := b.currentDefaultCell()
+	for i := 0; i < n && b.cursorX+i < len(b.screen[b.cursorY]); i++ {
+		b.screen[b.cursorY][b.cursorX+i] = fillCell
 	}
 	b.markDirty()
 }
@@ -847,8 +1381,8 @@ func (b *Buffer) SelectAll() {
 func (b *Buffer) SetLineAttribute(attr LineAttribute) {
 	b.mu.Lock()
 	defer b.mu.Unlock()
-	if b.cursorY >= 0 && b.cursorY < len(b.lineAttrs) {
-		b.lineAttrs[b.cursorY] = attr
+	if b.cursorY >= 0 && b.cursorY < len(b.lineInfos) {
+		b.lineInfos[b.cursorY].Attribute = attr
 		b.markDirty()
 	}
 }
@@ -857,40 +1391,76 @@ func (b *Buffer) SetLineAttribute(attr LineAttribute) {
 func (b *Buffer) GetLineAttribute(y int) LineAttribute {
 	b.mu.RLock()
 	defer b.mu.RUnlock()
-	if y >= 0 && y < len(b.lineAttrs) {
-		return b.lineAttrs[y]
+	if y >= 0 && y < len(b.lineInfos) {
+		return b.lineInfos[y].Attribute
 	}
 	return LineAttrNormal
+}
+
+// GetLineInfo returns the full LineInfo for the specified line
+func (b *Buffer) GetLineInfo(y int) LineInfo {
+	b.mu.RLock()
+	defer b.mu.RUnlock()
+	if y >= 0 && y < len(b.lineInfos) {
+		return b.lineInfos[y]
+	}
+	return DefaultLineInfo()
 }
 
 // GetVisibleLineAttribute returns the line attribute accounting for scroll offset
 func (b *Buffer) GetVisibleLineAttribute(y int) LineAttribute {
 	b.mu.RLock()
 	defer b.mu.RUnlock()
+	return b.getVisibleLineInfoInternal(y).Attribute
+}
 
+// GetVisibleLineInfo returns the full LineInfo accounting for scroll offset
+func (b *Buffer) GetVisibleLineInfo(y int) LineInfo {
+	b.mu.RLock()
+	defer b.mu.RUnlock()
+	return b.getVisibleLineInfoInternal(y)
+}
+
+func (b *Buffer) getVisibleLineInfoInternal(y int) LineInfo {
 	if y < 0 || y >= b.rows {
-		return LineAttrNormal
+		return LineInfo{Attribute: LineAttrNormal, DefaultCell: b.screenInfo.DefaultCell}
 	}
+
+	effectiveRows := b.EffectiveRows()
+	scrollbackSize := len(b.scrollback)
+
+	// Calculate how much of the logical screen is hidden above
+	logicalHiddenAbove := 0
+	if effectiveRows > b.rows {
+		logicalHiddenAbove = effectiveRows - b.rows
+	}
+
+	totalScrollableAbove := scrollbackSize + logicalHiddenAbove
 
 	if b.scrollOffset == 0 {
-		if y < len(b.lineAttrs) {
-			return b.lineAttrs[y]
+		// Not scrolled - show bottom of logical screen
+		logicalY := logicalHiddenAbove + y
+		if logicalY >= 0 && logicalY < len(b.lineInfos) {
+			return b.lineInfos[logicalY]
 		}
-		return LineAttrNormal
+		return LineInfo{Attribute: LineAttrNormal, DefaultCell: b.screenInfo.DefaultCell}
 	}
 
-	scrollbackSize := len(b.scrollback)
-	if y < b.scrollOffset {
-		scrollbackIdx := scrollbackSize - b.scrollOffset + y
-		if scrollbackIdx >= 0 && scrollbackIdx < len(b.scrollbackAttr) {
-			return b.scrollbackAttr[scrollbackIdx]
+	// Scrolled - map to scrollback or logical screen
+	absoluteY := totalScrollableAbove - b.scrollOffset + y
+
+	if absoluteY < scrollbackSize {
+		// In scrollback
+		if absoluteY >= 0 && absoluteY < len(b.scrollbackInfo) {
+			return b.scrollbackInfo[absoluteY]
 		}
-		return LineAttrNormal
+		return LineInfo{Attribute: LineAttrNormal, DefaultCell: b.screenInfo.DefaultCell}
 	}
 
-	screenY := y - b.scrollOffset
-	if screenY >= 0 && screenY < len(b.lineAttrs) {
-		return b.lineAttrs[screenY]
+	// In logical screen
+	logicalY := absoluteY - scrollbackSize
+	if logicalY >= 0 && logicalY < len(b.lineInfos) {
+		return b.lineInfos[logicalY]
 	}
-	return LineAttrNormal
+	return LineInfo{Attribute: LineAttrNormal, DefaultCell: b.screenInfo.DefaultCell}
 }

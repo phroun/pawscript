@@ -13,8 +13,9 @@ const terminalLeftPadding = 8
 
 // Widget is a Qt terminal emulator widget
 type Widget struct {
-	widget    *qt.QWidget    // The terminal drawing area
-	scrollbar *qt.QScrollBar // Vertical scrollbar (child of widget)
+	widget         *qt.QWidget    // The terminal drawing area
+	scrollbar      *qt.QScrollBar // Vertical scrollbar (child of widget)
+	horizScrollbar *qt.QScrollBar // Horizontal scrollbar (child of widget)
 
 	mu sync.Mutex
 
@@ -167,18 +168,20 @@ func NewWidget(cols, rows, scrollbackSize int) *Widget {
 	return w
 }
 
-// initScrollbar creates the scrollbar lazily (called on first resize)
+// initScrollbar creates the scrollbars lazily (called on first resize)
 func (w *Widget) initScrollbar() {
 	if w.scrollbar != nil {
 		return
 	}
 	w.scrollbarUpdating = true
+
+	// Vertical scrollbar
 	w.scrollbar = qt.NewQScrollBar(w.widget)
 	w.scrollbar.SetOrientation(qt.Vertical)
 	w.scrollbar.SetMinimum(0)
 	w.scrollbar.SetMaximum(0)
 
-	// Apply macOS-style scrollbar appearance
+	// Apply macOS-style scrollbar appearance for vertical
 	w.scrollbar.SetStyleSheet(`
 		QScrollBar:vertical {
 			background: transparent;
@@ -211,6 +214,50 @@ func (w *Widget) initScrollbar() {
 			w.buffer.SetScrollOffset(maxScroll - value)
 		}
 	})
+
+	// Horizontal scrollbar
+	w.horizScrollbar = qt.NewQScrollBar(w.widget)
+	w.horizScrollbar.SetOrientation(qt.Horizontal)
+	w.horizScrollbar.SetMinimum(0)
+	w.horizScrollbar.SetMaximum(0)
+
+	// Apply macOS-style scrollbar appearance for horizontal
+	w.horizScrollbar.SetStyleSheet(`
+		QScrollBar:horizontal {
+			background: transparent;
+			height: 12px;
+			margin: 0px 2px 2px 2px;
+		}
+		QScrollBar::handle:horizontal {
+			background: rgba(128, 128, 128, 0.5);
+			min-width: 30px;
+			border-radius: 4px;
+			margin: 2px 0px 2px 0px;
+		}
+		QScrollBar::handle:horizontal:hover {
+			background: rgba(128, 128, 128, 0.7);
+		}
+		QScrollBar::handle:horizontal:pressed {
+			background: rgba(100, 100, 100, 0.8);
+		}
+		QScrollBar::add-line:horizontal, QScrollBar::sub-line:horizontal {
+			width: 0px;
+		}
+		QScrollBar::add-page:horizontal, QScrollBar::sub-page:horizontal {
+			background: transparent;
+		}
+	`)
+
+	w.horizScrollbar.OnValueChanged(func(value int) {
+		if !w.scrollbarUpdating {
+			w.buffer.SetHorizOffset(value)
+			w.widget.Update()
+		}
+	})
+
+	// Initially hide horizontal scrollbar
+	w.horizScrollbar.Hide()
+
 	w.scrollbarUpdating = false
 }
 
@@ -236,6 +283,35 @@ func (w *Widget) updateScrollbar() {
 	// Set page step to terminal height in lines
 	_, rows := w.buffer.GetSize()
 	w.scrollbar.SetPageStep(rows)
+}
+
+// updateHorizScrollbar updates the horizontal scrollbar visibility and range
+func (w *Widget) updateHorizScrollbar() {
+	if w.horizScrollbar == nil {
+		return
+	}
+	w.scrollbarUpdating = true
+	defer func() { w.scrollbarUpdating = false }()
+
+	if w.buffer.NeedsHorizScrollbar() {
+		maxOffset := w.buffer.GetMaxHorizOffset()
+		currentOffset := w.buffer.GetHorizOffset()
+
+		w.horizScrollbar.SetMaximum(maxOffset)
+		w.horizScrollbar.SetValue(currentOffset)
+
+		// Set page step to visible width in columns
+		cols, _ := w.buffer.GetSize()
+		w.horizScrollbar.SetPageStep(cols)
+
+		w.horizScrollbar.Show()
+	} else {
+		// Reset offset and hide scrollbar
+		w.buffer.SetHorizOffset(0)
+		w.horizScrollbar.SetMaximum(0)
+		w.horizScrollbar.SetValue(0)
+		w.horizScrollbar.Hide()
+	}
 }
 
 func (w *Widget) onBlinkTimer() {
@@ -343,6 +419,7 @@ func (w *Widget) paintEvent(event *qt.QPaintEvent) {
 	cursorVisible := w.buffer.IsCursorVisible()
 	cursorShape, _ := w.buffer.GetCursorStyle()
 	scrollOffset := w.buffer.GetScrollOffset()
+	horizOffset := w.buffer.GetHorizOffset()
 
 	if scrollOffset > 0 {
 		cursorVisible = false
@@ -364,13 +441,21 @@ func (w *Widget) paintEvent(event *qt.QPaintEvent) {
 	for y := 0; y < rows; y++ {
 		lineAttr := w.buffer.GetVisibleLineAttribute(y)
 
+		// For rendering, we need to consider horizontal offset
+		// Draw visible columns from horizOffset to horizOffset + cols
 		effectiveCols := cols
 		if lineAttr != purfecterm.LineAttrNormal {
 			effectiveCols = cols / 2
 		}
 
-		for x := 0; x < effectiveCols; x++ {
-			cell := w.buffer.GetVisibleCell(x, y)
+		// Calculate the range of logical columns to render
+		startCol := horizOffset
+		endCol := horizOffset + effectiveCols
+
+		for logicalX := startCol; logicalX < endCol; logicalX++ {
+			// Screen position (0-based from visible area)
+			x := logicalX - horizOffset
+			cell := w.buffer.GetVisibleCell(logicalX, y)
 
 			fg := cell.Foreground
 			bg := cell.Background
@@ -400,13 +485,13 @@ func (w *Widget) paintEvent(event *qt.QPaintEvent) {
 				}
 			}
 
-			// Handle selection
-			if w.buffer.IsInSelection(x, y) {
+			// Handle selection (use logicalX for buffer position)
+			if w.buffer.IsInSelection(logicalX, y) {
 				bg = scheme.Selection
 			}
 
-			// Handle cursor
-			isCursor := cursorVisible && x == cursorX && y == cursorY && w.cursorBlinkOn
+			// Handle cursor (compare against logical position)
+			isCursor := cursorVisible && logicalX == cursorX && y == cursorY && w.cursorBlinkOn
 			if isCursor && w.hasFocus && cursorShape == 0 {
 				fg, bg = bg, fg
 			}
@@ -442,12 +527,20 @@ func (w *Widget) paintEvent(event *qt.QPaintEvent) {
 				fgQColor := qt.NewQColor3(int(fg.R), int(fg.G), int(fg.B))
 				painter.SetPen(fgQColor)
 
+				// Create the appropriate font for this character
+				drawFont := font
 				if cell.Bold {
 					boldFont := qt.NewQFont6(fontFamily, fontSize)
 					boldFont.SetFixedPitch(true)
 					boldFont.SetBold(true)
+					drawFont = boldFont
 					painter.SetFont(boldFont)
 				}
+
+				// Measure actual character width
+				metrics := qt.NewQFontMetrics(drawFont)
+				charStr := string(cell.Char)
+				actualWidth := metrics.HorizontalAdvance(charStr)
 
 				// Calculate bobbing wave offset
 				yOffset := 0.0
@@ -458,26 +551,68 @@ func (w *Widget) paintEvent(event *qt.QPaintEvent) {
 
 				switch lineAttr {
 				case purfecterm.LineAttrNormal:
-					painter.DrawText3(cellX, cellY+charAscent+int(yOffset), string(cell.Char))
+					// Handle character width adjustment:
+					// - If wider than cell: squeeze to fit
+					// - If narrower than cell: center horizontally
+					if actualWidth > cellW {
+						// Squeeze wide character
+						scaleX := float64(cellW) / float64(actualWidth)
+						painter.Save()
+						painter.Translate2(float64(cellX), float64(cellY+charAscent)+yOffset)
+						painter.Scale(scaleX, 1.0)
+						painter.DrawText3(0, 0, charStr)
+						painter.Restore()
+					} else if actualWidth < cellW {
+						// Center narrow character
+						xOffset := (cellW - actualWidth) / 2
+						painter.DrawText3(cellX+xOffset, cellY+charAscent+int(yOffset), charStr)
+					} else {
+						// Perfect fit
+						painter.DrawText3(cellX, cellY+charAscent+int(yOffset), charStr)
+					}
 				case purfecterm.LineAttrDoubleWidth:
-					painter.Save()
-					painter.Translate2(float64(cellX), float64(cellY+charAscent)+yOffset)
-					painter.Scale(2.0, 1.0)
-					painter.DrawText3(0, 0, string(cell.Char))
-					painter.Restore()
+					// For double-width lines, apply same logic but with 2x cell width
+					if actualWidth > cellW {
+						scaleX := float64(cellW) / float64(actualWidth)
+						painter.Save()
+						painter.Translate2(float64(cellX), float64(cellY+charAscent)+yOffset)
+						painter.Scale(scaleX, 1.0)
+						painter.DrawText3(0, 0, charStr)
+						painter.Restore()
+					} else {
+						xOffset := (cellW - actualWidth) / 2
+						painter.Save()
+						painter.Translate2(float64(cellX+xOffset), float64(cellY+charAscent)+yOffset)
+						painter.DrawText3(0, 0, charStr)
+						painter.Restore()
+					}
 				case purfecterm.LineAttrDoubleTop:
 					painter.Save()
 					painter.SetClipRect2(cellX, cellY, cellW, cellH)
-					painter.Translate2(float64(cellX), float64(cellY+charAscent*2)+yOffset*2)
-					painter.Scale(2.0, 2.0)
-					painter.DrawText3(0, 0, string(cell.Char))
+					if actualWidth*2 > cellW {
+						scaleX := float64(cellW) / float64(actualWidth*2)
+						painter.Translate2(float64(cellX), float64(cellY+charAscent*2)+yOffset*2)
+						painter.Scale(scaleX*2.0, 2.0)
+					} else {
+						xOffset := (cellW - actualWidth*2) / 2
+						painter.Translate2(float64(cellX+xOffset), float64(cellY+charAscent*2)+yOffset*2)
+						painter.Scale(2.0, 2.0)
+					}
+					painter.DrawText3(0, 0, charStr)
 					painter.Restore()
 				case purfecterm.LineAttrDoubleBottom:
 					painter.Save()
 					painter.SetClipRect2(cellX, cellY, cellW, cellH)
-					painter.Translate2(float64(cellX), float64(cellY+charAscent*2-charHeight)+yOffset*2)
-					painter.Scale(2.0, 2.0)
-					painter.DrawText3(0, 0, string(cell.Char))
+					if actualWidth*2 > cellW {
+						scaleX := float64(cellW) / float64(actualWidth*2)
+						painter.Translate2(float64(cellX), float64(cellY+charAscent*2-charHeight)+yOffset*2)
+						painter.Scale(scaleX*2.0, 2.0)
+					} else {
+						xOffset := (cellW - actualWidth*2) / 2
+						painter.Translate2(float64(cellX+xOffset), float64(cellY+charAscent*2-charHeight)+yOffset*2)
+						painter.Scale(2.0, 2.0)
+					}
+					painter.DrawText3(0, 0, charStr)
 					painter.Restore()
 				}
 
@@ -550,13 +685,16 @@ func (w *Widget) screenToCell(screenX, screenY int) (cellX, cellY int) {
 		effectiveCols = cols / 2
 	}
 
-	cellX = (screenX - terminalLeftPadding) / effectiveCharWidth
+	// Calculate screen column, then add horizontal offset to get logical column
+	horizOffset := w.buffer.GetHorizOffset()
+	screenCol := (screenX - terminalLeftPadding) / effectiveCharWidth
+	cellX = screenCol + horizOffset
+
 	if cellX < 0 {
 		cellX = 0
 	}
-	if cellX >= effectiveCols {
-		cellX = effectiveCols - 1
-	}
+	// No upper bound check on cellX - allow selecting beyond visible area
+	// (the buffer will handle out of bounds access)
 	return
 }
 
@@ -753,16 +891,50 @@ func (w *Widget) mouseMoveEvent(event *qt.QMouseEvent) {
 }
 
 func (w *Widget) wheelEvent(event *qt.QWheelEvent) {
-	delta := event.AngleDelta().Y()
+	modifiers := event.Modifiers()
+	hasShift := modifiers&qt.ShiftModifier != 0
+
+	deltaY := event.AngleDelta().Y()
+	deltaX := event.AngleDelta().X()
+
+	// Shift+scroll or horizontal scroll = horizontal scrolling
+	if hasShift || (deltaX != 0 && deltaY == 0) {
+		delta := deltaY
+		if deltaX != 0 {
+			delta = deltaX
+		}
+
+		offset := w.buffer.GetHorizOffset()
+		maxOffset := w.buffer.GetMaxHorizOffset()
+
+		if delta > 0 {
+			offset -= 3
+			if offset < 0 {
+				offset = 0
+			}
+		} else if delta < 0 {
+			offset += 3
+			if offset > maxOffset {
+				offset = maxOffset
+			}
+		}
+
+		w.buffer.SetHorizOffset(offset)
+		w.updateHorizScrollbar()
+		w.widget.Update()
+		return
+	}
+
+	// Vertical scrolling
 	offset := w.buffer.GetScrollOffset()
 	scrollbackSize := w.buffer.GetScrollbackSize()
 
-	if delta > 0 {
+	if deltaY > 0 {
 		offset += 3
 		if offset > scrollbackSize {
 			offset = scrollbackSize
 		}
-	} else if delta < 0 {
+	} else if deltaY < 0 {
 		offset -= 3
 		if offset < 0 {
 			offset = 0
@@ -771,6 +943,7 @@ func (w *Widget) wheelEvent(event *qt.QWheelEvent) {
 
 	w.buffer.SetScrollOffset(offset)
 	w.updateScrollbar()
+	w.updateHorizScrollbar() // Visibility may change based on scroll position
 }
 
 func (w *Widget) focusInEvent(event *qt.QFocusEvent) {
@@ -787,22 +960,42 @@ func (w *Widget) focusOutEvent(event *qt.QFocusEvent) {
 func (w *Widget) resizeEvent(event *qt.QResizeEvent) {
 	w.updateFontMetrics()
 
-	// Create scrollbar lazily on first resize (Qt is fully initialized by now)
+	// Create scrollbars lazily on first resize (Qt is fully initialized by now)
 	w.initScrollbar()
 
-	scrollbarWidth := 12 // Thin macOS-style scrollbar
+	scrollbarWidth := 12  // Thin macOS-style scrollbar
+	scrollbarHeight := 12 // Thin macOS-style scrollbar
 	widgetWidth := w.widget.Width()
 	widgetHeight := w.widget.Height()
 
-	// Position scrollbar on the right edge
+	// Check if horizontal scrollbar needs to be shown
+	needsHorizScrollbar := w.buffer.NeedsHorizScrollbar()
+	effectiveHeight := widgetHeight
+	if needsHorizScrollbar {
+		effectiveHeight = widgetHeight - scrollbarHeight
+	}
+
+	// Position vertical scrollbar on the right edge
 	if w.scrollbar != nil {
-		w.scrollbar.SetGeometry(widgetWidth-scrollbarWidth, 0, scrollbarWidth, widgetHeight)
+		w.scrollbar.SetGeometry(widgetWidth-scrollbarWidth, 0, scrollbarWidth, effectiveHeight)
 		w.scrollbar.Show()
 	}
 
-	// Account for scrollbar when calculating columns
+	// Position horizontal scrollbar at the bottom
+	if w.horizScrollbar != nil {
+		if needsHorizScrollbar {
+			// Leave corner space for vertical scrollbar
+			horizWidth := widgetWidth - scrollbarWidth
+			w.horizScrollbar.SetGeometry(0, widgetHeight-scrollbarHeight, horizWidth, scrollbarHeight)
+			w.horizScrollbar.Show()
+		} else {
+			w.horizScrollbar.Hide()
+		}
+	}
+
+	// Account for scrollbars when calculating columns
 	newCols := (widgetWidth - terminalLeftPadding - scrollbarWidth) / w.charWidth
-	newRows := widgetHeight / w.charHeight
+	newRows := effectiveHeight / w.charHeight
 
 	if newCols < 1 {
 		newCols = 1
@@ -813,6 +1006,7 @@ func (w *Widget) resizeEvent(event *qt.QResizeEvent) {
 
 	w.buffer.Resize(newCols, newRows)
 	w.updateScrollbar()
+	w.updateHorizScrollbar()
 }
 
 // Resize resizes the terminal to the specified dimensions

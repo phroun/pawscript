@@ -413,12 +413,43 @@ func (p *Parser) executeCSI(finalByte byte) {
 	case 'c': // DA - Device Attributes
 		// Would need to send response - ignore
 
-	case 't': // Window manipulation - ignore
+	case 't': // Window manipulation
+		p.executeWindowManipulation()
 
 	case 'q': // DECSCUSR - Set Cursor Style (with space intermediate)
 		if p.csiIntermediate == ' ' {
 			p.executeDECSCUSR()
 		}
+	}
+}
+
+// executeWindowManipulation handles ESC [ Ps ; Ps ; Ps t - Window manipulation
+// We specifically handle ESC [ 8 ; rows ; cols t to set logical screen size
+func (p *Parser) executeWindowManipulation() {
+	if len(p.csiParams) == 0 {
+		return
+	}
+
+	cmd := p.csiParams[0]
+	switch cmd {
+	case 8: // ESC [ 8 ; rows ; cols t - Set terminal size
+		// Get parameters (0 or omitted means "use physical/current")
+		rows := 0
+		cols := 0
+		if len(p.csiParams) > 1 {
+			rows = p.csiParams[1]
+		}
+		if len(p.csiParams) > 2 {
+			cols = p.csiParams[2]
+		}
+		p.buffer.SetLogicalSize(rows, cols)
+
+	// Other window manipulation commands could be added here
+	// case 1: De-iconify window
+	// case 2: Iconify window
+	// case 3: Move window
+	// case 4: Resize window in pixels
+	// etc.
 	}
 }
 
