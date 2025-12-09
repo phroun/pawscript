@@ -183,6 +183,7 @@ func (b *Buffer) Resize(cols, rows int) {
 
 // adjustScreenToRows adjusts the screen slice to have the target number of rows
 // without truncating line content (lines remain variable width)
+// Only moves lines to scrollback if actual content exceeds the new height
 func (b *Buffer) adjustScreenToRows(targetRows int) {
 	currentRows := len(b.screen)
 
@@ -197,12 +198,50 @@ func (b *Buffer) adjustScreenToRows(targetRows int) {
 			b.lineInfos = append(b.lineInfos, b.makeDefaultLineInfo())
 		}
 	} else {
-		// Shrink: move excess lines to scrollback
-		excessLines := currentRows - targetRows
-		for i := 0; i < excessLines; i++ {
+		// Shrink: only move lines to scrollback if content doesn't fit
+		// Find the last row with actual content
+		lastContentRow := -1
+		for i := currentRows - 1; i >= 0; i-- {
+			if len(b.screen[i]) > 0 {
+				lastContentRow = i
+				break
+			}
+		}
+
+		// Calculate how many lines need to go to scrollback
+		// Only push if content extends beyond target height
+		linesToPush := 0
+		if lastContentRow >= targetRows {
+			linesToPush = lastContentRow - targetRows + 1
+		}
+
+		// Push content lines to scrollback
+		for i := 0; i < linesToPush; i++ {
 			b.pushLineToScrollback(b.screen[0], b.lineInfos[0])
 			b.screen = b.screen[1:]
 			b.lineInfos = b.lineInfos[1:]
+		}
+
+		// Adjust cursor position to stay with content
+		if linesToPush > 0 {
+			b.cursorY -= linesToPush
+			if b.cursorY < 0 {
+				b.cursorY = 0
+			}
+		}
+
+		// Now trim or add to reach target rows
+		currentRows = len(b.screen)
+		if currentRows > targetRows {
+			// Trim empty lines from bottom
+			b.screen = b.screen[:targetRows]
+			b.lineInfos = b.lineInfos[:targetRows]
+		} else if currentRows < targetRows {
+			// Add empty lines to reach target
+			for i := currentRows; i < targetRows; i++ {
+				b.screen = append(b.screen, b.makeEmptyLine())
+				b.lineInfos = append(b.lineInfos, b.makeDefaultLineInfo())
+			}
 		}
 	}
 }

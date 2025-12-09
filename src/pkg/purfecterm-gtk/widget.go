@@ -200,9 +200,9 @@ func NewWidget(cols, rows, scrollbackSize int) (*Widget, error) {
 	// Get clipboard
 	w.clipboard, _ = gtk.ClipboardGet(gdk.SELECTION_CLIPBOARD)
 
-	// Set initial size based on character dimensions (plus left padding)
+	// Set minimum size (small fixed value to allow flexible resizing)
 	w.updateFontMetrics()
-	w.drawingArea.SetSizeRequest(cols*w.charWidth+terminalLeftPadding, rows*w.charHeight)
+	w.drawingArea.SetSizeRequest(100, 50)
 
 	// Start animation timer (50ms interval for smooth bobbing wave animation)
 	// Also handles cursor blink timing
@@ -574,28 +574,26 @@ func (w *Widget) onDraw(da *gtk.DrawingArea, cr *cairo.Context) bool {
 					}
 
 				case purfecterm.LineAttrDoubleWidth:
-					// Double width: scale text 2x horizontally, with character width adjustment
+					// Double width: scale text 2x horizontally
+					// Compare scaled width against cell width
 					textX := float64(x*2*charWidth + terminalLeftPadding)
 					textY := float64(y*charHeight + charAscent)
 
-					if actualWidth > cellW {
-						// Squeeze - scale down to fit
-						scaleX := cellW / actualWidth
-						cr.Save()
+					cr.Save()
+					if actualWidth*2 > cellW {
+						// Squeeze: scale to fit within cell
+						scaleX := cellW / (actualWidth * 2)
 						cr.Translate(textX, textY+yOffset)
-						cr.Scale(scaleX, 1.0)
-						cr.MoveTo(0, 0)
-						cr.ShowText(charStr)
-						cr.Restore()
+						cr.Scale(scaleX*2.0, 1.0)
 					} else {
-						// Center within double-width cell
-						xOffset := (cellW - actualWidth) / 2
-						cr.Save()
+						// Center the 2x-scaled character
+						xOffset := (cellW - actualWidth*2) / 2
 						cr.Translate(textX+xOffset, textY+yOffset)
-						cr.MoveTo(0, 0)
-						cr.ShowText(charStr)
-						cr.Restore()
+						cr.Scale(2.0, 1.0)
 					}
+					cr.MoveTo(0, 0)
+					cr.ShowText(charStr)
+					cr.Restore()
 
 				case purfecterm.LineAttrDoubleTop:
 					// Double height top: scale 2x, show top half only
@@ -700,6 +698,18 @@ func (w *Widget) onDraw(da *gtk.DrawingArea, cr *cairo.Context) bool {
 				}
 			}
 		}
+	}
+
+	// Draw yellow dashed line between scrollback and logical screen
+	if scrollOffset > 0 && scrollOffset < rows {
+		lineY := float64(scrollOffset * charHeight)
+		cr.SetSourceRGB(1.0, 0.78, 0.0) // Yellow (255, 200, 0)
+		cr.SetLineWidth(1.0)
+		cr.SetDash([]float64{4, 4}, 0)
+		cr.MoveTo(0, lineY)
+		cr.LineTo(float64(alloc.GetWidth()), lineY)
+		cr.Stroke()
+		cr.SetDash([]float64{}, 0) // Reset dash pattern
 	}
 
 	w.buffer.ClearDirty()

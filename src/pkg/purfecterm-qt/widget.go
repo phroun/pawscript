@@ -95,8 +95,8 @@ func NewWidget(cols, rows, scrollbackSize int) *Widget {
 	// Calculate font metrics
 	w.updateFontMetrics()
 
-	// Set initial size
-	w.widget.SetMinimumSize2(cols*w.charWidth+terminalLeftPadding, rows*w.charHeight)
+	// Set minimum size (small fixed value to allow flexible resizing)
+	w.widget.SetMinimumSize2(100, 50)
 
 	// Create blink timer (50ms for smooth animation)
 	w.blinkTimer = qt.NewQTimer2(w.widget.QObject)
@@ -571,21 +571,22 @@ func (w *Widget) paintEvent(event *qt.QPaintEvent) {
 						painter.DrawText3(cellX, cellY+charAscent+int(yOffset), charStr)
 					}
 				case purfecterm.LineAttrDoubleWidth:
-					// For double-width lines, apply same logic but with 2x cell width
-					if actualWidth > cellW {
-						scaleX := float64(cellW) / float64(actualWidth)
-						painter.Save()
+					// For double-width lines, scale character 2x horizontally
+					// Compare scaled width against cell width
+					painter.Save()
+					if actualWidth*2 > cellW {
+						// Squeeze: scale to fit within cell
+						scaleX := float64(cellW) / float64(actualWidth*2)
 						painter.Translate2(float64(cellX), float64(cellY+charAscent)+yOffset)
-						painter.Scale(scaleX, 1.0)
-						painter.DrawText3(0, 0, charStr)
-						painter.Restore()
+						painter.Scale(scaleX*2.0, 1.0)
 					} else {
-						xOffset := (cellW - actualWidth) / 2
-						painter.Save()
+						// Center the 2x-scaled character
+						xOffset := (cellW - actualWidth*2) / 2
 						painter.Translate2(float64(cellX+xOffset), float64(cellY+charAscent)+yOffset)
-						painter.DrawText3(0, 0, charStr)
-						painter.Restore()
+						painter.Scale(2.0, 1.0)
 					}
+					painter.DrawText3(0, 0, charStr)
+					painter.Restore()
 				case purfecterm.LineAttrDoubleTop:
 					painter.Save()
 					painter.SetClipRect2(cellX, cellY, cellW, cellH)
@@ -657,6 +658,17 @@ func (w *Widget) paintEvent(event *qt.QPaintEvent) {
 				}
 			}
 		}
+	}
+
+	// Draw yellow dashed line between scrollback and logical screen
+	if scrollOffset > 0 && scrollOffset < rows {
+		lineY := scrollOffset * charHeight
+		yellowColor := qt.NewQColor3(255, 200, 0)
+		pen := qt.NewQPen3(yellowColor)
+		pen.SetWidth(1)
+		pen.SetStyle(qt.DashLine)
+		painter.SetPenWithPen(pen)
+		painter.DrawLine3(0, lineY, w.widget.Width(), lineY)
 	}
 
 	w.buffer.ClearDirty()
