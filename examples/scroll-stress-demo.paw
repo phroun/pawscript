@@ -253,8 +253,8 @@ write "\e]7002;s;13;42;13;1;46;0;1;1;-1;67\a"
 # --- Scrolling loop for 30 seconds ---
 
 # Prepare alternating line patterns for scrolling
-line_patterns: [~grass_line, ~mixed_line, ~water_line, ~sky_line, ~tree_line, ~brick_line, ~stone_line]
-pattern_colors: ["green", "green", "blue", "cyan", "green", "red", "white"]
+line_patterns: {list ~grass_line, ~mixed_line, ~water_line, ~sky_line, ~tree_line, ~brick_line, ~stone_line}
+pattern_colors: {list "green", "green", "blue", "cyan", "green", "red", "white"}
 num_patterns: 7
 
 start_time: {time}
