@@ -643,7 +643,7 @@ func (w *Widget) renderCustomGlyph(cr *cairo.Context, cell *purfecterm.Cell, cel
 }
 
 // renderSprites renders a list of sprites at their positions
-func (w *Widget) renderSprites(cr *cairo.Context, sprites []*purfecterm.Sprite, charWidth, charHeight int, scheme purfecterm.ColorScheme) {
+func (w *Widget) renderSprites(cr *cairo.Context, sprites []*purfecterm.Sprite, charWidth, charHeight int, scheme purfecterm.ColorScheme, scrollOffsetY, horizOffsetX int) {
 	if len(sprites) == 0 {
 		return
 	}
@@ -651,12 +651,12 @@ func (w *Widget) renderSprites(cr *cairo.Context, sprites []*purfecterm.Sprite, 
 	unitX, unitY := w.buffer.GetSpriteUnits()
 
 	for _, sprite := range sprites {
-		w.renderSprite(cr, sprite, unitX, unitY, charWidth, charHeight, scheme)
+		w.renderSprite(cr, sprite, unitX, unitY, charWidth, charHeight, scheme, scrollOffsetY, horizOffsetX)
 	}
 }
 
 // renderSprite renders a single sprite
-func (w *Widget) renderSprite(cr *cairo.Context, sprite *purfecterm.Sprite, unitX, unitY float64, charWidth, charHeight int, scheme purfecterm.ColorScheme) {
+func (w *Widget) renderSprite(cr *cairo.Context, sprite *purfecterm.Sprite, unitX, unitY float64, charWidth, charHeight int, scheme purfecterm.ColorScheme, scrollOffsetY, horizOffsetX int) {
 	if sprite == nil || len(sprite.Runes) == 0 {
 		return
 	}
@@ -667,10 +667,20 @@ func (w *Widget) renderSprite(cr *cairo.Context, sprite *purfecterm.Sprite, unit
 		cropRect = w.buffer.GetCropRect(sprite.CropRect)
 	}
 
-	// Calculate base position in pixels
+	// Calculate scroll offset in pixels
+	// Sprites are positioned relative to the logical screen origin (row 0, col 0).
+	// When scrollOffset > 0, we're viewing scrollback history, so the logical screen
+	// (and sprites) should appear shifted down by scrollOffset rows.
+	// When horizOffset > 0, we're scrolled right, so sprites shift left.
+	scrollPixelY := float64(scrollOffsetY * charHeight)
+	scrollPixelX := float64(horizOffsetX * charWidth)
+
+	// Calculate base position in pixels (relative to visible area)
 	// Sprite position is in coordinate units, convert to pixels
-	basePixelX := sprite.X * unitX + float64(terminalLeftPadding)
-	basePixelY := sprite.Y * unitY
+	// Y: Add scrollPixelY because viewing scrollback pushes logical screen down
+	// X: Subtract scrollPixelX because horizontal scroll shifts content left
+	basePixelX := sprite.X*unitX + float64(terminalLeftPadding) - scrollPixelX
+	basePixelY := sprite.Y*unitY + scrollPixelY
 
 	// Determine the total sprite dimensions in tiles
 	spriteRows := len(sprite.Runes)
@@ -712,12 +722,12 @@ func (w *Widget) renderSprite(cr *cairo.Context, sprite *purfecterm.Sprite, unit
 			pixelX := basePixelX + float64(tileX)*tileW
 			pixelY := basePixelY + float64(tileY)*tileH
 
-			// Apply crop rectangle if specified
+			// Apply crop rectangle if specified (also relative to logical screen)
 			if cropRect != nil {
-				cropMinX := cropRect.MinX * unitX + float64(terminalLeftPadding)
-				cropMinY := cropRect.MinY * unitY
-				cropMaxX := cropRect.MaxX * unitX + float64(terminalLeftPadding)
-				cropMaxY := cropRect.MaxY * unitY
+				cropMinX := cropRect.MinX*unitX + float64(terminalLeftPadding) - scrollPixelX
+				cropMinY := cropRect.MinY*unitY + scrollPixelY
+				cropMaxX := cropRect.MaxX*unitX + float64(terminalLeftPadding) - scrollPixelX
+				cropMaxY := cropRect.MaxY*unitY + scrollPixelY
 
 				// Skip if tile is completely outside crop rect
 				if pixelX+tileW <= cropMinX || pixelX >= cropMaxX ||
@@ -733,7 +743,7 @@ func (w *Widget) renderSprite(cr *cairo.Context, sprite *purfecterm.Sprite, unit
 			}
 
 			// Render the glyph at this position
-			w.renderSpriteGlyph(cr, glyph, sprite, pixelX, pixelY, tileW, tileH, scheme, cropRect, unitX, unitY)
+			w.renderSpriteGlyph(cr, glyph, sprite, pixelX, pixelY, tileW, tileH, scheme, cropRect, unitX, unitY, scrollPixelX, scrollPixelY)
 		}
 	}
 }
@@ -741,7 +751,7 @@ func (w *Widget) renderSprite(cr *cairo.Context, sprite *purfecterm.Sprite, unit
 // renderSpriteGlyph renders a single glyph within a sprite tile
 func (w *Widget) renderSpriteGlyph(cr *cairo.Context, glyph *purfecterm.CustomGlyph, sprite *purfecterm.Sprite,
 	tileX, tileY, tileW, tileH float64, scheme purfecterm.ColorScheme,
-	cropRect *purfecterm.CropRectangle, unitX, unitY float64) {
+	cropRect *purfecterm.CropRectangle, unitX, unitY float64, scrollPixelX, scrollPixelY float64) {
 
 	glyphW := glyph.Width
 	glyphH := glyph.Height
@@ -753,14 +763,14 @@ func (w *Widget) renderSpriteGlyph(cr *cairo.Context, glyph *purfecterm.CustomGl
 	pixelW := tileW / float64(glyphW)
 	pixelH := tileH / float64(glyphH)
 
-	// Calculate crop bounds in pixels if needed
+	// Calculate crop bounds in pixels if needed (relative to logical screen)
 	var cropMinX, cropMinY, cropMaxX, cropMaxY float64
 	hasCrop := cropRect != nil
 	if hasCrop {
-		cropMinX = cropRect.MinX * unitX + float64(terminalLeftPadding)
-		cropMinY = cropRect.MinY * unitY
-		cropMaxX = cropRect.MaxX * unitX + float64(terminalLeftPadding)
-		cropMaxY = cropRect.MaxY * unitY
+		cropMinX = cropRect.MinX*unitX + float64(terminalLeftPadding) - scrollPixelX
+		cropMinY = cropRect.MinY*unitY + scrollPixelY
+		cropMaxX = cropRect.MaxX*unitX + float64(terminalLeftPadding) - scrollPixelX
+		cropMaxY = cropRect.MaxY*unitY + scrollPixelY
 	}
 
 	// Determine default foreground color for this sprite
@@ -950,18 +960,18 @@ func (w *Widget) onDraw(da *gtk.DrawingArea, cr *cairo.Context) bool {
 	cr.Rectangle(0, 0, float64(alloc.GetWidth()), float64(alloc.GetHeight()))
 	cr.Fill()
 
+	// Get scroll offsets for sprite positioning
+	horizOffset := w.buffer.GetHorizOffset()
+
 	// Get sprites for rendering (behind = negative Z, front = non-negative Z)
 	behindSprites, frontSprites := w.buffer.GetSpritesForRendering()
 
 	// Render behind sprites (visible where text has default background)
-	w.renderSprites(cr, behindSprites, charWidth, charHeight, scheme)
+	w.renderSprites(cr, behindSprites, charWidth, charHeight, scheme, scrollOffset, horizOffset)
 
 	// Set up font
 	cr.SelectFontFace(fontFamily, cairo.FONT_SLANT_NORMAL, cairo.FONT_WEIGHT_NORMAL)
 	cr.SetFontSize(float64(fontSize))
-
-	// Get horizontal scroll offset
-	horizOffset := w.buffer.GetHorizOffset()
 
 	// Draw each cell (use GetVisibleCell to account for scroll offset)
 	for y := 0; y < rows; y++ {
@@ -1259,7 +1269,7 @@ func (w *Widget) onDraw(da *gtk.DrawingArea, cr *cairo.Context) bool {
 	}
 
 	// Render front sprites (overlay on top of text)
-	w.renderSprites(cr, frontSprites, charWidth, charHeight, scheme)
+	w.renderSprites(cr, frontSprites, charWidth, charHeight, scheme, scrollOffset, horizOffset)
 
 	// Draw yellow dashed line between scrollback and logical screen
 	if scrollOffset > 0 && scrollOffset < rows {

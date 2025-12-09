@@ -624,7 +624,7 @@ func (w *Widget) renderCustomGlyph(painter *qt.QPainter, cell *purfecterm.Cell, 
 }
 
 // renderSprites renders a list of sprites at their positions
-func (w *Widget) renderSprites(painter *qt.QPainter, sprites []*purfecterm.Sprite, charWidth, charHeight int, scheme purfecterm.ColorScheme) {
+func (w *Widget) renderSprites(painter *qt.QPainter, sprites []*purfecterm.Sprite, charWidth, charHeight int, scheme purfecterm.ColorScheme, scrollOffsetY, horizOffsetX int) {
 	if len(sprites) == 0 {
 		return
 	}
@@ -632,12 +632,12 @@ func (w *Widget) renderSprites(painter *qt.QPainter, sprites []*purfecterm.Sprit
 	unitX, unitY := w.buffer.GetSpriteUnits()
 
 	for _, sprite := range sprites {
-		w.renderSprite(painter, sprite, unitX, unitY, charWidth, charHeight, scheme)
+		w.renderSprite(painter, sprite, unitX, unitY, charWidth, charHeight, scheme, scrollOffsetY, horizOffsetX)
 	}
 }
 
 // renderSprite renders a single sprite
-func (w *Widget) renderSprite(painter *qt.QPainter, sprite *purfecterm.Sprite, unitX, unitY float64, charWidth, charHeight int, scheme purfecterm.ColorScheme) {
+func (w *Widget) renderSprite(painter *qt.QPainter, sprite *purfecterm.Sprite, unitX, unitY float64, charWidth, charHeight int, scheme purfecterm.ColorScheme, scrollOffsetY, horizOffsetX int) {
 	if sprite == nil || len(sprite.Runes) == 0 {
 		return
 	}
@@ -648,9 +648,13 @@ func (w *Widget) renderSprite(painter *qt.QPainter, sprite *purfecterm.Sprite, u
 		cropRect = w.buffer.GetCropRect(sprite.CropRect)
 	}
 
-	// Calculate base position in pixels
-	basePixelX := sprite.X * unitX + float64(terminalLeftPadding)
-	basePixelY := sprite.Y * unitY
+	// Calculate scroll offset in pixels
+	scrollPixelY := float64(scrollOffsetY * charHeight)
+	scrollPixelX := float64(horizOffsetX * charWidth)
+
+	// Calculate base position in pixels (relative to visible area)
+	basePixelX := sprite.X*unitX + float64(terminalLeftPadding) - scrollPixelX
+	basePixelY := sprite.Y*unitY + scrollPixelY
 
 	// Determine the total sprite dimensions in tiles
 	spriteRows := len(sprite.Runes)
@@ -692,12 +696,12 @@ func (w *Widget) renderSprite(painter *qt.QPainter, sprite *purfecterm.Sprite, u
 			pixelX := basePixelX + float64(tileX)*tileW
 			pixelY := basePixelY + float64(tileY)*tileH
 
-			// Apply crop rectangle if specified
+			// Apply crop rectangle if specified (relative to logical screen)
 			if cropRect != nil {
-				cropMinX := cropRect.MinX * unitX + float64(terminalLeftPadding)
-				cropMinY := cropRect.MinY * unitY
-				cropMaxX := cropRect.MaxX * unitX + float64(terminalLeftPadding)
-				cropMaxY := cropRect.MaxY * unitY
+				cropMinX := cropRect.MinX*unitX + float64(terminalLeftPadding) - scrollPixelX
+				cropMinY := cropRect.MinY*unitY + scrollPixelY
+				cropMaxX := cropRect.MaxX*unitX + float64(terminalLeftPadding) - scrollPixelX
+				cropMaxY := cropRect.MaxY*unitY + scrollPixelY
 
 				if pixelX+tileW <= cropMinX || pixelX >= cropMaxX ||
 					pixelY+tileH <= cropMinY || pixelY >= cropMaxY {
@@ -712,7 +716,7 @@ func (w *Widget) renderSprite(painter *qt.QPainter, sprite *purfecterm.Sprite, u
 			}
 
 			// Render the glyph at this position
-			w.renderSpriteGlyph(painter, glyph, sprite, pixelX, pixelY, tileW, tileH, scheme, cropRect, unitX, unitY)
+			w.renderSpriteGlyph(painter, glyph, sprite, pixelX, pixelY, tileW, tileH, scheme, cropRect, unitX, unitY, scrollPixelX, scrollPixelY)
 		}
 	}
 }
@@ -720,7 +724,7 @@ func (w *Widget) renderSprite(painter *qt.QPainter, sprite *purfecterm.Sprite, u
 // renderSpriteGlyph renders a single glyph within a sprite tile
 func (w *Widget) renderSpriteGlyph(painter *qt.QPainter, glyph *purfecterm.CustomGlyph, sprite *purfecterm.Sprite,
 	tileX, tileY, tileW, tileH float64, scheme purfecterm.ColorScheme,
-	cropRect *purfecterm.CropRectangle, unitX, unitY float64) {
+	cropRect *purfecterm.CropRectangle, unitX, unitY float64, scrollPixelX, scrollPixelY float64) {
 
 	glyphW := glyph.Width
 	glyphH := glyph.Height
@@ -732,14 +736,14 @@ func (w *Widget) renderSpriteGlyph(painter *qt.QPainter, glyph *purfecterm.Custo
 	pixelW := tileW / float64(glyphW)
 	pixelH := tileH / float64(glyphH)
 
-	// Calculate crop bounds in pixels if needed
+	// Calculate crop bounds in pixels if needed (relative to logical screen)
 	var cropMinX, cropMinY, cropMaxX, cropMaxY float64
 	hasCrop := cropRect != nil
 	if hasCrop {
-		cropMinX = cropRect.MinX * unitX + float64(terminalLeftPadding)
-		cropMinY = cropRect.MinY * unitY
-		cropMaxX = cropRect.MaxX * unitX + float64(terminalLeftPadding)
-		cropMaxY = cropRect.MaxY * unitY
+		cropMinX = cropRect.MinX*unitX + float64(terminalLeftPadding) - scrollPixelX
+		cropMinY = cropRect.MinY*unitY + scrollPixelY
+		cropMaxX = cropRect.MaxX*unitX + float64(terminalLeftPadding) - scrollPixelX
+		cropMaxY = cropRect.MaxY*unitY + scrollPixelY
 	}
 
 	// Determine default foreground color for this sprite
@@ -816,7 +820,7 @@ func (w *Widget) paintEvent(event *qt.QPaintEvent) {
 	behindSprites, frontSprites := w.buffer.GetSpritesForRendering()
 
 	// Render behind sprites (visible where text has default background)
-	w.renderSprites(painter, behindSprites, charWidth, charHeight, scheme)
+	w.renderSprites(painter, behindSprites, charWidth, charHeight, scheme, scrollOffset, horizOffset)
 
 	// Set up font
 	font := qt.NewQFont6(fontFamily, fontSize)
@@ -1091,7 +1095,7 @@ func (w *Widget) paintEvent(event *qt.QPaintEvent) {
 	}
 
 	// Render front sprites (overlay on top of text)
-	w.renderSprites(painter, frontSprites, charWidth, charHeight, scheme)
+	w.renderSprites(painter, frontSprites, charWidth, charHeight, scheme, scrollOffset, horizOffset)
 
 	// Draw yellow dashed line between scrollback and logical screen
 	if scrollOffset > 0 && scrollOffset < rows {

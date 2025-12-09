@@ -16,6 +16,17 @@
     - SGR 168;5;N / 169: Base Glyph Palette (BGP) selection
     - Palette-indexed colors with transparent, dim, and bright variants
     - Fallback rendering when palette not defined (0=bg, 1=fg, 2=dim, 3+=bright)
+  - Sprite overlay system with Z-ordering and crop rectangles:
+    - OSC 7002: Sprite management (create, move, delete, update)
+    - Z-index layering: negative Z renders behind text, non-negative in front
+    - Multi-tile sprites using linefeed (rune 10) as row separator
+    - 2x2 NES-style composite sprites for 16x16 pixel-art characters
+    - XFlip/YFlip for entire sprites (FLIP parameter: 0-3)
+    - Scale factors (XS/YS) for sprite magnification
+    - Crop rectangles for clipping sprites to regions
+    - Optimized move command (m) for smooth animations
+    - Sprites positioned relative to logical screen origin
+    - Proper scroll offset handling: sprites scroll with content
   - Private ANSI codes documented in docs/private-ansi-codes.md
   - Fixed ClearToStartOfLine and ClearToStartOfScreen not to pad lines with
     blank cells unnecessarily (fixes horizontal scrollbar showing extra width)
