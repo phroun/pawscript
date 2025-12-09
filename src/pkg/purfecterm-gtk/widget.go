@@ -642,6 +642,165 @@ func (w *Widget) renderCustomGlyph(cr *cairo.Context, cell *purfecterm.Cell, cel
 	return true
 }
 
+// renderSprites renders a list of sprites at their positions
+func (w *Widget) renderSprites(cr *cairo.Context, sprites []*purfecterm.Sprite, charWidth, charHeight int, scheme purfecterm.ColorScheme) {
+	if len(sprites) == 0 {
+		return
+	}
+
+	unitX, unitY := w.buffer.GetSpriteUnits()
+
+	for _, sprite := range sprites {
+		w.renderSprite(cr, sprite, unitX, unitY, charWidth, charHeight, scheme)
+	}
+}
+
+// renderSprite renders a single sprite
+func (w *Widget) renderSprite(cr *cairo.Context, sprite *purfecterm.Sprite, unitX, unitY float64, charWidth, charHeight int, scheme purfecterm.ColorScheme) {
+	if sprite == nil || len(sprite.Runes) == 0 {
+		return
+	}
+
+	// Get crop rectangle if specified
+	var cropRect *purfecterm.CropRectangle
+	if sprite.CropRect >= 0 {
+		cropRect = w.buffer.GetCropRect(sprite.CropRect)
+	}
+
+	// Calculate base position in pixels
+	// Sprite position is in coordinate units, convert to pixels
+	basePixelX := sprite.X * unitX + float64(terminalLeftPadding)
+	basePixelY := sprite.Y * unitY
+
+	// Determine the total sprite dimensions in tiles
+	spriteRows := len(sprite.Runes)
+	spriteCols := 0
+	for _, row := range sprite.Runes {
+		if len(row) > spriteCols {
+			spriteCols = len(row)
+		}
+	}
+
+	// Calculate tile size (one coordinate unit in pixels, scaled)
+	tileW := unitX * sprite.XScale
+	tileH := unitY * sprite.YScale
+
+	// Get flip flags
+	xFlip := sprite.GetXFlip()
+	yFlip := sprite.GetYFlip()
+
+	// Render each tile in the sprite
+	for rowIdx, row := range sprite.Runes {
+		for colIdx, r := range row {
+			if r == 0 || r == ' ' {
+				continue // Skip empty tiles
+			}
+
+			// Calculate tile position
+			tileX := colIdx
+			tileY := rowIdx
+
+			// Apply sprite-level flip
+			if xFlip {
+				tileX = spriteCols - 1 - colIdx
+			}
+			if yFlip {
+				tileY = spriteRows - 1 - rowIdx
+			}
+
+			// Calculate pixel position for this tile
+			pixelX := basePixelX + float64(tileX)*tileW
+			pixelY := basePixelY + float64(tileY)*tileH
+
+			// Apply crop rectangle if specified
+			if cropRect != nil {
+				cropMinX := cropRect.MinX * unitX + float64(terminalLeftPadding)
+				cropMinY := cropRect.MinY * unitY
+				cropMaxX := cropRect.MaxX * unitX + float64(terminalLeftPadding)
+				cropMaxY := cropRect.MaxY * unitY
+
+				// Skip if tile is completely outside crop rect
+				if pixelX+tileW <= cropMinX || pixelX >= cropMaxX ||
+					pixelY+tileH <= cropMinY || pixelY >= cropMaxY {
+					continue
+				}
+			}
+
+			// Get glyph for this character
+			glyph := w.buffer.GetGlyph(r)
+			if glyph == nil {
+				continue // No glyph defined for this character
+			}
+
+			// Render the glyph at this position
+			w.renderSpriteGlyph(cr, glyph, sprite, pixelX, pixelY, tileW, tileH, scheme, cropRect, unitX, unitY)
+		}
+	}
+}
+
+// renderSpriteGlyph renders a single glyph within a sprite tile
+func (w *Widget) renderSpriteGlyph(cr *cairo.Context, glyph *purfecterm.CustomGlyph, sprite *purfecterm.Sprite,
+	tileX, tileY, tileW, tileH float64, scheme purfecterm.ColorScheme,
+	cropRect *purfecterm.CropRectangle, unitX, unitY float64) {
+
+	glyphW := glyph.Width
+	glyphH := glyph.Height
+	if glyphW == 0 || glyphH == 0 {
+		return
+	}
+
+	// Calculate pixel size within the tile
+	pixelW := tileW / float64(glyphW)
+	pixelH := tileH / float64(glyphH)
+
+	// Calculate crop bounds in pixels if needed
+	var cropMinX, cropMinY, cropMaxX, cropMaxY float64
+	hasCrop := cropRect != nil
+	if hasCrop {
+		cropMinX = cropRect.MinX * unitX + float64(terminalLeftPadding)
+		cropMinY = cropRect.MinY * unitY
+		cropMaxX = cropRect.MaxX * unitX + float64(terminalLeftPadding)
+		cropMaxY = cropRect.MaxY * unitY
+	}
+
+	// Determine default foreground color for this sprite
+	defaultFg := scheme.Foreground
+	defaultBg := scheme.Background
+
+	// Render each pixel of the glyph
+	for gy := 0; gy < glyphH; gy++ {
+		for gx := 0; gx < glyphW; gx++ {
+			paletteIdx := glyph.GetPixel(gx, gy)
+
+			// Calculate draw position (no per-glyph flip, sprite-level flip already applied to tile positions)
+			px := tileX + float64(gx)*pixelW
+			py := tileY + float64(gy)*pixelH
+
+			// Apply crop if specified
+			if hasCrop {
+				if px+pixelW <= cropMinX || px >= cropMaxX ||
+					py+pixelH <= cropMinY || py >= cropMaxY {
+					continue
+				}
+			}
+
+			// Resolve color using sprite's FGP
+			color, visible := w.buffer.ResolveSpriteGlyphColor(sprite.FGP, paletteIdx, defaultFg, defaultBg)
+			if !visible {
+				continue // Transparent pixel
+			}
+
+			// Draw pixel
+			cr.SetSourceRGB(
+				float64(color.R)/255.0,
+				float64(color.G)/255.0,
+				float64(color.B)/255.0)
+			cr.Rectangle(px, py, pixelW, pixelH)
+			cr.Fill()
+		}
+	}
+}
+
 // SetColorScheme sets the color scheme
 func (w *Widget) SetColorScheme(scheme purfecterm.ColorScheme) {
 	w.mu.Lock()
@@ -790,6 +949,12 @@ func (w *Widget) onDraw(da *gtk.DrawingArea, cr *cairo.Context) bool {
 		float64(scheme.Background.B)/255.0)
 	cr.Rectangle(0, 0, float64(alloc.GetWidth()), float64(alloc.GetHeight()))
 	cr.Fill()
+
+	// Get sprites for rendering (behind = negative Z, front = non-negative Z)
+	behindSprites, frontSprites := w.buffer.GetSpritesForRendering()
+
+	// Render behind sprites (visible where text has default background)
+	w.renderSprites(cr, behindSprites, charWidth, charHeight, scheme)
 
 	// Set up font
 	cr.SelectFontFace(fontFamily, cairo.FONT_SLANT_NORMAL, cairo.FONT_WEIGHT_NORMAL)
@@ -1092,6 +1257,9 @@ func (w *Widget) onDraw(da *gtk.DrawingArea, cr *cairo.Context) bool {
 			}
 		}
 	}
+
+	// Render front sprites (overlay on top of text)
+	w.renderSprites(cr, frontSprites, charWidth, charHeight, scheme)
 
 	// Draw yellow dashed line between scrollback and logical screen
 	if scrollOffset > 0 && scrollOffset < rows {

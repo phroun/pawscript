@@ -278,6 +278,143 @@ echo 'A'         # Uses palette 34
 - XFlip/YFlip are applied during rendering, affecting the displayed pixels
 - Modifying a palette updates all currently displayed glyphs using that palette
 
+## Sprite Overlay System
+
+PurfecTerm supports a sprite overlay system for positioning graphics anywhere on screen, independent of the text grid. Sprites are rendered using the same custom glyph system but can be freely positioned, scaled, and layered.
+
+### OSC 7002 - Sprite Management
+
+Operating System Command sequences for managing sprites:
+
+| Command | Format | Description |
+|---------|--------|-------------|
+| Delete All | `ESC ] 7002 ; da BEL` | Remove all sprites |
+| Delete One | `ESC ] 7002 ; d;ID BEL` | Delete sprite with ID |
+| Set (runes) | `ESC ] 7002 ; s;ID;X;Y;Z;FGP;FLIP;XS;YS;CROP;R1;R2;... BEL` | Define sprite using rune codes |
+| Set (text) | `ESC ] 7002 ; t;ID;X;Y;Z;FGP;FLIP;XS;YS;CROP;text BEL` | Define sprite using text string |
+| Move | `ESC ] 7002 ; m;ID;X;Y BEL` | Move sprite position only |
+| Move+Runes | `ESC ] 7002 ; mr;ID;X;Y;R1;R2;... BEL` | Move and update runes |
+| Move+Text | `ESC ] 7002 ; mrt;ID;X;Y;text BEL` | Move and update text |
+| Set Units | `ESC ] 7002 ; u;UX;UY BEL` | Set coordinate unit size |
+| Delete All Crops | `ESC ] 7002 ; cda BEL` | Remove all crop rectangles |
+| Delete Crop | `ESC ] 7002 ; cd;ID BEL` | Delete crop rectangle |
+| Set Crop | `ESC ] 7002 ; cs;ID;MINX;MINY;MAXX;MAXY BEL` | Define crop rectangle |
+
+**Sprite parameters:**
+- `ID` - Unique numeric identifier for the sprite
+- `X, Y` - Position in coordinate units (default: 8x8 pixels per unit)
+- `Z` - Z-index for layering (negative = behind text, non-negative = in front)
+- `FGP` - Foreground Glyph Palette (-1 = use default)
+- `FLIP` - Flip mode: 0=none, 1=XFlip, 2=YFlip, 3=both
+- `XS, YS` - Scale factors (1.0 = normal, 2.0 = double size)
+- `CROP` - Crop rectangle ID (-1 = no cropping)
+- `R1;R2;...` - Rune codes (10 = newline for multi-row sprites)
+- `text` - String of characters (newlines create rows)
+
+### Z-Index Layering
+
+Sprites are sorted by Z-index, then by ID:
+- **Negative Z-index**: Rendered behind the text layer (visible where cell backgrounds are default)
+- **Non-negative Z-index**: Rendered on top of the text layer
+- Within the same Z-index, lower IDs render first (underneath higher IDs)
+
+### Coordinate Units
+
+By default, sprite coordinates use 8x8 pixel units. This can be changed with the `u` command:
+
+```bash
+# Set coordinate units to 16x16 (larger tiles)
+printf '\e]7002;u;16;16\a'
+
+# Position sprite at (2,3) = pixel (32,48)
+printf '\e]7002;s;1;2;3;0;-1;0;1;1;-1;65\a'
+```
+
+### Multi-Tile Sprites
+
+Sprites can contain multiple tiles arranged in a grid:
+- Tiles are placed side-by-side horizontally
+- Newline (rune code 10) starts a new row
+- Space characters are skipped (transparent tiles)
+
+```bash
+# Create a 2x2 sprite using characters A,B,C,D
+# Layout:  AB
+#          CD
+printf '\e]7002;s;1;0;0;1;-1;0;1;1;-1;65;66;10;67;68\a'
+
+# Or using text format:
+printf '\e]7002;t;1;0;0;1;-1;0;1;1;-1;AB
+CD\a'
+```
+
+### Sprite Flipping
+
+The FLIP parameter affects the entire composed sprite:
+- When XFlip is set, the sprite is mirrored horizontally
+- When YFlip is set, the sprite is mirrored vertically
+- For multi-tile sprites, both tile positions and individual glyph pixels are flipped
+
+### Crop Rectangles
+
+Crop rectangles clip sprites to a rectangular region, useful for scroll windows or masked effects:
+
+```bash
+# Define crop rectangle 0 covering units (2,2) to (10,8)
+printf '\e]7002;cs;0;2;2;10;8\a'
+
+# Create sprite that uses this crop rectangle
+printf '\e]7002;s;1;0;0;1;-1;0;1;1;0;65;66\a'
+#                                 ^-- CROP=0
+
+# Delete crop rectangle
+printf '\e]7002;cd;0\a'
+```
+
+### Optimized Updates
+
+For animation, use move commands instead of recreating sprites:
+
+```bash
+# Create sprite once
+printf '\e]7002;s;1;0;0;1;-1;0;1;1;-1;65\a'
+
+# Animate by moving (much more efficient)
+for i in {1..100}; do
+  printf '\e]7002;m;1;%d;%d\a' $i $i
+  sleep 0.016  # ~60fps
+done
+```
+
+#### Example: Animated Character
+
+```bash
+# Define walking animation frames using characters 'A' (65) and 'B' (66)
+# (Assume glyphs are already defined via OSC 7001)
+
+# Create sprite at position (5, 10)
+printf '\e]7002;s;100;5;10;1;31;0;1;1;-1;65\a'
+
+# Animation loop - move and update frame
+for x in {5..50}; do
+  frame=$((65 + (x % 2)))  # Alternate between A and B
+  printf '\e]7002;mr;100;%d;10;%d\a' $x $frame
+  sleep 0.05
+done
+```
+
+#### Example: Background Layer
+
+```bash
+# Create a background sprite at Z=-1 (behind text)
+# This 2x2 tile background uses characters that have glyphs defined
+printf '\e]7002;s;1;0;0;-1;32;0;1;1;-1;97;98;10;99;100\a'
+
+# Text will appear on top with default backgrounds transparent
+printf '\e[0m'  # Reset to default colors
+echo "Hello, World!"
+```
+
 ## See Also
 
 - [escape-sequences.md](escape-sequences.md) - Standard escape sequences supported by PurfecTerm
