@@ -50,6 +50,16 @@ func NewParser(buffer *Buffer) *Parser {
 
 // Parse processes input data and updates the terminal buffer
 func (p *Parser) Parse(data []byte) {
+	// Debug: check for ESC character in input
+	for i, b := range data {
+		if b == 0x1B {
+			fmt.Printf("[DEBUG] Parse: ESC found at position %d, next bytes: ", i)
+			for j := i + 1; j < len(data) && j < i+10; j++ {
+				fmt.Printf("0x%02X('%c') ", data[j], data[j])
+			}
+			fmt.Println()
+		}
+	}
 	for _, b := range data {
 		p.processByte(b)
 	}
