@@ -1,0 +1,233 @@
+# screen-scaling.paw - Demonstrates screen scaling modes in PurfecTerm
+# Shows 132-column mode, 40-column mode, and line density settings
+
+# Define escape sequences
+ESC: {rune 27}
+CSI: {concat ~ESC, "["}
+
+# Screen scaling sequences
+MODE_132_ON:   {concat ~CSI, "?3h"}    # DECCOLM - 132 column mode (horiz scale 0.6060)
+MODE_132_OFF:  {concat ~CSI, "?3l"}    # Back to 80 column mode
+MODE_40_ON:    {concat ~CSI, "9;40;1t"} # Custom: 40 column mode (horiz scale 2.0)
+MODE_40_OFF:   {concat ~CSI, "9;40;0t"} # Disable 40 column mode
+DENSITY_25:    {concat ~CSI, "9;25t"}   # Line density 25 (default, scale 1.0)
+DENSITY_30:    {concat ~CSI, "9;30t"}   # Line density 30 (scale 0.833)
+DENSITY_43:    {concat ~CSI, "9;43t"}   # Line density 43 (scale 0.581)
+DENSITY_50:    {concat ~CSI, "9;50t"}   # Line density 50 (scale 0.5)
+DENSITY_60:    {concat ~CSI, "9;60t"}   # Line density 60 (scale 0.417)
+
+# Colors
+CYAN:    {concat ~CSI, "36m"}
+YELLOW:  {concat ~CSI, "33m"}
+GREEN:   {concat ~CSI, "32m"}
+MAGENTA: {concat ~CSI, "35m"}
+RESET:   {concat ~CSI, "0m"}
+
+# Double-height for titles
+DOUBLE_TOP:    {concat ~ESC, "#3"}
+DOUBLE_BOTTOM: {concat ~ESC, "#4"}
+SINGLE_WIDTH:  {concat ~ESC, "#5"}
+
+# Clear screen helper
+clear_screen: {concat ~CSI, "2J", ~CSI, "H"}
+
+# Test content
+test_line: "The quick brown fox jumps over the lazy dog. 0123456789"
+
+# --- Demo Start ---
+
+print ~clear_screen
+print {concat ~DOUBLE_TOP, ~CYAN, "   Screen Scaling Demo", ~RESET}
+print {concat ~DOUBLE_BOTTOM, ~CYAN, "   Screen Scaling Demo", ~RESET}
+print {concat ~SINGLE_WIDTH, ""}
+print "This demo shows PurfecTerm's screen scaling features."
+print "These modes affect how characters are rendered on screen."
+print ""
+print {concat ~YELLOW, "Press RETURN to see each mode...", ~RESET}
+print ""
+_: {read}
+
+# --- 132 Column Mode ---
+print ~clear_screen
+print {concat ~CYAN, "=== 132 Column Mode (ESC [ ? 3 h) ===", ~RESET}
+print ""
+print "Normal mode:"
+print ~test_line
+print ""
+print {concat ~YELLOW, "Enabling 132-column mode (0.6060x horizontal scale)...", ~RESET}
+print ~MODE_132_ON
+print ""
+print "132-column mode active - characters are narrower:"
+print ~test_line
+print ""
+print "More text fits on each line now!"
+print "ABCDEFGHIJKLMNOPQRSTUVWXYZ abcdefghijklmnopqrstuvwxyz 0123456789 !@#$%^&*()"
+print ""
+_: {read}
+
+# Disable 132 mode
+print ~MODE_132_OFF
+print ~clear_screen
+
+# --- 40 Column Mode ---
+print {concat ~CYAN, "=== 40 Column Mode (ESC [ 9 ; 40 ; 1 t) ===", ~RESET}
+print ""
+print "Normal mode:"
+print ~test_line
+print ""
+print {concat ~YELLOW, "Enabling 40-column mode (2.0x horizontal scale)...", ~RESET}
+print ~MODE_40_ON
+print ""
+print "40-column mode:"
+print "BIG WIDE TEXT"
+print "Like a classic CRT!"
+print ""
+_: {read}
+
+# Disable 40 mode
+print ~MODE_40_OFF
+print ~clear_screen
+
+# --- Combined Modes ---
+print {concat ~CYAN, "=== Combined: 132 + 40 Column Mode ===", ~RESET}
+print ""
+print "When both 132-column and 40-column are enabled:"
+print "  Horizontal scale = 0.6060 * 2.0 = 1.212"
+print ""
+print ~MODE_132_ON
+print ~MODE_40_ON
+print ""
+print "Combined mode active (1.212x horiz scale):"
+print ~test_line
+print ""
+_: {read}
+
+# Reset column modes
+print ~MODE_132_OFF
+print ~MODE_40_OFF
+print ~clear_screen
+
+# --- Line Density ---
+print {concat ~CYAN, "=== Line Density Settings ===", ~RESET}
+print ""
+print "Line density affects vertical scaling."
+print "Higher density = more lines fit in same space."
+print ""
+print {concat ~YELLOW, "Current: Density 25 (default, 1.0x scale)", ~RESET}
+print "Line 1: ABCDEFGHIJ"
+print "Line 2: KLMNOPQRST"
+print "Line 3: UVWXYZ0123"
+print "Line 4: 4567890!!!"
+print ""
+_: {read}
+
+print ~clear_screen
+print {concat ~CYAN, "=== Line Density 30 ===", ~RESET}
+print ~DENSITY_30
+print ""
+print "Density 30 (0.833x vertical scale)"
+print "Line 1: ABCDEFGHIJ"
+print "Line 2: KLMNOPQRST"
+print "Line 3: UVWXYZ0123"
+print "Line 4: 4567890!!!"
+print "Line 5: More lines"
+print "Line 6: fit now!"
+print ""
+_: {read}
+
+print ~clear_screen
+print {concat ~CYAN, "=== Line Density 43 ===", ~RESET}
+print ~DENSITY_43
+print ""
+print "Density 43 (0.581x vertical scale)"
+print "Line 1: ABCDEFGHIJ"
+print "Line 2: KLMNOPQRST"
+print "Line 3: UVWXYZ0123"
+print "Line 4: 4567890!!!"
+print "Line 5: Even more"
+print "Line 6: lines fit"
+print "Line 7: on screen"
+print "Line 8: now!"
+print ""
+_: {read}
+
+print ~clear_screen
+print {concat ~CYAN, "=== Line Density 50 ===", ~RESET}
+print ~DENSITY_50
+print ""
+print "Density 50 (0.5x vertical scale)"
+print "Line 1: ABCDEFGHIJ"
+print "Line 2: KLMNOPQRST"
+print "Line 3: UVWXYZ0123"
+print "Line 4: 4567890!!!"
+print "Line 5: Half height"
+print "Line 6: text mode"
+print "Line 7: for maximum"
+print "Line 8: information"
+print "Line 9: density!"
+print ""
+_: {read}
+
+print ~clear_screen
+print {concat ~CYAN, "=== Line Density 60 ===", ~RESET}
+print ~DENSITY_60
+print ""
+print "Density 60 (0.417x vertical scale)"
+print "Line 1: Smallest vertical scale"
+print "Line 2: Lots of lines"
+print "Line 3: on screen"
+print "Line 4: Good for"
+print "Line 5: terminals"
+print "Line 6: with lots"
+print "Line 7: of data"
+print "Line 8: to show!"
+print "Line 9"
+print "Line 10"
+print "Line 11"
+print ""
+_: {read}
+
+# Reset to normal
+print ~DENSITY_25
+print ~clear_screen
+
+# --- Combined Demo ---
+print {concat ~CYAN, "=== Combined: 40 Column + Density 50 ===", ~RESET}
+print ""
+print ~MODE_40_ON
+print ~DENSITY_50
+print ""
+print "BIG AND COMPACT!"
+print "Wide chars, short lines"
+print "Retro terminal style"
+print ""
+_: {read}
+
+# Final reset
+print ~MODE_40_OFF
+print ~DENSITY_25
+print ~clear_screen
+
+print {concat ~DOUBLE_TOP, ~GREEN, "   Demo Complete!", ~RESET}
+print {concat ~DOUBLE_BOTTOM, ~GREEN, "   Demo Complete!", ~RESET}
+print {concat ~SINGLE_WIDTH, ""}
+print ""
+print "Summary of escape sequences:"
+print ""
+print {concat ~YELLOW, "132-Column Mode:", ~RESET}
+print "  Enable:  ESC [ ? 3 h   (0.6060x horizontal scale)"
+print "  Disable: ESC [ ? 3 l"
+print ""
+print {concat ~YELLOW, "40-Column Mode (PurfecTerm extension):", ~RESET}
+print "  Enable:  ESC [ 9 ; 40 ; 1 t   (2.0x horizontal scale)"
+print "  Disable: ESC [ 9 ; 40 ; 0 t"
+print ""
+print {concat ~YELLOW, "Line Density (PurfecTerm extension):", ~RESET}
+print "  ESC [ 9 ; 25 t   (default, 1.0x vertical)"
+print "  ESC [ 9 ; 30 t   (0.833x vertical)"
+print "  ESC [ 9 ; 43 t   (0.581x vertical)"
+print "  ESC [ 9 ; 50 t   (0.5x vertical)"
+print "  ESC [ 9 ; 60 t   (0.417x vertical)"
+print ""
+print "Press RETURN to exit..."
+_: {read}

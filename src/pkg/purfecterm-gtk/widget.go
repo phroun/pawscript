@@ -387,9 +387,9 @@ func (w *Widget) onDraw(da *gtk.DrawingArea, cr *cairo.Context) bool {
 	scheme := w.scheme
 	fontFamily := w.fontFamily
 	fontSize := w.fontSize
-	charWidth := w.charWidth
-	charHeight := w.charHeight
-	charAscent := w.charAscent
+	baseCharWidth := w.charWidth
+	baseCharHeight := w.charHeight
+	baseCharAscent := w.charAscent
 	blinkPhase := w.blinkPhase
 	w.mu.Unlock()
 
@@ -398,6 +398,15 @@ func (w *Widget) onDraw(da *gtk.DrawingArea, cr *cairo.Context) bool {
 	cursorVisible := w.buffer.IsCursorVisible()
 	cursorShape, _ := w.buffer.GetCursorStyle() // 0=block, 1=underline, 2=bar
 	scrollOffset := w.buffer.GetScrollOffset()
+
+	// Get screen scaling factors
+	horizScale := w.buffer.GetHorizontalScale()
+	vertScale := w.buffer.GetVerticalScale()
+
+	// Apply scaling to character dimensions
+	charWidth := int(float64(baseCharWidth) * horizScale)
+	charHeight := int(float64(baseCharHeight) * vertScale)
+	charAscent := int(float64(baseCharAscent) * vertScale)
 
 	// Hide cursor when scrolled back
 	if scrollOffset > 0 {
@@ -718,9 +727,15 @@ func (w *Widget) onDraw(da *gtk.DrawingArea, cr *cairo.Context) bool {
 
 func (w *Widget) screenToCell(screenX, screenY float64) (cellX, cellY int) {
 	w.mu.Lock()
-	charWidth := w.charWidth
-	charHeight := w.charHeight
+	baseCharWidth := w.charWidth
+	baseCharHeight := w.charHeight
 	w.mu.Unlock()
+
+	// Apply screen scaling
+	horizScale := w.buffer.GetHorizontalScale()
+	vertScale := w.buffer.GetVerticalScale()
+	charWidth := int(float64(baseCharWidth) * horizScale)
+	charHeight := int(float64(baseCharHeight) * vertScale)
 
 	// Calculate row first (needed to check line attributes)
 	cellY = int(screenY) / charHeight
@@ -1287,10 +1302,22 @@ func modifiedSpecialKey(mod int, keycode int, suffix byte) []byte {
 func (w *Widget) onConfigure(da *gtk.DrawingArea, ev *gdk.Event) bool {
 	w.updateFontMetrics()
 
+	// Apply screen scaling to character dimensions
+	horizScale := w.buffer.GetHorizontalScale()
+	vertScale := w.buffer.GetVerticalScale()
+	scaledCharWidth := int(float64(w.charWidth) * horizScale)
+	scaledCharHeight := int(float64(w.charHeight) * vertScale)
+	if scaledCharWidth < 1 {
+		scaledCharWidth = 1
+	}
+	if scaledCharHeight < 1 {
+		scaledCharHeight = 1
+	}
+
 	// Recalculate terminal size based on widget size (minus left padding)
 	alloc := da.GetAllocation()
-	newCols := (alloc.GetWidth() - terminalLeftPadding) / w.charWidth
-	newRows := alloc.GetHeight() / w.charHeight
+	newCols := (alloc.GetWidth() - terminalLeftPadding) / scaledCharWidth
+	newRows := alloc.GetHeight() / scaledCharHeight
 
 	if newCols < 1 {
 		newCols = 1
