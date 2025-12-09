@@ -1,6 +1,7 @@
 package purfecterm
 
 import (
+	"fmt"
 	"strconv"
 	"strings"
 )
@@ -252,6 +253,7 @@ func (p *Parser) handleCSI(b byte) {
 		if b == '?' || b == '>' || b == '!' || b == '<' {
 			p.csiPrivate = b
 			p.state = stateCSIParam
+			fmt.Printf("[DEBUG] CSI private marker detected: '%c' (0x%02X)\n", b, b)
 			return
 		}
 		p.state = stateCSIParam
@@ -389,8 +391,11 @@ func (p *Parser) executeCSI(finalByte byte) {
 		p.executeSGR()
 
 	case 'h': // SM - Set Mode
+		fmt.Printf("[DEBUG] CSI 'h' received, csiPrivate='%c' (0x%02X), params=%v\n", p.csiPrivate, p.csiPrivate, p.csiParams)
 		if p.csiPrivate == '?' {
 			p.executePrivateModeSet(true)
+		} else {
+			fmt.Printf("[DEBUG] CSI 'h' skipped - csiPrivate is not '?'\n")
 		}
 
 	case 'l': // RM - Reset Mode
@@ -598,9 +603,11 @@ func (p *Parser) executeSGR() {
 }
 
 func (p *Parser) executePrivateModeSet(set bool) {
+	fmt.Printf("[DEBUG] executePrivateModeSet(set=%v), params=%v\n", set, p.csiParams)
 	for _, param := range p.csiParams {
 		switch param {
 		case 3: // DECCOLM - 132 Column Mode (horizontal scale 0.6060)
+			fmt.Printf("[DEBUG] Setting 132-column mode to %v\n", set)
 			p.buffer.Set132ColumnMode(set)
 		case 25: // DECTCEM - Cursor visibility
 			p.buffer.SetCursorVisible(set)
