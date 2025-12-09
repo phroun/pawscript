@@ -836,6 +836,45 @@ func createConsoleWindow(filePath string) {
 	termWidget.SetHExpand(true)
 	win.Add(termWidget)
 
+	// Create context menu for this console window
+	winContextMenu, _ := gtk.MenuNew()
+
+	winCopyItem, _ := gtk.MenuItemNewWithLabel("Copy")
+	winCopyItem.Connect("activate", func() {
+		winTerminal.CopySelection()
+	})
+	winContextMenu.Append(winCopyItem)
+
+	winPasteItem, _ := gtk.MenuItemNewWithLabel("Paste")
+	winPasteItem.Connect("activate", func() {
+		winTerminal.PasteClipboard()
+	})
+	winContextMenu.Append(winPasteItem)
+
+	winSelectAllItem, _ := gtk.MenuItemNewWithLabel("Select All")
+	winSelectAllItem.Connect("activate", func() {
+		winTerminal.SelectAll()
+	})
+	winContextMenu.Append(winSelectAllItem)
+
+	winClearItem, _ := gtk.MenuItemNewWithLabel("Clear")
+	winClearItem.Connect("activate", func() {
+		winTerminal.Clear()
+	})
+	winContextMenu.Append(winClearItem)
+
+	winContextMenu.ShowAll()
+
+	// Connect right-click for context menu
+	termWidget.Connect("button-press-event", func(widget *gtk.Box, ev *gdk.Event) bool {
+		btn := gdk.EventButtonNewFromEvent(ev)
+		if btn.Button() == 3 { // Right mouse button
+			winContextMenu.PopupAtPointer(ev)
+			return true
+		}
+		return false
+	})
+
 	// Create I/O channels for this window's console
 	stdoutReader, stdoutWriter := io.Pipe()
 	stdinReader, stdinWriter := io.Pipe()
