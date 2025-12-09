@@ -31,7 +31,8 @@ type Parser struct {
 	csiBuf          strings.Builder
 
 	// OSC accumulator
-	oscBuf strings.Builder
+	oscCmd int             // OSC command number (e.g., 7000 for palette, 7001 for glyph)
+	oscBuf strings.Builder // OSC command arguments
 
 	// UTF-8 multi-byte handling
 	utf8Buf  []byte
@@ -592,6 +593,25 @@ func (p *Parser) executeSGR() {
 
 		case 49: // Default background
 			p.buffer.SetBackground(DefaultBackground)
+
+		// Custom glyph system - flip attributes
+		case 150: // Reset XFlip
+			p.buffer.SetXFlip(false)
+		case 151: // XFlip on
+			p.buffer.SetXFlip(true)
+		case 152: // Reset YFlip
+			p.buffer.SetYFlip(false)
+		case 153: // YFlip on
+			p.buffer.SetYFlip(true)
+
+		// Base Glyph Palette (BGP)
+		case 168: // Extended BGP setting: ESC[168;5;Nm
+			if i+2 < len(p.csiParams) && p.csiParams[i+1] == 5 {
+				p.buffer.SetBGP(p.csiParams[i+2])
+				i += 2
+			}
+		case 169: // Reset BGP to default
+			p.buffer.ResetBGP()
 		}
 		i++
 	}
@@ -651,8 +671,11 @@ func (p *Parser) handleOSC(b byte) {
 		return
 	}
 	if b == ';' {
-		p.state = stateOSCString
+		// Parse and save OSC command number
+		cmdStr := p.oscBuf.String()
+		p.oscCmd, _ = strconv.Atoi(cmdStr)
 		p.oscBuf.Reset()
+		p.state = stateOSCString
 		return
 	}
 	// Invalid OSC, return to ground
@@ -661,14 +684,119 @@ func (p *Parser) handleOSC(b byte) {
 
 func (p *Parser) handleOSCString(b byte) {
 	if b == 0x07 { // BEL terminates OSC
-		// OSC command complete - could handle window title here
+		p.executeOSC()
 		p.state = stateGround
 		return
 	}
 	if b == 0x1B { // ESC might start ST (ESC \)
-		// For simplicity, treat ESC as terminator
+		p.executeOSC()
 		p.state = stateGround
 		return
 	}
 	p.oscBuf.WriteByte(b)
+}
+
+// executeOSC processes a complete OSC command
+func (p *Parser) executeOSC() {
+	args := p.oscBuf.String()
+
+	switch p.oscCmd {
+	case 7000: // Palette management
+		p.executeOSCPalette(args)
+	case 7001: // Glyph management
+		p.executeOSCGlyph(args)
+	// Other OSC commands (title, etc.) could be added here
+	}
+}
+
+// executeOSCPalette handles OSC 7000 palette commands
+// Format: ESC ] 7000 ; cmd BEL
+// Commands:
+//   da           - delete all palettes
+//   d;N          - delete palette N
+//   i;N;LEN      - init palette N with LEN entries
+//   s;N;IDX;COL  - set palette N index IDX to color COL
+//   s;N;IDX;2;COL - set palette N index IDX to dim color COL
+func (p *Parser) executeOSCPalette(args string) {
+	parts := strings.Split(args, ";")
+	if len(parts) == 0 {
+		return
+	}
+
+	cmd := parts[0]
+	switch cmd {
+	case "da": // Delete all palettes
+		p.buffer.DeleteAllPalettes()
+
+	case "d": // Delete single palette
+		if len(parts) >= 2 {
+			n, _ := strconv.Atoi(parts[1])
+			p.buffer.DeletePalette(n)
+		}
+
+	case "i": // Init palette
+		if len(parts) >= 3 {
+			n, _ := strconv.Atoi(parts[1])
+			length, _ := strconv.Atoi(parts[2])
+			p.buffer.InitPalette(n, length)
+		}
+
+	case "s": // Set palette entry
+		// Format: s;N;IDX;COL or s;N;IDX;2;COL (dim)
+		if len(parts) >= 4 {
+			n, _ := strconv.Atoi(parts[1])
+			idx, _ := strconv.Atoi(parts[2])
+			dim := false
+			colorIdx := 3
+			// Check for dim modifier
+			if parts[3] == "2" && len(parts) >= 5 {
+				dim = true
+				colorIdx = 4
+			}
+			if colorIdx < len(parts) {
+				colorCode, _ := strconv.Atoi(parts[colorIdx])
+				p.buffer.SetPaletteEntry(n, idx, colorCode, dim)
+			}
+		}
+	}
+}
+
+// executeOSCGlyph handles OSC 7001 glyph commands
+// Format: ESC ] 7001 ; cmd BEL
+// Commands:
+//   da                    - delete all glyphs
+//   d;RUNE                - delete glyph for rune
+//   s;RUNE;W;P1;P2;...    - set glyph for rune (W=width, P=pixels)
+func (p *Parser) executeOSCGlyph(args string) {
+	parts := strings.Split(args, ";")
+	if len(parts) == 0 {
+		return
+	}
+
+	cmd := parts[0]
+	switch cmd {
+	case "da": // Delete all glyphs
+		p.buffer.DeleteAllGlyphs()
+
+	case "d": // Delete single glyph
+		if len(parts) >= 2 {
+			runeCode, _ := strconv.Atoi(parts[1])
+			p.buffer.DeleteGlyph(rune(runeCode))
+		}
+
+	case "s": // Set glyph
+		// Format: s;RUNE;WIDTH;P1;P2;P3;...
+		if len(parts) >= 4 {
+			runeCode, _ := strconv.Atoi(parts[1])
+			width, _ := strconv.Atoi(parts[2])
+			pixels := make([]int, 0, len(parts)-3)
+			for i := 3; i < len(parts); i++ {
+				px, _ := strconv.Atoi(parts[i])
+				pixels = append(pixels, px)
+			}
+			if width > 0 && len(pixels) > 0 {
+				p.buffer.SetGlyph(rune(runeCode), width, pixels)
+			}
+		}
+	}
 }

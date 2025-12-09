@@ -13,6 +13,9 @@ type Cell struct {
 	Blink      bool    // When true, character animates (bobbing wave instead of traditional blink)
 	FlexWidth  bool    // When true, cell uses East Asian Width for variable width rendering
 	CellWidth  float64 // Visual width in cell units (0.5, 1.0, 1.5, 2.0) - only used when FlexWidth is true
+	BGP        int     // Base Glyph Palette index (-1 = use foreground color code as palette)
+	XFlip      bool    // Horizontal flip for custom glyphs
+	YFlip      bool    // Vertical flip for custom glyphs
 }
 
 // String returns the full character including any combining marks
@@ -427,6 +430,73 @@ func EmptyCellWithAttrs(fg, bg Color, bold, italic, underline, reverse, blink bo
 		Reverse:    reverse,
 		Blink:      blink,
 	}
+}
+
+// PaletteEntryType defines the type of a palette entry
+type PaletteEntryType int
+
+const (
+	PaletteEntryColor      PaletteEntryType = iota // Normal color entry
+	PaletteEntryTransparent                        // Use cell's background color (SGR code 8)
+	PaletteEntryDefaultFG                          // Use cell's foreground color (SGR code 9)
+)
+
+// PaletteEntry represents a single entry in a custom palette
+type PaletteEntry struct {
+	Type  PaletteEntryType // Type of entry
+	Color Color            // Color value (only used when Type == PaletteEntryColor)
+	Dim   bool             // Whether this is a dim variant
+}
+
+// Palette represents a custom color palette for glyph rendering
+type Palette struct {
+	Entries []PaletteEntry
+}
+
+// CustomGlyph represents a custom pixel-art glyph that replaces a Unicode character
+type CustomGlyph struct {
+	Width  int   // Width in pixels
+	Height int   // Height in pixels (derived from len(Pixels)/Width)
+	Pixels []int // Palette indices, row by row, left to right, top to bottom
+}
+
+// NewPalette creates a new palette with the specified number of entries
+func NewPalette(size int) *Palette {
+	return &Palette{
+		Entries: make([]PaletteEntry, size),
+	}
+}
+
+// NewCustomGlyph creates a new custom glyph from pixel data
+// Width is the pixel width, pixels are palette indices
+// Height is automatically calculated from len(pixels)/width
+func NewCustomGlyph(width int, pixels []int) *CustomGlyph {
+	height := 0
+	if width > 0 && len(pixels) > 0 {
+		height = len(pixels) / width
+		// Handle any remainder
+		if len(pixels)%width != 0 {
+			height++
+		}
+	}
+	return &CustomGlyph{
+		Width:  width,
+		Height: height,
+		Pixels: pixels,
+	}
+}
+
+// GetPixel returns the palette index at the given x,y position
+// Returns 0 if out of bounds
+func (g *CustomGlyph) GetPixel(x, y int) int {
+	if x < 0 || x >= g.Width || y < 0 || y >= g.Height {
+		return 0
+	}
+	idx := y*g.Width + x
+	if idx >= len(g.Pixels) {
+		return 0
+	}
+	return g.Pixels[idx]
 }
 
 // LineAttribute defines the display mode for a line (VT100 DECDHL/DECDWL)

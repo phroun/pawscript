@@ -572,6 +572,57 @@ func (w *Widget) updateFontMetrics() {
 	}
 }
 
+// renderCustomGlyph renders a custom glyph for a cell at the specified position
+// Returns true if a custom glyph was rendered, false if normal text rendering should be used
+func (w *Widget) renderCustomGlyph(painter *qt.QPainter, cell *purfecterm.Cell, cellX, cellY, cellW, cellH int) bool {
+	glyph := w.buffer.GetGlyph(cell.Char)
+	if glyph == nil {
+		return false
+	}
+
+	// Calculate pixel dimensions
+	glyphW := glyph.Width
+	glyphH := glyph.Height
+	if glyphW == 0 || glyphH == 0 {
+		return false
+	}
+
+	// Calculate pixel size (scale glyph to fill cell)
+	pixelW := float64(cellW) / float64(glyphW)
+	pixelH := float64(cellH) / float64(glyphH)
+
+	// Render each pixel
+	for gy := 0; gy < glyphH; gy++ {
+		for gx := 0; gx < glyphW; gx++ {
+			// Get palette index for this pixel
+			paletteIdx := glyph.GetPixel(gx, gy)
+
+			// Apply XFlip/YFlip
+			drawX := gx
+			drawY := gy
+			if cell.XFlip {
+				drawX = glyphW - 1 - gx
+			}
+			if cell.YFlip {
+				drawY = glyphH - 1 - gy
+			}
+
+			// Calculate screen position
+			px := float64(cellX) + float64(drawX)*pixelW
+			py := float64(cellY) + float64(drawY)*pixelH
+
+			// Resolve color from palette
+			color, _ := w.buffer.ResolveGlyphColor(cell, paletteIdx)
+
+			// Draw pixel
+			qColor := qt.NewQColor3(int(color.R), int(color.G), int(color.B))
+			painter.FillRect6(px, py, pixelW, pixelH, qColor)
+		}
+	}
+
+	return true
+}
+
 func (w *Widget) paintEvent(event *qt.QPaintEvent) {
 	w.mu.Lock()
 	scheme := w.scheme
@@ -717,6 +768,12 @@ func (w *Widget) paintEvent(event *qt.QPaintEvent) {
 
 			// Draw character
 			if cell.Char != ' ' && cell.Char != 0 && blinkVisible {
+				// Check for custom glyph first
+				if w.renderCustomGlyph(painter, &cell, cellX, cellY, cellW, cellH) {
+					// Custom glyph was rendered, skip normal text rendering
+					goto afterCharRenderQt
+				}
+
 				fgQColor := qt.NewQColor3(int(fg.R), int(fg.G), int(fg.B))
 				painter.SetPen(fgQColor)
 
@@ -835,6 +892,7 @@ func (w *Widget) paintEvent(event *qt.QPaintEvent) {
 					painter.SetFont(font)
 				}
 			}
+		afterCharRenderQt:
 
 			// Draw underline
 			if cell.Underline {

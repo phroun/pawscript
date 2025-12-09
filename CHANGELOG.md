@@ -9,6 +9,13 @@
   - Ambiguous width modes (private modes 2029/2030): control rendering of
     ambiguous characters as narrow (1.0), wide (2.0), or auto-match previous
   - Mouse selection and rendering properly handle variable cell widths
+  - Custom glyph system for tile-based pixel-art graphics:
+    - OSC 7000: Palette management (create, delete, set entries)
+    - OSC 7001: Glyph definition (replace Unicode chars with pixel-art)
+    - SGR 150-153: XFlip/YFlip for sprite mirroring
+    - SGR 168;5;N / 169: Base Glyph Palette (BGP) selection
+    - Palette-indexed colors with transparent, dim, and bright variants
+    - Fallback rendering when palette not defined (0=bg, 1=fg, 2=dim, 3+=bright)
   - Private ANSI codes documented in docs/private-ansi-codes.md
   - Fixed ClearToStartOfLine and ClearToStartOfScreen not to pad lines with
     blank cells unnecessarily (fixes horizontal scrollbar showing extra width)
