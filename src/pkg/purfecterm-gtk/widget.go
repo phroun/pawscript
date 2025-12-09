@@ -1010,14 +1010,35 @@ func (w *Widget) updateFontMetrics() {
 
 // renderScreenSplits renders screen split regions using a scanline approach.
 // Iterates through each sprite-unit Y position and renders rows as boundaries are encountered.
+// Split ScreenY values are LOGICAL scanline numbers relative to the scroll boundary (yellow dotted line).
+// The first logical scanline (0) begins after the scrollback area.
 func (w *Widget) renderScreenSplits(cr *cairo.Context, splits []*purfecterm.ScreenSplit,
 	cols, rows, charWidth, charHeight, unitX, unitY int,
 	fontFamily string, fontSize int, scheme purfecterm.ColorScheme, blinkPhase float64,
 	cursorVisible bool, cursorVisibleX, cursorVisibleY int, cursorShape int,
-	horizScale, vertScale float64) {
+	horizScale, vertScale float64, scrollOffset int) {
 
-	// Screen height in sprite units
-	screenHeightUnits := rows * unitY
+	// Calculate where the logical screen starts (in visible rows)
+	// This is where the yellow dotted line appears
+	boundaryRow := w.buffer.GetScrollbackBoundaryVisibleRow()
+
+	// If scrolled fully into scrollback (logical screen not visible), don't render splits
+	if scrollOffset > 0 && boundaryRow < 0 {
+		return
+	}
+
+	// Logical screen starts at boundaryRow if visible, else at row 0
+	logicalScreenStartRow := 0
+	if boundaryRow > 0 {
+		logicalScreenStartRow = boundaryRow
+	}
+
+	// Calculate the pixel offset where logical screen starts
+	logicalScreenStartPixelY := float64(logicalScreenStartRow * charHeight)
+
+	// Screen height in sprite units (only the logical screen portion)
+	logicalScreenRows := rows - logicalScreenStartRow
+	screenHeightUnits := logicalScreenRows * unitY
 
 	// Track which splits have had their backgrounds cleared
 	splitBackgroundCleared := make(map[int]bool)
@@ -1056,9 +1077,9 @@ func (w *Widget) renderScreenSplits(cr *cairo.Context, splits []*purfecterm.Scre
 		if !splitBackgroundCleared[splitIdx] {
 			splitBackgroundCleared[splitIdx] = true
 
-			// Calculate pixel coordinates for this split region
-			startPixelY := float64(split.ScreenY) * float64(charHeight) / float64(unitY)
-			endPixelY := float64(splitEndY) * float64(charHeight) / float64(unitY)
+			// Calculate pixel coordinates for this split region (offset by logical screen start)
+			startPixelY := logicalScreenStartPixelY + float64(split.ScreenY)*float64(charHeight)/float64(unitY)
+			endPixelY := logicalScreenStartPixelY + float64(splitEndY)*float64(charHeight)/float64(unitY)
 
 			// Save, clip, and fill background
 			cr.Save()
@@ -1088,12 +1109,12 @@ func (w *Widget) renderScreenSplits(cr *cairo.Context, splits []*purfecterm.Scre
 		fineOffsetY := float64(split.TopFineScroll) * float64(charHeight) / float64(unitY)
 		fineOffsetX := float64(split.LeftFineScroll) * float64(charWidth) / float64(unitX)
 
-		// Calculate pixel Y position for this row
-		rowPixelY := float64(y)*float64(charHeight)/float64(unitY) - fineOffsetY
+		// Calculate pixel Y position for this row (offset by logical screen start)
+		rowPixelY := logicalScreenStartPixelY + float64(y)*float64(charHeight)/float64(unitY) - fineOffsetY
 
-		// Set up clipping for this split region
-		startPixelY := float64(split.ScreenY) * float64(charHeight) / float64(unitY)
-		endPixelY := float64(splitEndY) * float64(charHeight) / float64(unitY)
+		// Set up clipping for this split region (offset by logical screen start)
+		startPixelY := logicalScreenStartPixelY + float64(split.ScreenY)*float64(charHeight)/float64(unitY)
+		endPixelY := logicalScreenStartPixelY + float64(splitEndY)*float64(charHeight)/float64(unitY)
 
 		cr.Save()
 		cr.Rectangle(0, startPixelY, float64(cols*charWidth+terminalLeftPadding), endPixelY-startPixelY)
@@ -1555,11 +1576,12 @@ func (w *Widget) onDraw(da *gtk.DrawingArea, cr *cairo.Context) bool {
 
 	// Render screen splits if any are defined
 	// Splits overlay specific screen regions with different buffer positions
+	// Splits use logical scanline numbers relative to the scroll boundary
 	splits := w.buffer.GetScreenSplitsSorted()
 	if len(splits) > 0 {
 		w.renderScreenSplits(cr, splits, cols, rows, charWidth, charHeight, unitX, unitY,
 			fontFamily, fontSize, scheme, blinkPhase, cursorVisible, cursorVisibleX, cursorVisibleY,
-			cursorShape, horizScale, vertScale)
+			cursorShape, horizScale, vertScale, scrollOffset)
 	}
 
 	// Draw yellow dashed line between scrollback and logical screen

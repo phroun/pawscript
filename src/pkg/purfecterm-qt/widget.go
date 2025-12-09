@@ -865,14 +865,35 @@ func (w *Widget) renderSpriteGlyph(painter *qt.QPainter, glyph *purfecterm.Custo
 
 // renderScreenSplits renders screen split regions using a scanline approach.
 // Iterates through each sprite-unit Y position and renders rows as boundaries are encountered.
+// Split ScreenY values are LOGICAL scanline numbers relative to the scroll boundary (yellow dotted line).
+// The first logical scanline (0) begins after the scrollback area.
 func (w *Widget) renderScreenSplits(painter *qt.QPainter, splits []*purfecterm.ScreenSplit,
 	cols, rows, charWidth, charHeight, unitX, unitY int,
 	fontFamily string, fontSize int, scheme purfecterm.ColorScheme, blinkPhase float64,
 	cursorVisible bool, cursorVisibleX, cursorVisibleY int, cursorShape int,
-	horizScale, vertScale float64) {
+	horizScale, vertScale float64, scrollOffset int) {
 
-	// Screen height in sprite units
-	screenHeightUnits := rows * unitY
+	// Calculate where the logical screen starts (in visible rows)
+	// This is where the yellow dotted line appears
+	boundaryRow := w.buffer.GetScrollbackBoundaryVisibleRow()
+
+	// If scrolled fully into scrollback (logical screen not visible), don't render splits
+	if scrollOffset > 0 && boundaryRow < 0 {
+		return
+	}
+
+	// Logical screen starts at boundaryRow if visible, else at row 0
+	logicalScreenStartRow := 0
+	if boundaryRow > 0 {
+		logicalScreenStartRow = boundaryRow
+	}
+
+	// Calculate the pixel offset where logical screen starts
+	logicalScreenStartPixelY := logicalScreenStartRow * charHeight
+
+	// Screen height in sprite units (only the logical screen portion)
+	logicalScreenRows := rows - logicalScreenStartRow
+	screenHeightUnits := logicalScreenRows * unitY
 
 	// Track which splits have had their backgrounds cleared
 	splitBackgroundCleared := make(map[int]bool)
@@ -910,8 +931,9 @@ func (w *Widget) renderScreenSplits(painter *qt.QPainter, splits []*purfecterm.S
 		if !splitBackgroundCleared[splitIdx] {
 			splitBackgroundCleared[splitIdx] = true
 
-			startPixelY := split.ScreenY * charHeight / unitY
-			endPixelY := splitEndY * charHeight / unitY
+			// Calculate pixel coordinates (offset by logical screen start)
+			startPixelY := logicalScreenStartPixelY + split.ScreenY*charHeight/unitY
+			endPixelY := logicalScreenStartPixelY + splitEndY*charHeight/unitY
 
 			painter.Save()
 			painter.SetClipRect2(0, startPixelY, cols*charWidth+terminalLeftPadding, endPixelY-startPixelY)
@@ -933,12 +955,12 @@ func (w *Widget) renderScreenSplits(painter *qt.QPainter, splits []*purfecterm.S
 		fineOffsetY := split.TopFineScroll * charHeight / unitY
 		fineOffsetX := split.LeftFineScroll * charWidth / unitX
 
-		// Calculate pixel Y position for this row
-		rowPixelY := y*charHeight/unitY - fineOffsetY
+		// Calculate pixel Y position for this row (offset by logical screen start)
+		rowPixelY := logicalScreenStartPixelY + y*charHeight/unitY - fineOffsetY
 
-		// Set up clipping for this split region
-		startPixelY := split.ScreenY * charHeight / unitY
-		endPixelY := splitEndY * charHeight / unitY
+		// Set up clipping for this split region (offset by logical screen start)
+		startPixelY := logicalScreenStartPixelY + split.ScreenY*charHeight/unitY
+		endPixelY := logicalScreenStartPixelY + splitEndY*charHeight/unitY
 
 		painter.Save()
 		painter.SetClipRect2(0, startPixelY, cols*charWidth+terminalLeftPadding, endPixelY-startPixelY)
@@ -1350,11 +1372,12 @@ func (w *Widget) paintEvent(event *qt.QPaintEvent) {
 	w.renderSprites(painter, frontSprites, charWidth, charHeight, scheme, scrollOffset, horizOffset)
 
 	// Render screen splits if any are defined
+	// Splits use logical scanline numbers relative to the scroll boundary
 	splits := w.buffer.GetScreenSplitsSorted()
 	if len(splits) > 0 {
 		w.renderScreenSplits(painter, splits, cols, rows, charWidth, charHeight, unitX, unitY,
 			fontFamily, fontSize, scheme, blinkPhase, cursorVisible, cursorVisibleX, cursorVisibleY,
-			cursorShape, horizScale, vertScale)
+			cursorShape, horizScale, vertScale, scrollOffset)
 	}
 
 	// Draw yellow dashed line between scrollback and logical screen

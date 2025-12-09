@@ -95,9 +95,12 @@ type Buffer struct {
 	screenSplits map[int]*ScreenSplit // Split ID -> ScreenSplit
 }
 
-// ScreenSplit defines a split region that can show a different part of the buffer
+// ScreenSplit defines a split region that can show a different part of the buffer.
+// ScreenY is a LOGICAL scanline number relative to the scroll boundary (yellow dotted line).
+// The first logical scanline (0) begins after the scrollback area - no splits can occur
+// in the scrollback area above the yellow dotted line.
 type ScreenSplit struct {
-	ScreenY         int     // Y coordinate in sprite units where this split begins on screen
+	ScreenY         int     // Y in sprite units relative to logical screen start (NOT absolute screen)
 	BufferRow       int     // 0-indexed row in logical screen to start drawing from
 	BufferCol       int     // 0-indexed column in logical screen to start drawing from
 	TopFineScroll   int     // 0 to (subdivisions-1), higher = more of top row clipped
