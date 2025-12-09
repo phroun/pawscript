@@ -611,12 +611,36 @@ func (w *Widget) renderCustomGlyph(painter *qt.QPainter, cell *purfecterm.Cell, 
 			px := float64(cellX) + float64(drawX)*pixelW
 			py := float64(cellY) + float64(drawY)*pixelH
 
+			// Check for adjacent non-transparent pixels to hide seams
+			// Right neighbor in draw space maps to different source depending on flip
+			var rightNeighborIdx, belowNeighborIdx int
+			if cell.XFlip {
+				rightNeighborIdx = glyph.GetPixel(gx-1, gy)
+			} else {
+				rightNeighborIdx = glyph.GetPixel(gx+1, gy)
+			}
+			if cell.YFlip {
+				belowNeighborIdx = glyph.GetPixel(gx, gy-1)
+			} else {
+				belowNeighborIdx = glyph.GetPixel(gx, gy+1)
+			}
+
+			// Extend pixel to cover seams with adjacent non-transparent pixels
+			drawW := pixelW
+			drawH := pixelH
+			if rightNeighborIdx != 0 {
+				drawW += 1
+			}
+			if belowNeighborIdx != 0 {
+				drawH += 1
+			}
+
 			// Resolve color from palette
 			color, _ := w.buffer.ResolveGlyphColor(cell, paletteIdx)
 
 			// Draw pixel
 			qColor := qt.NewQColor3(int(color.R), int(color.G), int(color.B))
-			painter.FillRect5(int(px), int(py), int(pixelW+0.5), int(pixelH+0.5), qColor)
+			painter.FillRect5(int(px), int(py), int(drawW+0.5), int(drawH+0.5), qColor)
 		}
 	}
 
@@ -758,10 +782,24 @@ func (w *Widget) renderSpriteGlyph(painter *qt.QPainter, glyph *purfecterm.Custo
 			px := tileX + float64(gx)*pixelW
 			py := tileY + float64(gy)*pixelH
 
+			// Check for adjacent non-transparent pixels to hide seams
+			rightNeighborIdx := glyph.GetPixel(gx+1, gy)
+			belowNeighborIdx := glyph.GetPixel(gx, gy+1)
+
+			// Extend pixel to cover seams with adjacent non-transparent pixels
+			drawW := pixelW
+			drawH := pixelH
+			if rightNeighborIdx != 0 {
+				drawW += 1
+			}
+			if belowNeighborIdx != 0 {
+				drawH += 1
+			}
+
 			// Apply crop if specified
 			if hasCrop {
-				if px+pixelW <= cropMinX || px >= cropMaxX ||
-					py+pixelH <= cropMinY || py >= cropMaxY {
+				if px+drawW <= cropMinX || px >= cropMaxX ||
+					py+drawH <= cropMinY || py >= cropMaxY {
 					continue
 				}
 			}
@@ -774,7 +812,7 @@ func (w *Widget) renderSpriteGlyph(painter *qt.QPainter, glyph *purfecterm.Custo
 
 			// Draw pixel
 			qColor := qt.NewQColor3(int(color.R), int(color.G), int(color.B))
-			painter.FillRect5(int(px), int(py), int(pixelW+0.5), int(pixelH+0.5), qColor)
+			painter.FillRect5(int(px), int(py), int(drawW+0.5), int(drawH+0.5), qColor)
 		}
 	}
 }
