@@ -6,8 +6,8 @@ ESC: {rune 27}
 CSI: {concat ~ESC, "["}
 
 # Screen scaling sequences
-MODE_132_ON:   {concat ~CSI, "?3h"}    # DECCOLM - 132 column mode (horiz scale 0.6060)
-MODE_132_OFF:  {concat ~CSI, "?3l"}    # Back to 80 column mode
+MODE_132_ON:   {concat ~CSI, "\?3h"}    # DECCOLM - 132 column mode (horiz scale 0.6060)
+MODE_132_OFF:  {concat ~CSI, "\?3l"}    # Back to 80 column mode
 MODE_40_ON:    {concat ~CSI, "9;40;1t"} # Custom: 40 column mode (horiz scale 2.0)
 MODE_40_OFF:   {concat ~CSI, "9;40;0t"} # Disable 40 column mode
 DENSITY_25:    {concat ~CSI, "9;25t"}   # Line density 25 (default, scale 1.0)

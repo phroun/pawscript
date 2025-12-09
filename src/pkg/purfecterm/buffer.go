@@ -56,8 +56,9 @@ type Buffer struct {
 	savedCursorX int
 	savedCursorY int
 
-	dirty   bool
-	onDirty func()
+	dirty         bool
+	onDirty       func()
+	onScaleChange func() // Called when screen scaling modes change
 
 	// Screen scaling modes
 	columnMode132 bool // 132-column mode: horizontal scale 0.6060 (ESC [ 3 h/l)
@@ -107,10 +108,24 @@ func (b *Buffer) SetDirtyCallback(fn func()) {
 	b.onDirty = fn
 }
 
+// SetScaleChangeCallback sets a callback to be invoked when screen scaling modes change
+// This allows the widget to recalculate terminal dimensions when scale changes
+func (b *Buffer) SetScaleChangeCallback(fn func()) {
+	b.mu.Lock()
+	defer b.mu.Unlock()
+	b.onScaleChange = fn
+}
+
 func (b *Buffer) markDirty() {
 	b.dirty = true
 	if b.onDirty != nil {
 		b.onDirty()
+	}
+}
+
+func (b *Buffer) notifyScaleChange() {
+	if b.onScaleChange != nil {
+		b.onScaleChange()
 	}
 }
 
@@ -1527,9 +1542,10 @@ func (b *Buffer) getVisibleLineInfoInternal(y int) LineInfo {
 // This corresponds to DECCOLM (ESC [ ? 3 h / ESC [ ? 3 l)
 func (b *Buffer) Set132ColumnMode(enabled bool) {
 	b.mu.Lock()
-	defer b.mu.Unlock()
 	b.columnMode132 = enabled
 	b.markDirty()
+	b.mu.Unlock()
+	b.notifyScaleChange()
 }
 
 // Get132ColumnMode returns whether 132-column mode is enabled
@@ -1543,9 +1559,10 @@ func (b *Buffer) Get132ColumnMode() bool {
 // This is a custom extension
 func (b *Buffer) Set40ColumnMode(enabled bool) {
 	b.mu.Lock()
-	defer b.mu.Unlock()
 	b.columnMode40 = enabled
 	b.markDirty()
+	b.mu.Unlock()
+	b.notifyScaleChange()
 }
 
 // Get40ColumnMode returns whether 40-column mode is enabled
@@ -1560,7 +1577,6 @@ func (b *Buffer) Get40ColumnMode() bool {
 // Higher density = more lines in same space = smaller vertical scale
 func (b *Buffer) SetLineDensity(density int) {
 	b.mu.Lock()
-	defer b.mu.Unlock()
 	// Validate density
 	switch density {
 	case 25, 30, 43, 50, 60:
@@ -1569,6 +1585,8 @@ func (b *Buffer) SetLineDensity(density int) {
 		b.lineDensity = 25 // Default to 25 if invalid
 	}
 	b.markDirty()
+	b.mu.Unlock()
+	b.notifyScaleChange()
 }
 
 // GetLineDensity returns the current line density
