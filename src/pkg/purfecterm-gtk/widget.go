@@ -1016,7 +1016,7 @@ func (w *Widget) renderScreenSplits(cr *cairo.Context, splits []*purfecterm.Scre
 	cols, rows, charWidth, charHeight, unitX, unitY int,
 	fontFamily string, fontSize int, scheme purfecterm.ColorScheme, blinkPhase float64,
 	cursorVisible bool, cursorVisibleX, cursorVisibleY int, cursorShape int,
-	horizScale, vertScale float64, scrollOffset int) {
+	horizScale, vertScale float64, scrollOffset, horizOffset int) {
 
 	// Calculate where the logical screen starts (in visible rows)
 	// This is where the yellow dotted line appears
@@ -1140,11 +1140,12 @@ func (w *Widget) renderScreenSplits(cr *cairo.Context, splits []*purfecterm.Scre
 		rowPixelY := logicalScreenStartPixelY + float64(y)*float64(charHeight)/float64(unitY) - fineOffsetY
 
 		// Set up clipping for this split region (offset by logical screen start)
+		// Clip horizontally at terminalLeftPadding to properly handle LeftFineScroll
 		startPixelY := logicalScreenStartPixelY + float64(currentSplit.ScreenY)*float64(charHeight)/float64(unitY)
 		endPixelY := logicalScreenStartPixelY + float64(splitEndY)*float64(charHeight)/float64(unitY)
 
 		cr.Save()
-		cr.Rectangle(0, startPixelY, float64(cols*charWidth+terminalLeftPadding), endPixelY-startPixelY)
+		cr.Rectangle(float64(terminalLeftPadding), startPixelY, float64(cols*charWidth), endPixelY-startPixelY)
 		cr.Clip()
 
 		// Get line attribute for this buffer row
@@ -1156,8 +1157,33 @@ func (w *Widget) renderScreenSplits(cr *cairo.Context, splits []*purfecterm.Scre
 		}
 
 		// Render each cell in this row
+		// All cells are shifted left by fineOffsetX; the clip rect at terminalLeftPadding
+		// will clip the left portion of the first cell when LeftFineScroll > 0
+		// horizOffset accounts for the global horizontal scroll position
 		for screenCol := 0; screenCol < effectiveCols; screenCol++ {
-			cell := w.buffer.GetCellForSplit(screenCol, rowInSplit, currentSplit.BufferRow, currentSplit.BufferCol)
+			cell := w.buffer.GetCellForSplit(screenCol+horizOffset, rowInSplit, currentSplit.BufferRow, currentSplit.BufferCol)
+
+			// Calculate cell position (shifted left by fine scroll)
+			var cellX, cellW float64
+			cellH := float64(charHeight)
+
+			if lineAttr != purfecterm.LineAttrNormal {
+				cellX = float64(screenCol*charWidth*2) + float64(terminalLeftPadding) - fineOffsetX
+				cellW = float64(charWidth * 2)
+			} else {
+				cellX = float64(screenCol*charWidth) + float64(terminalLeftPadding) - fineOffsetX
+				cellW = float64(charWidth)
+			}
+
+			// Skip cells that are entirely off the right edge
+			if cellX >= float64(terminalLeftPadding+cols*charWidth) {
+				break
+			}
+
+			// Skip cells that are entirely off the left edge (before the clip region)
+			if cellX+cellW <= float64(terminalLeftPadding) {
+				continue
+			}
 
 			fg := cell.Foreground
 			bg := cell.Background
@@ -1166,16 +1192,6 @@ func (w *Widget) renderScreenSplits(cr *cairo.Context, splits []*purfecterm.Scre
 			}
 			if bg.Default {
 				bg = scheme.Background
-			}
-
-			// Calculate cell position
-			cellX := float64(screenCol*charWidth) + float64(terminalLeftPadding) - fineOffsetX
-			cellW := float64(charWidth)
-			cellH := float64(charHeight)
-
-			if lineAttr != purfecterm.LineAttrNormal {
-				cellX = float64(screenCol*charWidth*2) + float64(terminalLeftPadding) - fineOffsetX
-				cellW = float64(charWidth * 2)
 			}
 
 			// Draw cell background if different from terminal background
@@ -1608,7 +1624,7 @@ func (w *Widget) onDraw(da *gtk.DrawingArea, cr *cairo.Context) bool {
 	if len(splits) > 0 {
 		w.renderScreenSplits(cr, splits, cols, rows, charWidth, charHeight, unitX, unitY,
 			fontFamily, fontSize, scheme, blinkPhase, cursorVisible, cursorVisibleX, cursorVisibleY,
-			cursorShape, horizScale, vertScale, scrollOffset)
+			cursorShape, horizScale, vertScale, scrollOffset, horizOffset)
 	}
 
 	// Draw yellow dashed line between scrollback and logical screen

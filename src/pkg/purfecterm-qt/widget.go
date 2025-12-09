@@ -871,7 +871,7 @@ func (w *Widget) renderScreenSplits(painter *qt.QPainter, splits []*purfecterm.S
 	cols, rows, charWidth, charHeight, unitX, unitY int,
 	fontFamily string, fontSize int, scheme purfecterm.ColorScheme, blinkPhase float64,
 	cursorVisible bool, cursorVisibleX, cursorVisibleY int, cursorShape int,
-	horizScale, vertScale float64, scrollOffset int) {
+	horizScale, vertScale float64, scrollOffset, horizOffset int) {
 
 	// Calculate where the logical screen starts (in visible rows)
 	// This is where the yellow dotted line appears
@@ -988,11 +988,12 @@ func (w *Widget) renderScreenSplits(painter *qt.QPainter, splits []*purfecterm.S
 		rowPixelY := logicalScreenStartPixelY + y*charHeight/unitY - fineOffsetY
 
 		// Set up clipping for this split region (offset by logical screen start)
+		// Clip horizontally at terminalLeftPadding to properly handle LeftFineScroll
 		startPixelY := logicalScreenStartPixelY + currentSplit.ScreenY*charHeight/unitY
 		endPixelY := logicalScreenStartPixelY + splitEndY*charHeight/unitY
 
 		painter.Save()
-		painter.SetClipRect2(0, startPixelY, cols*charWidth+terminalLeftPadding, endPixelY-startPixelY)
+		painter.SetClipRect2(terminalLeftPadding, startPixelY, cols*charWidth, endPixelY-startPixelY)
 
 		// Get line attribute for this buffer row
 		lineAttr := w.buffer.GetLineAttributeForSplit(rowInSplit, currentSplit.BufferRow)
@@ -1003,8 +1004,33 @@ func (w *Widget) renderScreenSplits(painter *qt.QPainter, splits []*purfecterm.S
 		}
 
 		// Render each cell in this row
+		// All cells are shifted left by fineOffsetX; the clip rect at terminalLeftPadding
+		// will clip the left portion of the first cell when LeftFineScroll > 0
+		// horizOffset accounts for the global horizontal scroll position
 		for screenCol := 0; screenCol < effectiveCols; screenCol++ {
-			cell := w.buffer.GetCellForSplit(screenCol, rowInSplit, currentSplit.BufferRow, currentSplit.BufferCol)
+			cell := w.buffer.GetCellForSplit(screenCol+horizOffset, rowInSplit, currentSplit.BufferRow, currentSplit.BufferCol)
+
+			// Calculate cell position (shifted left by fine scroll)
+			var cellX, cellW int
+			cellH := charHeight
+
+			if lineAttr != purfecterm.LineAttrNormal {
+				cellX = screenCol*charWidth*2 + terminalLeftPadding - fineOffsetX
+				cellW = charWidth * 2
+			} else {
+				cellX = screenCol*charWidth + terminalLeftPadding - fineOffsetX
+				cellW = charWidth
+			}
+
+			// Skip cells that are entirely off the right edge
+			if cellX >= terminalLeftPadding+cols*charWidth {
+				break
+			}
+
+			// Skip cells that are entirely off the left edge (before the clip region)
+			if cellX+cellW <= terminalLeftPadding {
+				continue
+			}
 
 			fg := cell.Foreground
 			bg := cell.Background
@@ -1013,15 +1039,6 @@ func (w *Widget) renderScreenSplits(painter *qt.QPainter, splits []*purfecterm.S
 			}
 			if bg.Default {
 				bg = scheme.Background
-			}
-
-			cellX := screenCol*charWidth + terminalLeftPadding - fineOffsetX
-			cellW := charWidth
-			cellH := charHeight
-
-			if lineAttr != purfecterm.LineAttrNormal {
-				cellX = screenCol*charWidth*2 + terminalLeftPadding - fineOffsetX
-				cellW = charWidth * 2
 			}
 
 			// Draw cell background if different from terminal background
@@ -1406,7 +1423,7 @@ func (w *Widget) paintEvent(event *qt.QPaintEvent) {
 	if len(splits) > 0 {
 		w.renderScreenSplits(painter, splits, cols, rows, charWidth, charHeight, unitX, unitY,
 			fontFamily, fontSize, scheme, blinkPhase, cursorVisible, cursorVisibleX, cursorVisibleY,
-			cursorShape, horizScale, vertScale, scrollOffset)
+			cursorShape, horizScale, vertScale, scrollOffset, horizOffset)
 	}
 
 	// Draw yellow dashed line between scrollback and logical screen
