@@ -903,6 +903,7 @@ func (b *Buffer) ClearToEndOfLine() {
 
 // ClearToStartOfLine clears from start of line to cursor
 // Note: Does NOT update LineInfo (LineInfo is for right side of line)
+// Note: Does NOT extend the line - only clears existing cells
 func (b *Buffer) ClearToStartOfLine() {
 	b.mu.Lock()
 	defer b.mu.Unlock()
@@ -911,13 +912,18 @@ func (b *Buffer) ClearToStartOfLine() {
 		return
 	}
 
-	// Ensure line is long enough
-	b.ensureLineLength(b.cursorY, b.cursorX+1)
+	line := b.screen[b.cursorY]
+	lineLen := len(line)
 
-	// Clear cells from start to cursor with current attributes
+	// Only clear cells that actually exist in the line
+	// No need to extend the line - cells beyond the line are conceptually blank
 	clearCell := b.currentDefaultCell()
-	for x := 0; x <= b.cursorX && x < len(b.screen[b.cursorY]); x++ {
-		b.screen[b.cursorY][x] = clearCell
+	endX := b.cursorX
+	if endX >= lineLen {
+		endX = lineLen - 1
+	}
+	for x := 0; x <= endX; x++ {
+		line[x] = clearCell
 	}
 	b.markDirty()
 }
@@ -973,6 +979,7 @@ func (b *Buffer) ClearToEndOfScreen() {
 
 // ClearToStartOfScreen clears from start of screen to cursor
 // Note: Does NOT update ScreenInfo (ScreenInfo is for lines below stored content)
+// Note: Does NOT extend lines - only clears existing cells
 func (b *Buffer) ClearToStartOfScreen() {
 	b.mu.Lock()
 	defer b.mu.Unlock()
@@ -985,12 +992,17 @@ func (b *Buffer) ClearToStartOfScreen() {
 		}
 	}
 
-	// Clear current line from start to cursor
+	// Clear current line from start to cursor (only existing cells)
 	if b.cursorY < len(b.screen) {
-		b.ensureLineLength(b.cursorY, b.cursorX+1)
+		line := b.screen[b.cursorY]
+		lineLen := len(line)
 		clearCell := b.currentDefaultCell()
-		for x := 0; x <= b.cursorX && x < len(b.screen[b.cursorY]); x++ {
-			b.screen[b.cursorY][x] = clearCell
+		endX := b.cursorX
+		if endX >= lineLen {
+			endX = lineLen - 1
+		}
+		for x := 0; x <= endX; x++ {
+			line[x] = clearCell
 		}
 	}
 	b.markDirty()

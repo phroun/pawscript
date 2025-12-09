@@ -10,6 +10,9 @@
     ambiguous characters as narrow (1.0), wide (2.0), or auto-match previous
   - Mouse selection and rendering properly handle variable cell widths
   - Private ANSI codes documented in docs/private-ansi-codes.md
+  - Fixed ClearToStartOfLine and ClearToStartOfScreen not to pad lines with
+    blank cells unnecessarily (fixes horizontal scrollbar showing extra width)
+  - Removed debug print statements from parser
   - Unicode combining character support: Hebrew vowel points (nikkud),
     Arabic marks, Thai marks, Devanagari vowel signs, and other diacritics
     properly attach to previous cell rather than taking new cells
