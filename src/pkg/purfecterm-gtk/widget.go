@@ -587,6 +587,61 @@ func pangoTextWidthStandalone(text, fontFamily string, fontSize int, bold bool) 
 	return int(C.pango_text_width_standalone(cText, cFont, C.int(fontSize), C.int(boldInt)))
 }
 
+// renderCustomGlyph renders a custom glyph for a cell at the specified position
+// Returns true if a custom glyph was rendered, false if normal text rendering should be used
+func (w *Widget) renderCustomGlyph(cr *cairo.Context, cell *purfecterm.Cell, cellX, cellY, cellW, cellH float64) bool {
+	glyph := w.buffer.GetGlyph(cell.Char)
+	if glyph == nil {
+		return false
+	}
+
+	// Calculate pixel dimensions
+	glyphW := glyph.Width
+	glyphH := glyph.Height
+	if glyphW == 0 || glyphH == 0 {
+		return false
+	}
+
+	// Calculate pixel size (scale glyph to fill cell)
+	pixelW := cellW / float64(glyphW)
+	pixelH := cellH / float64(glyphH)
+
+	// Render each pixel
+	for gy := 0; gy < glyphH; gy++ {
+		for gx := 0; gx < glyphW; gx++ {
+			// Get palette index for this pixel
+			paletteIdx := glyph.GetPixel(gx, gy)
+
+			// Apply XFlip/YFlip
+			drawX := gx
+			drawY := gy
+			if cell.XFlip {
+				drawX = glyphW - 1 - gx
+			}
+			if cell.YFlip {
+				drawY = glyphH - 1 - gy
+			}
+
+			// Calculate screen position
+			px := cellX + float64(drawX)*pixelW
+			py := cellY + float64(drawY)*pixelH
+
+			// Resolve color from palette
+			color, _ := w.buffer.ResolveGlyphColor(cell, paletteIdx)
+
+			// Draw pixel
+			cr.SetSourceRGB(
+				float64(color.R)/255.0,
+				float64(color.G)/255.0,
+				float64(color.B)/255.0)
+			cr.Rectangle(px, py, pixelW, pixelH)
+			cr.Fill()
+		}
+	}
+
+	return true
+}
+
 // SetColorScheme sets the color scheme
 func (w *Widget) SetColorScheme(scheme purfecterm.ColorScheme) {
 	w.mu.Lock()
@@ -856,6 +911,12 @@ func (w *Widget) onDraw(da *gtk.DrawingArea, cr *cairo.Context) bool {
 
 			// Draw character (skip if traditional blink mode and currently invisible)
 			if cell.Char != ' ' && cell.Char != 0 && blinkVisible {
+				// Check for custom glyph first
+				if w.renderCustomGlyph(cr, &cell, cellX, cellY, cellW, cellH) {
+					// Custom glyph was rendered, skip normal text rendering
+					goto afterCharRender
+				}
+
 				// Determine which font to use for this character (with fallback for Unicode/CJK)
 				charFont := w.getFontForCharacter(cell.Char, fontFamily, fontSize)
 
@@ -978,6 +1039,7 @@ func (w *Widget) onDraw(da *gtk.DrawingArea, cr *cairo.Context) bool {
 					cr.Restore()
 				}
 			}
+		afterCharRender:
 
 			// Draw underline if needed
 			if cell.Underline {
