@@ -661,6 +661,9 @@ func (p *Parser) executePrivateModeSet(set bool) {
 			} else {
 				p.buffer.SetCursorStyle(shape, 1) // Slow blink
 			}
+		case 7700: // PurfecTerm: Disable scrollback buffer (for games)
+			// h = disable scrollback accumulation, l = re-enable
+			p.buffer.SetScrollbackDisabled(set)
 		}
 	}
 }

@@ -23,6 +23,7 @@ Private mode sequences use the format `ESC [ ? <code> h` (enable) and `ESC [ ? <
 | 2028 | Visual Width Wrap | When enabled, line wrapping is based on accumulated visual width rather than cell count |
 | 2029 | Ambiguous Width: Narrow | When enabled, ambiguous East Asian Width characters are rendered as 1.0 width |
 | 2030 | Ambiguous Width: Wide | When enabled, ambiguous East Asian Width characters are rendered as 2.0 width |
+| 7700 | Disable Scrollback | When enabled, scrollback buffer accumulation is disabled (for games/performance)
 
 ## Flexible East Asian Width Mode (2027)
 
@@ -118,6 +119,40 @@ printf '\e[?2030l'
 echo 'α β γ δ'  # Greek letters match previous character width
 ```
 
+## Disable Scrollback Mode (7700)
+
+When mode 7700 is enabled (`ESC [ ? 7700 h`), the scrollback buffer is disabled:
+
+- **Lines scrolling off the top are discarded** instead of being saved to scrollback
+- **Existing scrollback is preserved** but inaccessible (hidden, not erased)
+- **Scrollbar only shows logical screen** content (cannot scroll into scrollback history)
+- **Scroll offset is reset to 0** when enabling this mode
+
+This is primarily useful for games and performance-critical applications that:
+- Don't need history of screen output
+- Want to avoid memory allocation overhead from scrollback
+- Don't want users accidentally scrolling up during gameplay
+
+### Example Usage
+
+```bash
+# Disable scrollback (for game mode)
+printf '\e[?7700h'
+
+# Run game - all scroll operations will discard lines instead of saving
+./my_game
+
+# Re-enable scrollback when returning to normal terminal use
+printf '\e[?7700l'
+```
+
+### Behavior Details
+
+- When disabled, the yellow dashed line (scrollback boundary) still appears if the logical screen is larger than the physical screen
+- The scrollbar will still function for navigating within the logical screen (if logical rows > physical rows)
+- Re-enabling scrollback does NOT restore discarded lines; they are permanently lost
+- Existing scrollback history becomes accessible again when re-enabled
+
 ## Cell Width Persistence
 
 Important: The resolved width of each character is stored in the cell at write time. Changing the ambiguous width mode after text is written does NOT affect previously rendered characters. This ensures display consistency.
@@ -131,7 +166,7 @@ When flexible width mode is enabled:
 
 ## Compatibility Notes
 
-- These private modes (2027-2030) are PurfecTerm-specific extensions
+- These private modes (2027-2030, 7700) are PurfecTerm-specific extensions
 - Other terminal emulators will ignore these sequences
 - Standard private mode numbers (1-2004) follow their conventional meanings
 - The escape sequences use the DEC private mode format for compatibility

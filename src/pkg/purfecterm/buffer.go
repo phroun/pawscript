@@ -47,10 +47,11 @@ type Buffer struct {
 	screenInfo ScreenInfo
 
 	// Scrollback storage
-	scrollback     [][]Cell
-	scrollbackInfo []LineInfo
-	maxScrollback  int
-	scrollOffset   int // Vertical scroll offset
+	scrollback         [][]Cell
+	scrollbackInfo     []LineInfo
+	maxScrollback      int
+	scrollOffset       int  // Vertical scroll offset
+	scrollbackDisabled bool // When true, scrollback accumulation is disabled (for games)
 
 	// Horizontal scrolling
 	horizOffset int // Horizontal scroll offset (in columns)
@@ -297,6 +298,10 @@ func (b *Buffer) adjustScreenToRows(targetRows int) {
 
 // pushLineToScrollback adds a line to the scrollback buffer
 func (b *Buffer) pushLineToScrollback(line []Cell, info LineInfo) {
+	// Skip if scrollback is disabled (lines are discarded instead)
+	if b.scrollbackDisabled {
+		return
+	}
 	if len(b.scrollback) >= b.maxScrollback {
 		b.scrollback = b.scrollback[1:]
 		b.scrollbackInfo = b.scrollbackInfo[1:]
@@ -1266,7 +1271,6 @@ func (b *Buffer) GetMaxScrollOffset() int {
 
 func (b *Buffer) getMaxScrollOffsetInternal() int {
 	effectiveRows := b.EffectiveRows()
-	scrollbackSize := len(b.scrollback)
 
 	// If logical screen is larger than physical, some rows are hidden
 	logicalHiddenAbove := 0
@@ -1274,6 +1278,12 @@ func (b *Buffer) getMaxScrollOffsetInternal() int {
 		logicalHiddenAbove = effectiveRows - b.rows
 	}
 
+	// When scrollback is disabled, only allow scrolling within logical screen
+	if b.scrollbackDisabled {
+		return logicalHiddenAbove
+	}
+
+	scrollbackSize := len(b.scrollback)
 	return scrollbackSize + logicalHiddenAbove
 }
 
@@ -1382,6 +1392,27 @@ func (b *Buffer) GetHorizOffset() int {
 	b.mu.RLock()
 	defer b.mu.RUnlock()
 	return b.horizOffset
+}
+
+// SetScrollbackDisabled enables or disables scrollback accumulation.
+// When disabled, lines scrolling off the top are discarded instead of saved.
+// Existing scrollback is preserved but inaccessible until re-enabled.
+func (b *Buffer) SetScrollbackDisabled(disabled bool) {
+	b.mu.Lock()
+	defer b.mu.Unlock()
+	b.scrollbackDisabled = disabled
+	// Reset scroll offset when disabling to prevent viewing hidden scrollback
+	if disabled && b.scrollOffset > 0 {
+		b.scrollOffset = 0
+	}
+	b.markDirty()
+}
+
+// IsScrollbackDisabled returns true if scrollback accumulation is disabled
+func (b *Buffer) IsScrollbackDisabled() bool {
+	b.mu.RLock()
+	defer b.mu.RUnlock()
+	return b.scrollbackDisabled
 }
 
 // GetLongestLineOnScreen returns the length of the longest line currently on the logical screen
