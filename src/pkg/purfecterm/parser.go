@@ -1,7 +1,6 @@
 package purfecterm
 
 import (
-	"fmt"
 	"strconv"
 	"strings"
 )
@@ -50,16 +49,6 @@ func NewParser(buffer *Buffer) *Parser {
 
 // Parse processes input data and updates the terminal buffer
 func (p *Parser) Parse(data []byte) {
-	// Debug: check for ESC character in input
-	for i, b := range data {
-		if b == 0x1B {
-			fmt.Printf("[DEBUG] Parse: ESC found at position %d, next bytes: ", i)
-			for j := i + 1; j < len(data) && j < i+10; j++ {
-				fmt.Printf("0x%02X('%c') ", data[j], data[j])
-			}
-			fmt.Println()
-		}
-	}
 	for _, b := range data {
 		p.processByte(b)
 	}
@@ -263,7 +252,6 @@ func (p *Parser) handleCSI(b byte) {
 		if b == '?' || b == '>' || b == '!' || b == '<' {
 			p.csiPrivate = b
 			p.state = stateCSIParam
-			fmt.Printf("[DEBUG] CSI private marker detected: '%c' (0x%02X)\n", b, b)
 			return
 		}
 		p.state = stateCSIParam
@@ -401,11 +389,8 @@ func (p *Parser) executeCSI(finalByte byte) {
 		p.executeSGR()
 
 	case 'h': // SM - Set Mode
-		fmt.Printf("[DEBUG] CSI 'h' received, csiPrivate='%c' (0x%02X), params=%v\n", p.csiPrivate, p.csiPrivate, p.csiParams)
 		if p.csiPrivate == '?' {
 			p.executePrivateModeSet(true)
-		} else {
-			fmt.Printf("[DEBUG] CSI 'h' skipped - csiPrivate is not '?'\n")
 		}
 
 	case 'l': // RM - Reset Mode
@@ -613,11 +598,9 @@ func (p *Parser) executeSGR() {
 }
 
 func (p *Parser) executePrivateModeSet(set bool) {
-	fmt.Printf("[DEBUG] executePrivateModeSet(set=%v), params=%v\n", set, p.csiParams)
 	for _, param := range p.csiParams {
 		switch param {
 		case 3: // DECCOLM - 132 Column Mode (horizontal scale 0.6060)
-			fmt.Printf("[DEBUG] Setting 132-column mode to %v\n", set)
 			p.buffer.Set132ColumnMode(set)
 		case 25: // DECTCEM - Cursor visibility
 			p.buffer.SetCursorVisible(set)
