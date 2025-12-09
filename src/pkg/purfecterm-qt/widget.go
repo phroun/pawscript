@@ -560,68 +560,78 @@ func (w *Widget) paintEvent(event *qt.QPaintEvent) {
 
 				switch lineAttr {
 				case purfecterm.LineAttrNormal:
-					// Handle character width adjustment:
-					// - If wider than cell: squeeze to fit
-					// - If narrower than cell: center horizontally
-					if actualWidth > cellW {
-						// Squeeze wide character
-						scaleX := float64(cellW) / float64(actualWidth)
-						painter.Save()
-						painter.Translate2(float64(cellX), float64(cellY+charAscent)+yOffset)
-						painter.Scale(scaleX, 1.0)
-						painter.DrawText3(0, 0, charStr)
-						painter.Restore()
-					} else if actualWidth < cellW {
-						// Center narrow character
-						xOffset := (cellW - actualWidth) / 2
-						painter.DrawText3(cellX+xOffset, cellY+charAscent+int(yOffset), charStr)
-					} else {
-						// Perfect fit
-						painter.DrawText3(cellX, cellY+charAscent+int(yOffset), charStr)
-					}
-				case purfecterm.LineAttrDoubleWidth:
-					// For double-width lines, scale character 2x horizontally
-					// Compare scaled width against cell width
+					// Apply global screen scaling (132-column, 40-column, line density)
+					// Characters are drawn at scaled size to fit in scaled cells
 					painter.Save()
-					if actualWidth*2 > cellW {
-						// Squeeze: scale to fit within cell
-						scaleX := float64(cellW) / float64(actualWidth*2)
-						painter.Translate2(float64(cellX), float64(cellY+charAscent)+yOffset)
-						painter.Scale(scaleX*2.0, 1.0)
-					} else {
-						// Center the 2x-scaled character
-						xOffset := (cellW - actualWidth*2) / 2
-						painter.Translate2(float64(cellX+xOffset), float64(cellY+charAscent)+yOffset)
-						painter.Scale(2.0, 1.0)
+
+					// Calculate horizontal scale factor:
+					// 1. Start with global horizScale
+					// 2. If character is wider than base cell, squeeze it
+					textScaleX := horizScale
+					xOffset := 0.0
+					if actualWidth > baseCharWidth {
+						// Wide char: squeeze to fit base cell width, then apply global scale
+						textScaleX *= float64(baseCharWidth) / float64(actualWidth)
+					} else if actualWidth < baseCharWidth {
+						// Narrow char: center within the cell (offset is in scaled coordinates)
+						xOffset = float64(baseCharWidth-actualWidth) / 2.0 * horizScale
 					}
+
+					painter.Translate2(float64(cellX)+xOffset, float64(cellY)+float64(baseCharAscent)*vertScale+yOffset)
+					painter.Scale(textScaleX, vertScale)
+					painter.DrawText3(0, 0, charStr)
+					painter.Restore()
+				case purfecterm.LineAttrDoubleWidth:
+					// Double-width line: 2x horizontal scale on top of global scaling
+					// Cell is already 2x charWidth wide, text should fill it
+					painter.Save()
+					// Combine global horizScale with 2x for double-width
+					textScaleX := horizScale * 2.0
+					xOffset := 0.0
+					if actualWidth > baseCharWidth {
+						// Wide char: squeeze to fit base cell
+						textScaleX *= float64(baseCharWidth) / float64(actualWidth)
+					} else if actualWidth < baseCharWidth {
+						// Center narrow char (offset in final scaled coordinates)
+						xOffset = float64(baseCharWidth-actualWidth) * horizScale
+					}
+					painter.Translate2(float64(cellX)+xOffset, float64(cellY)+float64(baseCharAscent)*vertScale+yOffset)
+					painter.Scale(textScaleX, vertScale)
 					painter.DrawText3(0, 0, charStr)
 					painter.Restore()
 				case purfecterm.LineAttrDoubleTop:
+					// Double-height top half: 2x both directions, show top half only
 					painter.Save()
 					painter.SetClipRect2(cellX, cellY, cellW, cellH)
-					if actualWidth*2 > cellW {
-						scaleX := float64(cellW) / float64(actualWidth*2)
-						painter.Translate2(float64(cellX), float64(cellY+charAscent*2)+yOffset*2)
-						painter.Scale(scaleX*2.0, 2.0)
-					} else {
-						xOffset := (cellW - actualWidth*2) / 2
-						painter.Translate2(float64(cellX+xOffset), float64(cellY+charAscent*2)+yOffset*2)
-						painter.Scale(2.0, 2.0)
+					// Combine global scaling with 2x for double size
+					textScaleX := horizScale * 2.0
+					textScaleY := vertScale * 2.0
+					xOffset := 0.0
+					if actualWidth > baseCharWidth {
+						textScaleX *= float64(baseCharWidth) / float64(actualWidth)
+					} else if actualWidth < baseCharWidth {
+						xOffset = float64(baseCharWidth-actualWidth) * horizScale
 					}
+					// Position baseline at 2x ascent (only top half visible due to clip)
+					painter.Translate2(float64(cellX)+xOffset, float64(cellY)+float64(baseCharAscent)*vertScale*2.0+yOffset*2)
+					painter.Scale(textScaleX, textScaleY)
 					painter.DrawText3(0, 0, charStr)
 					painter.Restore()
 				case purfecterm.LineAttrDoubleBottom:
+					// Double-height bottom half: 2x both directions, show bottom half only
 					painter.Save()
 					painter.SetClipRect2(cellX, cellY, cellW, cellH)
-					if actualWidth*2 > cellW {
-						scaleX := float64(cellW) / float64(actualWidth*2)
-						painter.Translate2(float64(cellX), float64(cellY+charAscent*2-charHeight)+yOffset*2)
-						painter.Scale(scaleX*2.0, 2.0)
-					} else {
-						xOffset := (cellW - actualWidth*2) / 2
-						painter.Translate2(float64(cellX+xOffset), float64(cellY+charAscent*2-charHeight)+yOffset*2)
-						painter.Scale(2.0, 2.0)
+					textScaleX := horizScale * 2.0
+					textScaleY := vertScale * 2.0
+					xOffset := 0.0
+					if actualWidth > baseCharWidth {
+						textScaleX *= float64(baseCharWidth) / float64(actualWidth)
+					} else if actualWidth < baseCharWidth {
+						xOffset = float64(baseCharWidth-actualWidth) * horizScale
 					}
+					// Position so bottom half is visible (shift up by one cell height)
+					painter.Translate2(float64(cellX)+xOffset, float64(cellY)+float64(baseCharAscent)*vertScale*2.0-float64(charHeight)+yOffset*2)
+					painter.Scale(textScaleX, textScaleY)
 					painter.DrawText3(0, 0, charStr)
 					painter.Restore()
 				}
