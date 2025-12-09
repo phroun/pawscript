@@ -9,12 +9,15 @@
   - Ambiguous width modes (private modes 2029/2030): control rendering of
     ambiguous characters as narrow (1.0), wide (2.0), or auto-match previous
   - Mouse selection and rendering properly handle variable cell widths
+  - Mouse selection tracks buffer-absolute coordinates for scroll stability
+  - Drag-beyond-edge auto-scrolling during text selection (GTK)
   - Custom glyph system for tile-based pixel-art graphics:
     - OSC 7000: Palette management (create, delete, set entries)
     - OSC 7001: Glyph definition (replace Unicode chars with pixel-art)
     - SGR 150-153: XFlip/YFlip for sprite mirroring
     - SGR 168;5;N / 169: Base Glyph Palette (BGP) selection
     - Palette-indexed colors with transparent, dim, and bright variants
+    - Extended palette colors: 256-color (`;5;N`) and true RGB (`;r;R;G;B`) support
     - Fallback rendering when palette not defined (0=bg, 1=fg, 2=dim, 3+=bright)
   - Sprite overlay system with Z-ordering and crop rectangles:
     - OSC 7002: Sprite management (create, move, delete, update)
