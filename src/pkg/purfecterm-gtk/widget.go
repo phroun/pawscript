@@ -556,96 +556,95 @@ func (w *Widget) onDraw(da *gtk.DrawingArea, cr *cairo.Context) bool {
 
 				switch lineAttr {
 				case purfecterm.LineAttrNormal:
-					// Handle character width adjustment:
-					// - If wider than cell: squeeze to fit
-					// - If narrower than cell: center horizontally
-					textBaseX := float64(x*charWidth + terminalLeftPadding)
-					textBaseY := float64(y*charHeight+charAscent) + yOffset
+					// Apply global screen scaling (132-column, 40-column, line density)
+					// Characters are drawn at scaled size to fit in scaled cells
+					cr.Save()
 
-					if actualWidth > cellW {
-						// Squeeze wide character
-						scaleX := cellW / actualWidth
-						cr.Save()
-						cr.Translate(textBaseX, textBaseY)
-						cr.Scale(scaleX, 1.0)
-						cr.MoveTo(0, 0)
-						cr.ShowText(charStr)
-						cr.Restore()
-					} else if actualWidth < cellW {
-						// Center narrow character
-						xOffset := (cellW - actualWidth) / 2
-						cr.MoveTo(textBaseX+xOffset, textBaseY)
-						cr.ShowText(charStr)
-					} else {
-						// Perfect fit
-						cr.MoveTo(textBaseX, textBaseY)
-						cr.ShowText(charStr)
+					// Calculate horizontal scale factor:
+					// 1. Start with global horizScale
+					// 2. If character is wider than base cell, squeeze it
+					textScaleX := horizScale
+					xOff := 0.0
+					if actualWidth > float64(baseCharWidth) {
+						// Wide char: squeeze to fit base cell width, then apply global scale
+						textScaleX *= float64(baseCharWidth) / actualWidth
+					} else if actualWidth < float64(baseCharWidth) {
+						// Narrow char: center within the cell (offset is in scaled coordinates)
+						xOff = (float64(baseCharWidth) - actualWidth) / 2.0 * horizScale
 					}
+
+					textBaseX := float64(x*charWidth+terminalLeftPadding) + xOff
+					textBaseY := float64(y*charHeight) + float64(baseCharAscent)*vertScale + yOffset
+					cr.Translate(textBaseX, textBaseY)
+					cr.Scale(textScaleX, vertScale)
+					cr.MoveTo(0, 0)
+					cr.ShowText(charStr)
+					cr.Restore()
 
 				case purfecterm.LineAttrDoubleWidth:
-					// Double width: scale text 2x horizontally
-					// Compare scaled width against cell width
-					textX := float64(x*2*charWidth + terminalLeftPadding)
-					textY := float64(y*charHeight + charAscent)
-
+					// Double-width line: 2x horizontal scale on top of global scaling
 					cr.Save()
-					if actualWidth*2 > cellW {
-						// Squeeze: scale to fit within cell
-						scaleX := cellW / (actualWidth * 2)
-						cr.Translate(textX, textY+yOffset)
-						cr.Scale(scaleX*2.0, 1.0)
-					} else {
-						// Center the 2x-scaled character
-						xOffset := (cellW - actualWidth*2) / 2
-						cr.Translate(textX+xOffset, textY+yOffset)
-						cr.Scale(2.0, 1.0)
+					// Combine global horizScale with 2x for double-width
+					textScaleX := horizScale * 2.0
+					xOff := 0.0
+					if actualWidth > float64(baseCharWidth) {
+						// Wide char: squeeze to fit base cell
+						textScaleX *= float64(baseCharWidth) / actualWidth
+					} else if actualWidth < float64(baseCharWidth) {
+						// Center narrow char (offset in final scaled coordinates)
+						xOff = (float64(baseCharWidth) - actualWidth) * horizScale
 					}
+					textX := float64(cellX) + xOff
+					textY := float64(cellY) + float64(baseCharAscent)*vertScale + yOffset
+					cr.Translate(textX, textY)
+					cr.Scale(textScaleX, vertScale)
 					cr.MoveTo(0, 0)
 					cr.ShowText(charStr)
 					cr.Restore()
 
 				case purfecterm.LineAttrDoubleTop:
-					// Double height top: scale 2x, show top half only
+					// Double-height top half: 2x both directions, show top half only
 					cr.Save()
 					// Clip to just this cell's area
 					cr.Rectangle(cellX, cellY, cellW, cellH)
 					cr.Clip()
-					// Position text: baseline at 2x ascent position from cell top
-					textX := float64(x*2*charWidth + terminalLeftPadding)
-					textY := float64(y*charHeight + charAscent*2)
-
-					if actualWidth*2 > cellW {
-						scaleX := cellW / (actualWidth * 2)
-						cr.Translate(textX, textY+yOffset*2)
-						cr.Scale(scaleX*2.0, 2.0)
-					} else {
-						xOffset := (cellW - actualWidth*2) / 2
-						cr.Translate(textX+xOffset, textY+yOffset*2)
-						cr.Scale(2.0, 2.0)
+					// Combine global scaling with 2x for double size
+					textScaleX := horizScale * 2.0
+					textScaleY := vertScale * 2.0
+					xOff := 0.0
+					if actualWidth > float64(baseCharWidth) {
+						textScaleX *= float64(baseCharWidth) / actualWidth
+					} else if actualWidth < float64(baseCharWidth) {
+						xOff = (float64(baseCharWidth) - actualWidth) * horizScale
 					}
+					// Position baseline at 2x ascent (only top half visible due to clip)
+					textX := float64(cellX) + xOff
+					textY := float64(cellY) + float64(baseCharAscent)*vertScale*2.0 + yOffset*2
+					cr.Translate(textX, textY)
+					cr.Scale(textScaleX, textScaleY)
 					cr.MoveTo(0, 0)
 					cr.ShowText(charStr)
 					cr.Restore()
 
 				case purfecterm.LineAttrDoubleBottom:
-					// Double height bottom: scale 2x, show bottom half only
+					// Double-height bottom half: 2x both directions, show bottom half only
 					cr.Save()
 					// Clip to just this cell's area
 					cr.Rectangle(cellX, cellY, cellW, cellH)
 					cr.Clip()
-					// Position text: the top half would be at y-1, so shift up by one cell height
-					textX := float64(x*2*charWidth + terminalLeftPadding)
-					textY := float64(y*charHeight + charAscent*2 - charHeight)
-
-					if actualWidth*2 > cellW {
-						scaleX := cellW / (actualWidth * 2)
-						cr.Translate(textX, textY+yOffset*2)
-						cr.Scale(scaleX*2.0, 2.0)
-					} else {
-						xOffset := (cellW - actualWidth*2) / 2
-						cr.Translate(textX+xOffset, textY+yOffset*2)
-						cr.Scale(2.0, 2.0)
+					textScaleX := horizScale * 2.0
+					textScaleY := vertScale * 2.0
+					xOff := 0.0
+					if actualWidth > float64(baseCharWidth) {
+						textScaleX *= float64(baseCharWidth) / actualWidth
+					} else if actualWidth < float64(baseCharWidth) {
+						xOff = (float64(baseCharWidth) - actualWidth) * horizScale
 					}
+					// Position so bottom half is visible (shift up by one cell height)
+					textX := float64(cellX) + xOff
+					textY := float64(cellY) + float64(baseCharAscent)*vertScale*2.0 - float64(charHeight) + yOffset*2
+					cr.Translate(textX, textY)
+					cr.Scale(textScaleX, textScaleY)
 					cr.MoveTo(0, 0)
 					cr.ShowText(charStr)
 					cr.Restore()
