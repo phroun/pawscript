@@ -274,7 +274,7 @@ while (lt {microtime}, ~end_time), (
 
     # Advance pattern every few lines for variety
     line_count: {add ~line_count, 1}
-    if {eq {imod ~line_count, 8}, 0}
+    if {eq {imodulo ~line_count, 8}, 0}
     then (
         pattern_idx: {add ~pattern_idx, 1}
         if {gte ~pattern_idx, ~num_patterns}
