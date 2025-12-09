@@ -166,6 +166,20 @@ func IsAmbiguousWidth(r rune) bool {
 	return getEastAsianWidthCategory(r) == EAWidthAmbiguous
 }
 
+// IsBlockOrLineDrawing returns true if the character is a box drawing or block element
+// These characters need full 2.0 scaling to connect properly when rendered wide
+func IsBlockOrLineDrawing(r rune) bool {
+	// Box Drawing (U+2500-U+257F)
+	if r >= 0x2500 && r <= 0x257F {
+		return true
+	}
+	// Block Elements (U+2580-U+259F)
+	if r >= 0x2580 && r <= 0x259F {
+		return true
+	}
+	return false
+}
+
 // getEastAsianWidthCategory returns the East Asian Width category for a rune.
 // Based on Unicode 15.0 East_Asian_Width property.
 func getEastAsianWidthCategory(r rune) EastAsianWidth {

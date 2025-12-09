@@ -1204,8 +1204,16 @@ func (w *Widget) onDraw(da *gtk.DrawingArea, cr *cairo.Context) bool {
 						textScaleX *= targetCellWidth / actualWidth
 					} else if actualWidth < targetCellWidth {
 						if cellVisualWidth > 1.0 && purfecterm.IsAmbiguousWidth(cell.Char) {
-							// Ambiguous char in wide mode: stretch to fill the cell
-							textScaleX *= targetCellWidth / actualWidth
+							// Ambiguous width char in wide cell
+							if purfecterm.IsBlockOrLineDrawing(cell.Char) {
+								// Block/line drawing: full 2.0 stretch to connect properly
+								textScaleX *= targetCellWidth / actualWidth
+							} else {
+								// Other ambiguous (Cyrillic, Greek, etc.): 1.5x scale, centered
+								textScaleX *= 1.5
+								scaledWidth := actualWidth * 1.5
+								xOff = (targetCellWidth - scaledWidth) / 2.0 * horizScale
+							}
 						} else {
 							// Normal cell or naturally wide char: center within the cell
 							xOff = (targetCellWidth - actualWidth) / 2.0 * horizScale

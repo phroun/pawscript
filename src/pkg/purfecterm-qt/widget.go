@@ -1052,8 +1052,16 @@ func (w *Widget) paintEvent(event *qt.QPaintEvent) {
 						textScaleX *= targetCellWidth / actualWidthF
 					} else if actualWidthF < targetCellWidth {
 						if cellVisualWidth > 1.0 && purfecterm.IsAmbiguousWidth(cell.Char) {
-							// Ambiguous width char in wide cell: stretch to fill proportionally
-							textScaleX *= targetCellWidth / actualWidthF
+							// Ambiguous width char in wide cell
+							if purfecterm.IsBlockOrLineDrawing(cell.Char) {
+								// Block/line drawing: full 2.0 stretch to connect properly
+								textScaleX *= targetCellWidth / actualWidthF
+							} else {
+								// Other ambiguous (Cyrillic, Greek, etc.): 1.5x scale, centered
+								textScaleX *= 1.5
+								scaledWidth := actualWidthF * 1.5
+								xOffset = (targetCellWidth - scaledWidth) / 2.0 * horizScale
+							}
 						} else {
 							// Normal cell or actual wide char: center narrow char
 							xOffset = (targetCellWidth - actualWidthF) / 2.0 * horizScale
@@ -1494,7 +1502,7 @@ func (w *Widget) startAutoScroll(delta int) {
 	}
 
 	// Create and start auto-scroll timer (fires every 50ms for smooth scrolling)
-	w.autoScrollTimer = qt.NewQTimer2(w.widget)
+	w.autoScrollTimer = qt.NewQTimer2(w.widget.QObject)
 	w.autoScrollTimer.OnTimeout(func() {
 		if !w.selecting || w.autoScrollDelta == 0 {
 			w.stopAutoScroll()
