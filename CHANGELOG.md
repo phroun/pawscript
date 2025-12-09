@@ -1,6 +1,16 @@
 ## Changelog
 
-### 0.2.9 -- November 29 - December 7, 2025
+### 0.2.9 -- November 29 - December 9, 2025
+- PurfecTerm terminal emulator enhancements:
+  - Variable-width line storage: lines are no longer truncated on window resize
+  - LineInfo and ScreenInfo structs for rendering beyond stored line content
+  - Logical vs physical terminal dimensions with ESC [ 8 ; h ; w t support
+  - Horizontal scrollbar that shows when content exceeds visible width
+  - Shift+scroll for horizontal scrolling in both GTK and Qt widgets
+  - Unicode character width handling: wide characters squeezed to fit,
+    narrow characters centered within cell bounds
+  - Proper scrollback transfer when logical screen shrinks
+- FFI design documentation for struct immutability concerns
 - `break` and `continue` commands for loop control, with async resumption fixes
 - Fixed command position execution for macros and parenthetic blocks
 - Fixed `ret` not propagating result from macro calls

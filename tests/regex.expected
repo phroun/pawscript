@@ -1,0 +1,58 @@
+=== MATCH TESTS ===
+Basic match (should be true): true
+Basic match fail (should be false): false
+Match with anchors: true
+Match partial: true
+Match digits: true
+Match word boundary: true
+Match any char: true
+Case sensitive (should fail): false
+Case insensitive: true
+Match with groups: true
+
+=== REGEX_FIND TESTS ===
+Find first match:
+  Result: ("hello")
+Find date parts:
+  Full match: 2024-12-08
+  Year: 2024
+  Month: 12
+  Day: 08
+Find all matches:
+  Count: 4
+    Match: 1
+    Match: 2
+    Match: 3
+    Match: 4
+Find all word pairs:
+  Pair: foo=bar -> key: foo val: bar
+  Pair: baz=qux -> key: baz val: qux
+Case insensitive find:
+  Found 3 matches
+Find no match:
+  Result is nil: true
+
+=== REGEX_REPLACE TESTS ===
+Basic replace: hello universe
+Swap words: world hello
+Replace all digits: aXbXcX
+Replace first 2: bba
+Replace all (count 0): bbb
+Case insensitive replace: hi hi hi
+Delete pattern: abc
+Wrap matches: [cat] [dog] [bird]
+Format phone: (555) 123-4567
+
+=== EDGE CASES ===
+Empty input match: true
+Empty input find: ("")
+Empty input replace: 
+Empty pattern match: true
+Match literal dot: true
+Match literal brackets: true
+Match unicode: true
+Replace unicode: cafE
+Match start of string: true
+Match email-like: true
+
+=== DONE ===
