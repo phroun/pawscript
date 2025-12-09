@@ -270,7 +270,7 @@ while (lt {microtime}, ~end_time), (
 
     # Set color and print line (this scrolls the screen)
     color ~current_color
-    print ~current_line
+    print {join ~current_line, ""}
 
     # Advance pattern every few lines for variety
     line_count: {add ~line_count, 1}
@@ -288,8 +288,8 @@ while (lt {microtime}, ~end_time), (
 
 # Calculate stats (microtime is in microseconds, convert to seconds)
 elapsed_us: {sub {microtime}, ~start_time}
-elapsed: {div ~elapsed_us, 1000000}
-lines_per_sec: {div ~line_count, ~elapsed}
+elapsed: {idiv ~elapsed_us, 1000000}
+lines_per_sec: {idiv ~line_count, ~elapsed}
 
 sprite_clear_all
 color reset: true
