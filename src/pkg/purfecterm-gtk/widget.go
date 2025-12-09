@@ -232,6 +232,11 @@ type Widget struct {
 	mouseDownY     int
 	selectionMoved bool // True if mouse moved since button press
 
+	// Auto-scroll when dragging beyond edges
+	autoScrollTimerID glib.SourceHandle // Timer for auto-scrolling
+	autoScrollDelta   int               // Scroll direction (-1=up, 1=down), magnitude used for speed
+	lastMouseX        int               // Last known mouse X cell position
+
 	// Cursor blink
 	cursorBlinkOn  bool
 	blinkTimerID   glib.SourceHandle
@@ -1425,6 +1430,7 @@ func (w *Widget) onButtonRelease(da *gtk.DrawingArea, ev *gdk.Event) bool {
 
 	if button == 1 {
 		w.mouseDown = false
+		w.stopAutoScroll() // Stop any auto-scrolling
 		if w.selecting {
 			w.selecting = false
 			w.buffer.EndSelection()
@@ -1443,6 +1449,15 @@ func (w *Widget) onMotionNotify(da *gtk.DrawingArea, ev *gdk.Event) bool {
 	C.get_event_coords((*C.GdkEvent)(unsafe.Pointer(ev.Native())), &x, &y)
 	cellX, cellY := w.screenToCell(float64(x), float64(y))
 
+	// Get terminal dimensions for edge detection
+	_, rows := w.buffer.GetSize()
+
+	w.mu.Lock()
+	charHeight := w.charHeight
+	vertScale := w.buffer.GetVerticalScale()
+	w.mu.Unlock()
+	scaledCharHeight := float64(charHeight) * vertScale
+
 	// Only start selection once mouse has moved to a different cell
 	if !w.selectionMoved {
 		if cellX != w.mouseDownX || cellY != w.mouseDownY {
@@ -1457,8 +1472,107 @@ func (w *Widget) onMotionNotify(da *gtk.DrawingArea, ev *gdk.Event) bool {
 		}
 	}
 
+	// Track last mouse X for auto-scroll selection updates
+	w.lastMouseX = cellX
+
+	// Check for auto-scroll: mouse beyond top or bottom edge
+	mouseY := float64(y)
+	terminalHeight := float64(rows) * scaledCharHeight
+
+	if mouseY < 0 {
+		// Above top edge - scroll up
+		rowsAbove := int((-mouseY / scaledCharHeight) + 1)
+		if rowsAbove > 5 {
+			rowsAbove = 5 // Cap speed
+		}
+		w.startAutoScroll(-rowsAbove)
+	} else if mouseY >= terminalHeight {
+		// Below bottom edge - scroll down
+		rowsBelow := int(((mouseY - terminalHeight) / scaledCharHeight) + 1)
+		if rowsBelow > 5 {
+			rowsBelow = 5 // Cap speed
+		}
+		w.startAutoScroll(rowsBelow)
+	} else {
+		// Mouse is within terminal area - stop auto-scroll
+		w.stopAutoScroll()
+	}
+
 	w.buffer.UpdateSelection(cellX, cellY)
 	return true
+}
+
+// startAutoScroll begins auto-scrolling in the given direction
+// delta: negative = scroll up (toward scrollback), positive = scroll down (toward current)
+func (w *Widget) startAutoScroll(delta int) {
+	if delta == 0 {
+		w.stopAutoScroll()
+		return
+	}
+
+	w.autoScrollDelta = delta
+
+	// If timer already running, just update the delta
+	if w.autoScrollTimerID != 0 {
+		return
+	}
+
+	// Start auto-scroll timer (fires every 50ms for smooth scrolling)
+	w.autoScrollTimerID, _ = glib.TimeoutAdd(50, func() bool {
+		if !w.selecting || w.autoScrollDelta == 0 {
+			w.autoScrollTimerID = 0
+			return false // Stop timer
+		}
+
+		// Get current scroll offset
+		offset := w.buffer.GetScrollOffset()
+		maxOffset := w.buffer.GetMaxScrollOffset()
+
+		// Calculate scroll amount based on delta magnitude
+		scrollAmount := 1
+		if w.autoScrollDelta < 0 {
+			scrollAmount = -w.autoScrollDelta
+		} else {
+			scrollAmount = w.autoScrollDelta
+		}
+
+		// Apply scroll
+		if w.autoScrollDelta < 0 {
+			// Scroll up (toward scrollback)
+			offset += scrollAmount
+			if offset > maxOffset {
+				offset = maxOffset
+			}
+		} else {
+			// Scroll down (toward current)
+			offset -= scrollAmount
+			if offset < 0 {
+				offset = 0
+			}
+		}
+		w.buffer.SetScrollOffset(offset)
+
+		// Update selection to edge
+		_, rows := w.buffer.GetSize()
+		if w.autoScrollDelta < 0 {
+			// Scrolling up - selection extends to top row
+			w.buffer.UpdateSelection(w.lastMouseX, 0)
+		} else {
+			// Scrolling down - selection extends to bottom row
+			w.buffer.UpdateSelection(w.lastMouseX, rows-1)
+		}
+
+		return true // Continue timer
+	})
+}
+
+// stopAutoScroll stops the auto-scroll timer
+func (w *Widget) stopAutoScroll() {
+	if w.autoScrollTimerID != 0 {
+		glib.SourceRemove(w.autoScrollTimerID)
+		w.autoScrollTimerID = 0
+	}
+	w.autoScrollDelta = 0
 }
 
 func (w *Widget) onScroll(da *gtk.DrawingArea, ev *gdk.Event) bool {
