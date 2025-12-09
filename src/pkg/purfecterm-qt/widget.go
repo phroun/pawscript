@@ -914,7 +914,7 @@ func (w *Widget) renderScreenSplits(painter *qt.QPainter, splits []*purfecterm.S
 			endPixelY := splitEndY * charHeight / unitY
 
 			painter.Save()
-			painter.SetClipRect(qt.NewQRect5(0, startPixelY, cols*charWidth+terminalLeftPadding, endPixelY-startPixelY))
+			painter.SetClipRect2(0, startPixelY, cols*charWidth+terminalLeftPadding, endPixelY-startPixelY)
 			bgColor := qt.NewQColor3(int(scheme.Background.R), int(scheme.Background.G), int(scheme.Background.B))
 			painter.FillRect5(0, startPixelY, cols*charWidth+terminalLeftPadding, endPixelY-startPixelY, bgColor)
 			painter.Restore()
@@ -941,7 +941,7 @@ func (w *Widget) renderScreenSplits(painter *qt.QPainter, splits []*purfecterm.S
 		endPixelY := splitEndY * charHeight / unitY
 
 		painter.Save()
-		painter.SetClipRect(qt.NewQRect5(0, startPixelY, cols*charWidth+terminalLeftPadding, endPixelY-startPixelY))
+		painter.SetClipRect2(0, startPixelY, cols*charWidth+terminalLeftPadding, endPixelY-startPixelY)
 
 		// Get line attribute for this buffer row
 		lineAttr := w.buffer.GetLineAttributeForSplit(rowInSplit, split.BufferRow)
@@ -984,7 +984,7 @@ func (w *Widget) renderScreenSplits(painter *qt.QPainter, splits []*purfecterm.S
 				fgQColor := qt.NewQColor3(int(fg.R), int(fg.G), int(fg.B))
 				pen := qt.NewQPen3(fgQColor)
 				painter.SetPenWithPen(pen)
-				painter.DrawText2(cellX, rowPixelY+charHeight*3/4, cell.String())
+				painter.DrawText3(cellX, rowPixelY+charHeight*3/4, cell.String())
 			}
 		}
 
@@ -1050,7 +1050,7 @@ func (w *Widget) paintEvent(event *qt.QPaintEvent) {
 		if heightCrop > 0 {
 			cropH = heightCrop * charHeight / unitY
 		}
-		painter.SetClipRect(qt.NewQRect5(0, 0, cropW, cropH))
+		painter.SetClipRect2(0, 0, cropW, cropH)
 	}
 
 	// Get sprites for rendering (behind = negative Z, front = non-negative Z)
