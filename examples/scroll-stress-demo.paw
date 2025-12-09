@@ -274,9 +274,11 @@ while (lt {microtime}, ~end_time), (
 
     # Advance pattern every few lines for variety
     line_count: {add ~line_count, 1}
-    if (eq {mod ~line_count, 8}, 0), (
+    if {eq {imod ~line_count, 8}, 0}
+    then (
         pattern_idx: {add ~pattern_idx, 1}
-        if (gte ~pattern_idx, ~num_patterns), (
+        if {gte ~pattern_idx, ~num_patterns}
+        then (
             pattern_idx: 0
         )
     )
