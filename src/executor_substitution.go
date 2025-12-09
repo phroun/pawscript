@@ -1975,6 +1975,7 @@ func (e *Executor) lookupTildeVar(varName string, isQuestion bool, ctx *Substitu
 	valueStr = strings.ReplaceAll(valueStr, `\`, `\\`)
 	valueStr = strings.ReplaceAll(valueStr, `"`, `\"`)
 	valueStr = strings.ReplaceAll(valueStr, "~", "\x00TILDE\x00")
+	valueStr = strings.ReplaceAll(valueStr, "?", "\x00QMARK\x00")
 
 	return valueStr
 }

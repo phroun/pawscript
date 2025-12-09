@@ -1482,6 +1482,11 @@ func parseStringLiteral(str string) string {
 				result.WriteRune('\\')
 				result.WriteRune('~')
 				i += 2
+			case '?':
+				// Escaped question mark: preserve as \? for later processing by applySubstitution
+				result.WriteRune('\\')
+				result.WriteRune('?')
+				i += 2
 			case 'x':
 				// Hex escape: \xHH
 				if i+3 < len(runes) {

@@ -340,9 +340,11 @@ func (e *Executor) executeSingleCommand(
 				Filename: substitutionCtx.Filename,
 			}
 			commandStr = e.substituteTildeExpressions(commandStr, substitutionCtx.ExecutionState, tildePosition)
-			// Restore escaped tildes
+			// Restore escaped tildes and question marks
 			commandStr = strings.ReplaceAll(commandStr, "\x00TILDE\x00", "~")
 			commandStr = strings.ReplaceAll(commandStr, `\~`, "~")
+			commandStr = strings.ReplaceAll(commandStr, "\x00QMARK\x00", "?")
+			commandStr = strings.ReplaceAll(commandStr, `\?`, "?")
 		}
 	} else {
 		subResult := e.applySubstitution(commandStr, substitutionCtx)
