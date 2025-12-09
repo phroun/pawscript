@@ -1008,125 +1008,163 @@ func (w *Widget) updateFontMetrics() {
 	_ = descent // descent is included in height
 }
 
-// renderScreenSplits renders screen split regions that show different buffer positions
+// renderScreenSplits renders screen split regions using a scanline approach.
+// Iterates through each sprite-unit Y position and renders rows as boundaries are encountered.
 func (w *Widget) renderScreenSplits(cr *cairo.Context, splits []*purfecterm.ScreenSplit,
 	cols, rows, charWidth, charHeight, unitX, unitY int,
 	fontFamily string, fontSize int, scheme purfecterm.ColorScheme, blinkPhase float64,
 	cursorVisible bool, cursorVisibleX, cursorVisibleY int, cursorShape int,
 	horizScale, vertScale float64) {
 
-	// Calculate screen height in sprite units
+	// Screen height in sprite units
 	screenHeightUnits := rows * unitY
 
-	for i, split := range splits {
-		// Skip splits at ScreenY=0 (that's the main screen, already rendered)
-		if split.ScreenY == 0 {
+	// Track which splits have had their backgrounds cleared
+	splitBackgroundCleared := make(map[int]bool)
+
+	// Helper to find which split is active at a given Y (in sprite units)
+	getSplitAtY := func(y int) (split *purfecterm.ScreenSplit, splitIdx int, endY int) {
+		// Find the split that contains this Y position
+		for i := len(splits) - 1; i >= 0; i-- {
+			if splits[i].ScreenY <= y {
+				// This split starts at or before Y
+				end := screenHeightUnits
+				if i+1 < len(splits) {
+					end = splits[i+1].ScreenY
+				}
+				return splits[i], i, end
+			}
+		}
+		return nil, -1, screenHeightUnits
+	}
+
+	// Set up font once
+	cr.SelectFontFace(fontFamily, cairo.FONT_SLANT_NORMAL, cairo.FONT_WEIGHT_NORMAL)
+	cr.SetFontSize(float64(fontSize))
+
+	// Iterate through each sprite-unit Y position (scanline approach)
+	for y := 0; y < screenHeightUnits; y++ {
+		split, splitIdx, splitEndY := getSplitAtY(y)
+
+		// Skip if no split at this position or if it's the main screen (ScreenY=0, not overriding)
+		if split == nil || (split.ScreenY == 0 && split.BufferRow == 0 && split.BufferCol == 0 &&
+			split.TopFineScroll == 0 && split.LeftFineScroll == 0) {
 			continue
 		}
 
-		// Calculate pixel Y range for this split
-		startY := float64(split.ScreenY) * float64(charHeight) / float64(unitY)
+		// Clear background for this split if not yet done
+		if !splitBackgroundCleared[splitIdx] {
+			splitBackgroundCleared[splitIdx] = true
 
-		// End Y is either the next split's start or screen bottom
-		var endY float64
-		if i+1 < len(splits) {
-			endY = float64(splits[i+1].ScreenY) * float64(charHeight) / float64(unitY)
-		} else {
-			endY = float64(screenHeightUnits) * float64(charHeight) / float64(unitY)
+			// Calculate pixel coordinates for this split region
+			startPixelY := float64(split.ScreenY) * float64(charHeight) / float64(unitY)
+			endPixelY := float64(splitEndY) * float64(charHeight) / float64(unitY)
+
+			// Save, clip, and fill background
+			cr.Save()
+			cr.Rectangle(0, startPixelY, float64(cols*charWidth+terminalLeftPadding), endPixelY-startPixelY)
+			cr.Clip()
+			cr.SetSourceRGB(
+				float64(scheme.Background.R)/255.0,
+				float64(scheme.Background.G)/255.0,
+				float64(scheme.Background.B)/255.0)
+			cr.Rectangle(0, startPixelY, float64(cols*charWidth+terminalLeftPadding), endPixelY-startPixelY)
+			cr.Fill()
+			cr.Restore()
 		}
 
-		// Apply fine scroll offset
+		// Check if this Y marks a row boundary for this split
+		// Row boundaries occur at: split.ScreenY + n*unitY - split.TopFineScroll (for n >= 0)
+		// Which means: (y - split.ScreenY + split.TopFineScroll) % unitY == 0
+		relativeY := y - split.ScreenY + split.TopFineScroll
+		if relativeY < 0 || relativeY%unitY != 0 {
+			continue // Not a row boundary
+		}
+
+		// Calculate which row to render within this split
+		rowInSplit := relativeY / unitY
+
+		// Calculate fine scroll offsets in pixels
 		fineOffsetY := float64(split.TopFineScroll) * float64(charHeight) / float64(unitY)
 		fineOffsetX := float64(split.LeftFineScroll) * float64(charWidth) / float64(unitX)
 
-		// Save context and apply clipping for this split region
+		// Calculate pixel Y position for this row
+		rowPixelY := float64(y)*float64(charHeight)/float64(unitY) - fineOffsetY
+
+		// Set up clipping for this split region
+		startPixelY := float64(split.ScreenY) * float64(charHeight) / float64(unitY)
+		endPixelY := float64(splitEndY) * float64(charHeight) / float64(unitY)
+
 		cr.Save()
-		cr.Rectangle(0, startY, float64(cols*charWidth+terminalLeftPadding), endY-startY)
+		cr.Rectangle(0, startPixelY, float64(cols*charWidth+terminalLeftPadding), endPixelY-startPixelY)
 		cr.Clip()
 
-		// Fill with background
-		cr.SetSourceRGB(
-			float64(scheme.Background.R)/255.0,
-			float64(scheme.Background.G)/255.0,
-			float64(scheme.Background.B)/255.0)
-		cr.Rectangle(0, startY, float64(cols*charWidth+terminalLeftPadding), endY-startY)
-		cr.Fill()
+		// Get line attribute for this buffer row
+		lineAttr := w.buffer.GetLineAttributeForSplit(rowInSplit, split.BufferRow)
 
-		// Set up font
-		cr.SelectFontFace(fontFamily, cairo.FONT_SLANT_NORMAL, cairo.FONT_WEIGHT_NORMAL)
-		cr.SetFontSize(float64(fontSize))
-
-		// Calculate how many rows this split spans
-		splitRows := int((endY - startY) / float64(charHeight))
-		if splitRows < 1 {
-			splitRows = 1
+		effectiveCols := cols
+		if lineAttr != purfecterm.LineAttrNormal {
+			effectiveCols = cols / 2
 		}
 
-		// Render cells for this split
-		for screenRow := 0; screenRow < splitRows; screenRow++ {
-			// Get line attribute for this buffer row
-			lineAttr := w.buffer.GetLineAttributeForSplit(screenRow, split.BufferRow)
+		// Render each cell in this row
+		for screenCol := 0; screenCol < effectiveCols; screenCol++ {
+			cell := w.buffer.GetCellForSplit(screenCol, rowInSplit, split.BufferRow, split.BufferCol)
 
-			effectiveCols := cols
-			if lineAttr != purfecterm.LineAttrNormal {
-				effectiveCols = cols / 2
+			fg := cell.Foreground
+			bg := cell.Background
+			if fg.Default {
+				fg = scheme.Foreground
+			}
+			if bg.Default {
+				bg = scheme.Background
 			}
 
-			for screenCol := 0; screenCol < effectiveCols; screenCol++ {
-				// Get cell from split's buffer position
-				cell := w.buffer.GetCellForSplit(screenCol, screenRow, split.BufferRow, split.BufferCol)
+			// Calculate cell position
+			cellX := float64(screenCol*charWidth) + float64(terminalLeftPadding) - fineOffsetX
+			cellW := float64(charWidth)
+			cellH := float64(charHeight)
 
-				// Determine colors
-				fg := cell.Foreground
-				bg := cell.Background
-				if fg.Default {
-					fg = scheme.Foreground
-				}
-				if bg.Default {
-					bg = scheme.Background
-				}
+			if lineAttr != purfecterm.LineAttrNormal {
+				cellX = float64(screenCol*charWidth*2) + float64(terminalLeftPadding) - fineOffsetX
+				cellW = float64(charWidth * 2)
+			}
 
-				// Calculate cell position (accounting for fine scroll)
-				cellX := float64(screenCol*charWidth) + float64(terminalLeftPadding) - fineOffsetX
-				cellY := startY + float64(screenRow*charHeight) - fineOffsetY
-				cellW := float64(charWidth)
-				cellH := float64(charHeight)
+			// Draw cell background if different from terminal background
+			if bg != scheme.Background {
+				cr.SetSourceRGB(
+					float64(bg.R)/255.0,
+					float64(bg.G)/255.0,
+					float64(bg.B)/255.0)
+				cr.Rectangle(cellX, rowPixelY, cellW, cellH)
+				cr.Fill()
+			}
 
-				// For double-width lines, adjust dimensions
-				if lineAttr != purfecterm.LineAttrNormal {
-					cellX = float64(screenCol*charWidth*2) + float64(terminalLeftPadding) - fineOffsetX
-					cellW = float64(charWidth * 2)
-				}
+			// Draw character
+			if cell.Char != ' ' && cell.Char != 0 {
+				charStr := cell.String()
+				charFont := w.getFontForCharacter(cell.Char, fontFamily, fontSize)
 
-				// Draw cell background if different from terminal background
-				if bg != scheme.Background {
-					cr.SetSourceRGB(
-						float64(bg.R)/255.0,
-						float64(bg.G)/255.0,
-						float64(bg.B)/255.0)
-					cr.Rectangle(cellX, cellY, cellW, cellH)
-					cr.Fill()
-				}
+				fgR := float64(fg.R) / 255.0
+				fgG := float64(fg.G) / 255.0
+				fgB := float64(fg.B) / 255.0
 
-				// Draw character
-				if cell.Char != ' ' && cell.Char != 0 {
-					charStr := cell.String()
-					charFont := w.getFontForCharacter(cell.Char, fontFamily, fontSize)
-
-					fgR := float64(fg.R) / 255.0
-					fgG := float64(fg.G) / 255.0
-					fgB := float64(fg.B) / 255.0
-
-					cr.Save()
-					cr.Translate(cellX, cellY)
-					cr.Scale(horizScale, vertScale)
-					pangoRenderText(cr, charStr, charFont, fontSize, cell.Bold, fgR, fgG, fgB)
-					cr.Restore()
-				}
+				cr.Save()
+				cr.Translate(cellX, rowPixelY)
+				cr.Scale(horizScale, vertScale)
+				pangoRenderText(cr, charStr, charFont, fontSize, cell.Bold, fgR, fgG, fgB)
+				cr.Restore()
 			}
 		}
 
 		cr.Restore()
+
+		// Optimization: skip ahead to the next potential row boundary or split change
+		// Calculate next row boundary for this split
+		nextRowY := y + unitY - (relativeY % unitY)
+		if nextRowY > y+1 && nextRowY < splitEndY {
+			y = nextRowY - 1 // -1 because the loop will increment
+		}
 	}
 }
 

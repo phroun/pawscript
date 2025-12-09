@@ -863,109 +863,138 @@ func (w *Widget) renderSpriteGlyph(painter *qt.QPainter, glyph *purfecterm.Custo
 	}
 }
 
-// renderScreenSplits renders screen split regions that show different buffer positions
+// renderScreenSplits renders screen split regions using a scanline approach.
+// Iterates through each sprite-unit Y position and renders rows as boundaries are encountered.
 func (w *Widget) renderScreenSplits(painter *qt.QPainter, splits []*purfecterm.ScreenSplit,
 	cols, rows, charWidth, charHeight, unitX, unitY int,
 	fontFamily string, fontSize int, scheme purfecterm.ColorScheme, blinkPhase float64,
 	cursorVisible bool, cursorVisibleX, cursorVisibleY int, cursorShape int,
 	horizScale, vertScale float64) {
 
-	// Calculate screen height in sprite units
+	// Screen height in sprite units
 	screenHeightUnits := rows * unitY
 
-	for i, split := range splits {
-		// Skip splits at ScreenY=0 (that's the main screen, already rendered)
-		if split.ScreenY == 0 {
+	// Track which splits have had their backgrounds cleared
+	splitBackgroundCleared := make(map[int]bool)
+
+	// Helper to find which split is active at a given Y (in sprite units)
+	getSplitAtY := func(y int) (split *purfecterm.ScreenSplit, splitIdx int, endY int) {
+		for i := len(splits) - 1; i >= 0; i-- {
+			if splits[i].ScreenY <= y {
+				end := screenHeightUnits
+				if i+1 < len(splits) {
+					end = splits[i+1].ScreenY
+				}
+				return splits[i], i, end
+			}
+		}
+		return nil, -1, screenHeightUnits
+	}
+
+	// Set up font once
+	font := qt.NewQFont6(fontFamily, fontSize)
+	font.SetFixedPitch(true)
+	painter.SetFont(font)
+
+	// Iterate through each sprite-unit Y position (scanline approach)
+	for y := 0; y < screenHeightUnits; y++ {
+		split, splitIdx, splitEndY := getSplitAtY(y)
+
+		// Skip if no split at this position or if it's the main screen (ScreenY=0, not overriding)
+		if split == nil || (split.ScreenY == 0 && split.BufferRow == 0 && split.BufferCol == 0 &&
+			split.TopFineScroll == 0 && split.LeftFineScroll == 0) {
 			continue
 		}
 
-		// Calculate pixel Y range for this split
-		startY := split.ScreenY * charHeight / unitY
+		// Clear background for this split if not yet done
+		if !splitBackgroundCleared[splitIdx] {
+			splitBackgroundCleared[splitIdx] = true
 
-		// End Y is either the next split's start or screen bottom
-		var endY int
-		if i+1 < len(splits) {
-			endY = splits[i+1].ScreenY * charHeight / unitY
-		} else {
-			endY = screenHeightUnits * charHeight / unitY
+			startPixelY := split.ScreenY * charHeight / unitY
+			endPixelY := splitEndY * charHeight / unitY
+
+			painter.Save()
+			painter.SetClipRect(qt.NewQRect5(0, startPixelY, cols*charWidth+terminalLeftPadding, endPixelY-startPixelY))
+			bgColor := qt.NewQColor3(int(scheme.Background.R), int(scheme.Background.G), int(scheme.Background.B))
+			painter.FillRect5(0, startPixelY, cols*charWidth+terminalLeftPadding, endPixelY-startPixelY, bgColor)
+			painter.Restore()
 		}
 
-		// Apply fine scroll offset
+		// Check if this Y marks a row boundary for this split
+		relativeY := y - split.ScreenY + split.TopFineScroll
+		if relativeY < 0 || relativeY%unitY != 0 {
+			continue
+		}
+
+		// Calculate which row to render within this split
+		rowInSplit := relativeY / unitY
+
+		// Calculate fine scroll offsets in pixels
 		fineOffsetY := split.TopFineScroll * charHeight / unitY
 		fineOffsetX := split.LeftFineScroll * charWidth / unitX
 
-		// Save context and apply clipping for this split region
+		// Calculate pixel Y position for this row
+		rowPixelY := y*charHeight/unitY - fineOffsetY
+
+		// Set up clipping for this split region
+		startPixelY := split.ScreenY * charHeight / unitY
+		endPixelY := splitEndY * charHeight / unitY
+
 		painter.Save()
-		painter.SetClipRect(qt.NewQRect5(0, startY, cols*charWidth+terminalLeftPadding, endY-startY))
+		painter.SetClipRect(qt.NewQRect5(0, startPixelY, cols*charWidth+terminalLeftPadding, endPixelY-startPixelY))
 
-		// Fill with background
-		bgColor := qt.NewQColor3(int(scheme.Background.R), int(scheme.Background.G), int(scheme.Background.B))
-		painter.FillRect5(0, startY, cols*charWidth+terminalLeftPadding, endY-startY, bgColor)
+		// Get line attribute for this buffer row
+		lineAttr := w.buffer.GetLineAttributeForSplit(rowInSplit, split.BufferRow)
 
-		// Set up font
-		font := qt.NewQFont6(fontFamily, fontSize)
-		font.SetFixedPitch(true)
-		painter.SetFont(font)
-
-		// Calculate how many rows this split spans
-		splitRows := (endY - startY) / charHeight
-		if splitRows < 1 {
-			splitRows = 1
+		effectiveCols := cols
+		if lineAttr != purfecterm.LineAttrNormal {
+			effectiveCols = cols / 2
 		}
 
-		// Render cells for this split
-		for screenRow := 0; screenRow < splitRows; screenRow++ {
-			// Get line attribute for this buffer row
-			lineAttr := w.buffer.GetLineAttributeForSplit(screenRow, split.BufferRow)
+		// Render each cell in this row
+		for screenCol := 0; screenCol < effectiveCols; screenCol++ {
+			cell := w.buffer.GetCellForSplit(screenCol, rowInSplit, split.BufferRow, split.BufferCol)
 
-			effectiveCols := cols
-			if lineAttr != purfecterm.LineAttrNormal {
-				effectiveCols = cols / 2
+			fg := cell.Foreground
+			bg := cell.Background
+			if fg.Default {
+				fg = scheme.Foreground
+			}
+			if bg.Default {
+				bg = scheme.Background
 			}
 
-			for screenCol := 0; screenCol < effectiveCols; screenCol++ {
-				// Get cell from split's buffer position
-				cell := w.buffer.GetCellForSplit(screenCol, screenRow, split.BufferRow, split.BufferCol)
+			cellX := screenCol*charWidth + terminalLeftPadding - fineOffsetX
+			cellW := charWidth
+			cellH := charHeight
 
-				// Determine colors
-				fg := cell.Foreground
-				bg := cell.Background
-				if fg.Default {
-					fg = scheme.Foreground
-				}
-				if bg.Default {
-					bg = scheme.Background
-				}
+			if lineAttr != purfecterm.LineAttrNormal {
+				cellX = screenCol*charWidth*2 + terminalLeftPadding - fineOffsetX
+				cellW = charWidth * 2
+			}
 
-				// Calculate cell position (accounting for fine scroll)
-				cellX := screenCol*charWidth + terminalLeftPadding - fineOffsetX
-				cellY := startY + screenRow*charHeight - fineOffsetY
-				cellW := charWidth
-				cellH := charHeight
+			// Draw cell background if different from terminal background
+			if bg != scheme.Background {
+				bgQColor := qt.NewQColor3(int(bg.R), int(bg.G), int(bg.B))
+				painter.FillRect5(cellX, rowPixelY, cellW, cellH, bgQColor)
+			}
 
-				// For double-width lines, adjust dimensions
-				if lineAttr != purfecterm.LineAttrNormal {
-					cellX = screenCol*charWidth*2 + terminalLeftPadding - fineOffsetX
-					cellW = charWidth * 2
-				}
-
-				// Draw cell background if different from terminal background
-				if bg != scheme.Background {
-					bgQColor := qt.NewQColor3(int(bg.R), int(bg.G), int(bg.B))
-					painter.FillRect5(cellX, cellY, cellW, cellH, bgQColor)
-				}
-
-				// Draw character
-				if cell.Char != ' ' && cell.Char != 0 {
-					fgQColor := qt.NewQColor3(int(fg.R), int(fg.G), int(fg.B))
-					pen := qt.NewQPen3(fgQColor)
-					painter.SetPenWithPen(pen)
-					painter.DrawText2(cellX, cellY+charHeight*3/4, cell.String())
-				}
+			// Draw character
+			if cell.Char != ' ' && cell.Char != 0 {
+				fgQColor := qt.NewQColor3(int(fg.R), int(fg.G), int(fg.B))
+				pen := qt.NewQPen3(fgQColor)
+				painter.SetPenWithPen(pen)
+				painter.DrawText2(cellX, rowPixelY+charHeight*3/4, cell.String())
 			}
 		}
 
 		painter.Restore()
+
+		// Optimization: skip ahead to the next potential row boundary
+		nextRowY := y + unitY - (relativeY % unitY)
+		if nextRowY > y+1 && nextRowY < splitEndY {
+			y = nextRowY - 1
+		}
 	}
 }
 
