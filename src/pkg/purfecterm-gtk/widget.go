@@ -597,7 +597,6 @@ func (w *Widget) onDraw(da *gtk.DrawingArea, cr *cairo.Context) bool {
 	fontSize := w.fontSize
 	baseCharWidth := w.charWidth
 	baseCharHeight := w.charHeight
-	baseCharAscent := w.charAscent
 	blinkPhase := w.blinkPhase
 	w.mu.Unlock()
 
