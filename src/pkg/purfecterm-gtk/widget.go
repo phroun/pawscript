@@ -1016,7 +1016,19 @@ func (w *Widget) renderScreenSplits(cr *cairo.Context, splits []*purfecterm.Scre
 	cols, rows, charWidth, charHeight, unitX, unitY int,
 	fontFamily string, fontSize int, scheme purfecterm.ColorScheme, blinkPhase float64,
 	cursorVisible bool, cursorVisibleX, cursorVisibleY int, cursorShape int,
-	horizScale, vertScale float64, scrollOffset, horizOffset int) {
+	horizScale, vertScale float64, scrollOffset, horizOffset int) int {
+
+	// Return value: max content width found in splits (for horizontal scrollbar)
+	maxSplitContentWidth := 0
+
+	// Get screen crop (in sprite units, -1 = no crop)
+	widthCrop, _ := w.buffer.GetScreenCrop()
+
+	// Convert width crop from sprite units to columns (if set)
+	cropCols := -1
+	if widthCrop > 0 {
+		cropCols = widthCrop / unitX
+	}
 
 	// Calculate where the logical screen starts (in visible rows)
 	// This is where the yellow dotted line appears
@@ -1024,7 +1036,7 @@ func (w *Widget) renderScreenSplits(cr *cairo.Context, splits []*purfecterm.Scre
 
 	// If scrolled fully into scrollback (logical screen not visible), don't render splits
 	if scrollOffset > 0 && boundaryRow < 0 {
-		return
+		return 0
 	}
 
 	// Logical screen starts at boundaryRow if visible, else at row 0
@@ -1156,11 +1168,36 @@ func (w *Widget) renderScreenSplits(cr *cairo.Context, splits []*purfecterm.Scre
 			effectiveCols = cols / 2
 		}
 
+		// Get the content length for this row (excluding content before BufferCol)
+		contentLen := w.buffer.GetLineLengthForSplit(rowInSplit, currentSplit.BufferRow, currentSplit.BufferCol)
+
+		// Determine where to stop rendering:
+		// - At screen edge (effectiveCols)
+		// - At end of content (contentLen)
+		// - At crop boundary (cropCols) if set
+		maxRenderCol := effectiveCols
+		if contentLen < maxRenderCol {
+			maxRenderCol = contentLen
+		}
+		if cropCols > 0 && cropCols < maxRenderCol {
+			maxRenderCol = cropCols
+		}
+
+		// Track max content width across all split rows (for horizontal scrollbar)
+		// This is the effective line length, not limited by screen width
+		rowContentWidth := contentLen
+		if cropCols > 0 && cropCols < rowContentWidth {
+			rowContentWidth = cropCols
+		}
+		if rowContentWidth > maxSplitContentWidth {
+			maxSplitContentWidth = rowContentWidth
+		}
+
 		// Render each cell in this row
 		// All cells are shifted left by fineOffsetX; the clip rect at terminalLeftPadding
 		// will clip the left portion of the first cell when LeftFineScroll > 0
 		// horizOffset accounts for the global horizontal scroll position
-		for screenCol := 0; screenCol < effectiveCols; screenCol++ {
+		for screenCol := 0; screenCol < maxRenderCol; screenCol++ {
 			cell := w.buffer.GetCellForSplit(screenCol+horizOffset, rowInSplit, currentSplit.BufferRow, currentSplit.BufferCol)
 
 			// Calculate cell position (shifted left by fine scroll)
@@ -1230,6 +1267,8 @@ func (w *Widget) renderScreenSplits(cr *cairo.Context, splits []*purfecterm.Scre
 			y = nextRowY - 1 // -1 because the loop will increment
 		}
 	}
+
+	return maxSplitContentWidth
 }
 
 func (w *Widget) onDraw(da *gtk.DrawingArea, cr *cairo.Context) bool {
@@ -1622,9 +1661,14 @@ func (w *Widget) onDraw(da *gtk.DrawingArea, cr *cairo.Context) bool {
 	// Splits use logical scanline numbers relative to the scroll boundary
 	splits := w.buffer.GetScreenSplitsSorted()
 	if len(splits) > 0 {
-		w.renderScreenSplits(cr, splits, cols, rows, charWidth, charHeight, unitX, unitY,
+		splitContentWidth := w.renderScreenSplits(cr, splits, cols, rows, charWidth, charHeight, unitX, unitY,
 			fontFamily, fontSize, scheme, blinkPhase, cursorVisible, cursorVisibleX, cursorVisibleY,
 			cursorShape, horizScale, vertScale, scrollOffset, horizOffset)
+		// Store split content width for horizontal scrollbar calculation
+		w.buffer.SetSplitContentWidth(splitContentWidth)
+	} else {
+		// No splits, clear split content width
+		w.buffer.SetSplitContentWidth(0)
 	}
 
 	// Draw yellow dashed line between scrollback and logical screen
@@ -2439,15 +2483,23 @@ func (w *Widget) updateScrollbar() {
 func (w *Widget) updateHorizScrollbar() {
 	cols, _ := w.buffer.GetSize()
 	longestLine := w.buffer.GetLongestLineVisible()
+	splitContentWidth := w.buffer.GetSplitContentWidth()
 	horizOffset := w.buffer.GetHorizOffset()
 
+	// Use the maximum of scrollback content width and split content width
+	// Split content width is independent and may be wider due to different buffer positions
+	maxContentWidth := longestLine
+	if splitContentWidth > maxContentWidth {
+		maxContentWidth = splitContentWidth
+	}
+
 	// Show horizontal scrollbar only if content is wider than visible area
-	if longestLine > cols {
+	if maxContentWidth > cols {
 		w.horizScrollbar.Show()
 
 		adj := w.horizScrollbar.GetAdjustment()
 		adj.SetLower(0)
-		adj.SetUpper(float64(longestLine))
+		adj.SetUpper(float64(maxContentWidth))
 		adj.SetPageSize(float64(cols))
 		adj.SetValue(float64(horizOffset))
 	} else {

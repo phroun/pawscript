@@ -93,6 +93,9 @@ type Buffer struct {
 
 	// Screen splits for multi-region rendering
 	screenSplits map[int]*ScreenSplit // Split ID -> ScreenSplit
+
+	// Max content width from splits (for horizontal scrollbar, independent from scrollback)
+	splitContentWidth int
 }
 
 // ScreenSplit defines a split region that can show a different part of the buffer.
@@ -1503,7 +1506,12 @@ func (b *Buffer) NeedsHorizScrollbar() bool {
 	longest := b.GetLongestLineVisible()
 	b.mu.RLock()
 	cols := b.cols
+	splitWidth := b.splitContentWidth
 	b.mu.RUnlock()
+	// Consider both scrollback content and split content
+	if splitWidth > longest {
+		longest = splitWidth
+	}
 	return longest > cols
 }
 
@@ -1512,7 +1520,12 @@ func (b *Buffer) GetMaxHorizOffset() int {
 	longest := b.GetLongestLineVisible()
 	b.mu.RLock()
 	cols := b.cols
+	splitWidth := b.splitContentWidth
 	b.mu.RUnlock()
+	// Consider both scrollback content and split content
+	if splitWidth > longest {
+		longest = splitWidth
+	}
 	if longest <= cols {
 		return 0
 	}
@@ -2796,6 +2809,74 @@ func (b *Buffer) GetLineAttributeForSplit(screenY, bufferRow int) LineAttribute 
 		return b.lineInfos[logicalY].Attribute
 	}
 	return LineAttrNormal
+}
+
+// GetLineLengthForSplit returns the effective content length for a split row.
+// This is the line length minus the BufferCol offset (content before BufferCol is excluded).
+// Used to know when to stop rendering (no more content on line).
+func (b *Buffer) GetLineLengthForSplit(screenY, bufferRow, bufferCol int) int {
+	b.mu.RLock()
+	defer b.mu.RUnlock()
+
+	actualY := screenY + bufferRow
+
+	if actualY < 0 || actualY >= b.rows {
+		return 0
+	}
+
+	effectiveRows := b.EffectiveRows()
+	scrollbackSize := len(b.scrollback)
+
+	logicalHiddenAbove := 0
+	if effectiveRows > b.rows {
+		logicalHiddenAbove = effectiveRows - b.rows
+	}
+
+	totalScrollableAbove := scrollbackSize + logicalHiddenAbove
+
+	var lineLen int
+	if b.scrollOffset == 0 {
+		logicalY := logicalHiddenAbove + actualY
+		if logicalY >= 0 && logicalY < len(b.screen) {
+			lineLen = len(b.screen[logicalY])
+		}
+	} else {
+		absoluteY := totalScrollableAbove - b.scrollOffset + actualY
+		if absoluteY < scrollbackSize {
+			if absoluteY >= 0 && absoluteY < len(b.scrollback) {
+				lineLen = len(b.scrollback[absoluteY])
+			}
+		} else {
+			logicalY := absoluteY - scrollbackSize
+			if logicalY >= 0 && logicalY < len(b.screen) {
+				lineLen = len(b.screen[logicalY])
+			}
+		}
+	}
+
+	// Subtract the BufferCol offset - content before that is excluded from this split
+	effectiveLen := lineLen - bufferCol
+	if effectiveLen < 0 {
+		return 0
+	}
+	return effectiveLen
+}
+
+// SetSplitContentWidth sets the max content width found across all split regions.
+// This is called by the renderer after processing splits and is used for horizontal
+// scrollbar calculation independent from scrollback content.
+func (b *Buffer) SetSplitContentWidth(width int) {
+	b.mu.Lock()
+	defer b.mu.Unlock()
+	b.splitContentWidth = width
+}
+
+// GetSplitContentWidth returns the max content width found across all split regions.
+// Returns 0 if no splits are active or have content.
+func (b *Buffer) GetSplitContentWidth() int {
+	b.mu.RLock()
+	defer b.mu.RUnlock()
+	return b.splitContentWidth
 }
 
 // ResolveSpriteGlyphColor resolves a palette index to a color for sprite rendering
