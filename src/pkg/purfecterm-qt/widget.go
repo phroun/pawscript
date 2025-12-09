@@ -574,7 +574,8 @@ func (w *Widget) updateFontMetrics() {
 
 // renderCustomGlyph renders a custom glyph for a cell at the specified position
 // Returns true if a custom glyph was rendered, false if normal text rendering should be used
-func (w *Widget) renderCustomGlyph(painter *qt.QPainter, cell *purfecterm.Cell, cellX, cellY, cellW, cellH int, cellCol int, blinkPhase float64, blinkMode purfecterm.BlinkMode, lineAttr purfecterm.LineAttribute) bool {
+// Note: Double-height line support disabled in Qt due to signal handling conflicts
+func (w *Widget) renderCustomGlyph(painter *qt.QPainter, cell *purfecterm.Cell, cellX, cellY, cellW, cellH int, cellCol int, blinkPhase float64, blinkMode purfecterm.BlinkMode) bool {
 	glyph := w.buffer.GetGlyph(cell.Char)
 	if glyph == nil {
 		return false
@@ -594,32 +595,12 @@ func (w *Widget) renderCustomGlyph(painter *qt.QPainter, cell *purfecterm.Cell, 
 		yOffset = math.Sin(wavePhase) * 3.0
 	}
 
-	// Handle double-height lines by clipping and scaling
-	renderY := float64(cellY) + yOffset
-	scaleY := 1.0
-	clipNeeded := false
-
-	switch lineAttr {
-	case purfecterm.LineAttrDoubleWidth:
-		// Just 2x horizontal, already handled by cellW being doubled
-	case purfecterm.LineAttrDoubleTop:
-		// Show top half of glyph, scaled 2x vertically
-		scaleY = 2.0
-		clipNeeded = true
-	case purfecterm.LineAttrDoubleBottom:
-		// Show bottom half of glyph, scaled 2x vertically
-		scaleY = 2.0
-		renderY = float64(cellY) - float64(cellH) + yOffset // Shift up so bottom half is visible
-		clipNeeded = true
-	}
+	// Apply yOffset to cellY (convert to float for calculation)
+	cellYFloat := float64(cellY) + yOffset
 
 	// Calculate pixel size (scale glyph to fill cell)
 	pixelW := float64(cellW) / float64(glyphW)
-	pixelH := (float64(cellH) * scaleY) / float64(glyphH)
-
-	// Cell bounds for manual clipping (avoids Qt painter state changes that can cause signal issues)
-	cellTop := float64(cellY)
-	cellBottom := float64(cellY + cellH)
+	pixelH := float64(cellH) / float64(glyphH)
 
 	// Render each pixel
 	for gy := 0; gy < glyphH; gy++ {
@@ -637,9 +618,9 @@ func (w *Widget) renderCustomGlyph(painter *qt.QPainter, cell *purfecterm.Cell, 
 				drawY = glyphH - 1 - gy
 			}
 
-			// Calculate screen position
+			// Calculate screen position (using cellYFloat which includes wave offset)
 			px := float64(cellX) + float64(drawX)*pixelW
-			py := renderY + float64(drawY)*pixelH
+			py := cellYFloat + float64(drawY)*pixelH
 
 			// Check for adjacent non-transparent pixels in source glyph to hide seams
 			rightNeighborIdx := glyph.GetPixel(gx+1, gy)
@@ -653,25 +634,6 @@ func (w *Widget) renderCustomGlyph(painter *qt.QPainter, cell *purfecterm.Cell, 
 			}
 			if belowNeighborIdx != 0 {
 				drawH += 1
-			}
-
-			// Manual clipping for double-height lines (avoid Qt painter state changes)
-			if clipNeeded {
-				// Skip pixels entirely outside cell bounds
-				if py+drawH <= cellTop || py >= cellBottom {
-					continue
-				}
-				// Clip pixels that partially extend outside
-				if py < cellTop {
-					drawH -= cellTop - py
-					py = cellTop
-				}
-				if py+drawH > cellBottom {
-					drawH = cellBottom - py
-				}
-				if drawH <= 0 {
-					continue
-				}
 			}
 
 			// Resolve color from palette
@@ -1008,7 +970,7 @@ func (w *Widget) paintEvent(event *qt.QPaintEvent) {
 			// Draw character
 			if cell.Char != ' ' && cell.Char != 0 && blinkVisible {
 				// Check for custom glyph first
-				if w.renderCustomGlyph(painter, &cell, cellX, cellY, cellW, cellH, x, blinkPhase, scheme.BlinkMode, lineAttr) {
+				if w.renderCustomGlyph(painter, &cell, cellX, cellY, cellW, cellH, x, blinkPhase, scheme.BlinkMode) {
 					// Custom glyph was rendered, skip normal text rendering
 					goto afterCharRenderQt
 				}
@@ -1059,13 +1021,8 @@ func (w *Widget) paintEvent(event *qt.QPaintEvent) {
 						// Wide char: squeeze to fit cell width, then apply global scale
 						textScaleX *= targetCellWidth / float64(actualWidth)
 					} else if float64(actualWidth) < targetCellWidth {
-						if cellVisualWidth > 1.0 && purfecterm.IsAmbiguousWidth(cell.Char) {
-							// Ambiguous char in wide mode: stretch to fill the cell
-							textScaleX *= targetCellWidth / float64(actualWidth)
-						} else {
-							// Normal cell or naturally wide char: center within the cell
-							xOffset = (targetCellWidth - float64(actualWidth)) / 2.0 * horizScale
-						}
+						// Narrow char: center within the cell (offset is in scaled coordinates)
+						xOffset = (targetCellWidth - float64(actualWidth)) / 2.0 * horizScale
 					}
 
 					painter.Translate2(float64(cellX)+xOffset, float64(cellY)+float64(baseCharAscent)*vertScale+yOffset)
