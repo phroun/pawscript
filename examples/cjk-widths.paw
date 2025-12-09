@@ -37,7 +37,7 @@ macro ambiguous_auto (
 )
 
 # Clear screen and position at top
-write "\e[2J\e[H"
+write "\e[2J\e[H\e[0;5m"
 
 print "=== CJK Width Modes Demo ==="
 print ""

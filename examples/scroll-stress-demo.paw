@@ -270,7 +270,7 @@ while (lt {microtime}, ~end_time), (
 
     # Set color and print line (this scrolls the screen)
     color ~current_color
-    print {join ~current_line, ""}
+    print ~current_line
 
     # Advance pattern every few lines for variety
     line_count: {add ~line_count, 1}
@@ -282,6 +282,7 @@ while (lt {microtime}, ~end_time), (
             pattern_idx: 0
         )
     )
+    msleep 100
 )
 
 # --- Cleanup and summary ---

@@ -34,8 +34,8 @@ keysCh: {argv ~channels, 2}
 
 # Get screen dimensions
 info: {cursor}
-screenRows: {ret ~info.screen_rows}
-screenCols: {ret ~info.screen_cols}
+screenRows: 25  # {ret ~info.screen_rows}
+screenCols: 80  # {ret ~info.screen_cols}
 
 # Calculate playable area (leave room for status line at top)
 playTop: 2
@@ -61,6 +61,7 @@ inColorMode: false
 tickCount: 0
 
 # Clear screen and draw initial state
+write "\e[8;25;80t"
 clear screen
 cursor visible: false
 
