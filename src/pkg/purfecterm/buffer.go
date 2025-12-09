@@ -2020,6 +2020,27 @@ func (b *Buffer) SetPaletteEntry(paletteNum int, idx int, colorCode int, dim boo
 	b.markDirty()
 }
 
+// SetPaletteEntryColor sets a palette entry directly from a Color value
+// Use this for 256-color and true color palette entries
+func (b *Buffer) SetPaletteEntryColor(paletteNum int, idx int, color Color, dim bool) {
+	b.mu.Lock()
+	defer b.mu.Unlock()
+
+	palette, ok := b.palettes[paletteNum]
+	if !ok {
+		return // Palette doesn't exist
+	}
+	if idx < 0 || idx >= len(palette.Entries) {
+		return // Index out of bounds
+	}
+
+	entry := &palette.Entries[idx]
+	entry.Type = PaletteEntryColor
+	entry.Color = color
+	entry.Dim = dim
+	b.markDirty()
+}
+
 // GetPalette returns a palette by number, or nil if it doesn't exist
 func (b *Buffer) GetPalette(n int) *Palette {
 	b.mu.RLock()

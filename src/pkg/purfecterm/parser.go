@@ -744,20 +744,56 @@ func (p *Parser) executeOSCPalette(args string) {
 		}
 
 	case "s": // Set palette entry
-		// Format: s;N;IDX;COL or s;N;IDX;2;COL (dim)
+		// Formats:
+		//   s;N;IDX;COL           - SGR-style color (30-37, 90-97)
+		//   s;N;IDX;2;COL         - SGR-style color, dim
+		//   s;N;IDX;5;N256        - 256-color palette index
+		//   s;N;IDX;5;2;N256      - 256-color, dim
+		//   s;N;IDX;r;R;G;B       - True color RGB
+		//   s;N;IDX;r;2;R;G;B     - True color RGB, dim
 		if len(parts) >= 4 {
 			n, _ := strconv.Atoi(parts[1])
 			idx, _ := strconv.Atoi(parts[2])
-			dim := false
-			colorIdx := 3
-			// Check for dim modifier
-			if parts[3] == "2" && len(parts) >= 5 {
-				dim = true
-				colorIdx = 4
-			}
-			if colorIdx < len(parts) {
-				colorCode, _ := strconv.Atoi(parts[colorIdx])
-				p.buffer.SetPaletteEntry(n, idx, colorCode, dim)
+			mode := parts[3]
+
+			switch mode {
+			case "5": // 256-color mode
+				dim := false
+				colorIdx := 4
+				if len(parts) > 4 && parts[4] == "2" {
+					dim = true
+					colorIdx = 5
+				}
+				if colorIdx < len(parts) {
+					colorNum, _ := strconv.Atoi(parts[colorIdx])
+					color := Get256Color(colorNum)
+					p.buffer.SetPaletteEntryColor(n, idx, color, dim)
+				}
+
+			case "r": // True color RGB mode
+				dim := false
+				rgbStart := 4
+				if len(parts) > 4 && parts[4] == "2" {
+					dim = true
+					rgbStart = 5
+				}
+				if rgbStart+2 < len(parts) {
+					r, _ := strconv.Atoi(parts[rgbStart])
+					g, _ := strconv.Atoi(parts[rgbStart+1])
+					b, _ := strconv.Atoi(parts[rgbStart+2])
+					color := Color{R: uint8(r), G: uint8(g), B: uint8(b)}
+					p.buffer.SetPaletteEntryColor(n, idx, color, dim)
+				}
+
+			case "2": // Dim modifier for SGR-style (legacy format)
+				if len(parts) >= 5 {
+					colorCode, _ := strconv.Atoi(parts[4])
+					p.buffer.SetPaletteEntry(n, idx, colorCode, true)
+				}
+
+			default: // SGR-style color code
+				colorCode, _ := strconv.Atoi(mode)
+				p.buffer.SetPaletteEntry(n, idx, colorCode, false)
 			}
 		}
 	}
