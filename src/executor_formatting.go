@@ -31,6 +31,7 @@ func (e *Executor) escapeSpecialCharacters(str string) string {
 // nolint:unused // Reserved for future use
 func (e *Executor) encodeArgumentForParenGroup(arg interface{}) string {
 	const escapedTildePlaceholder = "\x00TILDE\x00"
+	const escapedQmarkPlaceholder = "\x00QMARK\x00"
 	var result string
 
 	switch v := arg.(type) {
@@ -63,8 +64,9 @@ func (e *Executor) encodeArgumentForParenGroup(arg interface{}) string {
 		result = "\"" + escaped + "\""
 	}
 
-	// Escape tildes to prevent tilde injection
+	// Escape tildes and question marks to prevent injection
 	result = strings.ReplaceAll(result, "~", escapedTildePlaceholder)
+	result = strings.ReplaceAll(result, "?", escapedQmarkPlaceholder)
 	return result
 }
 
@@ -75,6 +77,7 @@ func (e *Executor) encodeArgumentForParenGroup(arg interface{}) string {
 // be interpreted as variable references)
 func (e *Executor) encodeArgumentForList(arg interface{}) string {
 	const escapedTildePlaceholder = "\x00TILDE\x00"
+	const escapedQmarkPlaceholder = "\x00QMARK\x00"
 	var result string
 
 	switch v := arg.(type) {
@@ -108,8 +111,9 @@ func (e *Executor) encodeArgumentForList(arg interface{}) string {
 		result = "\\\"" + escaped + "\\\""
 	}
 
-	// Escape tildes to prevent tilde injection
+	// Escape tildes and question marks to prevent injection
 	result = strings.ReplaceAll(result, "~", escapedTildePlaceholder)
+	result = strings.ReplaceAll(result, "?", escapedQmarkPlaceholder)
 	return result
 }
 
@@ -194,16 +198,18 @@ func (e *Executor) encodeArgumentForSubstitution(arg interface{}) string {
 		result = fmt.Sprintf("%v", v)
 	}
 
-	// Protect tildes using two mechanisms:
-	// 1. Use placeholder \x00TILDE\x00 which survives substituteTildeExpressions
+	// Protect tildes and question marks using two mechanisms:
+	// 1. Use placeholder \x00TILDE\x00 or \x00QMARK\x00 which survives substituteTildeExpressions
 	//    (for when $1 is inside double quotes in the macro body)
 	// 2. Wrap in single quotes so after placeholder restoration, the result
 	//    parses as a QuotedString which processArguments doesn't tilde-resolve
 	//    (for when $1 is a bare token in the macro body)
-	if strings.Contains(result, "~") {
+	if strings.Contains(result, "~") || strings.Contains(result, "?") {
 		const escapedTildePlaceholder = "\x00TILDE\x00"
-		// First, escape tildes with placeholder
+		const escapedQmarkPlaceholder = "\x00QMARK\x00"
+		// First, escape tildes and question marks with placeholders
 		result = strings.ReplaceAll(result, "~", escapedTildePlaceholder)
+		result = strings.ReplaceAll(result, "?", escapedQmarkPlaceholder)
 		// Then wrap in single quotes (escape any existing single quotes first)
 		escaped := strings.ReplaceAll(result, "'", "\\'")
 		return "'" + escaped + "'"
