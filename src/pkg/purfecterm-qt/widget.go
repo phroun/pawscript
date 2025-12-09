@@ -933,7 +933,8 @@ func (w *Widget) paintEvent(event *qt.QPaintEvent) {
 		for logicalX := startCol; logicalX < endCol; logicalX++ {
 			// Screen position (0-based from visible area)
 			x := logicalX - horizOffset
-			cell := w.buffer.GetVisibleCell(logicalX, y)
+			// GetVisibleCell takes screen position and applies horizOffset internally
+			cell := w.buffer.GetVisibleCell(x, y)
 
 			// Calculate this cell's visual width
 			cellVisualWidth := 1.0
