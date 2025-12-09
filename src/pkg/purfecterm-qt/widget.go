@@ -611,19 +611,9 @@ func (w *Widget) renderCustomGlyph(painter *qt.QPainter, cell *purfecterm.Cell, 
 			px := float64(cellX) + float64(drawX)*pixelW
 			py := float64(cellY) + float64(drawY)*pixelH
 
-			// Check for adjacent non-transparent pixels to hide seams
-			// Right neighbor in draw space maps to different source depending on flip
-			var rightNeighborIdx, belowNeighborIdx int
-			if cell.XFlip {
-				rightNeighborIdx = glyph.GetPixel(gx-1, gy)
-			} else {
-				rightNeighborIdx = glyph.GetPixel(gx+1, gy)
-			}
-			if cell.YFlip {
-				belowNeighborIdx = glyph.GetPixel(gx, gy-1)
-			} else {
-				belowNeighborIdx = glyph.GetPixel(gx, gy+1)
-			}
+			// Check for adjacent non-transparent pixels in source glyph to hide seams
+			rightNeighborIdx := glyph.GetPixel(gx+1, gy)
+			belowNeighborIdx := glyph.GetPixel(gx, gy+1)
 
 			// Extend pixel to cover seams with adjacent non-transparent pixels
 			drawW := pixelW
