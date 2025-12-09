@@ -162,16 +162,28 @@ write "\e[5m[OK] "
 color reset: true
 print "\e[5mPalette 34 (blue): transparent, blue, black, bright-blue"
 
-# Create palette 35 (magenta for stars)
+# Create palette 35 (true purple using RGB - demonstrates true color support)
 pal_init 35, 4
 pal_set 35, 0, 8
-pal_set 35, 1, 35
-pal_set 35, 2, 95
+# Use true RGB for a nice purple (148, 0, 211 = dark violet)
+write "\e]7000;s;35;1;r;148;0;211\a"
+write "\e]7000;s;35;2;r;186;85;211\a"
 pal_set 35, 3, 97
 color green
 write "\e[5m[OK] "
 color reset: true
-print "\e[5mPalette 35 (magenta): transparent, magenta, bright-magenta, white"
+print "\e[5mPalette 35 (purple): transparent, RGB(148,0,211), RGB(186,85,211), white"
+
+# Create palette 36 (peach using true RGB)
+pal_init 36, 4
+pal_set 36, 0, 8
+write "\e]7000;s;36;1;r;255;180;128\a"
+write "\e]7000;s;36;2;r;255;218;185\a"
+pal_set 36, 3, 97
+color green
+write "\e[5m[OK] "
+color reset: true
+print "\e[5mPalette 36 (peach): transparent, RGB(255,180,128), RGB(255,218,185), white"
 
 print ""
 color yellow
@@ -326,11 +338,11 @@ write "\e]7002;s;10;2;18;-1;32;0;1;1;-1;84\a"
 write "\e]7002;s;11;5;18;-1;32;0;1;1;-1;84\a"
 write "\e]7002;s;12;8;18;-1;32;0;1;1;-1;84\a"
 
-# Stars in the sky
+# Stars in the sky (mix of purple and peach true-color palettes)
 write "\e]7002;s;20;1;2;-1;35;0;1;1;-1;83\a"
-write "\e]7002;s;21;4;1;-1;33;0;1;1;-1;83\a"
+write "\e]7002;s;21;4;1;-1;36;0;1;1;-1;83\a"
 write "\e]7002;s;22;7;3;-1;35;0;1;1;-1;83\a"
-write "\e]7002;s;23;10;1;-1;33;0;1;1;-1;83\a"
+write "\e]7002;s;23;10;1;-1;36;0;1;1;-1;83\a"
 
 color green
 write "\e[5m[OK] "
@@ -338,7 +350,7 @@ color reset: true
 print "\e[5mCreated background sprites:"
 print "    - Ground layer (brick tiles at Z=-1)"
 print "    - Trees (at Z=-1)"
-print "    - Stars in sky (at Z=-1)"
+print "    - Stars in sky (Z=-1, using true RGB purple and peach palettes)"
 print ""
 print "Notice how the sprites appear behind this text!"
 print "Default background cells are transparent to sprites."
@@ -552,9 +564,11 @@ print ""
 color cyan
 print "\e[5mOSC 7000 - Palettes:"
 color reset: true
-print "  da           Delete all palettes"
-print "  i;N;LEN      Initialize palette N with LEN entries"
-print "  s;N;IDX;COL  Set palette entry to color"
+print "  da             Delete all palettes"
+print "  i;N;LEN        Initialize palette N with LEN entries"
+print "  s;N;IDX;COL    Set entry to SGR color (30-37, 90-97)"
+print "  s;N;IDX;5;C    Set entry to 256-color palette index C"
+print "  s;N;IDX;r;R;G;B  Set entry to true RGB color"
 print ""
 color cyan
 print "OSC 7001 - Glyphs:"
