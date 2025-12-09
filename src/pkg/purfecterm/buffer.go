@@ -83,8 +83,8 @@ type Buffer struct {
 	// Sprite overlay system
 	sprites      map[int]*Sprite        // Sprite ID -> Sprite
 	cropRects    map[int]*CropRectangle // Crop rectangle ID -> CropRectangle
-	spriteUnitX  float64                // Coordinate unit X size (default 8.0)
-	spriteUnitY  float64                // Coordinate unit Y size (default 8.0)
+	spriteUnitX  int                    // Subdivisions per cell horizontally (default 8)
+	spriteUnitY  int                    // Subdivisions per cell vertically (default 8)
 }
 
 // NewBuffer creates a new terminal buffer
@@ -106,8 +106,8 @@ func NewBuffer(cols, rows, maxScrollback int) *Buffer {
 		customGlyphs:  make(map[rune]*CustomGlyph),
 		sprites:       make(map[int]*Sprite),
 		cropRects:     make(map[int]*CropRectangle),
-		spriteUnitX:   8.0, // Default coordinate unit
-		spriteUnitY:   8.0, // Default coordinate unit
+		spriteUnitX:   8, // Default: 8 subdivisions per cell
+		spriteUnitY:   8, // Default: 8 subdivisions per cell
 	}
 	b.initScreen()
 	return b
@@ -2356,8 +2356,8 @@ func (b *Buffer) colorToANSICode(c Color) int {
 
 // --- Sprite Overlay System Methods ---
 
-// SetSpriteUnits sets the coordinate unit sizes for sprite positioning
-func (b *Buffer) SetSpriteUnits(unitX, unitY float64) {
+// SetSpriteUnits sets how many subdivisions per cell for sprite coordinates
+func (b *Buffer) SetSpriteUnits(unitX, unitY int) {
 	b.mu.Lock()
 	defer b.mu.Unlock()
 	if unitX > 0 {
@@ -2369,8 +2369,8 @@ func (b *Buffer) SetSpriteUnits(unitX, unitY float64) {
 	b.markDirty()
 }
 
-// GetSpriteUnits returns the current coordinate unit sizes
-func (b *Buffer) GetSpriteUnits() (unitX, unitY float64) {
+// GetSpriteUnits returns the subdivisions per cell for sprite coordinates
+func (b *Buffer) GetSpriteUnits() (unitX, unitY int) {
 	b.mu.RLock()
 	defer b.mu.RUnlock()
 	return b.spriteUnitX, b.spriteUnitY

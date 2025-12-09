@@ -699,6 +699,18 @@ func (w *Widget) renderCustomGlyph(cr *cairo.Context, cell *purfecterm.Cell, cel
 	return true
 }
 
+// spriteCoordToPixels converts a sprite coordinate to pixel position without rounding error accumulation.
+// coordinate: sprite coordinate in subdivision units (e.g., 26.5)
+// unitsPerCell: number of subdivisions per cell (e.g., 8)
+// cellSize: pixel size of one cell (e.g., charWidth or charHeight)
+// Returns: wholeCells * cellSize + remainderUnits * (cellSize / unitsPerCell)
+func spriteCoordToPixels(coordinate float64, unitsPerCell int, cellSize int) float64 {
+	// Calculate whole cells first to avoid accumulating rounding errors
+	wholeCells := int(coordinate) / unitsPerCell
+	remainderUnits := coordinate - float64(wholeCells*unitsPerCell)
+	return float64(wholeCells*cellSize) + remainderUnits*float64(cellSize)/float64(unitsPerCell)
+}
+
 // renderSprites renders a list of sprites at their positions
 func (w *Widget) renderSprites(cr *cairo.Context, sprites []*purfecterm.Sprite, charWidth, charHeight int, scheme purfecterm.ColorScheme, scrollOffsetY, horizOffsetX int) {
 	if len(sprites) == 0 {
@@ -713,7 +725,8 @@ func (w *Widget) renderSprites(cr *cairo.Context, sprites []*purfecterm.Sprite, 
 }
 
 // renderSprite renders a single sprite
-func (w *Widget) renderSprite(cr *cairo.Context, sprite *purfecterm.Sprite, unitX, unitY float64, charWidth, charHeight int, scheme purfecterm.ColorScheme, scrollOffsetY, horizOffsetX int) {
+// unitX, unitY are subdivisions per cell (e.g., 8 means 8 subdivisions per character cell)
+func (w *Widget) renderSprite(cr *cairo.Context, sprite *purfecterm.Sprite, unitX, unitY int, charWidth, charHeight int, scheme purfecterm.ColorScheme, scrollOffsetY, horizOffsetX int) {
 	if sprite == nil || len(sprite.Runes) == 0 {
 		return
 	}
@@ -733,11 +746,9 @@ func (w *Widget) renderSprite(cr *cairo.Context, sprite *purfecterm.Sprite, unit
 	scrollPixelX := float64(horizOffsetX * charWidth)
 
 	// Calculate base position in pixels (relative to visible area)
-	// Sprite position is in coordinate units, convert to pixels
-	// Y: Add scrollPixelY because viewing scrollback pushes logical screen down
-	// X: Subtract scrollPixelX because horizontal scroll shifts content left
-	basePixelX := sprite.X*unitX + float64(terminalLeftPadding) - scrollPixelX
-	basePixelY := sprite.Y*unitY + scrollPixelY
+	// Use spriteCoordToPixels to avoid accumulating rounding errors
+	basePixelX := spriteCoordToPixels(sprite.X, unitX, charWidth) + float64(terminalLeftPadding) - scrollPixelX
+	basePixelY := spriteCoordToPixels(sprite.Y, unitY, charHeight) + scrollPixelY
 
 	// Determine the total sprite dimensions in tiles
 	spriteRows := len(sprite.Runes)
@@ -748,9 +759,9 @@ func (w *Widget) renderSprite(cr *cairo.Context, sprite *purfecterm.Sprite, unit
 		}
 	}
 
-	// Calculate tile size (one coordinate unit in pixels, scaled)
-	tileW := unitX * sprite.XScale
-	tileH := unitY * sprite.YScale
+	// Calculate tile size: one tile = 1/unitX of a cell, scaled by XScale/YScale
+	tileW := float64(charWidth) / float64(unitX) * sprite.XScale
+	tileH := float64(charHeight) / float64(unitY) * sprite.YScale
 
 	// Get flip flags
 	xFlip := sprite.GetXFlip()
@@ -781,10 +792,10 @@ func (w *Widget) renderSprite(cr *cairo.Context, sprite *purfecterm.Sprite, unit
 
 			// Apply crop rectangle if specified (also relative to logical screen)
 			if cropRect != nil {
-				cropMinX := cropRect.MinX*unitX + float64(terminalLeftPadding) - scrollPixelX
-				cropMinY := cropRect.MinY*unitY + scrollPixelY
-				cropMaxX := cropRect.MaxX*unitX + float64(terminalLeftPadding) - scrollPixelX
-				cropMaxY := cropRect.MaxY*unitY + scrollPixelY
+				cropMinX := spriteCoordToPixels(cropRect.MinX, unitX, charWidth) + float64(terminalLeftPadding) - scrollPixelX
+				cropMinY := spriteCoordToPixels(cropRect.MinY, unitY, charHeight) + scrollPixelY
+				cropMaxX := spriteCoordToPixels(cropRect.MaxX, unitX, charWidth) + float64(terminalLeftPadding) - scrollPixelX
+				cropMaxY := spriteCoordToPixels(cropRect.MaxY, unitY, charHeight) + scrollPixelY
 
 				// Skip if tile is completely outside crop rect
 				if pixelX+tileW <= cropMinX || pixelX >= cropMaxX ||
@@ -800,7 +811,7 @@ func (w *Widget) renderSprite(cr *cairo.Context, sprite *purfecterm.Sprite, unit
 			}
 
 			// Render the glyph at this position
-			w.renderSpriteGlyph(cr, glyph, sprite, pixelX, pixelY, tileW, tileH, scheme, cropRect, unitX, unitY, scrollPixelX, scrollPixelY)
+			w.renderSpriteGlyph(cr, glyph, sprite, pixelX, pixelY, tileW, tileH, scheme, cropRect, unitX, unitY, charWidth, charHeight, scrollPixelX, scrollPixelY)
 		}
 	}
 }
@@ -808,7 +819,7 @@ func (w *Widget) renderSprite(cr *cairo.Context, sprite *purfecterm.Sprite, unit
 // renderSpriteGlyph renders a single glyph within a sprite tile
 func (w *Widget) renderSpriteGlyph(cr *cairo.Context, glyph *purfecterm.CustomGlyph, sprite *purfecterm.Sprite,
 	tileX, tileY, tileW, tileH float64, scheme purfecterm.ColorScheme,
-	cropRect *purfecterm.CropRectangle, unitX, unitY float64, scrollPixelX, scrollPixelY float64) {
+	cropRect *purfecterm.CropRectangle, unitX, unitY int, charWidth, charHeight int, scrollPixelX, scrollPixelY float64) {
 
 	glyphW := glyph.Width
 	glyphH := glyph.Height
@@ -824,10 +835,10 @@ func (w *Widget) renderSpriteGlyph(cr *cairo.Context, glyph *purfecterm.CustomGl
 	var cropMinX, cropMinY, cropMaxX, cropMaxY float64
 	hasCrop := cropRect != nil
 	if hasCrop {
-		cropMinX = cropRect.MinX*unitX + float64(terminalLeftPadding) - scrollPixelX
-		cropMinY = cropRect.MinY*unitY + scrollPixelY
-		cropMaxX = cropRect.MaxX*unitX + float64(terminalLeftPadding) - scrollPixelX
-		cropMaxY = cropRect.MaxY*unitY + scrollPixelY
+		cropMinX = spriteCoordToPixels(cropRect.MinX, unitX, charWidth) + float64(terminalLeftPadding) - scrollPixelX
+		cropMinY = spriteCoordToPixels(cropRect.MinY, unitY, charHeight) + scrollPixelY
+		cropMaxX = spriteCoordToPixels(cropRect.MaxX, unitX, charWidth) + float64(terminalLeftPadding) - scrollPixelX
+		cropMaxY = spriteCoordToPixels(cropRect.MaxY, unitY, charHeight) + scrollPixelY
 	}
 
 	// Determine default foreground color for this sprite

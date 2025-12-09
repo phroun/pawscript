@@ -970,11 +970,11 @@ func (p *Parser) executeOSCSprite(args string) {
 			p.buffer.MoveSpriteAndRunes(id, x, y, runes)
 		}
 
-	case "u": // Set coordinate units
+	case "u": // Set coordinate units (subdivisions per cell)
 		// Format: u;UX;UY
 		if len(parts) >= 3 {
-			ux, _ := strconv.ParseFloat(parts[1], 64)
-			uy, _ := strconv.ParseFloat(parts[2], 64)
+			ux, _ := strconv.Atoi(parts[1])
+			uy, _ := strconv.Atoi(parts[2])
 			p.buffer.SetSpriteUnits(ux, uy)
 		}
 
