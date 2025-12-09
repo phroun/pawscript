@@ -298,10 +298,11 @@ func (e *Executor) isSafeIdentifier(s string) bool {
 
 // encodeListItems encodes the items of a StoredList as comma-separated values
 // without the outer parentheses (for use with unescape operator ${...})
-// IMPORTANT: Escapes tildes to prevent tilde injection (tildes in values should not
-// be interpreted as variable references)
+// IMPORTANT: Escapes tildes and question marks to prevent injection (they should not
+// be interpreted as variable references or existence checks)
 func (e *Executor) encodeListItems(list StoredList) string {
 	const escapedTildePlaceholder = "\x00TILDE\x00"
+	const escapedQmarkPlaceholder = "\x00QMARK\x00"
 	items := list.Items()
 	if len(items) == 0 {
 		return ""
@@ -334,8 +335,9 @@ func (e *Executor) encodeListItems(list StoredList) string {
 		default:
 			parts[i] = fmt.Sprintf("%v", v)
 		}
-		// Escape tildes in this item to prevent tilde injection
+		// Escape tildes and question marks in this item to prevent injection
 		parts[i] = strings.ReplaceAll(parts[i], "~", escapedTildePlaceholder)
+		parts[i] = strings.ReplaceAll(parts[i], "?", escapedQmarkPlaceholder)
 	}
 
 	return strings.Join(parts, ", ")

@@ -1478,14 +1478,12 @@ func parseStringLiteral(str string) string {
 				// Line continuation: backslash followed by newline produces empty string
 				i += 2
 			case '~':
-				// Escaped tilde: preserve as \~ for later processing by applySubstitution
-				result.WriteRune('\\')
-				result.WriteRune('~')
+				// Escaped tilde: use placeholder to prevent interpretation as variable reference
+				result.WriteString("\x00TILDE\x00")
 				i += 2
 			case '?':
-				// Escaped question mark: preserve as \? for later processing by applySubstitution
-				result.WriteRune('\\')
-				result.WriteRune('?')
+				// Escaped question mark: use placeholder to prevent interpretation as existence check
+				result.WriteString("\x00QMARK\x00")
 				i += 2
 			case 'x':
 				// Hex escape: \xHH

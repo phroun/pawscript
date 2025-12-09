@@ -340,11 +340,9 @@ func (e *Executor) executeSingleCommand(
 				Filename: substitutionCtx.Filename,
 			}
 			commandStr = e.substituteTildeExpressions(commandStr, substitutionCtx.ExecutionState, tildePosition)
-			// Restore escaped tildes and question marks
+			// Restore escaped tildes and question marks to literal characters
 			commandStr = strings.ReplaceAll(commandStr, "\x00TILDE\x00", "~")
-			commandStr = strings.ReplaceAll(commandStr, `\~`, "~")
 			commandStr = strings.ReplaceAll(commandStr, "\x00QMARK\x00", "?")
-			commandStr = strings.ReplaceAll(commandStr, `\?`, "?")
 		}
 	} else {
 		subResult := e.applySubstitution(commandStr, substitutionCtx)
@@ -1934,6 +1932,28 @@ func (e *Executor) processArguments(args []interface{}, state *ExecutionState, s
 
 		// Not a marker or tilde, keep the original argument
 		result[i] = arg
+	}
+
+	// Convert escape placeholders to literal characters in string arguments
+	for i, arg := range result {
+		switch v := arg.(type) {
+		case string:
+			v = strings.ReplaceAll(v, "\x00TILDE\x00", "~")
+			v = strings.ReplaceAll(v, "\x00QMARK\x00", "?")
+			result[i] = v
+		case QuotedString:
+			s := string(v)
+			s = strings.ReplaceAll(s, "\x00TILDE\x00", "~")
+			s = strings.ReplaceAll(s, "\x00QMARK\x00", "?")
+			result[i] = QuotedString(s) // Preserve QuotedString type
+		case Symbol:
+			s := string(v)
+			if strings.Contains(s, "\x00TILDE\x00") || strings.Contains(s, "\x00QMARK\x00") {
+				s = strings.ReplaceAll(s, "\x00TILDE\x00", "~")
+				s = strings.ReplaceAll(s, "\x00QMARK\x00", "?")
+				result[i] = s
+			}
+		}
 	}
 
 	return result
