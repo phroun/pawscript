@@ -112,6 +112,8 @@ func saveBrowseDir(dir string) {
 
 // Configuration getter wrappers using shared configHelper
 func getFontFamily() string                   { return configHelper.GetFontFamily() }
+func getFontFamilyUnicode() string            { return configHelper.GetFontFamilyUnicode() }
+func getFontFamilyCJK() string                { return configHelper.GetFontFamilyCJK() }
 func getFontSize() int                        { return configHelper.GetFontSize() }
 func getUIScale() float64                     { return configHelper.GetUIScale() }
 func getOptimizationLevel() int               { return configHelper.GetOptimizationLevel() }
@@ -549,6 +551,9 @@ func createTerminalPanel() *qt.QWidget {
 		fmt.Fprintf(os.Stderr, "Failed to create terminal: %v\n", err)
 		os.Exit(1)
 	}
+
+	// Set font fallbacks for Unicode/CJK characters
+	terminal.SetFontFallbacks(getFontFamilyUnicode(), getFontFamilyCJK())
 
 	layout.AddWidget2(terminal.Widget(), 1)
 
