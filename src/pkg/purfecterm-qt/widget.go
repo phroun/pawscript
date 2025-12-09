@@ -629,10 +629,19 @@ func (w *Widget) paintEvent(event *qt.QPaintEvent) {
 		startCol := horizOffset
 		endCol := horizOffset + effectiveCols
 
+		// Track accumulated visual width for flex-width rendering
+		visibleAccumulatedWidth := 0.0
+
 		for logicalX := startCol; logicalX < endCol; logicalX++ {
 			// Screen position (0-based from visible area)
 			x := logicalX - horizOffset
 			cell := w.buffer.GetVisibleCell(logicalX, y)
+
+			// Calculate this cell's visual width
+			cellVisualWidth := 1.0
+			if cell.FlexWidth && cell.CellWidth > 0 {
+				cellVisualWidth = cell.CellWidth
+			}
 
 			fg := cell.Foreground
 			bg := cell.Background
@@ -673,25 +682,32 @@ func (w *Widget) paintEvent(event *qt.QPaintEvent) {
 				fg, bg = bg, fg
 			}
 
-			// Calculate cell position
+			// Calculate cell position and size based on line attributes and flex width
 			var cellX, cellY, cellW, cellH int
 			switch lineAttr {
 			case purfecterm.LineAttrNormal:
-				cellX = x*charWidth + terminalLeftPadding
+				// Use accumulated width for X position when cells have flex width
+				cellX = int(visibleAccumulatedWidth*float64(charWidth)) + terminalLeftPadding
 				cellY = y * charHeight
-				cellW = charWidth
+				cellW = int(cellVisualWidth * float64(charWidth))
 				cellH = charHeight
 			case purfecterm.LineAttrDoubleWidth:
-				cellX = x*2*charWidth + terminalLeftPadding
+				// Each character takes up 2x its normal width
+				cellX = int(visibleAccumulatedWidth*2.0*float64(charWidth)) + terminalLeftPadding
 				cellY = y * charHeight
-				cellW = charWidth * 2
+				cellW = int(cellVisualWidth * float64(charWidth) * 2.0)
 				cellH = charHeight
 			case purfecterm.LineAttrDoubleTop, purfecterm.LineAttrDoubleBottom:
-				cellX = x*2*charWidth + terminalLeftPadding
+				// Each character takes up 2x its normal width, text is rendered 2x height
+				cellX = int(visibleAccumulatedWidth*2.0*float64(charWidth)) + terminalLeftPadding
 				cellY = y * charHeight
-				cellW = charWidth * 2
+				cellW = int(cellVisualWidth * float64(charWidth) * 2.0)
 				cellH = charHeight
 			}
+
+			// Track accumulated width for next cell
+			_ = x // x is still useful for wave animation phase calculation
+			visibleAccumulatedWidth += cellVisualWidth
 
 			// Draw background if different from terminal background
 			if bg != scheme.Background {
@@ -739,17 +755,16 @@ func (w *Widget) paintEvent(event *qt.QPaintEvent) {
 					// Characters are drawn at scaled size to fit in scaled cells
 					painter.Save()
 
-					// Calculate horizontal scale factor:
-					// 1. Start with global horizScale
-					// 2. If character is wider than base cell, squeeze it
+					// Calculate target cell width for flex width cells
+					targetCellWidth := cellVisualWidth * float64(baseCharWidth)
 					textScaleX := horizScale
 					xOffset := 0.0
-					if actualWidth > baseCharWidth {
-						// Wide char: squeeze to fit base cell width, then apply global scale
-						textScaleX *= float64(baseCharWidth) / float64(actualWidth)
-					} else if actualWidth < baseCharWidth {
+					if float64(actualWidth) > targetCellWidth {
+						// Wide char: squeeze to fit cell width, then apply global scale
+						textScaleX *= targetCellWidth / float64(actualWidth)
+					} else if float64(actualWidth) < targetCellWidth {
 						// Narrow char: center within the cell (offset is in scaled coordinates)
-						xOffset = float64(baseCharWidth-actualWidth) / 2.0 * horizScale
+						xOffset = (targetCellWidth - float64(actualWidth)) / 2.0 * horizScale
 					}
 
 					painter.Translate2(float64(cellX)+xOffset, float64(cellY)+float64(baseCharAscent)*vertScale+yOffset)
@@ -760,15 +775,16 @@ func (w *Widget) paintEvent(event *qt.QPaintEvent) {
 					// Double-width line: 2x horizontal scale on top of global scaling
 					// Cell is already 2x charWidth wide, text should fill it
 					painter.Save()
-					// Combine global horizScale with 2x for double-width
+					// Calculate target cell width for flex width cells
+					targetCellWidth := cellVisualWidth * float64(baseCharWidth)
 					textScaleX := horizScale * 2.0
 					xOffset := 0.0
-					if actualWidth > baseCharWidth {
-						// Wide char: squeeze to fit base cell
-						textScaleX *= float64(baseCharWidth) / float64(actualWidth)
-					} else if actualWidth < baseCharWidth {
+					if float64(actualWidth) > targetCellWidth {
+						// Wide char: squeeze to fit cell
+						textScaleX *= targetCellWidth / float64(actualWidth)
+					} else if float64(actualWidth) < targetCellWidth {
 						// Center narrow char (offset in final scaled coordinates)
-						xOffset = float64(baseCharWidth-actualWidth) * horizScale
+						xOffset = (targetCellWidth - float64(actualWidth)) * horizScale
 					}
 					painter.Translate2(float64(cellX)+xOffset, float64(cellY)+float64(baseCharAscent)*vertScale+yOffset)
 					painter.Scale(textScaleX, vertScale)
@@ -778,14 +794,15 @@ func (w *Widget) paintEvent(event *qt.QPaintEvent) {
 					// Double-height top half: 2x both directions, show top half only
 					painter.Save()
 					painter.SetClipRect2(cellX, cellY, cellW, cellH)
-					// Combine global scaling with 2x for double size
+					// Calculate target cell width for flex width cells
+					targetCellWidth := cellVisualWidth * float64(baseCharWidth)
 					textScaleX := horizScale * 2.0
 					textScaleY := vertScale * 2.0
 					xOffset := 0.0
-					if actualWidth > baseCharWidth {
-						textScaleX *= float64(baseCharWidth) / float64(actualWidth)
-					} else if actualWidth < baseCharWidth {
-						xOffset = float64(baseCharWidth-actualWidth) * horizScale
+					if float64(actualWidth) > targetCellWidth {
+						textScaleX *= targetCellWidth / float64(actualWidth)
+					} else if float64(actualWidth) < targetCellWidth {
+						xOffset = (targetCellWidth - float64(actualWidth)) * horizScale
 					}
 					// Position baseline at 2x ascent (only top half visible due to clip)
 					painter.Translate2(float64(cellX)+xOffset, float64(cellY)+float64(baseCharAscent)*vertScale*2.0+yOffset*2)
@@ -796,13 +813,15 @@ func (w *Widget) paintEvent(event *qt.QPaintEvent) {
 					// Double-height bottom half: 2x both directions, show bottom half only
 					painter.Save()
 					painter.SetClipRect2(cellX, cellY, cellW, cellH)
+					// Calculate target cell width for flex width cells
+					targetCellWidth := cellVisualWidth * float64(baseCharWidth)
 					textScaleX := horizScale * 2.0
 					textScaleY := vertScale * 2.0
 					xOffset := 0.0
-					if actualWidth > baseCharWidth {
-						textScaleX *= float64(baseCharWidth) / float64(actualWidth)
-					} else if actualWidth < baseCharWidth {
-						xOffset = float64(baseCharWidth-actualWidth) * horizScale
+					if float64(actualWidth) > targetCellWidth {
+						textScaleX *= targetCellWidth / float64(actualWidth)
+					} else if float64(actualWidth) < targetCellWidth {
+						xOffset = (targetCellWidth - float64(actualWidth)) * horizScale
 					}
 					// Position so bottom half is visible (shift up by one cell height)
 					painter.Translate2(float64(cellX)+xOffset, float64(cellY)+float64(baseCharAscent)*vertScale*2.0-float64(charHeight)+yOffset*2)
@@ -882,7 +901,7 @@ func (w *Widget) screenToCell(screenX, screenY int) (cellX, cellY int) {
 	charHeight := int(float64(baseCharHeight) * vertScale)
 
 	cellY = screenY / charHeight
-	_, rows := w.buffer.GetSize()
+	cols, rows := w.buffer.GetSize()
 	if cellY < 0 {
 		cellY = 0
 	}
@@ -890,22 +909,54 @@ func (w *Widget) screenToCell(screenX, screenY int) (cellX, cellY int) {
 		cellY = rows - 1
 	}
 
+	// Check if this line has doubled attributes (affects column calculation)
 	lineAttr := w.buffer.GetVisibleLineAttribute(cellY)
-	effectiveCharWidth := charWidth
+	lineScale := 1.0
 	if lineAttr != purfecterm.LineAttrNormal {
-		effectiveCharWidth = charWidth * 2
+		// Doubled lines: each logical cell is 2x wide visually
+		lineScale = 2.0
 	}
 
-	// Calculate screen column, then add horizontal offset to get logical column
-	horizOffset := w.buffer.GetHorizOffset()
-	screenCol := (screenX - terminalLeftPadding) / effectiveCharWidth
-	cellX = screenCol + horizOffset
+	// Calculate which cell the mouse is in, accounting for flex width
+	// First, get the x position relative to content area
+	relativeX := float64(screenX - terminalLeftPadding)
+	if relativeX < 0 {
+		cellX = 0
+		return
+	}
 
+	// Get horizontal scroll offset
+	horizOffset := w.buffer.GetHorizOffset()
+
+	// Iterate through cells to find which one contains this x position
+	// accumulatedPixels tracks the right edge of each cell
+	accumulatedPixels := 0.0
+	for col := horizOffset; col < cols+horizOffset; col++ {
+		cell := w.buffer.GetVisibleCell(col, cellY)
+
+		// Calculate this cell's visual width
+		cellVisualWidth := 1.0
+		if cell.FlexWidth && cell.CellWidth > 0 {
+			cellVisualWidth = cell.CellWidth
+		}
+
+		// Calculate pixel width of this cell
+		cellPixelWidth := cellVisualWidth * float64(charWidth) * lineScale
+
+		// Check if the click is within this cell
+		if relativeX < accumulatedPixels+cellPixelWidth {
+			cellX = col
+			return
+		}
+
+		accumulatedPixels += cellPixelWidth
+	}
+
+	// If we've gone past all cells, return the last cell
+	cellX = cols + horizOffset - 1
 	if cellX < 0 {
 		cellX = 0
 	}
-	// No upper bound check on cellX - allow selecting beyond visible area
-	// (the buffer will handle out of bounds access)
 	return
 }
 

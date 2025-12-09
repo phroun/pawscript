@@ -32,6 +32,12 @@ type Buffer struct {
 	currentUnderline bool
 	currentReverse   bool
 	currentBlink     bool
+	currentFlexWidth bool // Current attribute for East Asian Width mode
+
+	// Flexible cell width mode (East Asian Width)
+	flexWidthMode      bool               // When true, new chars get FlexWidth=true and calculated CellWidth
+	visualWidthWrap    bool               // When true, wrap based on accumulated visual width, not cell count
+	ambiguousWidthMode AmbiguousWidthMode // How to handle ambiguous width chars: Auto/Narrow/Wide
 
 	// Screen storage - lines can have variable width
 	screen    [][]Cell
@@ -474,6 +480,56 @@ func (b *Buffer) IsBracketedPasteModeEnabled() bool {
 	return b.bracketedPasteMode
 }
 
+// SetFlexWidthMode enables or disables flexible East Asian Width mode
+// When enabled, new characters get FlexWidth=true and their CellWidth calculated
+// based on Unicode East_Asian_Width property (0.5/1.0/1.5/2.0 cell units)
+func (b *Buffer) SetFlexWidthMode(enabled bool) {
+	b.mu.Lock()
+	defer b.mu.Unlock()
+	b.flexWidthMode = enabled
+	b.currentFlexWidth = enabled
+}
+
+// IsFlexWidthModeEnabled returns whether flexible East Asian Width mode is enabled
+func (b *Buffer) IsFlexWidthModeEnabled() bool {
+	b.mu.RLock()
+	defer b.mu.RUnlock()
+	return b.flexWidthMode
+}
+
+// SetVisualWidthWrap enables or disables visual width-based line wrapping
+// When enabled, lines wrap based on accumulated visual width (sum of CellWidth)
+// When disabled, lines wrap based on cell count
+func (b *Buffer) SetVisualWidthWrap(enabled bool) {
+	b.mu.Lock()
+	defer b.mu.Unlock()
+	b.visualWidthWrap = enabled
+}
+
+// IsVisualWidthWrapEnabled returns whether visual width-based wrapping is enabled
+func (b *Buffer) IsVisualWidthWrapEnabled() bool {
+	b.mu.RLock()
+	defer b.mu.RUnlock()
+	return b.visualWidthWrap
+}
+
+// SetAmbiguousWidthMode sets the handling for ambiguous East Asian Width characters
+// Auto: match width of previous character (default)
+// Narrow: always 1.0 width
+// Wide: always 2.0 width
+func (b *Buffer) SetAmbiguousWidthMode(mode AmbiguousWidthMode) {
+	b.mu.Lock()
+	defer b.mu.Unlock()
+	b.ambiguousWidthMode = mode
+}
+
+// GetAmbiguousWidthMode returns the current ambiguous width mode
+func (b *Buffer) GetAmbiguousWidthMode() AmbiguousWidthMode {
+	b.mu.RLock()
+	defer b.mu.RUnlock()
+	return b.ambiguousWidthMode
+}
+
 // SaveCursor saves the current cursor position
 func (b *Buffer) SaveCursor() {
 	b.mu.Lock()
@@ -498,6 +554,74 @@ func (b *Buffer) WriteChar(ch rune) {
 	b.writeCharInternal(ch)
 }
 
+// getPreviousCellWidth returns the width of the previous cell for ambiguous auto-matching.
+// If there's no previous cell or it doesn't have FlexWidth set, returns 1.0.
+func (b *Buffer) getPreviousCellWidth() float64 {
+	// Find the previous cell
+	prevX := b.cursorX - 1
+	prevY := b.cursorY
+
+	// If we're at the start of a line, try the end of the previous line
+	if prevX < 0 {
+		if prevY > 0 {
+			prevY--
+			if prevY < len(b.screen) && len(b.screen[prevY]) > 0 {
+				prevX = len(b.screen[prevY]) - 1
+			} else {
+				return 1.0 // No previous cell, default to 1.0
+			}
+		} else {
+			return 1.0 // At start of buffer, default to 1.0
+		}
+	}
+
+	// Get the previous cell
+	if prevY < len(b.screen) && prevX < len(b.screen[prevY]) {
+		prevCell := b.screen[prevY][prevX]
+		if prevCell.FlexWidth && prevCell.CellWidth > 0 {
+			return prevCell.CellWidth
+		}
+	}
+
+	return 1.0 // Default to 1.0 if no valid previous cell
+}
+
+// getLineVisualWidth calculates the accumulated visual width of a line up to (but not including) col.
+// Returns the sum of CellWidth values for cells 0 to col-1.
+func (b *Buffer) getLineVisualWidth(row, col int) float64 {
+	if row < 0 || row >= len(b.screen) {
+		return 0
+	}
+	line := b.screen[row]
+	width := 0.0
+	for i := 0; i < col && i < len(line); i++ {
+		if line[i].CellWidth > 0 {
+			width += line[i].CellWidth
+		} else {
+			width += 1.0 // Default for cells without width set
+		}
+	}
+	return width
+}
+
+// GetLineVisualWidth returns the visual width of a line up to (but not including) col.
+// This is the public thread-safe version.
+func (b *Buffer) GetLineVisualWidth(row, col int) float64 {
+	b.mu.RLock()
+	defer b.mu.RUnlock()
+	return b.getLineVisualWidth(row, col)
+}
+
+// GetTotalLineVisualWidth returns the total visual width of a line.
+func (b *Buffer) GetTotalLineVisualWidth(row int) float64 {
+	b.mu.RLock()
+	defer b.mu.RUnlock()
+	if row < 0 || row >= len(b.screen) {
+		return 0
+	}
+	return b.getLineVisualWidth(row, len(b.screen[row]))
+}
+
 func (b *Buffer) writeCharInternal(ch rune) {
 	// Handle combining characters (Hebrew vowel points, diacritics, etc.)
 	// These should be appended to the previous cell, not placed in a new cell
@@ -509,8 +633,40 @@ func (b *Buffer) writeCharInternal(ch rune) {
 	effectiveCols := b.EffectiveCols()
 	effectiveRows := b.EffectiveRows()
 
-	// Handle line wrap at logical column limit
-	if b.cursorX >= effectiveCols {
+	// Calculate the width this character will take
+	var charWidth float64
+	if b.currentFlexWidth {
+		charWidth = GetEastAsianWidth(ch)
+		// Handle ambiguous width characters (-1.0 means ambiguous)
+		if charWidth < 0 {
+			switch b.ambiguousWidthMode {
+			case AmbiguousWidthNarrow:
+				charWidth = 1.0
+			case AmbiguousWidthWide:
+				charWidth = 2.0
+			default: // AmbiguousWidthAuto
+				// Match width of previous character
+				charWidth = b.getPreviousCellWidth()
+			}
+		}
+	} else {
+		charWidth = 1.0
+	}
+
+	// Handle line wrap
+	// If visual width wrap is enabled, wrap based on accumulated visual width
+	// Otherwise, wrap based on cell count (traditional behavior)
+	shouldWrap := false
+	if b.visualWidthWrap && b.currentFlexWidth {
+		// Visual width wrap: wrap when adding this char would exceed column limit
+		currentVisualWidth := b.getLineVisualWidth(b.cursorY, b.cursorX)
+		shouldWrap = (currentVisualWidth + charWidth) > float64(effectiveCols)
+	} else {
+		// Traditional cell-count wrap
+		shouldWrap = b.cursorX >= effectiveCols
+	}
+
+	if shouldWrap {
 		b.cursorX = 0
 		b.cursorY++
 		if b.cursorY >= effectiveRows {
@@ -534,7 +690,7 @@ func (b *Buffer) writeCharInternal(ch rune) {
 		fg, bg = bg, fg
 	}
 
-	b.screen[b.cursorY][b.cursorX] = Cell{
+	cell := Cell{
 		Char:       ch,
 		Foreground: fg,
 		Background: bg,
@@ -542,7 +698,17 @@ func (b *Buffer) writeCharInternal(ch rune) {
 		Italic:     b.currentItalic,
 		Underline:  b.currentUnderline,
 		Blink:      b.currentBlink,
+		FlexWidth:  b.currentFlexWidth,
 	}
+
+	// Calculate cell width when in flex width mode
+	if b.currentFlexWidth {
+		cell.CellWidth = GetEastAsianWidth(ch)
+	} else {
+		cell.CellWidth = 1.0 // Default width when not in flex mode
+	}
+
+	b.screen[b.cursorY][b.cursorX] = cell
 	b.cursorX++
 	b.markDirty()
 }

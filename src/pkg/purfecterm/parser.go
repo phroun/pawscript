@@ -625,6 +625,28 @@ func (p *Parser) executePrivateModeSet(set bool) {
 			// Not yet implemented
 		case 2004: // Bracketed paste mode
 			p.buffer.SetBracketedPasteMode(set)
+		case 2027: // Flexible East Asian Width mode
+			p.buffer.SetFlexWidthMode(set)
+		case 2028: // Visual width-based line wrapping
+			p.buffer.SetVisualWidthWrap(set)
+		case 2029: // Ambiguous width: narrow (1.0)
+			if set {
+				p.buffer.SetAmbiguousWidthMode(AmbiguousWidthNarrow)
+			} else {
+				// Turning off narrow - check if wide is set, otherwise auto
+				if p.buffer.GetAmbiguousWidthMode() == AmbiguousWidthNarrow {
+					p.buffer.SetAmbiguousWidthMode(AmbiguousWidthAuto)
+				}
+			}
+		case 2030: // Ambiguous width: wide (2.0)
+			if set {
+				p.buffer.SetAmbiguousWidthMode(AmbiguousWidthWide)
+			} else {
+				// Turning off wide - check if narrow is set, otherwise auto
+				if p.buffer.GetAmbiguousWidthMode() == AmbiguousWidthWide {
+					p.buffer.SetAmbiguousWidthMode(AmbiguousWidthAuto)
+				}
+			}
 		case 1: // DECCKM - Application cursor keys
 			// Not yet implemented
 		case 7: // DECAWM - Auto-wrap mode
