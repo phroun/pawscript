@@ -264,9 +264,9 @@ pattern_idx: 0
 
 # Main scroll loop (30 seconds = 30000000 microseconds)
 while (lt {microtime}, ~end_time), (
-    # Get current pattern
-    current_line: {slice ~line_patterns, ~pattern_idx, 1}
-    current_color: {slice ~pattern_colors, ~pattern_idx, 1}
+    # Get current pattern by indexing into list
+    current_line: ~line_patterns ~pattern_idx
+    current_color: ~pattern_colors ~pattern_idx
 
     # Set color and print line (this scrolls the screen)
     color ~current_color
