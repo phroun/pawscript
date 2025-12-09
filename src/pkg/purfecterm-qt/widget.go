@@ -1023,12 +1023,18 @@ func (w *Widget) paintEvent(event *qt.QPaintEvent) {
 						textScaleX *= targetCellWidth / actualWidthF
 					} else if actualWidthF < targetCellWidth {
 						if cellVisualWidth > 1.0 {
-							// Wide cell: use fixed multiplier (proportional calc crashes Qt)
-							textScaleX *= cellVisualWidth
+							// Wide cell: stretch to fill proportionally
+							textScaleX *= targetCellWidth / actualWidthF
 						} else {
 							// Normal cell: center narrow char
 							xOffset = (targetCellWidth - actualWidthF) / 2.0 * horizScale
 						}
+					}
+					// Clamp scale to reasonable range to avoid Qt issues
+					if textScaleX < 0.01 {
+						textScaleX = 0.01
+					} else if textScaleX > 100.0 {
+						textScaleX = 100.0
 					}
 
 					painter.Translate2(float64(cellX)+xOffset, float64(cellY)+float64(baseCharAscent)*vertScale+yOffset)
