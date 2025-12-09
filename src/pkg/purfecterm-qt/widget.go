@@ -1018,13 +1018,13 @@ func (w *Widget) paintEvent(event *qt.QPaintEvent) {
 					actualWidthF := float64(actualWidth)
 					textScaleX := horizScale
 					xOffset := 0.0
-					if actualWidthF > 0 && actualWidthF > targetCellWidth {
+					if actualWidthF > targetCellWidth {
 						// Wide char: squeeze to fit cell width, then apply global scale
 						textScaleX *= targetCellWidth / actualWidthF
-					} else if actualWidthF > 0 && actualWidthF < targetCellWidth {
+					} else if actualWidthF < targetCellWidth {
 						if cellVisualWidth > 1.0 {
-							// Wide cell: stretch to fill proportionally
-							textScaleX *= targetCellWidth / actualWidthF
+							// Wide cell: use fixed multiplier (proportional calc crashes Qt)
+							textScaleX *= cellVisualWidth
 						} else {
 							// Normal cell: center narrow char
 							xOffset = (targetCellWidth - actualWidthF) / 2.0 * horizScale
