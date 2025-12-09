@@ -195,25 +195,8 @@ print "Static sine wave displayed. Note:"
 print "  - Top half of row 1 is clipped (TopFineScroll=4)"
 print "  - Horizontal sine wave distortion visible"
 print ""
-color yellow
-print "Press RETURN to exit..."
+color green
+print "Splits left active for REPL exploration!"
 color reset: true
-_: {read}
-
-# --- Cleanup ---
-split_clear_all
-crop_clear
-clear screen
-color cyan
-print "=== Sine Wave Split Demo Complete ==="
-color reset: true
-print ""
-print "Key techniques demonstrated:"
-print "  - Creating many splits for per-scanline control"
-print "  - Using LeftFineScroll for horizontal sub-cell offsets"
-print "  - Using TopFineScroll to crop top portion of first row"
-print "  - Animating fine scroll values for smooth effects"
-print ""
-print "Performance note: Many splits may impact rendering speed."
-print "Use fewer splits with larger regions for better performance."
+print "Try typing text or use: split_clear_all to reset"
 print ""
