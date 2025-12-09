@@ -425,6 +425,10 @@ func (p *Parser) executeCSI(finalByte byte) {
 
 // executeWindowManipulation handles ESC [ Ps ; Ps ; Ps t - Window manipulation
 // We specifically handle ESC [ 8 ; rows ; cols t to set logical screen size
+// Custom extensions:
+//   ESC [ 9 ; 40 ; 0 t - Disable 40-column mode
+//   ESC [ 9 ; 40 ; 1 t - Enable 40-column mode
+//   ESC [ 9 ; 25 t - Set line density to 25 (also: 30, 43, 50, 60)
 func (p *Parser) executeWindowManipulation() {
 	if len(p.csiParams) == 0 {
 		return
@@ -443,6 +447,24 @@ func (p *Parser) executeWindowManipulation() {
 			cols = p.csiParams[2]
 		}
 		p.buffer.SetLogicalSize(rows, cols)
+
+	case 9: // Custom PurfecTerm extensions
+		if len(p.csiParams) < 2 {
+			return
+		}
+		subCmd := p.csiParams[1]
+		switch subCmd {
+		case 40: // 40-column mode toggle
+			// ESC [ 9 ; 40 ; 0 t = disable, ESC [ 9 ; 40 ; 1 t = enable
+			enabled := false
+			if len(p.csiParams) > 2 && p.csiParams[2] != 0 {
+				enabled = true
+			}
+			p.buffer.Set40ColumnMode(enabled)
+		case 25, 30, 43, 50, 60: // Line density
+			// ESC [ 9 ; density t
+			p.buffer.SetLineDensity(subCmd)
+		}
 
 	// Other window manipulation commands could be added here
 	// case 1: De-iconify window
@@ -578,6 +600,8 @@ func (p *Parser) executeSGR() {
 func (p *Parser) executePrivateModeSet(set bool) {
 	for _, param := range p.csiParams {
 		switch param {
+		case 3: // DECCOLM - 132 Column Mode (horizontal scale 0.6060)
+			p.buffer.Set132ColumnMode(set)
 		case 25: // DECTCEM - Cursor visibility
 			p.buffer.SetCursorVisible(set)
 		case 1049: // Alternate screen buffer

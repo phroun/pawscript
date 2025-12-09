@@ -300,3 +300,45 @@ func (t *Terminal) SetWorkingDirectory(dir string) {
 func (t *Terminal) SetInputCallback(fn func([]byte)) {
 	t.widget.SetInputCallback(fn)
 }
+
+// --- Screen Scaling Mode Methods ---
+
+// Set132ColumnMode enables or disables 132-column mode (horizontal scale 0.6060)
+func (t *Terminal) Set132ColumnMode(enabled bool) {
+	t.widget.buffer.Set132ColumnMode(enabled)
+}
+
+// Get132ColumnMode returns whether 132-column mode is enabled
+func (t *Terminal) Get132ColumnMode() bool {
+	return t.widget.buffer.Get132ColumnMode()
+}
+
+// Set40ColumnMode enables or disables 40-column mode (horizontal scale 2.0)
+func (t *Terminal) Set40ColumnMode(enabled bool) {
+	t.widget.buffer.Set40ColumnMode(enabled)
+}
+
+// Get40ColumnMode returns whether 40-column mode is enabled
+func (t *Terminal) Get40ColumnMode() bool {
+	return t.widget.buffer.Get40ColumnMode()
+}
+
+// SetLineDensity sets the line density (25, 30, 43, 50, or 60)
+func (t *Terminal) SetLineDensity(density int) {
+	t.widget.buffer.SetLineDensity(density)
+}
+
+// GetLineDensity returns the current line density
+func (t *Terminal) GetLineDensity() int {
+	return t.widget.buffer.GetLineDensity()
+}
+
+// GetHorizontalScale returns the combined horizontal scaling factor
+func (t *Terminal) GetHorizontalScale() float64 {
+	return t.widget.buffer.GetHorizontalScale()
+}
+
+// GetVerticalScale returns the vertical scaling factor
+func (t *Terminal) GetVerticalScale() float64 {
+	return t.widget.buffer.GetVerticalScale()
+}

@@ -408,9 +408,9 @@ func (w *Widget) paintEvent(event *qt.QPaintEvent) {
 	scheme := w.scheme
 	fontFamily := w.fontFamily
 	fontSize := w.fontSize
-	charWidth := w.charWidth
-	charHeight := w.charHeight
-	charAscent := w.charAscent
+	baseCharWidth := w.charWidth
+	baseCharHeight := w.charHeight
+	baseCharAscent := w.charAscent
 	blinkPhase := w.blinkPhase
 	w.mu.Unlock()
 
@@ -420,6 +420,15 @@ func (w *Widget) paintEvent(event *qt.QPaintEvent) {
 	cursorShape, _ := w.buffer.GetCursorStyle()
 	scrollOffset := w.buffer.GetScrollOffset()
 	horizOffset := w.buffer.GetHorizOffset()
+
+	// Get screen scaling factors
+	horizScale := w.buffer.GetHorizontalScale()
+	vertScale := w.buffer.GetVerticalScale()
+
+	// Apply scaling to character dimensions
+	charWidth := int(float64(baseCharWidth) * horizScale)
+	charHeight := int(float64(baseCharHeight) * vertScale)
+	charAscent := int(float64(baseCharAscent) * vertScale)
 
 	if scrollOffset > 0 {
 		cursorVisible = false
@@ -676,9 +685,15 @@ func (w *Widget) paintEvent(event *qt.QPaintEvent) {
 
 func (w *Widget) screenToCell(screenX, screenY int) (cellX, cellY int) {
 	w.mu.Lock()
-	charWidth := w.charWidth
-	charHeight := w.charHeight
+	baseCharWidth := w.charWidth
+	baseCharHeight := w.charHeight
 	w.mu.Unlock()
+
+	// Apply screen scaling
+	horizScale := w.buffer.GetHorizontalScale()
+	vertScale := w.buffer.GetVerticalScale()
+	charWidth := int(float64(baseCharWidth) * horizScale)
+	charHeight := int(float64(baseCharHeight) * vertScale)
 
 	cellY = screenY / charHeight
 	_, rows := w.buffer.GetSize()
@@ -1003,9 +1018,21 @@ func (w *Widget) resizeEvent(event *qt.QResizeEvent) {
 		}
 	}
 
+	// Apply screen scaling to character dimensions
+	horizScale := w.buffer.GetHorizontalScale()
+	vertScale := w.buffer.GetVerticalScale()
+	scaledCharWidth := int(float64(w.charWidth) * horizScale)
+	scaledCharHeight := int(float64(w.charHeight) * vertScale)
+	if scaledCharWidth < 1 {
+		scaledCharWidth = 1
+	}
+	if scaledCharHeight < 1 {
+		scaledCharHeight = 1
+	}
+
 	// Account for scrollbars when calculating columns
-	newCols := (widgetWidth - terminalLeftPadding - scrollbarWidth) / w.charWidth
-	newRows := effectiveHeight / w.charHeight
+	newCols := (widgetWidth - terminalLeftPadding - scrollbarWidth) / scaledCharWidth
+	newRows := effectiveHeight / scaledCharHeight
 
 	if newCols < 1 {
 		newCols = 1
