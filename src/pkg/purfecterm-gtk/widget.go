@@ -1003,10 +1003,15 @@ func (w *Widget) onDraw(da *gtk.DrawingArea, cr *cairo.Context) bool {
 	w.mu.Unlock()
 
 	cols, rows := w.buffer.GetSize()
-	cursorX, cursorY := w.buffer.GetCursor()
 	cursorVisible := w.buffer.IsCursorVisible()
 	cursorShape, _ := w.buffer.GetCursorStyle() // 0=block, 1=underline, 2=bar
 	scrollOffset := w.buffer.GetScrollOffset()
+
+	// Get cursor's visible position (accounting for scroll offset)
+	cursorVisibleX, cursorVisibleY := w.buffer.GetCursorVisiblePosition()
+	if cursorVisibleX < 0 || cursorVisibleY < 0 {
+		cursorVisible = false
+	}
 
 	// Get screen scaling factors
 	horizScale := w.buffer.GetHorizontalScale()
@@ -1015,11 +1020,6 @@ func (w *Widget) onDraw(da *gtk.DrawingArea, cr *cairo.Context) bool {
 	// Apply scaling to character dimensions
 	charWidth := int(float64(baseCharWidth) * horizScale)
 	charHeight := int(float64(baseCharHeight) * vertScale)
-
-	// Hide cursor when scrolled back
-	if scrollOffset > 0 {
-		cursorVisible = false
-	}
 
 	// Draw background - fill entire widget area (not just cell area)
 	// This ensures any extra space at edges is filled with terminal background
@@ -1112,7 +1112,7 @@ func (w *Widget) onDraw(da *gtk.DrawingArea, cr *cairo.Context) bool {
 			}
 
 			// Handle cursor - only swap colors for solid block cursor when focused
-			isCursor := cursorVisible && logicalX == cursorX && y == cursorY && w.cursorBlinkOn
+			isCursor := cursorVisible && x == cursorVisibleX && y == cursorVisibleY && w.cursorBlinkOn
 			if isCursor && w.hasFocus && cursorShape == 0 {
 				// Swap colors for solid block cursor when focused
 				fg, bg = bg, fg
@@ -1356,8 +1356,9 @@ func (w *Widget) onDraw(da *gtk.DrawingArea, cr *cairo.Context) bool {
 	w.renderSprites(cr, frontSprites, charWidth, charHeight, scheme, scrollOffset, horizOffset)
 
 	// Draw yellow dashed line between scrollback and logical screen
-	if scrollOffset > 0 && scrollOffset < rows {
-		lineY := float64(scrollOffset * charHeight)
+	boundaryRow := w.buffer.GetScrollbackBoundaryVisibleRow()
+	if boundaryRow > 0 {
+		lineY := float64(boundaryRow * charHeight)
 		cr.SetSourceRGB(1.0, 0.78, 0.0) // Yellow (255, 200, 0)
 		cr.SetLineWidth(1.0)
 		cr.SetDash([]float64{4, 4}, 0)

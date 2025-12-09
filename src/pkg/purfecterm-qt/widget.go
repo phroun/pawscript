@@ -859,11 +859,16 @@ func (w *Widget) paintEvent(event *qt.QPaintEvent) {
 	w.mu.Unlock()
 
 	cols, rows := w.buffer.GetSize()
-	cursorX, cursorY := w.buffer.GetCursor()
 	cursorVisible := w.buffer.IsCursorVisible()
 	cursorShape, _ := w.buffer.GetCursorStyle()
 	scrollOffset := w.buffer.GetScrollOffset()
 	horizOffset := w.buffer.GetHorizOffset()
+
+	// Get cursor's visible position (accounting for scroll offset)
+	cursorVisibleX, cursorVisibleY := w.buffer.GetCursorVisiblePosition()
+	if cursorVisibleX < 0 || cursorVisibleY < 0 {
+		cursorVisible = false
+	}
 
 	// Get screen scaling factors
 	horizScale := w.buffer.GetHorizontalScale()
@@ -872,10 +877,6 @@ func (w *Widget) paintEvent(event *qt.QPaintEvent) {
 	// Apply scaling to character dimensions
 	charWidth := int(float64(baseCharWidth) * horizScale)
 	charHeight := int(float64(baseCharHeight) * vertScale)
-
-	if scrollOffset > 0 {
-		cursorVisible = false
-	}
 
 	painter := qt.NewQPainter2(w.widget.QPaintDevice)
 	defer painter.End()
@@ -958,7 +959,7 @@ func (w *Widget) paintEvent(event *qt.QPaintEvent) {
 			}
 
 			// Handle cursor (compare against logical position)
-			isCursor := cursorVisible && logicalX == cursorX && y == cursorY && w.cursorBlinkOn
+			isCursor := cursorVisible && x == cursorVisibleX && y == cursorVisibleY && w.cursorBlinkOn
 			if isCursor && w.hasFocus && cursorShape == 0 {
 				fg, bg = bg, fg
 			}
@@ -1180,8 +1181,9 @@ func (w *Widget) paintEvent(event *qt.QPaintEvent) {
 	w.renderSprites(painter, frontSprites, charWidth, charHeight, scheme, scrollOffset, horizOffset)
 
 	// Draw yellow dashed line between scrollback and logical screen
-	if scrollOffset > 0 && scrollOffset < rows {
-		lineY := scrollOffset * charHeight
+	boundaryRow := w.buffer.GetScrollbackBoundaryVisibleRow()
+	if boundaryRow > 0 {
+		lineY := boundaryRow * charHeight
 		yellowColor := qt.NewQColor3(255, 200, 0)
 		pen := qt.NewQPen3(yellowColor)
 		pen.SetWidth(1)

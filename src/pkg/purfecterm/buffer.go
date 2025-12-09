@@ -1299,6 +1299,68 @@ func (b *Buffer) GetScrollOffset() int {
 	return b.scrollOffset
 }
 
+// GetScrollbackBoundaryVisibleRow returns the visible row (0-indexed from top of display)
+// where the boundary between scrollback and logical screen is located.
+// Returns -1 if the boundary is not currently visible (either fully in scrollback or fully in logical screen).
+func (b *Buffer) GetScrollbackBoundaryVisibleRow() int {
+	b.mu.RLock()
+	defer b.mu.RUnlock()
+
+	effectiveRows := b.EffectiveRows()
+	scrollbackSize := len(b.scrollback)
+
+	// If no scrollback, no boundary to show
+	if scrollbackSize == 0 {
+		return -1
+	}
+
+	// Calculate how much of the logical screen is hidden above
+	logicalHiddenAbove := 0
+	if effectiveRows > b.rows {
+		logicalHiddenAbove = effectiveRows - b.rows
+	}
+
+	// The boundary is visible at row: scrollOffset - logicalHiddenAbove
+	// This is where absoluteY == scrollbackSize (first logical row)
+	boundaryRow := b.scrollOffset - logicalHiddenAbove
+
+	// Boundary must be within visible area (0 to rows-1)
+	if boundaryRow <= 0 || boundaryRow >= b.rows {
+		return -1
+	}
+
+	return boundaryRow
+}
+
+// GetCursorVisiblePosition returns the visible (x, y) position of the cursor
+// accounting for scroll offset. Returns (-1, -1) if the cursor is not currently visible.
+func (b *Buffer) GetCursorVisiblePosition() (x, y int) {
+	b.mu.RLock()
+	defer b.mu.RUnlock()
+
+	effectiveRows := b.EffectiveRows()
+
+	// Calculate how much of the logical screen is hidden above
+	logicalHiddenAbove := 0
+	if effectiveRows > b.rows {
+		logicalHiddenAbove = effectiveRows - b.rows
+	}
+
+	// The cursor is at logical position (cursorX, cursorY)
+	// Its visible position is: cursorY - logicalHiddenAbove + scrollOffset
+	visibleY := b.cursorY - logicalHiddenAbove + b.scrollOffset
+
+	// Check if cursor is within visible area
+	if visibleY < 0 || visibleY >= b.rows {
+		return -1, -1
+	}
+
+	// X position needs to account for horizontal scroll
+	visibleX := b.cursorX - b.horizOffset
+
+	return visibleX, visibleY
+}
+
 // SetHorizOffset sets the horizontal scroll offset
 func (b *Buffer) SetHorizOffset(offset int) {
 	b.mu.Lock()
