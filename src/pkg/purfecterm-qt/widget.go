@@ -733,9 +733,9 @@ func (w *Widget) renderSprite(painter *qt.QPainter, sprite *purfecterm.Sprite, u
 		}
 	}
 
-	// Calculate tile size: one tile = 1/unitX of a cell, scaled by XScale/YScale
-	tileW := float64(charWidth) / float64(unitX) * sprite.XScale
-	tileH := float64(charHeight) / float64(unitY) * sprite.YScale
+	// Calculate tile size: XScale/YScale are in cell units (XScale=1 means one tile fills one cell)
+	tileW := float64(charWidth) * sprite.XScale
+	tileH := float64(charHeight) * sprite.YScale
 
 	// Get flip flags
 	xFlip := sprite.GetXFlip()
