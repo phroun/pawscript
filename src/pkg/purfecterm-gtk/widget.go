@@ -113,10 +113,14 @@ static int pango_text_width(cairo_t *cr, const char *text, const char *font_fami
     return width;
 }
 
-// Get font metrics for proper baseline positioning
+// Get font metrics for proper baseline positioning (creates its own temp surface)
 // Returns: ascent in out_ascent, descent in out_descent, height in out_height
-static void pango_get_font_metrics(cairo_t *cr, const char *font_family, int font_size,
-                                   int *out_ascent, int *out_descent, int *out_height) {
+static void pango_get_font_metrics_standalone(const char *font_family, int font_size,
+                                              int *out_ascent, int *out_descent, int *out_height) {
+    // Create a temporary image surface just to get a cairo context for Pango
+    cairo_surface_t *surface = cairo_image_surface_create(CAIRO_FORMAT_ARGB32, 1, 1);
+    cairo_t *cr = cairo_create(surface);
+
     PangoLayout *layout = pango_cairo_create_layout(cr);
 
     PangoFontDescription *desc = pango_font_description_new();
@@ -136,6 +140,40 @@ static void pango_get_font_metrics(cairo_t *cr, const char *font_family, int fon
     pango_font_metrics_unref(metrics);
     pango_font_description_free(desc);
     g_object_unref(layout);
+
+    // Clean up temporary surface
+    cairo_destroy(cr);
+    cairo_surface_destroy(surface);
+}
+
+// Get text width standalone (creates its own temp surface)
+static int pango_text_width_standalone(const char *text, const char *font_family,
+                                       int font_size, int bold) {
+    cairo_surface_t *surface = cairo_image_surface_create(CAIRO_FORMAT_ARGB32, 1, 1);
+    cairo_t *cr = cairo_create(surface);
+
+    PangoLayout *layout = pango_cairo_create_layout(cr);
+
+    PangoFontDescription *desc = pango_font_description_new();
+    pango_font_description_set_family(desc, font_family);
+    pango_font_description_set_size(desc, font_size * PANGO_SCALE);
+    if (bold) {
+        pango_font_description_set_weight(desc, PANGO_WEIGHT_BOLD);
+    }
+
+    pango_layout_set_font_description(layout, desc);
+    pango_layout_set_text(layout, text, -1);
+
+    int width, height;
+    pango_layout_get_pixel_size(layout, &width, &height);
+
+    pango_font_description_free(desc);
+    g_object_unref(layout);
+
+    cairo_destroy(cr);
+    cairo_surface_destroy(surface);
+
+    return width;
 }
 */
 import "C"
@@ -521,15 +559,32 @@ func pangoTextWidth(cr *cairo.Context, text, fontFamily string, fontSize int, bo
 }
 
 // pangoFontMetrics returns the ascent, descent, and total height for a font.
-func pangoFontMetrics(cr *cairo.Context, fontFamily string, fontSize int) (ascent, descent, height int) {
+// This standalone version creates its own temporary cairo surface.
+func pangoFontMetrics(fontFamily string, fontSize int) (ascent, descent, height int) {
 	cFont := C.CString(fontFamily)
 	defer C.free(unsafe.Pointer(cFont))
 
 	var cAscent, cDescent, cHeight C.int
-	crNative := (*C.cairo_t)(unsafe.Pointer(cr.Native()))
-	C.pango_get_font_metrics(crNative, cFont, C.int(fontSize), &cAscent, &cDescent, &cHeight)
+	C.pango_get_font_metrics_standalone(cFont, C.int(fontSize), &cAscent, &cDescent, &cHeight)
 
 	return int(cAscent), int(cDescent), int(cHeight)
+}
+
+// pangoTextWidthStandalone returns the pixel width of text using a temporary surface.
+// Use this when no cairo context is available.
+func pangoTextWidthStandalone(text, fontFamily string, fontSize int, bold bool) int {
+	cText := C.CString(text)
+	defer C.free(unsafe.Pointer(cText))
+
+	cFont := C.CString(fontFamily)
+	defer C.free(unsafe.Pointer(cFont))
+
+	boldInt := 0
+	if bold {
+		boldInt = 1
+	}
+
+	return int(C.pango_text_width_standalone(cText, cFont, C.int(fontSize), C.int(boldInt)))
 }
 
 // SetColorScheme sets the color scheme
@@ -615,17 +670,11 @@ func (w *Widget) Buffer() *purfecterm.Buffer {
 }
 
 func (w *Widget) updateFontMetrics() {
-	// Create a temporary cairo surface to get Pango font metrics
-	surface := cairo.NewSurface(cairo.FORMAT_ARGB32, 1, 1)
-	cr := cairo.Create(surface)
-	defer cr.Close()
-	defer surface.Close()
-
-	// Get actual font metrics from Pango
-	ascent, descent, height := pangoFontMetrics(cr, w.fontFamily, w.fontSize)
+	// Get actual font metrics from Pango (uses standalone C functions)
+	ascent, descent, height := pangoFontMetrics(w.fontFamily, w.fontSize)
 
 	// Get character width by measuring a typical character
-	charWidth := pangoTextWidth(cr, "M", w.fontFamily, w.fontSize, false)
+	charWidth := pangoTextWidthStandalone("M", w.fontFamily, w.fontSize, false)
 
 	w.charWidth = charWidth
 	w.charHeight = height

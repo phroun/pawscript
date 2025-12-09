@@ -2,6 +2,12 @@
 
 ### 0.2.9 -- November 29 - December 9, 2025
 - PurfecTerm terminal emulator enhancements:
+  - Unicode combining character support: Hebrew vowel points (nikkud),
+    Arabic marks, Thai marks, Devanagari vowel signs, and other diacritics
+    properly attach to previous cell rather than taking new cells
+  - Pango text rendering in GTK for proper Unicode combining character shaping
+  - Font fallback configuration: `font_family_unicode` and `font_family_cjk`
+    settings for consistent rendering of special characters across GTK and Qt
   - Variable-width line storage: lines are no longer truncated on window resize
   - LineInfo and ScreenInfo structs for rendering beyond stored line content
   - Logical vs physical terminal dimensions with ESC [ 8 ; h ; w t support
@@ -21,6 +27,7 @@
   `mapsolid`, `arrlen`, `maplen`)
 - Dollar-brace `${}` operator now properly escapes quotes when inside quoted
   strings
+- Escape sequences `\?` and `\~` for literal question mark and tilde in strings
 - File handles auto-close moved from variable deletion to garbage collector
   for more reliable cleanup
 - Quote-aware macro argument substitution: `$1`, `$2`, etc. now correctly
