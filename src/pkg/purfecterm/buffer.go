@@ -1350,13 +1350,18 @@ func (b *Buffer) GetCursorVisiblePosition() (x, y int) {
 	// Its visible position is: cursorY - logicalHiddenAbove + scrollOffset
 	visibleY := b.cursorY - logicalHiddenAbove + b.scrollOffset
 
-	// Check if cursor is within visible area
+	// Check if cursor is within visible vertical area
 	if visibleY < 0 || visibleY >= b.rows {
 		return -1, -1
 	}
 
 	// X position needs to account for horizontal scroll
 	visibleX := b.cursorX - b.horizOffset
+
+	// Check if cursor is within visible horizontal area
+	if visibleX < 0 || visibleX >= b.cols {
+		return -1, -1
+	}
 
 	return visibleX, visibleY
 }
