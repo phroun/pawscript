@@ -148,28 +148,6 @@ func (b *Buffer) currentDefaultCell() Cell {
 	return EmptyCellWithAttrs(fg, bg, b.currentBold, b.currentItalic, b.currentUnderline, b.currentReverse, b.currentBlink)
 }
 
-// getLineUsedWidth returns the rightmost non-empty cell position + 1 (i.e., the "used width")
-// Empty cells are those with Char == 0 or Char == ' ' and default colors/no attributes
-func getLineUsedWidth(line []Cell) int {
-	// Scan from right to left to find the rightmost non-empty cell
-	for i := len(line) - 1; i >= 0; i-- {
-		cell := line[i]
-		// A cell is "used" if it has a non-space character, or special attributes/colors
-		if cell.Char != 0 && cell.Char != ' ' {
-			return i + 1
-		}
-		// Also count as used if it has non-default attributes (bold, underline, etc.)
-		// or non-default background color (could be intentional colored space)
-		if cell.Bold || cell.Italic || cell.Underline || cell.Reverse || cell.Blink {
-			return i + 1
-		}
-		if !cell.Background.Default {
-			return i + 1
-		}
-	}
-	return 0 // Line is completely empty
-}
-
 // updateScreenInfo updates the screen info with current attributes
 // Called on clear screen, clear to end of screen, and formfeed
 func (b *Buffer) updateScreenInfo() {
@@ -1061,35 +1039,33 @@ func (b *Buffer) GetHorizOffset() int {
 	return b.horizOffset
 }
 
-// GetLongestLineOnScreen returns the used width of the longest line currently on the logical screen
+// GetLongestLineOnScreen returns the length of the longest line currently on the logical screen
 func (b *Buffer) GetLongestLineOnScreen() int {
 	b.mu.RLock()
 	defer b.mu.RUnlock()
 	longest := 0
 	for _, line := range b.screen {
-		usedWidth := getLineUsedWidth(line)
-		if usedWidth > longest {
-			longest = usedWidth
+		if len(line) > longest {
+			longest = len(line)
 		}
 	}
 	return longest
 }
 
-// GetLongestLineInScrollback returns the used width of the longest line in scrollback
+// GetLongestLineInScrollback returns the length of the longest line in scrollback
 func (b *Buffer) GetLongestLineInScrollback() int {
 	b.mu.RLock()
 	defer b.mu.RUnlock()
 	longest := 0
 	for _, line := range b.scrollback {
-		usedWidth := getLineUsedWidth(line)
-		if usedWidth > longest {
-			longest = usedWidth
+		if len(line) > longest {
+			longest = len(line)
 		}
 	}
 	return longest
 }
 
-// GetLongestLineVisible returns the longest line used width relevant for horizontal scrollbar
+// GetLongestLineVisible returns the longest line length relevant for horizontal scrollbar
 // When not scrolled into scrollback: just the screen
 // When scrolled into scrollback: both scrollback and screen
 func (b *Buffer) GetLongestLineVisible() int {
@@ -1100,9 +1076,8 @@ func (b *Buffer) GetLongestLineVisible() int {
 		// Only screen matters
 		longest := 0
 		for _, line := range b.screen {
-			usedWidth := getLineUsedWidth(line)
-			if usedWidth > longest {
-				longest = usedWidth
+			if len(line) > longest {
+				longest = len(line)
 			}
 		}
 		return longest
@@ -1111,15 +1086,13 @@ func (b *Buffer) GetLongestLineVisible() int {
 	// Both scrollback and screen matter
 	longest := 0
 	for _, line := range b.scrollback {
-		usedWidth := getLineUsedWidth(line)
-		if usedWidth > longest {
-			longest = usedWidth
+		if len(line) > longest {
+			longest = len(line)
 		}
 	}
 	for _, line := range b.screen {
-		usedWidth := getLineUsedWidth(line)
-		if usedWidth > longest {
-			longest = usedWidth
+		if len(line) > longest {
+			longest = len(line)
 		}
 	}
 	return longest
@@ -1298,6 +1271,7 @@ func (b *Buffer) InsertChars(n int) {
 }
 
 // EraseChars erases n characters at cursor (replaces with blanks)
+// Does not extend line beyond current length - only erases existing cells
 func (b *Buffer) EraseChars(n int) {
 	b.mu.Lock()
 	defer b.mu.Unlock()
@@ -1306,12 +1280,22 @@ func (b *Buffer) EraseChars(n int) {
 		return
 	}
 
-	// Ensure line is long enough
-	b.ensureLineLength(b.cursorY, b.cursorX+n)
+	line := b.screen[b.cursorY]
+	lineLen := len(line)
+
+	// Only erase existing cells, don't extend line
+	if b.cursorX >= lineLen {
+		return // Nothing to erase
+	}
+
+	endPos := b.cursorX + n
+	if endPos > lineLen {
+		endPos = lineLen
+	}
 
 	fillCell := b.currentDefaultCell()
-	for i := 0; i < n && b.cursorX+i < len(b.screen[b.cursorY]); i++ {
-		b.screen[b.cursorY][b.cursorX+i] = fillCell
+	for i := b.cursorX; i < endPos; i++ {
+		line[i] = fillCell
 	}
 	b.markDirty()
 }

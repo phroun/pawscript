@@ -428,7 +428,6 @@ func (w *Widget) paintEvent(event *qt.QPaintEvent) {
 	// Apply scaling to character dimensions
 	charWidth := int(float64(baseCharWidth) * horizScale)
 	charHeight := int(float64(baseCharHeight) * vertScale)
-	charAscent := int(float64(baseCharAscent) * vertScale)
 
 	if scrollOffset > 0 {
 		cursorVisible = false
