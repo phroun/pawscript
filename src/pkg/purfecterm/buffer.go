@@ -499,6 +499,13 @@ func (b *Buffer) WriteChar(ch rune) {
 }
 
 func (b *Buffer) writeCharInternal(ch rune) {
+	// Handle combining characters (Hebrew vowel points, diacritics, etc.)
+	// These should be appended to the previous cell, not placed in a new cell
+	if IsCombiningMark(ch) {
+		b.appendCombiningMark(ch)
+		return
+	}
+
 	effectiveCols := b.EffectiveCols()
 	effectiveRows := b.EffectiveRows()
 
@@ -537,6 +544,39 @@ func (b *Buffer) writeCharInternal(ch rune) {
 		Blink:      b.currentBlink,
 	}
 	b.cursorX++
+	b.markDirty()
+}
+
+// appendCombiningMark appends a combining character to the previous cell.
+// If there's no previous cell to attach to, the character is ignored.
+func (b *Buffer) appendCombiningMark(ch rune) {
+	// Find the previous cell to attach the combining mark to
+	prevX := b.cursorX - 1
+	prevY := b.cursorY
+
+	// If we're at the start of a line, try the end of the previous line
+	if prevX < 0 {
+		if prevY > 0 {
+			prevY--
+			if prevY < len(b.screen) && len(b.screen[prevY]) > 0 {
+				prevX = len(b.screen[prevY]) - 1
+			} else {
+				// No previous cell to attach to
+				return
+			}
+		} else {
+			// No previous cell to attach to (very start of buffer)
+			return
+		}
+	}
+
+	// Ensure the previous row exists and has the cell
+	if prevY >= len(b.screen) || prevX >= len(b.screen[prevY]) {
+		return
+	}
+
+	// Append the combining mark to the previous cell
+	b.screen[prevY][prevX].Combining += string(ch)
 	b.markDirty()
 }
 
