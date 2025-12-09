@@ -112,6 +112,31 @@ static int pango_text_width(cairo_t *cr, const char *text, const char *font_fami
 
     return width;
 }
+
+// Get font metrics for proper baseline positioning
+// Returns: ascent in out_ascent, descent in out_descent, height in out_height
+static void pango_get_font_metrics(cairo_t *cr, const char *font_family, int font_size,
+                                   int *out_ascent, int *out_descent, int *out_height) {
+    PangoLayout *layout = pango_cairo_create_layout(cr);
+
+    PangoFontDescription *desc = pango_font_description_new();
+    pango_font_description_set_family(desc, font_family);
+    pango_font_description_set_size(desc, font_size * PANGO_SCALE);
+
+    pango_layout_set_font_description(layout, desc);
+    pango_layout_set_text(layout, "M", -1); // Use M for metrics
+
+    PangoContext *context = pango_layout_get_context(layout);
+    PangoFontMetrics *metrics = pango_context_get_metrics(context, desc, NULL);
+
+    *out_ascent = pango_font_metrics_get_ascent(metrics) / PANGO_SCALE;
+    *out_descent = pango_font_metrics_get_descent(metrics) / PANGO_SCALE;
+    *out_height = (*out_ascent) + (*out_descent);
+
+    pango_font_metrics_unref(metrics);
+    pango_font_description_free(desc);
+    g_object_unref(layout);
+}
 */
 import "C"
 
@@ -495,6 +520,18 @@ func pangoTextWidth(cr *cairo.Context, text, fontFamily string, fontSize int, bo
 	return int(C.pango_text_width(crNative, cText, cFont, C.int(fontSize), C.int(boldInt)))
 }
 
+// pangoFontMetrics returns the ascent, descent, and total height for a font.
+func pangoFontMetrics(cr *cairo.Context, fontFamily string, fontSize int) (ascent, descent, height int) {
+	cFont := C.CString(fontFamily)
+	defer C.free(unsafe.Pointer(cFont))
+
+	var cAscent, cDescent, cHeight C.int
+	crNative := (*C.cairo_t)(unsafe.Pointer(cr.Native()))
+	C.pango_get_font_metrics(crNative, cFont, C.int(fontSize), &cAscent, &cDescent, &cHeight)
+
+	return int(cAscent), int(cDescent), int(cHeight)
+}
+
 // SetColorScheme sets the color scheme
 func (w *Widget) SetColorScheme(scheme purfecterm.ColorScheme) {
 	w.mu.Lock()
@@ -578,16 +615,37 @@ func (w *Widget) Buffer() *purfecterm.Buffer {
 }
 
 func (w *Widget) updateFontMetrics() {
-	// Use approximate metrics based on font size
-	w.charWidth = w.fontSize * 6 / 10 // Approximate for monospace
-	w.charHeight = w.fontSize * 12 / 10
-	w.charAscent = w.fontSize
+	// Create a temporary cairo surface to get Pango font metrics
+	surface := cairo.NewSurface(cairo.FORMAT_ARGB32, 1, 1)
+	cr := cairo.Create(surface)
+	defer cr.Close()
+	defer surface.Close()
+
+	// Get actual font metrics from Pango
+	ascent, descent, height := pangoFontMetrics(cr, w.fontFamily, w.fontSize)
+
+	// Get character width by measuring a typical character
+	charWidth := pangoTextWidth(cr, "M", w.fontFamily, w.fontSize, false)
+
+	w.charWidth = charWidth
+	w.charHeight = height
+	w.charAscent = ascent
+
+	// Ensure minimum values
 	if w.charWidth < 1 {
-		w.charWidth = 10
+		w.charWidth = w.fontSize * 6 / 10
+		if w.charWidth < 1 {
+			w.charWidth = 10
+		}
 	}
 	if w.charHeight < 1 {
-		w.charHeight = 20
+		w.charHeight = w.fontSize * 12 / 10
+		if w.charHeight < 1 {
+			w.charHeight = 20
+		}
 	}
+
+	_ = descent // descent is included in height
 }
 
 func (w *Widget) onDraw(da *gtk.DrawingArea, cr *cairo.Context) bool {
