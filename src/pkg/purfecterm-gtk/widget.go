@@ -63,6 +63,55 @@ static int font_has_glyph(const char *family_name, int font_size, gunichar codep
 
     return has_glyph;
 }
+
+// Render text using Pango for proper Unicode combining character support
+// This handles complex text shaping that Cairo's ShowText cannot do
+static void pango_render_text(cairo_t *cr, const char *text, const char *font_family,
+                              int font_size, int bold, double r, double g, double b) {
+    PangoLayout *layout = pango_cairo_create_layout(cr);
+
+    // Create font description
+    PangoFontDescription *desc = pango_font_description_new();
+    pango_font_description_set_family(desc, font_family);
+    pango_font_description_set_size(desc, font_size * PANGO_SCALE);
+    if (bold) {
+        pango_font_description_set_weight(desc, PANGO_WEIGHT_BOLD);
+    }
+
+    pango_layout_set_font_description(layout, desc);
+    pango_layout_set_text(layout, text, -1);
+
+    // Set color and render
+    cairo_set_source_rgb(cr, r, g, b);
+    pango_cairo_show_layout(cr, layout);
+
+    pango_font_description_free(desc);
+    g_object_unref(layout);
+}
+
+// Get the pixel width of text rendered with Pango
+static int pango_text_width(cairo_t *cr, const char *text, const char *font_family,
+                            int font_size, int bold) {
+    PangoLayout *layout = pango_cairo_create_layout(cr);
+
+    PangoFontDescription *desc = pango_font_description_new();
+    pango_font_description_set_family(desc, font_family);
+    pango_font_description_set_size(desc, font_size * PANGO_SCALE);
+    if (bold) {
+        pango_font_description_set_weight(desc, PANGO_WEIGHT_BOLD);
+    }
+
+    pango_layout_set_font_description(layout, desc);
+    pango_layout_set_text(layout, text, -1);
+
+    int width, height;
+    pango_layout_get_pixel_size(layout, &width, &height);
+
+    pango_font_description_free(desc);
+    g_object_unref(layout);
+
+    return width;
+}
 */
 import "C"
 
@@ -412,6 +461,40 @@ func resolveFirstAvailableFont(familyList string) string {
 	return "Monospace"
 }
 
+// pangoRenderText renders text using Pango for proper combining character support.
+// This replaces Cairo's ShowText which doesn't handle complex text shaping.
+func pangoRenderText(cr *cairo.Context, text, fontFamily string, fontSize int, bold bool, r, g, b float64) {
+	cText := C.CString(text)
+	cFont := C.CString(fontFamily)
+	defer C.free(unsafe.Pointer(cText))
+	defer C.free(unsafe.Pointer(cFont))
+
+	boldInt := 0
+	if bold {
+		boldInt = 1
+	}
+
+	// Get native cairo context pointer
+	crNative := (*C.cairo_t)(unsafe.Pointer(cr.Native()))
+	C.pango_render_text(crNative, cText, cFont, C.int(fontSize), C.int(boldInt), C.double(r), C.double(g), C.double(b))
+}
+
+// pangoTextWidth returns the pixel width of text rendered with Pango.
+func pangoTextWidth(cr *cairo.Context, text, fontFamily string, fontSize int, bold bool) int {
+	cText := C.CString(text)
+	cFont := C.CString(fontFamily)
+	defer C.free(unsafe.Pointer(cText))
+	defer C.free(unsafe.Pointer(cFont))
+
+	boldInt := 0
+	if bold {
+		boldInt = 1
+	}
+
+	crNative := (*C.cairo_t)(unsafe.Pointer(cr.Native()))
+	return int(C.pango_text_width(crNative, cText, cFont, C.int(fontSize), C.int(boldInt)))
+}
+
 // SetColorScheme sets the color scheme
 func (w *Widget) SetColorScheme(scheme purfecterm.ColorScheme) {
 	w.mu.Lock()
@@ -652,25 +735,19 @@ func (w *Widget) onDraw(da *gtk.DrawingArea, cr *cairo.Context) bool {
 
 			// Draw character (skip if traditional blink mode and currently invisible)
 			if cell.Char != ' ' && cell.Char != 0 && blinkVisible {
-				cr.SetSourceRGB(
-					float64(fg.R)/255.0,
-					float64(fg.G)/255.0,
-					float64(fg.B)/255.0)
-
 				// Determine which font to use for this character (with fallback for Unicode/CJK)
 				charFont := w.getFontForCharacter(cell.Char, fontFamily, fontSize)
 
-				// Set font face (with appropriate weight and fallback font)
-				if cell.Bold {
-					cr.SelectFontFace(charFont, cairo.FONT_SLANT_NORMAL, cairo.FONT_WEIGHT_BOLD)
-				} else {
-					cr.SelectFontFace(charFont, cairo.FONT_SLANT_NORMAL, cairo.FONT_WEIGHT_NORMAL)
-				}
+				// Get character string including any combining marks
+				charStr := cell.String()
 
-				// Measure actual character width using Cairo TextExtents
-				charStr := cell.String() // Includes base char + any combining marks
-				extents := cr.TextExtents(charStr)
-				actualWidth := extents.XAdvance
+				// Measure actual character width using Pango (handles combining chars properly)
+				actualWidth := float64(pangoTextWidth(cr, charStr, charFont, fontSize, cell.Bold))
+
+				// Get foreground color as floats
+				fgR := float64(fg.R) / 255.0
+				fgG := float64(fg.G) / 255.0
+				fgB := float64(fg.B) / 255.0
 
 				// Calculate vertical offset for bobbing wave animation on blink text
 				// Each character is offset by a phase shift based on its x position,
@@ -703,11 +780,11 @@ func (w *Widget) onDraw(da *gtk.DrawingArea, cr *cairo.Context) bool {
 					}
 
 					textBaseX := float64(x*charWidth+terminalLeftPadding) + xOff
-					textBaseY := float64(y*charHeight) + float64(baseCharAscent)*vertScale + yOffset
+					textBaseY := float64(y*charHeight) + yOffset
 					cr.Translate(textBaseX, textBaseY)
 					cr.Scale(textScaleX, vertScale)
-					cr.MoveTo(0, 0)
-					cr.ShowText(charStr)
+					// Use Pango for proper combining character rendering
+					pangoRenderText(cr, charStr, charFont, fontSize, cell.Bold, fgR, fgG, fgB)
 					cr.Restore()
 
 				case purfecterm.LineAttrDoubleWidth:
@@ -724,11 +801,10 @@ func (w *Widget) onDraw(da *gtk.DrawingArea, cr *cairo.Context) bool {
 						xOff = (float64(baseCharWidth) - actualWidth) * horizScale
 					}
 					textX := float64(cellX) + xOff
-					textY := float64(cellY) + float64(baseCharAscent)*vertScale + yOffset
+					textY := float64(cellY) + yOffset
 					cr.Translate(textX, textY)
 					cr.Scale(textScaleX, vertScale)
-					cr.MoveTo(0, 0)
-					cr.ShowText(charStr)
+					pangoRenderText(cr, charStr, charFont, fontSize, cell.Bold, fgR, fgG, fgB)
 					cr.Restore()
 
 				case purfecterm.LineAttrDoubleTop:
@@ -748,11 +824,10 @@ func (w *Widget) onDraw(da *gtk.DrawingArea, cr *cairo.Context) bool {
 					}
 					// Position baseline at 2x ascent (only top half visible due to clip)
 					textX := float64(cellX) + xOff
-					textY := float64(cellY) + float64(baseCharAscent)*vertScale*2.0 + yOffset*2
+					textY := float64(cellY) + yOffset*2
 					cr.Translate(textX, textY)
 					cr.Scale(textScaleX, textScaleY)
-					cr.MoveTo(0, 0)
-					cr.ShowText(charStr)
+					pangoRenderText(cr, charStr, charFont, fontSize, cell.Bold, fgR, fgG, fgB)
 					cr.Restore()
 
 				case purfecterm.LineAttrDoubleBottom:
@@ -771,17 +846,12 @@ func (w *Widget) onDraw(da *gtk.DrawingArea, cr *cairo.Context) bool {
 					}
 					// Position so bottom half is visible (shift up by one cell height)
 					textX := float64(cellX) + xOff
-					textY := float64(cellY) + float64(baseCharAscent)*vertScale*2.0 - float64(charHeight) + yOffset*2
+					textY := float64(cellY) - float64(charHeight) + yOffset*2
 					cr.Translate(textX, textY)
 					cr.Scale(textScaleX, textScaleY)
-					cr.MoveTo(0, 0)
-					cr.ShowText(charStr)
+					pangoRenderText(cr, charStr, charFont, fontSize, cell.Bold, fgR, fgG, fgB)
 					cr.Restore()
 				}
-
-				// Reset font to main font with normal weight
-				// (font is set per-character anyway, but this ensures clean state)
-				cr.SelectFontFace(fontFamily, cairo.FONT_SLANT_NORMAL, cairo.FONT_WEIGHT_NORMAL)
 			}
 
 			// Draw underline if needed
