@@ -715,7 +715,7 @@ func (w *Widget) screenToCell(screenX, screenY float64) (cellX, cellY int) {
 	// Calculate row first (needed to check line attributes)
 	cellY = int(screenY) / charHeight
 
-	cols, rows := w.buffer.GetSize()
+	_, rows := w.buffer.GetSize()
 	if cellY < 0 {
 		cellY = 0
 	}
@@ -812,7 +812,7 @@ func (w *Widget) onScroll(da *gtk.DrawingArea, ev *gdk.Event) bool {
 	state := scroll.State()
 
 	// Check for Shift modifier for horizontal scrolling
-	hasShift := state&uint(gdk.SHIFT_MASK) != 0
+	hasShift := state&gdk.SHIFT_MASK != 0
 
 	maxOffset := w.buffer.GetMaxScrollOffset()
 

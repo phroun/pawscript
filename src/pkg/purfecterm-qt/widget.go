@@ -679,10 +679,8 @@ func (w *Widget) screenToCell(screenX, screenY int) (cellX, cellY int) {
 
 	lineAttr := w.buffer.GetVisibleLineAttribute(cellY)
 	effectiveCharWidth := charWidth
-	effectiveCols := cols
 	if lineAttr != purfecterm.LineAttrNormal {
 		effectiveCharWidth = charWidth * 2
-		effectiveCols = cols / 2
 	}
 
 	// Calculate screen column, then add horizontal offset to get logical column
