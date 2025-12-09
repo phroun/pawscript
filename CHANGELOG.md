@@ -108,10 +108,11 @@
 - PSL parsing improvements:
   - `ParsePSL` and `ParsePSLList` now strip comments before parsing
   - Supports `# ` line comments and `#( )#` block comments in config files
+- Ported pawgui-gtk to Qt, with intention to support both options.
+- Added dark & light mode option to config file for both GUI versions.
 - Build system improvements:
   - GitHub workflow builds both GTK and Qt versions for Windows
   - Makefile targets for macOS .app bundles: `package-gtk-macos`, `package-qt-macos`
-  - Removed fyne cross-compilation targets
 
 ### 0.2.8 -- November 28-29, 2025 - Thanksgiving Alpha
 - Polymorphic commands: `append`, `prepend`, `contains`, `index` now work on

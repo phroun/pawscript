@@ -50,18 +50,21 @@ print {concat ~SINGLE_WIDTH, ""}
 
 # Colorful double-height example
 RED:     {concat ~ESC, "[31m"}
+ORANGE:  {concat ~ESC, "[0;33m"}
+YELLOW:  {concat ~ESC, "[93m"}
 GREEN:   {concat ~ESC, "[32m"}
-YELLOW:  {concat ~ESC, "[33m"}
 BLUE:    {concat ~ESC, "[34m"}
-MAGENTA: {concat ~ESC, "[35m"}
+VIOLET:  {concat ~ESC, "[35m"}
+MAGENTA: {concat ~ESC, "[95m"}
 CYAN:    {concat ~ESC, "[36m"}
 RESET:   {concat ~ESC, "[0m"}
 
 print "--- With Colors ---"
-print {concat ~DOUBLE_TOP, ~RED, "R", ~GREEN, "A", ~YELLOW, "I", ~BLUE, "N", ~MAGENTA, "B", ~CYAN, "O", ~RED, "W", ~RESET, " Text!"}
-print {concat ~DOUBLE_BOTTOM, ~RED, "R", ~GREEN, "A", ~YELLOW, "I", ~BLUE, "N", ~MAGENTA, "B", ~CYAN, "O", ~RED, "W", ~RESET, " Text!"}
+print {concat ~DOUBLE_TOP, ~RED, "R", ~ORANGE, "A", ~YELLOW, "I", ~GREEN, "N", ~CYAN, "B", ~BLUE, "O", ~VIOLET, "W", ~RESET, " Text!"}
+print {concat ~DOUBLE_BOTTOM, ~ORANGE, "R", ~YELLOW, "A", ~GREEN, "I", ~CYAN, "N", ~BLUE, "B", ~VIOLET, "O", ~RED, "W", ~RESET, " Text!"}
 print {concat ~SINGLE_WIDTH, ~RESET}
 
+(#in, #key): {readkey_init #in, echo: #out}
 print ""
-print "Press any key to exit..."
-_: {readkey}
+write "Press any key to exit..."
+{readkey}

@@ -86,7 +86,7 @@ print ""
 print "--- Cursor Visibility ---"
 print "Hiding cursor for 2 seconds..."
 cursor visible: false
-sleep 2000
+msleep 2000
 cursor visible: true
 print "Cursor is visible again!"
 print ""
@@ -108,8 +108,8 @@ print "  cursor shape: \"block\"                 - Block cursor"
 print "  cursor shape: \"underline\"             - Underline cursor (1/4 block)"
 print "  cursor shape: \"bar\"                   - Vertical bar cursor"
 print ""
-print "  cursor blink: true                    - Slow blinking (~530ms)"
-print "  cursor blink: \"fast\"                  - Fast blinking (~265ms)"
+print "  cursor blink: true                    - Slow blinking (\~530ms)"
+print "  cursor blink: \"fast\"                  - Fast blinking (\~265ms)"
 print "  cursor blink: false                   - Steady (no blink)"
 print ""
 print "DECSCUSR codes (ESC [ Ps SP q):"
