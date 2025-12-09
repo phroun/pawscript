@@ -1043,42 +1043,69 @@ func (w *Widget) renderScreenSplits(cr *cairo.Context, splits []*purfecterm.Scre
 	// Track which splits have had their backgrounds cleared
 	splitBackgroundCleared := make(map[int]bool)
 
-	// Helper to find which split is active at a given Y (in sprite units)
-	getSplitAtY := func(y int) (split *purfecterm.ScreenSplit, splitIdx int, endY int) {
-		// Find the split that contains this Y position
-		for i := len(splits) - 1; i >= 0; i-- {
-			if splits[i].ScreenY <= y {
-				// This split starts at or before Y
-				end := screenHeightUnits
-				if i+1 < len(splits) {
-					end = splits[i+1].ScreenY
-				}
-				return splits[i], i, end
-			}
-		}
-		return nil, -1, screenHeightUnits
-	}
-
 	// Set up font once
 	cr.SelectFontFace(fontFamily, cairo.FONT_SLANT_NORMAL, cairo.FONT_WEIGHT_NORMAL)
 	cr.SetFontSize(float64(fontSize))
 
+	// Track current split as we iterate through scanlines
+	// Splits are sorted by ScreenY, so we advance through them linearly
+	currentSplitIdx := -1
+	var currentSplit *purfecterm.ScreenSplit
+	nextSplitBoundary := 0 // Y where next split begins
+	splitEndY := screenHeightUnits
+
+	// Find first split (if any starts at Y=0)
+	if len(splits) > 0 && splits[0].ScreenY == 0 {
+		currentSplitIdx = 0
+		currentSplit = splits[0]
+		if len(splits) > 1 {
+			nextSplitBoundary = splits[1].ScreenY
+			splitEndY = splits[1].ScreenY
+		} else {
+			nextSplitBoundary = screenHeightUnits
+			splitEndY = screenHeightUnits
+		}
+	} else if len(splits) > 0 {
+		nextSplitBoundary = splits[0].ScreenY
+	} else {
+		nextSplitBoundary = screenHeightUnits
+	}
+
 	// Iterate through each sprite-unit Y position (scanline approach)
 	for y := 0; y < screenHeightUnits; y++ {
-		split, splitIdx, splitEndY := getSplitAtY(y)
+		// Check if we've crossed into a new split
+		if y >= nextSplitBoundary {
+			// Advance to the split that starts here
+			for i := currentSplitIdx + 1; i < len(splits); i++ {
+				if splits[i].ScreenY <= y {
+					currentSplitIdx = i
+					currentSplit = splits[i]
+				} else {
+					break
+				}
+			}
+			// Update next boundary
+			if currentSplitIdx+1 < len(splits) {
+				nextSplitBoundary = splits[currentSplitIdx+1].ScreenY
+				splitEndY = splits[currentSplitIdx+1].ScreenY
+			} else {
+				nextSplitBoundary = screenHeightUnits
+				splitEndY = screenHeightUnits
+			}
+		}
 
 		// Skip if no split at this position or if it's the main screen (ScreenY=0, not overriding)
-		if split == nil || (split.ScreenY == 0 && split.BufferRow == 0 && split.BufferCol == 0 &&
-			split.TopFineScroll == 0 && split.LeftFineScroll == 0) {
+		if currentSplit == nil || (currentSplit.ScreenY == 0 && currentSplit.BufferRow == 0 && currentSplit.BufferCol == 0 &&
+			currentSplit.TopFineScroll == 0 && currentSplit.LeftFineScroll == 0) {
 			continue
 		}
 
 		// Clear background for this split if not yet done
-		if !splitBackgroundCleared[splitIdx] {
-			splitBackgroundCleared[splitIdx] = true
+		if !splitBackgroundCleared[currentSplitIdx] {
+			splitBackgroundCleared[currentSplitIdx] = true
 
 			// Calculate pixel coordinates for this split region (offset by logical screen start)
-			startPixelY := logicalScreenStartPixelY + float64(split.ScreenY)*float64(charHeight)/float64(unitY)
+			startPixelY := logicalScreenStartPixelY + float64(currentSplit.ScreenY)*float64(charHeight)/float64(unitY)
 			endPixelY := logicalScreenStartPixelY + float64(splitEndY)*float64(charHeight)/float64(unitY)
 
 			// Save, clip, and fill background
@@ -1097,7 +1124,7 @@ func (w *Widget) renderScreenSplits(cr *cairo.Context, splits []*purfecterm.Scre
 		// Check if this Y marks a row boundary for this split
 		// Row boundaries occur at: split.ScreenY + n*unitY - split.TopFineScroll (for n >= 0)
 		// Which means: (y - split.ScreenY + split.TopFineScroll) % unitY == 0
-		relativeY := y - split.ScreenY + split.TopFineScroll
+		relativeY := y - currentSplit.ScreenY + currentSplit.TopFineScroll
 		if relativeY < 0 || relativeY%unitY != 0 {
 			continue // Not a row boundary
 		}
@@ -1106,14 +1133,14 @@ func (w *Widget) renderScreenSplits(cr *cairo.Context, splits []*purfecterm.Scre
 		rowInSplit := relativeY / unitY
 
 		// Calculate fine scroll offsets in pixels
-		fineOffsetY := float64(split.TopFineScroll) * float64(charHeight) / float64(unitY)
-		fineOffsetX := float64(split.LeftFineScroll) * float64(charWidth) / float64(unitX)
+		fineOffsetY := float64(currentSplit.TopFineScroll) * float64(charHeight) / float64(unitY)
+		fineOffsetX := float64(currentSplit.LeftFineScroll) * float64(charWidth) / float64(unitX)
 
 		// Calculate pixel Y position for this row (offset by logical screen start)
 		rowPixelY := logicalScreenStartPixelY + float64(y)*float64(charHeight)/float64(unitY) - fineOffsetY
 
 		// Set up clipping for this split region (offset by logical screen start)
-		startPixelY := logicalScreenStartPixelY + float64(split.ScreenY)*float64(charHeight)/float64(unitY)
+		startPixelY := logicalScreenStartPixelY + float64(currentSplit.ScreenY)*float64(charHeight)/float64(unitY)
 		endPixelY := logicalScreenStartPixelY + float64(splitEndY)*float64(charHeight)/float64(unitY)
 
 		cr.Save()
@@ -1121,7 +1148,7 @@ func (w *Widget) renderScreenSplits(cr *cairo.Context, splits []*purfecterm.Scre
 		cr.Clip()
 
 		// Get line attribute for this buffer row
-		lineAttr := w.buffer.GetLineAttributeForSplit(rowInSplit, split.BufferRow)
+		lineAttr := w.buffer.GetLineAttributeForSplit(rowInSplit, currentSplit.BufferRow)
 
 		effectiveCols := cols
 		if lineAttr != purfecterm.LineAttrNormal {
@@ -1130,7 +1157,7 @@ func (w *Widget) renderScreenSplits(cr *cairo.Context, splits []*purfecterm.Scre
 
 		// Render each cell in this row
 		for screenCol := 0; screenCol < effectiveCols; screenCol++ {
-			cell := w.buffer.GetCellForSplit(screenCol, rowInSplit, split.BufferRow, split.BufferCol)
+			cell := w.buffer.GetCellForSplit(screenCol, rowInSplit, currentSplit.BufferRow, currentSplit.BufferCol)
 
 			fg := cell.Foreground
 			bg := cell.Background
