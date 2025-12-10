@@ -332,19 +332,9 @@ func (w *Widget) initScrollbar() {
 	w.scrollbar.OnValueChanged(func(value int) {
 		if !w.scrollbarUpdating {
 			maxScroll := w.scrollbar.Maximum()
-			prevOffset := w.buffer.GetScrollOffset()
-			newOffset := maxScroll - value
-			w.buffer.SetScrollOffset(newOffset)
-			// Only snap to 0 when scrolling DOWN (offset decreasing) into the magnetic zone
-			if newOffset < prevOffset {
-				if w.buffer.NormalizeScrollOffset() {
-					// Update scrollbar to reflect the normalized position
-					w.scrollbarUpdating = true
-					offset := w.buffer.GetScrollOffset()
-					w.scrollbar.SetValue(maxScroll - offset)
-					w.scrollbarUpdating = false
-				}
-			}
+			w.buffer.SetScrollOffset(maxScroll - value)
+			// Don't snap here - let scrollbar move smoothly
+			// The visual interpretation handles the magnetic zone
 		}
 	})
 

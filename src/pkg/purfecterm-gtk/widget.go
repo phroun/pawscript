@@ -2655,18 +2655,10 @@ func (w *Widget) onScrollbarChanged(sb *gtk.Scrollbar) {
 	adj := sb.GetAdjustment()
 	val := int(adj.GetValue())
 	maxOffset := w.buffer.GetMaxScrollOffset()
-	prevOffset := w.buffer.GetScrollOffset()
-	newOffset := maxOffset - val
 	// Invert - scrollbar at top means scrolled back
-	w.buffer.SetScrollOffset(newOffset)
-	// Only snap to 0 when scrolling DOWN (offset decreasing) into the magnetic zone
-	if newOffset < prevOffset {
-		if w.buffer.NormalizeScrollOffset() {
-			// Update scrollbar to reflect the normalized position
-			offset := w.buffer.GetScrollOffset()
-			adj.SetValue(float64(maxOffset - offset))
-		}
-	}
+	w.buffer.SetScrollOffset(maxOffset - val)
+	// Don't snap here - let scrollbar move smoothly
+	// The visual interpretation handles the magnetic zone
 	w.updateHorizScrollbar() // Horizontal scrollbar depends on scroll position
 }
 
