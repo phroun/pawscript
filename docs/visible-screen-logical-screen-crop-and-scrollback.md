@@ -186,14 +186,26 @@ Rather than calculating cursor visibility mathematically (which is complex with 
    - Keyboard activity is recent (within 500ms)
    - Cursor was not drawn
 
-### Scroll Direction
+### Movement Direction with Scroll Compensation
 
-When the cursor wasn't drawn and auto-scroll is active, the buffer calculates where the cursor is relative to the visible area:
+The buffer tracks cursor movement direction, but compensates for screen scrolls:
 
-- If `cursorY < visibleStart`: Cursor is above visible area, scroll up (increase offset)
-- If `cursorY >= visibleEnd`: Cursor is below visible area, scroll down (decrease offset)
+- `lastCursorY`: Cursor Y position at last movement check
+- `lastCursorMoveDir`: -1=up, 0=none, 1=down
+- `scrollsSinceCursorSet`: Count of screen scrolls since last cursor update
 
-This position-based approach is more reliable than tracking movement direction, which can be stale when output scrolls the screen without moving the cursor coordinate.
+When `scrollUpInternal()` is called (content scrolls up, new line at bottom), the counter increments. When comparing cursor positions in `setCursorInternal()`:
+
+```go
+adjustedLastY := lastCursorY + scrollsSinceCursorSet
+if y > adjustedLastY {
+    lastCursorMoveDir = 1  // Moving down
+} else if y < adjustedLastY {
+    lastCursorMoveDir = -1 // Moving up
+}
+```
+
+This correctly detects that when output scrolls the screen while the cursor stays at the same row number (e.g., row 23), the cursor has effectively moved down relative to the content.
 
 ## Scrollbar Calculations
 
