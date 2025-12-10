@@ -135,11 +135,7 @@ type Buffer struct {
 
 	// Auto-scroll to cursor on keyboard activity
 	lastKeyboardActivity time.Time // When keyboard activity last occurred
-
-	// Cursor visibility tracking for auto-scroll
-	cursorDrawnLastFrame  bool // Set by widget after drawing cursor
-	lastCursorY           int  // Previous cursor Y position
-	lastCursorMoveDir     int  // -1=up, 0=none, 1=down
+	cursorDrawnLastFrame bool      // Set by widget after drawing cursor
 
 	selectionActive      bool
 	selStartX, selStartY int
@@ -587,15 +583,6 @@ func (b *Buffer) setCursorInternal(x, y int) {
 		y = effectiveRows - 1
 	}
 
-	// Track cursor movement direction before updating
-	if y > b.cursorY {
-		b.lastCursorMoveDir = 1 // Moving down
-	} else if y < b.cursorY {
-		b.lastCursorMoveDir = -1 // Moving up
-	}
-	// Note: if y == b.cursorY, keep previous direction
-
-	b.lastCursorY = b.cursorY
 	b.cursorX = x
 	b.cursorY = y
 	b.markDirty()
@@ -643,8 +630,8 @@ func (b *Buffer) SetCursorDrawn(drawn bool) {
 }
 
 // CheckCursorAutoScroll checks if the cursor was not drawn last frame and
-// auto-scroll is active, then scrolls by one row in the direction of the
-// last cursor movement to bring the cursor back into view.
+// auto-scroll is active, then scrolls by one row toward the cursor position
+// to bring the cursor back into view.
 // Returns true if a scroll occurred.
 func (b *Buffer) CheckCursorAutoScroll() bool {
 	b.mu.Lock()
@@ -660,19 +647,34 @@ func (b *Buffer) CheckCursorAutoScroll() bool {
 		return false
 	}
 
-	// Cursor wasn't drawn - scroll one row in the direction of last movement
-	if b.lastCursorMoveDir > 0 {
-		// Cursor moved down, scroll down (decrease scroll offset)
-		if b.scrollOffset > 0 {
-			b.scrollOffset--
-			b.markDirty()
-			return true
-		}
-	} else if b.lastCursorMoveDir < 0 {
-		// Cursor moved up, scroll up (increase scroll offset)
+	// Cursor wasn't drawn - determine if it's above or below visible area
+	// and scroll toward it
+	effectiveRows := b.EffectiveRows()
+	logicalHiddenAbove := 0
+	if effectiveRows > b.rows {
+		logicalHiddenAbove = effectiveRows - b.rows
+	}
+
+	// Calculate the range of logical screen rows that are visible
+	// visibleStart is the first logical screen row shown (can be negative = scrollback)
+	// visibleEnd is one past the last logical screen row shown
+	effectiveOffset := b.getEffectiveScrollOffset()
+	visibleStart := effectiveOffset - logicalHiddenAbove
+	visibleEnd := visibleStart + b.rows
+
+	// cursorY is in logical screen coordinates (0 to effectiveRows-1)
+	if b.cursorY < visibleStart {
+		// Cursor is above visible area - scroll up (increase offset)
 		maxOffset := b.getMaxScrollOffsetInternal()
 		if b.scrollOffset < maxOffset {
 			b.scrollOffset++
+			b.markDirty()
+			return true
+		}
+	} else if b.cursorY >= visibleEnd {
+		// Cursor is below visible area - scroll down (decrease offset)
+		if b.scrollOffset > 0 {
+			b.scrollOffset--
 			b.markDirty()
 			return true
 		}

@@ -185,16 +185,15 @@ Rather than calculating cursor visibility mathematically (which is complex with 
 3. After rendering, `CheckCursorAutoScroll()` scrolls by one row if:
    - Keyboard activity is recent (within 500ms)
    - Cursor was not drawn
-   - Movement direction is known (up/down)
 
-### Movement Direction
+### Scroll Direction
 
-The buffer tracks cursor movement direction:
-- `lastCursorMoveDir = 1`: Cursor moved down
-- `lastCursorMoveDir = -1`: Cursor moved up
-- `lastCursorMoveDir = 0`: No vertical movement
+When the cursor wasn't drawn and auto-scroll is active, the buffer calculates where the cursor is relative to the visible area:
 
-This determines scroll direction when auto-scrolling.
+- If `cursorY < visibleStart`: Cursor is above visible area, scroll up (increase offset)
+- If `cursorY >= visibleEnd`: Cursor is below visible area, scroll down (decrease offset)
+
+This position-based approach is more reliable than tracking movement direction, which can be stale when output scrolls the screen without moving the cursor coordinate.
 
 ## Scrollbar Calculations
 
