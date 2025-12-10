@@ -196,10 +196,6 @@ import (
 // Left padding for terminal content (pixels)
 const terminalLeftPadding = 8
 
-// Reserved height for horizontal scrollbar (pixels)
-// This space is always reserved to prevent jitter when scrollbar appears/disappears
-const horizScrollbarReservedHeight = 15
-
 // Widget is a GTK terminal emulator widget
 // glyphCacheEntry stores a cached rendered glyph surface
 type glyphCacheEntry struct {
@@ -463,14 +459,13 @@ func NewWidget(cols, rows, scrollbackSize int) (*Widget, error) {
 	}
 	w.scrollbar.Connect("value-changed", w.onScrollbarChanged)
 
-	// Create horizontal scrollbar
+	// Create horizontal scrollbar (always visible to prevent layout jitter)
 	hAdjustment, _ := gtk.AdjustmentNew(0, 0, 100, 1, 10, 10)
 	w.horizScrollbar, err = gtk.ScrollbarNew(gtk.ORIENTATION_HORIZONTAL, hAdjustment)
 	if err != nil {
 		return nil, err
 	}
 	w.horizScrollbar.Connect("value-changed", w.onHorizScrollbarChanged)
-	w.horizScrollbar.SetNoShowAll(true) // Don't show when parent shows all
 
 	// Apply macOS-style scrollbar CSS using a unique style class
 	w.scrollbar.SetName("purfecterm-scrollbar")
@@ -2627,19 +2622,10 @@ func (w *Widget) onConfigure(da *gtk.DrawingArea, ev *gdk.Event) bool {
 	}
 
 	// Recalculate terminal size based on widget size (minus left padding)
-	// Reserve space for horizontal scrollbar to prevent jitter when it appears/disappears
-	// Only subtract reserved height when scrollbar is not visible (when visible, its
-	// space is already taken from the allocation by GTK layout)
+	// Horizontal scrollbar is always visible, so its space is always accounted for
 	alloc := da.GetAllocation()
 	newCols := (alloc.GetWidth() - terminalLeftPadding) / scaledCharWidth
-	availableHeight := alloc.GetHeight()
-	if !w.horizScrollbar.GetVisible() {
-		availableHeight -= horizScrollbarReservedHeight
-	}
-	if availableHeight < scaledCharHeight {
-		availableHeight = scaledCharHeight
-	}
-	newRows := availableHeight / scaledCharHeight
+	newRows := alloc.GetHeight() / scaledCharHeight
 
 	if newCols < 1 {
 		newCols = 1
@@ -2715,18 +2701,24 @@ func (w *Widget) updateHorizScrollbar() {
 		maxContentWidth = splitContentWidth
 	}
 
-	// Show horizontal scrollbar only if content is wider than visible area
-	if maxContentWidth > cols {
-		w.horizScrollbar.Show()
+	// Always show scrollbar to prevent jitter from layout changes
+	// When content fits, the thumb fills the track (unmovable)
+	w.horizScrollbar.Show()
 
-		adj := w.horizScrollbar.GetAdjustment()
-		adj.SetLower(0)
+	adj := w.horizScrollbar.GetAdjustment()
+	adj.SetLower(0)
+
+	if maxContentWidth > cols {
+		// Content is wider than visible - enable scrolling
 		adj.SetUpper(float64(maxContentWidth))
 		adj.SetPageSize(float64(cols))
 		adj.SetValue(float64(horizOffset))
 	} else {
-		w.horizScrollbar.Hide()
-		// Reset horizontal offset if no longer needed
+		// Content fits - make scrollbar full/unmovable
+		adj.SetUpper(float64(cols))
+		adj.SetPageSize(float64(cols))
+		adj.SetValue(0)
+		// Reset horizontal offset since it's not needed
 		if horizOffset > 0 {
 			w.buffer.SetHorizOffset(0)
 		}
