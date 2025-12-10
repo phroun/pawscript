@@ -1222,13 +1222,17 @@ func (b *Buffer) getVisibleCellInternal(x, y int) Cell {
 		logicalHiddenAbove = effectiveRows - b.rows
 	}
 
-	// Calculate effective scroll offset - clamp to logicalHiddenAbove when in magnetic zone
-	// This ensures the magnetic zone shows logical screen content, not scrollback
+	// Calculate effective scroll offset accounting for magnetic zone
+	// The magnetic zone creates 5 "redundant" scroll positions that all render the same
 	effectiveScrollOffset := b.scrollOffset
 	boundaryRow := b.scrollOffset - logicalHiddenAbove
 	if boundaryRow > 0 && boundaryRow <= ScrollMagneticThreshold {
 		// In magnetic zone - render as if viewing full logical screen
 		effectiveScrollOffset = logicalHiddenAbove
+	} else if boundaryRow > ScrollMagneticThreshold {
+		// Past magnetic zone - subtract threshold so content transitions smoothly
+		// boundaryRow 6 should show 1 row of scrollback, not 6
+		effectiveScrollOffset = b.scrollOffset - ScrollMagneticThreshold
 	}
 
 	// Total scrollable area above visible: scrollback + hidden logical rows
@@ -1421,7 +1425,16 @@ func (b *Buffer) GetScrollbackBoundaryVisibleRow() int {
 		return -1
 	}
 
-	return boundaryRow
+	// Past magnetic zone - subtract threshold so boundary position matches content
+	// boundaryRow 6 should appear at visual row 1, not row 6
+	effectiveBoundaryRow := boundaryRow - ScrollMagneticThreshold
+
+	// Check effective boundary is still in visible range
+	if effectiveBoundaryRow <= 0 || effectiveBoundaryRow >= b.rows {
+		return -1
+	}
+
+	return effectiveBoundaryRow
 }
 
 // GetCursorVisiblePosition returns the visible (x, y) position of the cursor
