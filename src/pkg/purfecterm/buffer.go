@@ -1344,18 +1344,30 @@ func (b *Buffer) GetScrollOffset() int {
 	return b.scrollOffset
 }
 
-// NormalizeScrollOffset snaps the scroll offset back to 0 if it's in the
-// magnetic zone (1 to ScrollMagneticThreshold). This should be called when
-// scrolling down to create a "sticky" effect at the boundary between logical
-// screen and scrollback. Positions 1-threshold all render the same as 0
-// (no boundary visible), so snapping creates a clean transition.
+// NormalizeScrollOffset snaps the scroll offset back if it's in the magnetic zone.
+// The magnetic zone is when the boundary would appear at rows 1-ScrollMagneticThreshold.
+// This should be called when scrolling down to create a "sticky" effect at the
+// boundary between logical screen and scrollback.
 // Returns true if the offset was changed.
 func (b *Buffer) NormalizeScrollOffset() bool {
 	b.mu.Lock()
 	defer b.mu.Unlock()
 
-	if b.scrollOffset > 0 && b.scrollOffset <= ScrollMagneticThreshold {
-		b.scrollOffset = 0
+	effectiveRows := b.EffectiveRows()
+
+	// Calculate how much of the logical screen is hidden above
+	logicalHiddenAbove := 0
+	if effectiveRows > b.rows {
+		logicalHiddenAbove = effectiveRows - b.rows
+	}
+
+	// Calculate where the boundary would appear
+	boundaryRow := b.scrollOffset - logicalHiddenAbove
+
+	// Check if we're in the magnetic zone (boundary would be at rows 1-threshold)
+	if boundaryRow > 0 && boundaryRow <= ScrollMagneticThreshold {
+		// Snap back to where boundary is at row 0 (just off the top of visible area)
+		b.scrollOffset = logicalHiddenAbove
 		b.markDirty()
 		return true
 	}
@@ -1365,7 +1377,7 @@ func (b *Buffer) NormalizeScrollOffset() bool {
 // GetScrollbackBoundaryVisibleRow returns the visible row (0-indexed from top of display)
 // where the boundary between scrollback and logical screen is located.
 // Returns -1 if the boundary is not currently visible (either fully in scrollback or fully in logical screen).
-// The magnetic threshold suppresses the boundary for the first few scroll positions,
+// The magnetic threshold suppresses the boundary for the first few rows after it would appear,
 // creating a "sticky" feel when transitioning from logical screen to scrollback.
 func (b *Buffer) GetScrollbackBoundaryVisibleRow() int {
 	b.mu.RLock()
@@ -1378,12 +1390,6 @@ func (b *Buffer) GetScrollbackBoundaryVisibleRow() int {
 		return -1
 	}
 
-	// Magnetic zone: suppress boundary for first few scroll positions
-	// This creates the "sticky" feel without changing where the boundary appears
-	if b.scrollOffset <= ScrollMagneticThreshold {
-		return -1
-	}
-
 	effectiveRows := b.EffectiveRows()
 
 	// Calculate how much of the logical screen is hidden above
@@ -1392,11 +1398,17 @@ func (b *Buffer) GetScrollbackBoundaryVisibleRow() int {
 		logicalHiddenAbove = effectiveRows - b.rows
 	}
 
-	// Normal boundary calculation - unchanged from original
+	// Normal boundary calculation
 	boundaryRow := b.scrollOffset - logicalHiddenAbove
 
 	// Boundary must be within visible area (0 to rows-1)
 	if boundaryRow <= 0 || boundaryRow >= b.rows {
+		return -1
+	}
+
+	// Magnetic zone: suppress boundary when it would appear in the first few rows
+	// This creates the "sticky" feel at the transition from logical screen to scrollback
+	if boundaryRow <= ScrollMagneticThreshold {
 		return -1
 	}
 
