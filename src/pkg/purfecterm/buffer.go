@@ -1471,31 +1471,28 @@ func (b *Buffer) GetLongestLineInScrollback() int {
 	return longest
 }
 
-// GetLongestLineVisible returns the longest line length relevant for horizontal scrollbar
-// When not scrolled into scrollback: just the screen
-// When scrolled into scrollback: both scrollback and screen
+// GetLongestLineVisible returns the longest line width currently visible.
+// Only includes scrollback width when the yellow dashed boundary line is visible.
 func (b *Buffer) GetLongestLineVisible() int {
+	// Check if scrollback boundary is visible (don't hold lock during this call)
+	boundaryVisible := b.GetScrollbackBoundaryVisibleRow() > 0
+
 	b.mu.RLock()
 	defer b.mu.RUnlock()
 
-	if b.scrollOffset == 0 {
-		// Only screen matters
-		longest := 0
-		for _, line := range b.screen {
+	longest := 0
+
+	// Only include scrollback width if the boundary is visible
+	// (meaning we can actually see scrollback content)
+	if boundaryVisible {
+		for _, line := range b.scrollback {
 			if len(line) > longest {
 				longest = len(line)
 			}
 		}
-		return longest
 	}
 
-	// Both scrollback and screen matter
-	longest := 0
-	for _, line := range b.scrollback {
-		if len(line) > longest {
-			longest = len(line)
-		}
-	}
+	// Always include screen content width
 	for _, line := range b.screen {
 		if len(line) > longest {
 			longest = len(line)
