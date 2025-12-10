@@ -704,8 +704,8 @@ func (w *Widget) createCustomGlyphPixmap(cell *purfecterm.Cell, glyph *purfecter
 
 	// Calculate pixmap dimensions (account for scaleY for double-height)
 	pixmapH := int(float64(cellH) * scaleY)
-	pixmap := qt.NewQPixmap3(cellW, pixmapH)
-	pixmap.Fill2(qt.Transparent)
+	pixmap := qt.NewQPixmap2(cellW, pixmapH)
+	pixmap.FillWithFillColor(qt.NewQColor2(qt.Transparent))
 
 	painter := qt.NewQPainter2(pixmap.QPaintDevice)
 
@@ -852,7 +852,7 @@ func (w *Widget) renderCustomGlyph(painter *qt.QPainter, cell *purfecterm.Cell, 
 	}
 
 	// Blit the cached pixmap at the target position
-	painter.DrawPixmap3(cellX, int(renderY), cachedPixmap)
+	painter.DrawPixmap9(cellX, int(renderY), cachedPixmap)
 
 	// Restore clipping state if we applied it
 	if clipNeeded {
