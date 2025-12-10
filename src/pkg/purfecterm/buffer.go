@@ -4,6 +4,11 @@ import (
 	"sync"
 )
 
+// ScrollMagneticThreshold creates a "magnetic" zone at the boundary between
+// the logical screen and scrollback. The user must scroll past this many lines
+// before the yellow dashed boundary line appears, making it feel sticky.
+const ScrollMagneticThreshold = 5
+
 // Buffer manages the terminal screen and scrollback buffer
 type Buffer struct {
 	mu sync.RWMutex
@@ -1339,9 +1344,28 @@ func (b *Buffer) GetScrollOffset() int {
 	return b.scrollOffset
 }
 
+// NormalizeScrollOffset snaps the scroll offset back to 0 if it's in the
+// magnetic zone (1 to ScrollMagneticThreshold-1). This should be called when
+// scrolling ends (mouse release, wheel stops) to create a "sticky" effect at
+// the boundary between logical screen and scrollback.
+// Returns true if the offset was changed.
+func (b *Buffer) NormalizeScrollOffset() bool {
+	b.mu.Lock()
+	defer b.mu.Unlock()
+
+	if b.scrollOffset > 0 && b.scrollOffset < ScrollMagneticThreshold {
+		b.scrollOffset = 0
+		b.markDirty()
+		return true
+	}
+	return false
+}
+
 // GetScrollbackBoundaryVisibleRow returns the visible row (0-indexed from top of display)
 // where the boundary between scrollback and logical screen is located.
 // Returns -1 if the boundary is not currently visible (either fully in scrollback or fully in logical screen).
+// The magnetic threshold creates a "sticky" zone - you must scroll past ScrollMagneticThreshold
+// lines before the boundary becomes visible.
 func (b *Buffer) GetScrollbackBoundaryVisibleRow() int {
 	b.mu.RLock()
 	defer b.mu.RUnlock()
@@ -1354,15 +1378,22 @@ func (b *Buffer) GetScrollbackBoundaryVisibleRow() int {
 		return -1
 	}
 
+	// Apply magnetic threshold - boundary doesn't appear until we scroll past it
+	// This creates a "sticky" zone at the top of the logical screen
+	effectiveScrollOffset := b.scrollOffset - ScrollMagneticThreshold
+	if effectiveScrollOffset <= 0 {
+		return -1
+	}
+
 	// Calculate how much of the logical screen is hidden above
 	logicalHiddenAbove := 0
 	if effectiveRows > b.rows {
 		logicalHiddenAbove = effectiveRows - b.rows
 	}
 
-	// The boundary is visible at row: scrollOffset - logicalHiddenAbove
+	// The boundary is visible at row: effectiveScrollOffset - logicalHiddenAbove
 	// This is where absoluteY == scrollbackSize (first logical row)
-	boundaryRow := b.scrollOffset - logicalHiddenAbove
+	boundaryRow := effectiveScrollOffset - logicalHiddenAbove
 
 	// Boundary must be within visible area (0 to rows-1)
 	if boundaryRow <= 0 || boundaryRow >= b.rows {

@@ -333,6 +333,14 @@ func (w *Widget) initScrollbar() {
 		if !w.scrollbarUpdating {
 			maxScroll := w.scrollbar.Maximum()
 			w.buffer.SetScrollOffset(maxScroll - value)
+			// Snap to 0 if in the magnetic zone (creates sticky boundary effect)
+			if w.buffer.NormalizeScrollOffset() {
+				// Update scrollbar to reflect the normalized position
+				w.scrollbarUpdating = true
+				offset := w.buffer.GetScrollOffset()
+				w.scrollbar.SetValue(maxScroll - offset)
+				w.scrollbarUpdating = false
+			}
 		}
 	})
 
@@ -2102,6 +2110,8 @@ func (w *Widget) wheelEvent(event *qt.QWheelEvent) {
 	}
 
 	w.buffer.SetScrollOffset(offset)
+	// Snap to 0 if in the magnetic zone (creates sticky boundary effect when scrolling down)
+	w.buffer.NormalizeScrollOffset()
 	w.updateScrollbar()
 	w.updateHorizScrollbar() // Visibility may change based on scroll position
 }
