@@ -405,11 +405,12 @@ func NewWidget(cols, rows, scrollbackSize int) (*Widget, error) {
 	w.buffer = purfecterm.NewBuffer(cols, rows, scrollbackSize)
 	w.parser = purfecterm.NewParser(w.buffer)
 
-	// Set up dirty callback to trigger redraws
+	// Set up dirty callback to trigger redraws and scrollbar updates
 	w.buffer.SetDirtyCallback(func() {
 		glib.IdleAdd(func() {
 			if w.drawingArea != nil {
 				w.drawingArea.QueueDraw()
+				w.updateScrollbar()
 			}
 		})
 	})

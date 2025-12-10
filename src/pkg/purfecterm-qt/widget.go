@@ -1682,6 +1682,9 @@ func (w *Widget) paintEvent(event *qt.QPaintEvent) {
 		painter.Restore()
 	}
 
+	// Update scrollbars after rendering (safe here since we're not holding buffer lock)
+	w.updateScrollbar()
+
 	w.buffer.ClearDirty()
 }
 

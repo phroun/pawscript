@@ -644,26 +644,18 @@ func (b *Buffer) scrollToCursorIfNeeded() {
 	}
 
 	// Cursor is not visible, need to scroll
-	// Calculate what scroll offset would put cursor in view
-	// We want cursor visible, ideally near the bottom of the screen
+	// Scroll only enough to make cursor barely visible at the edge
 
 	if visibleY < 0 {
-		// Cursor is above visible area - scroll up (increase scroll offset)
-		// We need to increase effective scroll by |visibleY| to bring cursor to row 0
-		// But put cursor a few rows from top for context
-		targetRow := 2
-		if targetRow >= b.rows {
-			targetRow = 0
-		}
-		// visibleY = cursorY - logicalHiddenAbove + effectiveScrollOffset = targetRow
-		// effectiveScrollOffset = targetRow - cursorY + logicalHiddenAbove
-		newEffectiveOffset := targetRow - b.cursorY + logicalHiddenAbove
+		// Cursor is above visible area - scroll up just enough
+		// Put cursor at row 0 (top edge, barely visible)
+		// visibleY = cursorY - logicalHiddenAbove + effectiveScrollOffset = 0
+		// effectiveScrollOffset = -cursorY + logicalHiddenAbove = logicalHiddenAbove - cursorY
+		newEffectiveOffset := logicalHiddenAbove - b.cursorY
 		if newEffectiveOffset < 0 {
 			newEffectiveOffset = 0
 		}
 		// Convert effective offset back to actual scroll offset
-		// effectiveScrollOffset = scrollOffset - magneticThreshold (when past zone)
-		// So scrollOffset = effectiveScrollOffset + magneticThreshold
 		magneticThreshold := b.getMagneticThreshold()
 		newScrollOffset := newEffectiveOffset + magneticThreshold
 		maxOffset := b.getMaxScrollOffsetInternal()
@@ -673,10 +665,20 @@ func (b *Buffer) scrollToCursorIfNeeded() {
 		b.scrollOffset = newScrollOffset
 		b.markDirty()
 	} else {
-		// Cursor is below visible area - scroll down (decrease scroll offset)
-		// This brings us back toward the logical screen / less scrollback
-		// Set scroll to 0 to show the logical screen with cursor at bottom
-		b.scrollOffset = 0
+		// Cursor is below visible area - scroll down just enough
+		// Put cursor at row (rows-1) (bottom edge, barely visible)
+		// visibleY = cursorY - logicalHiddenAbove + effectiveScrollOffset = rows - 1
+		// effectiveScrollOffset = rows - 1 - cursorY + logicalHiddenAbove
+		newEffectiveOffset := b.rows - 1 - b.cursorY + logicalHiddenAbove
+		if newEffectiveOffset < 0 {
+			newEffectiveOffset = 0
+		}
+		magneticThreshold := b.getMagneticThreshold()
+		newScrollOffset := newEffectiveOffset + magneticThreshold
+		if newScrollOffset < 0 {
+			newScrollOffset = 0
+		}
+		b.scrollOffset = newScrollOffset
 		b.markDirty()
 	}
 }
