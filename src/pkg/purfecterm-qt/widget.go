@@ -11,6 +11,118 @@ import (
 // Left padding for terminal content (pixels)
 const terminalLeftPadding = 8
 
+// glyphCacheEntry stores a cached rendered glyph pixmap
+type glyphCacheEntry struct {
+	pixmap     *qt.QPixmap
+	lastAccess uint64 // Access counter for LRU eviction
+}
+
+// glyphCache provides LRU caching for rendered glyphs
+type glyphCache struct {
+	entries       map[purfecterm.GlyphCacheKey]*glyphCacheEntry
+	accessCounter uint64 // Global counter incremented on each access
+	maxEntries    int    // Maximum cache size
+}
+
+func newGlyphCache(maxEntries int) *glyphCache {
+	return &glyphCache{
+		entries:    make(map[purfecterm.GlyphCacheKey]*glyphCacheEntry),
+		maxEntries: maxEntries,
+	}
+}
+
+// get retrieves a cached glyph pixmap, updating its access time
+func (c *glyphCache) get(key purfecterm.GlyphCacheKey) *qt.QPixmap {
+	if entry, ok := c.entries[key]; ok {
+		c.accessCounter++
+		entry.lastAccess = c.accessCounter
+		return entry.pixmap
+	}
+	return nil
+}
+
+// put adds a glyph pixmap to the cache, evicting old entries if needed
+func (c *glyphCache) put(key purfecterm.GlyphCacheKey, pixmap *qt.QPixmap) {
+	// Evict old entries if at capacity
+	if len(c.entries) >= c.maxEntries {
+		c.evictOldest(c.maxEntries / 4) // Evict 25% of entries
+	}
+
+	c.accessCounter++
+	c.entries[key] = &glyphCacheEntry{
+		pixmap:     pixmap,
+		lastAccess: c.accessCounter,
+	}
+}
+
+// evictOldest removes the n oldest entries from the cache
+func (c *glyphCache) evictOldest(n int) {
+	if n <= 0 || len(c.entries) == 0 {
+		return
+	}
+
+	// Find the n entries with lowest lastAccess
+	type entryInfo struct {
+		key        purfecterm.GlyphCacheKey
+		lastAccess uint64
+	}
+
+	entries := make([]entryInfo, 0, len(c.entries))
+	for k, v := range c.entries {
+		entries = append(entries, entryInfo{k, v.lastAccess})
+	}
+
+	// Partial sort to find n smallest
+	for i := 0; i < n && i < len(entries); i++ {
+		minIdx := i
+		for j := i + 1; j < len(entries); j++ {
+			if entries[j].lastAccess < entries[minIdx].lastAccess {
+				minIdx = j
+			}
+		}
+		entries[i], entries[minIdx] = entries[minIdx], entries[i]
+	}
+
+	// Remove the oldest n entries
+	for i := 0; i < n && i < len(entries); i++ {
+		delete(c.entries, entries[i].key)
+	}
+}
+
+// clear removes all entries from the cache
+func (c *glyphCache) clear() {
+	c.entries = make(map[purfecterm.GlyphCacheKey]*glyphCacheEntry)
+}
+
+// buildCustomGlyphKey creates a cache key for a custom glyph.
+// usesDefaultFG: if true, include fg color in key (palette has DefaultFG entries)
+// usesBg: if true, include bg color in key (palette has transparent or single-entry mode)
+func buildCustomGlyphKey(r rune, width, height int, xFlip, yFlip bool,
+	paletteHash uint64, glyphHash uint64, usesDefaultFG, usesBg bool,
+	fg, bg purfecterm.Color) purfecterm.GlyphCacheKey {
+	key := purfecterm.GlyphCacheKey{
+		Rune:          r,
+		Width:         int16(width),
+		Height:        int16(height),
+		IsCustomGlyph: true,
+		XFlip:         xFlip,
+		YFlip:         yFlip,
+		PaletteHash:   paletteHash,
+		GlyphHash:     glyphHash,
+	}
+	if usesDefaultFG {
+		key.FgR = fg.R
+		key.FgG = fg.G
+		key.FgB = fg.B
+	}
+	if usesBg {
+		key.BgR = bg.R
+		key.BgG = bg.G
+		key.BgB = bg.B
+	}
+	return key
+}
+
 // Widget is a Qt terminal emulator widget
 type Widget struct {
 	widget         *qt.QWidget    // The terminal drawing area
@@ -22,6 +134,9 @@ type Widget struct {
 	// Terminal state
 	buffer *purfecterm.Buffer
 	parser *purfecterm.Parser
+
+	// Glyph cache for rendered characters
+	glyphCache *glyphCache
 
 	// Font settings
 	fontFamily        string
@@ -79,6 +194,7 @@ func NewWidget(cols, rows, scrollbackSize int) *Widget {
 		charAscent:    16,
 		scheme:        purfecterm.DefaultColorScheme(),
 		cursorBlinkOn: true,
+		glyphCache:    newGlyphCache(4096),
 	}
 
 	// Create buffer and parser
@@ -577,6 +693,76 @@ func (w *Widget) updateFontMetrics() {
 
 // renderCustomGlyph renders a custom glyph for a cell at the specified position
 // Returns true if a custom glyph was rendered, false if normal text rendering should be used
+// createCustomGlyphPixmap renders a custom glyph to a cached QPixmap.
+// The pixmap is rendered at the specified cell size with all palette colors resolved.
+// scaleY is used for double-height mode (1.0 for normal, 2.0 for double-height).
+func (w *Widget) createCustomGlyphPixmap(cell *purfecterm.Cell, glyph *purfecterm.CustomGlyph,
+	cellW, cellH int, scaleY float64) *qt.QPixmap {
+
+	glyphW := glyph.Width
+	glyphH := glyph.Height
+
+	// Calculate pixmap dimensions (account for scaleY for double-height)
+	pixmapH := int(float64(cellH) * scaleY)
+	pixmap := qt.NewQPixmap3(cellW, pixmapH)
+	pixmap.Fill2(qt.Transparent)
+
+	painter := qt.NewQPainter2(pixmap.QPaintDevice)
+
+	// Calculate pixel size (scale glyph to fill cell)
+	pixelW := float64(cellW) / float64(glyphW)
+	pixelH := float64(pixmapH) / float64(glyphH)
+
+	// Render each pixel
+	for gy := 0; gy < glyphH; gy++ {
+		for gx := 0; gx < glyphW; gx++ {
+			// Get palette index for this pixel
+			paletteIdx := glyph.GetPixel(gx, gy)
+
+			// Apply XFlip/YFlip
+			drawX := gx
+			drawY := gy
+			if cell.XFlip {
+				drawX = glyphW - 1 - gx
+			}
+			if cell.YFlip {
+				drawY = glyphH - 1 - gy
+			}
+
+			// Calculate position on pixmap
+			px := float64(drawX) * pixelW
+			py := float64(drawY) * pixelH
+
+			// Check for adjacent non-transparent pixels to hide seams
+			rightNeighborIdx := glyph.GetPixel(gx+1, gy)
+			belowNeighborIdx := glyph.GetPixel(gx, gy+1)
+
+			// Extend pixel to cover seams
+			drawW := pixelW
+			drawH := pixelH
+			if rightNeighborIdx != 0 {
+				drawW += 1
+			}
+			if belowNeighborIdx != 0 {
+				drawH += 1
+			}
+
+			// Resolve color from palette
+			color, _ := w.buffer.ResolveGlyphColor(cell, paletteIdx)
+
+			// Draw pixel
+			qColor := qt.NewQColor3(int(color.R), int(color.G), int(color.B))
+			painter.FillRect5(int(px), int(py), int(drawW+0.5), int(drawH+0.5), qColor)
+		}
+	}
+
+	painter.End()
+	return pixmap
+}
+
+// renderCustomGlyph renders a custom glyph for a cell at the specified position.
+// Uses the glyph cache for performance - cache hits just blit the pre-rendered pixmap.
+// Returns true if a custom glyph was rendered, false if normal text rendering should be used.
 func (w *Widget) renderCustomGlyph(painter *qt.QPainter, cell *purfecterm.Cell, cellX, cellY, cellW, cellH int, cellCol int, blinkPhase float64, blinkMode purfecterm.BlinkMode, lineAttr purfecterm.LineAttribute) bool {
 	glyph := w.buffer.GetGlyph(cell.Char)
 	if glyph == nil {
@@ -616,9 +802,48 @@ func (w *Widget) renderCustomGlyph(painter *qt.QPainter, cell *purfecterm.Cell, 
 		clipNeeded = true
 	}
 
-	// Calculate pixel size (scale glyph to fill cell)
-	pixelW := float64(cellW) / float64(glyphW)
-	pixelH := (float64(cellH) * scaleY) / float64(glyphH)
+	// Get palette info for cache key
+	paletteNum := cell.BGP
+	if paletteNum < 0 {
+		paletteNum = w.buffer.ColorToANSICode(cell.Foreground)
+	}
+	palette := w.buffer.GetPalette(paletteNum)
+
+	// Determine cache key flags based on palette characteristics
+	var paletteHash uint64
+	usesDefaultFG := true  // Default to true for fallback mode (no palette)
+	usesBg := true         // Default to true for fallback mode
+	isSingleEntry := false
+
+	if palette != nil {
+		paletteHash = palette.ComputeHash()
+		usesDefaultFG = palette.UsesDefaultFG
+		usesBg = palette.UsesBg
+		isSingleEntry = len(palette.Entries) == 1
+	}
+
+	// Single-entry palettes always use background for index 0
+	if isSingleEntry {
+		usesBg = true
+	}
+
+	// Build cache key
+	cacheKey := buildCustomGlyphKey(
+		cell.Char,
+		cellW, int(float64(cellH)*scaleY),
+		cell.XFlip, cell.YFlip,
+		paletteHash, glyph.ComputeHash(),
+		usesDefaultFG, usesBg,
+		cell.Foreground, cell.Background,
+	)
+
+	// Try cache lookup
+	cachedPixmap := w.glyphCache.get(cacheKey)
+	if cachedPixmap == nil {
+		// Cache miss - create and cache the pixmap
+		cachedPixmap = w.createCustomGlyphPixmap(cell, glyph, cellW, cellH, scaleY)
+		w.glyphCache.put(cacheKey, cachedPixmap)
+	}
 
 	// Apply clipping for double-height lines
 	if clipNeeded {
@@ -626,48 +851,8 @@ func (w *Widget) renderCustomGlyph(painter *qt.QPainter, cell *purfecterm.Cell, 
 		painter.SetClipRect2(cellX, cellY, cellW, cellH)
 	}
 
-	// Render each pixel
-	for gy := 0; gy < glyphH; gy++ {
-		for gx := 0; gx < glyphW; gx++ {
-			// Get palette index for this pixel
-			paletteIdx := glyph.GetPixel(gx, gy)
-
-			// Apply XFlip/YFlip
-			drawX := gx
-			drawY := gy
-			if cell.XFlip {
-				drawX = glyphW - 1 - gx
-			}
-			if cell.YFlip {
-				drawY = glyphH - 1 - gy
-			}
-
-			// Calculate screen position
-			px := float64(cellX) + float64(drawX)*pixelW
-			py := renderY + float64(drawY)*pixelH
-
-			// Check for adjacent non-transparent pixels in source glyph to hide seams
-			rightNeighborIdx := glyph.GetPixel(gx+1, gy)
-			belowNeighborIdx := glyph.GetPixel(gx, gy+1)
-
-			// Extend pixel to cover seams with adjacent non-transparent pixels
-			drawW := pixelW
-			drawH := pixelH
-			if rightNeighborIdx != 0 {
-				drawW += 1
-			}
-			if belowNeighborIdx != 0 {
-				drawH += 1
-			}
-
-			// Resolve color from palette
-			color, _ := w.buffer.ResolveGlyphColor(cell, paletteIdx)
-
-			// Draw pixel
-			qColor := qt.NewQColor3(int(color.R), int(color.G), int(color.B))
-			painter.FillRect5(int(px), int(py), int(drawW+0.5), int(drawH+0.5), qColor)
-		}
-	}
+	// Blit the cached pixmap at the target position
+	painter.DrawPixmap3(cellX, int(renderY), cachedPixmap)
 
 	// Restore clipping state if we applied it
 	if clipNeeded {
