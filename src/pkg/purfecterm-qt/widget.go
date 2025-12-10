@@ -1314,7 +1314,7 @@ func (w *Widget) paintEvent(event *qt.QPaintEvent) {
 	cols, rows := w.buffer.GetSize()
 	cursorVisible := w.buffer.IsCursorVisible()
 	cursorShape, _ := w.buffer.GetCursorStyle()
-	scrollOffset := w.buffer.GetScrollOffset()
+	scrollOffset := w.buffer.GetEffectiveScrollOffset()
 	horizOffset := w.buffer.GetHorizOffset()
 
 	// Get cursor's visible position (accounting for scroll offset)

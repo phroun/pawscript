@@ -1482,7 +1482,7 @@ func (w *Widget) onDraw(da *gtk.DrawingArea, cr *cairo.Context) bool {
 	cols, rows := w.buffer.GetSize()
 	cursorVisible := w.buffer.IsCursorVisible()
 	cursorShape, _ := w.buffer.GetCursorStyle() // 0=block, 1=underline, 2=bar
-	scrollOffset := w.buffer.GetScrollOffset()
+	scrollOffset := w.buffer.GetEffectiveScrollOffset()
 
 	// Get cursor's visible position (accounting for scroll offset)
 	cursorVisibleX, cursorVisibleY := w.buffer.GetCursorVisiblePosition()

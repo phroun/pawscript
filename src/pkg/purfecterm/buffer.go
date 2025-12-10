@@ -44,6 +44,38 @@ func (b *Buffer) getMagneticThreshold() int {
 	return threshold
 }
 
+// getEffectiveScrollOffset returns the scroll offset adjusted for the magnetic zone.
+// In the magnetic zone, rendering should behave as if viewing the full logical screen.
+// Past the magnetic zone, the threshold is subtracted so content transitions smoothly.
+// This must be called with the lock held.
+func (b *Buffer) getEffectiveScrollOffset() int {
+	effectiveRows := b.EffectiveRows()
+
+	// Calculate how much of the logical screen is hidden above
+	logicalHiddenAbove := 0
+	if effectiveRows > b.rows {
+		logicalHiddenAbove = effectiveRows - b.rows
+	}
+
+	// Calculate boundary row (where yellow line would appear without magnetic zone)
+	boundaryRow := b.scrollOffset - logicalHiddenAbove
+
+	// If not scrolled into scrollback at all, no adjustment needed
+	if boundaryRow <= 0 {
+		return b.scrollOffset
+	}
+
+	magneticThreshold := b.getMagneticThreshold()
+
+	if boundaryRow <= magneticThreshold {
+		// In magnetic zone - render as if viewing full logical screen
+		return logicalHiddenAbove
+	}
+
+	// Past magnetic zone - subtract threshold so content transitions smoothly
+	return b.scrollOffset - magneticThreshold
+}
+
 // Buffer manages the terminal screen and scrollback buffer
 type Buffer struct {
 	mu sync.RWMutex
@@ -1257,18 +1289,8 @@ func (b *Buffer) getVisibleCellInternal(x, y int) Cell {
 		logicalHiddenAbove = effectiveRows - b.rows
 	}
 
-	// Calculate effective scroll offset accounting for magnetic zone
-	// The magnetic zone creates redundant scroll positions that all render the same
-	effectiveScrollOffset := b.scrollOffset
-	boundaryRow := b.scrollOffset - logicalHiddenAbove
-	magneticThreshold := b.getMagneticThreshold()
-	if boundaryRow > 0 && boundaryRow <= magneticThreshold {
-		// In magnetic zone - render as if viewing full logical screen
-		effectiveScrollOffset = logicalHiddenAbove
-	} else if boundaryRow > magneticThreshold {
-		// Past magnetic zone - subtract threshold so content transitions smoothly
-		effectiveScrollOffset = b.scrollOffset - magneticThreshold
-	}
+	// Use helper function for magnetic zone handling
+	effectiveScrollOffset := b.getEffectiveScrollOffset()
 
 	// Total scrollable area above visible: scrollback + hidden logical rows
 	totalScrollableAbove := scrollbackSize + logicalHiddenAbove
@@ -1401,6 +1423,15 @@ func (b *Buffer) GetScrollOffset() int {
 	return b.scrollOffset
 }
 
+// GetEffectiveScrollOffset returns the scroll offset adjusted for the magnetic zone.
+// Use this for rendering sprites, splits, and other positioned elements that should
+// remain stable during the magnetic zone.
+func (b *Buffer) GetEffectiveScrollOffset() int {
+	b.mu.RLock()
+	defer b.mu.RUnlock()
+	return b.getEffectiveScrollOffset()
+}
+
 // NormalizeScrollOffset snaps the scroll offset back if it's in the magnetic zone.
 // The magnetic zone is when the boundary would appear at rows 1-threshold (5% of scrollable content).
 // This should be called when scrolling down to create a "sticky" effect at the
@@ -1485,7 +1516,8 @@ func (b *Buffer) GetScrollbackBoundaryVisibleRow() int {
 }
 
 // GetCursorVisiblePosition returns the visible (x, y) position of the cursor
-// accounting for scroll offset. Returns (-1, -1) if the cursor is not currently visible.
+// accounting for scroll offset and magnetic zone. Returns (-1, -1) if the cursor
+// is not currently visible.
 func (b *Buffer) GetCursorVisiblePosition() (x, y int) {
 	b.mu.RLock()
 	defer b.mu.RUnlock()
@@ -1498,9 +1530,12 @@ func (b *Buffer) GetCursorVisiblePosition() (x, y int) {
 		logicalHiddenAbove = effectiveRows - b.rows
 	}
 
+	// Use effective scroll offset to account for magnetic zone
+	effectiveScrollOffset := b.getEffectiveScrollOffset()
+
 	// The cursor is at logical position (cursorX, cursorY)
-	// Its visible position is: cursorY - logicalHiddenAbove + scrollOffset
-	visibleY := b.cursorY - logicalHiddenAbove + b.scrollOffset
+	// Its visible position is: cursorY - logicalHiddenAbove + effectiveScrollOffset
+	visibleY := b.cursorY - logicalHiddenAbove + effectiveScrollOffset
 
 	// Check if cursor is within visible vertical area
 	if visibleY < 0 || visibleY >= b.rows {
@@ -1866,8 +1901,11 @@ func (b *Buffer) screenToBufferY(screenY int) int {
 	// Total scrollable area above visible
 	totalScrollableAbove := scrollbackSize + logicalHiddenAbove
 
+	// Use effective scroll offset to account for magnetic zone
+	effectiveScrollOffset := b.getEffectiveScrollOffset()
+
 	// Convert screen Y to buffer-absolute Y
-	return totalScrollableAbove - b.scrollOffset + screenY
+	return totalScrollableAbove - effectiveScrollOffset + screenY
 }
 
 // bufferToScreenY converts a buffer-absolute Y coordinate to a screen Y coordinate
@@ -1885,8 +1923,11 @@ func (b *Buffer) bufferToScreenY(bufferY int) int {
 	// Total scrollable area above visible
 	totalScrollableAbove := scrollbackSize + logicalHiddenAbove
 
+	// Use effective scroll offset to account for magnetic zone
+	effectiveScrollOffset := b.getEffectiveScrollOffset()
+
 	// Convert buffer-absolute Y to screen Y
-	screenY := bufferY - totalScrollableAbove + b.scrollOffset
+	screenY := bufferY - totalScrollableAbove + effectiveScrollOffset
 
 	// Check if visible
 	if screenY < 0 || screenY >= b.rows {
