@@ -186,29 +186,22 @@ Rather than calculating cursor visibility mathematically (which is complex with 
    - Keyboard activity is recent (within 500ms)
    - Cursor was not drawn
 
-### Movement Direction with Scroll Compensation
+### Movement Direction Tracking
 
-The buffer tracks cursor movement direction, but compensates for screen scrolls:
+The buffer tracks cursor movement direction via `trackCursorYMove(newY)`:
 
-- `lastCursorY`: Cursor Y position at last movement check
 - `lastCursorMoveDir`: -1=up, 0=none, 1=down
-- `scrollsSinceCursorSet`: Count of screen scrolls since last cursor update
 
-When `scrollUpInternal()` is called (content scrolls up, new line at bottom), the counter increments. When comparing cursor positions in `setCursorInternal()`:
+This helper is called before any `cursorY` modification throughout the codebase:
+- `setCursorInternal()` - explicit cursor positioning
+- `Newline()`, `LineFeed()` - cursor moving down
+- `MoveCursorUp()`, `MoveCursorDown()` - CSI cursor commands
+- `RestoreCursor()` - restoring saved position
+- Resize handlers - cursor clamping to new dimensions
+- Line wrap in `WriteRune()` - cursor wrapping to next line
 
-```go
-// Content shifted up, so last position's content is now at a lower row number
-adjustedLastY := lastCursorY - scrollsSinceCursorSet
-if y > adjustedLastY {
-    lastCursorMoveDir = 1  // Moving down (toward newer content)
-} else if y < adjustedLastY {
-    lastCursorMoveDir = -1 // Moving up (toward older content)
-}
-```
-
-Example: cursor at row 23, screen scrolls 5 times, cursor stays at row 23:
-- `adjustedLastY = 23 - 5 = 18` (where the old content moved to)
-- `y = 23 > 18` → cursor moved DOWN (now on newer content)
+Additionally, `scrollUpInternal()` directly sets `lastCursorMoveDir = 1` (down) because
+scrolling content up always means the user is generating content at the bottom.
 
 ## Scrollbar Calculations
 

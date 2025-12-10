@@ -134,11 +134,9 @@ type Buffer struct {
 	horizOffset int // Horizontal scroll offset (in columns)
 
 	// Auto-scroll to cursor on keyboard activity
-	lastKeyboardActivity  time.Time // When keyboard activity last occurred
-	cursorDrawnLastFrame  bool      // Set by widget after drawing cursor
-	lastCursorY           int       // Cursor Y at last movement check
-	lastCursorMoveDir     int       // -1=up, 0=none, 1=down
-	scrollsSinceCursorSet int       // Screen scrolls since last cursor position update
+	lastKeyboardActivity time.Time // When keyboard activity last occurred
+	cursorDrawnLastFrame bool      // Set by widget after drawing cursor
+	lastCursorMoveDir    int       // -1=up, 0=none, 1=down (set by scrollUpInternal)
 
 	selectionActive      bool
 	selStartX, selStartY int
@@ -339,6 +337,7 @@ func (b *Buffer) Resize(cols, rows int) {
 		b.cursorX = effectiveCols - 1
 	}
 	if b.cursorY >= effectiveRows {
+		b.trackCursorYMove(effectiveRows - 1)
 		b.cursorY = effectiveRows - 1
 	}
 
@@ -388,10 +387,12 @@ func (b *Buffer) adjustScreenToRows(targetRows int) {
 
 		// Adjust cursor position to stay with content
 		if linesToPush > 0 {
-			b.cursorY -= linesToPush
-			if b.cursorY < 0 {
-				b.cursorY = 0
+			newY := b.cursorY - linesToPush
+			if newY < 0 {
+				newY = 0
 			}
+			b.trackCursorYMove(newY)
+			b.cursorY = newY
 		}
 
 		// Now trim or add to reach target rows
@@ -477,6 +478,7 @@ func (b *Buffer) SetLogicalSize(logicalRows, logicalCols int) {
 		b.cursorX = effectiveCols - 1
 	}
 	if b.cursorY >= newEffectiveRows {
+		b.trackCursorYMove(newEffectiveRows - 1)
 		b.cursorY = newEffectiveRows - 1
 	}
 
@@ -569,6 +571,17 @@ func (b *Buffer) SetCursor(x, y int) {
 	b.setCursorInternal(x, y)
 }
 
+// trackCursorYMove tracks cursor movement direction for auto-scroll.
+// Call this before modifying cursorY with the new Y value.
+func (b *Buffer) trackCursorYMove(newY int) {
+	if newY > b.cursorY {
+		b.lastCursorMoveDir = 1 // Moving down
+	} else if newY < b.cursorY {
+		b.lastCursorMoveDir = -1 // Moving up
+	}
+	// If equal, keep previous direction
+}
+
 func (b *Buffer) setCursorInternal(x, y int) {
 	// Use effective (logical) dimensions for cursor bounds
 	effectiveCols := b.EffectiveCols()
@@ -586,21 +599,7 @@ func (b *Buffer) setCursorInternal(x, y int) {
 		y = effectiveRows - 1
 	}
 
-	// Track cursor movement direction, accounting for screen scrolls.
-	// When screen scrolls up (content shifts up), the content the cursor WAS on
-	// moved up by scrollsSinceCursorSet rows. So if cursor stays at same row,
-	// it's now on newer content (moved down relative to content).
-	// Subtract scrolls from lastCursorY to get where that content is now.
-	adjustedLastY := b.lastCursorY - b.scrollsSinceCursorSet
-	if y > adjustedLastY {
-		b.lastCursorMoveDir = 1 // Moving down (toward newer content)
-	} else if y < adjustedLastY {
-		b.lastCursorMoveDir = -1 // Moving up (toward older content)
-	}
-	// If y == adjustedLastY, keep previous direction
-
-	b.lastCursorY = y
-	b.scrollsSinceCursorSet = 0
+	b.trackCursorYMove(y)
 	b.cursorX = x
 	b.cursorY = y
 	b.markDirty()
@@ -782,6 +781,7 @@ func (b *Buffer) RestoreCursor() {
 	b.mu.Lock()
 	defer b.mu.Unlock()
 	b.cursorX = b.savedCursorX
+	b.trackCursorYMove(b.savedCursorY)
 	b.cursorY = b.savedCursorY
 	b.markDirty()
 }
@@ -927,6 +927,7 @@ func (b *Buffer) writeCharInternal(ch rune) {
 
 	if shouldWrap {
 		b.cursorX = 0
+		b.trackCursorYMove(b.cursorY + 1)
 		b.cursorY++
 		if b.cursorY >= effectiveRows {
 			b.scrollUpInternal()
@@ -1034,6 +1035,7 @@ func (b *Buffer) Newline() {
 	b.mu.Lock()
 	defer b.mu.Unlock()
 	b.cursorX = 0
+	b.trackCursorYMove(b.cursorY + 1)
 	b.cursorY++
 	effectiveRows := b.EffectiveRows()
 	if b.cursorY >= effectiveRows {
@@ -1055,6 +1057,7 @@ func (b *Buffer) CarriageReturn() {
 func (b *Buffer) LineFeed() {
 	b.mu.Lock()
 	defer b.mu.Unlock()
+	b.trackCursorYMove(b.cursorY + 1)
 	b.cursorY++
 	effectiveRows := b.EffectiveRows()
 	if b.cursorY >= effectiveRows {
@@ -1103,8 +1106,9 @@ func (b *Buffer) scrollUpInternal() {
 	b.screen[lastIdx] = b.makeEmptyLine()
 	b.lineInfos[lastIdx] = b.makeDefaultLineInfo()
 
-	// Track that content scrolled - cursor effectively moved down relative to content
-	b.scrollsSinceCursorSet++
+	// Content scrolled up = new content at bottom = cursor moving toward newer content
+	// Set direction directly since most cursor movements bypass setCursorInternal
+	b.lastCursorMoveDir = 1 // Down
 
 	b.markDirty()
 }
@@ -1834,10 +1838,12 @@ func (b *Buffer) ClearDirty() {
 func (b *Buffer) MoveCursorUp(n int) {
 	b.mu.Lock()
 	defer b.mu.Unlock()
-	b.cursorY -= n
-	if b.cursorY < 0 {
-		b.cursorY = 0
+	newY := b.cursorY - n
+	if newY < 0 {
+		newY = 0
 	}
+	b.trackCursorYMove(newY)
+	b.cursorY = newY
 	b.markDirty()
 }
 
@@ -1845,11 +1851,13 @@ func (b *Buffer) MoveCursorUp(n int) {
 func (b *Buffer) MoveCursorDown(n int) {
 	b.mu.Lock()
 	defer b.mu.Unlock()
-	b.cursorY += n
+	newY := b.cursorY + n
 	effectiveRows := b.EffectiveRows()
-	if b.cursorY >= effectiveRows {
-		b.cursorY = effectiveRows - 1
+	if newY >= effectiveRows {
+		newY = effectiveRows - 1
 	}
+	b.trackCursorYMove(newY)
+	b.cursorY = newY
 	b.markDirty()
 }
 
