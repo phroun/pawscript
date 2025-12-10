@@ -1459,8 +1459,8 @@ func (b *Buffer) GetScrollbackBoundaryVisibleRow() int {
 	// Normal boundary calculation
 	boundaryRow := b.scrollOffset - logicalHiddenAbove
 
-	// Boundary must be within visible area (0 to rows-1)
-	if boundaryRow <= 0 || boundaryRow >= b.rows {
+	// Boundary at or below row 0 means we're viewing logical screen only
+	if boundaryRow <= 0 {
 		return -1
 	}
 
@@ -1474,7 +1474,9 @@ func (b *Buffer) GetScrollbackBoundaryVisibleRow() int {
 	// Past magnetic zone - subtract threshold so boundary position matches content
 	effectiveBoundaryRow := boundaryRow - magneticThreshold
 
-	// Check effective boundary is still in visible range
+	// Check effective boundary is in visible range (1 to rows-1)
+	// Row 0 would mean boundary at very top (no scrollback visible)
+	// Row >= rows would mean boundary below visible area
 	if effectiveBoundaryRow <= 0 || effectiveBoundaryRow >= b.rows {
 		return -1
 	}
