@@ -1366,6 +1366,9 @@ func (w *Widget) paintEvent(event *qt.QPaintEvent) {
 	font.SetFixedPitch(true)
 	painter.SetFont(font)
 
+	// Track whether cursor was drawn in this frame (for auto-scroll)
+	cursorWasDrawn := false
+
 	// Draw each cell
 	for y := 0; y < rows; y++ {
 		lineAttr := w.buffer.GetVisibleLineAttribute(y)
@@ -1622,6 +1625,7 @@ func (w *Widget) paintEvent(event *qt.QPaintEvent) {
 
 			// Draw cursor
 			if isCursor {
+				cursorWasDrawn = true
 				cursorQColor := qt.NewQColor3(int(scheme.Cursor.R), int(scheme.Cursor.G), int(scheme.Cursor.B))
 				switch cursorShape {
 				case 0: // Block
@@ -1680,6 +1684,14 @@ func (w *Widget) paintEvent(event *qt.QPaintEvent) {
 	// Restore from crop clipping if it was applied
 	if hasCrop {
 		painter.Restore()
+	}
+
+	// Report whether cursor was drawn for auto-scroll logic
+	w.buffer.SetCursorDrawn(cursorWasDrawn)
+
+	// Check if we need to auto-scroll to bring cursor into view
+	if w.buffer.CheckCursorAutoScroll() {
+		// Scroll happened, redraw will be triggered by markDirty
 	}
 
 	// Update scrollbars after rendering (safe here since we're not holding buffer lock)

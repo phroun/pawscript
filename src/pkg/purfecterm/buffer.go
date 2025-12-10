@@ -136,6 +136,11 @@ type Buffer struct {
 	// Auto-scroll to cursor on keyboard activity
 	lastKeyboardActivity time.Time // When keyboard activity last occurred
 
+	// Cursor visibility tracking for auto-scroll
+	cursorDrawnLastFrame  bool // Set by widget after drawing cursor
+	lastCursorY           int  // Previous cursor Y position
+	lastCursorMoveDir     int  // -1=up, 0=none, 1=down
+
 	selectionActive      bool
 	selStartX, selStartY int
 	selEndX, selEndY     int
@@ -412,12 +417,23 @@ func (b *Buffer) pushLineToScrollback(line []Cell, info LineInfo) {
 	if b.scrollbackDisabled {
 		return
 	}
+
+	trimmed := false
 	if len(b.scrollback) >= b.maxScrollback {
 		b.scrollback = b.scrollback[1:]
 		b.scrollbackInfo = b.scrollbackInfo[1:]
+		trimmed = true
 	}
 	b.scrollback = append(b.scrollback, line)
 	b.scrollbackInfo = append(b.scrollbackInfo, info)
+
+	// If scrollback was trimmed from front and we're scrolled into scrollback,
+	// adjust offset to keep viewing the same content
+	if trimmed && b.scrollOffset > 0 {
+		b.scrollOffset--
+	}
+	// Note: if user was at scrollOffset 0, they stay at 0 (viewing newest content)
+	// If at some other scrollback position, they stay there but see newer lines
 }
 
 // SetLogicalSize sets the logical terminal dimensions
@@ -570,16 +586,19 @@ func (b *Buffer) setCursorInternal(x, y int) {
 	if y >= effectiveRows {
 		y = effectiveRows - 1
 	}
+
+	// Track cursor movement direction before updating
+	if y > b.cursorY {
+		b.lastCursorMoveDir = 1 // Moving down
+	} else if y < b.cursorY {
+		b.lastCursorMoveDir = -1 // Moving up
+	}
+	// Note: if y == b.cursorY, keep previous direction
+
+	b.lastCursorY = b.cursorY
 	b.cursorX = x
 	b.cursorY = y
 	b.markDirty()
-
-	// Single-row auto-scroll when viewing logical screen (no scrollback visible)
-	// This follows cursor for normal navigation but ignores multi-row jumps
-	b.autoScrollSingleRow()
-
-	// Auto-scroll to cursor if keyboard activity is recent (more aggressive)
-	b.scrollToCursorIfNeeded()
 }
 
 // SetCursorVisible sets cursor visibility
@@ -598,14 +617,11 @@ func (b *Buffer) IsCursorVisible() bool {
 }
 
 // NotifyKeyboardActivity signals that keyboard input occurred.
-// This starts/restarts the auto-scroll timer. While active, cursor movements
-// will auto-scroll the view to keep the cursor visible.
+// This starts/restarts the auto-scroll timer.
 func (b *Buffer) NotifyKeyboardActivity() {
 	b.mu.Lock()
 	defer b.mu.Unlock()
 	b.lastKeyboardActivity = time.Now()
-	// Immediately scroll to cursor if not visible
-	b.scrollToCursorIfNeeded()
 }
 
 // isAutoScrollActive returns true if keyboard activity occurred recently
@@ -618,122 +634,51 @@ func (b *Buffer) isAutoScrollActive() bool {
 	return time.Since(b.lastKeyboardActivity) < keyboardAutoScrollDuration
 }
 
-// scrollToCursorIfNeeded adjusts the scroll offset to bring the cursor into view
-// if auto-scroll is currently active. Must be called with lock held.
-func (b *Buffer) scrollToCursorIfNeeded() {
-	if !b.isAutoScrollActive() {
-		return
-	}
-
-	effectiveRows := b.EffectiveRows()
-
-	// Calculate how much of the logical screen is hidden above
-	logicalHiddenAbove := 0
-	if effectiveRows > b.rows {
-		logicalHiddenAbove = effectiveRows - b.rows
-	}
-
-	// Calculate cursor's visible row position with current scroll
-	// Using effective scroll offset to account for magnetic zone
-	effectiveScrollOffset := b.getEffectiveScrollOffset()
-	visibleY := b.cursorY - logicalHiddenAbove + effectiveScrollOffset
-
-	// Check if cursor is already visible
-	if visibleY >= 0 && visibleY < b.rows {
-		return // Cursor is visible, no scroll needed
-	}
-
-	// Cursor is not visible, need to scroll
-	// Scroll only enough to make cursor barely visible at the edge
-
-	if visibleY < 0 {
-		// Cursor is above visible area - scroll up just enough
-		// Put cursor at row 0 (top edge, barely visible)
-		// visibleY = cursorY - logicalHiddenAbove + effectiveScrollOffset = 0
-		// effectiveScrollOffset = -cursorY + logicalHiddenAbove = logicalHiddenAbove - cursorY
-		newEffectiveOffset := logicalHiddenAbove - b.cursorY
-		if newEffectiveOffset < 0 {
-			newEffectiveOffset = 0
-		}
-		// Convert effective offset back to actual scroll offset
-		magneticThreshold := b.getMagneticThreshold()
-		newScrollOffset := newEffectiveOffset + magneticThreshold
-		maxOffset := b.getMaxScrollOffsetInternal()
-		if newScrollOffset > maxOffset {
-			newScrollOffset = maxOffset
-		}
-		b.scrollOffset = newScrollOffset
-		b.markDirty()
-	} else {
-		// Cursor is below visible area - scroll down just enough
-		// Put cursor at row (rows-1) (bottom edge, barely visible)
-		// visibleY = cursorY - logicalHiddenAbove + effectiveScrollOffset = rows - 1
-		// effectiveScrollOffset = rows - 1 - cursorY + logicalHiddenAbove
-		newEffectiveOffset := b.rows - 1 - b.cursorY + logicalHiddenAbove
-		if newEffectiveOffset < 0 {
-			newEffectiveOffset = 0
-		}
-		magneticThreshold := b.getMagneticThreshold()
-		newScrollOffset := newEffectiveOffset + magneticThreshold
-		if newScrollOffset < 0 {
-			newScrollOffset = 0
-		}
-		b.scrollOffset = newScrollOffset
-		b.markDirty()
-	}
+// SetCursorDrawn is called by the widget after rendering to indicate whether
+// the cursor was actually drawn on screen.
+func (b *Buffer) SetCursorDrawn(drawn bool) {
+	b.mu.Lock()
+	defer b.mu.Unlock()
+	b.cursorDrawnLastFrame = drawn
 }
 
-// autoScrollSingleRow handles automatic scrolling for single-row cursor movements
-// when viewing the logical screen (no scrollback visible). If cursor ends up exactly
-// one row above or below the visible area, scroll by one row to follow it.
-// This allows normal navigation to follow cursor while preventing multi-row jumps
-// (like off-screen footer updates) from yanking the scroll position.
-// Must be called with lock held.
-func (b *Buffer) autoScrollSingleRow() {
-	scrollbackSize := len(b.scrollback)
+// CheckCursorAutoScroll checks if the cursor was not drawn last frame and
+// auto-scroll is active, then scrolls by one row in the direction of the
+// last cursor movement to bring the cursor back into view.
+// Returns true if a scroll occurred.
+func (b *Buffer) CheckCursorAutoScroll() bool {
+	b.mu.Lock()
+	defer b.mu.Unlock()
 
-	// Calculate logical screen metrics
-	effectiveRows := b.EffectiveRows()
-	logicalHiddenAbove := 0
-	if effectiveRows > b.rows {
-		logicalHiddenAbove = effectiveRows - b.rows
+	// Only auto-scroll if keyboard activity is recent
+	if !b.isAutoScrollActive() {
+		return false
 	}
 
-	// Check if scrollback boundary is visible (yellow line showing)
-	// If scrollback is visible, don't do single-row auto-scroll
-	if scrollbackSize > 0 {
-		boundaryRow := b.scrollOffset - logicalHiddenAbove
-		magneticThreshold := b.getMagneticThreshold()
-
-		// Past the magnetic zone means scrollback is visible
-		if boundaryRow > magneticThreshold {
-			return
-		}
+	// If cursor was drawn, no scroll needed
+	if b.cursorDrawnLastFrame {
+		return false
 	}
 
-	// Calculate cursor's visible position
-	effectiveScrollOffset := b.getEffectiveScrollOffset()
-	visibleY := b.cursorY - logicalHiddenAbove + effectiveScrollOffset
-
-	// If cursor is exactly 1 row above visible, scroll up by 1
-	if visibleY == -1 {
-		// Scroll up = increase scroll offset to see more from above
-		newOffset := b.scrollOffset + 1
-		maxOffset := b.getMaxScrollOffsetInternal()
-		if newOffset <= maxOffset {
-			b.scrollOffset = newOffset
-			b.markDirty()
-		}
-	}
-
-	// If cursor is exactly 1 row below visible, scroll down by 1
-	if visibleY == b.rows {
-		// Scroll down = decrease scroll offset to see more below
+	// Cursor wasn't drawn - scroll one row in the direction of last movement
+	if b.lastCursorMoveDir > 0 {
+		// Cursor moved down, scroll down (decrease scroll offset)
 		if b.scrollOffset > 0 {
 			b.scrollOffset--
 			b.markDirty()
+			return true
+		}
+	} else if b.lastCursorMoveDir < 0 {
+		// Cursor moved up, scroll up (increase scroll offset)
+		maxOffset := b.getMaxScrollOffsetInternal()
+		if b.scrollOffset < maxOffset {
+			b.scrollOffset++
+			b.markDirty()
+			return true
 		}
 	}
+
+	return false
 }
 
 // SetCursorStyle sets the cursor shape and blink mode

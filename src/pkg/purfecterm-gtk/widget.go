@@ -1543,6 +1543,9 @@ func (w *Widget) onDraw(da *gtk.DrawingArea, cr *cairo.Context) bool {
 	cr.SelectFontFace(fontFamily, cairo.FONT_SLANT_NORMAL, cairo.FONT_WEIGHT_NORMAL)
 	cr.SetFontSize(float64(fontSize))
 
+	// Track whether cursor was drawn in this frame (for auto-scroll)
+	cursorWasDrawn := false
+
 	// Draw each cell (use GetVisibleCell to account for scroll offset)
 	for y := 0; y < rows; y++ {
 		lineAttr := w.buffer.GetVisibleLineAttribute(y)
@@ -1817,6 +1820,7 @@ func (w *Widget) onDraw(da *gtk.DrawingArea, cr *cairo.Context) bool {
 
 			// Draw cursor based on shape (0=block, 1=underline, 2=bar)
 			if isCursor {
+				cursorWasDrawn = true
 				cr.SetSourceRGB(
 					float64(scheme.Cursor.R)/255.0,
 					float64(scheme.Cursor.G)/255.0,
@@ -1886,6 +1890,15 @@ func (w *Widget) onDraw(da *gtk.DrawingArea, cr *cairo.Context) bool {
 	// Restore from crop clipping if it was applied
 	if hasCrop {
 		cr.Restore()
+	}
+
+	// Report whether cursor was drawn for auto-scroll logic
+	w.buffer.SetCursorDrawn(cursorWasDrawn)
+
+	// Check if we need to auto-scroll to bring cursor into view
+	if w.buffer.CheckCursorAutoScroll() {
+		// Scroll happened, redraw will be triggered by markDirty
+		w.updateScrollbar()
 	}
 
 	w.buffer.ClearDirty()
