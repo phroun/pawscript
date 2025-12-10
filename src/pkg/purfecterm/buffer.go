@@ -2308,9 +2308,12 @@ func (b *Buffer) getVisibleLineInfoInternal(y int) LineInfo {
 		logicalHiddenAbove = effectiveRows - b.rows
 	}
 
+	// Use helper function for magnetic zone handling (same as GetVisibleCell)
+	effectiveScrollOffset := b.getEffectiveScrollOffset()
+
 	totalScrollableAbove := scrollbackSize + logicalHiddenAbove
 
-	if b.scrollOffset == 0 {
+	if effectiveScrollOffset == 0 {
 		// Not scrolled - show bottom of logical screen
 		logicalY := logicalHiddenAbove + y
 		if logicalY >= 0 && logicalY < len(b.lineInfos) {
@@ -2320,7 +2323,7 @@ func (b *Buffer) getVisibleLineInfoInternal(y int) LineInfo {
 	}
 
 	// Scrolled - map to scrollback or logical screen
-	absoluteY := totalScrollableAbove - b.scrollOffset + y
+	absoluteY := totalScrollableAbove - effectiveScrollOffset + y
 
 	if absoluteY < scrollbackSize {
 		// In scrollback
