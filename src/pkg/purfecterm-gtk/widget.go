@@ -2404,6 +2404,8 @@ func (w *Widget) onKeyPress(da *gtk.DrawingArea, ev *gdk.Event) bool {
 	}
 
 	if len(data) > 0 {
+		// Notify buffer of keyboard activity for auto-scroll-to-cursor
+		w.buffer.NotifyKeyboardActivity()
 		onInput(data)
 		return true
 	}

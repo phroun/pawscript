@@ -1858,6 +1858,8 @@ func (w *Widget) keyPressEvent(event *qt.QKeyEvent) {
 	}
 
 	if len(data) > 0 {
+		// Notify buffer of keyboard activity for auto-scroll-to-cursor
+		w.buffer.NotifyKeyboardActivity()
 		onInput(data)
 	}
 }

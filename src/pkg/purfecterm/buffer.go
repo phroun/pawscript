@@ -2,11 +2,16 @@ package purfecterm
 
 import (
 	"sync"
+	"time"
 )
 
 // scrollMagneticThresholdPercent is the percentage of total scrollable content
 // that forms the magnetic zone at the boundary between logical screen and scrollback.
 const scrollMagneticThresholdPercent = 5
+
+// keyboardAutoScrollDuration is how long after keyboard activity the terminal
+// will auto-scroll to keep the cursor visible on cursor movements.
+const keyboardAutoScrollDuration = 500 * time.Millisecond
 
 // scrollMagneticThresholdMin is the minimum magnetic threshold in lines.
 const scrollMagneticThresholdMin = 2
@@ -127,6 +132,9 @@ type Buffer struct {
 
 	// Horizontal scrolling
 	horizOffset int // Horizontal scroll offset (in columns)
+
+	// Auto-scroll to cursor on keyboard activity
+	lastKeyboardActivity time.Time // When keyboard activity last occurred
 
 	selectionActive      bool
 	selStartX, selStartY int
@@ -565,6 +573,9 @@ func (b *Buffer) setCursorInternal(x, y int) {
 	b.cursorX = x
 	b.cursorY = y
 	b.markDirty()
+
+	// Auto-scroll to cursor if keyboard activity is recent
+	b.scrollToCursorIfNeeded()
 }
 
 // SetCursorVisible sets cursor visibility
@@ -580,6 +591,90 @@ func (b *Buffer) IsCursorVisible() bool {
 	b.mu.RLock()
 	defer b.mu.RUnlock()
 	return b.cursorVisible
+}
+
+// NotifyKeyboardActivity signals that keyboard input occurred.
+// This starts/restarts the auto-scroll timer. While active, cursor movements
+// will auto-scroll the view to keep the cursor visible.
+func (b *Buffer) NotifyKeyboardActivity() {
+	b.mu.Lock()
+	defer b.mu.Unlock()
+	b.lastKeyboardActivity = time.Now()
+	// Immediately scroll to cursor if not visible
+	b.scrollToCursorIfNeeded()
+}
+
+// isAutoScrollActive returns true if keyboard activity occurred recently
+// enough that cursor movements should auto-scroll the view.
+// Must be called with lock held.
+func (b *Buffer) isAutoScrollActive() bool {
+	if b.lastKeyboardActivity.IsZero() {
+		return false
+	}
+	return time.Since(b.lastKeyboardActivity) < keyboardAutoScrollDuration
+}
+
+// scrollToCursorIfNeeded adjusts the scroll offset to bring the cursor into view
+// if auto-scroll is currently active. Must be called with lock held.
+func (b *Buffer) scrollToCursorIfNeeded() {
+	if !b.isAutoScrollActive() {
+		return
+	}
+
+	effectiveRows := b.EffectiveRows()
+
+	// Calculate how much of the logical screen is hidden above
+	logicalHiddenAbove := 0
+	if effectiveRows > b.rows {
+		logicalHiddenAbove = effectiveRows - b.rows
+	}
+
+	// Calculate cursor's visible row position with current scroll
+	// Using effective scroll offset to account for magnetic zone
+	effectiveScrollOffset := b.getEffectiveScrollOffset()
+	visibleY := b.cursorY - logicalHiddenAbove + effectiveScrollOffset
+
+	// Check if cursor is already visible
+	if visibleY >= 0 && visibleY < b.rows {
+		return // Cursor is visible, no scroll needed
+	}
+
+	// Cursor is not visible, need to scroll
+	// Calculate what scroll offset would put cursor in view
+	// We want cursor visible, ideally near the bottom of the screen
+
+	if visibleY < 0 {
+		// Cursor is above visible area - scroll up (increase scroll offset)
+		// We need to increase effective scroll by |visibleY| to bring cursor to row 0
+		// But put cursor a few rows from top for context
+		targetRow := 2
+		if targetRow >= b.rows {
+			targetRow = 0
+		}
+		// visibleY = cursorY - logicalHiddenAbove + effectiveScrollOffset = targetRow
+		// effectiveScrollOffset = targetRow - cursorY + logicalHiddenAbove
+		newEffectiveOffset := targetRow - b.cursorY + logicalHiddenAbove
+		if newEffectiveOffset < 0 {
+			newEffectiveOffset = 0
+		}
+		// Convert effective offset back to actual scroll offset
+		// effectiveScrollOffset = scrollOffset - magneticThreshold (when past zone)
+		// So scrollOffset = effectiveScrollOffset + magneticThreshold
+		magneticThreshold := b.getMagneticThreshold()
+		newScrollOffset := newEffectiveOffset + magneticThreshold
+		maxOffset := b.getMaxScrollOffsetInternal()
+		if newScrollOffset > maxOffset {
+			newScrollOffset = maxOffset
+		}
+		b.scrollOffset = newScrollOffset
+		b.markDirty()
+	} else {
+		// Cursor is below visible area - scroll down (decrease scroll offset)
+		// This brings us back toward the logical screen / less scrollback
+		// Set scroll to 0 to show the logical screen with cursor at bottom
+		b.scrollOffset = 0
+		b.markDirty()
+	}
 }
 
 // SetCursorStyle sets the cursor shape and blink mode
