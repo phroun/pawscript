@@ -295,10 +295,14 @@ func buildTextGlyphKey(r rune, combining string, width, height int, bold, italic
 	}
 }
 
-// buildCustomGlyphKey creates a cache key for a custom glyph
+// buildCustomGlyphKey creates a cache key for a custom glyph.
+// usesDefaultFG: if true, include fg color in key (palette has DefaultFG entries)
+// usesBg: if true, include bg color in key (palette has transparent or single-entry mode)
+// When these flags are false, we use zero values to maximize cache sharing across colors.
 func buildCustomGlyphKey(r rune, width, height int, xFlip, yFlip bool,
-	paletteHash uint64, glyphHash uint64, fg, bg purfecterm.Color) purfecterm.GlyphCacheKey {
-	return purfecterm.GlyphCacheKey{
+	paletteHash uint64, glyphHash uint64, usesDefaultFG, usesBg bool,
+	fg, bg purfecterm.Color) purfecterm.GlyphCacheKey {
+	key := purfecterm.GlyphCacheKey{
 		Rune:          r,
 		Width:         int16(width),
 		Height:        int16(height),
@@ -307,13 +311,20 @@ func buildCustomGlyphKey(r rune, width, height int, xFlip, yFlip bool,
 		YFlip:         yFlip,
 		PaletteHash:   paletteHash,
 		GlyphHash:     glyphHash,
-		FgR:           fg.R,
-		FgG:           fg.G,
-		FgB:           fg.B,
-		BgR:           bg.R,
-		BgG:           bg.G,
-		BgB:           bg.B,
 	}
+	// Only include FG color if palette uses DefaultFG entries
+	if usesDefaultFG {
+		key.FgR = fg.R
+		key.FgG = fg.G
+		key.FgB = fg.B
+	}
+	// Only include BG color if palette uses transparent/background entries
+	if usesBg {
+		key.BgR = bg.R
+		key.BgG = bg.G
+		key.BgB = bg.B
+	}
+	return key
 }
 
 type Widget struct {
@@ -715,8 +726,77 @@ func pangoTextWidthStandalone(text, fontFamily string, fontSize int, bold bool) 
 	return int(C.pango_text_width_standalone(cText, cFont, C.int(fontSize), C.int(boldInt)))
 }
 
-// renderCustomGlyph renders a custom glyph for a cell at the specified position
-// Returns true if a custom glyph was rendered, false if normal text rendering should be used
+// createCustomGlyphSurface renders a custom glyph to a cached Cairo surface.
+// The surface is rendered at the specified cell size with all palette colors resolved.
+// scaleY is used for double-height mode (1.0 for normal, 2.0 for double-height).
+func (w *Widget) createCustomGlyphSurface(cell *purfecterm.Cell, glyph *purfecterm.CustomGlyph,
+	cellW, cellH int, scaleY float64) *cairo.Surface {
+
+	glyphW := glyph.Width
+	glyphH := glyph.Height
+
+	// Calculate surface dimensions (account for scaleY for double-height)
+	surfaceH := int(float64(cellH) * scaleY)
+	surface := cairo.CreateImageSurface(cairo.FORMAT_ARGB32, cellW, surfaceH)
+	cr := cairo.Create(surface)
+
+	// Calculate pixel size (scale glyph to fill cell)
+	pixelW := float64(cellW) / float64(glyphW)
+	pixelH := float64(surfaceH) / float64(glyphH)
+
+	// Render each pixel
+	for gy := 0; gy < glyphH; gy++ {
+		for gx := 0; gx < glyphW; gx++ {
+			// Get palette index for this pixel
+			paletteIdx := glyph.GetPixel(gx, gy)
+
+			// Apply XFlip/YFlip
+			drawX := gx
+			drawY := gy
+			if cell.XFlip {
+				drawX = glyphW - 1 - gx
+			}
+			if cell.YFlip {
+				drawY = glyphH - 1 - gy
+			}
+
+			// Calculate position on surface
+			px := float64(drawX) * pixelW
+			py := float64(drawY) * pixelH
+
+			// Check for adjacent non-transparent pixels to hide seams
+			rightNeighborIdx := glyph.GetPixel(gx+1, gy)
+			belowNeighborIdx := glyph.GetPixel(gx, gy+1)
+
+			// Extend pixel to cover seams
+			drawW := pixelW
+			drawH := pixelH
+			if rightNeighborIdx != 0 {
+				drawW += 1
+			}
+			if belowNeighborIdx != 0 {
+				drawH += 1
+			}
+
+			// Resolve color from palette
+			color, _ := w.buffer.ResolveGlyphColor(cell, paletteIdx)
+
+			// Draw pixel
+			cr.SetSourceRGB(
+				float64(color.R)/255.0,
+				float64(color.G)/255.0,
+				float64(color.B)/255.0)
+			cr.Rectangle(px, py, drawW, drawH)
+			cr.Fill()
+		}
+	}
+
+	return surface
+}
+
+// renderCustomGlyph renders a custom glyph for a cell at the specified position.
+// Uses the glyph cache for performance - cache hits just blit the pre-rendered surface.
+// Returns true if a custom glyph was rendered, false if normal text rendering should be used.
 func (w *Widget) renderCustomGlyph(cr *cairo.Context, cell *purfecterm.Cell, cellX, cellY, cellW, cellH float64, cellCol int, blinkPhase float64, blinkMode purfecterm.BlinkMode, lineAttr purfecterm.LineAttribute) bool {
 	glyph := w.buffer.GetGlyph(cell.Char)
 	if glyph == nil {
@@ -756,9 +836,48 @@ func (w *Widget) renderCustomGlyph(cr *cairo.Context, cell *purfecterm.Cell, cel
 		clipNeeded = true
 	}
 
-	// Calculate pixel size (scale glyph to fill cell)
-	pixelW := cellW / float64(glyphW)
-	pixelH := (cellH * scaleY) / float64(glyphH)
+	// Get palette info for cache key
+	paletteNum := cell.BGP
+	if paletteNum < 0 {
+		paletteNum = w.buffer.ColorToANSICode(cell.Foreground)
+	}
+	palette := w.buffer.GetPalette(paletteNum)
+
+	// Determine cache key flags based on palette characteristics
+	var paletteHash uint64
+	usesDefaultFG := true  // Default to true for fallback mode (no palette)
+	usesBg := true         // Default to true for fallback mode
+	isSingleEntry := false
+
+	if palette != nil {
+		paletteHash = palette.ComputeHash()
+		usesDefaultFG = palette.UsesDefaultFG
+		usesBg = palette.UsesBg
+		isSingleEntry = len(palette.Entries) == 1
+	}
+
+	// Single-entry palettes always use background for index 0
+	if isSingleEntry {
+		usesBg = true
+	}
+
+	// Build cache key
+	cacheKey := buildCustomGlyphKey(
+		cell.Char,
+		int(cellW), int(cellH*scaleY),
+		cell.XFlip, cell.YFlip,
+		paletteHash, glyph.ComputeHash(),
+		usesDefaultFG, usesBg,
+		cell.Foreground, cell.Background,
+	)
+
+	// Try cache lookup
+	cachedSurface := w.glyphCache.get(cacheKey)
+	if cachedSurface == nil {
+		// Cache miss - create and cache the surface
+		cachedSurface = w.createCustomGlyphSurface(cell, glyph, int(cellW), int(cellH), scaleY)
+		w.glyphCache.put(cacheKey, cachedSurface)
+	}
 
 	// Apply clipping for double-height lines
 	if clipNeeded {
@@ -767,52 +886,9 @@ func (w *Widget) renderCustomGlyph(cr *cairo.Context, cell *purfecterm.Cell, cel
 		cr.Clip()
 	}
 
-	// Render each pixel
-	for gy := 0; gy < glyphH; gy++ {
-		for gx := 0; gx < glyphW; gx++ {
-			// Get palette index for this pixel
-			paletteIdx := glyph.GetPixel(gx, gy)
-
-			// Apply XFlip/YFlip
-			drawX := gx
-			drawY := gy
-			if cell.XFlip {
-				drawX = glyphW - 1 - gx
-			}
-			if cell.YFlip {
-				drawY = glyphH - 1 - gy
-			}
-
-			// Calculate screen position
-			px := cellX + float64(drawX)*pixelW
-			py := renderY + float64(drawY)*pixelH
-
-			// Check for adjacent non-transparent pixels in source glyph to hide seams
-			rightNeighborIdx := glyph.GetPixel(gx+1, gy)
-			belowNeighborIdx := glyph.GetPixel(gx, gy+1)
-
-			// Extend pixel to cover seams with adjacent non-transparent pixels
-			drawW := pixelW
-			drawH := pixelH
-			if rightNeighborIdx != 0 {
-				drawW += 1
-			}
-			if belowNeighborIdx != 0 {
-				drawH += 1
-			}
-
-			// Resolve color from palette
-			color, _ := w.buffer.ResolveGlyphColor(cell, paletteIdx)
-
-			// Draw pixel
-			cr.SetSourceRGB(
-				float64(color.R)/255.0,
-				float64(color.G)/255.0,
-				float64(color.B)/255.0)
-			cr.Rectangle(px, py, drawW, drawH)
-			cr.Fill()
-		}
-	}
+	// Blit the cached surface at the target position
+	cr.SetSourceSurface(cachedSurface, cellX, renderY)
+	cr.Paint()
 
 	// Restore clipping state if we applied it
 	if clipNeeded {

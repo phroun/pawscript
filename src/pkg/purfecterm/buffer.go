@@ -2238,9 +2238,10 @@ func (b *Buffer) SetPaletteEntry(paletteNum int, idx int, colorCode int, dim boo
 	switch colorCode {
 	case 8:
 		entry.Type = PaletteEntryTransparent
+		palette.UsesBg = true // Track for cache key optimization
 	case 9:
 		entry.Type = PaletteEntryDefaultFG
-		palette.UsesDefaultFG = true // Track for cache invalidation
+		palette.UsesDefaultFG = true // Track for cache key optimization
 	default:
 		entry.Type = PaletteEntryColor
 		// Map SGR color codes to actual colors
@@ -2351,7 +2352,7 @@ func (b *Buffer) ResolveGlyphColor(cell *Cell, paletteIdx int) (Color, bool) {
 		// Use foreground color code as palette number
 		// We need to map the cell's foreground color back to a color code
 		// This is a simplification - we use the ANSI color index if possible
-		paletteNum = b.colorToANSICode(cell.Foreground)
+		paletteNum = b.ColorToANSICode(cell.Foreground)
 	}
 
 	palette := b.palettes[paletteNum]
@@ -2433,9 +2434,9 @@ func (b *Buffer) resolveEntry(entry *PaletteEntry, cell *Cell) (Color, bool) {
 	}
 }
 
-// colorToANSICode attempts to map a color back to an ANSI color code
-// Returns 37 (white) as default if no match
-func (b *Buffer) colorToANSICode(c Color) int {
+// ColorToANSICode attempts to map a color back to an ANSI color code.
+// Returns 37 (white) as default if no match.
+func (b *Buffer) ColorToANSICode(c Color) int {
 	// Check against ANSI colors
 	for i, ansi := range ANSIColors {
 		if c.R == ansi.R && c.G == ansi.G && c.B == ansi.B {

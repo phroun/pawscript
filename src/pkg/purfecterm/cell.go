@@ -465,7 +465,8 @@ type PaletteEntry struct {
 // Palette represents a custom color palette for glyph rendering
 type Palette struct {
 	Entries       []PaletteEntry
-	UsesDefaultFG bool // True if any entry uses PaletteEntryDefaultFG (affects cache invalidation)
+	UsesDefaultFG bool // True if any entry uses PaletteEntryDefaultFG (affects cache key)
+	UsesBg        bool // True if any entry uses PaletteEntryTransparent (affects cache key)
 }
 
 // ComputeHash returns a hash of the palette content for cache key purposes.
