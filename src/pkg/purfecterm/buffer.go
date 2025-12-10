@@ -1509,7 +1509,13 @@ func (b *Buffer) NeedsHorizScrollbar() bool {
 	b.mu.RLock()
 	cols := b.cols
 	splitWidth := b.splitContentWidth
+	currentOffset := b.horizOffset
 	b.mu.RUnlock()
+
+	// If already scrolled right, show scrollbar so user can scroll back
+	if currentOffset > 0 {
+		return true
+	}
 
 	// GetLongestLineVisible handles the scrollOffset logic internally:
 	// - If scrollOffset == 0: returns logical screen content width only
@@ -1528,6 +1534,7 @@ func (b *Buffer) GetMaxHorizOffset() int {
 	b.mu.RLock()
 	cols := b.cols
 	splitWidth := b.splitContentWidth
+	currentOffset := b.horizOffset
 	b.mu.RUnlock()
 
 	// GetLongestLineVisible handles the scrollOffset logic internally:
@@ -1539,10 +1546,19 @@ func (b *Buffer) GetMaxHorizOffset() int {
 	if splitWidth > longest {
 		longest = splitWidth
 	}
-	if longest <= cols {
-		return 0
+
+	contentBasedMax := 0
+	if longest > cols {
+		contentBasedMax = longest - cols
 	}
-	return longest - cols
+
+	// Preserve current scroll position as valid - don't snap left when
+	// scrolling vertically from wide scrollback to narrower logical screen.
+	// Once user scrolls left past contentBasedMax, they can't scroll right again.
+	if currentOffset > contentBasedMax {
+		return currentOffset
+	}
+	return contentBasedMax
 }
 
 // IsDirty returns true if the buffer has changed since last render
