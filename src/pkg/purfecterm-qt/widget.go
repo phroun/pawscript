@@ -425,6 +425,14 @@ func (w *Widget) updateHorizScrollbar() {
 		cols, _ := w.buffer.GetSize()
 		w.horizScrollbar.SetPageStep(cols)
 
+		// Always update geometry when showing - widget size may have changed
+		scrollbarWidth := 12
+		scrollbarHeight := 12
+		widgetWidth := w.widget.Width()
+		widgetHeight := w.widget.Height()
+		horizWidth := widgetWidth - scrollbarWidth
+		w.horizScrollbar.SetGeometry(0, widgetHeight-scrollbarHeight, horizWidth, scrollbarHeight)
+
 		w.horizScrollbar.Show()
 	} else {
 		// Reset offset and hide scrollbar
