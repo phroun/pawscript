@@ -162,6 +162,10 @@ type Widget struct {
 	autoScrollDelta int        // Scroll direction (-1=up, 1=down), magnitude used for speed
 	lastMouseX      int        // Last known mouse X cell position
 
+	// Update coalescing for thread-safe redraws
+	updatePending bool
+	updateTimer   *qt.QTimer
+
 	// Cursor blink
 	cursorBlinkOn  bool
 	blinkTimer     *qt.QTimer
@@ -201,11 +205,24 @@ func NewWidget(cols, rows, scrollbackSize int) *Widget {
 	w.buffer = purfecterm.NewBuffer(cols, rows, scrollbackSize)
 	w.parser = purfecterm.NewParser(w.buffer)
 
+	// Create update timer for thread-safe redraws (16ms ≈ 60fps)
+	// This coalesces updates from background threads onto the Qt main thread
+	w.updateTimer = qt.NewQTimer2(w.widget.QObject)
+	w.updateTimer.OnTimeout(func() {
+		if w.updatePending {
+			w.updatePending = false
+			w.widget.Update()
+		}
+	})
+	w.updateTimer.Start(16)
+
 	// Set up dirty callback to trigger redraws
 	// Note: Don't call updateScrollbar here - it causes deadlock since
 	// the dirty callback is called while buffer holds its lock
+	// Note: We set a flag and let the timer handle the actual Update() call
+	// to ensure it happens on the Qt main thread
 	w.buffer.SetDirtyCallback(func() {
-		w.widget.Update()
+		w.updatePending = true
 	})
 
 	// Enable focus and mouse tracking on the terminal widget
