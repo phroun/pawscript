@@ -1136,12 +1136,27 @@ func (b *Buffer) ScrollDown(n int) {
 	b.markDirty()
 }
 
-// ClearScreen clears the entire screen
+// ClearScreen clears the entire screen and resets view to show top
 func (b *Buffer) ClearScreen() {
 	b.mu.Lock()
 	defer b.mu.Unlock()
 	b.updateScreenInfo() // Update screen default attributes
 	b.initScreen()
+
+	// Reset cursor to top-left
+	b.trackCursorYMove(0)
+	b.cursorX = 0
+	b.cursorY = 0
+
+	// Reset scroll to show logical row 0 at the top of the visible area
+	// When logicalRows > rows, we need scrollOffset = logicalHiddenAbove to see row 0
+	effectiveRows := b.EffectiveRows()
+	if effectiveRows > b.rows {
+		b.scrollOffset = effectiveRows - b.rows
+	} else {
+		b.scrollOffset = 0
+	}
+
 	b.markDirty()
 }
 
