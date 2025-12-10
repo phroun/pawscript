@@ -574,7 +574,11 @@ func (b *Buffer) setCursorInternal(x, y int) {
 	b.cursorY = y
 	b.markDirty()
 
-	// Auto-scroll to cursor if keyboard activity is recent
+	// Single-row auto-scroll when viewing logical screen (no scrollback visible)
+	// This follows cursor for normal navigation but ignores multi-row jumps
+	b.autoScrollSingleRow()
+
+	// Auto-scroll to cursor if keyboard activity is recent (more aggressive)
 	b.scrollToCursorIfNeeded()
 }
 
@@ -674,6 +678,59 @@ func (b *Buffer) scrollToCursorIfNeeded() {
 		// Set scroll to 0 to show the logical screen with cursor at bottom
 		b.scrollOffset = 0
 		b.markDirty()
+	}
+}
+
+// autoScrollSingleRow handles automatic scrolling for single-row cursor movements
+// when viewing the logical screen (no scrollback visible). If cursor ends up exactly
+// one row above or below the visible area, scroll by one row to follow it.
+// This allows normal navigation to follow cursor while preventing multi-row jumps
+// (like off-screen footer updates) from yanking the scroll position.
+// Must be called with lock held.
+func (b *Buffer) autoScrollSingleRow() {
+	scrollbackSize := len(b.scrollback)
+
+	// Calculate logical screen metrics
+	effectiveRows := b.EffectiveRows()
+	logicalHiddenAbove := 0
+	if effectiveRows > b.rows {
+		logicalHiddenAbove = effectiveRows - b.rows
+	}
+
+	// Check if scrollback boundary is visible (yellow line showing)
+	// If scrollback is visible, don't do single-row auto-scroll
+	if scrollbackSize > 0 {
+		boundaryRow := b.scrollOffset - logicalHiddenAbove
+		magneticThreshold := b.getMagneticThreshold()
+
+		// Past the magnetic zone means scrollback is visible
+		if boundaryRow > magneticThreshold {
+			return
+		}
+	}
+
+	// Calculate cursor's visible position
+	effectiveScrollOffset := b.getEffectiveScrollOffset()
+	visibleY := b.cursorY - logicalHiddenAbove + effectiveScrollOffset
+
+	// If cursor is exactly 1 row above visible, scroll up by 1
+	if visibleY == -1 {
+		// Scroll up = increase scroll offset to see more from above
+		newOffset := b.scrollOffset + 1
+		maxOffset := b.getMaxScrollOffsetInternal()
+		if newOffset <= maxOffset {
+			b.scrollOffset = newOffset
+			b.markDirty()
+		}
+	}
+
+	// If cursor is exactly 1 row below visible, scroll down by 1
+	if visibleY == b.rows {
+		// Scroll down = decrease scroll offset to see more below
+		if b.scrollOffset > 0 {
+			b.scrollOffset--
+			b.markDirty()
+		}
 	}
 }
 
