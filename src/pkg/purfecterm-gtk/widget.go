@@ -196,6 +196,10 @@ import (
 // Left padding for terminal content (pixels)
 const terminalLeftPadding = 8
 
+// Reserved height for horizontal scrollbar (pixels)
+// This space is always reserved to prevent jitter when scrollbar appears/disappears
+const horizScrollbarReservedHeight = 15
+
 // Widget is a GTK terminal emulator widget
 // glyphCacheEntry stores a cached rendered glyph surface
 type glyphCacheEntry struct {
@@ -2623,9 +2627,19 @@ func (w *Widget) onConfigure(da *gtk.DrawingArea, ev *gdk.Event) bool {
 	}
 
 	// Recalculate terminal size based on widget size (minus left padding)
+	// Reserve space for horizontal scrollbar to prevent jitter when it appears/disappears
+	// Only subtract reserved height when scrollbar is not visible (when visible, its
+	// space is already taken from the allocation by GTK layout)
 	alloc := da.GetAllocation()
 	newCols := (alloc.GetWidth() - terminalLeftPadding) / scaledCharWidth
-	newRows := alloc.GetHeight() / scaledCharHeight
+	availableHeight := alloc.GetHeight()
+	if !w.horizScrollbar.GetVisible() {
+		availableHeight -= horizScrollbarReservedHeight
+	}
+	if availableHeight < scaledCharHeight {
+		availableHeight = scaledCharHeight
+	}
+	newRows := availableHeight / scaledCharHeight
 
 	if newCols < 1 {
 		newCols = 1

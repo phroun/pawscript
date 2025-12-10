@@ -1367,7 +1367,16 @@ func (b *Buffer) getMaxScrollOffsetInternal() int {
 	}
 
 	scrollbackSize := len(b.scrollback)
-	return scrollbackSize + logicalHiddenAbove
+	baseMax := scrollbackSize + logicalHiddenAbove
+
+	// Add magnetic threshold to create extra scroll positions for the magnetic zone.
+	// This ensures all scrollback content remains accessible - the magnetic zone
+	// adds positions rather than consuming them.
+	if scrollbackSize > 0 {
+		baseMax += b.getMagneticThreshold()
+	}
+
+	return baseMax
 }
 
 // SetScrollOffset sets how many lines we're scrolled back
