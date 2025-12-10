@@ -197,15 +197,18 @@ The buffer tracks cursor movement direction, but compensates for screen scrolls:
 When `scrollUpInternal()` is called (content scrolls up, new line at bottom), the counter increments. When comparing cursor positions in `setCursorInternal()`:
 
 ```go
-adjustedLastY := lastCursorY + scrollsSinceCursorSet
+// Content shifted up, so last position's content is now at a lower row number
+adjustedLastY := lastCursorY - scrollsSinceCursorSet
 if y > adjustedLastY {
-    lastCursorMoveDir = 1  // Moving down
+    lastCursorMoveDir = 1  // Moving down (toward newer content)
 } else if y < adjustedLastY {
-    lastCursorMoveDir = -1 // Moving up
+    lastCursorMoveDir = -1 // Moving up (toward older content)
 }
 ```
 
-This correctly detects that when output scrolls the screen while the cursor stays at the same row number (e.g., row 23), the cursor has effectively moved down relative to the content.
+Example: cursor at row 23, screen scrolls 5 times, cursor stays at row 23:
+- `adjustedLastY = 23 - 5 = 18` (where the old content moved to)
+- `y = 23 > 18` → cursor moved DOWN (now on newer content)
 
 ## Scrollbar Calculations
 

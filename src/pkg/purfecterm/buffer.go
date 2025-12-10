@@ -587,13 +587,15 @@ func (b *Buffer) setCursorInternal(x, y int) {
 	}
 
 	// Track cursor movement direction, accounting for screen scrolls.
-	// When screen scrolls up, cursor effectively moves down relative to content,
-	// so we add scrollsSinceCursorSet to lastCursorY for proper comparison.
-	adjustedLastY := b.lastCursorY + b.scrollsSinceCursorSet
+	// When screen scrolls up (content shifts up), the content the cursor WAS on
+	// moved up by scrollsSinceCursorSet rows. So if cursor stays at same row,
+	// it's now on newer content (moved down relative to content).
+	// Subtract scrolls from lastCursorY to get where that content is now.
+	adjustedLastY := b.lastCursorY - b.scrollsSinceCursorSet
 	if y > adjustedLastY {
-		b.lastCursorMoveDir = 1 // Moving down
+		b.lastCursorMoveDir = 1 // Moving down (toward newer content)
 	} else if y < adjustedLastY {
-		b.lastCursorMoveDir = -1 // Moving up
+		b.lastCursorMoveDir = -1 // Moving up (toward older content)
 	}
 	// If y == adjustedLastY, keep previous direction
 
