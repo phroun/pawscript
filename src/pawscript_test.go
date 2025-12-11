@@ -202,34 +202,71 @@ func TestMacroWithArguments(t *testing.T) {
 }
 
 func TestAsyncOperations(t *testing.T) {
-	ps := New(nil)
+	t.Run("Execute blocks until completion", func(t *testing.T) {
+		ps := New(nil)
 
-	completed := false
-	ps.RegisterCommand("async_test", func(ctx *Context) Result {
-		token := ctx.RequestToken(nil)
+		completed := false
+		ps.RegisterCommand("async_test", func(ctx *Context) Result {
+			token := ctx.RequestToken(nil)
 
-		go func() {
-			time.Sleep(10 * time.Millisecond)
-			completed = true
-			ctx.ResumeToken(token, true)
-		}()
+			go func() {
+				time.Sleep(10 * time.Millisecond)
+				completed = true
+				ctx.ResumeToken(token, true)
+			}()
 
-		return TokenResult(token)
+			return TokenResult(token)
+		})
+
+		// Execute should block until async operation completes
+		result := ps.Execute("async_test")
+
+		// After Execute returns, operation should be completed
+		if !completed {
+			t.Error("Execute did not wait for async operation to complete")
+		}
+
+		// Result should be BoolStatus (converted from token completion)
+		if _, ok := result.(BoolStatus); !ok {
+			t.Errorf("Expected BoolStatus after blocking Execute, got %T", result)
+		}
 	})
 
-	result := ps.Execute("async_test")
+	t.Run("ExecuteAsync returns token immediately", func(t *testing.T) {
+		ps := New(nil)
 
-	// Should return a token
-	if _, ok := result.(TokenResult); !ok {
-		t.Error("Expected TokenResult")
-	}
+		completed := false
+		ps.RegisterCommand("async_test", func(ctx *Context) Result {
+			token := ctx.RequestToken(nil)
 
-	// Wait for async operation
-	time.Sleep(50 * time.Millisecond)
+			go func() {
+				time.Sleep(10 * time.Millisecond)
+				completed = true
+				ctx.ResumeToken(token, true)
+			}()
 
-	if !completed {
-		t.Error("Async operation did not complete")
-	}
+			return TokenResult(token)
+		})
+
+		result := ps.ExecuteAsync("async_test")
+
+		// Should return a token immediately
+		if _, ok := result.(TokenResult); !ok {
+			t.Errorf("Expected TokenResult from ExecuteAsync, got %T", result)
+		}
+
+		// Operation should not be completed yet
+		if completed {
+			t.Error("ExecuteAsync should return before async operation completes")
+		}
+
+		// Wait for async operation
+		time.Sleep(50 * time.Millisecond)
+
+		if !completed {
+			t.Error("Async operation did not complete")
+		}
+	})
 }
 
 func TestBraceExpressions(t *testing.T) {

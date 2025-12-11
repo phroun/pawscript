@@ -745,6 +745,10 @@ func startREPL() {
 		// Output to terminal
 		terminal.Feed(s)
 	})
+	// Set flush callback to ensure output appears before blocking execution
+	consoleREPL.SetFlush(func() {
+		qt.QCoreApplication_ProcessEvents()
+	})
 	// Set background color for prompt color selection
 	bg := getTerminalBackground()
 	consoleREPL.SetBackgroundRGB(bg.R, bg.G, bg.B)
@@ -1026,6 +1030,10 @@ func runScript(filePath string) {
 			}, func(s string) {
 				terminal.Feed(s)
 			})
+			// Set flush callback to ensure output appears before blocking execution
+			consoleREPL.SetFlush(func() {
+				qt.QCoreApplication_ProcessEvents()
+			})
 			// Set background color for prompt color selection
 			bg := getTerminalBackground()
 			consoleREPL.SetBackgroundRGB(bg.R, bg.G, bg.B)
@@ -1282,6 +1290,10 @@ func createConsoleWindow(filePath string) {
 			},
 		}, func(s string) {
 			winTerminal.Feed(s)
+		})
+		// Set flush callback to ensure output appears before blocking execution
+		winREPL.SetFlush(func() {
+			qt.QCoreApplication_ProcessEvents()
 		})
 		// Set background color for prompt color selection
 		bg := getTerminalBackground()

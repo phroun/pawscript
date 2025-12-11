@@ -793,6 +793,18 @@ func runScript(filePath string) {
 					return false
 				})
 			})
+			// Set flush callback to ensure output appears before blocking execution
+			consoleREPL.SetFlush(func() {
+				done := make(chan struct{})
+				glib.IdleAdd(func() bool {
+					close(done)
+					return false
+				})
+				select {
+				case <-done:
+				case <-time.After(100 * time.Millisecond):
+				}
+			})
 			// Set background color for prompt color selection
 			bg := getTerminalBackground()
 			consoleREPL.SetBackgroundRGB(bg.R, bg.G, bg.B)
@@ -1129,6 +1141,18 @@ func createConsoleWindow(filePath string) {
 				return false
 			})
 		})
+		// Set flush callback to ensure output appears before blocking execution
+		winREPL.SetFlush(func() {
+			done := make(chan struct{})
+			glib.IdleAdd(func() bool {
+				close(done)
+				return false
+			})
+			select {
+			case <-done:
+			case <-time.After(100 * time.Millisecond):
+			}
+		})
 		// Set background color for prompt color selection
 		bg := getTerminalBackground()
 		winREPL.SetBackgroundRGB(bg.R, bg.G, bg.B)
@@ -1362,6 +1386,18 @@ func createConsoleChannels(width, height int) {
 			terminal.Feed(s)
 			return false
 		})
+	})
+	// Set flush callback to ensure output appears before blocking execution
+	consoleREPL.SetFlush(func() {
+		done := make(chan struct{})
+		glib.IdleAdd(func() bool {
+			close(done)
+			return false
+		})
+		select {
+		case <-done:
+		case <-time.After(100 * time.Millisecond):
+		}
 	})
 	// Set background color for prompt color selection
 	bg := getTerminalBackground()

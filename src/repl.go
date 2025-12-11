@@ -38,6 +38,7 @@ type REPL struct {
 	ps              *PawScript
 	config          REPLConfig
 	output          func(string)           // Output function (writes to terminal)
+	flush           func()                 // Flush function (ensures output is displayed before blocking)
 	history         []string               // Command history
 	historyPos      int                    // Current position in history
 	currentLine     []rune                 // Current input line
@@ -102,6 +103,14 @@ func NewREPLWithInterpreter(ps *PawScript, output func(string)) *REPL {
 		inputChan: make(chan string, 1),
 		quitChan:  make(chan struct{}),
 	}
+}
+
+// SetFlush sets the flush callback that is called after outputting a newline
+// but before executing a command. This is important for GUI terminals that use
+// asynchronous output (like glib.IdleAdd) - the flush callback should process
+// pending events to ensure the newline is displayed before blocking execution.
+func (r *REPL) SetFlush(flush func()) {
+	r.flush = flush
 }
 
 // Start begins the REPL session
@@ -502,6 +511,13 @@ func (r *REPL) insertChar(ch rune) {
 
 func (r *REPL) handleEnter() {
 	r.output("\r\n")
+
+	// Flush output before potentially blocking execution
+	// This ensures the newline appears before async operations like msleep
+	if r.flush != nil {
+		r.flush()
+	}
+
 	line := string(r.currentLine)
 	r.lines = append(r.lines, line)
 	fullInput := strings.Join(r.lines, "\n")
