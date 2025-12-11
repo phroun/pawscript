@@ -1895,6 +1895,10 @@ func (w *Widget) keyPressEvent(super func(event *qt.QKeyEvent), event *qt.QKeyEv
 	// in NewWidget(), so they don't reach here. Only Alt+Tab or Meta+Tab might
 	// reach this handler for modified Tab sequences.
 
+	// Accept all key events immediately to prevent them from propagating to
+	// macOS system Services (which can intercept shortcuts like Ctrl+Shift+K)
+	event.Accept()
+
 	key := event.Key()
 
 	// Ignore modifier-only key presses (they don't produce terminal output)
@@ -1942,7 +1946,7 @@ func (w *Widget) keyPressEvent(super func(event *qt.QKeyEvent), event *qt.QKeyEv
 		// Only Alt+Tab or Meta+Tab reach here (others handled by shortcuts)
 		if hasAlt || hasMeta {
 			mod := w.calcMod(hasShift, hasCtrl, hasAlt, hasMeta)
-			data = []byte{0x1b, '[', '9', ';', byte('0' + mod), 'u'} // CSI 9 ; mod u (kitty protocol)
+			data = []byte(fmt.Sprintf("\x1b[9;%du", mod)) // CSI 9 ; mod u (kitty protocol)
 		}
 		// Plain Tab and Ctrl/Shift+Tab are handled by shortcuts, shouldn't reach here
 	case qt.Key_Escape:
