@@ -901,7 +901,7 @@ func updatePathButtonText() {
 		return
 	}
 	// Compute elided text to fit in button width (elide at start to show end of path)
-	buttonWidth := pathButton.Width() - 30 // Leave room for dropdown arrow
+	buttonWidth := pathButton.Width() - 40 // Leave room for dropdown arrow and padding
 	if buttonWidth < 50 {
 		buttonWidth = 50
 	}
