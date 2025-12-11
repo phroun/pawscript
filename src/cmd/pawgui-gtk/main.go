@@ -533,17 +533,12 @@ func createFileBrowser() *gtk.Box {
 	box.SetMarginTop(5)
 	box.SetMarginBottom(5)
 
-	// Current path combo box - wrapped in ScrolledWindow to clip content
-	comboScroll, _ := gtk.ScrolledWindowNew(nil, nil)
-	comboScroll.SetPolicy(gtk.POLICY_EXTERNAL, gtk.POLICY_NEVER)
-	comboScroll.SetHExpand(true)
-	comboScroll.SetPropagateNaturalWidth(false)
+	// Current path combo box
 	pathCombo, _ = gtk.ComboBoxTextNew()
-	pathCombo.SetHExpand(true)
+	pathCombo.SetSizeRequest(1, -1) // Request tiny width, let paned control actual size
 	pathCombo.SetProperty("popup-fixed-width", false)
 	pathCombo.Connect("changed", onPathComboChanged)
-	comboScroll.Add(pathCombo)
-	box.PackStart(comboScroll, false, true, 0)
+	box.PackStart(pathCombo, false, true, 0)
 
 	// Scrolled window for file list
 	scroll, _ := gtk.ScrolledWindowNew(nil, nil)
