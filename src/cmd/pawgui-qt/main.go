@@ -612,16 +612,6 @@ func createFilePanel() *qt.QWidget {
 
 	layout.AddWidget(pathButton.QWidget)
 
-	// Update button text when panel is resized
-	panel.OnCustomContextMenuRequested(func(pos *qt.QPoint) {}) // Enable event processing
-	oldResizeEvent := panel.ResizeEvent
-	panel.OnResizeEvent(func(super func(event *qt.QResizeEvent), event *qt.QResizeEvent) {
-		if oldResizeEvent != nil {
-			oldResizeEvent(event)
-		}
-		updatePathButtonText()
-	})
-
 	// File list
 	fileList = qt.NewQListWidget2()
 	fileList.OnItemDoubleClicked(func(item *qt.QListWidgetItem) {
@@ -907,7 +897,7 @@ func updatePathButtonText() {
 		buttonWidth = 50
 	}
 	fm := qt.NewQFontMetrics(pathButton.Font())
-	elidedText := fm.ElidedText(currentDir, qt.ElideLeft, buttonWidth, 0)
+	elidedText := fm.ElidedText(currentDir, qt.ElideLeft, buttonWidth)
 	pathButton.SetText(elidedText + " ▼")
 }
 
