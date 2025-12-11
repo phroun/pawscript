@@ -539,11 +539,11 @@ func createFileBrowser() *gtk.Box {
 	pathCombo.SetHExpand(true)
 	pathCombo.SetProperty("popup-fixed-width", false)
 	// Replace default cell renderer with one that ellipsizes at start (show end of path)
-	pathCombo.Clear()
+	pathCombo.ComboBox.Clear()
 	cell, _ := gtk.CellRendererTextNew()
 	cell.SetProperty("ellipsize", 1) // PANGO_ELLIPSIZE_START = 1
-	pathCombo.PackStart(cell, true)
-	pathCombo.AddAttribute(cell, "text", 0)
+	pathCombo.ComboBox.PackStart(cell, true)
+	pathCombo.ComboBox.AddAttribute(cell, "text", 0)
 	pathCombo.Connect("changed", onPathComboChanged)
 	box.PackStart(pathCombo, false, true, 0)
 
