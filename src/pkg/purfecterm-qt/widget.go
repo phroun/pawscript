@@ -1962,6 +1962,17 @@ func (w *Widget) keyPressEvent(super func(event *qt.QKeyEvent), event *qt.QKeyEv
 		} else {
 			data = []byte{0x1b}
 		}
+	case qt.Key_Space:
+		// Ctrl+Space produces NUL (^@) - traditional behavior
+		// Other modifier combinations use kitty protocol
+		if hasCtrl && !hasShift && !hasAlt && !hasMeta {
+			data = []byte{0x00} // NUL / ^@
+		} else if hasModifiers {
+			mod := w.calcMod(hasShift, hasCtrl, hasAlt, hasMeta)
+			data = []byte(fmt.Sprintf("\x1b[32;%du", mod)) // CSI 32 ; mod u (kitty protocol)
+		} else {
+			data = []byte{' '}
+		}
 	case qt.Key_Up:
 		data = w.cursorKey('A', hasShift, hasCtrl, hasAlt, hasMeta)
 	case qt.Key_Down:

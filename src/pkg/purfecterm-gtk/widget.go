@@ -2339,6 +2339,16 @@ func (w *Widget) onKeyPress(da *gtk.DrawingArea, ev *gdk.Event) bool {
 		} else {
 			data = []byte{0x1b}
 		}
+	case gdk.KEY_space:
+		// Ctrl+Space produces NUL (^@) - traditional behavior
+		// Other modifier combinations use kitty protocol
+		if hasCtrl && !hasShift && !hasAlt && !hasMeta && !hasSuper {
+			data = []byte{0x00} // NUL / ^@
+		} else if hasModifiers {
+			data = modifiedSpecialKey(mod, 32, 0) // CSI 32 ; mod u (kitty protocol)
+		} else {
+			data = []byte{' '}
+		}
 
 	// Arrow keys
 	case gdk.KEY_Up:

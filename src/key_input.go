@@ -996,41 +996,93 @@ func parseKittyProtocol(parts []string) (string, bool) {
 	// First param is the keycode
 	keycode := parseModifierParam(parts[0])
 
+	// Get modifier (default 1 = no modifiers)
+	mod := 1
+	if len(parts) >= 2 {
+		mod = parseModifierParam(parts[1])
+	}
+
 	// Map keycodes to key names for special keys
 	keyNames := map[int]string{
 		9:   "Tab",
 		13:  "Enter",
 		27:  "Escape",
+		32:  "Space",
 		127: "Backspace",
 	}
 
-	var baseName string
-	if name, ok := keyNames[keycode]; ok {
-		baseName = name
-	} else if keycode >= 'a' && keycode <= 'z' {
-		// Lowercase letter (97-122)
-		baseName = string(rune(keycode))
+	// Check if it's a letter key (use special Ctrl notation)
+	if keycode >= 'a' && keycode <= 'z' {
+		return formatLetterKey(byte(keycode), mod), true
 	} else if keycode >= 'A' && keycode <= 'Z' {
-		// Uppercase letter (65-90) - normalize to lowercase for base name
-		baseName = string(rune(keycode + 32))
-	} else {
+		// Normalize to lowercase
+		return formatLetterKey(byte(keycode+32), mod), true
+	}
+
+	// For special keys, use standard prefix notation
+	baseName, ok := keyNames[keycode]
+	if !ok {
 		// Unknown keycode
 		return "", false
 	}
 
-	// One param = unmodified (rare for kitty protocol)
-	if len(parts) == 1 {
+	// Unmodified
+	if mod <= 1 {
 		return baseName, true
 	}
 
-	// Two params = modified
-	if len(parts) == 2 {
-		mod := parseModifierParam(parts[1])
-		prefix := modifierPrefix(mod)
-		return prefix + baseName, true
+	// Modified special key
+	prefix := modifierPrefix(mod)
+	return prefix + baseName, true
+}
+
+// formatLetterKey formats a letter key with modifiers using the special Ctrl notation
+// Rules:
+// - Ctrl binds tightly: ^A (uppercase letter)
+// - Ctrl+Shift: S-^A
+// - Shift without Ctrl: uppercase letter (A)
+// - Meta prefix: M-
+// - Super prefix: s-
+// Order: s-M-S-^A or s-M-A
+func formatLetterKey(letter byte, mod int) string {
+	if mod < 1 {
+		mod = 1
+	}
+	mod-- // Remove base 1
+
+	hasShift := mod&1 != 0
+	hasAlt := mod&2 != 0
+	hasCtrl := mod&4 != 0
+	hasSuper := mod&8 != 0
+
+	// Build the key part (rightmost)
+	var keyPart string
+	if hasCtrl {
+		// Ctrl uses ^X notation with uppercase letter
+		upperLetter := letter - 32 // to uppercase
+		if hasShift {
+			keyPart = "S-^" + string(upperLetter)
+		} else {
+			keyPart = "^" + string(upperLetter)
+		}
+	} else if hasShift {
+		// Shift without Ctrl = uppercase letter
+		keyPart = string(letter - 32)
+	} else {
+		// Plain lowercase
+		keyPart = string(letter)
 	}
 
-	return "", false
+	// Build prefix (leftmost) - order: s-, M-
+	prefix := ""
+	if hasSuper {
+		prefix += "s-"
+	}
+	if hasAlt {
+		prefix += "M-"
+	}
+
+	return prefix + keyPart
 }
 
 // splitCSIParams splits parameter string by semicolons
