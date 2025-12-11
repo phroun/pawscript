@@ -528,7 +528,8 @@ func main() {
 	// Set up quit shortcut based on config
 	setupQuitShortcut()
 
-	// Set up tab order: fileList -> runButton -> browseButton -> terminal
+	// Set up tab order: pathButton -> fileList -> runButton -> browseButton -> terminal
+	qt.QWidget_SetTabOrder(pathButton.QWidget, fileList.QWidget)
 	qt.QWidget_SetTabOrder(fileList.QWidget, runButton.QWidget)
 	qt.QWidget_SetTabOrder(runButton.QWidget, browseButton.QWidget)
 	qt.QWidget_SetTabOrder(browseButton.QWidget, terminal.Widget())
