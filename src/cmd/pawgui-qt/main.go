@@ -388,8 +388,13 @@ func main() {
 	rightPanel := createTerminalPanel()
 	splitter.AddWidget(rightPanel)
 
-	// Set splitter sizes (30% left, 70% right)
+	// Set initial splitter sizes
 	splitter.SetSizes([]int{270, 630})
+
+	// Configure stretch factors so left panel stays fixed and right panel is flexible
+	// This matches the GTK behavior where additional space goes to the console
+	splitter.SetStretchFactor(0, 0) // Left panel: fixed size (doesn't stretch)
+	splitter.SetStretchFactor(1, 1) // Right panel: flexible (absorbs size changes)
 
 	mainLayout.AddWidget(splitter.QWidget)
 	mainWindow.SetCentralWidget(centralWidget)
