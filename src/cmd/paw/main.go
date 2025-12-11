@@ -662,8 +662,17 @@ func runREPL(debug, unrestricted bool, optLevel int) {
 
 	// Main REPL loop
 	for {
-		// Read a complete statement (may span multiple lines)
-		input, quit := readStatement(fd, history, &historyPos)
+		var input string
+		var quit bool
+
+		// Check if KeyInputManager is active on stdin
+		// If so, read from its keys channel instead of directly from stdin
+		if keysCh := ps.GetKeyInputKeysChannel(); keysCh != nil && ps.IsKeyInputManagerOnStdin() {
+			input, quit = readStatementFromKeys(keysCh, history, &historyPos)
+		} else {
+			input, quit = readStatement(fd, history, &historyPos)
+		}
+
 		if quit {
 			fmt.Print("\r\n")
 			break
@@ -689,7 +698,10 @@ func runREPL(debug, unrestricted bool, optLevel int) {
 		}
 
 		// Temporarily restore terminal for script execution (so echo works)
-		term.Restore(fd, oldState)
+		// Only do this if we're managing the terminal ourselves (no KeyInputManager)
+		if !ps.IsKeyInputManagerOnStdin() {
+			term.Restore(fd, oldState)
+		}
 
 		// Execute - blocks until complete (including async operations like msleep)
 		result := ps.Execute(input)
@@ -697,15 +709,12 @@ func runREPL(debug, unrestricted bool, optLevel int) {
 		// Get the result value and format it
 		displayResult(ps, result)
 
-		// If a KeyInputManager was started by the command (e.g., readkey_init on #in),
-		// stop it before resuming REPL input. This prevents the manager's goroutine
-		// from competing with the REPL for stdin reads.
-		if ps.IsKeyInputManagerOnStdin() {
-			_ = ps.StopKeyInputManager()
+		// Back to raw mode (only if KeyInputManager is not active on stdin)
+		// If KeyInputManager is active, it manages raw mode and the REPL
+		// will read from its keys channel instead
+		if !ps.IsKeyInputManagerOnStdin() {
+			oldState, _ = term.MakeRaw(fd)
 		}
-
-		// Back to raw mode
-		oldState, _ = term.MakeRaw(fd)
 	}
 }
 
@@ -1001,6 +1010,183 @@ func readStatement(fd int, history []string, historyPos *int) (string, bool) {
 						redrawLine()
 					}
 				}
+			}
+		}
+	}
+}
+
+// readStatementFromKeys reads a complete statement from KeyInputManager's keys channel
+// This is used when a KeyInputManager is active on stdin, so REPL reads from its
+// channel instead of directly from stdin (avoiding race conditions)
+func readStatementFromKeys(keysCh *pawscript.StoredChannel, history []string, historyPos *int) (string, bool) {
+	var lines []string
+	var currentLine []rune
+	cursorPos := 0
+	savedLine := ""
+	inHistory := false
+
+	printPrompt := func() {
+		promptClr := getPromptColor()
+		if len(lines) == 0 {
+			fmt.Print(promptClr + "paw*" + colorReset + " ")
+		} else {
+			fullInput := strings.Join(lines, "\n")
+			prompt := getContinuationPrompt(fullInput)
+			lineNum := len(lines) + 1
+			fmt.Printf("%s%d %s%s%s ", colorDarkCyan, lineNum, promptClr, prompt, colorReset)
+		}
+	}
+
+	redrawLine := func() {
+		fmt.Print("\r\x1b[K")
+		printPrompt()
+		fmt.Print(string(currentLine))
+		if cursorPos < len(currentLine) {
+			fmt.Printf("\x1b[%dD", len(currentLine)-cursorPos)
+		}
+	}
+
+	printPrompt()
+
+	for {
+		// Read a key from the channel
+		_, value, err := pawscript.ChannelRecv(keysCh)
+		if err != nil {
+			return "", true
+		}
+
+		key, ok := value.(string)
+		if !ok {
+			continue
+		}
+
+		// Handle key events
+		switch key {
+		case "^C":
+			fmt.Print("^C\r\n")
+			return "", true
+
+		case "^D":
+			if len(currentLine) == 0 && len(lines) == 0 {
+				fmt.Print("\r\n")
+				return "", true
+			}
+
+		case "Enter":
+			fmt.Print("\r\n")
+			line := string(currentLine)
+			lines = append(lines, line)
+			fullInput := strings.Join(lines, "\n")
+
+			if isComplete(fullInput) {
+				return fullInput, false
+			}
+
+			currentLine = nil
+			cursorPos = 0
+			inHistory = false
+			printPrompt()
+
+		case "Backspace":
+			if cursorPos > 0 {
+				currentLine = append(currentLine[:cursorPos-1], currentLine[cursorPos:]...)
+				cursorPos--
+				redrawLine()
+			}
+
+		case "Delete":
+			if cursorPos < len(currentLine) {
+				currentLine = append(currentLine[:cursorPos], currentLine[cursorPos+1:]...)
+				redrawLine()
+			}
+
+		case "Up":
+			if len(history) > 0 && *historyPos > 0 {
+				if !inHistory {
+					savedLine = string(currentLine)
+					inHistory = true
+				}
+				*historyPos--
+				currentLine = []rune(history[*historyPos])
+				cursorPos = len(currentLine)
+				redrawLine()
+			}
+
+		case "Down":
+			if inHistory {
+				if *historyPos < len(history)-1 {
+					*historyPos++
+					currentLine = []rune(history[*historyPos])
+					cursorPos = len(currentLine)
+				} else {
+					*historyPos = len(history)
+					currentLine = []rune(savedLine)
+					cursorPos = len(currentLine)
+					inHistory = false
+				}
+				redrawLine()
+			}
+
+		case "Left":
+			if cursorPos > 0 {
+				cursorPos--
+				fmt.Print("\x1b[D")
+			}
+
+		case "Right":
+			if cursorPos < len(currentLine) {
+				cursorPos++
+				fmt.Print("\x1b[C")
+			}
+
+		case "Home", "^A":
+			if cursorPos > 0 {
+				fmt.Printf("\x1b[%dD", cursorPos)
+				cursorPos = 0
+			}
+
+		case "End", "^E":
+			if cursorPos < len(currentLine) {
+				fmt.Printf("\x1b[%dC", len(currentLine)-cursorPos)
+				cursorPos = len(currentLine)
+			}
+
+		case "^U":
+			currentLine = nil
+			cursorPos = 0
+			redrawLine()
+
+		case "^K":
+			currentLine = currentLine[:cursorPos]
+			redrawLine()
+
+		case "Tab":
+			// Insert tab as spaces or literal tab
+			currentLine = append(currentLine[:cursorPos], append([]rune{'\t'}, currentLine[cursorPos:]...)...)
+			cursorPos++
+			inHistory = false
+			redrawLine()
+
+		case "Escape":
+			// Ignore escape by itself
+			continue
+
+		default:
+			// Single character or UTF-8 character - insert it
+			// Key names that are single printable chars or UTF-8 sequences
+			if len(key) > 0 {
+				// Check if it's a regular character (not a special key name)
+				// Special keys are things like "F1", "PageUp", "S-Up", etc.
+				// Single chars or UTF-8 sequences should be inserted
+				r, size := utf8.DecodeRuneInString(key)
+				if r != utf8.RuneError && size == len(key) && r >= 32 {
+					// It's a single printable character
+					currentLine = append(currentLine[:cursorPos], append([]rune{r}, currentLine[cursorPos:]...)...)
+					cursorPos++
+					inHistory = false
+					redrawLine()
+				}
+				// Otherwise ignore (special key like F1, PageUp, etc.)
 			}
 		}
 	}
