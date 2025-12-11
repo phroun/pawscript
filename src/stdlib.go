@@ -673,6 +673,103 @@ func formatListForDisplayColored(list StoredList, indent int, pretty bool, cfg D
 	return sb.String()
 }
 
+// FormatValueColored formats any PawScript value with ANSI colors in PSL format
+// This is the exported version that can be used by CLI tools
+func FormatValueColored(value interface{}, pretty bool, cfg DisplayColorConfig, ps *PawScript) string {
+	// Resolve any markers first
+	if ps != nil {
+		value = ps.ResolveValue(value)
+	}
+
+	return formatValueColoredInternal(value, 0, pretty, cfg, ps)
+}
+
+// formatValueColoredInternal is the internal recursive implementation
+func formatValueColoredInternal(value interface{}, indent int, pretty bool, cfg DisplayColorConfig, ps *PawScript) string {
+	switch v := value.(type) {
+	case StoredList:
+		return formatListForDisplayColored(v, indent, pretty, cfg)
+	case ParenGroup:
+		content := string(v)
+		trimmed := strings.TrimLeft(content, " \t\n\r")
+		if len(trimmed) == 0 || trimmed[0] != ';' {
+			content = "; " + content
+		}
+		return cfg.Bracket + "(" + cfg.Reset + content + cfg.Bracket + ")" + cfg.Reset
+	case StoredBlock:
+		content := string(v)
+		trimmed := strings.TrimLeft(content, " \t\n\r")
+		if len(trimmed) == 0 || trimmed[0] != ';' {
+			content = "; " + content
+		}
+		return cfg.Bracket + "(" + cfg.Reset + content + cfg.Bracket + ")" + cfg.Reset
+	case QuotedString:
+		escaped := strings.ReplaceAll(string(v), "\\", "\\\\")
+		escaped = strings.ReplaceAll(escaped, "\"", "\\\"")
+		return cfg.String + "\"" + escaped + "\"" + cfg.Reset
+	case Symbol:
+		s := string(v)
+		// Try to resolve if it's a marker
+		if ps != nil {
+			resolved := ps.ResolveValue(v)
+			if resolved != v {
+				return formatValueColoredInternal(resolved, indent, pretty, cfg, ps)
+			}
+		}
+		if objType, objID := parseObjectMarker(s); objID >= 0 {
+			return cfg.Nil + fmt.Sprintf("<%s %d>", objType, objID) + cfg.Reset
+		}
+		if s == "true" || s == "false" {
+			return cfg.Bool + s + cfg.Reset
+		}
+		if s == "nil" || s == "null" || s == "undefined" {
+			return cfg.Nil + s + cfg.Reset
+		}
+		return s
+	case string:
+		// Try to resolve if it's a marker
+		if ps != nil {
+			resolved := ps.ResolveValue(Symbol(v))
+			if sym, ok := resolved.(Symbol); !ok || string(sym) != v {
+				return formatValueColoredInternal(resolved, indent, pretty, cfg, ps)
+			}
+		}
+		if objType, objID := parseObjectMarker(v); objID >= 0 {
+			return cfg.Nil + fmt.Sprintf("<%s %d>", objType, objID) + cfg.Reset
+		}
+		escaped := strings.ReplaceAll(v, "\\", "\\\\")
+		escaped = strings.ReplaceAll(escaped, "\"", "\\\"")
+		return cfg.String + "\"" + escaped + "\"" + cfg.Reset
+	case StoredString:
+		escaped := strings.ReplaceAll(string(v), "\\", "\\\\")
+		escaped = strings.ReplaceAll(escaped, "\"", "\\\"")
+		return cfg.String + "\"" + escaped + "\"" + cfg.Reset
+	case int64:
+		return cfg.Number + fmt.Sprintf("%d", v) + cfg.Reset
+	case float64:
+		return cfg.Number + strconv.FormatFloat(v, 'f', -1, 64) + cfg.Reset
+	case int:
+		return cfg.Number + fmt.Sprintf("%d", v) + cfg.Reset
+	case bool:
+		if v {
+			return cfg.Bool + "true" + cfg.Reset
+		}
+		return cfg.Bool + "false" + cfg.Reset
+	case nil:
+		return cfg.Nil + "nil" + cfg.Reset
+	case *StoredChannel:
+		return cfg.Nil + "<channel>" + cfg.Reset
+	case *StoredFile:
+		return cfg.Nil + "<file>" + cfg.Reset
+	case StoredBytes:
+		return cfg.Nil + v.String() + cfg.Reset
+	case StoredStruct:
+		return cfg.Nil + v.String() + cfg.Reset
+	default:
+		return fmt.Sprintf("%v", v)
+	}
+}
+
 // formatArgForDisplay formats any argument for display, handling StoredList specially
 // Also resolves any object markers (LIST/STRING/BLOCK) before displaying
 // For object types that shouldn't leak internal representation, displays as <type N>

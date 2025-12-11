@@ -184,6 +184,13 @@
   - Fixed stdin conflict between REPL and `readkey_init`
   - REPL reads from KeyInputManager channel when raw mode is active
   - Allows `readkey_init` in one command, then `readkey` in subsequent commands
+  - Unknown escape sequences displayed with "Esc Sequence:" prefix
+  - Object markers (LIST, STRING, etc.) resolved before display
+  - Result output uses `\r\n` for raw mode compatibility
+- REPL result display uses PSL format with syntax coloring instead of JSON:
+  - Keys: cyan, Strings: green, Numbers: yellow, Booleans: magenta
+  - nil/null: red, Brackets: white, Colons/commas: gray
+  - Pretty-printed with indentation for nested structures
 - Persistent command history for all REPLs:
   - History saved to `~/.paw/repl-history.psl` in PSL list format
   - Supports multi-line commands

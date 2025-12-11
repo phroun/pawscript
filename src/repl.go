@@ -702,17 +702,17 @@ func (r *REPL) displayResult(result Result) {
 		prefixColor = r.equalsColor()
 	}
 
-	// Format the result value as JSON
-	formatted := r.formatValueAsJSON(resultValue)
-	resultClr := r.resultColor()
+	// Format the result value as PSL with colors
+	cfg := DefaultDisplayColors()
+	formatted := FormatValueColored(resultValue, true, cfg, r.ps)
 
 	// Print with prefix
 	lines := strings.Split(formatted, "\n")
 	for i, line := range lines {
 		if i == 0 {
-			r.output(fmt.Sprintf("%s%s%s %s%s%s\r\n", prefixColor, prefix, replColorReset, resultClr, line, replColorReset))
+			r.output(fmt.Sprintf("%s%s%s %s%s\r\n", prefixColor, prefix, replColorReset, line, replColorReset))
 		} else {
-			r.output(fmt.Sprintf("  %s%s%s\r\n", resultClr, line, replColorReset))
+			r.output(fmt.Sprintf("  %s%s\r\n", line, replColorReset))
 		}
 	}
 }
@@ -751,8 +751,20 @@ func (r *REPL) toJSONValue(val interface{}) interface{} {
 		if str == "false" {
 			return false
 		}
+		// Check if this is an object marker that needs resolution
+		resolved := r.ps.ResolveValue(v)
+		if resolved != v {
+			// It was a marker, recurse on the resolved value
+			return r.toJSONValue(resolved)
+		}
 		return str
 	case string:
+		// Check if this is an object marker that needs resolution
+		resolved := r.ps.ResolveValue(Symbol(v))
+		if sym, ok := resolved.(Symbol); !ok || string(sym) != v {
+			// It was a marker or resolved to something else
+			return r.toJSONValue(resolved)
+		}
 		return v
 	case QuotedString:
 		return string(v)
