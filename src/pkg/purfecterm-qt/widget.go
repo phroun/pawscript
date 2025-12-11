@@ -341,7 +341,7 @@ func NewWidget(cols, rows, scrollbackSize int) *Widget {
 		w.widget.FocusPreviousChild()
 	})
 
-	// Alt+Tab and Meta+Tab send modified Tab sequences to terminal
+	// Alt+Tab and Meta+Tab (with optional Shift) send modified Tab sequences to terminal
 	altTabShortcut := qt.NewQShortcut2(qt.NewQKeySequence2("Alt+Tab"), w.widget)
 	altTabShortcut.SetContext(qt.WidgetWithChildrenShortcut)
 	altTabShortcut.OnActivated(func() {
@@ -355,6 +355,19 @@ func NewWidget(cols, rows, scrollbackSize int) *Widget {
 		}
 	})
 
+	shiftAltTabShortcut := qt.NewQShortcut2(qt.NewQKeySequence2("Shift+Alt+Tab"), w.widget)
+	shiftAltTabShortcut.SetContext(qt.WidgetWithChildrenShortcut)
+	shiftAltTabShortcut.OnActivated(func() {
+		w.mu.Lock()
+		onInput := w.onInput
+		w.mu.Unlock()
+		if onInput != nil {
+			w.buffer.NotifyKeyboardActivity()
+			// Shift+Alt+Tab = mod 4 (1 + 1 for shift + 2 for alt)
+			onInput([]byte{0x1b, '[', '9', ';', '4', 'u'}) // CSI 9 ; 4 u
+		}
+	})
+
 	metaTabShortcut := qt.NewQShortcut2(qt.NewQKeySequence2("Meta+Tab"), w.widget)
 	metaTabShortcut.SetContext(qt.WidgetWithChildrenShortcut)
 	metaTabShortcut.OnActivated(func() {
@@ -365,6 +378,19 @@ func NewWidget(cols, rows, scrollbackSize int) *Widget {
 			w.buffer.NotifyKeyboardActivity()
 			// Meta+Tab = mod 9 (1 + 8 for meta)
 			onInput([]byte{0x1b, '[', '9', ';', '9', 'u'}) // CSI 9 ; 9 u
+		}
+	})
+
+	shiftMetaTabShortcut := qt.NewQShortcut2(qt.NewQKeySequence2("Shift+Meta+Tab"), w.widget)
+	shiftMetaTabShortcut.SetContext(qt.WidgetWithChildrenShortcut)
+	shiftMetaTabShortcut.OnActivated(func() {
+		w.mu.Lock()
+		onInput := w.onInput
+		w.mu.Unlock()
+		if onInput != nil {
+			w.buffer.NotifyKeyboardActivity()
+			// Shift+Meta+Tab = mod 10 (1 + 1 for shift + 8 for meta)
+			onInput([]byte{0x1b, '[', '9', ';', '1', '0', 'u'}) // CSI 9 ; 10 u
 		}
 	})
 
