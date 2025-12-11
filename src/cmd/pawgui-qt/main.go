@@ -518,6 +518,13 @@ func main() {
 	// Load initial directory
 	loadDirectory(currentDir)
 
+	// Start UI update timer (250ms) for path button elision and future UI updates
+	uiUpdateTimer := qt.NewQTimer2()
+	uiUpdateTimer.OnTimeout(func() {
+		updatePathButtonText()
+	})
+	uiUpdateTimer.Start(250)
+
 	// Set up quit shortcut based on config
 	setupQuitShortcut()
 
@@ -603,8 +610,9 @@ func createFilePanel() *qt.QWidget {
 	panel.SetLayout(layout.QLayout)
 
 	// Path selector button with dropdown menu - styled like other buttons
-	pathButton = qt.NewQPushButton3("▼")
+	pathButton = qt.NewQPushButton3("")
 	pathButton.SetSizePolicy(*qt.NewQSizePolicy2(qt.QSizePolicy__Ignored, qt.QSizePolicy__Fixed))
+	pathButton.SetStyleSheet("text-align: left; padding-left: 6px;")
 
 	// Create the dropdown menu
 	pathMenu = qt.NewQMenu2()
@@ -898,7 +906,7 @@ func updatePathButtonText() {
 	}
 	fm := qt.NewQFontMetrics(pathButton.Font())
 	elidedText := fm.ElidedText(currentDir, qt.ElideLeft, buttonWidth)
-	pathButton.SetText(elidedText + " ▼")
+	pathButton.SetText(elidedText)
 }
 
 // updatePathMenu populates the path menu with Home, Examples, recent paths, and Clear option
