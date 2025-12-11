@@ -31,6 +31,7 @@ type KeyInputManager struct {
 	terminalFd        int         // File descriptor if we're managing terminal mode
 	originalTermState *term.State // Original state to restore
 	managesTerminal   bool        // True if we put terminal in raw mode
+	terminalBacked    bool        // True if input comes from a terminal-backed channel (not direct os.Stdin)
 
 	// State
 	running        bool
@@ -326,9 +327,22 @@ func (m *KeyInputManager) SetLineEchoWriter(w io.Writer) {
 }
 
 // IsManagingStdin returns true if this manager is managing the terminal stdin
-// This is used by REPLs to determine if they should delegate input handling
+// This is used by REPLs to determine if they should delegate input handling.
+// Returns true if either:
+// - Manager directly manages terminal (input is os.Stdin)
+// - Manager reads from a terminal-backed channel (e.g., #in wrapping stdin)
 func (m *KeyInputManager) IsManagingStdin() bool {
-	return m.managesTerminal
+	return m.managesTerminal || m.terminalBacked
+}
+
+// SetTerminalBacked marks this manager as reading from a terminal-backed channel.
+// This is used when input comes through a channel that wraps stdin, so the manager
+// knows to signal REPLs to delegate input handling even though it's not directly
+// reading from os.Stdin.
+func (m *KeyInputManager) SetTerminalBacked(backed bool) {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	m.terminalBacked = backed
 }
 
 // IsRunning returns true if the manager is currently running
