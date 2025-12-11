@@ -606,7 +606,7 @@ func createFilePanel() *qt.QWidget {
 	pathButton = qt.NewQToolButton2()
 	pathButton.SetToolButtonStyle(qt.ToolButtonTextBesideIcon)
 	pathButton.SetPopupMode(qt.QToolButton__InstantPopup)
-	pathButton.SetSizePolicy(qt.NewQSizePolicy2(qt.QSizePolicy__Expanding, qt.QSizePolicy__Fixed))
+	pathButton.SetSizePolicy(*qt.NewQSizePolicy2(qt.QSizePolicy__Expanding, qt.QSizePolicy__Fixed))
 	pathButton.SetArrowType(qt.DownArrow)
 	// Set stylesheet for text eliding at start (show end of path)
 	pathButton.SetStyleSheet("QToolButton { text-align: left; }")
