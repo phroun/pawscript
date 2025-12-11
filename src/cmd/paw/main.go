@@ -1356,17 +1356,17 @@ func displayResult(ps *pawscript.PawScript, result pawscript.Result) {
 		prefixColor = getEqualsColor()
 	}
 
-	// Format the result value as JSON
-	formatted := formatValueAsJSON(ps, resultValue)
-	resultClr := getResultColor()
+	// Format the result value as PSL with colors
+	cfg := pawscript.DefaultDisplayColors()
+	formatted := pawscript.FormatValueColored(resultValue, true, cfg, ps)
 
 	// Print with prefix - use \r\n for raw mode compatibility
 	lines := strings.Split(formatted, "\n")
 	for i, line := range lines {
 		if i == 0 {
-			fmt.Printf("%s%s%s %s%s%s\r\n", prefixColor, prefix, colorReset, resultClr, line, colorReset)
+			fmt.Printf("%s%s%s %s%s\r\n", prefixColor, prefix, colorReset, line, colorReset)
 		} else {
-			fmt.Printf("  %s%s%s\r\n", resultClr, line, colorReset)
+			fmt.Printf("  %s%s\r\n", line, colorReset)
 		}
 	}
 }
