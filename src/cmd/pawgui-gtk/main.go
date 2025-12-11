@@ -533,17 +533,11 @@ func createFileBrowser() *gtk.Box {
 	box.SetMarginTop(5)
 	box.SetMarginBottom(5)
 
-	// Current path combo box - constrained to panel width, text ellipsizes
+	// Current path combo box - constrained to panel width
 	pathCombo, _ = gtk.ComboBoxTextNew()
 	pathCombo.SetSizeRequest(0, -1) // Request 0 minimum width
 	pathCombo.SetHExpand(true)
 	pathCombo.SetProperty("popup-fixed-width", false)
-	// Replace default cell renderer with one that ellipsizes at start (show end of path)
-	pathCombo.ComboBox.Clear()
-	cell, _ := gtk.CellRendererTextNew()
-	cell.SetProperty("ellipsize", 1) // PANGO_ELLIPSIZE_START = 1
-	pathCombo.ComboBox.PackStart(cell, true)
-	pathCombo.ComboBox.AddAttribute(cell, "text", 0)
 	pathCombo.Connect("changed", onPathComboChanged)
 	box.PackStart(pathCombo, false, true, 0)
 

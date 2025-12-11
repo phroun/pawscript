@@ -604,8 +604,12 @@ func createFilePanel() *qt.QWidget {
 	layout.SetSpacing(4)
 	panel.SetLayout(layout.QLayout)
 
-	// Path combo box
+	// Path combo box - constrained to panel width, shows end of path when narrow
 	pathCombo = qt.NewQComboBox2()
+	pathCombo.SetSizeAdjustPolicy(qt.QComboBox__AdjustToMinimumContentsLengthWithIcon)
+	pathCombo.SetMinimumContentsLength(1)
+	// Use right-to-left layout direction so ellipsis appears at start, showing end of path
+	pathCombo.SetLayoutDirection(qt.RightToLeft)
 	pathCombo.OnCurrentIndexChanged(onPathComboChanged)
 	layout.AddWidget(pathCombo.QWidget)
 
