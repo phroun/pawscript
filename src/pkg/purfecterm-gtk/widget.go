@@ -2454,21 +2454,21 @@ func (w *Widget) onKeyPress(da *gtk.DrawingArea, ev *gdk.Event) bool {
 
 // handleRegularKey processes regular character keys with modifiers
 func (w *Widget) handleRegularKey(keyval uint, key *gdk.EventKey, hasShift, hasCtrl, hasAlt, hasMeta, hasSuper bool) []byte {
-	// Check if we should use kitty protocol for multi-modifier alphabet keys.
+	// Check if we should use kitty protocol for multi-modifier keys.
 	// We preserve traditional handling for:
-	// - Plain letter → letter
-	// - Shift+letter → uppercase letter
-	// - Ctrl+letter → control character (^A, ^B, etc.)
-	// - Alt+letter → ESC + letter
+	// - Plain key → character
+	// - Shift+key → shifted character
+	// - Ctrl+key → control character
+	// - Alt+key → ESC + character
 	// But use kitty protocol for combinations like Ctrl+Shift, Ctrl+Alt, Meta+anything
-	useKittyForAlpha := hasMeta || hasSuper || (hasCtrl && hasShift) || (hasCtrl && hasAlt) || (hasAlt && hasShift)
+	useKittyMultiMod := hasMeta || hasSuper || (hasCtrl && hasShift) || (hasCtrl && hasAlt) || (hasAlt && hasShift)
 
-	if useKittyForAlpha {
+	if useKittyMultiMod {
 		// Get the base character for kitty protocol
 		var baseChar byte
 		if runtime.GOOS == "darwin" {
 			hwcode := key.HardwareKeyCode()
-			baseChar = macKeycodeToChar(hwcode, false) // Always get lowercase
+			baseChar = macKeycodeToChar(hwcode, false) // Always get unshifted
 		} else {
 			// Try to get base character from keyval
 			if keyval >= 'A' && keyval <= 'Z' {
@@ -2479,9 +2479,31 @@ func (w *Widget) handleRegularKey(keyval uint, key *gdk.EventKey, hasShift, hasC
 				baseChar = byte(r) + 32
 			} else if r >= 'a' && r <= 'z' {
 				baseChar = byte(r)
+			} else if isSymbolKeyGtk(byte(keyval)) {
+				baseChar = byte(keyval)
+			} else if r := gdk.KeyvalToUnicode(keyval); r > 0 && r < 128 && isSymbolKeyGtk(byte(r)) {
+				baseChar = byte(r)
 			}
 		}
+		// Check for alphabet keys
 		if baseChar >= 'a' && baseChar <= 'z' {
+			mod := 1
+			if hasShift {
+				mod += 1
+			}
+			if hasAlt {
+				mod += 2
+			}
+			if hasCtrl {
+				mod += 4
+			}
+			if hasMeta || hasSuper {
+				mod += 8
+			}
+			return []byte(fmt.Sprintf("\x1b[%d;%du", int(baseChar), mod))
+		}
+		// Check for symbol keys that use letter-like formatting
+		if isSymbolKeyGtk(baseChar) {
 			mod := 1
 			if hasShift {
 				mod += 1
@@ -3012,6 +3034,15 @@ func hardwareKeycodeToChar(hwcode uint16, shift bool) byte {
 	}
 
 	return 0
+}
+
+// isSymbolKeyGtk checks if the character is a symbol key that should use letter-like formatting
+func isSymbolKeyGtk(ch byte) bool {
+	switch ch {
+	case '`', ',', '.', '/', ';', '\'', '[', ']', '\\', '-', '=':
+		return true
+	}
+	return false
 }
 
 // macKeycodeToChar converts macOS hardware keycodes to ASCII characters

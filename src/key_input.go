@@ -1019,6 +1019,11 @@ func parseKittyProtocol(parts []string) (string, bool) {
 		return formatLetterKey(byte(keycode+32), mod), true
 	}
 
+	// Check if it's a symbol key (use letter-like formatting)
+	if isSymbolKey(keycode) {
+		return formatSymbolKey(byte(keycode), mod), true
+	}
+
 	// For special keys, use standard prefix notation
 	baseName, ok := keyNames[keycode]
 	if !ok {
@@ -1071,6 +1076,83 @@ func formatLetterKey(letter byte, mod int) string {
 	} else {
 		// Plain lowercase
 		keyPart = string(letter)
+	}
+
+	// Build prefix (leftmost) - order: s-, M-
+	prefix := ""
+	if hasSuper {
+		prefix += "s-"
+	}
+	if hasAlt {
+		prefix += "M-"
+	}
+
+	return prefix + keyPart
+}
+
+// symbolShiftMap maps unshifted symbol keycodes to their shifted variants
+var symbolShiftMap = map[byte]byte{
+	'`': '~', // backtick -> tilde
+	',': '<', // comma -> less than
+	'.': '>', // period -> greater than
+	'/': '?', // slash -> question mark
+	';': ':', // semicolon -> colon
+	'\'': '"', // apostrophe -> quote
+	'[': '{', // left bracket -> left brace
+	']': '}', // right bracket -> right brace
+	'\\': '|', // backslash -> pipe
+	'-': '_', // minus -> underscore
+	'=': '+', // equals -> plus
+}
+
+// isSymbolKey checks if the keycode is a symbol key that should use letter-like formatting
+func isSymbolKey(keycode int) bool {
+	switch byte(keycode) {
+	case '`', ',', '.', '/', ';', '\'', '[', ']', '\\', '-', '=':
+		return true
+	}
+	return false
+}
+
+// formatSymbolKey formats a symbol key with modifiers using notation similar to letters
+// Rules:
+// - Plain: ' (apostrophe)
+// - Shift: " (quote - the shifted variant)
+// - Ctrl: ^' (ctrl binds tightly)
+// - Ctrl+Shift: S-^' (or S-^" depending on interpretation)
+// - Meta: M-' or M-" (with shift)
+// - Super: s-' or s-" (with shift)
+func formatSymbolKey(symbol byte, mod int) string {
+	if mod < 1 {
+		mod = 1
+	}
+	mod-- // Remove base 1
+
+	hasShift := mod&1 != 0
+	hasAlt := mod&2 != 0
+	hasCtrl := mod&4 != 0
+	hasSuper := mod&8 != 0
+
+	// Get the display character (shifted or unshifted)
+	displayChar := symbol
+	if hasShift {
+		if shifted, ok := symbolShiftMap[symbol]; ok {
+			displayChar = shifted
+		}
+	}
+
+	// Build the key part (rightmost)
+	var keyPart string
+	if hasCtrl {
+		// Ctrl uses ^X notation
+		if hasShift {
+			keyPart = "S-^" + string(displayChar)
+		} else {
+			keyPart = "^" + string(displayChar)
+		}
+	} else {
+		// No Ctrl - just the character (shifted or not based on displayChar)
+		keyPart = string(displayChar)
 	}
 
 	// Build prefix (leftmost) - order: s-, M-

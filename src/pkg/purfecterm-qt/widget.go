@@ -2072,26 +2072,26 @@ func (w *Widget) calcMod(hasShift, hasCtrl, hasAlt, hasMeta bool) int {
 
 // handleRegularKey processes regular character keys with modifiers
 func (w *Widget) handleRegularKey(event *qt.QKeyEvent, hasShift, hasCtrl, hasAlt, hasMeta bool) []byte {
-	// Check if we should use kitty protocol for multi-modifier alphabet keys.
+	// Check if we should use kitty protocol for multi-modifier keys.
 	// We preserve traditional handling for:
-	// - Plain letter → letter
-	// - Shift+letter → uppercase letter
-	// - Ctrl+letter → control character (^A, ^B, etc.)
-	// - Alt+letter → ESC + letter
+	// - Plain key → character
+	// - Shift+key → shifted character
+	// - Ctrl+key → control character
+	// - Alt+key → ESC + character
 	// But use kitty protocol for combinations like Ctrl+Shift, Ctrl+Alt, Meta+anything
-	useKittyForAlpha := hasMeta || (hasCtrl && hasShift) || (hasCtrl && hasAlt) || (hasAlt && hasShift)
+	useKittyMultiMod := hasMeta || (hasCtrl && hasShift) || (hasCtrl && hasAlt) || (hasAlt && hasShift)
 
-	if useKittyForAlpha {
+	if useKittyMultiMod {
 		// Get the base character for kitty protocol
 		var baseChar byte
 		if runtime.GOOS == "darwin" {
 			hwcode := uint32(event.NativeVirtualKey())
-			baseChar = macKeycodeToChar(hwcode, false) // Always get lowercase
+			baseChar = macKeycodeToChar(hwcode, false) // Always get unshifted
 		} else {
 			text := event.Text()
 			if text != "" {
 				ch := text[0]
-				// Normalize to lowercase for the codepoint
+				// Normalize to lowercase for letters
 				if ch >= 'A' && ch <= 'Z' {
 					baseChar = ch + 32
 				} else if ch >= 'a' && ch <= 'z' {
@@ -2099,10 +2099,19 @@ func (w *Widget) handleRegularKey(event *qt.QKeyEvent, hasShift, hasCtrl, hasAlt
 				} else if ch >= 1 && ch <= 26 {
 					// Control character - convert back to letter
 					baseChar = ch + 'a' - 1
+				} else {
+					// Could be a symbol - try to get unshifted version
+					baseChar = ch
 				}
 			}
 		}
+		// Check for alphabet keys
 		if baseChar >= 'a' && baseChar <= 'z' {
+			mod := w.calcMod(hasShift, hasCtrl, hasAlt, hasMeta)
+			return []byte(fmt.Sprintf("\x1b[%d;%du", int(baseChar), mod))
+		}
+		// Check for symbol keys that use letter-like formatting
+		if isSymbolKeyQt(baseChar) {
 			mod := w.calcMod(hasShift, hasCtrl, hasAlt, hasMeta)
 			return []byte(fmt.Sprintf("\x1b[%d;%du", int(baseChar), mod))
 		}
@@ -2213,6 +2222,15 @@ func (w *Widget) handleRegularKey(event *qt.QKeyEvent, hasShift, hasCtrl, hasAlt
 	}
 
 	return []byte(text)
+}
+
+// isSymbolKeyQt checks if the character is a symbol key that should use letter-like formatting
+func isSymbolKeyQt(ch byte) bool {
+	switch ch {
+	case '`', ',', '.', '/', ';', '\'', '[', ']', '\\', '-', '=':
+		return true
+	}
+	return false
 }
 
 // macKeycodeToChar converts macOS hardware keycodes to ASCII characters
