@@ -105,8 +105,11 @@ func loadCLIConfig() {
 				if v := getColorString(namedArgs, "string"); v != "" {
 					cliConfig.PSLColors.String = v
 				}
-				if v := getColorString(namedArgs, "number"); v != "" {
-					cliConfig.PSLColors.Number = v
+				if v := getColorString(namedArgs, "int"); v != "" {
+					cliConfig.PSLColors.Int = v
+				}
+				if v := getColorString(namedArgs, "float"); v != "" {
+					cliConfig.PSLColors.Float = v
 				}
 				if v := getColorString(namedArgs, "bool"); v != "" {
 					cliConfig.PSLColors.Bool = v
@@ -119,6 +122,15 @@ func loadCLIConfig() {
 				}
 				if v := getColorString(namedArgs, "colon"); v != "" {
 					cliConfig.PSLColors.Colon = v
+				}
+				if v := getColorString(namedArgs, "symbol"); v != "" {
+					cliConfig.PSLColors.Symbol = v
+				}
+				if v := getColorString(namedArgs, "object"); v != "" {
+					cliConfig.PSLColors.Object = v
+				}
+				if v := getColorString(namedArgs, "bytes"); v != "" {
+					cliConfig.PSLColors.Bytes = v
 				}
 			}
 		}
@@ -167,11 +179,15 @@ psl_colors: (
     reset: "\e[0m",
     key: "\e[36m",
     string: "\e[32m",
-    number: "\e[33m",
+    int: "\e[33m",
+    float: "\e[93m",
     bool: "\e[35m",
     nil: "\e[31m",
     bracket: "\e[37m",
-    colon: "\e[90m"
+    colon: "\e[90m",
+    symbol: "\e[97m",
+    object: "\e[34m",
+    bytes: "\e[96m"
 )
 `
 

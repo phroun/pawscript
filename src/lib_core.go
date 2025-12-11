@@ -969,11 +969,11 @@ func (ps *PawScript) RegisterCoreLib() {
 			}
 			return cfg.Bool + "false" + cfg.Reset
 		case int64:
-			return cfg.Number + fmt.Sprintf("%d", v) + cfg.Reset
+			return cfg.Int + fmt.Sprintf("%d", v) + cfg.Reset
 		case int:
-			return cfg.Number + fmt.Sprintf("%d", v) + cfg.Reset
+			return cfg.Int + fmt.Sprintf("%d", v) + cfg.Reset
 		case float64:
-			return cfg.Number + strconv.FormatFloat(v, 'f', -1, 64) + cfg.Reset
+			return cfg.Float + strconv.FormatFloat(v, 'f', -1, 64) + cfg.Reset
 		case string:
 			// Escape the string properly for JSON
 			escaped, _ := json.Marshal(v)

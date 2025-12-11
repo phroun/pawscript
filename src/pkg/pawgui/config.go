@@ -305,8 +305,11 @@ func (h *ConfigHelper) GetPSLColors() pawscript.DisplayColorConfig {
 	if v := getStr("string"); v != "" {
 		cfg.String = v
 	}
-	if v := getStr("number"); v != "" {
-		cfg.Number = v
+	if v := getStr("int"); v != "" {
+		cfg.Int = v
+	}
+	if v := getStr("float"); v != "" {
+		cfg.Float = v
 	}
 	if v := getStr("bool"); v != "" {
 		cfg.Bool = v
@@ -319,6 +322,15 @@ func (h *ConfigHelper) GetPSLColors() pawscript.DisplayColorConfig {
 	}
 	if v := getStr("colon"); v != "" {
 		cfg.Colon = v
+	}
+	if v := getStr("symbol"); v != "" {
+		cfg.Symbol = v
+	}
+	if v := getStr("object"); v != "" {
+		cfg.Object = v
+	}
+	if v := getStr("bytes"); v != "" {
+		cfg.Bytes = v
 	}
 
 	return cfg
@@ -393,11 +405,15 @@ func (h *ConfigHelper) PopulateDefaults() bool {
 		pslColorsConfig.Set("reset", defaultColors.Reset)
 		pslColorsConfig.Set("key", defaultColors.Key)
 		pslColorsConfig.Set("string", defaultColors.String)
-		pslColorsConfig.Set("number", defaultColors.Number)
+		pslColorsConfig.Set("int", defaultColors.Int)
+		pslColorsConfig.Set("float", defaultColors.Float)
 		pslColorsConfig.Set("bool", defaultColors.Bool)
 		pslColorsConfig.Set("nil", defaultColors.Nil)
 		pslColorsConfig.Set("bracket", defaultColors.Bracket)
 		pslColorsConfig.Set("colon", defaultColors.Colon)
+		pslColorsConfig.Set("symbol", defaultColors.Symbol)
+		pslColorsConfig.Set("object", defaultColors.Object)
+		pslColorsConfig.Set("bytes", defaultColors.Bytes)
 		h.Config.Set("psl_colors", pslColorsConfig)
 		modified = true
 	}
