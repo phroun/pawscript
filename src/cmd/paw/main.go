@@ -129,16 +129,16 @@ const (
 	maxHistoryLines = 1000 // Maximum number of history entries to keep
 )
 
-// getHistoryFilePath returns the path to ~/.paw/repl-history
+// getHistoryFilePath returns the path to ~/.paw/repl-history.psl
 func getHistoryFilePath() string {
 	dir := getConfigDir()
 	if dir == "" {
 		return ""
 	}
-	return filepath.Join(dir, "repl-history")
+	return filepath.Join(dir, "repl-history.psl")
 }
 
-// loadHistory loads command history from the history file
+// loadHistory loads command history from the PSL history file
 func loadHistory() []string {
 	historyPath := getHistoryFilePath()
 	if historyPath == "" {
@@ -150,18 +150,23 @@ func loadHistory() []string {
 		return nil // File doesn't exist or can't be read
 	}
 
-	lines := strings.Split(string(content), "\n")
-	history := make([]string, 0, len(lines))
-	for _, line := range lines {
-		// Skip empty lines
-		if strings.TrimSpace(line) != "" {
-			history = append(history, line)
+	// Parse as PSL list
+	pslList, err := pawscript.ParsePSLList(string(content))
+	if err != nil {
+		return nil // Invalid format
+	}
+
+	// Convert to string slice
+	history := make([]string, 0, len(pslList))
+	for _, item := range pslList {
+		if s, ok := item.(string); ok {
+			history = append(history, s)
 		}
 	}
 	return history
 }
 
-// saveHistory saves command history to the history file
+// saveHistory saves command history to the PSL history file
 func saveHistory(history []string) {
 	historyPath := getHistoryFilePath()
 	if historyPath == "" {
@@ -179,11 +184,13 @@ func saveHistory(history []string) {
 		history = history[len(history)-maxHistoryLines:]
 	}
 
-	// Write history file
-	content := strings.Join(history, "\n")
-	if len(content) > 0 {
-		content += "\n"
+	// Convert to PSL list and serialize
+	pslList := make(pawscript.PSLList, len(history))
+	for i, cmd := range history {
+		pslList[i] = cmd
 	}
+	content := pawscript.SerializePSLList(pslList)
+
 	_ = os.WriteFile(historyPath, []byte(content), 0644)
 }
 

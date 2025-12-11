@@ -817,16 +817,16 @@ const (
 	replMaxHistoryLines = 1000 // Maximum number of history entries to keep
 )
 
-// getReplHistoryFilePath returns the path to ~/.paw/repl-history
+// getReplHistoryFilePath returns the path to ~/.paw/repl-history.psl
 func getReplHistoryFilePath() string {
 	home, err := os.UserHomeDir()
 	if err != nil {
 		return ""
 	}
-	return filepath.Join(home, ".paw", "repl-history")
+	return filepath.Join(home, ".paw", "repl-history.psl")
 }
 
-// loadReplHistory loads command history from the history file
+// loadReplHistory loads command history from the PSL history file
 func loadReplHistory() []string {
 	historyPath := getReplHistoryFilePath()
 	if historyPath == "" {
@@ -838,18 +838,23 @@ func loadReplHistory() []string {
 		return nil // File doesn't exist or can't be read
 	}
 
-	lines := strings.Split(string(content), "\n")
-	history := make([]string, 0, len(lines))
-	for _, line := range lines {
-		// Skip empty lines
-		if strings.TrimSpace(line) != "" {
-			history = append(history, line)
+	// Parse as PSL list
+	pslList, err := ParsePSLList(string(content))
+	if err != nil {
+		return nil // Invalid format
+	}
+
+	// Convert to string slice
+	history := make([]string, 0, len(pslList))
+	for _, item := range pslList {
+		if s, ok := item.(string); ok {
+			history = append(history, s)
 		}
 	}
 	return history
 }
 
-// saveReplHistory saves command history to the history file
+// saveReplHistory saves command history to the PSL history file
 func saveReplHistory(history []string) {
 	historyPath := getReplHistoryFilePath()
 	if historyPath == "" {
@@ -867,10 +872,12 @@ func saveReplHistory(history []string) {
 		history = history[len(history)-replMaxHistoryLines:]
 	}
 
-	// Write history file
-	content := strings.Join(history, "\n")
-	if len(content) > 0 {
-		content += "\n"
+	// Convert to PSL list and serialize
+	pslList := make(PSLList, len(history))
+	for i, cmd := range history {
+		pslList[i] = cmd
 	}
+	content := SerializePSLList(pslList)
+
 	_ = os.WriteFile(historyPath, []byte(content), 0644)
 }
