@@ -3,11 +3,13 @@
 package main
 
 import (
+	"flag"
 	"fmt"
 	"io"
 	"os"
 	"path/filepath"
 	"runtime"
+	"strconv"
 	"strings"
 	"sync"
 	"time"
@@ -22,6 +24,8 @@ import (
 	purfectermgtk "github.com/phroun/pawscript/pkg/purfecterm-gtk"
 	"github.com/sqweek/dialog"
 )
+
+var version = "dev" // set via -ldflags at build time
 
 // Default font size constant (uses shared package value)
 const defaultFontSize = pawgui.DefaultFontSize
@@ -337,18 +341,537 @@ func setupQuitShortcut() {
 	})
 }
 
+func showCopyright() {
+	fmt.Fprintf(os.Stderr, "pawgui-gtk, the PawScript GUI interpreter version %s (with GTK)\nCopyright (c) 2025 Jeffrey R. Day\nLicense: MIT\n", version)
+}
+
+func showLicense() {
+	showCopyright()
+	license := `
+MIT License
+
+Copyright (c) 2025 Jeffrey R. Day
+
+Permission is hereby granted, free of charge, to any person
+obtaining a copy of this software and associated documentation
+files (the "Software"), to deal in the Software without
+restriction, including without limitation the rights to use,
+copy, modify, merge, publish, distribute, sublicense, and/or
+sell copies of the Software, and to permit persons to whom the
+Software is furnished to do so, subject to the following
+conditions:
+
+The above copyright notice and this permission notice
+(including the next paragraph) shall be included in all copies
+or substantial portions of the Software.
+
+THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND,
+EXPRESS OR IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES
+OF MERCHANTABILITY, FITNESS FOR A PARTICULAR PURPOSE AND
+NONINFRINGEMENT. IN NO EVENT SHALL THE AUTHORS OR COPYRIGHT
+HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER LIABILITY,
+WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING
+FROM, OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR
+OTHER DEALINGS IN THE SOFTWARE.
+`
+	fmt.Fprint(os.Stdout, license)
+}
+
+func showUsage() {
+	showCopyright()
+	usage := `
+Usage: pawgui-gtk [options] [script.paw] [-- args...]
+       pawgui-gtk [options] < input.paw
+       echo "commands" | pawgui-gtk [options]
+
+Execute PawScript with GUI capabilities from a file, stdin, or pipe.
+
+Options:
+  --version           Show version and exit
+  --license           View license and exit
+  -d, --debug         Enable debug output
+  -v, --verbose       Enable verbose output (same as --debug)
+  -O N                Set optimization level (0=no caching, 1=cache macro/loop bodies, default: 1)
+  --unrestricted      Disable all file/exec access restrictions
+  --sandbox DIR       Restrict all access to DIR only
+  --read-roots DIRS   Additional directories for reading
+  --write-roots DIRS  Additional directories for writing
+  --exec-roots DIRS   Additional directories for exec command
+
+GUI Options:
+  --window            Create console window for stdout/stdin/stderr
+
+Arguments:
+  script.paw          Script file to execute (adds .paw extension if needed)
+  --                  Separates script filename from arguments
+
+Default Security Sandbox:
+  Read:   SCRIPT_DIR, CWD, /tmp
+  Write:  SCRIPT_DIR/saves, SCRIPT_DIR/output, CWD/saves, CWD/output, /tmp
+  Exec:   SCRIPT_DIR/helpers, SCRIPT_DIR/bin
+
+Environment Variables (use SCRIPT_DIR as placeholder):
+  PAW_READ_ROOTS      Override default read roots
+  PAW_WRITE_ROOTS     Override default write roots
+  PAW_EXEC_ROOTS      Override default exec roots
+`
+	fmt.Fprint(os.Stderr, usage)
+}
+
+// findScriptFile looks for a script file, adding .paw extension if needed
+func findScriptFile(requestedFile string) string {
+	// Try exact path first
+	if _, err := os.Stat(requestedFile); err == nil {
+		return requestedFile
+	}
+
+	// If no extension, try adding .paw
+	if !strings.Contains(filepath.Base(requestedFile), ".") {
+		pawFile := requestedFile + ".paw"
+		if _, err := os.Stat(pawFile); err == nil {
+			return pawFile
+		}
+	}
+
+	return ""
+}
+
 func main() {
-	app, err := gtk.ApplicationNew(appID, glib.APPLICATION_FLAGS_NONE)
+	// Define command line flags
+	licenseFlag := flag.Bool("license", false, "Show license")
+	versionFlag := flag.Bool("version", false, "Show version")
+	debugFlag := flag.Bool("debug", false, "Enable debug output")
+	verboseFlag := flag.Bool("verbose", false, "Enable verbose output (alias for -debug)")
+	flag.BoolVar(debugFlag, "d", false, "Enable debug output (short)")
+	flag.BoolVar(verboseFlag, "v", false, "Enable verbose output (short, alias for -debug)")
+
+	// File access control flags
+	unrestrictedFlag := flag.Bool("unrestricted", false, "Disable all file/exec access restrictions")
+	readRootsFlag := flag.String("read-roots", "", "Additional directories for file reading")
+	writeRootsFlag := flag.String("write-roots", "", "Additional directories for file writing")
+	execRootsFlag := flag.String("exec-roots", "", "Additional directories for exec command")
+	sandboxFlag := flag.String("sandbox", "", "Restrict all access to this directory only")
+
+	// Optimization level flag
+	optLevelFlag := flag.Int("O", 1, "Optimization level (0=no caching, 1=cache macro/loop bodies)")
+
+	// GUI-specific flags
+	windowFlag := flag.Bool("window", false, "Create console window for stdout/stdin/stderr")
+
+	// Custom usage function
+	flag.Usage = showUsage
+
+	// Parse flags
+	flag.Parse()
+
+	if *versionFlag {
+		showCopyright()
+		os.Exit(0)
+	}
+
+	if *licenseFlag {
+		showLicense()
+		os.Exit(0)
+	}
+
+	// Verbose is an alias for debug
+	debug := *debugFlag || *verboseFlag
+	_ = debug // Will be used later
+
+	// Get remaining arguments after flags
+	args := flag.Args()
+
+	var scriptFile string
+	var scriptContent string
+	var scriptArgs []string
+
+	// Check for -- separator
+	separatorIndex := -1
+	for i, arg := range args {
+		if arg == "--" {
+			separatorIndex = i
+			break
+		}
+	}
+
+	var fileArgs []string
+	if separatorIndex != -1 {
+		fileArgs = args[:separatorIndex]
+		scriptArgs = args[separatorIndex+1:]
+	} else {
+		fileArgs = args
+	}
+
+	// Check if stdin is redirected/piped
+	stdinInfo, _ := os.Stdin.Stat()
+	isStdinRedirected := (stdinInfo.Mode() & os.ModeCharDevice) == 0
+
+	if len(fileArgs) > 0 {
+		// Filename provided
+		requestedFile := fileArgs[0]
+		foundFile := findScriptFile(requestedFile)
+
+		if foundFile == "" {
+			fmt.Fprintf(os.Stderr, "Error: Script file not found: %s\n", requestedFile)
+			if !strings.Contains(requestedFile, ".") {
+				fmt.Fprintf(os.Stderr, "Also tried: %s.paw\n", requestedFile)
+			}
+			os.Exit(1)
+		}
+
+		scriptFile = foundFile
+
+		content, err := os.ReadFile(scriptFile)
+		if err != nil {
+			fmt.Fprintf(os.Stderr, "Error reading script file: %v\n", err)
+			os.Exit(1)
+		}
+		scriptContent = string(content)
+
+		// Remaining fileArgs become script arguments (if no separator was used)
+		if separatorIndex == -1 && len(fileArgs) > 1 {
+			scriptArgs = fileArgs[1:]
+		}
+
+	} else if isStdinRedirected {
+		// No filename, but stdin is redirected - read from stdin
+		content, err := io.ReadAll(os.Stdin)
+		if err != nil {
+			fmt.Fprintf(os.Stderr, "Error reading from stdin: %v\n", err)
+			os.Exit(1)
+		}
+		scriptContent = string(content)
+	}
+
+	// If we have script content (from file or stdin), run it
+	if scriptContent != "" {
+		runScriptFromCLI(scriptContent, scriptFile, scriptArgs, *windowFlag, *unrestrictedFlag,
+			*sandboxFlag, *readRootsFlag, *writeRootsFlag, *execRootsFlag, *optLevelFlag)
+		return
+	}
+
+	// No script provided - launch GUI launcher mode
+	gtkApp, err := gtk.ApplicationNew(appID, glib.APPLICATION_FLAGS_NONE)
 	if err != nil {
 		fmt.Fprintf(os.Stderr, "Failed to create application: %v\n", err)
 		os.Exit(1)
 	}
 
-	app.Connect("activate", func() {
-		activate(app)
+	gtkApp.Connect("activate", func() {
+		activate(gtkApp)
 	})
 
-	os.Exit(app.Run(os.Args))
+	os.Exit(gtkApp.Run([]string{os.Args[0]})) // Pass only program name to GTK
+}
+
+// runScriptFromCLI executes a script with the given options (from command line)
+func runScriptFromCLI(scriptContent, scriptFile string, scriptArgs []string, windowFlag bool,
+	unrestricted bool, sandbox, readRoots, writeRoots, execRoots string, optLevel int) {
+
+	// Build file access configuration
+	var fileAccess *pawscript.FileAccessConfig
+	var scriptDir string
+	if scriptFile != "" {
+		absScript, err := filepath.Abs(scriptFile)
+		if err == nil {
+			scriptDir = filepath.Dir(absScript)
+		}
+	}
+
+	if !unrestricted {
+		fileAccess = &pawscript.FileAccessConfig{}
+		cwd, _ := os.Getwd()
+		tmpDir := os.TempDir()
+
+		// Helper to expand SCRIPT_DIR placeholder and resolve path
+		expandPath := func(path string) string {
+			path = strings.TrimSpace(path)
+			if path == "" {
+				return ""
+			}
+			if strings.HasPrefix(path, "SCRIPT_DIR/") {
+				if scriptDir != "" {
+					path = filepath.Join(scriptDir, path[11:])
+				} else {
+					return ""
+				}
+			} else if path == "SCRIPT_DIR" {
+				if scriptDir != "" {
+					path = scriptDir
+				} else {
+					return ""
+				}
+			}
+			absPath, err := filepath.Abs(path)
+			if err != nil {
+				return ""
+			}
+			return absPath
+		}
+
+		// Helper to parse comma-separated roots with SCRIPT_DIR expansion
+		parseRoots := func(rootsStr string) []string {
+			var roots []string
+			for _, root := range strings.Split(rootsStr, ",") {
+				if expanded := expandPath(root); expanded != "" {
+					roots = append(roots, expanded)
+				}
+			}
+			return roots
+		}
+
+		if sandbox != "" {
+			absPath, err := filepath.Abs(sandbox)
+			if err != nil {
+				fmt.Fprintf(os.Stderr, "Error resolving sandbox path: %v\n", err)
+				os.Exit(1)
+			}
+			fileAccess.ReadRoots = []string{absPath}
+			fileAccess.WriteRoots = []string{absPath}
+			fileAccess.ExecRoots = []string{absPath}
+		} else {
+			// Check environment variables first
+			envReadRoots := os.Getenv("PAW_READ_ROOTS")
+			envWriteRoots := os.Getenv("PAW_WRITE_ROOTS")
+			envExecRoots := os.Getenv("PAW_EXEC_ROOTS")
+
+			if envReadRoots != "" {
+				fileAccess.ReadRoots = parseRoots(envReadRoots)
+			} else {
+				if scriptDir != "" {
+					fileAccess.ReadRoots = append(fileAccess.ReadRoots, scriptDir)
+				}
+				if cwd != "" && cwd != scriptDir {
+					fileAccess.ReadRoots = append(fileAccess.ReadRoots, cwd)
+				}
+				fileAccess.ReadRoots = append(fileAccess.ReadRoots, tmpDir)
+			}
+			if readRoots != "" {
+				fileAccess.ReadRoots = append(fileAccess.ReadRoots, parseRoots(readRoots)...)
+			}
+
+			if envWriteRoots != "" {
+				fileAccess.WriteRoots = parseRoots(envWriteRoots)
+			} else {
+				if scriptDir != "" {
+					fileAccess.WriteRoots = append(fileAccess.WriteRoots,
+						filepath.Join(scriptDir, "saves"),
+						filepath.Join(scriptDir, "output"))
+				}
+				if cwd != "" && cwd != scriptDir {
+					fileAccess.WriteRoots = append(fileAccess.WriteRoots,
+						filepath.Join(cwd, "saves"),
+						filepath.Join(cwd, "output"))
+				}
+				fileAccess.WriteRoots = append(fileAccess.WriteRoots, tmpDir)
+			}
+			if writeRoots != "" {
+				fileAccess.WriteRoots = append(fileAccess.WriteRoots, parseRoots(writeRoots)...)
+			}
+
+			if envExecRoots != "" {
+				fileAccess.ExecRoots = parseRoots(envExecRoots)
+			} else {
+				if scriptDir != "" {
+					fileAccess.ExecRoots = append(fileAccess.ExecRoots,
+						filepath.Join(scriptDir, "helpers"),
+						filepath.Join(scriptDir, "bin"))
+				}
+			}
+			if execRoots != "" {
+				fileAccess.ExecRoots = append(fileAccess.ExecRoots, parseRoots(execRoots)...)
+			}
+		}
+	}
+
+	if !windowFlag {
+		// No window mode - run like CLI
+		ps := pawscript.New(&pawscript.Config{
+			Debug:                false,
+			AllowMacros:          true,
+			EnableSyntacticSugar: true,
+			ShowErrorContext:     true,
+			ContextLines:         2,
+			FileAccess:           fileAccess,
+			OptLevel:             pawscript.OptimizationLevel(optLevel),
+			ScriptDir:            scriptDir,
+		})
+		ps.RegisterStandardLibrary(scriptArgs)
+
+		var result pawscript.Result
+		if scriptFile != "" {
+			result = ps.ExecuteFile(scriptContent, scriptFile)
+		} else {
+			result = ps.Execute(scriptContent)
+		}
+		if result == pawscript.BoolStatus(false) {
+			os.Exit(1)
+		}
+		return
+	}
+
+	// Window mode - create GTK application with console window
+	gtkApp, err := gtk.ApplicationNew(appID, glib.APPLICATION_FLAGS_NONE)
+	if err != nil {
+		fmt.Fprintf(os.Stderr, "Failed to create application: %v\n", err)
+		os.Exit(1)
+	}
+
+	gtkApp.Connect("activate", func() {
+		// Load configuration
+		appConfig = loadConfig()
+		configHelper = pawgui.NewConfigHelper(appConfig)
+		if configHelper.PopulateDefaults() {
+			saveConfig(appConfig)
+		}
+		applyTheme(configHelper.GetTheme())
+
+		// Create console window and run script
+		runScriptInWindow(gtkApp, scriptContent, scriptFile, scriptArgs, fileAccess, optLevel, scriptDir)
+	})
+
+	gtkApp.Run([]string{os.Args[0]})
+}
+
+// runScriptInWindow creates a console window and runs the script
+func runScriptInWindow(gtkApp *gtk.Application, scriptContent, scriptFile string, scriptArgs []string,
+	fileAccess *pawscript.FileAccessConfig, optLevel int, scriptDir string) {
+
+	// Create a console window (similar to createConsoleWindow but with custom script)
+	win, err := gtk.ApplicationWindowNew(gtkApp)
+	if err != nil {
+		fmt.Fprintf(os.Stderr, "Failed to create window: %v\n", err)
+		return
+	}
+
+	title := "PawScript Console"
+	if scriptFile != "" {
+		title = filepath.Base(scriptFile) + " - PawScript"
+	}
+	win.SetTitle(title)
+	win.SetDefaultSize(900, 600)
+
+	// Create terminal
+	winTerminal := purfectermgtk.NewTerminal(configHelper.GetColorScheme())
+	winTerminal.SetFontFamily(getFontFamily())
+	winTerminal.SetFontFamilyUnicode(getFontFamilyUnicode())
+	winTerminal.SetFontFamilyCJK(getFontFamilyCJK())
+	winTerminal.SetFontSize(getFontSize())
+
+	// Create terminal widget
+	termWidget := winTerminal.Widget()
+	win.Add(termWidget)
+	win.ShowAll()
+
+	// Get terminal dimensions
+	width, height := winTerminal.GetCharDimensions()
+	if width < 1 {
+		width = 80
+	}
+	if height < 1 {
+		height = 24
+	}
+
+	// Create console channels
+	winConsoleOutCh, winConsoleInCh, winStdinWriter, winClearInputFunc := createConsoleChannelsForWindow(winTerminal, width, height)
+
+	// Create PawScript interpreter
+	ps := pawscript.New(&pawscript.Config{
+		Debug:                false,
+		AllowMacros:          true,
+		EnableSyntacticSugar: true,
+		ShowErrorContext:     true,
+		ContextLines:         2,
+		FileAccess:           fileAccess,
+		OptLevel:             pawscript.OptimizationLevel(optLevel),
+		ScriptDir:            scriptDir,
+	})
+
+	// Register standard library with console channels
+	ioConfig := &pawscript.IOChannelConfig{
+		Stdout: winConsoleOutCh,
+		Stdin:  winConsoleInCh,
+		Stderr: winConsoleOutCh,
+	}
+	ps.RegisterStandardLibraryWithIO(scriptArgs, ioConfig)
+
+	// Handle terminal input
+	winTerminal.SetInputCallback(func(data []byte) {
+		winStdinWriter.Write(data)
+	})
+
+	// Handle window close
+	win.Connect("destroy", func() {
+		winClearInputFunc()
+		gtkApp.Quit()
+	})
+
+	// Run script in goroutine
+	go func() {
+		time.Sleep(100 * time.Millisecond) // Let window initialize
+
+		var result pawscript.Result
+		if scriptFile != "" {
+			result = ps.ExecuteFile(scriptContent, scriptFile)
+		} else {
+			result = ps.Execute(scriptContent)
+		}
+
+		if result == pawscript.BoolStatus(false) {
+			winTerminal.Feed("\r\n[Script execution failed]\r\n")
+		} else {
+			winTerminal.Feed("\r\n[Script completed]\r\n")
+		}
+
+		// Don't auto-close - let user see output and close manually
+	}()
+}
+
+// createConsoleChannelsForWindow creates I/O channels for a window terminal
+func createConsoleChannelsForWindow(term *purfectermgtk.Terminal, width, height int) (*pawscript.StoredChannel, *pawscript.StoredChannel, *io.PipeWriter, func()) {
+	// Create channels
+	outCh := pawscript.NewStoredChannel(pawscript.ChannelConfig{
+		Capacity:  1000,
+		IsConsole: true,
+	})
+
+	inCh := pawscript.NewStoredChannel(pawscript.ChannelConfig{
+		Capacity:  100,
+		IsConsole: true,
+		Width:     width,
+		Height:    height,
+	})
+
+	// Create pipe for stdin
+	stdinReader, stdinWriter := io.Pipe()
+
+	// Set up channel readers
+	inCh.SetNativeReader(&channelReader{
+		reader:    stdinReader,
+		isConsole: true,
+	})
+
+	// Start output goroutine
+	go func() {
+		for {
+			val := outCh.NativeRecv()
+			if val == nil {
+				return
+			}
+			if s, ok := val.(string); ok {
+				glib.IdleAdd(func() bool {
+					term.Feed(s)
+					return false
+				})
+			}
+		}
+	}()
+
+	clearFunc := func() {
+		stdinWriter.Close()
+	}
+
+	return outCh, inCh, stdinWriter, clearFunc
 }
 
 func activate(application *gtk.Application) {
@@ -489,9 +1012,11 @@ func activate(application *gtk.Application) {
 	refreshFileList()
 	updatePathMenu()
 
-	// Print welcome message
-	terminal.Feed("PawScript Launcher (GTK3)\r\n")
-	terminal.Feed("Cross-platform terminal emulator\r\n")
+	// Print welcome banner
+	terminal.Feed(fmt.Sprintf("pawgui-gtk, the PawScript GUI interpreter version %s (with GTK)\r\n", version))
+	terminal.Feed("Copyright (c) 2025 Jeffrey R. Day\r\n")
+	terminal.Feed("License: MIT\r\n\r\n")
+	terminal.Feed("Interactive mode. Type 'exit' or 'quit' to leave.\r\n")
 	terminal.Feed("Select a .paw file and click Run to execute.\r\n\r\n")
 
 	mainWindow.ShowAll()
