@@ -12,11 +12,15 @@ type DisplayColorConfig struct {
 	Reset   string
 	Key     string
 	String  string
-	Number  string
+	Int     string
+	Float   string
 	Bool    string
 	Nil     string
 	Bracket string
 	Colon   string
+	Symbol  string
+	Object  string
+	Bytes   string
 }
 
 // DefaultDisplayColors returns the default color configuration
@@ -25,11 +29,15 @@ func DefaultDisplayColors() DisplayColorConfig {
 		Reset:   "\033[0m",
 		Key:     "\033[36m", // Cyan for keys
 		String:  "\033[32m", // Green for strings
-		Number:  "\033[33m", // Yellow for numbers
+		Int:     "\033[33m", // Yellow for integers
+		Float:   "\033[93m", // Bright yellow for floats
 		Bool:    "\033[35m", // Magenta for booleans
 		Nil:     "\033[31m", // Red for nil/null
 		Bracket: "\033[37m", // White for brackets
 		Colon:   "\033[90m", // Gray for colons/commas
+		Symbol:  "\033[97m", // Bright white for symbols
+		Object:  "\033[34m", // Blue for object references
+		Bytes:   "\033[96m", // Bright cyan for bytes
 	}
 }
 
@@ -78,8 +86,11 @@ func ParseDisplayColorConfig(colorArg interface{}, executor *Executor) DisplayCo
 			if v, ok := namedArgs["string"]; ok {
 				cfg.String = fmt.Sprintf("%v", v)
 			}
-			if v, ok := namedArgs["number"]; ok {
-				cfg.Number = fmt.Sprintf("%v", v)
+			if v, ok := namedArgs["int"]; ok {
+				cfg.Int = fmt.Sprintf("%v", v)
+			}
+			if v, ok := namedArgs["float"]; ok {
+				cfg.Float = fmt.Sprintf("%v", v)
 			}
 			if v, ok := namedArgs["bool"]; ok {
 				cfg.Bool = fmt.Sprintf("%v", v)
@@ -92,6 +103,15 @@ func ParseDisplayColorConfig(colorArg interface{}, executor *Executor) DisplayCo
 			}
 			if v, ok := namedArgs["colon"]; ok {
 				cfg.Colon = fmt.Sprintf("%v", v)
+			}
+			if v, ok := namedArgs["symbol"]; ok {
+				cfg.Symbol = fmt.Sprintf("%v", v)
+			}
+			if v, ok := namedArgs["object"]; ok {
+				cfg.Object = fmt.Sprintf("%v", v)
+			}
+			if v, ok := namedArgs["bytes"]; ok {
+				cfg.Bytes = fmt.Sprintf("%v", v)
 			}
 		}
 	}
@@ -576,7 +596,7 @@ func formatListForDisplayColored(list StoredList, indent int, pretty bool, cfg D
 		case Symbol:
 			s := string(v)
 			if objType, objID := parseObjectMarker(s); objID >= 0 {
-				return cfg.Nil + fmt.Sprintf("<%s %d>", objType, objID) + cfg.Reset
+				return cfg.Object + fmt.Sprintf("<%s %d>", objType, objID) + cfg.Reset
 			}
 			if s == "true" || s == "false" {
 				return cfg.Bool + s + cfg.Reset
@@ -584,18 +604,18 @@ func formatListForDisplayColored(list StoredList, indent int, pretty bool, cfg D
 			if s == "nil" || s == "null" {
 				return cfg.Nil + s + cfg.Reset
 			}
-			return s
+			return cfg.Symbol + s + cfg.Reset
 		case string:
 			if objType, objID := parseObjectMarker(v); objID >= 0 {
-				return cfg.Nil + fmt.Sprintf("<%s %d>", objType, objID) + cfg.Reset
+				return cfg.Object + fmt.Sprintf("<%s %d>", objType, objID) + cfg.Reset
 			}
 			escaped := strings.ReplaceAll(v, "\\", "\\\\")
 			escaped = strings.ReplaceAll(escaped, "\"", "\\\"")
 			return cfg.String + "\"" + escaped + "\"" + cfg.Reset
 		case int64:
-			return cfg.Number + fmt.Sprintf("%d", v) + cfg.Reset
+			return cfg.Int + fmt.Sprintf("%d", v) + cfg.Reset
 		case float64:
-			return cfg.Number + strconv.FormatFloat(v, 'f', -1, 64) + cfg.Reset
+			return cfg.Float + strconv.FormatFloat(v, 'f', -1, 64) + cfg.Reset
 		case bool:
 			if v {
 				return cfg.Bool + "true" + cfg.Reset
@@ -717,7 +737,7 @@ func formatValueColoredInternal(value interface{}, indent int, pretty bool, cfg 
 			}
 		}
 		if objType, objID := parseObjectMarker(s); objID >= 0 {
-			return cfg.Nil + fmt.Sprintf("<%s %d>", objType, objID) + cfg.Reset
+			return cfg.Object + fmt.Sprintf("<%s %d>", objType, objID) + cfg.Reset
 		}
 		if s == "true" || s == "false" {
 			return cfg.Bool + s + cfg.Reset
@@ -725,7 +745,7 @@ func formatValueColoredInternal(value interface{}, indent int, pretty bool, cfg 
 		if s == "nil" || s == "null" || s == "undefined" {
 			return cfg.Nil + s + cfg.Reset
 		}
-		return s
+		return cfg.Symbol + s + cfg.Reset
 	case string:
 		// Try to resolve if it's a marker
 		if ps != nil {
@@ -735,7 +755,7 @@ func formatValueColoredInternal(value interface{}, indent int, pretty bool, cfg 
 			}
 		}
 		if objType, objID := parseObjectMarker(v); objID >= 0 {
-			return cfg.Nil + fmt.Sprintf("<%s %d>", objType, objID) + cfg.Reset
+			return cfg.Object + fmt.Sprintf("<%s %d>", objType, objID) + cfg.Reset
 		}
 		escaped := strings.ReplaceAll(v, "\\", "\\\\")
 		escaped = strings.ReplaceAll(escaped, "\"", "\\\"")
@@ -745,11 +765,11 @@ func formatValueColoredInternal(value interface{}, indent int, pretty bool, cfg 
 		escaped = strings.ReplaceAll(escaped, "\"", "\\\"")
 		return cfg.String + "\"" + escaped + "\"" + cfg.Reset
 	case int64:
-		return cfg.Number + fmt.Sprintf("%d", v) + cfg.Reset
+		return cfg.Int + fmt.Sprintf("%d", v) + cfg.Reset
 	case float64:
-		return cfg.Number + strconv.FormatFloat(v, 'f', -1, 64) + cfg.Reset
+		return cfg.Float + strconv.FormatFloat(v, 'f', -1, 64) + cfg.Reset
 	case int:
-		return cfg.Number + fmt.Sprintf("%d", v) + cfg.Reset
+		return cfg.Int + fmt.Sprintf("%d", v) + cfg.Reset
 	case bool:
 		if v {
 			return cfg.Bool + "true" + cfg.Reset
@@ -758,13 +778,13 @@ func formatValueColoredInternal(value interface{}, indent int, pretty bool, cfg 
 	case nil:
 		return cfg.Nil + "nil" + cfg.Reset
 	case *StoredChannel:
-		return cfg.Nil + "<channel>" + cfg.Reset
+		return cfg.Object + "<channel>" + cfg.Reset
 	case *StoredFile:
-		return cfg.Nil + "<file>" + cfg.Reset
+		return cfg.Object + "<file>" + cfg.Reset
 	case StoredBytes:
-		return cfg.Nil + v.String() + cfg.Reset
+		return cfg.Bytes + v.String() + cfg.Reset
 	case StoredStruct:
-		return cfg.Nil + v.String() + cfg.Reset
+		return cfg.Object + v.String() + cfg.Reset
 	default:
 		return fmt.Sprintf("%v", v)
 	}
