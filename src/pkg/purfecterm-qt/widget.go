@@ -303,6 +303,71 @@ func NewWidget(cols, rows, scrollbackSize int) *Widget {
 		w.contextMenu.ExecWithPos(w.widget.MapToGlobal(pos))
 	})
 
+	// Tab key handling: Qt intercepts Tab for focus navigation before keyPressEvent,
+	// so we use QShortcut to capture Tab when this widget has focus.
+	// - Plain Tab: send to terminal (for tab completion, etc.)
+	// - Ctrl+Tab: focus next widget
+	// - Shift+Tab: focus previous widget
+	tabShortcut := qt.NewQShortcut2(qt.NewQKeySequence2("Tab"), w.widget)
+	tabShortcut.SetContext(qt.WidgetWithChildrenShortcut)
+	tabShortcut.OnActivated(func() {
+		w.mu.Lock()
+		onInput := w.onInput
+		w.mu.Unlock()
+		if onInput != nil {
+			w.buffer.NotifyKeyboardActivity()
+			onInput([]byte{'\t'})
+		}
+	})
+
+	ctrlTabShortcut := qt.NewQShortcut2(qt.NewQKeySequence2("Ctrl+Tab"), w.widget)
+	ctrlTabShortcut.SetContext(qt.WidgetWithChildrenShortcut)
+	ctrlTabShortcut.OnActivated(func() {
+		// Move focus to next widget in tab order
+		w.widget.FocusNextChild()
+	})
+
+	shiftTabShortcut := qt.NewQShortcut2(qt.NewQKeySequence2("Shift+Tab"), w.widget)
+	shiftTabShortcut.SetContext(qt.WidgetWithChildrenShortcut)
+	shiftTabShortcut.OnActivated(func() {
+		// Move focus to previous widget in tab order
+		w.widget.FocusPreviousChild()
+	})
+
+	shiftCtrlTabShortcut := qt.NewQShortcut2(qt.NewQKeySequence2("Shift+Ctrl+Tab"), w.widget)
+	shiftCtrlTabShortcut.SetContext(qt.WidgetWithChildrenShortcut)
+	shiftCtrlTabShortcut.OnActivated(func() {
+		// Move focus to previous widget in tab order
+		w.widget.FocusPreviousChild()
+	})
+
+	// Alt+Tab and Meta+Tab send modified Tab sequences to terminal
+	altTabShortcut := qt.NewQShortcut2(qt.NewQKeySequence2("Alt+Tab"), w.widget)
+	altTabShortcut.SetContext(qt.WidgetWithChildrenShortcut)
+	altTabShortcut.OnActivated(func() {
+		w.mu.Lock()
+		onInput := w.onInput
+		w.mu.Unlock()
+		if onInput != nil {
+			w.buffer.NotifyKeyboardActivity()
+			// Alt+Tab = mod 3 (1 + 2 for alt)
+			onInput([]byte{0x1b, '[', '9', ';', '3', 'u'}) // CSI 9 ; 3 u
+		}
+	})
+
+	metaTabShortcut := qt.NewQShortcut2(qt.NewQKeySequence2("Meta+Tab"), w.widget)
+	metaTabShortcut.SetContext(qt.WidgetWithChildrenShortcut)
+	metaTabShortcut.OnActivated(func() {
+		w.mu.Lock()
+		onInput := w.onInput
+		w.mu.Unlock()
+		if onInput != nil {
+			w.buffer.NotifyKeyboardActivity()
+			// Meta+Tab = mod 9 (1 + 8 for meta)
+			onInput([]byte{0x1b, '[', '9', ';', '9', 'u'}) // CSI 9 ; 9 u
+		}
+	})
+
 	return w
 }
 
@@ -1798,31 +1863,9 @@ func (w *Widget) screenToCell(screenX, screenY int) (cellX, cellY int) {
 }
 
 func (w *Widget) keyPressEvent(super func(event *qt.QKeyEvent), event *qt.QKeyEvent) {
-	key := event.Key()
-	modifiers := event.Modifiers()
-
-	hasShift := modifiers&qt.ShiftModifier != 0
-	hasCtrl := modifiers&qt.ControlModifier != 0
-	hasAlt := modifiers&qt.AltModifier != 0
-	hasMeta := modifiers&qt.MetaModifier != 0
-
-	// Special Tab handling for focus navigation:
-	// - Ctrl+Tab (with or without Shift) → let Qt handle focus navigation
-	// - Shift+Tab (without Ctrl) → let Qt handle focus navigation (previous widget)
-	// - Plain Tab or Tab+Alt/Meta → send to terminal
-	if qt.Key(key) == qt.Key_Tab || qt.Key(key) == qt.Key_Backtab {
-		if hasCtrl {
-			// Ctrl+Tab or Ctrl+Shift+Tab: let Qt handle focus navigation
-			super(event)
-			return
-		}
-		if hasShift && !hasAlt && !hasMeta {
-			// Shift+Tab alone: let Qt handle focus navigation (previous widget)
-			super(event)
-			return
-		}
-		// Plain Tab or Tab with Alt/Meta: send to terminal (handled below)
-	}
+	// Note: Tab, Ctrl+Tab, Shift+Tab, Shift+Ctrl+Tab are handled by QShortcuts
+	// in NewWidget(), so they don't reach here. Only Alt+Tab or Meta+Tab might
+	// reach this handler for modified Tab sequences.
 
 	w.mu.Lock()
 	onInput := w.onInput
@@ -1831,6 +1874,14 @@ func (w *Widget) keyPressEvent(super func(event *qt.QKeyEvent), event *qt.QKeyEv
 	if onInput == nil {
 		return
 	}
+
+	key := event.Key()
+	modifiers := event.Modifiers()
+
+	hasShift := modifiers&qt.ShiftModifier != 0
+	hasCtrl := modifiers&qt.ControlModifier != 0
+	hasAlt := modifiers&qt.AltModifier != 0
+	hasMeta := modifiers&qt.MetaModifier != 0
 
 	var data []byte
 
@@ -1846,14 +1897,12 @@ func (w *Widget) keyPressEvent(super func(event *qt.QKeyEvent), event *qt.QKeyEv
 			data = []byte{0x7f}
 		}
 	case qt.Key_Tab, qt.Key_Backtab:
-		// Tab with Alt/Meta sends modified Tab sequence to terminal
+		// Only Alt+Tab or Meta+Tab reach here (others handled by shortcuts)
 		if hasAlt || hasMeta {
 			mod := w.calcMod(hasShift, hasCtrl, hasAlt, hasMeta)
 			data = []byte{0x1b, '[', '9', ';', byte('0' + mod), 'u'} // CSI 9 ; mod u (kitty protocol)
-		} else {
-			// Plain Tab
-			data = []byte{'\t'}
 		}
+		// Plain Tab and Ctrl/Shift+Tab are handled by shortcuts, shouldn't reach here
 	case qt.Key_Escape:
 		data = []byte{0x1b}
 	case qt.Key_Up:
