@@ -533,11 +533,15 @@ func createFileBrowser() *gtk.Box {
 	box.SetMarginTop(5)
 	box.SetMarginBottom(5)
 
-	// Current path combo box - constrained to panel width
+	// Current path combo box - constrained to panel width via CSS
 	pathCombo, _ = gtk.ComboBoxTextNew()
-	pathCombo.SetSizeRequest(0, -1) // Request 0 minimum width
 	pathCombo.SetHExpand(true)
 	pathCombo.SetProperty("popup-fixed-width", false)
+	// Use CSS to force combo to accept any width (override natural size)
+	cssProvider, _ := gtk.CssProviderNew()
+	cssProvider.LoadFromData("* { min-width: 0px; }")
+	styleCtx, _ := pathCombo.GetStyleContext()
+	styleCtx.AddProvider(cssProvider, gtk.STYLE_PROVIDER_PRIORITY_APPLICATION)
 	pathCombo.Connect("changed", onPathComboChanged)
 	box.PackStart(pathCombo, false, true, 0)
 
