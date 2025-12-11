@@ -7,9 +7,76 @@ import (
 	"unicode"
 )
 
+// protectEscapeSequences replaces escape sequences with placeholders.
+// - \$ is ALWAYS protected (everywhere) to enable nested macro $N substitution
+// - \~ and \? are ONLY protected outside parentheses (parenDepth == 0)
+//   so they're preserved inside macro bodies for execution-time processing
+func protectEscapeSequences(str, dollarPlaceholder, tildePlaceholder, qmarkPlaceholder string) string {
+	runes := []rune(str)
+	var result []rune
+	parenDepth := 0
+	inDoubleQuote := false
+
+	for i := 0; i < len(runes); i++ {
+		char := runes[i]
+
+		// Track parenthesis depth (outside quotes)
+		if !inDoubleQuote {
+			if char == '(' {
+				parenDepth++
+				result = append(result, char)
+				continue
+			} else if char == ')' {
+				parenDepth--
+				result = append(result, char)
+				continue
+			}
+		}
+
+		// Track double quote state (only at top level)
+		if char == '"' && parenDepth == 0 {
+			inDoubleQuote = !inDoubleQuote
+			result = append(result, char)
+			continue
+		}
+
+		// Handle escape sequences
+		if char == '\\' && i+1 < len(runes) {
+			nextChar := runes[i+1]
+			switch nextChar {
+			case '$':
+				// \$ is ALWAYS protected - enables nested macro substitution
+				result = append(result, []rune(dollarPlaceholder)...)
+				i++ // Skip the escaped char
+				continue
+			case '~':
+				// \~ is only protected at top level
+				if parenDepth == 0 {
+					result = append(result, []rune(tildePlaceholder)...)
+					i++ // Skip the escaped char
+					continue
+				}
+			case '?':
+				// \? is only protected at top level
+				if parenDepth == 0 {
+					result = append(result, []rune(qmarkPlaceholder)...)
+					i++ // Skip the escaped char
+					continue
+				}
+			}
+			// Inside parentheses or other escape: keep as-is
+			result = append(result, char)
+			continue
+		}
+
+		result = append(result, char)
+	}
+
+	return string(result)
+}
+
 // applySubstitution applies macro argument substitution
 func (e *Executor) applySubstitution(str string, ctx *SubstitutionContext) SubstitutionResult {
-	// fmt.Fprintf(os.Stderr, "[DEBUG applySubstitution] Input: %q\n", str)
 	// Note: ctx should never be nil - caller should create a minimal context if needed
 	if ctx == nil {
 		return SubstitutionResult{Value: str}
@@ -18,12 +85,12 @@ func (e *Executor) applySubstitution(str string, ctx *SubstitutionContext) Subst
 	result := str
 
 	// First, protect escaped dollar signs, tildes, and question marks by replacing with placeholders
+	// IMPORTANT: Only protect escapes OUTSIDE parentheses (parenDepth == 0)
+	// Content inside parentheses (macro bodies) must preserve escape sequences for later execution
 	const escapedDollarPlaceholder = "\x00SUB\x00"
 	const escapedTildePlaceholder = "\x00TILDE\x00"
 	const escapedQmarkPlaceholder = "\x00QMARK\x00"
-	result = strings.ReplaceAll(result, `\$`, escapedDollarPlaceholder)
-	result = strings.ReplaceAll(result, `\~`, escapedTildePlaceholder)
-	result = strings.ReplaceAll(result, `\?`, escapedQmarkPlaceholder)
+	result = protectEscapeSequences(result, escapedDollarPlaceholder, escapedTildePlaceholder, escapedQmarkPlaceholder)
 
 	// Apply brace expression substitution first
 	braceResult := e.substituteBraceExpressions(result, ctx)
