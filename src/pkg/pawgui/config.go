@@ -63,11 +63,13 @@ func GetDefaultCJKFont() string {
 }
 
 // GetDefaultQuitShortcut returns the platform-appropriate default quit shortcut.
+// Never uses Ctrl+key as Ctrl should pass through to terminal applications.
 func GetDefaultQuitShortcut() string {
 	if runtime.GOOS == "darwin" {
 		return "Cmd+Q"
 	}
-	return "Ctrl+Q"
+	// On Windows and Linux, use Alt+F4 (Ctrl keys should pass to terminal)
+	return "Alt+F4"
 }
 
 // ConfigHelper provides common configuration access methods.

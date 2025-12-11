@@ -1895,6 +1895,13 @@ func (w *Widget) keyPressEvent(super func(event *qt.QKeyEvent), event *qt.QKeyEv
 	// in NewWidget(), so they don't reach here. Only Alt+Tab or Meta+Tab might
 	// reach this handler for modified Tab sequences.
 
+	key := event.Key()
+
+	// Ignore modifier-only key presses (they don't produce terminal output)
+	if isModifierKey(qt.Key(key)) {
+		return
+	}
+
 	w.mu.Lock()
 	onInput := w.onInput
 	w.mu.Unlock()
@@ -1903,7 +1910,6 @@ func (w *Widget) keyPressEvent(super func(event *qt.QKeyEvent), event *qt.QKeyEv
 		return
 	}
 
-	key := event.Key()
 	modifiers := event.Modifiers()
 
 	hasShift := modifiers&qt.ShiftModifier != 0
@@ -2040,9 +2046,9 @@ func (w *Widget) calcMod(hasShift, hasCtrl, hasAlt, hasMeta bool) int {
 
 // handleRegularKey processes regular character keys with modifiers
 func (w *Widget) handleRegularKey(event *qt.QKeyEvent, hasShift, hasCtrl, hasAlt, hasMeta bool) []byte {
-	// On macOS, Option key composes special Unicode characters (e.g., Option+R = ®)
-	// We want to treat Option as Alt/Meta modifier instead, using the base key
-	if runtime.GOOS == "darwin" && hasAlt {
+	// On macOS, we need to use hardware keycodes for modifier combinations
+	// because Qt's event.Text() may return empty or composed characters
+	if runtime.GOOS == "darwin" && (hasAlt || hasCtrl) {
 		hwcode := uint32(event.NativeScanCode())
 		if baseCh := macKeycodeToChar(hwcode, hasShift); baseCh != 0 {
 			// Apply Ctrl transformation if needed (convert letter to control char)
@@ -2051,6 +2057,22 @@ func (w *Widget) handleRegularKey(event *qt.QKeyEvent, hasShift, hasCtrl, hasAlt
 					baseCh = baseCh - 'a' + 1
 				} else if baseCh >= 'A' && baseCh <= 'Z' {
 					baseCh = baseCh - 'A' + 1
+				} else {
+					// Other Ctrl combinations
+					switch baseCh {
+					case '@':
+						baseCh = 0 // Ctrl+@ = NUL
+					case '[':
+						baseCh = 0x1b // Ctrl+[ = ESC
+					case '\\':
+						baseCh = 0x1c // Ctrl+\ = FS
+					case ']':
+						baseCh = 0x1d // Ctrl+] = GS
+					case '^':
+						baseCh = 0x1e // Ctrl+^ = RS
+					case '_':
+						baseCh = 0x1f // Ctrl+_ = US
+					}
 				}
 			}
 
@@ -2069,9 +2091,8 @@ func (w *Widget) handleRegularKey(event *qt.QKeyEvent, hasShift, hasCtrl, hasAlt
 				keycode = 27
 			}
 
-			if keycode != 0 {
-				// Use kitty protocol: CSI keycode ; mod u
-				// Ctrl is consumed by letter->control_char, so not included
+			if keycode != 0 && hasAlt {
+				// Use kitty protocol for Alt+control_char: CSI keycode ; mod u
 				mod := 1
 				if hasShift {
 					mod += 1
@@ -2083,12 +2104,15 @@ func (w *Widget) handleRegularKey(event *qt.QKeyEvent, hasShift, hasCtrl, hasAlt
 				return []byte(fmt.Sprintf("\x1b[%d;%du", keycode, mod))
 			}
 
-			// Send ESC + base character for Alt+key
-			return []byte{0x1b, baseCh}
+			// Send the character (possibly transformed by Ctrl)
+			if hasAlt {
+				return []byte{0x1b, baseCh}
+			}
+			return []byte{baseCh}
 		}
 	}
 
-	// Standard character handling
+	// Standard character handling (non-macOS or no modifiers)
 	text := event.Text()
 	if text == "" {
 		return nil
@@ -2185,6 +2209,20 @@ func macKeycodeToChar(hwcode uint32, shift bool) byte {
 	}
 
 	return 0
+}
+
+// isModifierKey returns true if the Qt key is a modifier key.
+// Modifier keys alone don't produce terminal output.
+func isModifierKey(key qt.Key) bool {
+	switch key {
+	case qt.Key_Shift, qt.Key_Control, qt.Key_Alt, qt.Key_Meta,
+		qt.Key_Super_L, qt.Key_Super_R,
+		qt.Key_Hyper_L, qt.Key_Hyper_R,
+		qt.Key_CapsLock, qt.Key_NumLock, qt.Key_ScrollLock,
+		qt.Key_AltGr:
+		return true
+	}
+	return false
 }
 
 func (w *Widget) mousePressEvent(event *qt.QMouseEvent) {

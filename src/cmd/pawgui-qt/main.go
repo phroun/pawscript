@@ -7,6 +7,7 @@ import (
 	"io"
 	"os"
 	"path/filepath"
+	"runtime"
 	"strings"
 	"sync"
 	"time"
@@ -554,9 +555,21 @@ func setupQuitShortcut() {
 	var keySequence string
 	switch quitShortcut {
 	case "Cmd+Q":
-		keySequence = "Meta+Q"
+		// On macOS, Qt swaps Ctrl/Meta, so "Ctrl+Q" responds to physical Cmd key
+		// On other platforms, use Meta+Q
+		if runtime.GOOS == "darwin" {
+			keySequence = "Ctrl+Q" // Physical Cmd+Q on macOS
+		} else {
+			keySequence = "Meta+Q"
+		}
 	case "Ctrl+Q":
-		keySequence = "Ctrl+Q"
+		// Note: Ctrl+Q should generally not be used (conflicts with terminal)
+		// On macOS, Qt's "Meta+Q" responds to physical Ctrl key
+		if runtime.GOOS == "darwin" {
+			keySequence = "Meta+Q" // Physical Ctrl+Q on macOS
+		} else {
+			keySequence = "Ctrl+Q"
+		}
 	case "Alt+F4":
 		keySequence = "Alt+F4"
 	default:
