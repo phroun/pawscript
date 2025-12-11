@@ -47,6 +47,7 @@ type REPL struct {
 	savedLine       string                 // Saved line when browsing history
 	inHistory       bool                   // Are we browsing history?
 	running         bool                   // Is REPL active?
+	busy            bool                   // Is a command currently executing?
 	inputChan       chan string            // Channel for complete input
 	quitChan        chan struct{}          // Signal to quit
 	lightBackground bool                   // True if background is bright (>50%)
@@ -194,7 +195,7 @@ func (r *REPL) resultColor() string {
 // Returns true if the REPL should exit
 func (r *REPL) HandleInput(data []byte) bool {
 	r.mu.Lock()
-	if !r.running {
+	if !r.running || r.busy {
 		r.mu.Unlock()
 		return false
 	}
@@ -524,19 +525,14 @@ func (r *REPL) handleEnter() {
 
 	// Check if input is complete
 	if r.isComplete(fullInput) {
-		r.processInput(fullInput)
+		// Clear input state
 		r.lines = nil
 		r.currentLine = nil
 		r.cursorPos = 0
 		r.inHistory = false
 
-		// Check if still running before printing next prompt
-		r.mu.Lock()
-		running := r.running
-		r.mu.Unlock()
-		if running {
-			r.printPrompt()
-		}
+		// Process input - may run in background for GUI responsiveness
+		r.processInput(fullInput)
 	} else {
 		// Continue on next line
 		r.currentLine = nil
@@ -565,17 +561,45 @@ func (r *REPL) processInput(input string) {
 	}
 
 	if trimmed == "" {
+		r.showPromptIfRunning()
 		return
 	}
 
-	// Execute - blocks until complete (including async operations like msleep)
-	result := r.ps.Execute(input)
+	// Set busy flag to ignore input during execution
+	r.mu.Lock()
+	r.busy = true
+	r.mu.Unlock()
 
-	// Flush any pending output before displaying result
-	r.ps.FlushIO()
+	// Run execution in a goroutine so GUI remains responsive
+	go func() {
+		// Execute - blocks until complete (including async operations like msleep)
+		result := r.ps.Execute(input)
 
-	// Display result
-	r.displayResult(result)
+		// Flush any pending output before displaying result
+		r.ps.FlushIO()
+
+		// Display result
+		r.displayResult(result)
+
+		// Clear busy flag and show prompt
+		r.mu.Lock()
+		r.busy = false
+		running := r.running
+		r.mu.Unlock()
+
+		if running {
+			r.printPrompt()
+		}
+	}()
+}
+
+func (r *REPL) showPromptIfRunning() {
+	r.mu.Lock()
+	running := r.running
+	r.mu.Unlock()
+	if running {
+		r.printPrompt()
+	}
 }
 
 func (r *REPL) isComplete(input string) bool {
