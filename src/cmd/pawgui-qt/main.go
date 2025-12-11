@@ -31,7 +31,8 @@ var (
 	mainWindow *qt.QMainWindow
 	fileList   *qt.QListWidget
 	terminal   *purfectermqt.Terminal
-	pathCombo    *qt.QComboBox
+	pathButton   *qt.QToolButton // Path selector button with dropdown menu
+	pathMenu     *qt.QMenu       // Dropdown menu for path selection
 	runButton    *qt.QPushButton
 	browseButton *qt.QPushButton
 
@@ -51,9 +52,6 @@ var (
 	// Configuration
 	appConfig    pawscript.PSLConfig
 	configHelper *pawgui.ConfigHelper
-
-	// Flag to prevent recursive combo updates
-	updatingPathCombo bool
 )
 
 // --- Configuration Management ---
@@ -604,14 +602,20 @@ func createFilePanel() *qt.QWidget {
 	layout.SetSpacing(4)
 	panel.SetLayout(layout.QLayout)
 
-	// Path combo box - constrained to panel width, shows end of path when narrow
-	pathCombo = qt.NewQComboBox2()
-	pathCombo.SetSizeAdjustPolicy(qt.QComboBox__AdjustToMinimumContentsLengthWithIcon)
-	pathCombo.SetMinimumContentsLength(1)
-	// Use right-to-left layout direction so ellipsis appears at start, showing end of path
-	pathCombo.SetLayoutDirection(qt.RightToLeft)
-	pathCombo.OnCurrentIndexChanged(onPathComboChanged)
-	layout.AddWidget(pathCombo.QWidget)
+	// Path selector button with dropdown menu - ellipsizes text to show end of path
+	pathButton = qt.NewQToolButton2()
+	pathButton.SetToolButtonStyle(qt.ToolButtonTextBesideIcon)
+	pathButton.SetPopupMode(qt.QToolButton__InstantPopup)
+	pathButton.SetSizePolicy(qt.NewQSizePolicy2(qt.QSizePolicy__Expanding, qt.QSizePolicy__Fixed))
+	pathButton.SetArrowType(qt.DownArrow)
+	// Set stylesheet for text eliding at start (show end of path)
+	pathButton.SetStyleSheet("QToolButton { text-align: left; }")
+
+	// Create the dropdown menu
+	pathMenu = qt.NewQMenu2()
+	pathButton.SetMenu(pathMenu)
+
+	layout.AddWidget(pathButton.QWidget)
 
 	// File list
 	fileList = qt.NewQListWidget2()
@@ -887,101 +891,73 @@ type fileItemData struct {
 var fileItemDataMap = make(map[unsafe.Pointer]fileItemData)
 var fileItemDataMu sync.Mutex
 
-// updatePathCombo populates the path combo box with current path, Home, Examples, recent paths, and Clear option
-func updatePathCombo() {
-	if pathCombo == nil {
+// updatePathMenu populates the path menu with Home, Examples, recent paths, and Clear option
+func updatePathMenu() {
+	if pathButton == nil || pathMenu == nil {
 		return
 	}
 
-	// Set flag to prevent the changed callback from triggering during update
-	updatingPathCombo = true
-	defer func() { updatingPathCombo = false }()
+	// Update button text to show current path
+	pathButton.SetText(currentDir)
 
-	// Remove all existing items
-	pathCombo.Clear()
+	// Clear existing menu items
+	pathMenu.Clear()
 
-	// Add current path as the first item (and selected)
-	pathCombo.AddItem(currentDir)
+	// Add current path as disabled info item
+	currentAction := pathMenu.AddAction(currentDir)
+	currentAction.SetEnabled(false)
 
-	// Add separator-like label (using dashes)
-	pathCombo.AddItem("────────────────────")
+	pathMenu.AddSeparator()
 
 	// Add Home directory
 	if home := getHomeDir(); home != "" {
-		pathCombo.AddItem("🏠 Home")
+		homeAction := pathMenu.AddAction("🏠 Home")
+		homeAction.OnTriggered(func() {
+			if info, err := os.Stat(home); err == nil && info.IsDir() {
+				loadDirectory(home)
+			}
+		})
 	}
 
 	// Add Examples directory
 	if examples := getExamplesDir(); examples != "" {
-		pathCombo.AddItem("📁 Examples")
+		examplesAction := pathMenu.AddAction("📁 Examples")
+		examplesAction.OnTriggered(func() {
+			if info, err := os.Stat(examples); err == nil && info.IsDir() {
+				loadDirectory(examples)
+			}
+		})
 	}
 
-	// Add recent paths (excluding home and examples since they have their own entries)
+	// Add recent paths
 	recentPaths := getRecentPaths()
 	if len(recentPaths) > 0 {
-		pathCombo.AddItem("────────────────────")
+		pathMenu.AddSeparator()
 		for _, p := range recentPaths {
-			pathCombo.AddItem(p)
+			path := p // Capture for closure
+			action := pathMenu.AddAction(path)
+			action.OnTriggered(func() {
+				if info, err := os.Stat(path); err == nil && info.IsDir() {
+					loadDirectory(path)
+				}
+			})
 		}
 	}
 
 	// Add Clear Recent Paths option
 	if len(recentPaths) > 0 {
-		pathCombo.AddItem("────────────────────")
-		pathCombo.AddItem("🗑 Clear Recent Paths")
-	}
-
-	// Select the first item (current path)
-	pathCombo.SetCurrentIndex(0)
-}
-
-// onPathComboChanged handles selection changes in the path combo box
-func onPathComboChanged(index int) {
-	if pathCombo == nil || updatingPathCombo {
-		return
-	}
-
-	text := pathCombo.CurrentText()
-	if text == "" || text == currentDir {
-		return
-	}
-
-	// Ignore separator lines
-	if strings.HasPrefix(text, "────") {
-		pathCombo.SetCurrentIndex(0)
-		return
-	}
-
-	// Handle Clear Recent Paths
-	if strings.HasPrefix(text, "🗑") {
-		clearRecentPaths()
-		pathCombo.SetCurrentIndex(0)
-		updatePathCombo()
-		return
-	}
-
-	// Extract actual path from prefixed entries
-	var newPath string
-	if text == "🏠 Home" {
-		newPath = getHomeDir()
-	} else if text == "📁 Examples" {
-		newPath = getExamplesDir()
-	} else {
-		newPath = text
-	}
-
-	// Verify path exists and is a directory
-	if info, err := os.Stat(newPath); err == nil && info.IsDir() {
-		loadDirectory(newPath)
-	} else {
-		// Invalid path - reset to current
-		pathCombo.SetCurrentIndex(0)
+		pathMenu.AddSeparator()
+		clearAction := pathMenu.AddAction("🗑 Clear Recent Paths")
+		clearAction.OnTriggered(func() {
+			clearRecentPaths()
+			updatePathMenu()
+		})
 	}
 }
 
 func loadDirectory(dir string) {
 	currentDir = dir
-	updatePathCombo()
+	updatePathMenu()
 
 	fileList.Clear()
 
