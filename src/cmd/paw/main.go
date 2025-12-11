@@ -357,6 +357,7 @@ func main() {
 
 	// Define command line flags
 	licenseFlag := flag.Bool("license", false, "Show license")
+	versionFlag := flag.Bool("version", false, "Show version")
 	debugFlag := flag.Bool("debug", false, "Enable debug output")
 	verboseFlag := flag.Bool("verbose", false, "Enable verbose output (alias for -debug)")
 	flag.BoolVar(debugFlag, "d", false, "Enable debug output (short)")
@@ -378,7 +379,12 @@ func main() {
 	// Parse flags
 	flag.Parse()
 	
-	if (*licenseFlag) {
+	if *versionFlag {
+		showCopyright()
+		os.Exit(0)
+	}
+
+	if *licenseFlag {
 		showLicense()
 		os.Exit(0)
 	}
@@ -660,13 +666,12 @@ func findScriptFile(filename string) string {
 }
 
 func showCopyright() {
-	fmt.Fprintf(os.Stderr, "paw, the pawscript interpreter version %s\nCopyright (c) 2025 Jeffrey R. Day\nLicense: MIT\n\n", version)
+	fmt.Fprintf(os.Stderr, "paw, the PawScript interpreter version %s\nCopyright (c) 2025 Jeffrey R. Day\nLicense: MIT\n", version)
 }
 
 func showLicense() {
-	fmt.Fprintf(os.Stdout, "paw, the pawscript interpreter version %s", version)
+	showCopyright()
 	license := `
-
 MIT License
 
 Copyright (c) 2025 Jeffrey R. Day
@@ -697,16 +702,19 @@ OTHER DEALINGS IN THE SOFTWARE.
 }
 
 func showUsage() {
-	usage := `Usage: paw [options] [script.paw] [-- args...]
+	showCopyright()
+	usage := `
+Usage: paw [options] [script.paw] [-- args...]
        paw [options] < input.paw
        echo "commands" | paw [options]
 
 Execute PawScript commands from a file, stdin, or pipe.
 
 Options:
+  --version           Show version and exit
   --license           View license and exit
-  -d, -debug          Enable debug output
-  -v, -verbose        Enable verbose output (same as -debug)
+  -d, --debug         Enable debug output
+  -v, --verbose       Enable verbose output (same as --debug)
   -O N                Set optimization level (0=no caching, 1=cache macro/loop bodies, default: 1)
   --unrestricted      Disable all file/exec access restrictions
   --sandbox DIR       Restrict all access to DIR only
@@ -756,6 +764,7 @@ const (
 // runREPL runs an interactive Read-Eval-Print Loop
 func runREPL(debug, unrestricted bool, optLevel int) {
 	showCopyright()
+	fmt.Println()
 	fmt.Println("Interactive mode. Type 'exit' or 'quit' to leave.")
 	fmt.Println()
 
