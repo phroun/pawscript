@@ -233,7 +233,8 @@ func (r *REPL) HandleInput(data []byte) bool {
 
 		// Handle escape sequences
 		if b == 0x1b && i < len(data) && data[i] == '[' {
-			i++ // consume '['
+			escStart := i - 1 // Position of ESC
+			i++               // consume '['
 			if i < len(data) {
 				switch data[i] {
 				case 'A': // Up arrow
@@ -283,6 +284,20 @@ func (r *REPL) HandleInput(data []byte) bool {
 					continue
 				}
 			}
+			// Unknown escape sequence - capture and display it
+			// Find the end of the sequence (letter or ~)
+			escEnd := i
+			for escEnd < len(data) && data[escEnd] >= 0x20 && data[escEnd] < 0x40 {
+				escEnd++
+			}
+			if escEnd < len(data) {
+				escEnd++ // Include the terminating character
+			}
+			// Build display string with \e instead of actual ESC
+			escSeq := "\\e" + string(data[escStart+1:escEnd])
+			r.output(fmt.Sprintf("\r\nEsc Sequence: %s\r\n", escSeq))
+			r.redrawLine()
+			i = escEnd
 			continue
 		}
 

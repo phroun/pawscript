@@ -931,7 +931,8 @@ func readStatement(fd int, history []string, historyPos *int) (string, bool) {
 
 			// Handle escape sequences
 			if b == 0x1b && i < n && buf[i] == '[' {
-				i++ // consume '['
+				escStart := i - 1 // Position of ESC
+				i++               // consume '['
 				if i < n {
 					switch buf[i] {
 					case 'A': // Up arrow
@@ -1003,7 +1004,20 @@ func readStatement(fd int, history []string, historyPos *int) (string, bool) {
 						continue
 					}
 				}
-				// Skip unknown escape sequence
+				// Unknown escape sequence - capture and display it
+				// Find the end of the sequence (letter or ~)
+				escEnd := i
+				for escEnd < n && buf[escEnd] >= 0x20 && buf[escEnd] < 0x40 {
+					escEnd++
+				}
+				if escEnd < n {
+					escEnd++ // Include the terminating character
+				}
+				// Build display string with \e instead of actual ESC
+				escSeq := "\\e" + string(buf[escStart+1:escEnd])
+				fmt.Printf("\r\nEsc Sequence: %s\r\n", escSeq)
+				redrawLine()
+				i = escEnd
 				continue
 			}
 
@@ -1262,8 +1276,11 @@ func readStatementFromKeys(keysCh *pawscript.StoredChannel, history []string, hi
 					cursorPos++
 					inHistory = false
 					redrawLine()
+				} else {
+					// Unknown key sequence - display it
+					fmt.Printf("\r\nEsc Sequence: \\e%s\r\n", key)
+					redrawLine()
 				}
-				// Otherwise ignore (special key like F1, PageUp, etc.)
 			}
 		}
 	}
