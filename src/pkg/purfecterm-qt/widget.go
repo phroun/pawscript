@@ -248,7 +248,7 @@ func NewWidget(cols, rows, scrollbackSize int) *Widget {
 		w.paintEvent(event)
 	})
 	w.widget.OnKeyPressEvent(func(super func(event *qt.QKeyEvent), event *qt.QKeyEvent) {
-		w.keyPressEvent(event)
+		w.keyPressEvent(super, event)
 	})
 	w.widget.OnMousePressEvent(func(super func(event *qt.QMouseEvent), event *qt.QMouseEvent) {
 		w.mousePressEvent(event)
@@ -1797,15 +1797,7 @@ func (w *Widget) screenToCell(screenX, screenY int) (cellX, cellY int) {
 	return
 }
 
-func (w *Widget) keyPressEvent(event *qt.QKeyEvent) {
-	w.mu.Lock()
-	onInput := w.onInput
-	w.mu.Unlock()
-
-	if onInput == nil {
-		return
-	}
-
+func (w *Widget) keyPressEvent(super func(event *qt.QKeyEvent), event *qt.QKeyEvent) {
 	key := event.Key()
 	modifiers := event.Modifiers()
 
@@ -1813,6 +1805,32 @@ func (w *Widget) keyPressEvent(event *qt.QKeyEvent) {
 	hasCtrl := modifiers&qt.ControlModifier != 0
 	hasAlt := modifiers&qt.AltModifier != 0
 	hasMeta := modifiers&qt.MetaModifier != 0
+
+	// Special Tab handling for focus navigation:
+	// - Ctrl+Tab (with or without Shift) → let Qt handle focus navigation
+	// - Shift+Tab (without Ctrl) → let Qt handle focus navigation (previous widget)
+	// - Plain Tab or Tab+Alt/Meta → send to terminal
+	if qt.Key(key) == qt.Key_Tab || qt.Key(key) == qt.Key_Backtab {
+		if hasCtrl {
+			// Ctrl+Tab or Ctrl+Shift+Tab: let Qt handle focus navigation
+			super(event)
+			return
+		}
+		if hasShift && !hasAlt && !hasMeta {
+			// Shift+Tab alone: let Qt handle focus navigation (previous widget)
+			super(event)
+			return
+		}
+		// Plain Tab or Tab with Alt/Meta: send to terminal (handled below)
+	}
+
+	w.mu.Lock()
+	onInput := w.onInput
+	w.mu.Unlock()
+
+	if onInput == nil {
+		return
+	}
 
 	var data []byte
 
@@ -1827,10 +1845,13 @@ func (w *Widget) keyPressEvent(event *qt.QKeyEvent) {
 		} else {
 			data = []byte{0x7f}
 		}
-	case qt.Key_Tab:
-		if hasShift {
-			data = []byte{0x1b, '[', 'Z'}
+	case qt.Key_Tab, qt.Key_Backtab:
+		// Tab with Alt/Meta sends modified Tab sequence to terminal
+		if hasAlt || hasMeta {
+			mod := w.calcMod(hasShift, hasCtrl, hasAlt, hasMeta)
+			data = []byte{0x1b, '[', '9', ';', byte('0' + mod), 'u'} // CSI 9 ; mod u (kitty protocol)
 		} else {
+			// Plain Tab
 			data = []byte{'\t'}
 		}
 	case qt.Key_Escape:

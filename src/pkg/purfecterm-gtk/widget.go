@@ -2251,6 +2251,22 @@ func (w *Widget) onKeyPress(da *gtk.DrawingArea, ev *gdk.Event) bool {
 		return false
 	}
 
+	// Special Tab handling for focus navigation:
+	// - Ctrl+Tab (with or without Shift) → let GTK handle focus navigation
+	// - Shift+Tab (without Ctrl/Alt/Meta) → let GTK handle focus navigation
+	// - Plain Tab or Tab+Alt/Meta → send to terminal
+	if keyval == gdk.KEY_Tab || keyval == gdk.KEY_ISO_Left_Tab {
+		if hasCtrl {
+			// Ctrl+Tab or Ctrl+Shift+Tab: let GTK handle focus navigation
+			return false
+		}
+		if (hasShift || keyval == gdk.KEY_ISO_Left_Tab) && !hasAlt && !hasMeta && !hasSuper {
+			// Shift+Tab alone: let GTK handle focus navigation (previous widget)
+			return false
+		}
+		// Plain Tab or Tab with Alt/Meta/Super: continue to send to terminal
+	}
+
 	// Handle clipboard copy (Ctrl+C with selection only)
 	// Note: Ctrl+V paste is NOT handled here - use PasteClipboard() via context menu
 	// Note: Ctrl+A is NOT handled here - it passes through to the terminal
@@ -2308,16 +2324,15 @@ func (w *Widget) onKeyPress(da *gtk.DrawingArea, ev *gdk.Event) bool {
 		} else {
 			data = []byte{0x7f}
 		}
-	case gdk.KEY_Tab:
-		if hasShift {
-			data = []byte{0x1b, '[', 'Z'} // Shift+Tab = CSI Z (backtab)
-		} else if hasCtrl {
-			data = []byte{'\t'} // Ctrl+Tab (some apps use this)
+	case gdk.KEY_Tab, gdk.KEY_ISO_Left_Tab:
+		// Note: Ctrl+Tab and Shift+Tab (alone) are handled earlier for focus navigation
+		// Only reach here for plain Tab or Tab with Alt/Meta/Super
+		if hasAlt || hasMeta || hasSuper {
+			// Tab with modifier sends modified Tab sequence
+			data = []byte{0x1b, '[', '9', ';', byte('0' + mod), 'u'} // CSI 9 ; mod u (kitty protocol)
 		} else {
 			data = []byte{'\t'}
 		}
-	case gdk.KEY_ISO_Left_Tab: // GTK sends this for Shift+Tab on many systems
-		data = []byte{0x1b, '[', 'Z'} // Shift+Tab = CSI Z (backtab)
 	case gdk.KEY_Escape:
 		if hasAlt {
 			data = []byte{0x1b, 0x1b} // Alt+Escape
