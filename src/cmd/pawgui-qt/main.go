@@ -31,8 +31,8 @@ var (
 	mainWindow *qt.QMainWindow
 	fileList   *qt.QListWidget
 	terminal   *purfectermqt.Terminal
-	pathButton   *qt.QToolButton // Path selector button with dropdown menu
-	pathMenu     *qt.QMenu       // Dropdown menu for path selection
+	pathButton *qt.QPushButton // Path selector button with dropdown menu
+	pathMenu   *qt.QMenu       // Dropdown menu for path selection
 	runButton    *qt.QPushButton
 	browseButton *qt.QPushButton
 
@@ -602,20 +602,25 @@ func createFilePanel() *qt.QWidget {
 	layout.SetSpacing(4)
 	panel.SetLayout(layout.QLayout)
 
-	// Path selector button with dropdown menu - ellipsizes text to show end of path
-	pathButton = qt.NewQToolButton2()
-	pathButton.SetToolButtonStyle(qt.ToolButtonTextBesideIcon)
-	pathButton.SetPopupMode(qt.QToolButton__InstantPopup)
-	pathButton.SetSizePolicy(*qt.NewQSizePolicy2(qt.QSizePolicy__Expanding, qt.QSizePolicy__Fixed))
-	pathButton.SetArrowType(qt.DownArrow)
-	// Set stylesheet for text eliding at start (show end of path)
-	pathButton.SetStyleSheet("QToolButton { text-align: left; }")
+	// Path selector button with dropdown menu - styled like other buttons
+	pathButton = qt.NewQPushButton3("▼")
+	pathButton.SetSizePolicy(*qt.NewQSizePolicy2(qt.QSizePolicy__Ignored, qt.QSizePolicy__Fixed))
 
 	// Create the dropdown menu
 	pathMenu = qt.NewQMenu2()
 	pathButton.SetMenu(pathMenu)
 
 	layout.AddWidget(pathButton.QWidget)
+
+	// Update button text when panel is resized
+	panel.OnCustomContextMenuRequested(func(pos *qt.QPoint) {}) // Enable event processing
+	oldResizeEvent := panel.ResizeEvent
+	panel.OnResizeEvent(func(super func(event *qt.QResizeEvent), event *qt.QResizeEvent) {
+		if oldResizeEvent != nil {
+			oldResizeEvent(event)
+		}
+		updatePathButtonText()
+	})
 
 	// File list
 	fileList = qt.NewQListWidget2()
@@ -891,14 +896,29 @@ type fileItemData struct {
 var fileItemDataMap = make(map[unsafe.Pointer]fileItemData)
 var fileItemDataMu sync.Mutex
 
+// updatePathButtonText updates the button text with elision based on current width
+func updatePathButtonText() {
+	if pathButton == nil {
+		return
+	}
+	// Compute elided text to fit in button width (elide at start to show end of path)
+	buttonWidth := pathButton.Width() - 30 // Leave room for dropdown arrow
+	if buttonWidth < 50 {
+		buttonWidth = 50
+	}
+	fm := qt.NewQFontMetrics(pathButton.Font())
+	elidedText := fm.ElidedText(currentDir, qt.ElideLeft, buttonWidth, 0)
+	pathButton.SetText(elidedText + " ▼")
+}
+
 // updatePathMenu populates the path menu with Home, Examples, recent paths, and Clear option
 func updatePathMenu() {
 	if pathButton == nil || pathMenu == nil {
 		return
 	}
 
-	// Update button text to show current path
-	pathButton.SetText(currentDir)
+	// Update button text
+	updatePathButtonText()
 
 	// Clear existing menu items
 	pathMenu.Clear()
