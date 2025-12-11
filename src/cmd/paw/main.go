@@ -1122,6 +1122,7 @@ func readStatementFromKeys(keysCh *pawscript.StoredChannel, history []string, hi
 		}
 	}
 
+	fmt.Print("\r\n")
 	printPrompt()
 
 	for {
