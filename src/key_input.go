@@ -224,7 +224,7 @@ var controlKeys = map[byte]string{
 	7:   "^G",
 	8:   "Backspace", // Ctrl-H
 	9:   "Tab",       // Ctrl-I
-	10:  "Enter",     // Ctrl-J (LF)
+	10:  "^J",        // Ctrl-J (LF) - distinct from Enter
 	11:  "^K",
 	12:  "^L",
 	13:  "Enter",     // Ctrl-M (CR)
@@ -628,8 +628,10 @@ func (m *KeyInputManager) emitPaste(content []byte) {
 				continue
 			}
 			// Handle special characters
-			if r == '\r' || r == '\n' {
+			if r == '\r' {
 				m.emitKey("Enter")
+			} else if r == '\n' {
+				m.emitKey("^J") // Ctrl+J/LF - distinct from Enter
 			} else if r == '\t' {
 				m.emitKey("Tab")
 			} else if r == 0x7f {

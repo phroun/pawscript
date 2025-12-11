@@ -2444,6 +2444,51 @@ func (w *Widget) onKeyPress(da *gtk.DrawingArea, ev *gdk.Event) bool {
 
 // handleRegularKey processes regular character keys with modifiers
 func (w *Widget) handleRegularKey(keyval uint, key *gdk.EventKey, hasShift, hasCtrl, hasAlt, hasMeta, hasSuper bool) []byte {
+	// Check if we should use kitty protocol for multi-modifier alphabet keys.
+	// We preserve traditional handling for:
+	// - Plain letter → letter
+	// - Shift+letter → uppercase letter
+	// - Ctrl+letter → control character (^A, ^B, etc.)
+	// - Alt+letter → ESC + letter
+	// But use kitty protocol for combinations like Ctrl+Shift, Ctrl+Alt, Meta+anything
+	useKittyForAlpha := hasMeta || hasSuper || (hasCtrl && hasShift) || (hasCtrl && hasAlt) || (hasAlt && hasShift)
+
+	if useKittyForAlpha {
+		// Get the base character for kitty protocol
+		var baseChar byte
+		if runtime.GOOS == "darwin" {
+			hwcode := key.HardwareKeyCode()
+			baseChar = macKeycodeToChar(hwcode, false) // Always get lowercase
+		} else {
+			// Try to get base character from keyval
+			if keyval >= 'A' && keyval <= 'Z' {
+				baseChar = byte(keyval) + 32 // Lowercase
+			} else if keyval >= 'a' && keyval <= 'z' {
+				baseChar = byte(keyval)
+			} else if r := gdk.KeyvalToUnicode(keyval); r >= 'A' && r <= 'Z' {
+				baseChar = byte(r) + 32
+			} else if r >= 'a' && r <= 'z' {
+				baseChar = byte(r)
+			}
+		}
+		if baseChar >= 'a' && baseChar <= 'z' {
+			mod := 1
+			if hasShift {
+				mod += 1
+			}
+			if hasAlt {
+				mod += 2
+			}
+			if hasCtrl {
+				mod += 4
+			}
+			if hasMeta || hasSuper {
+				mod += 8
+			}
+			return []byte(fmt.Sprintf("\x1b[%d;%du", int(baseChar), mod))
+		}
+	}
+
 	var ch byte
 	var isChar bool
 

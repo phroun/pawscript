@@ -2061,6 +2061,42 @@ func (w *Widget) calcMod(hasShift, hasCtrl, hasAlt, hasMeta bool) int {
 
 // handleRegularKey processes regular character keys with modifiers
 func (w *Widget) handleRegularKey(event *qt.QKeyEvent, hasShift, hasCtrl, hasAlt, hasMeta bool) []byte {
+	// Check if we should use kitty protocol for multi-modifier alphabet keys.
+	// We preserve traditional handling for:
+	// - Plain letter → letter
+	// - Shift+letter → uppercase letter
+	// - Ctrl+letter → control character (^A, ^B, etc.)
+	// - Alt+letter → ESC + letter
+	// But use kitty protocol for combinations like Ctrl+Shift, Ctrl+Alt, Meta+anything
+	useKittyForAlpha := hasMeta || (hasCtrl && hasShift) || (hasCtrl && hasAlt) || (hasAlt && hasShift)
+
+	if useKittyForAlpha {
+		// Get the base character for kitty protocol
+		var baseChar byte
+		if runtime.GOOS == "darwin" {
+			hwcode := uint32(event.NativeVirtualKey())
+			baseChar = macKeycodeToChar(hwcode, false) // Always get lowercase
+		} else {
+			text := event.Text()
+			if text != "" {
+				ch := text[0]
+				// Normalize to lowercase for the codepoint
+				if ch >= 'A' && ch <= 'Z' {
+					baseChar = ch + 32
+				} else if ch >= 'a' && ch <= 'z' {
+					baseChar = ch
+				} else if ch >= 1 && ch <= 26 {
+					// Control character - convert back to letter
+					baseChar = ch + 'a' - 1
+				}
+			}
+		}
+		if baseChar >= 'a' && baseChar <= 'z' {
+			mod := w.calcMod(hasShift, hasCtrl, hasAlt, hasMeta)
+			return []byte(fmt.Sprintf("\x1b[%d;%du", int(baseChar), mod))
+		}
+	}
+
 	// On macOS, we need to use hardware keycodes for modifier combinations
 	// because Qt's event.Text() may return empty or composed characters.
 	// NativeVirtualKey() returns the macOS keycode, while NativeScanCode() returns
