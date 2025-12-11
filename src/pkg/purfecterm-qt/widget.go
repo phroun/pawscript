@@ -2006,7 +2006,7 @@ func (w *Widget) keyPressEvent(super func(event *qt.QKeyEvent), event *qt.QKeyEv
 func (w *Widget) cursorKey(key byte, hasShift, hasCtrl, hasAlt, hasMeta bool) []byte {
 	mod := w.calcMod(hasShift, hasCtrl, hasAlt, hasMeta)
 	if mod > 1 {
-		return []byte{0x1b, '[', '1', ';', byte('0' + mod), key}
+		return []byte(fmt.Sprintf("\x1b[1;%d%c", mod, key))
 	}
 	return []byte{0x1b, '[', key}
 }
@@ -2014,15 +2014,15 @@ func (w *Widget) cursorKey(key byte, hasShift, hasCtrl, hasAlt, hasMeta bool) []
 func (w *Widget) tildeKey(num int, hasShift, hasCtrl, hasAlt, hasMeta bool) []byte {
 	mod := w.calcMod(hasShift, hasCtrl, hasAlt, hasMeta)
 	if mod > 1 {
-		return []byte{0x1b, '[', byte('0' + num/10), byte('0' + num%10), ';', byte('0' + mod), '~'}
+		return []byte(fmt.Sprintf("\x1b[%d;%d~", num, mod))
 	}
-	return []byte{0x1b, '[', byte('0' + num/10), byte('0' + num%10), '~'}
+	return []byte(fmt.Sprintf("\x1b[%d~", num))
 }
 
 func (w *Widget) functionKey(key byte, hasShift, hasCtrl, hasAlt, hasMeta bool) []byte {
 	mod := w.calcMod(hasShift, hasCtrl, hasAlt, hasMeta)
 	if mod > 1 {
-		return []byte{0x1b, '[', '1', ';', byte('0' + mod), key}
+		return []byte(fmt.Sprintf("\x1b[1;%d%c", mod, key))
 	}
 	return []byte{0x1b, 'O', key}
 }
