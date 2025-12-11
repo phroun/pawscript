@@ -1024,6 +1024,11 @@ func parseKittyProtocol(parts []string) (string, bool) {
 		return formatSymbolKey(byte(keycode), mod), true
 	}
 
+	// Check if it's a number key (0-9)
+	if isNumberKey(keycode) {
+		return formatNumberKey(byte(keycode), mod), true
+	}
+
 	// For special keys, use standard prefix notation
 	baseName, ok := keyNames[keycode]
 	if !ok {
@@ -1105,6 +1110,20 @@ var symbolShiftMap = map[byte]byte{
 	'=': '+', // equals -> plus
 }
 
+// numberShiftMap maps number keys to their shifted variants
+var numberShiftMap = map[byte]byte{
+	'1': '!',
+	'2': '@',
+	'3': '#',
+	'4': '$',
+	'5': '%',
+	'6': '^',
+	'7': '&',
+	'8': '*',
+	'9': '(',
+	'0': ')',
+}
+
 // isSymbolKey checks if the keycode is a symbol key that should use letter-like formatting
 func isSymbolKey(keycode int) bool {
 	switch byte(keycode) {
@@ -1112,6 +1131,11 @@ func isSymbolKey(keycode int) bool {
 		return true
 	}
 	return false
+}
+
+// isNumberKey checks if the keycode is a number key (0-9)
+func isNumberKey(keycode int) bool {
+	return keycode >= '0' && keycode <= '9'
 }
 
 // formatSymbolKey formats a symbol key with modifiers using notation similar to letters
@@ -1150,6 +1174,55 @@ func formatSymbolKey(symbol byte, mod int) string {
 		keyPart = "^" + string(displayChar)
 	} else {
 		// No Ctrl - just the character (shifted or not based on displayChar)
+		keyPart = string(displayChar)
+	}
+
+	// Build prefix (leftmost) - order: s-, M-
+	prefix := ""
+	if hasSuper {
+		prefix += "s-"
+	}
+	if hasAlt {
+		prefix += "M-"
+	}
+
+	return prefix + keyPart
+}
+
+// formatNumberKey formats a number key with modifiers
+// Rules:
+// - Plain: 1, 2, 3, etc.
+// - Shift: !, @, #, etc. (shifted symbols)
+// - Ctrl: ^1, ^2, etc. (with the number or shifted symbol)
+// - Ctrl+Shift: ^!, ^@, etc.
+// - Meta: M-1, M-!, etc.
+// - Super: s-1, s-!, etc.
+func formatNumberKey(number byte, mod int) string {
+	if mod < 1 {
+		mod = 1
+	}
+	mod-- // Remove base 1
+
+	hasShift := mod&1 != 0
+	hasAlt := mod&2 != 0
+	hasCtrl := mod&4 != 0
+	hasSuper := mod&8 != 0
+
+	// Get the display character (shifted or unshifted)
+	displayChar := number
+	if hasShift {
+		if shifted, ok := numberShiftMap[number]; ok {
+			displayChar = shifted
+		}
+	}
+
+	// Build the key part (rightmost)
+	var keyPart string
+	if hasCtrl {
+		// Ctrl uses ^X notation
+		keyPart = "^" + string(displayChar)
+	} else {
+		// No Ctrl - just the character
 		keyPart = string(displayChar)
 	}
 

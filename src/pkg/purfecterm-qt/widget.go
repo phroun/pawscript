@@ -2118,7 +2118,32 @@ func (w *Widget) handleRegularKey(event *qt.QKeyEvent, hasShift, hasCtrl, hasAlt
 			mod := w.calcMod(hasShift, hasCtrl, hasAlt, hasMeta)
 			return []byte(fmt.Sprintf("\x1b[%d;%du", int(baseChar), mod))
 		}
-		// Fallback to getBaseChar
+		// Try number keys
+		if baseChar, ok := isNumberQtKey(qt.Key(event.Key())); ok {
+			// For plain Ctrl+number (no other modifiers), use historic quirky behavior
+			if hasCtrl && !hasShift && !hasAlt && !hasMeta {
+				switch baseChar {
+				case '2':
+					return []byte{0x00} // Ctrl+2 = ^@ (NUL)
+				case '3':
+					return []byte{0x1b} // Ctrl+3 = Escape
+				case '4':
+					return []byte{0x1c} // Ctrl+4 = ^\ (FS)
+				case '5':
+					return []byte{0x1d} // Ctrl+5 = ^] (GS)
+				case '6':
+					return []byte{0x1e} // Ctrl+6 = ^^ (RS)
+				case '7':
+					return []byte{0x1f} // Ctrl+7 = ^_ (US)
+				case '8':
+					return []byte{0x7f} // Ctrl+8 = Backspace (DEL)
+				}
+			}
+			// Other modifier combinations use kitty protocol
+			mod := w.calcMod(hasShift, hasCtrl, hasAlt, hasMeta)
+			return []byte(fmt.Sprintf("\x1b[%d;%du", int(baseChar), mod))
+		}
+		// Fallback to getBaseChar for symbols
 		baseChar := getBaseChar()
 		if isSymbolKeyQt(baseChar) {
 			mod := w.calcMod(hasShift, hasCtrl, hasAlt, hasMeta)
@@ -2281,6 +2306,33 @@ func isSymbolQtKey(key qt.Key) (byte, bool) {
 		return '-', true
 	case qt.Key_Equal, qt.Key_Plus:
 		return '=', true
+	}
+	return 0, false
+}
+
+// isNumberQtKey checks if a Qt key code is a number key, returning the base digit
+func isNumberQtKey(key qt.Key) (byte, bool) {
+	switch key {
+	case qt.Key_0, qt.Key_ParenRight:
+		return '0', true
+	case qt.Key_1, qt.Key_Exclam:
+		return '1', true
+	case qt.Key_2, qt.Key_At:
+		return '2', true
+	case qt.Key_3, qt.Key_NumberSign:
+		return '3', true
+	case qt.Key_4, qt.Key_Dollar:
+		return '4', true
+	case qt.Key_5, qt.Key_Percent:
+		return '5', true
+	case qt.Key_6, qt.Key_AsciiCircum:
+		return '6', true
+	case qt.Key_7, qt.Key_Ampersand:
+		return '7', true
+	case qt.Key_8, qt.Key_Asterisk:
+		return '8', true
+	case qt.Key_9, qt.Key_ParenLeft:
+		return '9', true
 	}
 	return 0, false
 }

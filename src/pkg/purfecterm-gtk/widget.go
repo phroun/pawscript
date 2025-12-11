@@ -2508,14 +2508,38 @@ func (w *Widget) handleRegularKey(keyval uint, key *gdk.EventKey, hasShift, hasC
 		return []byte(fmt.Sprintf("\x1b[%d;%du", int(baseChar), mod))
 	}
 
-	// For symbol keys with Ctrl or Alt (even without other modifiers), use kitty protocol
-	// because symbols don't have traditional control characters like letters do
+	// For symbol/number keys with Ctrl or Alt (even without other modifiers), use kitty protocol
+	// because symbols and numbers don't have traditional control characters like letters do
 	if hasCtrl || hasAlt {
 		// First try direct keyval matching for symbols
 		if baseChar, ok := isSymbolKeyvalGtk(keyval); ok {
 			return sendKitty(baseChar)
 		}
-		// Fallback to getBaseChar
+		// Try number keys
+		if baseChar, ok := isNumberKeyvalGtk(keyval); ok {
+			// For plain Ctrl+number (no other modifiers), use historic quirky behavior
+			if hasCtrl && !hasShift && !hasAlt && !hasMeta && !hasSuper {
+				switch baseChar {
+				case '2':
+					return []byte{0x00} // Ctrl+2 = ^@ (NUL)
+				case '3':
+					return []byte{0x1b} // Ctrl+3 = Escape
+				case '4':
+					return []byte{0x1c} // Ctrl+4 = ^\ (FS)
+				case '5':
+					return []byte{0x1d} // Ctrl+5 = ^] (GS)
+				case '6':
+					return []byte{0x1e} // Ctrl+6 = ^^ (RS)
+				case '7':
+					return []byte{0x1f} // Ctrl+7 = ^_ (US)
+				case '8':
+					return []byte{0x7f} // Ctrl+8 = Backspace (DEL)
+				}
+			}
+			// Other modifier combinations use kitty protocol
+			return sendKitty(baseChar)
+		}
+		// Fallback to getBaseChar for symbols
 		baseChar := getBaseChar()
 		if isSymbolKeyGtk(baseChar) {
 			return sendKitty(baseChar)
@@ -3083,6 +3107,33 @@ func isSymbolKeyvalGtk(keyval uint) (byte, bool) {
 		return '-', true
 	case gdk.KEY_equal, gdk.KEY_plus:
 		return '=', true
+	}
+	return 0, false
+}
+
+// isNumberKeyvalGtk checks if a GDK keyval is a number key, returning the base digit
+func isNumberKeyvalGtk(keyval uint) (byte, bool) {
+	switch keyval {
+	case gdk.KEY_0, gdk.KEY_parenright:
+		return '0', true
+	case gdk.KEY_1, gdk.KEY_exclam:
+		return '1', true
+	case gdk.KEY_2, gdk.KEY_at:
+		return '2', true
+	case gdk.KEY_3, gdk.KEY_numbersign:
+		return '3', true
+	case gdk.KEY_4, gdk.KEY_dollar:
+		return '4', true
+	case gdk.KEY_5, gdk.KEY_percent:
+		return '5', true
+	case gdk.KEY_6, gdk.KEY_asciicircum:
+		return '6', true
+	case gdk.KEY_7, gdk.KEY_ampersand:
+		return '7', true
+	case gdk.KEY_8, gdk.KEY_asterisk:
+		return '8', true
+	case gdk.KEY_9, gdk.KEY_parenleft:
+		return '9', true
 	}
 	return 0, false
 }
