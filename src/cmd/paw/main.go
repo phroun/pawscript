@@ -1277,8 +1277,8 @@ func readStatementFromKeys(keysCh *pawscript.StoredChannel, history []string, hi
 					inHistory = false
 					redrawLine()
 				} else {
-					// Unknown key sequence - display it
-					fmt.Printf("\r\nEsc Sequence: \\e%s\r\n", key)
+					// Unknown key - display it
+					fmt.Printf("\r\nKey: %s\r\n", key)
 					redrawLine()
 				}
 			}
@@ -1360,13 +1360,13 @@ func displayResult(ps *pawscript.PawScript, result pawscript.Result) {
 	formatted := formatValueAsJSON(ps, resultValue)
 	resultClr := getResultColor()
 
-	// Print with prefix
+	// Print with prefix - use \r\n for raw mode compatibility
 	lines := strings.Split(formatted, "\n")
 	for i, line := range lines {
 		if i == 0 {
-			fmt.Printf("%s%s%s %s%s%s\n", prefixColor, prefix, colorReset, resultClr, line, colorReset)
+			fmt.Printf("%s%s%s %s%s%s\r\n", prefixColor, prefix, colorReset, resultClr, line, colorReset)
 		} else {
-			fmt.Printf("  %s%s%s\n", resultClr, line, colorReset)
+			fmt.Printf("  %s%s%s\r\n", resultClr, line, colorReset)
 		}
 	}
 }
