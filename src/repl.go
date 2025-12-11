@@ -4,6 +4,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"os"
+	"path/filepath"
 	"strings"
 	"sync"
 	"unicode/utf8"
@@ -85,24 +86,38 @@ func NewREPL(config REPLConfig, output func(string)) *REPL {
 		ps.RegisterStandardLibrary([]string{})
 	}
 
+	// Load command history from file
+	history := loadReplHistory()
+	if history == nil {
+		history = make([]string, 0, 100)
+	}
+
 	return &REPL{
-		ps:        ps,
-		config:    config,
-		output:    output,
-		history:   make([]string, 0, 100),
-		inputChan: make(chan string, 1),
-		quitChan:  make(chan struct{}),
+		ps:         ps,
+		config:     config,
+		output:     output,
+		history:    history,
+		historyPos: len(history),
+		inputChan:  make(chan string, 1),
+		quitChan:   make(chan struct{}),
 	}
 }
 
 // NewREPLWithInterpreter creates a REPL with an existing PawScript interpreter
 func NewREPLWithInterpreter(ps *PawScript, output func(string)) *REPL {
+	// Load command history from file
+	history := loadReplHistory()
+	if history == nil {
+		history = make([]string, 0, 100)
+	}
+
 	return &REPL{
-		ps:        ps,
-		output:    output,
-		history:   make([]string, 0, 100),
-		inputChan: make(chan string, 1),
-		quitChan:  make(chan struct{}),
+		ps:         ps,
+		output:     output,
+		history:    history,
+		historyPos: len(history),
+		inputChan:  make(chan string, 1),
+		quitChan:   make(chan struct{}),
 	}
 }
 
@@ -138,6 +153,8 @@ func (r *REPL) Stop() {
 	if r.running {
 		r.running = false
 		close(r.quitChan)
+		// Save command history to file
+		saveReplHistory(r.history)
 	}
 }
 
@@ -793,4 +810,67 @@ func GetWorkingDirectory() (string, error) {
 // GetTempDirectory returns the system temp directory
 func GetTempDirectory() string {
 	return os.TempDir()
+}
+
+// History file constants
+const (
+	replMaxHistoryLines = 1000 // Maximum number of history entries to keep
+)
+
+// getReplHistoryFilePath returns the path to ~/.paw/repl-history
+func getReplHistoryFilePath() string {
+	home, err := os.UserHomeDir()
+	if err != nil {
+		return ""
+	}
+	return filepath.Join(home, ".paw", "repl-history")
+}
+
+// loadReplHistory loads command history from the history file
+func loadReplHistory() []string {
+	historyPath := getReplHistoryFilePath()
+	if historyPath == "" {
+		return nil
+	}
+
+	content, err := os.ReadFile(historyPath)
+	if err != nil {
+		return nil // File doesn't exist or can't be read
+	}
+
+	lines := strings.Split(string(content), "\n")
+	history := make([]string, 0, len(lines))
+	for _, line := range lines {
+		// Skip empty lines
+		if strings.TrimSpace(line) != "" {
+			history = append(history, line)
+		}
+	}
+	return history
+}
+
+// saveReplHistory saves command history to the history file
+func saveReplHistory(history []string) {
+	historyPath := getReplHistoryFilePath()
+	if historyPath == "" {
+		return
+	}
+
+	// Ensure config directory exists
+	configDir := filepath.Dir(historyPath)
+	if err := os.MkdirAll(configDir, 0755); err != nil {
+		return // Graceful failure
+	}
+
+	// Limit history size
+	if len(history) > replMaxHistoryLines {
+		history = history[len(history)-replMaxHistoryLines:]
+	}
+
+	// Write history file
+	content := strings.Join(history, "\n")
+	if len(content) > 0 {
+		content += "\n"
+	}
+	_ = os.WriteFile(historyPath, []byte(content), 0644)
 }

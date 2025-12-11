@@ -124,6 +124,69 @@ term_background: "auto"
 	_ = os.WriteFile(configPath, []byte(defaultConfig), 0644) // Ignore error - graceful failure
 }
 
+// History file constants
+const (
+	maxHistoryLines = 1000 // Maximum number of history entries to keep
+)
+
+// getHistoryFilePath returns the path to ~/.paw/repl-history
+func getHistoryFilePath() string {
+	dir := getConfigDir()
+	if dir == "" {
+		return ""
+	}
+	return filepath.Join(dir, "repl-history")
+}
+
+// loadHistory loads command history from the history file
+func loadHistory() []string {
+	historyPath := getHistoryFilePath()
+	if historyPath == "" {
+		return nil
+	}
+
+	content, err := os.ReadFile(historyPath)
+	if err != nil {
+		return nil // File doesn't exist or can't be read
+	}
+
+	lines := strings.Split(string(content), "\n")
+	history := make([]string, 0, len(lines))
+	for _, line := range lines {
+		// Skip empty lines
+		if strings.TrimSpace(line) != "" {
+			history = append(history, line)
+		}
+	}
+	return history
+}
+
+// saveHistory saves command history to the history file
+func saveHistory(history []string) {
+	historyPath := getHistoryFilePath()
+	if historyPath == "" {
+		return
+	}
+
+	// Ensure config directory exists
+	configDir := filepath.Dir(historyPath)
+	if err := os.MkdirAll(configDir, 0755); err != nil {
+		return // Graceful failure
+	}
+
+	// Limit history size
+	if len(history) > maxHistoryLines {
+		history = history[len(history)-maxHistoryLines:]
+	}
+
+	// Write history file
+	content := strings.Join(history, "\n")
+	if len(content) > 0 {
+		content += "\n"
+	}
+	_ = os.WriteFile(historyPath, []byte(content), 0644)
+}
+
 // getPromptColor returns the appropriate prompt color based on config
 func getPromptColor() string {
 	switch cliConfig.TermBackground {
@@ -656,9 +719,12 @@ func runREPL(debug, unrestricted bool, optLevel int) {
 	}
 	defer term.Restore(fd, oldState)
 
-	// History
-	history := make([]string, 0, 100)
-	historyPos := 0
+	// Load command history from file
+	history := loadHistory()
+	if history == nil {
+		history = make([]string, 0, 100)
+	}
+	historyPos := len(history)
 
 	// Main REPL loop
 	for {
@@ -716,6 +782,9 @@ func runREPL(debug, unrestricted bool, optLevel int) {
 			oldState, _ = term.MakeRaw(fd)
 		}
 	}
+
+	// Save command history to file
+	saveHistory(history)
 }
 
 // getContinuationPrompt analyzes the input and returns the appropriate continuation prompt
