@@ -380,7 +380,7 @@ func activate(application *gtk.Application) {
 
 	// Save launcher width when user adjusts the splitter
 	// Also implement snap-to-collapse: if width goes below threshold, snap to 0
-	const collapseThreshold = 100
+	const collapseThreshold = 196
 	paned.Connect("notify::position", func() {
 		pos := paned.GetPosition()
 		if pos > 0 && pos < collapseThreshold {
