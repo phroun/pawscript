@@ -15,6 +15,7 @@ import (
 	"github.com/gotk3/gotk3/gdk"
 	"github.com/gotk3/gotk3/glib"
 	"github.com/gotk3/gotk3/gtk"
+	"github.com/gotk3/gotk3/pango"
 	"github.com/phroun/pawscript"
 	"github.com/phroun/pawscript/pkg/pawgui"
 	"github.com/phroun/pawscript/pkg/purfecterm"
@@ -70,7 +71,9 @@ var (
 	app         *gtk.Application // Store app reference for creating new windows
 	fileList    *gtk.ListBox
 	terminal    *purfectermgtk.Terminal
-	pathCombo   *gtk.ComboBoxText
+	pathButton  *gtk.MenuButton // Path selector button with dropdown menu
+	pathLabel   *gtk.Label      // Label inside path button showing current path
+	pathMenu    *gtk.Menu       // Dropdown menu for path selection
 	runButton   *gtk.Button
 	contextMenu *gtk.Menu // Right-click context menu for terminal
 
@@ -91,9 +94,6 @@ var (
 	// Configuration loaded at startup
 	appConfig    pawscript.PSLConfig
 	configHelper *pawgui.ConfigHelper
-
-	// Flag to prevent recursive combo updates
-	updatingPathCombo bool
 )
 
 // --- Configuration Management ---
@@ -486,7 +486,7 @@ func activate(application *gtk.Application) {
 	// Load initial directory
 	currentDir = getDefaultDir()
 	refreshFileList()
-	updatePathCombo()
+	updatePathMenu()
 
 	// Print welcome message
 	terminal.Feed("PawScript Launcher (GTK3)\r\n")
@@ -533,18 +533,22 @@ func createFileBrowser() *gtk.Box {
 	box.SetMarginTop(5)
 	box.SetMarginBottom(5)
 
-	// Current path combo box - zero minimum width so paned can collapse it
-	pathCombo, _ = gtk.ComboBoxTextNew()
-	pathCombo.SetSizeRequest(0, -1)
-	pathCombo.SetHExpand(false)
-	pathCombo.SetProperty("popup-fixed-width", false)
-	// Apply CSS to override natural width
-	cssProvider, _ := gtk.CssProviderNew()
-	cssProvider.LoadFromData("combobox, combobox * { min-width: 0; }")
-	styleCtx, _ := pathCombo.GetStyleContext()
-	styleCtx.AddProvider(cssProvider, uint(gtk.STYLE_PROVIDER_PRIORITY_USER))
-	pathCombo.Connect("changed", onPathComboChanged)
-	box.PackStart(pathCombo, false, true, 0)
+	// Path selector button with dropdown menu - ellipsizes at start to show end of path
+	pathButton, _ = gtk.MenuButtonNew()
+	pathButton.SetSizeRequest(0, -1)
+
+	// Create label with ellipsis at start (shows end of path)
+	pathLabel, _ = gtk.LabelNew(currentDir)
+	pathLabel.SetEllipsize(pango.ELLIPSIZE_START)
+	pathLabel.SetXAlign(0)
+	pathLabel.SetHExpand(true)
+	pathButton.Add(pathLabel)
+
+	// Create the dropdown menu
+	pathMenu, _ = gtk.MenuNew()
+	pathButton.SetPopup(pathMenu)
+
+	box.PackStart(pathButton, false, true, 0)
 
 	// Scrolled window for file list
 	scroll, _ := gtk.ScrolledWindowNew(nil, nil)
@@ -633,97 +637,89 @@ func createTerminal() *gtk.Box {
 	return box
 }
 
-func updatePathCombo() {
-	if pathCombo == nil {
+func updatePathMenu() {
+	if pathLabel == nil || pathMenu == nil {
 		return
 	}
 
-	// Set flag to prevent the changed callback from triggering during update
-	updatingPathCombo = true
-	defer func() { updatingPathCombo = false }()
+	// Update the label to show current path
+	pathLabel.SetText(currentDir)
 
-	// Remove all existing items
-	pathCombo.RemoveAll()
+	// Clear existing menu items
+	pathMenu.GetChildren().Foreach(func(item interface{}) {
+		if widget, ok := item.(gtk.IWidget); ok {
+			pathMenu.Remove(widget)
+		}
+	})
 
-	// Add current path as the first item (and selected)
-	pathCombo.AppendText(currentDir)
+	// Helper to add a menu item with callback
+	addMenuItem := func(label string, callback func()) {
+		item, _ := gtk.MenuItemNewWithLabel(label)
+		item.Connect("activate", callback)
+		pathMenu.Append(item)
+	}
 
-	// Add separator-like label (using dashes)
-	pathCombo.AppendText("────────────────────")
+	// Helper to add a separator
+	addSeparator := func() {
+		sep, _ := gtk.SeparatorMenuItemNew()
+		pathMenu.Append(sep)
+	}
+
+	// Add current path (just shows where we are)
+	currentItem, _ := gtk.MenuItemNewWithLabel(currentDir)
+	currentItem.SetSensitive(false)
+	pathMenu.Append(currentItem)
+
+	addSeparator()
 
 	// Add Home directory
 	if home := getHomeDir(); home != "" {
-		pathCombo.AppendText("🏠 Home")
+		addMenuItem("🏠 Home", func() {
+			if info, err := os.Stat(home); err == nil && info.IsDir() {
+				currentDir = home
+				refreshFileList()
+				updatePathMenu()
+			}
+		})
 	}
 
 	// Add Examples directory
 	if examples := getExamplesDir(); examples != "" {
-		pathCombo.AppendText("📁 Examples")
+		addMenuItem("📁 Examples", func() {
+			if info, err := os.Stat(examples); err == nil && info.IsDir() {
+				currentDir = examples
+				refreshFileList()
+				updatePathMenu()
+			}
+		})
 	}
 
-	// Add recent paths (excluding home and examples since they have their own entries)
+	// Add recent paths
 	recentPaths := getRecentPaths()
 	if len(recentPaths) > 0 {
-		pathCombo.AppendText("────────────────────")
+		addSeparator()
 		for _, p := range recentPaths {
-			pathCombo.AppendText(p)
+			path := p // Capture for closure
+			addMenuItem(path, func() {
+				if info, err := os.Stat(path); err == nil && info.IsDir() {
+					currentDir = path
+					refreshFileList()
+					updatePathMenu()
+				}
+			})
 		}
 	}
 
 	// Add Clear Recent Paths option
 	if len(recentPaths) > 0 {
-		pathCombo.AppendText("────────────────────")
-		pathCombo.AppendText("🗑 Clear Recent Paths")
+		addSeparator()
+		addMenuItem("🗑 Clear Recent Paths", func() {
+			clearRecentPaths()
+			updatePathMenu()
+		})
 	}
 
-	// Select the first item (current path)
-	pathCombo.SetActive(0)
-}
-
-// onPathComboChanged handles selection changes in the path combo box
-func onPathComboChanged() {
-	if pathCombo == nil || updatingPathCombo {
-		return
-	}
-
-	text := pathCombo.GetActiveText()
-	if text == "" || text == currentDir {
-		return
-	}
-
-	// Ignore separator lines
-	if strings.HasPrefix(text, "────") {
-		pathCombo.SetActive(0)
-		return
-	}
-
-	// Handle Clear Recent Paths
-	if strings.HasPrefix(text, "🗑") {
-		clearRecentPaths()
-		pathCombo.SetActive(0)
-		updatePathCombo()
-		return
-	}
-
-	// Extract actual path from prefixed entries
-	var newPath string
-	if text == "🏠 Home" {
-		newPath = getHomeDir()
-	} else if text == "📁 Examples" {
-		newPath = getExamplesDir()
-	} else {
-		newPath = text
-	}
-
-	// Verify path exists and is a directory
-	if info, err := os.Stat(newPath); err == nil && info.IsDir() {
-		currentDir = newPath
-		refreshFileList()
-		updatePathCombo()
-	} else {
-		// Invalid path - reset to current
-		pathCombo.SetActive(0)
-	}
+	pathMenu.ShowAll()
 }
 
 func refreshFileList() {
@@ -861,7 +857,7 @@ func handleFileSelection(name string) {
 			currentDir = fullPath
 		}
 		refreshFileList()
-		updatePathCombo()
+		updatePathMenu()
 		// Save the new directory to config
 		saveBrowseDir(currentDir)
 	} else {
@@ -882,7 +878,7 @@ func onBrowseClicked() {
 		// Navigate to the file's directory and run the script
 		currentDir = filepath.Dir(file)
 		refreshFileList()
-		updatePathCombo()
+		updatePathMenu()
 		// Save the new directory to config
 		saveBrowseDir(currentDir)
 		runScript(file)
