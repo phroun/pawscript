@@ -70,7 +70,7 @@ var (
 	app         *gtk.Application // Store app reference for creating new windows
 	fileList    *gtk.ListBox
 	terminal    *purfectermgtk.Terminal
-	pathLabel   *gtk.Label
+	pathCombo   *gtk.ComboBoxText
 	runButton   *gtk.Button
 	contextMenu *gtk.Menu // Right-click context menu for terminal
 
@@ -91,6 +91,9 @@ var (
 	// Configuration loaded at startup
 	appConfig    pawscript.PSLConfig
 	configHelper *pawgui.ConfigHelper
+
+	// Flag to prevent recursive combo updates
+	updatingPathCombo bool
 )
 
 // --- Configuration Management ---
@@ -180,6 +183,91 @@ func getLauncherWidth() int {
 // saveLauncherWidth saves the launcher panel width to config
 func saveLauncherWidth(width int) {
 	appConfig.Set("launcher_width", width)
+	saveConfig(appConfig)
+}
+
+// getHomeDir returns the user's home directory
+func getHomeDir() string {
+	if home, err := os.UserHomeDir(); err == nil {
+		return home
+	}
+	return ""
+}
+
+// getExamplesDir returns the examples directory path if it exists
+func getExamplesDir() string {
+	if exe, err := os.Executable(); err == nil {
+		exeDir := filepath.Dir(exe)
+		examples := filepath.Join(exeDir, "examples")
+		if info, err := os.Stat(examples); err == nil && info.IsDir() {
+			return examples
+		}
+	}
+	return ""
+}
+
+// getRecentPaths returns the list of recent paths from config (max 10)
+func getRecentPaths() []string {
+	if appConfig == nil {
+		return nil
+	}
+	if paths, ok := appConfig["recent_paths"]; ok {
+		if list, ok := paths.(pawscript.PSLList); ok {
+			result := make([]string, 0, len(list))
+			for _, p := range list {
+				if s, ok := p.(string); ok && s != "" {
+					result = append(result, s)
+				}
+			}
+			return result
+		}
+	}
+	return nil
+}
+
+// addRecentPath adds a path to the recent paths list (keeps max 10, no duplicates)
+func addRecentPath(path string) {
+	if appConfig == nil || path == "" {
+		return
+	}
+	// Don't add home or examples to recent
+	if path == getHomeDir() || path == getExamplesDir() {
+		return
+	}
+
+	paths := getRecentPaths()
+
+	// Remove if already exists
+	newPaths := make([]string, 0, 10)
+	for _, p := range paths {
+		if p != path {
+			newPaths = append(newPaths, p)
+		}
+	}
+
+	// Add at front
+	newPaths = append([]string{path}, newPaths...)
+
+	// Keep max 10
+	if len(newPaths) > 10 {
+		newPaths = newPaths[:10]
+	}
+
+	// Convert to PSLList and save
+	pslList := make(pawscript.PSLList, len(newPaths))
+	for i, p := range newPaths {
+		pslList[i] = p
+	}
+	appConfig.Set("recent_paths", pslList)
+	saveConfig(appConfig)
+}
+
+// clearRecentPaths removes all recent paths from config
+func clearRecentPaths() {
+	if appConfig == nil {
+		return
+	}
+	delete(appConfig, "recent_paths")
 	saveConfig(appConfig)
 }
 
@@ -398,7 +486,7 @@ func activate(application *gtk.Application) {
 	// Load initial directory
 	currentDir = getDefaultDir()
 	refreshFileList()
-	updatePathLabel()
+	updatePathCombo()
 
 	// Print welcome message
 	terminal.Feed("PawScript Launcher (GTK3)\r\n")
@@ -407,8 +495,7 @@ func activate(application *gtk.Application) {
 
 	mainWindow.ShowAll()
 
-	// Deselect any text in the path label and focus the Run button
-	pathLabel.SelectRegion(0, 0)
+	// Focus the Run button
 	runButton.GrabFocus()
 }
 
@@ -446,12 +533,10 @@ func createFileBrowser() *gtk.Box {
 	box.SetMarginTop(5)
 	box.SetMarginBottom(5)
 
-	// Current path label
-	pathLabel, _ = gtk.LabelNew(currentDir)
-	pathLabel.SetXAlign(0)
-	pathLabel.SetLineWrap(true)
-	pathLabel.SetSelectable(true)
-	box.PackStart(pathLabel, false, false, 0)
+	// Current path combo box
+	pathCombo, _ = gtk.ComboBoxTextNew()
+	pathCombo.Connect("changed", onPathComboChanged)
+	box.PackStart(pathCombo, false, false, 0)
 
 	// Scrolled window for file list
 	scroll, _ := gtk.ScrolledWindowNew(nil, nil)
@@ -540,9 +625,99 @@ func createTerminal() *gtk.Box {
 	return box
 }
 
-func updatePathLabel() {
-	if pathLabel != nil {
-		pathLabel.SetText(currentDir)
+func updatePathCombo() {
+	if pathCombo == nil {
+		return
+	}
+
+	// Set flag to prevent the changed callback from triggering during update
+	updatingPathCombo = true
+	defer func() { updatingPathCombo = false }()
+
+	// Remove all existing items
+	pathCombo.RemoveAll()
+
+	// Add current path as the first item (and selected)
+	pathCombo.AppendText(currentDir)
+
+	// Add separator-like label (using dashes)
+	pathCombo.AppendText("────────────────────")
+
+	// Add Home directory
+	if home := getHomeDir(); home != "" {
+		pathCombo.AppendText("🏠 Home: " + home)
+	}
+
+	// Add Examples directory
+	if examples := getExamplesDir(); examples != "" {
+		pathCombo.AppendText("📁 Examples: " + examples)
+	}
+
+	// Add recent paths (excluding home and examples since they have their own entries)
+	recentPaths := getRecentPaths()
+	if len(recentPaths) > 0 {
+		pathCombo.AppendText("────────────────────")
+		for _, p := range recentPaths {
+			// Skip if it's the current directory (already shown at top)
+			if p != currentDir {
+				pathCombo.AppendText(p)
+			}
+		}
+	}
+
+	// Add Clear Recent Paths option
+	if len(recentPaths) > 0 {
+		pathCombo.AppendText("────────────────────")
+		pathCombo.AppendText("🗑 Clear Recent Paths")
+	}
+
+	// Select the first item (current path)
+	pathCombo.SetActive(0)
+}
+
+// onPathComboChanged handles selection changes in the path combo box
+func onPathComboChanged() {
+	if pathCombo == nil || updatingPathCombo {
+		return
+	}
+
+	text := pathCombo.GetActiveText()
+	if text == "" || text == currentDir {
+		return
+	}
+
+	// Ignore separator lines
+	if strings.HasPrefix(text, "────") {
+		pathCombo.SetActive(0)
+		return
+	}
+
+	// Handle Clear Recent Paths
+	if strings.HasPrefix(text, "🗑") {
+		clearRecentPaths()
+		pathCombo.SetActive(0)
+		updatePathCombo()
+		return
+	}
+
+	// Extract actual path from prefixed entries
+	var newPath string
+	if strings.HasPrefix(text, "🏠 Home: ") {
+		newPath = strings.TrimPrefix(text, "🏠 Home: ")
+	} else if strings.HasPrefix(text, "📁 Examples: ") {
+		newPath = strings.TrimPrefix(text, "📁 Examples: ")
+	} else {
+		newPath = text
+	}
+
+	// Verify path exists and is a directory
+	if info, err := os.Stat(newPath); err == nil && info.IsDir() {
+		currentDir = newPath
+		refreshFileList()
+		updatePathCombo()
+	} else {
+		// Invalid path - reset to current
+		pathCombo.SetActive(0)
 	}
 }
 
@@ -681,7 +856,7 @@ func handleFileSelection(name string) {
 			currentDir = fullPath
 		}
 		refreshFileList()
-		updatePathLabel()
+		updatePathCombo()
 		// Save the new directory to config
 		saveBrowseDir(currentDir)
 	} else {
@@ -702,7 +877,7 @@ func onBrowseClicked() {
 		// Navigate to the file's directory and run the script
 		currentDir = filepath.Dir(file)
 		refreshFileList()
-		updatePathLabel()
+		updatePathCombo()
 		// Save the new directory to config
 		saveBrowseDir(currentDir)
 		runScript(file)
@@ -747,6 +922,9 @@ func runScript(filePath string) {
 	if absScript != "" {
 		scriptDir = filepath.Dir(absScript)
 	}
+
+	// Add the script's directory to recent paths for the combo box
+	addRecentPath(scriptDir)
 
 	// Create file access config
 	cwd, _ := os.Getwd()
@@ -1104,6 +1282,9 @@ func createConsoleWindow(filePath string) {
 	if absScript != "" {
 		scriptDir = filepath.Dir(absScript)
 	}
+
+	// Add the script's directory to recent paths for the combo box
+	addRecentPath(scriptDir)
 
 	cwd, _ := os.Getwd()
 	tmpDir := os.TempDir()
