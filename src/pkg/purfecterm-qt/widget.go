@@ -1,7 +1,9 @@
 package purfectermqt
 
 import (
+	"fmt"
 	"math"
+	"runtime"
 	"sync"
 
 	"github.com/mappu/miqt/qt"
@@ -1909,6 +1911,14 @@ func (w *Widget) keyPressEvent(super func(event *qt.QKeyEvent), event *qt.QKeyEv
 	hasAlt := modifiers&qt.AltModifier != 0
 	hasMeta := modifiers&qt.MetaModifier != 0
 
+	// On macOS, Qt swaps Control and Meta modifiers:
+	// - Qt ControlModifier = Command key (⌘)
+	// - Qt MetaModifier = Control key (^)
+	// We want hasCtrl to mean the physical Ctrl key and hasMeta to mean Command
+	if runtime.GOOS == "darwin" {
+		hasCtrl, hasMeta = hasMeta, hasCtrl
+	}
+
 	var data []byte
 
 	switch qt.Key(key) {
@@ -1976,21 +1986,8 @@ func (w *Widget) keyPressEvent(super func(event *qt.QKeyEvent), event *qt.QKeyEv
 	case qt.Key_F12:
 		data = w.tildeKey(24, hasShift, hasCtrl, hasAlt, hasMeta)
 	default:
-		// Regular character
-		text := event.Text()
-		if text != "" {
-			ch := text[0]
-			if hasCtrl && ch >= 'a' && ch <= 'z' {
-				ch = ch - 'a' + 1
-			} else if hasCtrl && ch >= 'A' && ch <= 'Z' {
-				ch = ch - 'A' + 1
-			}
-			if hasAlt {
-				data = []byte{0x1b, ch}
-			} else {
-				data = []byte(text)
-			}
-		}
+		// Regular character handling
+		data = w.handleRegularKey(event, hasShift, hasCtrl, hasAlt, hasMeta)
 	}
 
 	if len(data) > 0 {
@@ -2039,6 +2036,155 @@ func (w *Widget) calcMod(hasShift, hasCtrl, hasAlt, hasMeta bool) int {
 		mod += 8
 	}
 	return mod
+}
+
+// handleRegularKey processes regular character keys with modifiers
+func (w *Widget) handleRegularKey(event *qt.QKeyEvent, hasShift, hasCtrl, hasAlt, hasMeta bool) []byte {
+	// On macOS, Option key composes special Unicode characters (e.g., Option+R = ®)
+	// We want to treat Option as Alt/Meta modifier instead, using the base key
+	if runtime.GOOS == "darwin" && hasAlt {
+		hwcode := uint32(event.NativeScanCode())
+		if baseCh := macKeycodeToChar(hwcode, hasShift); baseCh != 0 {
+			// Apply Ctrl transformation if needed (convert letter to control char)
+			if hasCtrl {
+				if baseCh >= 'a' && baseCh <= 'z' {
+					baseCh = baseCh - 'a' + 1
+				} else if baseCh >= 'A' && baseCh <= 'Z' {
+					baseCh = baseCh - 'A' + 1
+				}
+			}
+
+			// Check if the result is a named key that should use kitty protocol
+			var keycode int
+			switch baseCh {
+			case 0x0D: // CR = Enter (from Ctrl+M)
+				keycode = 13
+			case 0x09: // HT = Tab (from Ctrl+I)
+				keycode = 9
+			case 0x08: // BS = Backspace (from Ctrl+H)
+				keycode = 127
+			case 0x7F: // DEL
+				keycode = 127
+			case 0x1B: // ESC
+				keycode = 27
+			}
+
+			if keycode != 0 {
+				// Use kitty protocol: CSI keycode ; mod u
+				// Ctrl is consumed by letter->control_char, so not included
+				mod := 1
+				if hasShift {
+					mod += 1
+				}
+				mod += 2 // Alt (Option) is always pressed in this branch
+				if hasMeta {
+					mod += 8
+				}
+				return []byte(fmt.Sprintf("\x1b[%d;%du", keycode, mod))
+			}
+
+			// Send ESC + base character for Alt+key
+			return []byte{0x1b, baseCh}
+		}
+	}
+
+	// Standard character handling
+	text := event.Text()
+	if text == "" {
+		return nil
+	}
+
+	ch := text[0]
+
+	// Ctrl+letter produces control character (1-26)
+	if hasCtrl && ch >= 'a' && ch <= 'z' {
+		ch = ch - 'a' + 1
+	} else if hasCtrl && ch >= 'A' && ch <= 'Z' {
+		ch = ch - 'A' + 1
+	} else if hasCtrl {
+		// Other Ctrl combinations
+		switch ch {
+		case '@':
+			ch = 0 // Ctrl+@ = NUL
+		case '[':
+			ch = 0x1b // Ctrl+[ = ESC
+		case '\\':
+			ch = 0x1c // Ctrl+\ = FS
+		case ']':
+			ch = 0x1d // Ctrl+] = GS
+		case '^':
+			ch = 0x1e // Ctrl+^ = RS
+		case '_':
+			ch = 0x1f // Ctrl+_ = US
+		}
+	}
+
+	// Alt prefix
+	if hasAlt {
+		return []byte{0x1b, ch}
+	}
+
+	return []byte(text)
+}
+
+// macKeycodeToChar converts macOS hardware keycodes to ASCII characters
+// On macOS, Option key produces composed characters (like ® for Option+R)
+// We use hardware keycodes to get the base character for Alt/Meta sequences
+func macKeycodeToChar(hwcode uint32, shift bool) byte {
+	// macOS keycode to character mapping (US keyboard layout)
+	// Letters - macOS keycodes are not sequential like Windows VK codes
+	letterKeys := map[uint32]byte{
+		0: 'a', 1: 's', 2: 'd', 3: 'f', 4: 'h', 5: 'g', 6: 'z', 7: 'x',
+		8: 'c', 9: 'v', 11: 'b', 12: 'q', 13: 'w', 14: 'e', 15: 'r',
+		16: 'y', 17: 't', 31: 'o', 32: 'u', 34: 'i', 35: 'p', 37: 'l',
+		38: 'j', 40: 'k', 45: 'n', 46: 'm',
+	}
+
+	if ch, ok := letterKeys[hwcode]; ok {
+		if shift {
+			return ch - 32 // Convert to uppercase
+		}
+		return ch
+	}
+
+	// Number row
+	type keyMapping struct {
+		normal byte
+		shift  byte
+	}
+	numberKeys := map[uint32]keyMapping{
+		18: {'1', '!'}, 19: {'2', '@'}, 20: {'3', '#'}, 21: {'4', '$'},
+		23: {'5', '%'}, 22: {'6', '^'}, 26: {'7', '&'}, 28: {'8', '*'},
+		25: {'9', '('}, 29: {'0', ')'},
+	}
+
+	if mapping, ok := numberKeys[hwcode]; ok {
+		if shift {
+			return mapping.shift
+		}
+		return mapping.normal
+	}
+
+	// Symbol keys
+	symbolKeys := map[uint32]keyMapping{
+		27: {'-', '_'}, 24: {'=', '+'}, 33: {'[', '{'}, 30: {']', '}'},
+		41: {';', ':'}, 39: {'\'', '"'}, 43: {',', '<'}, 47: {'.', '>'},
+		44: {'/', '?'}, 42: {'\\', '|'}, 50: {'`', '~'},
+	}
+
+	if mapping, ok := symbolKeys[hwcode]; ok {
+		if shift {
+			return mapping.shift
+		}
+		return mapping.normal
+	}
+
+	// Space
+	if hwcode == 49 {
+		return ' '
+	}
+
+	return 0
 }
 
 func (w *Widget) mousePressEvent(event *qt.QMouseEvent) {
