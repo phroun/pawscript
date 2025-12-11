@@ -1,6 +1,6 @@
 ## Changelog
 
-### 0.2.9 -- November 29 - December 9, 2025
+### 0.2.9 -- November 29 - December 11, 2025
 - PurfecTerm terminal emulator enhancements:
   - Flexible East Asian Width mode (private mode 2027): cells can have variable
     visual widths (1.0 or 2.0) based on Unicode East_Asian_Width property
@@ -54,6 +54,26 @@
   - Unicode character width handling: wide characters squeezed to fit,
     narrow characters centered within cell bounds
   - Proper scrollback transfer when logical screen shrinks
+  - Glyph cache for Qt rendering performance
+  - Magnetic scroll effect at scrollback boundary with dynamic threshold
+  - Auto-scroll to cursor on keyboard activity
+  - Split rendering refactored to scanline approach for better performance
+  - Line attributes properly use effective scroll offset
+  - Screen crop command simplified: use 0 for inherit values
+- Kitty keyboard protocol support in KeyInputManager:
+  - Alphabet keys (a-z, A-Z) with Ctrl and Alt modifiers
+  - Number keys (0-9) with historic Ctrl behavior (Ctrl+2 = ^@, etc.)
+  - Symbol keys with letter-like formatting
+  - Space key support
+  - Multi-modifier key combinations
+  - Modifier support for Enter and Escape keys
+- Qt keyboard handling improvements:
+  - Accept key events to prevent macOS Services menu interception
+  - Fixed modifier encoding for values >= 10
+  - Fixed macOS keyboard using correct native keycode method
+  - Ctrl/Meta swap and macOS Option key handling
+  - Tab/Shift+Tab focus navigation using QShortcuts
+  - Shift+Alt+Tab and Shift+Meta+Tab shortcuts for PurfecTerm
 - FFI design documentation for struct immutability concerns
 - `break` and `continue` commands for loop control, with async resumption fixes
 - Fixed command position execution for macros and parenthetic blocks
@@ -103,6 +123,9 @@
   - Auto-select all text when `gui_entry` gains focus
   - Forward mouse events to terminal to clear selection on click
   - 4px spacer added to `gui_split` right panels
+  - Path selector: GTK MenuButton, Qt QPushButton with popup menu
+  - Left panel save/restore width and snap-to-collapse behavior
+  - Path button added to Qt tab order for keyboard navigation
 - Script isolation in launcher: scripts run in isolated snapshots using
   `CreateRestrictedSnapshot` and `ExecuteWithEnvironment`
 - Explicit window targeting in gui_ commands: all gui_ commands now support
@@ -157,6 +180,14 @@
   - Background-aware prompt colors: yellow (dark bg) or dark brown (light bg)
   - Result `=` prefix: bright green (dark bg) or dark green (light bg)
   - Result values: dark gray (dark bg) or silver (light bg)
+- REPL and readkey integration:
+  - Fixed stdin conflict between REPL and `readkey_init`
+  - REPL reads from KeyInputManager channel when raw mode is active
+  - Allows `readkey_init` in one command, then `readkey` in subsequent commands
+- Persistent command history for all REPLs:
+  - History saved to `~/.paw/repl-history.psl` in PSL list format
+  - Supports multi-line commands
+  - Limited to 1000 entries
 - CLI config file `~/.paw/paw-cli.psl`:
   - `term_background` setting: "auto", "dark", or "light"
   - Auto-created on first run with graceful failure if not writable
