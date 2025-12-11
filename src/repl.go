@@ -52,6 +52,8 @@ type REPL struct {
 	inputChan       chan string            // Channel for complete input
 	quitChan        chan struct{}          // Signal to quit
 	lightBackground bool                   // True if background is bright (>50%)
+	pslColors       DisplayColorConfig     // PSL result display colors
+	pslColorsSet    bool                   // True if custom PSL colors have been set
 }
 
 // NewREPL creates a new REPL instance
@@ -181,6 +183,24 @@ func (r *REPL) SetBackgroundRGB(red, green, blue uint8) {
 	r.mu.Lock()
 	r.lightBackground = brightness > 0.5
 	r.mu.Unlock()
+}
+
+// SetPSLColors sets the colors used for PSL result display
+func (r *REPL) SetPSLColors(colors DisplayColorConfig) {
+	r.mu.Lock()
+	r.pslColors = colors
+	r.pslColorsSet = true
+	r.mu.Unlock()
+}
+
+// getPSLColors returns the configured PSL colors or defaults
+func (r *REPL) getPSLColors() DisplayColorConfig {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	if r.pslColorsSet {
+		return r.pslColors
+	}
+	return DefaultDisplayColors()
 }
 
 // promptColor returns the appropriate prompt color based on background brightness
@@ -702,9 +722,8 @@ func (r *REPL) displayResult(result Result) {
 		prefixColor = r.equalsColor()
 	}
 
-	// Format the result value as PSL with colors
-	cfg := DefaultDisplayColors()
-	formatted := FormatValueColored(resultValue, true, cfg, r.ps)
+	// Format the result value as PSL with colors from config
+	formatted := FormatValueColored(resultValue, true, r.getPSLColors(), r.ps)
 
 	// Print with prefix
 	lines := strings.Split(formatted, "\n")

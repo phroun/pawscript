@@ -174,6 +174,7 @@ func getColorPalette() []purfecterm.Color     { return configHelper.GetColorPale
 func getBlinkMode() purfecterm.BlinkMode      { return configHelper.GetBlinkMode() }
 func getQuitShortcut() string        { return configHelper.GetQuitShortcut() }
 func getDefaultQuitShortcut() string { return pawgui.GetDefaultQuitShortcut() }
+func getPSLColors() pawscript.DisplayColorConfig { return configHelper.GetPSLColors() }
 
 // getLauncherWidth returns the saved launcher panel width, defaulting to 280
 func getLauncherWidth() int {
@@ -1010,6 +1011,7 @@ func runScript(filePath string) {
 			// Set background color for prompt color selection
 			bg := getTerminalBackground()
 			consoleREPL.SetBackgroundRGB(bg.R, bg.G, bg.B)
+			consoleREPL.SetPSLColors(getPSLColors())
 			consoleREPL.Start()
 		}
 	}()
@@ -1364,6 +1366,7 @@ func createConsoleWindow(filePath string) {
 		// Set background color for prompt color selection
 		bg := getTerminalBackground()
 		winREPL.SetBackgroundRGB(bg.R, bg.G, bg.B)
+		winREPL.SetPSLColors(getPSLColors())
 		winREPL.Start()
 	}()
 }
@@ -1613,5 +1616,6 @@ func createConsoleChannels(width, height int) {
 	// Set background color for prompt color selection
 	bg := getTerminalBackground()
 	consoleREPL.SetBackgroundRGB(bg.R, bg.G, bg.B)
+	consoleREPL.SetPSLColors(getPSLColors())
 	consoleREPL.Start()
 }

@@ -29,11 +29,13 @@ const (
 // CLIConfig holds configuration loaded from ~/.paw/paw-cli.psl
 type CLIConfig struct {
 	TermBackground string // "light", "dark", or "auto" (auto defaults to dark)
+	PSLColors      pawscript.DisplayColorConfig
 }
 
 // Default CLI config
 var cliConfig = CLIConfig{
 	TermBackground: "auto",
+	PSLColors:      pawscript.DefaultDisplayColors(),
 }
 
 // getConfigDir returns the path to ~/.paw directory
@@ -75,27 +77,67 @@ func loadCLIConfig() {
 		return // Graceful failure - use defaults
 	}
 
-	// Simple parsing for key: value format
-	// Looking for: term_background: "auto" or term_background: auto
-	lines := strings.Split(string(content), "\n")
-	for _, line := range lines {
-		line = strings.TrimSpace(line)
-		// Skip comments and empty lines
-		if line == "" || strings.HasPrefix(line, ";") || strings.HasPrefix(line, "#") {
-			continue
+	// Parse using PSL parser for proper nested structure handling
+	config, err := pawscript.ParsePSL(string(content))
+	if err != nil {
+		return // Graceful failure - use defaults
+	}
+
+	// Get term_background setting
+	if bg := config.GetString("term_background", ""); bg != "" {
+		bg = strings.ToLower(bg)
+		if bg == "light" || bg == "dark" || bg == "auto" {
+			cliConfig.TermBackground = bg
 		}
-		// Look for term_background setting
-		if strings.HasPrefix(line, "term_background:") {
-			value := strings.TrimPrefix(line, "term_background:")
-			value = strings.TrimSpace(value)
-			// Remove quotes if present
-			value = strings.Trim(value, "\"'")
-			value = strings.ToLower(value)
-			if value == "light" || value == "dark" || value == "auto" {
-				cliConfig.TermBackground = value
+	}
+
+	// Get psl_colors sub-list
+	if colorsVal, ok := config["psl_colors"]; ok {
+		if colorsList, ok := colorsVal.(pawscript.StoredList); ok {
+			namedArgs := colorsList.NamedArgs()
+			if namedArgs != nil {
+				if v := getColorString(namedArgs, "reset"); v != "" {
+					cliConfig.PSLColors.Reset = v
+				}
+				if v := getColorString(namedArgs, "key"); v != "" {
+					cliConfig.PSLColors.Key = v
+				}
+				if v := getColorString(namedArgs, "string"); v != "" {
+					cliConfig.PSLColors.String = v
+				}
+				if v := getColorString(namedArgs, "number"); v != "" {
+					cliConfig.PSLColors.Number = v
+				}
+				if v := getColorString(namedArgs, "bool"); v != "" {
+					cliConfig.PSLColors.Bool = v
+				}
+				if v := getColorString(namedArgs, "nil"); v != "" {
+					cliConfig.PSLColors.Nil = v
+				}
+				if v := getColorString(namedArgs, "bracket"); v != "" {
+					cliConfig.PSLColors.Bracket = v
+				}
+				if v := getColorString(namedArgs, "colon"); v != "" {
+					cliConfig.PSLColors.Colon = v
+				}
 			}
 		}
 	}
+}
+
+// getColorString extracts a string value from named args
+func getColorString(namedArgs map[string]interface{}, key string) string {
+	if v, ok := namedArgs[key]; ok {
+		switch s := v.(type) {
+		case string:
+			return s
+		case pawscript.QuotedString:
+			return string(s)
+		case pawscript.Symbol:
+			return string(s)
+		}
+	}
+	return ""
 }
 
 // createDefaultConfig creates the default config file
@@ -118,6 +160,19 @@ func createDefaultConfig(configPath string) {
 #   dark  - uses bright yellow prompt
 #   light - uses dark brown prompt
 term_background: "auto"
+
+# PSL result display colors (ANSI escape sequences)
+# Use \e for ESC character, e.g., "\e[36m" for cyan
+psl_colors: (
+    reset: "\e[0m",
+    key: "\e[36m",
+    string: "\e[32m",
+    number: "\e[33m",
+    bool: "\e[35m",
+    nil: "\e[31m",
+    bracket: "\e[37m",
+    colon: "\e[90m"
+)
 `
 
 	// Try to write the file
@@ -1356,9 +1411,8 @@ func displayResult(ps *pawscript.PawScript, result pawscript.Result) {
 		prefixColor = getEqualsColor()
 	}
 
-	// Format the result value as PSL with colors
-	cfg := pawscript.DefaultDisplayColors()
-	formatted := pawscript.FormatValueColored(resultValue, true, cfg, ps)
+	// Format the result value as PSL with colors from config
+	formatted := pawscript.FormatValueColored(resultValue, true, cliConfig.PSLColors, ps)
 
 	// Print with prefix - use \r\n for raw mode compatibility
 	lines := strings.Split(formatted, "\n")
