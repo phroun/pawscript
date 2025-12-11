@@ -211,7 +211,7 @@ func getRecentPaths() []string {
 	if appConfig == nil {
 		return nil
 	}
-	if paths, ok := appConfig["recent_paths"]; ok {
+	if paths, ok := appConfig["launcher_recent_paths"]; ok {
 		if list, ok := paths.(pawscript.PSLList); ok {
 			result := make([]string, 0, len(list))
 			for _, p := range list {
@@ -258,7 +258,7 @@ func addRecentPath(path string) {
 	for i, p := range newPaths {
 		pslList[i] = p
 	}
-	appConfig.Set("recent_paths", pslList)
+	appConfig.Set("launcher_recent_paths", pslList)
 	saveConfig(appConfig)
 }
 
@@ -267,7 +267,7 @@ func clearRecentPaths() {
 	if appConfig == nil {
 		return
 	}
-	delete(appConfig, "recent_paths")
+	delete(appConfig, "launcher_recent_paths")
 	saveConfig(appConfig)
 }
 
@@ -533,10 +533,12 @@ func createFileBrowser() *gtk.Box {
 	box.SetMarginTop(5)
 	box.SetMarginBottom(5)
 
-	// Current path combo box
+	// Current path combo box - expands to fill width but doesn't force minimum
 	pathCombo, _ = gtk.ComboBoxTextNew()
+	pathCombo.SetHExpand(true)
+	pathCombo.SetProperty("popup-fixed-width", false)
 	pathCombo.Connect("changed", onPathComboChanged)
-	box.PackStart(pathCombo, false, false, 0)
+	box.PackStart(pathCombo, false, true, 0)
 
 	// Scrolled window for file list
 	scroll, _ := gtk.ScrolledWindowNew(nil, nil)
@@ -645,12 +647,12 @@ func updatePathCombo() {
 
 	// Add Home directory
 	if home := getHomeDir(); home != "" {
-		pathCombo.AppendText("🏠 Home: " + home)
+		pathCombo.AppendText("🏠 Home")
 	}
 
 	// Add Examples directory
 	if examples := getExamplesDir(); examples != "" {
-		pathCombo.AppendText("📁 Examples: " + examples)
+		pathCombo.AppendText("📁 Examples")
 	}
 
 	// Add recent paths (excluding home and examples since they have their own entries)
@@ -658,10 +660,7 @@ func updatePathCombo() {
 	if len(recentPaths) > 0 {
 		pathCombo.AppendText("────────────────────")
 		for _, p := range recentPaths {
-			// Skip if it's the current directory (already shown at top)
-			if p != currentDir {
-				pathCombo.AppendText(p)
-			}
+			pathCombo.AppendText(p)
 		}
 	}
 
@@ -702,10 +701,10 @@ func onPathComboChanged() {
 
 	// Extract actual path from prefixed entries
 	var newPath string
-	if strings.HasPrefix(text, "🏠 Home: ") {
-		newPath = strings.TrimPrefix(text, "🏠 Home: ")
-	} else if strings.HasPrefix(text, "📁 Examples: ") {
-		newPath = strings.TrimPrefix(text, "📁 Examples: ")
+	if text == "🏠 Home" {
+		newPath = getHomeDir()
+	} else if text == "📁 Examples" {
+		newPath = getExamplesDir()
 	} else {
 		newPath = text
 	}
