@@ -174,10 +174,7 @@ func getDefaultQuitShortcut() string { return pawgui.GetDefaultQuitShortcut() }
 
 // getLauncherWidth returns the saved launcher panel width, defaulting to 280
 func getLauncherWidth() int {
-	if width, ok := appConfig.GetInt("launcher_width"); ok && width > 0 {
-		return width
-	}
-	return 280
+	return appConfig.GetInt("launcher_width", 280)
 }
 
 // saveLauncherWidth saves the launcher panel width to config
