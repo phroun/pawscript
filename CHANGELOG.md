@@ -173,7 +173,7 @@
   - Persistent `ExecutionState` for REPL and host application use
   - Execute macros/blocks from tilde expressions in statement position
 - REPL prompt improvements:
-  - `paw*` prompt for normal input (replaces `"":`)
+  - `paw*` prompt for normal input
   - Nesting-aware continuation prompts: `(*`, `{*`, `"*`, `'*`, `#(*`
   - Full nesting stack shown (e.g., `({*` for braces inside parens)
   - Line numbers in dark cyan on continuation lines (starting from 2)
