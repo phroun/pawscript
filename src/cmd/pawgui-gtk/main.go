@@ -795,14 +795,11 @@ func runScript(filePath string) {
 			})
 			// Set flush callback to ensure output appears before blocking execution
 			consoleREPL.SetFlush(func() {
-				done := make(chan struct{})
-				glib.IdleAdd(func() bool {
-					close(done)
-					return false
-				})
-				select {
-				case <-done:
-				case <-time.After(100 * time.Millisecond):
+				// Process pending GTK events to ensure output is displayed
+				// We're on the main thread, so glib.IdleAdd won't work (we'd be waiting for ourselves)
+				// Instead, use MainIterationDo to process pending events synchronously
+				for i := 0; i < 10 && gtk.EventsPending(); i++ {
+					gtk.MainIterationDo(false)
 				}
 			})
 			// Set background color for prompt color selection
@@ -1143,14 +1140,11 @@ func createConsoleWindow(filePath string) {
 		})
 		// Set flush callback to ensure output appears before blocking execution
 		winREPL.SetFlush(func() {
-			done := make(chan struct{})
-			glib.IdleAdd(func() bool {
-				close(done)
-				return false
-			})
-			select {
-			case <-done:
-			case <-time.After(100 * time.Millisecond):
+			// Process pending GTK events to ensure output is displayed
+			// We're on the main thread, so glib.IdleAdd won't work (we'd be waiting for ourselves)
+			// Instead, use MainIterationDo to process pending events synchronously
+			for i := 0; i < 10 && gtk.EventsPending(); i++ {
+				gtk.MainIterationDo(false)
 			}
 		})
 		// Set background color for prompt color selection
@@ -1389,14 +1383,11 @@ func createConsoleChannels(width, height int) {
 	})
 	// Set flush callback to ensure output appears before blocking execution
 	consoleREPL.SetFlush(func() {
-		done := make(chan struct{})
-		glib.IdleAdd(func() bool {
-			close(done)
-			return false
-		})
-		select {
-		case <-done:
-		case <-time.After(100 * time.Millisecond):
+		// Process pending GTK events to ensure output is displayed
+		// We're on the main thread, so glib.IdleAdd won't work (we'd be waiting for ourselves)
+		// Instead, use MainIterationDo to process pending events synchronously
+		for i := 0; i < 10 && gtk.EventsPending(); i++ {
+			gtk.MainIterationDo(false)
 		}
 	})
 	// Set background color for prompt color selection
