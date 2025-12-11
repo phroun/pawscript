@@ -2047,9 +2047,11 @@ func (w *Widget) calcMod(hasShift, hasCtrl, hasAlt, hasMeta bool) int {
 // handleRegularKey processes regular character keys with modifiers
 func (w *Widget) handleRegularKey(event *qt.QKeyEvent, hasShift, hasCtrl, hasAlt, hasMeta bool) []byte {
 	// On macOS, we need to use hardware keycodes for modifier combinations
-	// because Qt's event.Text() may return empty or composed characters
+	// because Qt's event.Text() may return empty or composed characters.
+	// NativeVirtualKey() returns the macOS keycode, while NativeScanCode() returns
+	// the USB HID usage code which is different.
 	if runtime.GOOS == "darwin" && (hasAlt || hasCtrl) {
-		hwcode := uint32(event.NativeScanCode())
+		hwcode := uint32(event.NativeVirtualKey())
 		if baseCh := macKeycodeToChar(hwcode, hasShift); baseCh != 0 {
 			// Apply Ctrl transformation if needed (convert letter to control char)
 			if hasCtrl {
