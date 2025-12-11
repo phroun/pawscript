@@ -358,8 +358,9 @@ func activate(application *gtk.Application) {
 	paned.SetPosition(400)
 
 	// Left panel: File browser
+	// Pack1(widget, resize, shrink): resize=false (fixed), shrink=true (can collapse)
 	leftPanel := createFileBrowser()
-	paned.Pack1(leftPanel, false, false)
+	paned.Pack1(leftPanel, false, true)
 
 	// Right panel: Terminal (with left margin for spacing from divider)
 	rightPanel := createTerminal()
