@@ -1930,10 +1930,16 @@ func (w *Widget) keyPressEvent(super func(event *qt.QKeyEvent), event *qt.QKeyEv
 	}
 
 	var data []byte
+	hasModifiers := hasShift || hasCtrl || hasAlt || hasMeta
 
 	switch qt.Key(key) {
 	case qt.Key_Return, qt.Key_Enter:
-		data = []byte{'\r'}
+		if hasModifiers {
+			mod := w.calcMod(hasShift, hasCtrl, hasAlt, hasMeta)
+			data = []byte(fmt.Sprintf("\x1b[13;%du", mod)) // CSI 13 ; mod u (kitty protocol)
+		} else {
+			data = []byte{'\r'}
+		}
 	case qt.Key_Backspace:
 		if hasCtrl {
 			data = []byte{0x08}
@@ -1950,7 +1956,12 @@ func (w *Widget) keyPressEvent(super func(event *qt.QKeyEvent), event *qt.QKeyEv
 		}
 		// Plain Tab and Ctrl/Shift+Tab are handled by shortcuts, shouldn't reach here
 	case qt.Key_Escape:
-		data = []byte{0x1b}
+		if hasModifiers {
+			mod := w.calcMod(hasShift, hasCtrl, hasAlt, hasMeta)
+			data = []byte(fmt.Sprintf("\x1b[27;%du", mod)) // CSI 27 ; mod u (kitty protocol)
+		} else {
+			data = []byte{0x1b}
+		}
 	case qt.Key_Up:
 		data = w.cursorKey('A', hasShift, hasCtrl, hasAlt, hasMeta)
 	case qt.Key_Down:

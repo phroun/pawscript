@@ -2329,13 +2329,13 @@ func (w *Widget) onKeyPress(da *gtk.DrawingArea, ev *gdk.Event) bool {
 		// Only reach here for plain Tab or Tab with Alt/Meta/Super
 		if hasAlt || hasMeta || hasSuper {
 			// Tab with modifier sends modified Tab sequence
-			data = []byte{0x1b, '[', '9', ';', byte('0' + mod), 'u'} // CSI 9 ; mod u (kitty protocol)
+			data = modifiedSpecialKey(mod, 9, 0) // CSI 9 ; mod u (kitty protocol)
 		} else {
 			data = []byte{'\t'}
 		}
 	case gdk.KEY_Escape:
-		if hasAlt {
-			data = []byte{0x1b, 0x1b} // Alt+Escape
+		if hasModifiers {
+			data = modifiedSpecialKey(mod, 27, 0) // CSI 27 ; mod u (kitty protocol)
 		} else {
 			data = []byte{0x1b}
 		}
