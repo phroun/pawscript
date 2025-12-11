@@ -172,6 +172,20 @@ func getBlinkMode() purfecterm.BlinkMode      { return configHelper.GetBlinkMode
 func getQuitShortcut() string        { return configHelper.GetQuitShortcut() }
 func getDefaultQuitShortcut() string { return pawgui.GetDefaultQuitShortcut() }
 
+// getLauncherWidth returns the saved launcher panel width, defaulting to 280
+func getLauncherWidth() int {
+	if width, ok := appConfig.GetInt("launcher_width"); ok && width > 0 {
+		return width
+	}
+	return 280
+}
+
+// saveLauncherWidth saves the launcher panel width to config
+func saveLauncherWidth(width int) {
+	appConfig.Set("launcher_width", width)
+	saveConfig(appConfig)
+}
+
 // applyTheme sets the GTK theme based on the configuration.
 // "auto" = let GTK/OS decide, "dark" = force dark, "light" = force light
 func applyTheme(theme pawgui.ThemeMode) {
@@ -355,7 +369,7 @@ func activate(application *gtk.Application) {
 
 	// Create main horizontal paned (split view)
 	paned, _ := gtk.PanedNew(gtk.ORIENTATION_HORIZONTAL)
-	paned.SetPosition(400)
+	paned.SetPosition(getLauncherWidth())
 
 	// Left panel: File browser
 	// Pack1(widget, resize, shrink): resize=false (fixed), shrink=true (can collapse)
@@ -366,6 +380,11 @@ func activate(application *gtk.Application) {
 	rightPanel := createTerminal()
 	rightPanel.SetMarginStart(8) // 8 pixel spacer from divider
 	paned.Pack2(rightPanel, true, false)
+
+	// Save launcher width when user adjusts the splitter
+	paned.Connect("notify::position", func() {
+		saveLauncherWidth(paned.GetPosition())
+	})
 
 	mainBox.PackStart(paned, true, true, 0)
 	mainWindow.Add(mainBox)

@@ -124,6 +124,20 @@ func getBlinkMode() purfecterm.BlinkMode      { return configHelper.GetBlinkMode
 func getQuitShortcut() string                 { return configHelper.GetQuitShortcut() }
 func getDefaultQuitShortcut() string          { return pawgui.GetDefaultQuitShortcut() }
 
+// getLauncherWidth returns the saved launcher panel width, defaulting to 280
+func getLauncherWidth() int {
+	if width, ok := appConfig.GetInt("launcher_width"); ok && width > 0 {
+		return width
+	}
+	return 280
+}
+
+// saveLauncherWidth saves the launcher panel width to config
+func saveLauncherWidth(width int) {
+	appConfig.Set("launcher_width", width)
+	saveConfig(appConfig)
+}
+
 // applyTheme sets the Qt application palette based on the configuration.
 // "auto" = let Qt/OS decide, "dark" = force dark palette, "light" = force light palette
 func applyTheme(theme pawgui.ThemeMode) {
@@ -388,13 +402,21 @@ func main() {
 	rightPanel := createTerminalPanel()
 	splitter.AddWidget(rightPanel)
 
-	// Set initial splitter sizes
-	splitter.SetSizes([]int{270, 630})
+	// Set initial splitter sizes using saved launcher width (default 280)
+	launcherWidth := getLauncherWidth()
+	splitter.SetSizes([]int{launcherWidth, 900 - launcherWidth})
 
 	// Configure stretch factors so left panel stays fixed and right panel is flexible
 	// This matches the GTK behavior where additional space goes to the console
 	splitter.SetStretchFactor(0, 0) // Left panel: fixed size (doesn't stretch)
 	splitter.SetStretchFactor(1, 1) // Right panel: flexible (absorbs size changes)
+
+	// Save launcher width when user adjusts the splitter
+	splitter.OnSplitterMoved(func(pos int, index int) {
+		if index == 1 { // The handle between left and right panels
+			saveLauncherWidth(pos)
+		}
+	})
 
 	mainLayout.AddWidget(splitter.QWidget)
 	mainWindow.SetCentralWidget(centralWidget)
