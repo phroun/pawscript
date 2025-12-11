@@ -230,7 +230,39 @@ func (ps *PawScript) ExecuteFile(commandString, filename string) Result {
 // Execute executes a command string using the persistent root state.
 // Variables, macros, and objects persist across calls for REPL and host application use.
 // Call Cleanup() to explicitly release resources when done with the interpreter.
+//
+// This method blocks until the command completes, including any async operations
+// like msleep. This is the intuitive, default behavior matching script execution.
+// Use ExecuteAsync() if you need to handle async tokens manually.
 func (ps *PawScript) Execute(commandString string, args ...interface{}) Result {
+	result := ps.executeInternal(commandString)
+
+	// If result is an async token, wait for it to complete
+	// This provides blocking semantics by default (most intuitive behavior)
+	if tokenResult, ok := result.(TokenResult); ok {
+		tokenID := string(tokenResult)
+		success := ps.WaitForToken(tokenID)
+		if success {
+			return BoolStatus(true)
+		}
+		return BoolStatus(false)
+	}
+
+	return result
+}
+
+// ExecuteAsync executes a command string without waiting for async operations.
+// If the command initiates async operations (like msleep), this returns a
+// TokenResult immediately. The caller is responsible for handling the token,
+// either by calling WaitForToken() or managing it through their own async flow.
+//
+// Most callers should use Execute() instead for simpler blocking semantics.
+func (ps *PawScript) ExecuteAsync(commandString string) Result {
+	return ps.executeInternal(commandString)
+}
+
+// executeInternal is the core execution logic shared by Execute and ExecuteAsync.
+func (ps *PawScript) executeInternal(commandString string) Result {
 	// Use the persistent root state - variables and objects persist across calls
 	result := ps.executor.ExecuteWithState(commandString, ps.rootState, nil, "", 0, 0)
 
@@ -280,6 +312,16 @@ func (ps *PawScript) FlushIO() {
 	if ch, ok := stderr.(*StoredChannel); ok && ch != nil && stderr != stdout {
 		ch.Flush()
 	}
+}
+
+// WaitForToken waits for an async token to complete and returns the result status.
+// This is used by REPLs to wait for async commands like msleep before returning
+// to the prompt. Returns true if the operation succeeded, false otherwise.
+func (ps *PawScript) WaitForToken(tokenID string) bool {
+	waitChan := make(chan ResumeData, 1)
+	ps.executor.attachWaitChan(tokenID, waitChan)
+	resumeData := <-waitChan
+	return resumeData.Status
 }
 
 // dumpRemainingBubbles dumps any remaining bubbles to stderr during cleanup.

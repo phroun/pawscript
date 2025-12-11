@@ -552,7 +552,7 @@ func (r *REPL) processInput(input string) {
 		return
 	}
 
-	// Execute
+	// Execute - blocks until complete (including async operations like msleep)
 	result := r.ps.Execute(input)
 
 	// Flush any pending output before displaying result

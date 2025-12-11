@@ -691,7 +691,7 @@ func runREPL(debug, unrestricted bool, optLevel int) {
 		// Temporarily restore terminal for script execution (so echo works)
 		term.Restore(fd, oldState)
 
-		// Execute
+		// Execute - blocks until complete (including async operations like msleep)
 		result := ps.Execute(input)
 
 		// Get the result value and format it
