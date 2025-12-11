@@ -235,54 +235,55 @@ func (r *REPL) HandleInput(data []byte) bool {
 		if b == 0x1b && i < len(data) && data[i] == '[' {
 			escStart := i - 1 // Position of ESC
 			i++               // consume '['
+			handled := false
 			if i < len(data) {
 				switch data[i] {
 				case 'A': // Up arrow
 					i++
 					r.handleUpArrow()
-					continue
+					handled = true
 				case 'B': // Down arrow
 					i++
 					r.handleDownArrow()
-					continue
+					handled = true
 				case 'C': // Right arrow
 					i++
 					r.handleRightArrow()
-					continue
+					handled = true
 				case 'D': // Left arrow
 					i++
 					r.handleLeftArrow()
-					continue
-				case '3': // Possible Delete key
-					i++
-					if i < len(data) && data[i] == '~' {
-						i++
+					handled = true
+				case '3': // Possible Delete key (ESC[3~)
+					if i+1 < len(data) && data[i+1] == '~' {
+						i += 2
 						r.handleDelete()
+						handled = true
 					}
-					continue
 				case 'H': // Home
 					i++
 					r.handleHome()
-					continue
+					handled = true
 				case 'F': // End
 					i++
 					r.handleEnd()
-					continue
+					handled = true
 				case '1': // Could be Home (ESC[1~)
-					i++
-					if i < len(data) && data[i] == '~' {
-						i++
+					if i+1 < len(data) && data[i+1] == '~' {
+						i += 2
 						r.handleHome()
+						handled = true
 					}
-					continue
 				case '4': // Could be End (ESC[4~)
-					i++
-					if i < len(data) && data[i] == '~' {
-						i++
+					if i+1 < len(data) && data[i+1] == '~' {
+						i += 2
 						r.handleEnd()
+						handled = true
 					}
-					continue
 				}
+			}
+			if handled {
+				continue
 			}
 			// Unknown escape sequence - capture and display it
 			// Find the end of the sequence (letter or ~)
