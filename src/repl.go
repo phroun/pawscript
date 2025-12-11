@@ -148,6 +148,14 @@ func (r *REPL) IsRunning() bool {
 	return r.running
 }
 
+// IsBusy returns whether the REPL is currently executing a command
+// When busy, terminal input should go to stdin channels instead of the REPL
+func (r *REPL) IsBusy() bool {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	return r.busy
+}
+
 // SetBackgroundRGB sets the background color to determine prompt colors
 // Uses brightness calculation: if brightness > 0.5, uses dark brown instead of yellow
 func (r *REPL) SetBackgroundRGB(red, green, blue uint8) {

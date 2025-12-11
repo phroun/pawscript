@@ -719,9 +719,15 @@ func setupConsoleIO() {
 			if stdinWriter != nil {
 				stdinWriter.Write(data)
 			}
-		} else {
-			// No script running, send to REPL
-			if consoleREPL != nil && consoleREPL.IsRunning() {
+		} else if consoleREPL != nil && consoleREPL.IsRunning() {
+			// REPL is active
+			if consoleREPL.IsBusy() {
+				// REPL is executing a command (e.g., read) - send to stdin pipe
+				if stdinWriter != nil {
+					stdinWriter.Write(data)
+				}
+			} else {
+				// REPL is waiting for input - send to REPL for line editing
 				consoleREPL.HandleInput(data)
 			}
 		}
@@ -1210,7 +1216,13 @@ func createConsoleWindow(filePath string) {
 		if isRunning {
 			winStdinWriter.Write(data)
 		} else if winREPL != nil && winREPL.IsRunning() {
-			winREPL.HandleInput(data)
+			if winREPL.IsBusy() {
+				// REPL is executing a command (e.g., read) - send to stdin pipe
+				winStdinWriter.Write(data)
+			} else {
+				// REPL is waiting for input - send to REPL for line editing
+				winREPL.HandleInput(data)
+			}
 		}
 	})
 
