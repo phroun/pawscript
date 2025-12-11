@@ -697,6 +697,13 @@ func runREPL(debug, unrestricted bool, optLevel int) {
 		// Get the result value and format it
 		displayResult(ps, result)
 
+		// If a KeyInputManager was started by the command (e.g., readkey_init on #in),
+		// stop it before resuming REPL input. This prevents the manager's goroutine
+		// from competing with the REPL for stdin reads.
+		if ps.IsKeyInputManagerOnStdin() {
+			_ = ps.StopKeyInputManager()
+		}
+
 		// Back to raw mode
 		oldState, _ = term.MakeRaw(fd)
 	}

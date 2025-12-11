@@ -676,3 +676,75 @@ func (ps *PawScript) SetContextLines(lines int) {
 	}
 	ps.config.ContextLines = lines
 }
+
+// HasActiveKeyInputManager returns true if a KeyInputManager is currently active
+// This is used by REPLs to check if they should read from the manager's channel
+// instead of directly from stdin
+func (ps *PawScript) HasActiveKeyInputManager() bool {
+	if ps.executor == nil {
+		return false
+	}
+	ps.executor.mu.RLock()
+	defer ps.executor.mu.RUnlock()
+	return ps.executor.keyInputManager != nil
+}
+
+// IsKeyInputManagerOnStdin returns true if the active KeyInputManager is
+// reading from stdin (the terminal). This helps REPLs know when to delegate
+// input handling to the manager.
+func (ps *PawScript) IsKeyInputManagerOnStdin() bool {
+	if ps.executor == nil {
+		return false
+	}
+	ps.executor.mu.RLock()
+	manager := ps.executor.keyInputManager
+	ps.executor.mu.RUnlock()
+
+	if manager == nil {
+		return false
+	}
+	return manager.IsManagingStdin()
+}
+
+// GetKeyInputKeysChannel returns the keys channel from the active KeyInputManager,
+// or nil if no manager is active. This allows REPLs to read parsed key events
+// (like "Up", "Enter", "a", "M-x") instead of raw bytes from stdin.
+func (ps *PawScript) GetKeyInputKeysChannel() *StoredChannel {
+	if ps.executor == nil {
+		return nil
+	}
+	ps.executor.mu.RLock()
+	manager := ps.executor.keyInputManager
+	ps.executor.mu.RUnlock()
+
+	if manager == nil {
+		return nil
+	}
+	return manager.GetKeysChannel()
+}
+
+// StopKeyInputManager stops the active KeyInputManager and restores stdin
+// to line mode if it was in raw mode. This should be called when the REPL
+// wants to take back control of stdin.
+func (ps *PawScript) StopKeyInputManager() error {
+	if ps.executor == nil {
+		return nil
+	}
+	ps.executor.mu.Lock()
+	manager := ps.executor.keyInputManager
+	inputCh := ps.executor.keyInputChannel
+	ps.executor.keyInputManager = nil
+	ps.executor.keyInputChannel = nil
+	ps.executor.mu.Unlock()
+
+	if manager == nil {
+		return nil
+	}
+
+	// Restore input channel to line mode
+	if inputCh != nil && inputCh.NativeSend != nil {
+		_ = inputCh.NativeSend("line")
+	}
+
+	return manager.Stop()
+}

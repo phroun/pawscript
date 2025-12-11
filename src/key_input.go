@@ -325,6 +325,19 @@ func (m *KeyInputManager) SetLineEchoWriter(w io.Writer) {
 	m.lineEchoWriter = w
 }
 
+// IsManagingStdin returns true if this manager is managing the terminal stdin
+// This is used by REPLs to determine if they should delegate input handling
+func (m *KeyInputManager) IsManagingStdin() bool {
+	return m.managesTerminal
+}
+
+// IsRunning returns true if the manager is currently running
+func (m *KeyInputManager) IsRunning() bool {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	return m.running
+}
+
 // readLoop continuously reads raw bytes from input
 func (m *KeyInputManager) readLoop() {
 	buf := make([]byte, 256)
