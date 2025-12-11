@@ -104,7 +104,7 @@ func saveConfig(config pawscript.PSLConfig) {
 	}
 
 	data := pawscript.SerializePSLPretty(config)
-	_ = os.WriteFile(configPath, []byte(data), 0644)
+	_ = os.WriteFile(configPath, []byte(data+"\n"), 0644)
 }
 
 func saveBrowseDir(dir string) {

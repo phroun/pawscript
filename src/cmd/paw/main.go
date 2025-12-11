@@ -191,7 +191,7 @@ func saveHistory(history []string) {
 	}
 	content := pawscript.SerializePSLList(pslList)
 
-	_ = os.WriteFile(historyPath, []byte(content), 0644)
+	_ = os.WriteFile(historyPath, []byte(content+"\n"), 0644)
 }
 
 // getPromptColor returns the appropriate prompt color based on config

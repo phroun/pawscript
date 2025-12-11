@@ -879,5 +879,5 @@ func saveReplHistory(history []string) {
 	}
 	content := SerializePSLList(pslList)
 
-	_ = os.WriteFile(historyPath, []byte(content), 0644)
+	_ = os.WriteFile(historyPath, []byte(content+"\n"), 0644)
 }

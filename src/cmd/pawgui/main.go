@@ -1013,7 +1013,7 @@ func saveConfig(config pawscript.PSLConfig) {
 	}
 
 	data := pawscript.SerializePSL(config)
-	_ = os.WriteFile(configPath, []byte(data), 0644)
+	_ = os.WriteFile(configPath, []byte(data+"\n"), 0644)
 }
 
 // getExamplesDir returns the path to the examples directory relative to the executable

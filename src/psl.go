@@ -19,10 +19,9 @@ type PSLList []interface{}
 
 // SerializePSL serializes a PSLConfig to PSL format string
 // Uses the same format as PawScript's list serialization
-// Includes a trailing newline for file output
 func SerializePSL(config PSLConfig) string {
 	if len(config) == 0 {
-		return "()\n"
+		return "()"
 	}
 
 	// Convert to named args map with PawScript values
@@ -33,15 +32,14 @@ func SerializePSL(config PSLConfig) string {
 
 	// Create StoredList with named args and use existing serialization
 	list := NewStoredListWithNamed(nil, namedArgs)
-	return formatListForDisplay(list) + "\n"
+	return formatListForDisplay(list)
 }
 
 // SerializePSLPretty serializes a PSLConfig to PSL format with pretty indentation
 // Each named argument on its own line for readability
-// Includes a trailing newline for file output
 func SerializePSLPretty(config PSLConfig) string {
 	if len(config) == 0 {
-		return "()\n"
+		return "()"
 	}
 
 	// Convert to named args map with PawScript values
@@ -52,14 +50,13 @@ func SerializePSLPretty(config PSLConfig) string {
 
 	// Create StoredList with named args and use pretty serialization
 	list := NewStoredListWithNamed(nil, namedArgs)
-	return formatListForDisplayPretty(list, 0) + "\n"
+	return formatListForDisplayPretty(list, 0)
 }
 
 // SerializePSLList serializes a PSLList to PSL format string
-// Includes a trailing newline for file output
 func SerializePSLList(list PSLList) string {
 	if len(list) == 0 {
-		return "()\n"
+		return "()"
 	}
 
 	// Convert to items slice with PawScript values
@@ -70,7 +67,7 @@ func SerializePSLList(list PSLList) string {
 
 	// Create StoredList and use existing serialization
 	storedList := NewStoredListWithoutRefs(items)
-	return formatListForDisplay(storedList) + "\n"
+	return formatListForDisplay(storedList)
 }
 
 // convertToPawValue converts a Go value to a PawScript value
