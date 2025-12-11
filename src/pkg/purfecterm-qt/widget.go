@@ -2076,13 +2076,15 @@ func (w *Widget) handleRegularKey(event *qt.QKeyEvent, hasShift, hasCtrl, hasAlt
 	// We preserve traditional handling for:
 	// - Plain key → character
 	// - Shift+key → shifted character
-	// - Ctrl+key → control character
+	// - Ctrl+letter → control character (^A, ^B, etc.)
 	// - Alt+key → ESC + character
-	// But use kitty protocol for combinations like Ctrl+Shift, Ctrl+Alt, Meta+anything
+	// But use kitty protocol for:
+	// - Combinations like Ctrl+Shift, Ctrl+Alt, Meta+anything
+	// - Ctrl+symbol (symbols have no traditional control character)
 	useKittyMultiMod := hasMeta || (hasCtrl && hasShift) || (hasCtrl && hasAlt) || (hasAlt && hasShift)
 
-	if useKittyMultiMod {
-		// Get the base character for kitty protocol
+	// Helper to get base character
+	getBaseChar := func() byte {
 		var baseChar byte
 		if runtime.GOOS == "darwin" {
 			hwcode := uint32(event.NativeVirtualKey())
@@ -2100,17 +2102,38 @@ func (w *Widget) handleRegularKey(event *qt.QKeyEvent, hasShift, hasCtrl, hasAlt
 					// Control character - convert back to letter
 					baseChar = ch + 'a' - 1
 				} else {
-					// Could be a symbol - try to get unshifted version
+					// Could be a symbol
 					baseChar = ch
 				}
 			}
 		}
+		return baseChar
+	}
+
+	// For symbol keys with Ctrl or Alt (even without other modifiers), use kitty protocol
+	// because symbols don't have traditional control characters like letters do
+	if hasCtrl || hasAlt {
+		// First try Qt key code matching for symbols
+		if baseChar, ok := isSymbolQtKey(qt.Key(event.Key())); ok {
+			mod := w.calcMod(hasShift, hasCtrl, hasAlt, hasMeta)
+			return []byte(fmt.Sprintf("\x1b[%d;%du", int(baseChar), mod))
+		}
+		// Fallback to getBaseChar
+		baseChar := getBaseChar()
+		if isSymbolKeyQt(baseChar) {
+			mod := w.calcMod(hasShift, hasCtrl, hasAlt, hasMeta)
+			return []byte(fmt.Sprintf("\x1b[%d;%du", int(baseChar), mod))
+		}
+	}
+
+	if useKittyMultiMod {
+		baseChar := getBaseChar()
 		// Check for alphabet keys
 		if baseChar >= 'a' && baseChar <= 'z' {
 			mod := w.calcMod(hasShift, hasCtrl, hasAlt, hasMeta)
 			return []byte(fmt.Sprintf("\x1b[%d;%du", int(baseChar), mod))
 		}
-		// Check for symbol keys that use letter-like formatting
+		// Check for symbol keys (already handled above for Ctrl-only, but needed for other multi-mod)
 		if isSymbolKeyQt(baseChar) {
 			mod := w.calcMod(hasShift, hasCtrl, hasAlt, hasMeta)
 			return []byte(fmt.Sprintf("\x1b[%d;%du", int(baseChar), mod))
@@ -2231,6 +2254,35 @@ func isSymbolKeyQt(ch byte) bool {
 		return true
 	}
 	return false
+}
+
+// isSymbolQtKey checks if a Qt key code is a symbol key, returning the base ASCII character
+func isSymbolQtKey(key qt.Key) (byte, bool) {
+	switch key {
+	case qt.Key_QuoteLeft, qt.Key_AsciiTilde:
+		return '`', true
+	case qt.Key_Comma, qt.Key_Less:
+		return ',', true
+	case qt.Key_Period, qt.Key_Greater:
+		return '.', true
+	case qt.Key_Slash, qt.Key_Question:
+		return '/', true
+	case qt.Key_Semicolon, qt.Key_Colon:
+		return ';', true
+	case qt.Key_Apostrophe, qt.Key_QuoteDbl:
+		return '\'', true
+	case qt.Key_BracketLeft, qt.Key_BraceLeft:
+		return '[', true
+	case qt.Key_BracketRight, qt.Key_BraceRight:
+		return ']', true
+	case qt.Key_Backslash, qt.Key_Bar:
+		return '\\', true
+	case qt.Key_Minus, qt.Key_Underscore:
+		return '-', true
+	case qt.Key_Equal, qt.Key_Plus:
+		return '=', true
+	}
+	return 0, false
 }
 
 // macKeycodeToChar converts macOS hardware keycodes to ASCII characters

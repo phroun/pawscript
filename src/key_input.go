@@ -1119,7 +1119,7 @@ func isSymbolKey(keycode int) bool {
 // - Plain: ' (apostrophe)
 // - Shift: " (quote - the shifted variant)
 // - Ctrl: ^' (ctrl binds tightly)
-// - Ctrl+Shift: S-^' (or S-^" depending on interpretation)
+// - Ctrl+Shift: ^" (shifted symbol in ^ notation - no S- needed since " indicates shift)
 // - Meta: M-' or M-" (with shift)
 // - Super: s-' or s-" (with shift)
 func formatSymbolKey(symbol byte, mod int) string {
@@ -1145,11 +1145,9 @@ func formatSymbolKey(symbol byte, mod int) string {
 	var keyPart string
 	if hasCtrl {
 		// Ctrl uses ^X notation
-		if hasShift {
-			keyPart = "S-^" + string(displayChar)
-		} else {
-			keyPart = "^" + string(displayChar)
-		}
+		// For symbols, the shifted character itself indicates shift (e.g., ^" vs ^')
+		// so we don't need an S- prefix like we do for letters
+		keyPart = "^" + string(displayChar)
 	} else {
 		// No Ctrl - just the character (shifted or not based on displayChar)
 		keyPart = string(displayChar)

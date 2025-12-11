@@ -2458,13 +2458,15 @@ func (w *Widget) handleRegularKey(keyval uint, key *gdk.EventKey, hasShift, hasC
 	// We preserve traditional handling for:
 	// - Plain key → character
 	// - Shift+key → shifted character
-	// - Ctrl+key → control character
+	// - Ctrl+letter → control character (^A, ^B, etc.)
 	// - Alt+key → ESC + character
-	// But use kitty protocol for combinations like Ctrl+Shift, Ctrl+Alt, Meta+anything
+	// But use kitty protocol for:
+	// - Combinations like Ctrl+Shift, Ctrl+Alt, Meta+anything
+	// - Ctrl+symbol (symbols have no traditional control character)
 	useKittyMultiMod := hasMeta || hasSuper || (hasCtrl && hasShift) || (hasCtrl && hasAlt) || (hasAlt && hasShift)
 
-	if useKittyMultiMod {
-		// Get the base character for kitty protocol
+	// Helper to get base character
+	getBaseChar := func() byte {
 		var baseChar byte
 		if runtime.GOOS == "darwin" {
 			hwcode := key.HardwareKeyCode()
@@ -2485,39 +2487,50 @@ func (w *Widget) handleRegularKey(keyval uint, key *gdk.EventKey, hasShift, hasC
 				baseChar = byte(r)
 			}
 		}
+		return baseChar
+	}
+
+	// Helper to build kitty protocol sequence
+	sendKitty := func(baseChar byte) []byte {
+		mod := 1
+		if hasShift {
+			mod += 1
+		}
+		if hasAlt {
+			mod += 2
+		}
+		if hasCtrl {
+			mod += 4
+		}
+		if hasMeta || hasSuper {
+			mod += 8
+		}
+		return []byte(fmt.Sprintf("\x1b[%d;%du", int(baseChar), mod))
+	}
+
+	// For symbol keys with Ctrl or Alt (even without other modifiers), use kitty protocol
+	// because symbols don't have traditional control characters like letters do
+	if hasCtrl || hasAlt {
+		// First try direct keyval matching for symbols
+		if baseChar, ok := isSymbolKeyvalGtk(keyval); ok {
+			return sendKitty(baseChar)
+		}
+		// Fallback to getBaseChar
+		baseChar := getBaseChar()
+		if isSymbolKeyGtk(baseChar) {
+			return sendKitty(baseChar)
+		}
+	}
+
+	if useKittyMultiMod {
+		baseChar := getBaseChar()
 		// Check for alphabet keys
 		if baseChar >= 'a' && baseChar <= 'z' {
-			mod := 1
-			if hasShift {
-				mod += 1
-			}
-			if hasAlt {
-				mod += 2
-			}
-			if hasCtrl {
-				mod += 4
-			}
-			if hasMeta || hasSuper {
-				mod += 8
-			}
-			return []byte(fmt.Sprintf("\x1b[%d;%du", int(baseChar), mod))
+			return sendKitty(baseChar)
 		}
-		// Check for symbol keys that use letter-like formatting
+		// Check for symbol keys (already handled above for Ctrl-only, but needed for other multi-mod)
 		if isSymbolKeyGtk(baseChar) {
-			mod := 1
-			if hasShift {
-				mod += 1
-			}
-			if hasAlt {
-				mod += 2
-			}
-			if hasCtrl {
-				mod += 4
-			}
-			if hasMeta || hasSuper {
-				mod += 8
-			}
-			return []byte(fmt.Sprintf("\x1b[%d;%du", int(baseChar), mod))
+			return sendKitty(baseChar)
 		}
 	}
 
@@ -3043,6 +3056,35 @@ func isSymbolKeyGtk(ch byte) bool {
 		return true
 	}
 	return false
+}
+
+// isSymbolKeyvalGtk checks if a GDK keyval is a symbol key, returning the base ASCII character
+func isSymbolKeyvalGtk(keyval uint) (byte, bool) {
+	switch keyval {
+	case gdk.KEY_grave, gdk.KEY_asciitilde:
+		return '`', true
+	case gdk.KEY_comma, gdk.KEY_less:
+		return ',', true
+	case gdk.KEY_period, gdk.KEY_greater:
+		return '.', true
+	case gdk.KEY_slash, gdk.KEY_question:
+		return '/', true
+	case gdk.KEY_semicolon, gdk.KEY_colon:
+		return ';', true
+	case gdk.KEY_apostrophe, gdk.KEY_quotedbl:
+		return '\'', true
+	case gdk.KEY_bracketleft, gdk.KEY_braceleft:
+		return '[', true
+	case gdk.KEY_bracketright, gdk.KEY_braceright:
+		return ']', true
+	case gdk.KEY_backslash, gdk.KEY_bar:
+		return '\\', true
+	case gdk.KEY_minus, gdk.KEY_underscore:
+		return '-', true
+	case gdk.KEY_equal, gdk.KEY_plus:
+		return '=', true
+	}
+	return 0, false
 }
 
 // macKeycodeToChar converts macOS hardware keycodes to ASCII characters
