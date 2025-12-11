@@ -9,7 +9,6 @@ import (
 	"os"
 	"path/filepath"
 	"runtime"
-	"strconv"
 	"strings"
 	"sync"
 	"time"
@@ -737,7 +736,7 @@ func runScriptFromCLI(scriptContent, scriptFile string, scriptArgs []string, win
 func runScriptInWindow(gtkApp *gtk.Application, scriptContent, scriptFile string, scriptArgs []string,
 	fileAccess *pawscript.FileAccessConfig, optLevel int, scriptDir string) {
 
-	// Create a console window (similar to createConsoleWindow but with custom script)
+	// Create a console window
 	win, err := gtk.ApplicationWindowNew(gtkApp)
 	if err != nil {
 		fmt.Fprintf(os.Stderr, "Failed to create window: %v\n", err)
@@ -752,28 +751,182 @@ func runScriptInWindow(gtkApp *gtk.Application, scriptContent, scriptFile string
 	win.SetDefaultSize(900, 600)
 
 	// Create terminal
-	winTerminal := purfectermgtk.NewTerminal(configHelper.GetColorScheme())
-	winTerminal.SetFontFamily(getFontFamily())
-	winTerminal.SetFontFamilyUnicode(getFontFamilyUnicode())
-	winTerminal.SetFontFamilyCJK(getFontFamilyCJK())
-	winTerminal.SetFontSize(getFontSize())
+	winTerminal, err := purfectermgtk.New(purfectermgtk.Options{
+		Cols:           100,
+		Rows:           30,
+		ScrollbackSize: 10000,
+		FontFamily:     getFontFamily(),
+		FontSize:       getFontSize(),
+		Scheme: purfecterm.ColorScheme{
+			Foreground: getTerminalForeground(),
+			Background: getTerminalBackground(),
+			Cursor:     purfecterm.Color{R: 255, G: 255, B: 255},
+			Selection:  purfecterm.Color{R: 68, G: 68, B: 68},
+			Palette:    getColorPalette(),
+			BlinkMode:  getBlinkMode(),
+		},
+	})
+	if err != nil {
+		fmt.Fprintf(os.Stderr, "Failed to create terminal: %v\n", err)
+		win.Destroy()
+		return
+	}
+
+	// Set font fallbacks
+	winTerminal.SetFontFallbacks(getFontFamilyUnicode(), getFontFamilyCJK())
 
 	// Create terminal widget
 	termWidget := winTerminal.Widget()
+	termWidget.SetVExpand(true)
+	termWidget.SetHExpand(true)
 	win.Add(termWidget)
 	win.ShowAll()
 
-	// Get terminal dimensions
-	width, height := winTerminal.GetCharDimensions()
-	if width < 1 {
-		width = 80
-	}
-	if height < 1 {
-		height = 24
+	// Create I/O channels for this window's console
+	stdoutReader, stdoutWriter := io.Pipe()
+	winStdinReader, winStdinWriter := io.Pipe()
+
+	width, height := 100, 30
+	termCaps := &pawscript.TerminalCapabilities{
+		TermType:      "gui-console",
+		IsTerminal:    true,
+		SupportsANSI:  true,
+		SupportsColor: true,
+		ColorDepth:    256,
+		Width:         width,
+		Height:        height,
+		SupportsInput: true,
+		EchoEnabled:   false,
+		LineMode:      false,
+		Metadata:      make(map[string]interface{}),
 	}
 
-	// Create console channels
-	winConsoleOutCh, winConsoleInCh, winStdinWriter, winClearInputFunc := createConsoleChannelsForWindow(winTerminal, width, height)
+	// Non-blocking output queue
+	outputQueue := make(chan interface{}, 256)
+	go func() {
+		for item := range outputQueue {
+			switch v := item.(type) {
+			case []byte:
+				stdoutWriter.Write(v)
+			case chan struct{}:
+				close(v)
+			}
+		}
+	}()
+
+	winOutCh := &pawscript.StoredChannel{
+		BufferSize:       0,
+		Messages:         make([]pawscript.ChannelMessage, 0),
+		Subscribers:      make(map[int]*pawscript.StoredChannel),
+		NextSubscriberID: 1,
+		IsClosed:         false,
+		Timestamp:        time.Now(),
+		Terminal:         termCaps,
+		NativeSend: func(v interface{}) error {
+			var text string
+			switch d := v.(type) {
+			case []byte:
+				text = string(d)
+			case string:
+				text = d
+			default:
+				text = fmt.Sprintf("%v", v)
+			}
+			text = strings.ReplaceAll(text, "\r\n", "\n")
+			text = strings.ReplaceAll(text, "\n", "\r\n")
+			data := []byte(text)
+			select {
+			case outputQueue <- data:
+			default:
+			}
+			return nil
+		},
+		NativeRecv: func() (interface{}, error) {
+			return nil, fmt.Errorf("cannot receive from console_out")
+		},
+		NativeFlush: func() error {
+			writerDone := make(chan struct{})
+			select {
+			case outputQueue <- writerDone:
+				<-writerDone
+			default:
+			}
+			glibDone := make(chan struct{})
+			glib.IdleAdd(func() bool {
+				close(glibDone)
+				return false
+			})
+			select {
+			case <-glibDone:
+			case <-time.After(100 * time.Millisecond):
+			}
+			return nil
+		},
+	}
+
+	// Non-blocking input queue
+	inputQueue := make(chan byte, 256)
+	go func() {
+		buf := make([]byte, 1)
+		for {
+			n, err := winStdinReader.Read(buf)
+			if err != nil || n == 0 {
+				close(inputQueue)
+				return
+			}
+			select {
+			case inputQueue <- buf[0]:
+			default:
+				select {
+				case <-inputQueue:
+				default:
+				}
+				select {
+				case inputQueue <- buf[0]:
+				default:
+				}
+			}
+		}
+	}()
+
+	winInCh := &pawscript.StoredChannel{
+		BufferSize:       0,
+		Messages:         make([]pawscript.ChannelMessage, 0),
+		Subscribers:      make(map[int]*pawscript.StoredChannel),
+		NextSubscriberID: 1,
+		IsClosed:         false,
+		Timestamp:        time.Now(),
+		Terminal:         termCaps,
+		NativeRecv: func() (interface{}, error) {
+			b, ok := <-inputQueue
+			if !ok {
+				return nil, fmt.Errorf("input closed")
+			}
+			return []byte{b}, nil
+		},
+		NativeSend: func(v interface{}) error {
+			return fmt.Errorf("cannot send to console_in")
+		},
+	}
+
+	// Read from stdout pipe and feed to terminal
+	go func() {
+		buf := make([]byte, 4096)
+		for {
+			n, err := stdoutReader.Read(buf)
+			if n > 0 {
+				data := make([]byte, n)
+				copy(data, buf[:n])
+				glib.IdleAdd(func() bool {
+					winTerminal.FeedBytes(data)
+					return false
+				})
+			}
+			if err != nil {
+				return
+			}
+		}
+	}()
 
 	// Create PawScript interpreter
 	ps := pawscript.New(&pawscript.Config{
@@ -789,9 +942,9 @@ func runScriptInWindow(gtkApp *gtk.Application, scriptContent, scriptFile string
 
 	// Register standard library with console channels
 	ioConfig := &pawscript.IOChannelConfig{
-		Stdout: winConsoleOutCh,
-		Stdin:  winConsoleInCh,
-		Stderr: winConsoleOutCh,
+		Stdout: winOutCh,
+		Stdin:  winInCh,
+		Stderr: winOutCh,
 	}
 	ps.RegisterStandardLibraryWithIO(scriptArgs, ioConfig)
 
@@ -802,7 +955,7 @@ func runScriptInWindow(gtkApp *gtk.Application, scriptContent, scriptFile string
 
 	// Handle window close
 	win.Connect("destroy", func() {
-		winClearInputFunc()
+		winStdinWriter.Close()
 		gtkApp.Quit()
 	})
 
@@ -817,6 +970,10 @@ func runScriptInWindow(gtkApp *gtk.Application, scriptContent, scriptFile string
 			result = ps.Execute(scriptContent)
 		}
 
+		if winOutCh.NativeFlush != nil {
+			winOutCh.NativeFlush()
+		}
+
 		if result == pawscript.BoolStatus(false) {
 			winTerminal.Feed("\r\n[Script execution failed]\r\n")
 		} else {
@@ -825,53 +982,6 @@ func runScriptInWindow(gtkApp *gtk.Application, scriptContent, scriptFile string
 
 		// Don't auto-close - let user see output and close manually
 	}()
-}
-
-// createConsoleChannelsForWindow creates I/O channels for a window terminal
-func createConsoleChannelsForWindow(term *purfectermgtk.Terminal, width, height int) (*pawscript.StoredChannel, *pawscript.StoredChannel, *io.PipeWriter, func()) {
-	// Create channels
-	outCh := pawscript.NewStoredChannel(pawscript.ChannelConfig{
-		Capacity:  1000,
-		IsConsole: true,
-	})
-
-	inCh := pawscript.NewStoredChannel(pawscript.ChannelConfig{
-		Capacity:  100,
-		IsConsole: true,
-		Width:     width,
-		Height:    height,
-	})
-
-	// Create pipe for stdin
-	stdinReader, stdinWriter := io.Pipe()
-
-	// Set up channel readers
-	inCh.SetNativeReader(&channelReader{
-		reader:    stdinReader,
-		isConsole: true,
-	})
-
-	// Start output goroutine
-	go func() {
-		for {
-			val := outCh.NativeRecv()
-			if val == nil {
-				return
-			}
-			if s, ok := val.(string); ok {
-				glib.IdleAdd(func() bool {
-					term.Feed(s)
-					return false
-				})
-			}
-		}
-	}()
-
-	clearFunc := func() {
-		stdinWriter.Close()
-	}
-
-	return outCh, inCh, stdinWriter, clearFunc
 }
 
 func activate(application *gtk.Application) {
