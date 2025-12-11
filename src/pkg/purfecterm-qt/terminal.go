@@ -106,6 +106,11 @@ func (t *Terminal) FeedBytes(data []byte) {
 	t.widget.Feed(data)
 }
 
+// Flush forces an immediate repaint of the terminal
+func (t *Terminal) Flush() {
+	t.widget.Flush()
+}
+
 // RunShell starts the default shell in the terminal
 func (t *Terminal) RunShell() error {
 	return t.RunCommand(t.options.Shell)

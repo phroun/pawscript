@@ -698,6 +698,14 @@ func (w *Widget) Clear() {
 	w.buffer.SetCursor(0, 0)
 }
 
+// Flush forces an immediate repaint of the widget
+// This bypasses the update timer coalescing for cases where
+// immediate visual feedback is needed (e.g., before blocking operations)
+func (w *Widget) Flush() {
+	w.updatePending = false
+	w.widget.Repaint()
+}
+
 // Buffer returns the underlying buffer
 func (w *Widget) Buffer() *purfecterm.Buffer {
 	return w.buffer

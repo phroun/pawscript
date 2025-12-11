@@ -747,12 +747,8 @@ func startREPL() {
 	})
 	// Set flush callback to ensure output appears before blocking execution
 	consoleREPL.SetFlush(func() {
-		// Process pending Qt events to ensure output is displayed
-		// The widget uses a timer for update coalescing, so we need multiple iterations:
-		// 1. First call processes the timer and schedules paint
-		// 2. Second call processes the paint event
-		qt.QCoreApplication_ProcessEvents()
-		qt.QCoreApplication_ProcessEvents()
+		// Force immediate repaint to display output before blocking operations
+		terminal.Flush()
 	})
 	// Set background color for prompt color selection
 	bg := getTerminalBackground()
@@ -1037,10 +1033,8 @@ func runScript(filePath string) {
 			})
 			// Set flush callback to ensure output appears before blocking execution
 			consoleREPL.SetFlush(func() {
-				// Process pending Qt events to ensure output is displayed
-				// The widget uses a timer for update coalescing, so we need multiple iterations
-				qt.QCoreApplication_ProcessEvents()
-				qt.QCoreApplication_ProcessEvents()
+				// Force immediate repaint to display output before blocking operations
+				terminal.Flush()
 			})
 			// Set background color for prompt color selection
 			bg := getTerminalBackground()
@@ -1301,10 +1295,8 @@ func createConsoleWindow(filePath string) {
 		})
 		// Set flush callback to ensure output appears before blocking execution
 		winREPL.SetFlush(func() {
-			// Process pending Qt events to ensure output is displayed
-			// The widget uses a timer for update coalescing, so we need multiple iterations
-			qt.QCoreApplication_ProcessEvents()
-			qt.QCoreApplication_ProcessEvents()
+			// Force immediate repaint to display output before blocking operations
+			winTerminal.Flush()
 		})
 		// Set background color for prompt color selection
 		bg := getTerminalBackground()
