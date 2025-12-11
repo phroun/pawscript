@@ -1390,8 +1390,20 @@ func toJSONValue(ps *pawscript.PawScript, val interface{}) interface{} {
 		if str == "false" {
 			return false
 		}
+		// Check if this is an object marker that needs resolution
+		resolved := ps.ResolveValue(v)
+		if resolved != v {
+			// It was a marker, recurse on the resolved value
+			return toJSONValue(ps, resolved)
+		}
 		return str
 	case string:
+		// Check if this is an object marker that needs resolution
+		resolved := ps.ResolveValue(pawscript.Symbol(v))
+		if sym, ok := resolved.(pawscript.Symbol); !ok || string(sym) != v {
+			// It was a marker or resolved to something else
+			return toJSONValue(ps, resolved)
+		}
 		return v
 	case pawscript.QuotedString:
 		return string(v)
