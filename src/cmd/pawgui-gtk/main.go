@@ -533,12 +533,19 @@ func createFileBrowser() *gtk.Box {
 	box.SetMarginTop(5)
 	box.SetMarginBottom(5)
 
-	// Current path combo box
+	// Current path combo box - constrained to parent width via size-allocate
 	pathCombo, _ = gtk.ComboBoxTextNew()
-	pathCombo.SetSizeRequest(1, -1) // Request tiny width, let paned control actual size
 	pathCombo.SetProperty("popup-fixed-width", false)
 	pathCombo.Connect("changed", onPathComboChanged)
 	box.PackStart(pathCombo, false, true, 0)
+
+	// Constrain combo width to match box width when resized
+	box.Connect("size-allocate", func(widget *gtk.Box, allocation *gdk.Rectangle) {
+		width := allocation.GetWidth() - 10 // Account for margins
+		if width > 0 {
+			pathCombo.SetSizeRequest(width, -1)
+		}
+	})
 
 	// Scrolled window for file list
 	scroll, _ := gtk.ScrolledWindowNew(nil, nil)
