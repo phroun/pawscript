@@ -251,6 +251,79 @@ func (h *ConfigHelper) GetColorScheme() purfecterm.ColorScheme {
 	}
 }
 
+// GetPSLColors returns the PSL result display color configuration.
+func (h *ConfigHelper) GetPSLColors() pawscript.DisplayColorConfig {
+	cfg := pawscript.DefaultDisplayColors()
+
+	if h.Config == nil {
+		return cfg
+	}
+
+	colorsVal, ok := h.Config["psl_colors"]
+	if !ok {
+		return cfg
+	}
+
+	// Handle both StoredList and PSLConfig (which is a map)
+	var namedArgs map[string]interface{}
+	switch v := colorsVal.(type) {
+	case pawscript.StoredList:
+		namedArgs = v.NamedArgs()
+	case pawscript.PSLConfig:
+		namedArgs = map[string]interface{}(v)
+	case map[string]interface{}:
+		namedArgs = v
+	default:
+		return cfg
+	}
+
+	if namedArgs == nil {
+		return cfg
+	}
+
+	// Helper to extract string value
+	getStr := func(key string) string {
+		if v, ok := namedArgs[key]; ok {
+			switch s := v.(type) {
+			case string:
+				return s
+			case pawscript.QuotedString:
+				return string(s)
+			case pawscript.Symbol:
+				return string(s)
+			}
+		}
+		return ""
+	}
+
+	if v := getStr("reset"); v != "" {
+		cfg.Reset = v
+	}
+	if v := getStr("key"); v != "" {
+		cfg.Key = v
+	}
+	if v := getStr("string"); v != "" {
+		cfg.String = v
+	}
+	if v := getStr("number"); v != "" {
+		cfg.Number = v
+	}
+	if v := getStr("bool"); v != "" {
+		cfg.Bool = v
+	}
+	if v := getStr("nil"); v != "" {
+		cfg.Nil = v
+	}
+	if v := getStr("bracket"); v != "" {
+		cfg.Bracket = v
+	}
+	if v := getStr("colon"); v != "" {
+		cfg.Colon = v
+	}
+
+	return cfg
+}
+
 // PopulateDefaults ensures all config keys have default values.
 // Returns true if the config was modified.
 func (h *ConfigHelper) PopulateDefaults() bool {
@@ -312,6 +385,20 @@ func (h *ConfigHelper) PopulateDefaults() bool {
 	}
 	if _, exists := h.Config["default_blink"]; !exists {
 		h.Config.Set("default_blink", "bounce")
+		modified = true
+	}
+	if _, exists := h.Config["psl_colors"]; !exists {
+		pslColorsConfig := pawscript.PSLConfig{}
+		defaultColors := pawscript.DefaultDisplayColors()
+		pslColorsConfig.Set("reset", defaultColors.Reset)
+		pslColorsConfig.Set("key", defaultColors.Key)
+		pslColorsConfig.Set("string", defaultColors.String)
+		pslColorsConfig.Set("number", defaultColors.Number)
+		pslColorsConfig.Set("bool", defaultColors.Bool)
+		pslColorsConfig.Set("nil", defaultColors.Nil)
+		pslColorsConfig.Set("bracket", defaultColors.Bracket)
+		pslColorsConfig.Set("colon", defaultColors.Colon)
+		h.Config.Set("psl_colors", pslColorsConfig)
 		modified = true
 	}
 
