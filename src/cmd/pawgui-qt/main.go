@@ -519,7 +519,7 @@ func main() {
 	loadDirectory(currentDir)
 
 	// Start UI update timer (250ms) for path button elision and future UI updates
-	uiUpdateTimer := qt.NewQTimer2()
+	uiUpdateTimer := qt.NewQTimer2(mainWindow.QObject)
 	uiUpdateTimer.OnTimeout(func() {
 		updatePathButtonText()
 	})
