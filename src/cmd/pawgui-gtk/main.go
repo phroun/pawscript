@@ -540,7 +540,8 @@ func createFileBrowser() *gtk.Box {
 	box.PackStart(pathCombo, false, true, 0)
 
 	// Constrain combo width to match box width when resized
-	box.Connect("size-allocate", func(widget *gtk.Box, allocation *gdk.Rectangle) {
+	box.Connect("size-allocate", func() {
+		allocation := box.GetAllocation()
 		width := allocation.GetWidth() - 10 // Account for margins
 		if width > 0 {
 			pathCombo.SetSizeRequest(width, -1)
