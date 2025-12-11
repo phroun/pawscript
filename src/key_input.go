@@ -996,7 +996,7 @@ func parseKittyProtocol(parts []string) (string, bool) {
 	// First param is the keycode
 	keycode := parseModifierParam(parts[0])
 
-	// Map keycodes to key names
+	// Map keycodes to key names for special keys
 	keyNames := map[int]string{
 		9:   "Tab",
 		13:  "Enter",
@@ -1004,8 +1004,16 @@ func parseKittyProtocol(parts []string) (string, bool) {
 		127: "Backspace",
 	}
 
-	baseName, ok := keyNames[keycode]
-	if !ok {
+	var baseName string
+	if name, ok := keyNames[keycode]; ok {
+		baseName = name
+	} else if keycode >= 'a' && keycode <= 'z' {
+		// Lowercase letter (97-122)
+		baseName = string(rune(keycode))
+	} else if keycode >= 'A' && keycode <= 'Z' {
+		// Uppercase letter (65-90) - normalize to lowercase for base name
+		baseName = string(rune(keycode + 32))
+	} else {
 		// Unknown keycode
 		return "", false
 	}
