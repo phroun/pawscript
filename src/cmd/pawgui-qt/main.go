@@ -1039,9 +1039,9 @@ func launchGUIMode() {
 
 	// Save launcher width when user adjusts the splitter
 	// Implement multi-stage collapse:
-	// - Wide + narrow mode: when pos >= minWidePanelWidth + minNarrowStripWidth (with multiple buttons)
+	// - Wide + narrow mode: when pos >= minWidePanelWidth + minNarrowStripWidth
 	// - Narrow only mode: when pos >= minNarrowStripWidth but < threshold for wide panel
-	// - Collapsed: when pos < minNarrowStripWidth
+	// - Collapsed: when pos < halfway point of narrow strip
 	splitter.OnSplitterMoved(func(pos int, index int) {
 		if index != 1 {
 			return
@@ -1069,8 +1069,8 @@ func launchGUIMode() {
 			launcherNarrowStrip.Hide()
 			launcherMenuButton.Show()
 			saveLauncherWidth(0)
-		} else if hasMultipleButtons && pos < bothThreshold {
-			// Multiple buttons mode: between narrow snap point and both-panels threshold
+		} else if pos < bothThreshold {
+			// Between narrow snap point and both-panels threshold
 			// Show only narrow strip at its fixed width
 			launcherWidePanel.Hide()
 			launcherNarrowStrip.Show()
@@ -1083,15 +1083,6 @@ func launchGUIMode() {
 				splitterAdjusting = false
 			}
 			saveLauncherWidth(minNarrowStripWidth)
-		} else if !hasMultipleButtons && pos < minWidePanelWidth/2 {
-			// Single button mode, below halfway to wide threshold - collapse
-			splitterAdjusting = true
-			splitter.SetSizes([]int{0, splitter.Width()})
-			splitterAdjusting = false
-			launcherWidePanel.Hide()
-			launcherNarrowStrip.Hide()
-			launcherMenuButton.Show()
-			saveLauncherWidth(0)
 		} else {
 			// Wide enough for full panel
 			launcherWidePanel.Show()
