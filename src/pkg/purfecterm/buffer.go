@@ -352,6 +352,17 @@ func (b *Buffer) Resize(cols, rows int) {
 		return
 	}
 
+	// Calculate logicalHiddenAbove BEFORE resize to track scrollback visibility state
+	oldEffectiveRows := b.EffectiveRows()
+	oldLogicalHiddenAbove := 0
+	if oldEffectiveRows > b.rows {
+		oldLogicalHiddenAbove = oldEffectiveRows - b.rows
+	}
+
+	// Check if user was viewing scrollback before resize
+	// (scrollOffset > logicalHiddenAbove means boundary line would be visible or past it)
+	wasViewingScrollback := b.scrollOffset > oldLogicalHiddenAbove
+
 	b.cols = cols
 	b.rows = rows
 
@@ -371,9 +382,21 @@ func (b *Buffer) Resize(cols, rows int) {
 		b.cursorY = effectiveRows - 1
 	}
 
-	// Clamp scroll offset after resize - when physical window gets larger,
-	// logicalHiddenAbove decreases and scrollOffset might be too high.
-	// This prevents blank lines appearing above logical line 0.
+	// Calculate new logicalHiddenAbove after resize
+	newLogicalHiddenAbove := 0
+	if effectiveRows > rows {
+		newLogicalHiddenAbove = effectiveRows - rows
+	}
+
+	// Preserve scrollback visibility state:
+	// If user was NOT viewing scrollback before, don't let resize reveal scrollback.
+	// Instead, allow blank lines at the bottom and favor showing more of the logical screen.
+	if !wasViewingScrollback && b.scrollOffset > newLogicalHiddenAbove {
+		// Cap scrollOffset so scrollback doesn't become visible
+		b.scrollOffset = newLogicalHiddenAbove
+	}
+
+	// Also clamp to maximum scroll offset (scrollback + hidden + magnetic threshold)
 	maxOffset := b.getMaxScrollOffsetInternal()
 	if b.scrollOffset > maxOffset {
 		b.scrollOffset = maxOffset
