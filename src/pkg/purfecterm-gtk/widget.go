@@ -1215,26 +1215,35 @@ func (w *Widget) onCornerButtonPress(da *gtk.DrawingArea, event *gdk.Event) bool
 		return false
 	}
 
-	window, ok := toplevel.(*gtk.Window)
-	if !ok {
-		return false
-	}
-
 	// Get root coordinates for the resize drag using C helper
 	var rootX, rootY C.double
 	C.get_button_root_coords((*C.GdkEvent)(unsafe.Pointer(event.Native())), &rootX, &rootY)
 
-	// Initiate resize from bottom-right corner
-	// GDK_WINDOW_EDGE_SOUTH_EAST = 4
-	window.BeginResizeDrag(
-		gdk.WindowEdge(4), // SOUTH_EAST
-		gdk.BUTTON_PRIMARY,
-		int(rootX),
-		int(rootY),
-		buttonEvent.Time(),
-	)
+	// Try both Window and ApplicationWindow types
+	// (ApplicationWindow embeds Window, but Go type assertion needs exact type)
+	switch win := toplevel.(type) {
+	case *gtk.ApplicationWindow:
+		// ApplicationWindow embeds Window, use the embedded Window's method
+		win.Window.BeginResizeDrag(
+			gdk.WindowEdge(4), // SOUTH_EAST
+			gdk.BUTTON_PRIMARY,
+			int(rootX),
+			int(rootY),
+			buttonEvent.Time(),
+		)
+		return true
+	case *gtk.Window:
+		win.BeginResizeDrag(
+			gdk.WindowEdge(4), // SOUTH_EAST
+			gdk.BUTTON_PRIMARY,
+			int(rootX),
+			int(rootY),
+			buttonEvent.Time(),
+		)
+		return true
+	}
 
-	return true
+	return false
 }
 
 // SetInputCallback sets the callback for handling input
