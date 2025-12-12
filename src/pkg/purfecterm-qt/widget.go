@@ -159,10 +159,12 @@ type Widget struct {
 	mouseDown       bool
 	mouseDownX      int
 	mouseDownY      int
-	selectionMoved  bool
-	autoScrollTimer *qt.QTimer // Timer for auto-scrolling
-	autoScrollDelta int        // Scroll direction (-1=up, 1=down), magnitude used for speed
-	lastMouseX      int        // Last known mouse X cell position
+	selectionMoved       bool
+	autoScrollTimer      *qt.QTimer // Timer for auto-scrolling
+	autoScrollDelta      int        // Vertical scroll direction (-1=up, 1=down), magnitude used for speed
+	autoScrollHorizDelta int        // Horizontal scroll direction (-1=left, 1=right), magnitude for speed
+	lastMouseX           int        // Last known mouse X cell position
+	lastMouseY           int        // Last known mouse Y cell position
 
 	// Update coalescing for thread-safe redraws
 	updatePending bool
@@ -2521,48 +2523,78 @@ func (w *Widget) mouseMoveEvent(event *qt.QMouseEvent) {
 		}
 	}
 
-	// Track last mouse X for auto-scroll selection updates
+	// Track last mouse position for auto-scroll selection updates
 	w.lastMouseX = cellX
+	w.lastMouseY = cellY
 
-	// Check for auto-scroll: mouse beyond top or bottom edge
-	_, rows := w.buffer.GetSize()
+	// Get terminal dimensions for edge detection
+	cols, rows := w.buffer.GetSize()
+	charWidth := w.charWidth
 	charHeight := w.charHeight
+	mouseX := pos.X()
 	mouseY := pos.Y()
+	terminalWidth := cols * charWidth
 	terminalHeight := rows * charHeight
 
+	// Check for vertical auto-scroll: mouse beyond top or bottom edge
+	vertDelta := 0
 	if mouseY < 0 {
 		// Above top edge - scroll up
 		rowsAbove := (-mouseY / charHeight) + 1
 		if rowsAbove > 5 {
 			rowsAbove = 5 // Cap speed
 		}
-		w.startAutoScroll(-rowsAbove)
+		vertDelta = -rowsAbove
 	} else if mouseY >= terminalHeight {
 		// Below bottom edge - scroll down
 		rowsBelow := ((mouseY - terminalHeight) / charHeight) + 1
 		if rowsBelow > 5 {
 			rowsBelow = 5 // Cap speed
 		}
-		w.startAutoScroll(rowsBelow)
+		vertDelta = rowsBelow
+	}
+
+	// Check for horizontal auto-scroll: mouse beyond left or right edge
+	horizDelta := 0
+	if mouseX < 0 {
+		// Left of left edge - scroll left
+		colsLeft := (-mouseX / charWidth) + 1
+		if colsLeft > 5 {
+			colsLeft = 5 // Cap speed
+		}
+		horizDelta = -colsLeft
+	} else if mouseX >= terminalWidth {
+		// Right of right edge - scroll right
+		colsRight := ((mouseX - terminalWidth) / charWidth) + 1
+		if colsRight > 5 {
+			colsRight = 5 // Cap speed
+		}
+		horizDelta = colsRight
+	}
+
+	// Start or update auto-scroll based on edge crossing
+	if vertDelta != 0 || horizDelta != 0 {
+		w.startAutoScroll(vertDelta, horizDelta)
 	} else {
-		// Mouse is within terminal area - stop auto-scroll
 		w.stopAutoScroll()
 	}
 
 	w.buffer.UpdateSelection(cellX, cellY)
 }
 
-// startAutoScroll begins auto-scrolling in the given direction
-// delta: negative = scroll up (toward scrollback), positive = scroll down (toward current)
-func (w *Widget) startAutoScroll(delta int) {
-	if delta == 0 {
+// startAutoScroll begins auto-scrolling in the given direction(s)
+// vertDelta: negative = scroll up (toward scrollback), positive = scroll down (toward current)
+// horizDelta: negative = scroll left, positive = scroll right
+func (w *Widget) startAutoScroll(vertDelta, horizDelta int) {
+	if vertDelta == 0 && horizDelta == 0 {
 		w.stopAutoScroll()
 		return
 	}
 
-	w.autoScrollDelta = delta
+	w.autoScrollDelta = vertDelta
+	w.autoScrollHorizDelta = horizDelta
 
-	// If timer already running, just update the delta
+	// If timer already running, just update the deltas
 	if w.autoScrollTimer != nil {
 		return
 	}
@@ -2570,48 +2602,80 @@ func (w *Widget) startAutoScroll(delta int) {
 	// Create and start auto-scroll timer (fires every 50ms for smooth scrolling)
 	w.autoScrollTimer = qt.NewQTimer2(w.widget.QObject)
 	w.autoScrollTimer.OnTimeout(func() {
-		if !w.selecting || w.autoScrollDelta == 0 {
+		if !w.selecting || (w.autoScrollDelta == 0 && w.autoScrollHorizDelta == 0) {
 			w.stopAutoScroll()
 			return
 		}
 
-		// Get current scroll offset
-		offset := w.buffer.GetScrollOffset()
-		maxOffset := w.buffer.GetMaxScrollOffset()
+		cols, rows := w.buffer.GetSize()
+		selX := w.lastMouseX
+		selY := w.lastMouseY
 
-		// Calculate scroll amount based on delta magnitude
-		scrollAmount := w.autoScrollDelta
-		if scrollAmount < 0 {
-			scrollAmount = -scrollAmount
-		}
+		// Handle vertical scrolling
+		if w.autoScrollDelta != 0 {
+			offset := w.buffer.GetScrollOffset()
+			maxOffset := w.buffer.GetMaxScrollOffset()
 
-		// Apply scroll
-		if w.autoScrollDelta < 0 {
-			// Scroll up (toward scrollback)
-			offset += scrollAmount
-			if offset > maxOffset {
-				offset = maxOffset
+			// Calculate scroll amount based on delta magnitude
+			scrollAmount := w.autoScrollDelta
+			if scrollAmount < 0 {
+				scrollAmount = -scrollAmount
 			}
-		} else {
-			// Scroll down (toward current)
-			offset -= scrollAmount
-			if offset < 0 {
-				offset = 0
-			}
-		}
-		w.buffer.SetScrollOffset(offset)
 
-		// Update selection to edge
-		_, rows := w.buffer.GetSize()
-		if w.autoScrollDelta < 0 {
-			// Scrolling up - selection extends to top row
-			w.buffer.UpdateSelection(w.lastMouseX, 0)
-		} else {
-			// Scrolling down - selection extends to bottom row
-			w.buffer.UpdateSelection(w.lastMouseX, rows-1)
+			// Apply vertical scroll
+			if w.autoScrollDelta < 0 {
+				// Scroll up (toward scrollback)
+				offset += scrollAmount
+				if offset > maxOffset {
+					offset = maxOffset
+				}
+				selY = 0 // Selection extends to top row
+			} else {
+				// Scroll down (toward current)
+				offset -= scrollAmount
+				if offset < 0 {
+					offset = 0
+				}
+				selY = rows - 1 // Selection extends to bottom row
+			}
+			w.buffer.SetScrollOffset(offset)
 		}
+
+		// Handle horizontal scrolling
+		if w.autoScrollHorizDelta != 0 {
+			horizOffset := w.buffer.GetHorizOffset()
+			maxHorizOffset := w.buffer.GetMaxHorizOffset()
+
+			// Calculate scroll amount based on delta magnitude
+			scrollAmount := w.autoScrollHorizDelta
+			if scrollAmount < 0 {
+				scrollAmount = -scrollAmount
+			}
+
+			// Apply horizontal scroll
+			if w.autoScrollHorizDelta < 0 {
+				// Scroll left
+				horizOffset -= scrollAmount
+				if horizOffset < 0 {
+					horizOffset = 0
+				}
+				selX = 0 // Selection extends to left edge
+			} else {
+				// Scroll right
+				horizOffset += scrollAmount
+				if horizOffset > maxHorizOffset {
+					horizOffset = maxHorizOffset
+				}
+				selX = cols - 1 // Selection extends to right edge
+			}
+			w.buffer.SetHorizOffset(horizOffset)
+		}
+
+		// Update selection to appropriate edge(s)
+		w.buffer.UpdateSelection(selX, selY)
 
 		w.updateScrollbar()
+		w.updateHorizScrollbar()
 		w.widget.Update()
 	})
 	w.autoScrollTimer.Start(50)
@@ -2624,6 +2688,7 @@ func (w *Widget) stopAutoScroll() {
 		w.autoScrollTimer = nil
 	}
 	w.autoScrollDelta = 0
+	w.autoScrollHorizDelta = 0
 }
 
 func (w *Widget) wheelEvent(event *qt.QWheelEvent) {

@@ -2101,12 +2101,10 @@ func (b *Buffer) CheckCursorAutoScrollHoriz() bool {
 	// Apply the scroll
 	if scrollAmount > 0 {
 		if scrollLeft {
-			// Scroll one extra position left to show the character that was just typed
-			// (since cursor lands one position to the right of the output)
-			// unless we're already at or would be at position 0
-			if b.horizOffset > scrollAmount {
-				scrollAmount++
-			}
+			// Always scroll one extra position left to keep the cursor away from
+			// the edge. This provides a visual buffer so the character isn't at
+			// the very edge of the visible area.
+			scrollAmount++
 			b.horizOffset -= scrollAmount
 			if b.horizOffset < 0 {
 				b.horizOffset = 0
