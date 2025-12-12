@@ -1020,6 +1020,7 @@ func runScriptInWindow(gtkApp *gtk.Application, scriptContent, scriptFile string
 
 	// Narrow strip for script window (always starts visible, collapsible)
 	strip, _, _ := createToolbarStrip(win, true)
+	strip.SetSizeRequest(minNarrowStripWidth, -1) // Fixed width
 	paned.Pack1(strip, false, true)
 
 	// Terminal on the right
@@ -1030,11 +1031,18 @@ func runScriptInWindow(gtkApp *gtk.Application, scriptContent, scriptFile string
 	paned.Pack2(termWidget, true, false)
 
 	// Set initial strip width and collapse behavior
+	// Script windows only have two positions: 0 (collapsed) or minNarrowStripWidth (visible)
 	paned.SetPosition(minNarrowStripWidth)
 	paned.Connect("notify::position", func() {
 		pos := paned.GetPosition()
-		if pos > 0 && pos < minNarrowStripWidth {
-			paned.SetPosition(0) // Snap to collapsed
+		if pos == 0 {
+			// Already collapsed, do nothing
+		} else if pos < minNarrowStripWidth/2 {
+			// Less than half - snap to collapsed
+			paned.SetPosition(0)
+		} else if pos != minNarrowStripWidth {
+			// More than half but not at fixed width - snap to visible
+			paned.SetPosition(minNarrowStripWidth)
 		}
 	})
 
@@ -2011,6 +2019,7 @@ func createConsoleWindow(filePath string) {
 
 	// Narrow strip for script window (always starts visible, collapsible)
 	strip, _, _ := createToolbarStrip(win, true)
+	strip.SetSizeRequest(minNarrowStripWidth, -1) // Fixed width
 	paned.Pack1(strip, false, true)
 
 	// Terminal on the right
@@ -2021,11 +2030,18 @@ func createConsoleWindow(filePath string) {
 	paned.Pack2(termWidget, true, false)
 
 	// Set initial strip width and collapse behavior
+	// Script windows only have two positions: 0 (collapsed) or minNarrowStripWidth (visible)
 	paned.SetPosition(minNarrowStripWidth)
 	paned.Connect("notify::position", func() {
 		pos := paned.GetPosition()
-		if pos > 0 && pos < minNarrowStripWidth {
-			paned.SetPosition(0) // Snap to collapsed
+		if pos == 0 {
+			// Already collapsed, do nothing
+		} else if pos < minNarrowStripWidth/2 {
+			// Less than half - snap to collapsed
+			paned.SetPosition(0)
+		} else if pos != minNarrowStripWidth {
+			// More than half but not at fixed width - snap to visible
+			paned.SetPosition(minNarrowStripWidth)
 		}
 	})
 
