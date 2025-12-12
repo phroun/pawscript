@@ -76,7 +76,7 @@ type QtToolbarButton struct {
 
 // Minimum widths for panel collapse behavior
 const (
-	minWidePanelWidth   = 150 // Minimum width before wide panel collapses
+	minWidePanelWidth   = 196 // Minimum width before wide panel collapses
 	minNarrowStripWidth = 40  // Minimum width before narrow strip collapses
 )
 
@@ -490,10 +490,15 @@ func setDummyButtons(count int) {
 		launcherRegisteredBtns = append(launcherRegisteredBtns, btn)
 	}
 
-	// Update the toolbar strip on Qt main thread using a 0ms timer
-	qt.QTimer_SingleShot(0, func() {
-		updateLauncherToolbarButtons()
-	})
+	// Update the toolbar strip on Qt main thread using a single-shot timer
+	if mainWindow != nil {
+		timer := qt.NewQTimer2(mainWindow.QObject)
+		timer.SetSingleShot(true)
+		timer.OnTimeout(func() {
+			updateLauncherToolbarButtons()
+		})
+		timer.Start(0)
+	}
 }
 
 // registerDummyButtonCommand registers the dummy_button command with PawScript
