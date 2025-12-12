@@ -735,7 +735,6 @@ func (ps *PawScript) StopKeyInputManager() error {
 	inputCh := ps.executor.keyInputChannel
 	ps.executor.keyInputManager = nil
 	ps.executor.keyInputChannel = nil
-	ps.executor.keyInputOwner = nil
 	ps.executor.mu.Unlock()
 
 	if manager == nil {
