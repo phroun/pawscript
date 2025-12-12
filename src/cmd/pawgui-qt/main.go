@@ -30,13 +30,13 @@ const appName = "PawScript Launcher (Qt)"
 
 // Global state
 var (
-	currentDir string
-	qtApp      *qt.QApplication
-	mainWindow *qt.QMainWindow
-	fileList   *qt.QListWidget
-	terminal   *purfectermqt.Terminal
-	pathButton *qt.QPushButton // Path selector button with dropdown menu
-	pathMenu   *qt.QMenu       // Dropdown menu for path selection
+	currentDir   string
+	qtApp        *qt.QApplication
+	mainWindow   *qt.QMainWindow
+	fileList     *qt.QListWidget
+	terminal     *purfectermqt.Terminal
+	pathButton   *qt.QPushButton // Path selector button with dropdown menu
+	pathMenu     *qt.QMenu       // Dropdown menu for path selection
 	runButton    *qt.QPushButton
 	browseButton *qt.QPushButton
 
@@ -58,22 +58,38 @@ var (
 	configHelper *pawgui.ConfigHelper
 
 	// Launcher narrow strip (for multiple toolbar buttons)
-	launcherNarrowStrip   *qt.QWidget   // The narrow strip container
-	launcherMenuButton    *qt.QPushButton // Hamburger button in path selector (when strip hidden)
-	launcherStripMenuBtn  *qt.QPushButton // Hamburger button in narrow strip (when strip visible)
-	launcherWidePanel     *qt.QWidget   // The wide panel (file browser)
+	launcherNarrowStrip    *qt.QWidget        // The narrow strip container
+	launcherMenuButton     *qt.QPushButton    // Hamburger button in path selector (when strip hidden)
+	launcherStripMenuBtn   *qt.QPushButton    // Hamburger button in narrow strip (when strip visible)
+	launcherWidePanel      *qt.QWidget        // The wide panel (file browser)
 	launcherRegisteredBtns []*QtToolbarButton // Additional registered buttons for launcher
-	pendingToolbarUpdate  bool // Flag to signal main thread to update toolbar
+	pendingToolbarUpdate   bool               // Flag to signal main thread to update toolbar
+	splitterAdjusting      bool               // Flag to prevent recursive splitter callbacks
 )
 
 // QtToolbarButton represents a registered toolbar button for Qt
 type QtToolbarButton struct {
-	Icon     string           // Icon name or path
-	Tooltip  string           // Tooltip text
-	OnClick  func()           // Click handler
-	Menu     *qt.QMenu        // Optional dropdown menu (if nil, OnClick is used)
-	widget   *qt.QPushButton  // The actual button widget
+	Icon    string          // Icon name or path
+	Tooltip string          // Tooltip text
+	OnClick func()          // Click handler
+	Menu    *qt.QMenu       // Optional dropdown menu (if nil, OnClick is used)
+	widget  *qt.QPushButton // The actual button widget
 }
+
+// QtWindowToolbarData holds per-window toolbar state for dummy_button command
+type QtWindowToolbarData struct {
+	strip          *qt.QWidget            // The narrow strip container
+	registeredBtns []*QtToolbarButton     // Additional registered buttons
+	terminal       *purfectermqt.Terminal // Terminal for Feed() calls
+	updateFunc     func()                 // Function to update the strip's buttons
+}
+
+// Per-window toolbar data (keyed by PawScript instance)
+var (
+	qtToolbarDataByPS   = make(map[*pawscript.PawScript]*QtWindowToolbarData)
+	qtToolbarDataMu     sync.Mutex
+	launcherToolbarData *QtWindowToolbarData // Toolbar data for the launcher window
+)
 
 // Minimum widths for panel collapse behavior
 const (
@@ -142,18 +158,18 @@ func saveBrowseDir(dir string) {
 }
 
 // Configuration getter wrappers using shared configHelper
-func getFontFamily() string                   { return configHelper.GetFontFamily() }
-func getFontFamilyUnicode() string            { return configHelper.GetFontFamilyUnicode() }
-func getFontFamilyCJK() string                { return configHelper.GetFontFamilyCJK() }
-func getFontSize() int                        { return configHelper.GetFontSize() }
-func getUIScale() float64                     { return configHelper.GetUIScale() }
-func getOptimizationLevel() int               { return configHelper.GetOptimizationLevel() }
-func getTerminalBackground() purfecterm.Color { return configHelper.GetTerminalBackground() }
-func getTerminalForeground() purfecterm.Color { return configHelper.GetTerminalForeground() }
-func getColorPalette() []purfecterm.Color     { return configHelper.GetColorPalette() }
-func getBlinkMode() purfecterm.BlinkMode      { return configHelper.GetBlinkMode() }
-func getQuitShortcut() string                 { return configHelper.GetQuitShortcut() }
-func getDefaultQuitShortcut() string          { return pawgui.GetDefaultQuitShortcut() }
+func getFontFamily() string                      { return configHelper.GetFontFamily() }
+func getFontFamilyUnicode() string               { return configHelper.GetFontFamilyUnicode() }
+func getFontFamilyCJK() string                   { return configHelper.GetFontFamilyCJK() }
+func getFontSize() int                           { return configHelper.GetFontSize() }
+func getUIScale() float64                        { return configHelper.GetUIScale() }
+func getOptimizationLevel() int                  { return configHelper.GetOptimizationLevel() }
+func getTerminalBackground() purfecterm.Color    { return configHelper.GetTerminalBackground() }
+func getTerminalForeground() purfecterm.Color    { return configHelper.GetTerminalForeground() }
+func getColorPalette() []purfecterm.Color        { return configHelper.GetColorPalette() }
+func getBlinkMode() purfecterm.BlinkMode         { return configHelper.GetBlinkMode() }
+func getQuitShortcut() string                    { return configHelper.GetQuitShortcut() }
+func getDefaultQuitShortcut() string             { return pawgui.GetDefaultQuitShortcut() }
 func getPSLColors() pawscript.DisplayColorConfig { return configHelper.GetPSLColors() }
 
 func showCopyright() {
@@ -470,7 +486,77 @@ func updateLauncherToolbarButtons() {
 	}
 }
 
-// setDummyButtons sets the number of dummy buttons in the toolbar strip
+// updateWindowToolbarButtons updates a window's toolbar strip with its registered buttons
+func updateWindowToolbarButtons(strip *qt.QWidget, buttons []*QtToolbarButton) {
+	if strip == nil {
+		return
+	}
+
+	// Get the strip's layout
+	layout := strip.Layout()
+	if layout == nil {
+		return
+	}
+	vbox := qt.UnsafeNewQVBoxLayout(layout.UnsafePointer())
+
+	// Remove existing dummy buttons (but keep the hamburger menu button and stretch at the end)
+	// We skip index 0 (hamburger) and the stretch item at the end
+	for vbox.Count() > 2 {
+		item := vbox.TakeAt(1)
+		if item != nil && item.Widget() != nil {
+			item.Widget().DeleteLater()
+		}
+	}
+
+	// Add new dummy buttons (insert after hamburger button, before stretch)
+	for _, btn := range buttons {
+		button := qt.NewQPushButton3(btn.Icon)
+		button.SetFixedSize2(32, 32)
+		button.SetToolTip(btn.Tooltip)
+		if btn.OnClick != nil {
+			callback := btn.OnClick // Capture for closure
+			button.OnClicked(func() {
+				callback()
+			})
+		}
+		btn.widget = button
+		vbox.InsertWidget(vbox.Count()-1, button.QWidget) // Insert before stretch
+	}
+
+	// Always show the strip when it has a hamburger button (console windows)
+	strip.Show()
+}
+
+// setDummyButtonsForWindow sets the number of dummy buttons for a specific window
+func setDummyButtonsForWindow(data *QtWindowToolbarData, count int) {
+	// Clear existing dummy buttons
+	data.registeredBtns = nil
+
+	// Add new dummy buttons
+	for i := 0; i < count; i++ {
+		icon := dummyIcons[i%len(dummyIcons)]
+		idx := i              // Capture for closure
+		term := data.terminal // Capture terminal for closure
+		btn := &QtToolbarButton{
+			Icon:    icon,
+			Tooltip: fmt.Sprintf("Dummy Button %d", i+1),
+			OnClick: func() {
+				if term != nil {
+					term.Feed(fmt.Sprintf("\r\nDummy button %d clicked!\r\n", idx+1))
+				}
+			},
+		}
+		data.registeredBtns = append(data.registeredBtns, btn)
+	}
+
+	// Signal the main thread to update the toolbar strip
+	// The uiUpdateTimer will check this flag and call the updateFunc
+	if data.updateFunc != nil {
+		pendingToolbarUpdate = true
+	}
+}
+
+// setDummyButtons sets the number of dummy buttons in the launcher toolbar strip (legacy)
 func setDummyButtons(count int) {
 	// Clear existing dummy buttons
 	launcherRegisteredBtns = nil
@@ -497,7 +583,13 @@ func setDummyButtons(count int) {
 }
 
 // registerDummyButtonCommand registers the dummy_button command with PawScript
-func registerDummyButtonCommand(ps *pawscript.PawScript) {
+// using per-window toolbar data
+func registerDummyButtonCommand(ps *pawscript.PawScript, data *QtWindowToolbarData) {
+	// Store the association
+	qtToolbarDataMu.Lock()
+	qtToolbarDataByPS[ps] = data
+	qtToolbarDataMu.Unlock()
+
 	ps.RegisterCommand("dummy_button", func(ctx *pawscript.Context) pawscript.Result {
 		if len(ctx.Args) < 1 {
 			ctx.LogError(pawscript.CatCommand, "dummy_button requires a count argument")
@@ -525,7 +617,8 @@ func registerDummyButtonCommand(ps *pawscript.PawScript) {
 			count = 20 // Cap at 20 buttons
 		}
 
-		setDummyButtons(count)
+		// Use the captured window data
+		setDummyButtonsForWindow(data, count)
 		ctx.SetResult(count)
 		return pawscript.BoolStatus(true)
 	})
@@ -920,7 +1013,7 @@ func launchGUIMode() {
 	// Narrow strip: toolbar buttons (created but hidden initially - only 1 button)
 	launcherNarrowStrip, launcherStripMenuBtn, _ = createToolbarStrip(leftContainer, false)
 	launcherNarrowStrip.SetFixedWidth(minNarrowStripWidth) // Fixed width
-	launcherNarrowStrip.Hide() // Hidden initially since we only have 1 button
+	launcherNarrowStrip.Hide()                             // Hidden initially since we only have 1 button
 	leftLayout.AddWidget(launcherNarrowStrip)
 
 	// Initially: hamburger button visible in path selector, narrow strip hidden
@@ -950,16 +1043,31 @@ func launchGUIMode() {
 		if index != 1 {
 			return
 		}
+		// Prevent recursive callbacks when we call SetSizes
+		if splitterAdjusting {
+			return
+		}
+
 		hasMultipleButtons := len(launcherRegisteredBtns) > 0
 
 		// Calculate threshold for showing both panels (wide panel needs its min width plus narrow strip width)
 		bothThreshold := minWidePanelWidth + minNarrowStripWidth
 
-		if pos < minNarrowStripWidth {
+		// Use halfway points for snapping decisions
+		narrowSnapPoint := minNarrowStripWidth / 2 // 20 - below this, collapse fully
+
+		if pos < narrowSnapPoint {
 			// Too narrow even for strip - collapse fully
+			splitterAdjusting = true
 			splitter.SetSizes([]int{0, splitter.Width()})
+			splitterAdjusting = false
+			// Hide everything
+			launcherWidePanel.Hide()
+			launcherNarrowStrip.Hide()
+			launcherMenuButton.Show()
+			saveLauncherWidth(0)
 		} else if hasMultipleButtons && pos < bothThreshold {
-			// Multiple buttons mode: between narrow strip width and both-panels threshold
+			// Multiple buttons mode: between narrow snap point and both-panels threshold
 			// Show only narrow strip at its fixed width
 			launcherWidePanel.Hide()
 			launcherNarrowStrip.Show()
@@ -967,12 +1075,20 @@ func launchGUIMode() {
 			launcherStripMenuBtn.Show()
 			// Snap to just the narrow strip width
 			if pos != minNarrowStripWidth {
+				splitterAdjusting = true
 				splitter.SetSizes([]int{minNarrowStripWidth, splitter.Width() - minNarrowStripWidth})
+				splitterAdjusting = false
 			}
 			saveLauncherWidth(minNarrowStripWidth)
-		} else if !hasMultipleButtons && pos < minWidePanelWidth {
-			// Single button mode, below wide threshold - collapse
+		} else if !hasMultipleButtons && pos < minWidePanelWidth/2 {
+			// Single button mode, below halfway to wide threshold - collapse
+			splitterAdjusting = true
 			splitter.SetSizes([]int{0, splitter.Width()})
+			splitterAdjusting = false
+			launcherWidePanel.Hide()
+			launcherNarrowStrip.Hide()
+			launcherMenuButton.Show()
+			saveLauncherWidth(0)
 		} else {
 			// Wide enough for full panel
 			launcherWidePanel.Show()
@@ -1768,7 +1884,17 @@ func startREPL() {
 	consoleREPL.Start()
 
 	// Register the dummy_button command with the REPL's PawScript instance
-	registerDummyButtonCommand(consoleREPL.GetPawScript())
+	// Create launcher toolbar data that uses the global launcher strip
+	launcherToolbarData = &QtWindowToolbarData{
+		strip:    launcherNarrowStrip,
+		terminal: terminal,
+		updateFunc: func() {
+			// Copy buttons to global for launcher-specific visibility logic
+			launcherRegisteredBtns = launcherToolbarData.registeredBtns
+			updateLauncherToolbarButtons()
+		},
+	}
+	registerDummyButtonCommand(consoleREPL.GetPawScript(), launcherToolbarData)
 }
 
 // fileItemData stores path and isDir for list items
@@ -2140,7 +2266,9 @@ func runScript(filePath string) {
 			consoleREPL.Start()
 
 			// Re-register the dummy_button command with the new REPL instance
-			registerDummyButtonCommand(consoleREPL.GetPawScript())
+			// Reuse the existing launcherToolbarData with the new terminal reference
+			launcherToolbarData.terminal = terminal
+			registerDummyButtonCommand(consoleREPL.GetPawScript(), launcherToolbarData)
 		}
 	}()
 }
@@ -2459,6 +2587,14 @@ func createConsoleWindow(filePath string) {
 		winREPL.Start()
 
 		// Register the dummy_button command with the window's REPL
-		registerDummyButtonCommand(winREPL.GetPawScript())
+		// Create window-specific toolbar data
+		winToolbarData := &QtWindowToolbarData{
+			strip:    winNarrowStrip,
+			terminal: winTerminal,
+		}
+		winToolbarData.updateFunc = func() {
+			updateWindowToolbarButtons(winToolbarData.strip, winToolbarData.registeredBtns)
+		}
+		registerDummyButtonCommand(winREPL.GetPawScript(), winToolbarData)
 	}()
 }

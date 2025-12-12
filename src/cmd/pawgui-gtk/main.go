@@ -99,30 +99,43 @@ var (
 	configHelper *pawgui.ConfigHelper
 
 	// Launcher narrow strip (for multiple toolbar buttons)
-	launcherNarrowStrip   *gtk.Box    // The narrow strip container
-	launcherMenuButton    *gtk.Button // Hamburger button in path selector (when strip hidden)
-	launcherStripMenuBtn  *gtk.Button // Hamburger button in narrow strip (when strip visible)
-	launcherWidePanel     *gtk.Box    // The wide panel (file browser)
-	launcherRegisteredBtns []*ToolbarButton // Additional registered buttons for launcher
+	launcherNarrowStrip    *gtk.Box           // The narrow strip container
+	launcherMenuButton     *gtk.Button        // Hamburger button in path selector (when strip hidden)
+	launcherStripMenuBtn   *gtk.Button        // Hamburger button in narrow strip (when strip visible)
+	launcherWidePanel      *gtk.Box           // The wide panel (file browser)
+	launcherRegisteredBtns []*ToolbarButton   // Additional registered buttons for launcher
+	launcherToolbarData    *WindowToolbarData // Toolbar data for the launcher window
+
+	// Per-window toolbar data (keyed by PawScript instance)
+	toolbarDataByPS = make(map[*pawscript.PawScript]*WindowToolbarData)
+	toolbarDataMu   sync.Mutex
 )
+
+// WindowToolbarData holds per-window toolbar state for dummy_button command
+type WindowToolbarData struct {
+	strip          *gtk.Box                // The narrow strip container
+	registeredBtns []*ToolbarButton        // Additional registered buttons
+	terminal       *purfectermgtk.Terminal // Terminal for Feed() calls
+	updateFunc     func()                  // Function to update the strip's buttons
+}
 
 // ToolbarButton represents a registered toolbar button
 type ToolbarButton struct {
-	Icon     string           // Icon name or path
-	Tooltip  string           // Tooltip text
-	OnClick  func()           // Click handler
-	Menu     *gtk.Menu        // Optional dropdown menu (if nil, OnClick is used)
-	widget   *gtk.Button      // The actual button widget
+	Icon    string      // Icon name or path
+	Tooltip string      // Tooltip text
+	OnClick func()      // Click handler
+	Menu    *gtk.Menu   // Optional dropdown menu (if nil, OnClick is used)
+	widget  *gtk.Button // The actual button widget
 }
 
 // ToolbarStrip manages a collapsible strip of toolbar buttons
 type ToolbarStrip struct {
-	container      *gtk.Box          // The strip container
-	buttons        []*ToolbarButton  // Registered buttons (excluding mandatory first)
-	menuButton     *gtk.Button       // The mandatory hamburger menu button
-	menu           *gtk.Menu         // The hamburger menu
-	minWidth       int               // Minimum width before collapsing
-	isScriptWindow bool              // True if this is a script window (no wide panel)
+	container      *gtk.Box         // The strip container
+	buttons        []*ToolbarButton // Registered buttons (excluding mandatory first)
+	menuButton     *gtk.Button      // The mandatory hamburger menu button
+	menu           *gtk.Menu        // The hamburger menu
+	minWidth       int              // Minimum width before collapsing
+	isScriptWindow bool             // True if this is a script window (no wide panel)
 }
 
 // --- Configuration Management ---
@@ -191,18 +204,18 @@ func saveBrowseDir(dir string) {
 }
 
 // Configuration getter wrappers using shared configHelper
-func getFontFamily() string          { return configHelper.GetFontFamily() }
-func getFontFamilyUnicode() string   { return configHelper.GetFontFamilyUnicode() }
-func getFontFamilyCJK() string       { return configHelper.GetFontFamilyCJK() }
-func getFontSize() int               { return configHelper.GetFontSize() }
-func getUIScale() float64            { return configHelper.GetUIScale() }
-func getOptimizationLevel() int      { return configHelper.GetOptimizationLevel() }
-func getTerminalBackground() purfecterm.Color { return configHelper.GetTerminalBackground() }
-func getTerminalForeground() purfecterm.Color { return configHelper.GetTerminalForeground() }
-func getColorPalette() []purfecterm.Color     { return configHelper.GetColorPalette() }
-func getBlinkMode() purfecterm.BlinkMode      { return configHelper.GetBlinkMode() }
-func getQuitShortcut() string        { return configHelper.GetQuitShortcut() }
-func getDefaultQuitShortcut() string { return pawgui.GetDefaultQuitShortcut() }
+func getFontFamily() string                      { return configHelper.GetFontFamily() }
+func getFontFamilyUnicode() string               { return configHelper.GetFontFamilyUnicode() }
+func getFontFamilyCJK() string                   { return configHelper.GetFontFamilyCJK() }
+func getFontSize() int                           { return configHelper.GetFontSize() }
+func getUIScale() float64                        { return configHelper.GetUIScale() }
+func getOptimizationLevel() int                  { return configHelper.GetOptimizationLevel() }
+func getTerminalBackground() purfecterm.Color    { return configHelper.GetTerminalBackground() }
+func getTerminalForeground() purfecterm.Color    { return configHelper.GetTerminalForeground() }
+func getColorPalette() []purfecterm.Color        { return configHelper.GetColorPalette() }
+func getBlinkMode() purfecterm.BlinkMode         { return configHelper.GetBlinkMode() }
+func getQuitShortcut() string                    { return configHelper.GetQuitShortcut() }
+func getDefaultQuitShortcut() string             { return pawgui.GetDefaultQuitShortcut() }
 func getPSLColors() pawscript.DisplayColorConfig { return configHelper.GetPSLColors() }
 
 // getLauncherWidth returns the saved launcher panel width, defaulting to 280
@@ -452,7 +465,80 @@ func updateLauncherToolbarButtons() {
 	}
 }
 
-// setDummyButtons sets the number of dummy buttons in the toolbar strip
+// updateWindowToolbarButtons updates a window's toolbar strip with its registered buttons
+func updateWindowToolbarButtons(strip *gtk.Box, buttons []*ToolbarButton) {
+	if strip == nil {
+		return
+	}
+
+	// Remove existing dummy buttons (but keep the hamburger menu button as first child)
+	var toRemove []gtk.IWidget
+	i := 0
+	strip.GetChildren().Foreach(func(item interface{}) {
+		if i > 0 { // Skip first child (hamburger button)
+			if widget, ok := item.(gtk.IWidget); ok {
+				toRemove = append(toRemove, widget)
+			}
+		}
+		i++
+	})
+	for _, widget := range toRemove {
+		strip.Remove(widget)
+	}
+
+	// Add new dummy buttons
+	for _, btn := range buttons {
+		button, _ := gtk.ButtonNewWithLabel(btn.Icon)
+		button.SetSizeRequest(32, 32)
+		button.SetTooltipText(btn.Tooltip)
+		if btn.OnClick != nil {
+			callback := btn.OnClick // Capture for closure
+			button.Connect("clicked", func() {
+				callback()
+			})
+		}
+		btn.widget = button
+		strip.PackStart(button, false, false, 0)
+		button.Show()
+	}
+
+	// Always show the strip when it has a hamburger button (console windows)
+	strip.Show()
+}
+
+// setDummyButtonsForWindow sets the number of dummy buttons for a specific window
+func setDummyButtonsForWindow(data *WindowToolbarData, count int) {
+	// Clear existing dummy buttons
+	data.registeredBtns = nil
+
+	// Add new dummy buttons
+	for i := 0; i < count; i++ {
+		icon := dummyIcons[i%len(dummyIcons)]
+		idx := i              // Capture for closure
+		term := data.terminal // Capture terminal for closure
+		btn := &ToolbarButton{
+			Icon:    icon,
+			Tooltip: fmt.Sprintf("Dummy Button %d", i+1),
+			OnClick: func() {
+				if term != nil {
+					term.Feed(fmt.Sprintf("\r\nDummy button %d clicked!\r\n", idx+1))
+				}
+			},
+		}
+		data.registeredBtns = append(data.registeredBtns, btn)
+	}
+
+	// Update the toolbar strip on GTK main thread
+	updateFunc := data.updateFunc
+	glib.IdleAdd(func() bool {
+		if updateFunc != nil {
+			updateFunc()
+		}
+		return false
+	})
+}
+
+// setDummyButtons sets the number of dummy buttons in the launcher toolbar strip (legacy)
 func setDummyButtons(count int) {
 	// Clear existing dummy buttons
 	launcherRegisteredBtns = nil
@@ -481,7 +567,13 @@ func setDummyButtons(count int) {
 }
 
 // registerDummyButtonCommand registers the dummy_button command with PawScript
-func registerDummyButtonCommand(ps *pawscript.PawScript) {
+// using per-window toolbar data
+func registerDummyButtonCommand(ps *pawscript.PawScript, data *WindowToolbarData) {
+	// Store the association
+	toolbarDataMu.Lock()
+	toolbarDataByPS[ps] = data
+	toolbarDataMu.Unlock()
+
 	ps.RegisterCommand("dummy_button", func(ctx *pawscript.Context) pawscript.Result {
 		if len(ctx.Args) < 1 {
 			ctx.LogError(pawscript.CatCommand, "dummy_button requires a count argument")
@@ -509,7 +601,8 @@ func registerDummyButtonCommand(ps *pawscript.PawScript) {
 			count = 20 // Cap at 20 buttons
 		}
 
-		setDummyButtons(count)
+		// Use the captured window data
+		setDummyButtonsForWindow(data, count)
 		ctx.SetResult(count)
 		return pawscript.BoolStatus(true)
 	})
@@ -1354,7 +1447,7 @@ func activate(application *gtk.Application) {
 
 	// Narrow strip: toolbar buttons (created but hidden initially - only 1 button)
 	launcherNarrowStrip, launcherStripMenuBtn, _ = createToolbarStrip(mainWindow, false)
-	launcherNarrowStrip.SetNoShowAll(true) // Don't show when ShowAll is called
+	launcherNarrowStrip.SetNoShowAll(true)                      // Don't show when ShowAll is called
 	launcherNarrowStrip.SetSizeRequest(minNarrowStripWidth, -1) // Fixed width
 	leftContainer.PackStart(launcherNarrowStrip, false, false, 0)
 
@@ -1972,7 +2065,9 @@ func runScript(filePath string) {
 			consoleREPL.Start()
 
 			// Re-register the dummy_button command with the new REPL instance
-			registerDummyButtonCommand(consoleREPL.GetPawScript())
+			// Reuse the existing launcherToolbarData with the new terminal reference
+			launcherToolbarData.terminal = terminal
+			registerDummyButtonCommand(consoleREPL.GetPawScript(), launcherToolbarData)
 		}
 	}()
 }
@@ -2345,7 +2440,15 @@ func createConsoleWindow(filePath string) {
 		winREPL.Start()
 
 		// Register the dummy_button command with the window's REPL
-		registerDummyButtonCommand(winREPL.GetPawScript())
+		// Create window-specific toolbar data
+		winToolbarData := &WindowToolbarData{
+			strip:    strip,
+			terminal: winTerminal,
+		}
+		winToolbarData.updateFunc = func() {
+			updateWindowToolbarButtons(winToolbarData.strip, winToolbarData.registeredBtns)
+		}
+		registerDummyButtonCommand(winREPL.GetPawScript(), winToolbarData)
 	}()
 }
 
@@ -2587,5 +2690,15 @@ func createConsoleChannels() {
 	consoleREPL.Start()
 
 	// Register the dummy_button command with the REPL's PawScript instance
-	registerDummyButtonCommand(consoleREPL.GetPawScript())
+	// Create launcher toolbar data that uses the global launcher strip
+	launcherToolbarData = &WindowToolbarData{
+		strip:    launcherNarrowStrip,
+		terminal: terminal,
+		updateFunc: func() {
+			// Copy buttons to global for launcher-specific visibility logic
+			launcherRegisteredBtns = launcherToolbarData.registeredBtns
+			updateLauncherToolbarButtons()
+		},
+	}
+	registerDummyButtonCommand(consoleREPL.GetPawScript(), launcherToolbarData)
 }
