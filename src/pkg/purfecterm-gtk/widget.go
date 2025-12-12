@@ -1245,7 +1245,7 @@ func (w *Widget) onCornerButtonPress(da *gtk.DrawingArea, event *gdk.Event) bool
 	case *gtk.ApplicationWindow:
 		// ApplicationWindow embeds Window, use the embedded Window's method
 		win.Window.BeginResizeDrag(
-			gdk.WindowEdge(4), // SOUTH_EAST
+			gdk.WindowEdge(7), // GDK_WINDOW_EDGE_SOUTH_EAST
 			gdk.BUTTON_PRIMARY,
 			int(rootX),
 			int(rootY),
@@ -1254,7 +1254,7 @@ func (w *Widget) onCornerButtonPress(da *gtk.DrawingArea, event *gdk.Event) bool
 		return true
 	case *gtk.Window:
 		win.BeginResizeDrag(
-			gdk.WindowEdge(4), // SOUTH_EAST
+			gdk.WindowEdge(7), // GDK_WINDOW_EDGE_SOUTH_EAST
 			gdk.BUTTON_PRIMARY,
 			int(rootX),
 			int(rootY),
