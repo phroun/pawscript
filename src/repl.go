@@ -61,6 +61,9 @@ type REPL struct {
 	// Horizontal scroll state for long input lines
 	scrollOffset    int                    // First visible character index in currentLine
 	terminalWidth   int                    // Terminal width (0 = use default 80)
+	// Readline-only mode support
+	readlineOnly    bool                   // When true, processInput returns input instead of executing
+	readlineChan    chan string            // Channel for returning completed input in readline-only mode
 }
 
 // NewREPL creates a new REPL instance
@@ -180,6 +183,65 @@ func (r *REPL) IsBusy() bool {
 	r.mu.Lock()
 	defer r.mu.Unlock()
 	return r.busy
+}
+
+// StartReadline begins a readline-only session where input is collected
+// but not executed. Use ReadLine() to wait for complete input.
+// The output function is used for prompts and editing feedback.
+func (r *REPL) StartReadline() {
+	r.mu.Lock()
+	r.running = true
+	r.readlineOnly = true
+	r.readlineChan = make(chan string, 1)
+	r.mu.Unlock()
+	r.printPrompt()
+}
+
+// ReadLine waits for and returns complete input from the readline.
+// Returns the input string and true, or empty string and false if quit/interrupted.
+// Must be called after StartReadline().
+func (r *REPL) ReadLine() (string, bool) {
+	select {
+	case input := <-r.readlineChan:
+		return input, true
+	case <-r.quitChan:
+		return "", false
+	}
+}
+
+// ResetLine clears the current input and shows a fresh prompt.
+// Useful for the CLI to reset state between commands.
+func (r *REPL) ResetLine() {
+	r.mu.Lock()
+	r.currentLine = nil
+	r.cursorPos = 0
+	r.scrollOffset = 0
+	r.lines = nil
+	r.inHistory = false
+	r.mu.Unlock()
+	r.printPrompt()
+}
+
+// GetPawScript returns the underlying PawScript interpreter
+func (r *REPL) GetPawScript() *PawScript {
+	return r.ps
+}
+
+// GetHistory returns the command history
+func (r *REPL) GetHistory() []string {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	result := make([]string, len(r.history))
+	copy(result, r.history)
+	return result
+}
+
+// SaveHistory saves the command history to file
+func (r *REPL) SaveHistory() {
+	r.mu.Lock()
+	history := r.history
+	r.mu.Unlock()
+	saveReplHistory(history)
 }
 
 // SetBackgroundRGB sets the background color to determine prompt colors
@@ -417,6 +479,87 @@ func (r *REPL) HandleInput(data []byte) bool {
 				if ru != utf8.RuneError {
 					r.insertChar(ru)
 				}
+			}
+		}
+	}
+
+	return false
+}
+
+// HandleKeyEvent processes a named key event (from KeyInputManager)
+// This allows the REPL to be used with KeyInputManager's keys channel
+// Returns true if the REPL should exit
+func (r *REPL) HandleKeyEvent(key string) bool {
+	r.mu.Lock()
+	if !r.running || r.busy {
+		r.mu.Unlock()
+		return false
+	}
+	r.mu.Unlock()
+
+	// Handle named key events
+	switch key {
+	case "^C":
+		r.output("^C\r\n")
+		r.Stop()
+		return true
+
+	case "^D":
+		if len(r.currentLine) == 0 && len(r.lines) == 0 {
+			r.output("\r\n")
+			r.Stop()
+			return true
+		}
+
+	case "Enter":
+		r.handleEnter()
+
+	case "Backspace":
+		r.handleBackspace()
+
+	case "Delete":
+		r.handleDelete()
+
+	case "Up":
+		r.handleUpArrow()
+
+	case "Down":
+		r.handleDownArrow()
+
+	case "Left":
+		r.handleLeftArrow()
+
+	case "Right":
+		r.handleRightArrow()
+
+	case "Home", "^A":
+		r.handleHome()
+
+	case "End", "^E":
+		r.handleEnd()
+
+	case "^U":
+		r.currentLine = nil
+		r.cursorPos = 0
+		r.scrollOffset = 0
+		r.redrawLine()
+
+	case "^K":
+		r.currentLine = r.currentLine[:r.cursorPos]
+		r.redrawLine()
+
+	case "Tab":
+		r.insertChar('\t')
+
+	default:
+		// Check for single characters (printable)
+		if len(key) == 1 && key[0] >= 32 && key[0] < 127 {
+			r.insertChar(rune(key[0]))
+		} else if len(key) > 0 {
+			// Multi-byte UTF-8 character
+			runes := []rune(key)
+			if len(runes) == 1 {
+				r.insertChar(runes[0])
 			}
 		}
 	}
@@ -934,6 +1077,20 @@ func (r *REPL) processInput(input string) {
 			r.history = append(r.history, trimmed)
 		}
 		r.historyPos = len(r.history)
+	}
+
+	// In readline-only mode, just send input to channel and return
+	r.mu.Lock()
+	readlineOnly := r.readlineOnly
+	r.mu.Unlock()
+
+	if readlineOnly {
+		// Send to channel (non-blocking with select to avoid deadlock if nobody is reading)
+		select {
+		case r.readlineChan <- input:
+		default:
+		}
+		return
 	}
 
 	// Check for exit commands

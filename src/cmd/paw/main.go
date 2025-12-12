@@ -11,7 +11,6 @@ import (
 	"strings"
 	"syscall"
 	"time"
-	"unicode/utf8"
 
 	"github.com/phroun/pawscript"
 	"golang.org/x/term"
@@ -199,76 +198,6 @@ psl_colors: (
 	_ = os.WriteFile(configPath, []byte(defaultConfig), 0644) // Ignore error - graceful failure
 }
 
-// History file constants
-const (
-	maxHistoryLines = 1000 // Maximum number of history entries to keep
-)
-
-// getHistoryFilePath returns the path to ~/.paw/repl-history.psl
-func getHistoryFilePath() string {
-	dir := getConfigDir()
-	if dir == "" {
-		return ""
-	}
-	return filepath.Join(dir, "repl-history.psl")
-}
-
-// loadHistory loads command history from the PSL history file
-func loadHistory() []string {
-	historyPath := getHistoryFilePath()
-	if historyPath == "" {
-		return nil
-	}
-
-	content, err := os.ReadFile(historyPath)
-	if err != nil {
-		return nil // File doesn't exist or can't be read
-	}
-
-	// Parse as PSL list
-	pslList, err := pawscript.ParsePSLList(string(content))
-	if err != nil {
-		return nil // Invalid format
-	}
-
-	// Convert to string slice
-	history := make([]string, 0, len(pslList))
-	for _, item := range pslList {
-		if s, ok := item.(string); ok {
-			history = append(history, s)
-		}
-	}
-	return history
-}
-
-// saveHistory saves command history to the PSL history file
-func saveHistory(history []string) {
-	historyPath := getHistoryFilePath()
-	if historyPath == "" {
-		return
-	}
-
-	// Ensure config directory exists
-	configDir := filepath.Dir(historyPath)
-	if err := os.MkdirAll(configDir, 0755); err != nil {
-		return // Graceful failure
-	}
-
-	// Limit history size
-	if len(history) > maxHistoryLines {
-		history = history[len(history)-maxHistoryLines:]
-	}
-
-	// Convert to PSL list and serialize
-	pslList := make(pawscript.PSLList, len(history))
-	for i, cmd := range history {
-		pslList[i] = cmd
-	}
-	content := pawscript.SerializePSLList(pslList)
-
-	_ = os.WriteFile(historyPath, []byte(content+"\n"), 0644)
-}
-
 // getPromptColor returns the appropriate prompt color based on config
 func getPromptColor() string {
 	switch cliConfig.TermBackground {
@@ -303,6 +232,16 @@ func getResultColor() string {
 	default: // "auto" defaults to dark
 		return colorDarkGray
 	}
+}
+
+// getTermBackground returns the terminal background setting for REPL colors
+func getTermBackground() string {
+	return cliConfig.TermBackground
+}
+
+// getPSLColorsFromConfig returns the PSL display colors from config
+func getPSLColorsFromConfig() pawscript.DisplayColorConfig {
+	return cliConfig.PSLColors
 }
 
 // stderrSupportsColor checks if stderr is a terminal that supports color output
@@ -810,41 +749,79 @@ func runREPL(debug, unrestricted bool, optLevel int) {
 	}
 	defer term.Restore(fd, oldState)
 
-	// Load command history from file
-	history := loadHistory()
-	if history == nil {
-		history = make([]string, 0, 100)
+	// Create REPL with the interpreter (readline-only mode)
+	// Output function writes directly to stdout
+	repl := pawscript.NewREPLWithInterpreter(ps, func(s string) {
+		fmt.Print(s)
+	})
+
+	// Set background brightness for prompt color selection
+	// For CLI, assume dark background unless configured otherwise
+	bgMode := getTermBackground()
+	if bgMode == "light" {
+		repl.SetBackgroundRGB(255, 255, 255) // Light background
+	} else {
+		repl.SetBackgroundRGB(0, 0, 0) // Dark background
 	}
-	historyPos := len(history)
+
+	// Set PSL colors from config
+	repl.SetPSLColors(getPSLColorsFromConfig())
 
 	// Main REPL loop
 	for {
-		var input string
-		var quit bool
+		// Start readline and show prompt
+		repl.StartReadline()
 
-		// Check if KeyInputManager is active on stdin
-		// If so, read from its keys channel instead of directly from stdin
-		if keysCh := ps.GetKeyInputKeysChannel(); keysCh != nil && ps.IsKeyInputManagerOnStdin() {
-			input, quit = readStatementFromKeys(keysCh, history, &historyPos)
-		} else {
-			input, quit = readStatement(fd, history, &historyPos)
-		}
+		// Read input in a goroutine, feeding to REPL
+		inputDone := make(chan struct{})
+		go func() {
+			buf := make([]byte, 32)
+			for {
+				// Check if KeyInputManager is active on stdin
+				if keysCh := ps.GetKeyInputKeysChannel(); keysCh != nil && ps.IsKeyInputManagerOnStdin() {
+					// Read from KeyInputManager's keys channel
+					_, value, err := pawscript.ChannelRecv(keysCh)
+					if err != nil {
+						repl.HandleKeyEvent("^C")
+						return
+					}
+					if key, ok := value.(string); ok {
+						if repl.HandleKeyEvent(key) {
+							return
+						}
+					}
+				} else {
+					// Read directly from stdin
+					n, err := os.Stdin.Read(buf)
+					if err != nil || n == 0 {
+						repl.HandleInput([]byte{0x03}) // Send ^C on error
+						return
+					}
+					if repl.HandleInput(buf[:n]) {
+						return
+					}
+				}
 
-		if quit {
+				// Check if readline completed (non-blocking)
+				select {
+				case <-inputDone:
+					return
+				default:
+				}
+			}
+		}()
+
+		// Wait for complete input
+		input, ok := repl.ReadLine()
+		close(inputDone)
+
+		if !ok {
 			fmt.Print("\r\n")
 			break
 		}
 
-		// Add to history if non-empty and different from last entry
-		trimmed := strings.TrimSpace(input)
-		if trimmed != "" {
-			if len(history) == 0 || history[len(history)-1] != trimmed {
-				history = append(history, trimmed)
-			}
-			historyPos = len(history)
-		}
-
 		// Check for exit commands
+		trimmed := strings.TrimSpace(input)
 		lower := strings.ToLower(trimmed)
 		if lower == "exit" || lower == "quit" {
 			break
@@ -874,549 +851,8 @@ func runREPL(debug, unrestricted bool, optLevel int) {
 		}
 	}
 
-	// Save command history to file
-	saveHistory(history)
-}
-
-// getContinuationPrompt analyzes the input and returns the appropriate continuation prompt
-// showing all nesting levels that need to be closed
-func getContinuationPrompt(input string) string {
-	// Stack to track what's open (in order of opening)
-	// We'll use strings: "(", "{", "\"", "'", "#("
-	var stack []string
-	prevChar := rune(0)
-
-	for _, ch := range input {
-		// Check if we're inside a string
-		inString := false
-		closedString := false
-		for j := len(stack) - 1; j >= 0; j-- {
-			if stack[j] == "\"" || stack[j] == "'" {
-				inString = true
-				// Check if this character closes the string
-				if (stack[j] == "\"" && ch == '"' && prevChar != '\\') ||
-					(stack[j] == "'" && ch == '\'' && prevChar != '\\') {
-					stack = stack[:j] // Pop the string opener
-					closedString = true
-				}
-				break
-			}
-		}
-
-		// Don't process openers if we're in a string OR if we just closed one
-		// (closing quote shouldn't also open a new string)
-		if !inString && !closedString {
-			switch ch {
-			case '"':
-				stack = append(stack, "\"")
-			case '\'':
-				stack = append(stack, "'")
-			case '(':
-				// Check if preceded by # for vector syntax
-				if prevChar == '#' {
-					stack = append(stack, "#(")
-				} else {
-					stack = append(stack, "(")
-				}
-			case ')':
-				// Pop the most recent ( or #(
-				for j := len(stack) - 1; j >= 0; j-- {
-					if stack[j] == "(" || stack[j] == "#(" {
-						stack = append(stack[:j], stack[j+1:]...)
-						break
-					}
-				}
-			case '{':
-				stack = append(stack, "{")
-			case '}':
-				// Pop the most recent {
-				for j := len(stack) - 1; j >= 0; j-- {
-					if stack[j] == "{" {
-						stack = append(stack[:j], stack[j+1:]...)
-						break
-					}
-				}
-			}
-		}
-		prevChar = ch
-	}
-
-	// Build prompt showing all nesting levels
-	if len(stack) == 0 {
-		return "paw*" // Shouldn't happen if we're in continuation, but fallback
-	}
-
-	// Build the nesting indicator from the stack
-	var prompt strings.Builder
-	for _, item := range stack {
-		switch item {
-		case "(":
-			prompt.WriteString("(")
-		case "{":
-			prompt.WriteString("{")
-		case "\"":
-			prompt.WriteString("\"")
-		case "'":
-			prompt.WriteString("'")
-		case "#(":
-			prompt.WriteString("#(")
-		}
-	}
-	prompt.WriteString("*")
-	return prompt.String()
-}
-
-// readStatement reads a complete statement, handling multi-line input
-func readStatement(fd int, history []string, historyPos *int) (string, bool) {
-	var lines []string
-	var currentLine []rune
-	cursorPos := 0
-	savedLine := ""     // Saved current line when browsing history
-	inHistory := false  // Are we browsing history?
-
-	printPrompt := func() {
-		promptClr := getPromptColor()
-		if len(lines) == 0 {
-			fmt.Print(promptClr + "paw*" + colorReset + " ")
-		} else {
-			// Determine what needs to be closed based on accumulated input
-			fullInput := strings.Join(lines, "\n")
-			prompt := getContinuationPrompt(fullInput)
-			// Show line number in dark cyan, rest of prompt in appropriate color
-			lineNum := len(lines) + 1
-			fmt.Printf("%s%d %s%s%s ", colorDarkCyan, lineNum, promptClr, prompt, colorReset)
-		}
-	}
-
-	redrawLine := func() {
-		// Clear line and redraw
-		fmt.Print("\r\x1b[K") // Move to start and clear line
-		printPrompt()
-		fmt.Print(string(currentLine))
-		// Move cursor to correct position
-		if cursorPos < len(currentLine) {
-			fmt.Printf("\x1b[%dD", len(currentLine)-cursorPos)
-		}
-	}
-
-	printPrompt()
-
-	buf := make([]byte, 32)
-	for {
-		n, err := os.Stdin.Read(buf)
-		if err != nil || n == 0 {
-			return "", true
-		}
-
-		i := 0
-		for i < n {
-			b := buf[i]
-			i++
-
-			// Handle escape sequences
-			if b == 0x1b && i < n && buf[i] == '[' {
-				escStart := i - 1 // Position of ESC
-				i++               // consume '['
-				if i < n {
-					switch buf[i] {
-					case 'A': // Up arrow
-						i++
-						if len(history) > 0 && *historyPos > 0 {
-							if !inHistory {
-								savedLine = string(currentLine)
-								inHistory = true
-							}
-							*historyPos--
-							currentLine = []rune(history[*historyPos])
-							cursorPos = len(currentLine)
-							redrawLine()
-						}
-						continue
-					case 'B': // Down arrow
-						i++
-						if inHistory {
-							if *historyPos < len(history)-1 {
-								*historyPos++
-								currentLine = []rune(history[*historyPos])
-								cursorPos = len(currentLine)
-							} else {
-								*historyPos = len(history)
-								currentLine = []rune(savedLine)
-								cursorPos = len(currentLine)
-								inHistory = false
-							}
-							redrawLine()
-						}
-						continue
-					case 'C': // Right arrow
-						i++
-						if cursorPos < len(currentLine) {
-							cursorPos++
-							fmt.Print("\x1b[C")
-						}
-						continue
-					case 'D': // Left arrow
-						i++
-						if cursorPos > 0 {
-							cursorPos--
-							fmt.Print("\x1b[D")
-						}
-						continue
-					case '3': // Possible Delete key
-						i++
-						if i < n && buf[i] == '~' {
-							i++
-							if cursorPos < len(currentLine) {
-								currentLine = append(currentLine[:cursorPos], currentLine[cursorPos+1:]...)
-								redrawLine()
-							}
-						}
-						continue
-					case 'H': // Home
-						i++
-						if cursorPos > 0 {
-							fmt.Printf("\x1b[%dD", cursorPos)
-							cursorPos = 0
-						}
-						continue
-					case 'F': // End
-						i++
-						if cursorPos < len(currentLine) {
-							fmt.Printf("\x1b[%dC", len(currentLine)-cursorPos)
-							cursorPos = len(currentLine)
-						}
-						continue
-					}
-				}
-				// Unknown escape sequence - capture and display it
-				// Find the end of the sequence (letter or ~)
-				escEnd := i
-				for escEnd < n && buf[escEnd] >= 0x20 && buf[escEnd] < 0x40 {
-					escEnd++
-				}
-				if escEnd < n {
-					escEnd++ // Include the terminating character
-				}
-				// Build display string with \e instead of actual ESC
-				escSeq := "\\e" + string(buf[escStart+1:escEnd])
-				fmt.Printf("\r\nEsc Sequence: %s\r\n", escSeq)
-				redrawLine()
-				i = escEnd
-				continue
-			}
-
-			switch b {
-			case 0x03: // Ctrl+C
-				fmt.Print("^C\r\n")
-				return "", true
-
-			case 0x04: // Ctrl+D
-				if len(currentLine) == 0 && len(lines) == 0 {
-					fmt.Print("\r\n")
-					return "", true
-				}
-
-			case 0x7f, 0x08: // Backspace
-				if cursorPos > 0 {
-					currentLine = append(currentLine[:cursorPos-1], currentLine[cursorPos:]...)
-					cursorPos--
-					redrawLine()
-				}
-
-			case '\r', '\n': // Enter
-				fmt.Print("\r\n")
-				line := string(currentLine)
-				lines = append(lines, line)
-				fullInput := strings.Join(lines, "\n")
-
-				// Check if input is complete
-				if isComplete(fullInput) {
-					return fullInput, false
-				}
-
-				// Continue on next line
-				currentLine = nil
-				cursorPos = 0
-				inHistory = false
-				printPrompt()
-
-			case 0x15: // Ctrl+U - clear line
-				currentLine = nil
-				cursorPos = 0
-				redrawLine()
-
-			case 0x0b: // Ctrl+K - kill to end of line
-				currentLine = currentLine[:cursorPos]
-				redrawLine()
-
-			case 0x01: // Ctrl+A - beginning of line
-				if cursorPos > 0 {
-					fmt.Printf("\x1b[%dD", cursorPos)
-					cursorPos = 0
-				}
-
-			case 0x05: // Ctrl+E - end of line
-				if cursorPos < len(currentLine) {
-					fmt.Printf("\x1b[%dC", len(currentLine)-cursorPos)
-					cursorPos = len(currentLine)
-				}
-
-			default:
-				// Regular character - might be part of UTF-8 sequence
-				if b >= 32 && b < 127 {
-					// ASCII printable
-					currentLine = append(currentLine[:cursorPos], append([]rune{rune(b)}, currentLine[cursorPos:]...)...)
-					cursorPos++
-					inHistory = false
-					redrawLine()
-				} else if b >= 0xC0 {
-					// UTF-8 start byte - collect full character
-					charBytes := []byte{b}
-					for i < n && buf[i] >= 0x80 && buf[i] < 0xC0 {
-						charBytes = append(charBytes, buf[i])
-						i++
-					}
-					r, _ := utf8.DecodeRune(charBytes)
-					if r != utf8.RuneError {
-						currentLine = append(currentLine[:cursorPos], append([]rune{r}, currentLine[cursorPos:]...)...)
-						cursorPos++
-						inHistory = false
-						redrawLine()
-					}
-				}
-			}
-		}
-	}
-}
-
-// readStatementFromKeys reads a complete statement from KeyInputManager's keys channel
-// This is used when a KeyInputManager is active on stdin, so REPL reads from its
-// channel instead of directly from stdin (avoiding race conditions)
-func readStatementFromKeys(keysCh *pawscript.StoredChannel, history []string, historyPos *int) (string, bool) {
-	var lines []string
-	var currentLine []rune
-	cursorPos := 0
-	savedLine := ""
-	inHistory := false
-
-	printPrompt := func() {
-		promptClr := getPromptColor()
-		if len(lines) == 0 {
-			fmt.Print(promptClr + "paw*" + colorReset + " ")
-		} else {
-			fullInput := strings.Join(lines, "\n")
-			prompt := getContinuationPrompt(fullInput)
-			lineNum := len(lines) + 1
-			fmt.Printf("%s%d %s%s%s ", colorDarkCyan, lineNum, promptClr, prompt, colorReset)
-		}
-	}
-
-	redrawLine := func() {
-		fmt.Print("\r\x1b[K")
-		printPrompt()
-		fmt.Print(string(currentLine))
-		if cursorPos < len(currentLine) {
-			fmt.Printf("\x1b[%dD", len(currentLine)-cursorPos)
-		}
-	}
-
-	fmt.Print("\r\n")
-	printPrompt()
-
-	for {
-		// Read a key from the channel
-		_, value, err := pawscript.ChannelRecv(keysCh)
-		if err != nil {
-			return "", true
-		}
-
-		key, ok := value.(string)
-		if !ok {
-			continue
-		}
-
-		// Handle key events
-		switch key {
-		case "^C":
-			fmt.Print("^C\r\n")
-			return "", true
-
-		case "^D":
-			if len(currentLine) == 0 && len(lines) == 0 {
-				fmt.Print("\r\n")
-				return "", true
-			}
-
-		case "Enter":
-			fmt.Print("\r\n")
-			line := string(currentLine)
-			lines = append(lines, line)
-			fullInput := strings.Join(lines, "\n")
-
-			if isComplete(fullInput) {
-				return fullInput, false
-			}
-
-			currentLine = nil
-			cursorPos = 0
-			inHistory = false
-			printPrompt()
-
-		case "Backspace":
-			if cursorPos > 0 {
-				currentLine = append(currentLine[:cursorPos-1], currentLine[cursorPos:]...)
-				cursorPos--
-				redrawLine()
-			}
-
-		case "Delete":
-			if cursorPos < len(currentLine) {
-				currentLine = append(currentLine[:cursorPos], currentLine[cursorPos+1:]...)
-				redrawLine()
-			}
-
-		case "Up":
-			if len(history) > 0 && *historyPos > 0 {
-				if !inHistory {
-					savedLine = string(currentLine)
-					inHistory = true
-				}
-				*historyPos--
-				currentLine = []rune(history[*historyPos])
-				cursorPos = len(currentLine)
-				redrawLine()
-			}
-
-		case "Down":
-			if inHistory {
-				if *historyPos < len(history)-1 {
-					*historyPos++
-					currentLine = []rune(history[*historyPos])
-					cursorPos = len(currentLine)
-				} else {
-					*historyPos = len(history)
-					currentLine = []rune(savedLine)
-					cursorPos = len(currentLine)
-					inHistory = false
-				}
-				redrawLine()
-			}
-
-		case "Left":
-			if cursorPos > 0 {
-				cursorPos--
-				fmt.Print("\x1b[D")
-			}
-
-		case "Right":
-			if cursorPos < len(currentLine) {
-				cursorPos++
-				fmt.Print("\x1b[C")
-			}
-
-		case "Home", "^A":
-			if cursorPos > 0 {
-				fmt.Printf("\x1b[%dD", cursorPos)
-				cursorPos = 0
-			}
-
-		case "End", "^E":
-			if cursorPos < len(currentLine) {
-				fmt.Printf("\x1b[%dC", len(currentLine)-cursorPos)
-				cursorPos = len(currentLine)
-			}
-
-		case "^U":
-			currentLine = nil
-			cursorPos = 0
-			redrawLine()
-
-		case "^K":
-			currentLine = currentLine[:cursorPos]
-			redrawLine()
-
-		case "Tab":
-			// Insert tab as spaces or literal tab
-			currentLine = append(currentLine[:cursorPos], append([]rune{'\t'}, currentLine[cursorPos:]...)...)
-			cursorPos++
-			inHistory = false
-			redrawLine()
-
-		case "Escape":
-			// Ignore escape by itself
-			continue
-
-		default:
-			// Single character or UTF-8 character - insert it
-			// Key names that are single printable chars or UTF-8 sequences
-			if len(key) > 0 {
-				// Check if it's a regular character (not a special key name)
-				// Special keys are things like "F1", "PageUp", "S-Up", etc.
-				// Single chars or UTF-8 sequences should be inserted
-				r, size := utf8.DecodeRuneInString(key)
-				if r != utf8.RuneError && size == len(key) && r >= 32 {
-					// It's a single printable character
-					currentLine = append(currentLine[:cursorPos], append([]rune{r}, currentLine[cursorPos:]...)...)
-					cursorPos++
-					inHistory = false
-					redrawLine()
-				} else {
-					// Unknown key - display it
-					fmt.Printf("\r\nKey: %s\r\n", key)
-					redrawLine()
-				}
-			}
-		}
-	}
-}
-
-// isComplete checks if the input forms a complete statement
-func isComplete(input string) bool {
-	// Track nesting and quotes
-	parenDepth := 0
-	braceDepth := 0
-	inDoubleQuote := false
-	inSingleQuote := false
-	prevChar := rune(0)
-
-	for _, ch := range input {
-		if inDoubleQuote {
-			if ch == '"' && prevChar != '\\' {
-				inDoubleQuote = false
-			}
-		} else if inSingleQuote {
-			if ch == '\'' && prevChar != '\\' {
-				inSingleQuote = false
-			}
-		} else {
-			switch ch {
-			case '"':
-				inDoubleQuote = true
-			case '\'':
-				inSingleQuote = true
-			case '(':
-				parenDepth++
-			case ')':
-				parenDepth--
-			case '{':
-				braceDepth++
-			case '}':
-				braceDepth--
-			}
-		}
-		prevChar = ch
-	}
-
-	// Also check for #( pattern
-	hashParenDepth := 0
-	for i := 0; i < len(input)-1; i++ {
-		if input[i] == '#' && input[i+1] == '(' {
-			hashParenDepth++
-		}
-	}
-	// This is simplified - actual tracking would need to match with closing )
-
-	return !inDoubleQuote && !inSingleQuote && parenDepth <= 0 && braceDepth <= 0
+	// Save command history
+	repl.SaveHistory()
 }
 
 // displayResult formats and displays the execution result
