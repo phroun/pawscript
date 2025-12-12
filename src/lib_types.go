@@ -2317,7 +2317,7 @@ func (ps *PawScript) RegisterTypesLib() {
 			}
 			// Use formatListForDisplay for lists
 			if colorCfg != nil {
-				result = formatListForDisplayColored(v, 0, pretty, *colorCfg)
+				result = formatListForDisplayColored(v, 0, pretty, *colorCfg, ps)
 			} else if pretty {
 				result = formatListForDisplayPretty(v, 0)
 			} else {
