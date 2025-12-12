@@ -786,20 +786,8 @@ func runScriptInWindow(gtkApp *gtk.Application, scriptContent, scriptFile string
 	stdoutReader, stdoutWriter := io.Pipe()
 	winStdinReader, winStdinWriter := io.Pipe()
 
-	width, height := 100, 30
-	termCaps := &pawscript.TerminalCapabilities{
-		TermType:      "gui-console",
-		IsTerminal:    true,
-		SupportsANSI:  true,
-		SupportsColor: true,
-		ColorDepth:    256,
-		Width:         width,
-		Height:        height,
-		SupportsInput: true,
-		EchoEnabled:   false,
-		LineMode:      false,
-		Metadata:      make(map[string]interface{}),
-	}
+	// Get terminal capabilities from the widget (auto-updates on resize)
+	termCaps := winTerminal.GetTerminalCapabilities()
 
 	// Non-blocking output queue
 	outputQueue := make(chan interface{}, 256)
@@ -1268,7 +1256,7 @@ func createTerminal() *gtk.Box {
 	})
 
 	// Create console channels for PawScript I/O
-	createConsoleChannels(100, 30)
+	createConsoleChannels()
 
 	return box
 }
@@ -1738,20 +1726,8 @@ func createConsoleWindow(filePath string) {
 	stdoutReader, stdoutWriter := io.Pipe()
 	stdinReader, stdinWriter := io.Pipe()
 
-	width, height := 100, 30
-	termCaps := &pawscript.TerminalCapabilities{
-		TermType:      "gui-console",
-		IsTerminal:    true,
-		SupportsANSI:  true,
-		SupportsColor: true,
-		ColorDepth:    256,
-		Width:         width,
-		Height:        height,
-		SupportsInput: true,
-		EchoEnabled:   false,
-		LineMode:      false,
-		Metadata:      make(map[string]interface{}),
-	}
+	// Get terminal capabilities from the widget (auto-updates on resize)
+	termCaps := winTerminal.GetTerminalCapabilities()
 
 	// Non-blocking output queue
 	outputQueue := make(chan interface{}, 256)
@@ -2007,7 +1983,7 @@ func createConsoleWindow(filePath string) {
 }
 
 // createConsoleChannels creates the I/O channels for PawScript console
-func createConsoleChannels(width, height int) {
+func createConsoleChannels() {
 	// Create pipes for stdout/stdin
 	stdoutReader, stdoutWriterLocal := io.Pipe()
 	stdinReaderLocal, stdinWriterLocal := io.Pipe()
@@ -2015,19 +1991,8 @@ func createConsoleChannels(width, height int) {
 	stdinReader = stdinReaderLocal
 	stdinWriter = stdinWriterLocal
 
-	termCaps := &pawscript.TerminalCapabilities{
-		TermType:      "gui-console",
-		IsTerminal:    true,
-		SupportsANSI:  true,
-		SupportsColor: true,
-		ColorDepth:    256,
-		Width:         width,
-		Height:        height,
-		SupportsInput: true,
-		EchoEnabled:   false,
-		LineMode:      false,
-		Metadata:      make(map[string]interface{}),
-	}
+	// Get terminal capabilities from the widget (auto-updates on resize)
+	termCaps := terminal.GetTerminalCapabilities()
 
 	// Non-blocking output: large buffer absorbs bursts
 	// Uses interface{} to allow flush sentinels (chan struct{}) alongside data ([]byte)

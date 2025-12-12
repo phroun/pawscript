@@ -195,6 +195,7 @@ import (
 	"github.com/gotk3/gotk3/gdk"
 	"github.com/gotk3/gotk3/glib"
 	"github.com/gotk3/gotk3/gtk"
+	"github.com/phroun/pawscript"
 	"github.com/phroun/pawscript/pkg/purfecterm"
 )
 
@@ -395,6 +396,10 @@ type Widget struct {
 
 	// Clipboard
 	clipboard *gtk.Clipboard
+
+	// Terminal capabilities (for PawScript channel integration)
+	// Automatically updated on resize
+	termCaps *pawscript.TerminalCapabilities
 }
 
 // NewWidget creates a new terminal widget with the specified dimensions
@@ -413,6 +418,21 @@ func NewWidget(cols, rows, scrollbackSize int) (*Widget, error) {
 	// Create buffer and parser
 	w.buffer = purfecterm.NewBuffer(cols, rows, scrollbackSize)
 	w.parser = purfecterm.NewParser(w.buffer)
+
+	// Initialize terminal capabilities (auto-updated on resize)
+	w.termCaps = &pawscript.TerminalCapabilities{
+		TermType:      "gui-console",
+		IsTerminal:    true,
+		SupportsANSI:  true,
+		SupportsColor: true,
+		ColorDepth:    256,
+		Width:         cols,
+		Height:        rows,
+		SupportsInput: true,
+		EchoEnabled:   false,
+		LineMode:      false,
+		Metadata:      make(map[string]interface{}),
+	}
 
 	// Set up dirty callback to trigger redraws and scrollbar updates
 	w.buffer.SetDirtyCallback(func() {
@@ -3006,6 +3026,11 @@ func (w *Widget) onConfigure(da *gtk.DrawingArea, ev *gdk.Event) bool {
 	}
 
 	w.buffer.Resize(newCols, newRows)
+
+	// Update terminal capabilities with new dimensions
+	if w.termCaps != nil {
+		w.termCaps.SetSize(newCols, newRows)
+	}
 	return false
 }
 
@@ -3106,6 +3131,14 @@ func (w *Widget) Resize(cols, rows int) {
 // GetSize returns the current terminal size in characters
 func (w *Widget) GetSize() (cols, rows int) {
 	return w.buffer.GetSize()
+}
+
+// GetTerminalCapabilities returns the terminal capabilities for this widget.
+// The returned pointer is automatically updated when the terminal resizes.
+// Use this when creating PawScript IO channels to enable io::cursor and
+// other terminal queries to return correct dimensions.
+func (w *Widget) GetTerminalCapabilities() *pawscript.TerminalCapabilities {
+	return w.termCaps
 }
 
 // GetSelectedText returns currently selected text

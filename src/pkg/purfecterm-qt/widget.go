@@ -7,6 +7,7 @@ import (
 	"sync"
 
 	"github.com/mappu/miqt/qt"
+	"github.com/phroun/pawscript"
 	"github.com/phroun/pawscript/pkg/purfecterm"
 )
 
@@ -189,6 +190,10 @@ type Widget struct {
 
 	// Scrollbar update flag
 	scrollbarUpdating bool
+
+	// Terminal capabilities (for PawScript channel integration)
+	// Automatically updated on resize
+	termCaps *pawscript.TerminalCapabilities
 }
 
 // NewWidget creates a new terminal widget with the specified dimensions
@@ -208,6 +213,21 @@ func NewWidget(cols, rows, scrollbackSize int) *Widget {
 	// Create buffer and parser
 	w.buffer = purfecterm.NewBuffer(cols, rows, scrollbackSize)
 	w.parser = purfecterm.NewParser(w.buffer)
+
+	// Initialize terminal capabilities (auto-updated on resize)
+	w.termCaps = &pawscript.TerminalCapabilities{
+		TermType:      "gui-console",
+		IsTerminal:    true,
+		SupportsANSI:  true,
+		SupportsColor: true,
+		ColorDepth:    256,
+		Width:         cols,
+		Height:        rows,
+		SupportsInput: true,
+		EchoEnabled:   false,
+		LineMode:      false,
+		Metadata:      make(map[string]interface{}),
+	}
 
 	// Create update timer for thread-safe redraws (16ms ≈ 60fps)
 	// This coalesces updates from background threads onto the Qt main thread
@@ -2826,6 +2846,12 @@ func (w *Widget) resizeEvent(event *qt.QResizeEvent) {
 	}
 
 	w.buffer.Resize(newCols, newRows)
+
+	// Update terminal capabilities with new dimensions
+	if w.termCaps != nil {
+		w.termCaps.SetSize(newCols, newRows)
+	}
+
 	w.updateScrollbar()
 	w.updateHorizScrollbar()
 }
@@ -2838,6 +2864,14 @@ func (w *Widget) Resize(cols, rows int) {
 // GetSize returns the current terminal size
 func (w *Widget) GetSize() (cols, rows int) {
 	return w.buffer.GetSize()
+}
+
+// GetTerminalCapabilities returns the terminal capabilities for this widget.
+// The returned pointer is automatically updated when the terminal resizes.
+// Use this when creating PawScript IO channels to enable io::cursor and
+// other terminal queries to return correct dimensions.
+func (w *Widget) GetTerminalCapabilities() *pawscript.TerminalCapabilities {
+	return w.termCaps
 }
 
 // GetSelectedText returns the currently selected text

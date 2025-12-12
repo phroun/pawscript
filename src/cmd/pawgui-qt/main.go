@@ -1256,21 +1256,8 @@ func setupConsoleIO() {
 	// Create pipes for stdin
 	stdinReader, stdinWriter = io.Pipe()
 
-	// Terminal capabilities for PawScript
-	width, height := 100, 30
-	termCaps := &pawscript.TerminalCapabilities{
-		TermType:      "gui-console",
-		IsTerminal:    true,
-		SupportsANSI:  true,
-		SupportsColor: true,
-		ColorDepth:    256,
-		Width:         width,
-		Height:        height,
-		SupportsInput: true,
-		EchoEnabled:   false,
-		LineMode:      false,
-		Metadata:      make(map[string]interface{}),
-	}
+	// Get terminal capabilities from the widget (auto-updates on resize)
+	termCaps := terminal.GetTerminalCapabilities()
 
 	// Output queue for non-blocking writes to terminal
 	outputQueue := make(chan interface{}, 256)
