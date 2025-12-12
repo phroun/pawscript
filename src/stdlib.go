@@ -564,7 +564,7 @@ func formatListForDisplayPretty(list StoredList, indent int) string {
 }
 
 // formatListForDisplayColored formats a StoredList with ANSI colors for type distinction
-func formatListForDisplayColored(list StoredList, indent int, pretty bool, cfg DisplayColorConfig) string {
+func formatListForDisplayColored(list StoredList, indent int, pretty bool, cfg DisplayColorConfig, ps *PawScript) string {
 	indentStr := ""
 	innerIndent := ""
 	if pretty {
@@ -579,7 +579,7 @@ func formatListForDisplayColored(list StoredList, indent int, pretty bool, cfg D
 	colorizeValue = func(value interface{}) string {
 		switch v := value.(type) {
 		case StoredList:
-			return formatListForDisplayColored(v, indent+1, pretty, cfg)
+			return formatListForDisplayColored(v, indent+1, pretty, cfg, ps)
 		case ParenGroup:
 			content := string(v)
 			trimmed := strings.TrimLeft(content, " \t\n\r")
@@ -631,6 +631,40 @@ func formatListForDisplayColored(list StoredList, indent int, pretty bool, cfg D
 			return cfg.False + "false" + cfg.Reset
 		case nil:
 			return cfg.Nil + "nil" + cfg.Reset
+		case *StoredChannel:
+			if ps != nil && ps.executor != nil {
+				if id := ps.executor.findStoredChannelID(v); id >= 0 {
+					return cfg.Object + fmt.Sprintf("<channel %d>", id) + cfg.Reset
+				}
+			}
+			return cfg.Object + "<channel>" + cfg.Reset
+		case *StoredFile:
+			if ps != nil && ps.executor != nil {
+				if id := ps.executor.findStoredFileID(v); id >= 0 {
+					return cfg.Object + fmt.Sprintf("<file %d>", id) + cfg.Reset
+				}
+			}
+			return cfg.Object + "<file>" + cfg.Reset
+		case StoredMacro:
+			return cfg.Object + "<macro>" + cfg.Reset
+		case *StoredMacro:
+			return cfg.Object + "<macro>" + cfg.Reset
+		case *StoredCommand:
+			if v.CommandName != "" {
+				return cfg.Object + fmt.Sprintf("<command %s>", v.CommandName) + cfg.Reset
+			}
+			return cfg.Object + "<command>" + cfg.Reset
+		case *FiberHandle:
+			if ps != nil && ps.executor != nil {
+				if id := ps.executor.findStoredFiberID(v); id >= 0 {
+					return cfg.Object + fmt.Sprintf("<fiber %d>", id) + cfg.Reset
+				}
+			}
+			return cfg.Object + "<fiber>" + cfg.Reset
+		case StoredBytes:
+			return cfg.Bytes + v.String() + cfg.Reset
+		case StoredStruct:
+			return cfg.Object + v.String() + cfg.Reset
 		default:
 			return fmt.Sprintf("%v", v)
 		}
@@ -716,7 +750,7 @@ func FormatValueColored(value interface{}, pretty bool, cfg DisplayColorConfig, 
 func formatValueColoredInternal(value interface{}, indent int, pretty bool, cfg DisplayColorConfig, ps *PawScript) string {
 	switch v := value.(type) {
 	case StoredList:
-		return formatListForDisplayColored(v, indent, pretty, cfg)
+		return formatListForDisplayColored(v, indent, pretty, cfg, ps)
 	case ParenGroup:
 		content := string(v)
 		trimmed := strings.TrimLeft(content, " \t\n\r")
@@ -789,9 +823,35 @@ func formatValueColoredInternal(value interface{}, indent int, pretty bool, cfg 
 	case nil:
 		return cfg.Nil + "nil" + cfg.Reset
 	case *StoredChannel:
+		if ps != nil && ps.executor != nil {
+			if id := ps.executor.findStoredChannelID(v); id >= 0 {
+				return cfg.Object + fmt.Sprintf("<channel %d>", id) + cfg.Reset
+			}
+		}
 		return cfg.Object + "<channel>" + cfg.Reset
 	case *StoredFile:
+		if ps != nil && ps.executor != nil {
+			if id := ps.executor.findStoredFileID(v); id >= 0 {
+				return cfg.Object + fmt.Sprintf("<file %d>", id) + cfg.Reset
+			}
+		}
 		return cfg.Object + "<file>" + cfg.Reset
+	case StoredMacro:
+		return cfg.Object + "<macro>" + cfg.Reset
+	case *StoredMacro:
+		return cfg.Object + "<macro>" + cfg.Reset
+	case *StoredCommand:
+		if v.CommandName != "" {
+			return cfg.Object + fmt.Sprintf("<command %s>", v.CommandName) + cfg.Reset
+		}
+		return cfg.Object + "<command>" + cfg.Reset
+	case *FiberHandle:
+		if ps != nil && ps.executor != nil {
+			if id := ps.executor.findStoredFiberID(v); id >= 0 {
+				return cfg.Object + fmt.Sprintf("<fiber %d>", id) + cfg.Reset
+			}
+		}
+		return cfg.Object + "<fiber>" + cfg.Reset
 	case StoredBytes:
 		return cfg.Bytes + v.String() + cfg.Reset
 	case StoredStruct:
