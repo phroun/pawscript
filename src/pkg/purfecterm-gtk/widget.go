@@ -1491,6 +1491,11 @@ func (w *Widget) onDraw(da *gtk.DrawingArea, cr *cairo.Context) bool {
 		cursorVisible = false
 	}
 
+	// Get cursor's visible Y line (even if cursor is horizontally off-screen)
+	// This is used for cursor tracking: we want to know if the cursor's LINE
+	// is being rendered, regardless of whether the cursor itself is visible.
+	cursorLineY := w.buffer.GetCursorVisibleY()
+
 	// Get screen scaling factors
 	horizScale := w.buffer.GetHorizontalScale()
 	vertScale := w.buffer.GetVerticalScale()
@@ -1543,11 +1548,18 @@ func (w *Widget) onDraw(da *gtk.DrawingArea, cr *cairo.Context) bool {
 	cr.SelectFontFace(fontFamily, cairo.FONT_SLANT_NORMAL, cairo.FONT_WEIGHT_NORMAL)
 	cr.SetFontSize(float64(fontSize))
 
-	// Track whether cursor was drawn in this frame (for auto-scroll)
-	cursorWasDrawn := false
+	// Track whether cursor's LINE was rendered in this frame (for auto-scroll)
+	// We check if the cursor's line is being rendered, not if the cursor itself
+	// was drawn - the cursor may be horizontally off-screen or invisible, but if
+	// its line is visible, auto-scroll should consider it "found".
+	cursorLineWasRendered := false
 
 	// Draw each cell (use GetVisibleCell to account for scroll offset)
 	for y := 0; y < rows; y++ {
+		// Check if this is the cursor's line (for auto-scroll tracking)
+		if y == cursorLineY {
+			cursorLineWasRendered = true
+		}
 		lineAttr := w.buffer.GetVisibleLineAttribute(y)
 
 		// Calculate effective columns for this line (half for double-width/height)
@@ -1820,7 +1832,6 @@ func (w *Widget) onDraw(da *gtk.DrawingArea, cr *cairo.Context) bool {
 
 			// Draw cursor based on shape (0=block, 1=underline, 2=bar)
 			if isCursor {
-				cursorWasDrawn = true
 				cr.SetSourceRGB(
 					float64(scheme.Cursor.R)/255.0,
 					float64(scheme.Cursor.G)/255.0,
@@ -1892,8 +1903,10 @@ func (w *Widget) onDraw(da *gtk.DrawingArea, cr *cairo.Context) bool {
 		cr.Restore()
 	}
 
-	// Report whether cursor was drawn for auto-scroll logic
-	w.buffer.SetCursorDrawn(cursorWasDrawn)
+	// Report whether cursor's LINE was rendered for auto-scroll logic
+	// We track the line, not the cursor itself - the cursor may be horizontally
+	// off-screen or invisible, but if its line is visible, auto-scroll should stop.
+	w.buffer.SetCursorDrawn(cursorLineWasRendered)
 
 	// Check if we need to auto-scroll to bring cursor into view
 	if w.buffer.CheckCursorAutoScroll() {

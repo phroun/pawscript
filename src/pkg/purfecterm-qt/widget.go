@@ -1441,6 +1441,11 @@ func (w *Widget) paintEvent(event *qt.QPaintEvent) {
 		cursorVisible = false
 	}
 
+	// Get cursor's visible Y line (even if cursor is horizontally off-screen)
+	// This is used for cursor tracking: we want to know if the cursor's LINE
+	// is being rendered, regardless of whether the cursor itself is visible.
+	cursorLineY := w.buffer.GetCursorVisibleY()
+
 	// Get screen scaling factors
 	horizScale := w.buffer.GetHorizontalScale()
 	vertScale := w.buffer.GetVerticalScale()
@@ -1484,11 +1489,18 @@ func (w *Widget) paintEvent(event *qt.QPaintEvent) {
 	font.SetFixedPitch(true)
 	painter.SetFont(font)
 
-	// Track whether cursor was drawn in this frame (for auto-scroll)
-	cursorWasDrawn := false
+	// Track whether cursor's LINE was rendered in this frame (for auto-scroll)
+	// We check if the cursor's line is being rendered, not if the cursor itself
+	// was drawn - the cursor may be horizontally off-screen or invisible, but if
+	// its line is visible, auto-scroll should consider it "found".
+	cursorLineWasRendered := false
 
 	// Draw each cell
 	for y := 0; y < rows; y++ {
+		// Check if this is the cursor's line (for auto-scroll tracking)
+		if y == cursorLineY {
+			cursorLineWasRendered = true
+		}
 		lineAttr := w.buffer.GetVisibleLineAttribute(y)
 
 		// For rendering, we need to consider horizontal offset
@@ -1743,7 +1755,6 @@ func (w *Widget) paintEvent(event *qt.QPaintEvent) {
 
 			// Draw cursor
 			if isCursor {
-				cursorWasDrawn = true
 				cursorQColor := qt.NewQColor3(int(scheme.Cursor.R), int(scheme.Cursor.G), int(scheme.Cursor.B))
 				switch cursorShape {
 				case 0: // Block
@@ -1804,8 +1815,10 @@ func (w *Widget) paintEvent(event *qt.QPaintEvent) {
 		painter.Restore()
 	}
 
-	// Report whether cursor was drawn for auto-scroll logic
-	w.buffer.SetCursorDrawn(cursorWasDrawn)
+	// Report whether cursor's LINE was rendered for auto-scroll logic
+	// We track the line, not the cursor itself - the cursor may be horizontally
+	// off-screen or invisible, but if its line is visible, auto-scroll should stop.
+	w.buffer.SetCursorDrawn(cursorLineWasRendered)
 
 	// Check if we need to auto-scroll to bring cursor into view
 	if w.buffer.CheckCursorAutoScroll() {
