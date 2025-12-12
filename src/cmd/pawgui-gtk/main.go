@@ -1466,24 +1466,26 @@ func activate(application *gtk.Application) {
 
 	// Save launcher width when user adjusts the splitter
 	// Implement multi-stage collapse:
-	// - Wide + narrow mode: when pos >= minWidePanelWidth + minNarrowStripWidth (with multiple buttons)
+	// - Wide + narrow mode: when pos >= minWidePanelWidth + minNarrowStripWidth
 	// - Narrow only mode: when pos >= minNarrowStripWidth but < threshold for wide panel
-	// - Collapsed: when pos < minNarrowStripWidth
+	// - Collapsed: when pos < halfway point of narrow strip
 	paned.Connect("notify::position", func() {
 		pos := paned.GetPosition()
 		hasMultipleButtons := len(launcherRegisteredBtns) > 0
 
 		// Calculate threshold for showing both panels (wide panel needs its min width plus narrow strip width)
 		bothThreshold := minWidePanelWidth + minNarrowStripWidth
+		// Halfway point for collapsing narrow strip
+		narrowSnapPoint := minNarrowStripWidth / 2
 
 		if pos == 0 {
 			// Fully collapsed
 			saveLauncherWidth(pos)
-		} else if pos < minNarrowStripWidth {
+		} else if pos < narrowSnapPoint {
 			// Too narrow even for strip - snap to collapsed
 			paned.SetPosition(0)
-		} else if hasMultipleButtons && pos < bothThreshold {
-			// Multiple buttons mode: between narrow strip width and both-panels threshold
+		} else if pos < bothThreshold {
+			// Between narrow snap point and both-panels threshold
 			// Show only narrow strip at its fixed width
 			launcherWidePanel.Hide()
 			launcherNarrowStrip.Show()
@@ -1494,9 +1496,6 @@ func activate(application *gtk.Application) {
 				paned.SetPosition(minNarrowStripWidth)
 			}
 			saveLauncherWidth(minNarrowStripWidth)
-		} else if !hasMultipleButtons && pos < minWidePanelWidth {
-			// Single button mode, below wide threshold - snap to collapsed
-			paned.SetPosition(0)
 		} else {
 			// Wide enough for full panel
 			launcherWidePanel.Show()
