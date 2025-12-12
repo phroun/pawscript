@@ -1278,7 +1278,13 @@ func (ps *PawScript) RegisterSystemLib(scriptArgs []string) {
 		ctx.executor.mu.Lock()
 		ctx.executor.keyInputManager = manager
 		ctx.executor.keyInputChannel = inputCh // Store for readkey_stop to restore mode
-		ctx.executor.keyInputOwner = ctx.state // Track which state owns the manager for cleanup
+		// Only track ownership for non-root states (child scripts via include, etc.)
+		// Root state (REPL) should keep the manager alive between commands
+		if ctx.state != ctx.executor.rootState {
+			ctx.executor.keyInputOwner = ctx.state
+		} else {
+			ctx.executor.keyInputOwner = nil // No automatic cleanup for REPL
+		}
 		ctx.executor.mu.Unlock()
 
 		// Return the two channels as a list
