@@ -545,6 +545,29 @@ func (s *ExecutionState) ReleaseAllReferences() {
 			s.executor.decrementObjectRefCount(id)
 		}
 	}
+
+	// Clean up keyInputManager if this state owns it
+	// This handles the case where a child script calls readkey_init and then terminates
+	// without explicitly calling readkey_stop
+	s.executor.mu.Lock()
+	if s.executor.keyInputOwner == s && s.executor.keyInputManager != nil {
+		manager := s.executor.keyInputManager
+		inputCh := s.executor.keyInputChannel
+		s.executor.keyInputManager = nil
+		s.executor.keyInputChannel = nil
+		s.executor.keyInputOwner = nil
+		s.executor.mu.Unlock()
+
+		// Stop the manager and restore channel mode
+		if manager != nil {
+			manager.Stop()
+		}
+		if inputCh != nil && inputCh.NativeSend != nil {
+			inputCh.NativeSend("line")
+		}
+	} else {
+		s.executor.mu.Unlock()
+	}
 }
 
 // ExtractObjectReferences scans a value for object markers and returns their IDs
