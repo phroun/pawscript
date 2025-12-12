@@ -783,7 +783,7 @@ func (r *REPL) adjustScrollOffset() bool {
 }
 
 // formatDisplayLine returns the visible portion of the input line with elide indicators
-// Also returns the cursor position within the displayed string
+// Also returns the cursor position within the displayed string (in display columns)
 func (r *REPL) formatDisplayLine() (display string, cursorDisplayPos int) {
 	inputWidth := r.getInputAreaWidth()
 	lineLen := len(r.currentLine)
@@ -791,7 +791,9 @@ func (r *REPL) formatDisplayLine() (display string, cursorDisplayPos int) {
 	// If line fits entirely, return it as-is with control char replacement
 	if lineLen <= inputWidth {
 		r.scrollOffset = 0
-		return r.formatControlChars(r.currentLine), r.cursorPos
+		// Count control chars before cursor - each displays as 2 chars (^M, ^J)
+		extraCols := r.countControlCharsBefore(r.currentLine, r.cursorPos)
+		return r.formatControlChars(r.currentLine), r.cursorPos + extraCols
 	}
 
 	// Calculate what portion to show
@@ -834,13 +836,34 @@ func (r *REPL) formatDisplayLine() (display string, cursorDisplayPos int) {
 		buf.WriteString(replColorElide + ">" + replColorReset)
 	}
 
-	// Calculate cursor position in display
+	// Calculate cursor position in display columns
+	// Start with logical position relative to visible start
 	cursorDisplayPos = r.cursorPos - startIdx
 	if leftIndicator {
 		cursorDisplayPos++ // Account for '<' indicator
 	}
+	// Add extra columns for control chars before cursor in visible portion
+	cursorInVisible := r.cursorPos - startIdx
+	if cursorInVisible > 0 {
+		visibleBeforeCursor := r.currentLine[startIdx : startIdx+cursorInVisible]
+		extraCols := r.countControlCharsBefore(visibleBeforeCursor, len(visibleBeforeCursor))
+		cursorDisplayPos += extraCols
+	}
 
 	return buf.String(), cursorDisplayPos
+}
+
+// countControlCharsBefore counts control characters (CR, LF) before the given position
+// Each control char displays as 2 columns (^M, ^J) but is 1 logical char, so we return
+// the extra column count (1 per control char)
+func (r *REPL) countControlCharsBefore(runes []rune, pos int) int {
+	count := 0
+	for i := 0; i < pos && i < len(runes); i++ {
+		if runes[i] == '\r' || runes[i] == '\n' {
+			count++
+		}
+	}
+	return count
 }
 
 // formatControlChars replaces control characters (CR, LF) with visible ^M, ^J in elide color
