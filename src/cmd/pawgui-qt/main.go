@@ -63,6 +63,7 @@ var (
 	launcherStripMenuBtn  *qt.QPushButton // Hamburger button in narrow strip (when strip visible)
 	launcherWidePanel     *qt.QWidget   // The wide panel (file browser)
 	launcherRegisteredBtns []*QtToolbarButton // Additional registered buttons for launcher
+	pendingToolbarUpdate  bool // Flag to signal main thread to update toolbar
 )
 
 // QtToolbarButton represents a registered toolbar button for Qt
@@ -490,15 +491,9 @@ func setDummyButtons(count int) {
 		launcherRegisteredBtns = append(launcherRegisteredBtns, btn)
 	}
 
-	// Update the toolbar strip on Qt main thread using a single-shot timer
-	if mainWindow != nil {
-		timer := qt.NewQTimer2(mainWindow.QObject)
-		timer.SetSingleShot(true)
-		timer.OnTimeout(func() {
-			updateLauncherToolbarButtons()
-		})
-		timer.Start(0)
-	}
+	// Signal the main thread to update the toolbar strip
+	// The uiUpdateTimer will check this flag and call updateLauncherToolbarButtons()
+	pendingToolbarUpdate = true
 }
 
 // registerDummyButtonCommand registers the dummy_button command with PawScript
@@ -1016,6 +1011,11 @@ func launchGUIMode() {
 	uiUpdateTimer := qt.NewQTimer2(mainWindow.QObject)
 	uiUpdateTimer.OnTimeout(func() {
 		updatePathButtonText()
+		// Check for pending toolbar updates (set from other goroutines)
+		if pendingToolbarUpdate {
+			pendingToolbarUpdate = false
+			updateLauncherToolbarButtons()
+		}
 	})
 	uiUpdateTimer.Start(250)
 
