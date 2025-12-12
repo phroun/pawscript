@@ -367,7 +367,7 @@ publish, distribute, sublicense, and/or sell copies of the Software.</small></p>
 // createHamburgerMenu creates the hamburger dropdown menu
 // isScriptWindow: true for script windows (slightly different options)
 func createHamburgerMenu(parent *qt.QWidget, isScriptWindow bool) *qt.QMenu {
-	menu := qt.NewQMenu2(parent)
+	menu := qt.NewQMenu2()
 
 	// About option
 	aboutAction := menu.AddAction("About PawScript...")
@@ -390,8 +390,8 @@ func createHamburgerButton(menu *qt.QMenu) *qt.QPushButton {
 // createToolbarStrip creates a vertical strip of toolbar buttons
 // Returns the strip container, the hamburger button, and the menu
 func createToolbarStrip(parent *qt.QWidget, isScriptWindow bool) (*qt.QWidget, *qt.QPushButton, *qt.QMenu) {
-	strip := qt.NewQWidget2(parent)
-	layout := qt.NewQVBoxLayout2(strip)
+	strip := qt.NewQWidget2()
+	layout := qt.NewQVBoxLayout2()
 	layout.SetContentsMargins(2, 5, 2, 5)
 	layout.SetSpacing(2)
 
@@ -400,7 +400,8 @@ func createToolbarStrip(parent *qt.QWidget, isScriptWindow bool) (*qt.QWidget, *
 	menuBtn := createHamburgerButton(menu)
 
 	layout.AddWidget(menuBtn.QWidget)
-	layout.AddStretch(1) // Push buttons to top
+	layout.AddStretch() // Push buttons to top
+	strip.SetLayout(layout.QLayout)
 
 	return strip, menuBtn, menu
 }
@@ -416,7 +417,7 @@ func updateLauncherToolbarButtons() {
 	if layout == nil {
 		return
 	}
-	vbox := qt.UnsafeNewQVBoxLayout(layout.UnsafePointer(), nil)
+	vbox := qt.UnsafeNewQVBoxLayout(layout.UnsafePointer())
 
 	// Remove existing dummy buttons (but keep the hamburger menu button and stretch at the end)
 	// We skip index 0 (hamburger) and the stretch item at the end
