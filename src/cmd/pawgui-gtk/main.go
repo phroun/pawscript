@@ -1347,6 +1347,7 @@ func activate(application *gtk.Application) {
 	// Narrow strip: toolbar buttons (created but hidden initially - only 1 button)
 	launcherNarrowStrip, launcherStripMenuBtn, _ = createToolbarStrip(mainWindow, false)
 	launcherNarrowStrip.SetNoShowAll(true) // Don't show when ShowAll is called
+	launcherNarrowStrip.SetSizeRequest(minNarrowStripWidth, -1) // Fixed width
 	leftContainer.PackStart(launcherNarrowStrip, false, false, 0)
 
 	// Initially: hamburger button visible in path selector, narrow strip hidden
@@ -1364,11 +1365,15 @@ func activate(application *gtk.Application) {
 
 	// Save launcher width when user adjusts the splitter
 	// Implement multi-stage collapse:
-	// - Below minWidePanelWidth: hide wide panel, show only narrow strip
-	// - Below minNarrowStripWidth: hide everything (only splitter)
+	// - Wide + narrow mode: when pos >= minWidePanelWidth + minNarrowStripWidth (with multiple buttons)
+	// - Narrow only mode: when pos >= minNarrowStripWidth but < threshold for wide panel
+	// - Collapsed: when pos < minNarrowStripWidth
 	paned.Connect("notify::position", func() {
 		pos := paned.GetPosition()
 		hasMultipleButtons := len(launcherRegisteredBtns) > 0
+
+		// Calculate threshold for showing both panels (wide panel needs its min width plus narrow strip width)
+		bothThreshold := minWidePanelWidth + minNarrowStripWidth
 
 		if pos == 0 {
 			// Fully collapsed
@@ -1376,15 +1381,19 @@ func activate(application *gtk.Application) {
 		} else if pos < minNarrowStripWidth {
 			// Too narrow even for strip - snap to collapsed
 			paned.SetPosition(0)
-		} else if pos < minWidePanelWidth && hasMultipleButtons {
-			// Between narrow and wide threshold with multiple buttons
-			// Show only narrow strip
+		} else if hasMultipleButtons && pos < bothThreshold {
+			// Multiple buttons mode: between narrow strip width and both-panels threshold
+			// Show only narrow strip at its fixed width
 			launcherWidePanel.Hide()
 			launcherNarrowStrip.Show()
 			launcherMenuButton.Hide()
 			launcherStripMenuBtn.Show()
-			saveLauncherWidth(pos)
-		} else if pos < minWidePanelWidth && !hasMultipleButtons {
+			// Snap to just the narrow strip width
+			if pos != minNarrowStripWidth {
+				paned.SetPosition(minNarrowStripWidth)
+			}
+			saveLauncherWidth(minNarrowStripWidth)
+		} else if !hasMultipleButtons && pos < minWidePanelWidth {
 			// Single button mode, below wide threshold - snap to collapsed
 			paned.SetPosition(0)
 		} else {
@@ -1953,6 +1962,9 @@ func runScript(filePath string) {
 			consoleREPL.SetBackgroundRGB(bg.R, bg.G, bg.B)
 			consoleREPL.SetPSLColors(getPSLColors())
 			consoleREPL.Start()
+
+			// Re-register the dummy_button command with the new REPL instance
+			registerDummyButtonCommand(consoleREPL.GetPawScript())
 		}
 	}()
 }
@@ -2315,6 +2327,9 @@ func createConsoleWindow(filePath string) {
 		winREPL.SetBackgroundRGB(bg.R, bg.G, bg.B)
 		winREPL.SetPSLColors(getPSLColors())
 		winREPL.Start()
+
+		// Register the dummy_button command with the window's REPL
+		registerDummyButtonCommand(winREPL.GetPawScript())
 	}()
 }
 
