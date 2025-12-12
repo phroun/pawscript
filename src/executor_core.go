@@ -30,6 +30,7 @@ type Executor struct {
 	blockCache       map[int][]*ParsedCommand  // Cached parsed forms for StoredBlock objects (by ID)
 	keyInputManager  *KeyInputManager          // Raw keyboard input manager (if initialized)
 	keyInputChannel  *StoredChannel            // Input channel being used by keyInputManager (for mode restore)
+	keyInputOwner    *ExecutionState           // ExecutionState that created the keyInputManager (for cleanup on state release)
 	nextTokenID      int
 	nextObjectID     int
 	nextFiberID      int

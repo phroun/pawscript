@@ -12,6 +12,11 @@ static void get_event_coords(GdkEvent *ev, double *x, double *y) {
     gdk_event_get_coords(ev, x, y);
 }
 
+// Helper to get root coordinates from button event
+static void get_button_root_coords(GdkEvent *ev, double *x, double *y) {
+    gdk_event_get_root_coords(ev, x, y);
+}
+
 // Check if a font family is available via Pango
 static int font_family_exists(const char *family_name) {
     PangoFontMap *font_map = pango_cairo_font_map_get_default();
@@ -1215,14 +1220,15 @@ func (w *Widget) onCornerButtonPress(da *gtk.DrawingArea, event *gdk.Event) bool
 		return false
 	}
 
-	// Get root coordinates for the resize drag
-	rootX, rootY := buttonEvent.RootCoords()
+	// Get root coordinates for the resize drag using C helper
+	var rootX, rootY C.double
+	C.get_button_root_coords((*C.GdkEvent)(unsafe.Pointer(event.Native())), &rootX, &rootY)
 
 	// Initiate resize from bottom-right corner
 	// GDK_WINDOW_EDGE_SOUTH_EAST = 4
 	window.BeginResizeDrag(
 		gdk.WindowEdge(4), // SOUTH_EAST
-		int(buttonEvent.Button()),
+		gdk.BUTTON_PRIMARY,
 		int(rootX),
 		int(rootY),
 		buttonEvent.Time(),

@@ -363,6 +363,19 @@ func (b *Buffer) Resize(cols, rows int) {
 	// (scrollOffset > logicalHiddenAbove means boundary line would be visible or past it)
 	wasViewingScrollback := b.scrollOffset > oldLogicalHiddenAbove
 
+	// When window gets wider, prefer to unscroll horizontally first
+	// This reveals hidden columns on the left before showing blank columns on the right
+	if cols > b.cols && b.horizOffset > 0 {
+		colsAdded := cols - b.cols
+		if colsAdded >= b.horizOffset {
+			// All hidden columns can be revealed
+			b.horizOffset = 0
+		} else {
+			// Reduce scroll offset by the number of new columns
+			b.horizOffset -= colsAdded
+		}
+	}
+
 	b.cols = cols
 	b.rows = rows
 

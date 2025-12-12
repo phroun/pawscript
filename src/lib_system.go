@@ -1274,10 +1274,11 @@ func (ps *PawScript) RegisterSystemLib(scriptArgs []string) {
 			return BoolStatus(false)
 		}
 
-		// Store the manager and input channel in executor for cleanup
+		// Store the manager, input channel, and owner state in executor for cleanup
 		ctx.executor.mu.Lock()
 		ctx.executor.keyInputManager = manager
 		ctx.executor.keyInputChannel = inputCh // Store for readkey_stop to restore mode
+		ctx.executor.keyInputOwner = ctx.state // Track which state owns the manager for cleanup
 		ctx.executor.mu.Unlock()
 
 		// Return the two channels as a list
@@ -1303,6 +1304,7 @@ func (ps *PawScript) RegisterSystemLib(scriptArgs []string) {
 		inputCh := ctx.executor.keyInputChannel
 		ctx.executor.keyInputManager = nil
 		ctx.executor.keyInputChannel = nil
+		ctx.executor.keyInputOwner = nil
 		ctx.executor.mu.Unlock()
 
 		if manager == nil {
