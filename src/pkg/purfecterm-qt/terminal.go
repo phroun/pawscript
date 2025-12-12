@@ -7,6 +7,7 @@ import (
 	"sync"
 
 	"github.com/mappu/miqt/qt"
+	"github.com/phroun/pawscript"
 	"github.com/phroun/pawscript/pkg/purfecterm"
 )
 
@@ -233,6 +234,12 @@ func (t *Terminal) Resize(cols, rows int) {
 // GetSize returns the terminal size
 func (t *Terminal) GetSize() (cols, rows int) {
 	return t.widget.GetSize()
+}
+
+// GetTerminalCapabilities returns the terminal capabilities for this terminal.
+// The returned pointer is automatically updated when the terminal resizes.
+func (t *Terminal) GetTerminalCapabilities() *pawscript.TerminalCapabilities {
+	return t.widget.GetTerminalCapabilities()
 }
 
 // Close closes the terminal
