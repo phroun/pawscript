@@ -665,6 +665,16 @@ func formatListForDisplayColored(list StoredList, indent int, pretty bool, cfg D
 			return cfg.Bytes + v.String() + cfg.Reset
 		case StoredStruct:
 			return cfg.Object + v.String() + cfg.Reset
+		case ObjectRef:
+			// Handle ObjectRef - format with object color, resolve lists recursively
+			if ps != nil && ps.executor != nil && v.Type == ObjList {
+				if resolved, exists := ps.executor.getObject(v.ID); exists {
+					if resolvedList, ok := resolved.(StoredList); ok {
+						return formatListForDisplayColored(resolvedList, indent+1, pretty, cfg, ps)
+					}
+				}
+			}
+			return cfg.Object + fmt.Sprintf("<%s %d>", v.Type.String(), v.ID) + cfg.Reset
 		default:
 			return fmt.Sprintf("%v", v)
 		}
@@ -856,6 +866,16 @@ func formatValueColoredInternal(value interface{}, indent int, pretty bool, cfg 
 		return cfg.Bytes + v.String() + cfg.Reset
 	case StoredStruct:
 		return cfg.Object + v.String() + cfg.Reset
+	case ObjectRef:
+		// Handle ObjectRef - format with object color, resolve lists recursively
+		if ps != nil && ps.executor != nil && v.Type == ObjList {
+			if resolved, exists := ps.executor.getObject(v.ID); exists {
+				if resolvedList, ok := resolved.(StoredList); ok {
+					return formatListForDisplayColored(resolvedList, indent, pretty, cfg, ps)
+				}
+			}
+		}
+		return cfg.Object + fmt.Sprintf("<%s %d>", v.Type.String(), v.ID) + cfg.Reset
 	default:
 		return fmt.Sprintf("%v", v)
 	}
