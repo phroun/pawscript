@@ -54,17 +54,29 @@ Scrollback has a configurable maximum size (`maxScrollback`). When full, the old
 
 ### Scroll Offset
 
-The `scrollOffset` determines what content is currently displayed:
+The `scrollOffset` determines what content is currently displayed. When the logical screen is larger than the physical screen, scrolling first reveals more of the logical screen before ever reaching the scrollback buffer.
 
-- `scrollOffset = 0`: Viewing the current logical screen (newest content)
-- `scrollOffset > 0`: Viewing older content, scrolled into scrollback
+**Scroll Zones (from bottom to top):**
+
+| scrollOffset Range | What You're Viewing |
+|--------------------|---------------------|
+| `= 0` | Bottom of logical screen (cursor area, newest content) |
+| `1` to `logicalHiddenAbove` | Scrolling up within the logical screen itself |
+| `logicalHiddenAbove + 1` to `logicalHiddenAbove + magneticThreshold` | Magnetic zone (sticky boundary, still showing logical screen) |
+| `> logicalHiddenAbove + magneticThreshold` | Actually viewing scrollback buffer content |
+
+Where `logicalHiddenAbove = max(0, effectiveRows - rows)`.
+
+**Example:** With a 24-row physical screen and 80-row logical screen:
+- `logicalHiddenAbove = 56` (80 - 24 rows are hidden above)
+- `scrollOffset = 0` to `56`: Scrolling within the 80-row logical screen
+- `scrollOffset = 57` to `~59`: Magnetic zone (assuming ~3 row threshold)
+- `scrollOffset > ~59`: Actually viewing scrollback content
 
 Maximum scroll offset is calculated as:
 ```
 maxScrollOffset = scrollbackSize + logicalHiddenAbove + magneticThreshold
 ```
-
-Where `logicalHiddenAbove = max(0, effectiveRows - rows)`.
 
 ## Vertical Positioning
 

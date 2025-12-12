@@ -81,8 +81,28 @@ _: {read}
 # sin(0) = 0, sin(45) = 0.7, sin(90) = 1, etc.
 # Scaled to 0-7 range: 4 + 3.5*sin(angle)
 # Approximation: 4, 6, 7, 6, 4, 2, 1, 2
+sine_0: 4
+sine_1: 6
+sine_2: 7
+sine_3: 6
+sine_4: 4
+sine_5: 2
+sine_6: 1
+sine_7: 2
 
-sine_table: {list 4, 6, 7, 6, 4, 2, 1, 2}
+# Helper to get sine value from phase (0-7)
+getSine: {
+    phase: {imodulo $1, 8}
+    if {eq ~phase, 0} then (return ~sine_0)
+    if {eq ~phase, 1} then (return ~sine_1)
+    if {eq ~phase, 2} then (return ~sine_2)
+    if {eq ~phase, 3} then (return ~sine_3)
+    if {eq ~phase, 4} then (return ~sine_4)
+    if {eq ~phase, 5} then (return ~sine_5)
+    if {eq ~phase, 6} then (return ~sine_6)
+    if {eq ~phase, 7} then (return ~sine_7)
+    return ~sine_4
+}
 
 # Animation loop
 animFrame: 0
@@ -99,7 +119,7 @@ while (lt ~animCycles, ~maxCycles), (
     while (lt ~splitY, 100), (
         # Calculate which buffer row this Y position maps to
         # With 8 units per row: bufRow = splitY / 8 + 1 (1-indexed)
-        bufRow: {add {idiv ~splitY, 8}, 1}
+        bufRow: {add {idivide ~splitY, 8}, 1}
 
         # Calculate TopFineScroll for this split
         # First split (Y=0) starts with TopFineScroll=4 (top half cropped)
@@ -111,8 +131,8 @@ while (lt ~animCycles, ~maxCycles), (
         # Calculate LeftFineScroll based on sine wave
         # Wave phase = (splitY + animFrame) / wavelength
         # Using wavelength of ~16 sprite units for visible wave
-        wavePhase: {idiv {add ~splitY, ~animFrame}, 2}
-        leftFine: ~sine_table ~wavePhase
+        wavePhase: {idivide {add ~splitY, ~animFrame}, 2}
+        leftFine: {call ~getSine, ~wavePhase}
 
         # Create the split
         # ID = splitY + 1 (1-indexed)
@@ -155,13 +175,13 @@ _: {read}
 split_clear_all
 splitY: 0
 while (lt ~splitY, 100), (
-    bufRow: {add {idiv ~splitY, 8}, 1}
+    bufRow: {add {idivide ~splitY, 8}, 1}
     topFine: 0
     if {eq ~splitY, 0}
     then (topFine: 4)
 
-    wavePhase: {idiv ~splitY, 2}
-    leftFine: ~sine_table ~wavePhase
+    wavePhase: {idivide ~splitY, 2}
+    leftFine: {call ~getSine, ~wavePhase}
 
     splitID: {add ~splitY, 1}
     split_set ~splitID, ~splitY, ~bufRow, 1, ~topFine, ~leftFine, -1, 0

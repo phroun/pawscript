@@ -185,7 +185,7 @@ while (lt ~row, 15), (
         if {eq {imodulo ~row, 2}, 0}
         then (color yellow)
         else (color magenta)
-        write {rune ~charCode}
+        write {chr ~charCode}
         col: {add ~col, 1}
     )
     color reset: true
@@ -224,7 +224,7 @@ while (lt ~cycles, 3), (
         split_set 1, 0, 1, 1, ~fineScroll, 0, 0, 0
 
         msleep 100
-        fineScroll: {sub ~fineScroll, 1}
+        fineScroll: {subtract ~fineScroll, 1}
     )
 
     cycles: {add ~cycles, 1}

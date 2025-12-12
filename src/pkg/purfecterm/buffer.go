@@ -676,8 +676,15 @@ func (b *Buffer) CheckCursorAutoScroll() bool {
 		}
 	} else if b.lastCursorMoveDir < 0 {
 		// Cursor moved up - scroll up (increase scroll offset)
-		maxOffset := b.getMaxScrollOffsetInternal()
-		if b.scrollOffset < maxOffset {
+		// The cursor can never be in the scrollback buffer, so limit scrolling
+		// to logicalHiddenAbove - beyond that we'd be scrolling into scrollback
+		// where the cursor cannot exist.
+		effectiveRows := b.EffectiveRows()
+		logicalHiddenAbove := 0
+		if effectiveRows > b.rows {
+			logicalHiddenAbove = effectiveRows - b.rows
+		}
+		if b.scrollOffset < logicalHiddenAbove {
 			b.scrollOffset++
 			b.markDirty()
 			return true
@@ -1681,6 +1688,38 @@ func (b *Buffer) GetCursorVisiblePosition() (x, y int) {
 	}
 
 	return visibleX, visibleY
+}
+
+// GetCursorVisibleY returns just the cursor's visible Y position (row) on the
+// physical screen, even if the cursor is horizontally off-screen. Returns -1
+// if the cursor's line is not within the visible vertical area.
+// This is useful for cursor tracking: we want to know if the cursor's LINE
+// is being rendered, regardless of whether the cursor itself is visible.
+func (b *Buffer) GetCursorVisibleY() int {
+	b.mu.RLock()
+	defer b.mu.RUnlock()
+
+	effectiveRows := b.EffectiveRows()
+
+	// Calculate how much of the logical screen is hidden above
+	logicalHiddenAbove := 0
+	if effectiveRows > b.rows {
+		logicalHiddenAbove = effectiveRows - b.rows
+	}
+
+	// Use effective scroll offset to account for magnetic zone
+	effectiveScrollOffset := b.getEffectiveScrollOffset()
+
+	// The cursor is at logical position (cursorX, cursorY)
+	// Its visible position is: cursorY - logicalHiddenAbove + effectiveScrollOffset
+	visibleY := b.cursorY - logicalHiddenAbove + effectiveScrollOffset
+
+	// Check if cursor is within visible vertical area
+	if visibleY < 0 || visibleY >= b.rows {
+		return -1
+	}
+
+	return visibleY
 }
 
 // SetHorizOffset sets the horizontal scroll offset
