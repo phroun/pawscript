@@ -56,6 +56,28 @@ var (
 	// Configuration
 	appConfig    pawscript.PSLConfig
 	configHelper *pawgui.ConfigHelper
+
+	// Launcher narrow strip (for multiple toolbar buttons)
+	launcherNarrowStrip   *qt.QWidget   // The narrow strip container
+	launcherMenuButton    *qt.QPushButton // Hamburger button in path selector (when strip hidden)
+	launcherStripMenuBtn  *qt.QPushButton // Hamburger button in narrow strip (when strip visible)
+	launcherWidePanel     *qt.QWidget   // The wide panel (file browser)
+	launcherRegisteredBtns []*QtToolbarButton // Additional registered buttons for launcher
+)
+
+// QtToolbarButton represents a registered toolbar button for Qt
+type QtToolbarButton struct {
+	Icon     string           // Icon name or path
+	Tooltip  string           // Tooltip text
+	OnClick  func()           // Click handler
+	Menu     *qt.QMenu        // Optional dropdown menu (if nil, OnClick is used)
+	widget   *qt.QPushButton  // The actual button widget
+}
+
+// Minimum widths for panel collapse behavior
+const (
+	minWidePanelWidth   = 150 // Minimum width before wide panel collapses
+	minNarrowStripWidth = 40  // Minimum width before narrow strip collapses
 )
 
 // --- Configuration Management ---
@@ -319,6 +341,65 @@ func clearRecentPaths() {
 	}
 	delete(appConfig, "launcher_recent_paths")
 	saveConfig(appConfig)
+}
+
+// --- Toolbar Strip and Hamburger Menu ---
+
+// showAboutDialog displays the About PawScript dialog
+func showAboutDialog(parent *qt.QWidget) {
+	aboutText := fmt.Sprintf(`<h2>PawScript</h2>
+<p>Version: %s</p>
+<p><i>A scripting language for creative coding</i></p>
+<p>Copyright © 2025 Jeffrey R. Day<br>
+License: MIT</p>
+<p><small>Permission is hereby granted, free of charge, to any person
+obtaining a copy of this software and associated documentation
+files (the "Software"), to deal in the Software without restriction,
+including without limitation the rights to use, copy, modify, merge,
+publish, distribute, sublicense, and/or sell copies of the Software.</small></p>`, version)
+
+	qt.QMessageBox_About(parent, "About PawScript", aboutText)
+}
+
+// createHamburgerMenu creates the hamburger dropdown menu
+// isScriptWindow: true for script windows (slightly different options)
+func createHamburgerMenu(parent *qt.QWidget, isScriptWindow bool) *qt.QMenu {
+	menu := qt.NewQMenu2(parent)
+
+	// About option
+	aboutAction := menu.AddAction("About PawScript...")
+	aboutAction.OnTriggered(func() {
+		showAboutDialog(parent)
+	})
+
+	return menu
+}
+
+// createHamburgerButton creates a hamburger menu button (☰ icon)
+func createHamburgerButton(menu *qt.QMenu) *qt.QPushButton {
+	btn := qt.NewQPushButton3("☰")
+	btn.SetFixedSize2(32, 32)
+	btn.SetToolTip("Menu")
+	btn.SetMenu(menu)
+	return btn
+}
+
+// createToolbarStrip creates a vertical strip of toolbar buttons
+// Returns the strip container, the hamburger button, and the menu
+func createToolbarStrip(parent *qt.QWidget, isScriptWindow bool) (*qt.QWidget, *qt.QPushButton, *qt.QMenu) {
+	strip := qt.NewQWidget2(parent)
+	layout := qt.NewQVBoxLayout2(strip)
+	layout.SetContentsMargins(2, 5, 2, 5)
+	layout.SetSpacing(2)
+
+	// Create hamburger menu and button
+	menu := createHamburgerMenu(parent, isScriptWindow)
+	menuBtn := createHamburgerButton(menu)
+
+	layout.AddWidget(menuBtn.QWidget)
+	layout.AddStretch(1) // Push buttons to top
+
+	return strip, menuBtn, menu
 }
 
 // applyTheme sets the Qt application palette based on the configuration.
@@ -696,9 +777,26 @@ func launchGUIMode() {
 	// Create splitter
 	splitter := qt.NewQSplitter3(qt.Horizontal)
 
-	// Left panel (file browser)
-	leftPanel := createFilePanel()
-	splitter.AddWidget(leftPanel)
+	// Left container: holds wide panel (file browser) and narrow strip side by side
+	leftContainer := qt.NewQWidget2()
+	leftLayout := qt.NewQHBoxLayout2()
+	leftLayout.SetContentsMargins(0, 0, 0, 0)
+	leftLayout.SetSpacing(0)
+	leftContainer.SetLayout(leftLayout.QLayout)
+
+	// Wide panel (file browser)
+	widePanel := createFilePanel()
+	leftLayout.AddWidget2(widePanel, 1)
+
+	// Narrow strip: toolbar buttons (created but hidden initially - only 1 button)
+	launcherNarrowStrip, launcherStripMenuBtn, _ = createToolbarStrip(leftContainer, false)
+	launcherNarrowStrip.Hide() // Hidden initially since we only have 1 button
+	leftLayout.AddWidget(launcherNarrowStrip)
+
+	// Initially: hamburger button visible in path selector, narrow strip hidden
+	launcherMenuButton.Show()
+
+	splitter.AddWidget(leftContainer)
 
 	// Right panel (terminal)
 	rightPanel := createTerminalPanel()
@@ -714,8 +812,38 @@ func launchGUIMode() {
 	splitter.SetStretchFactor(1, 1) // Right panel: flexible (absorbs size changes)
 
 	// Save launcher width when user adjusts the splitter
+	// Implement multi-stage collapse similar to GTK version
 	splitter.OnSplitterMoved(func(pos int, index int) {
-		if index == 1 { // The handle between left and right panels
+		if index != 1 {
+			return
+		}
+		hasMultipleButtons := len(launcherRegisteredBtns) > 0
+
+		if pos < minNarrowStripWidth {
+			// Too narrow - collapse fully
+			splitter.SetSizes([]int{0, splitter.Width()})
+		} else if pos < minWidePanelWidth && hasMultipleButtons {
+			// Between narrow and wide threshold with multiple buttons
+			// Show only narrow strip
+			launcherWidePanel.Hide()
+			launcherNarrowStrip.Show()
+			launcherMenuButton.Hide()
+			launcherStripMenuBtn.Show()
+			saveLauncherWidth(pos)
+		} else if pos < minWidePanelWidth && !hasMultipleButtons {
+			// Single button mode, below wide threshold - collapse
+			splitter.SetSizes([]int{0, splitter.Width()})
+		} else {
+			// Wide enough for full panel
+			launcherWidePanel.Show()
+			if hasMultipleButtons {
+				launcherNarrowStrip.Show()
+				launcherMenuButton.Hide()
+				launcherStripMenuBtn.Show()
+			} else {
+				launcherNarrowStrip.Hide()
+				launcherMenuButton.Show()
+			}
 			saveLauncherWidth(pos)
 		}
 	})
@@ -1178,6 +1306,16 @@ func createFilePanel() *qt.QWidget {
 	layout.SetSpacing(4)
 	panel.SetLayout(layout.QLayout)
 
+	// Store reference for collapse handling
+	launcherWidePanel = panel
+
+	// Top row: path selector + hamburger menu button
+	topRow := qt.NewQWidget2()
+	topRowLayout := qt.NewQHBoxLayout2()
+	topRowLayout.SetContentsMargins(0, 0, 0, 0)
+	topRowLayout.SetSpacing(4)
+	topRow.SetLayout(topRowLayout.QLayout)
+
 	// Path selector button with dropdown menu - styled like other buttons
 	pathButton = qt.NewQPushButton3("")
 	pathButton.SetSizePolicy(*qt.NewQSizePolicy2(qt.QSizePolicy__Ignored, qt.QSizePolicy__Fixed))
@@ -1187,7 +1325,14 @@ func createFilePanel() *qt.QWidget {
 	pathMenu = qt.NewQMenu2()
 	pathButton.SetMenu(pathMenu)
 
-	layout.AddWidget(pathButton.QWidget)
+	topRowLayout.AddWidget2(pathButton.QWidget, 1)
+
+	// Hamburger menu button (shown when narrow strip is hidden)
+	launcherMenu := createHamburgerMenu(panel, false)
+	launcherMenuButton = createHamburgerButton(launcherMenu)
+	topRowLayout.AddWidget(launcherMenuButton.QWidget)
+
+	layout.AddWidget(topRow)
 
 	// File list
 	fileList = qt.NewQListWidget2()

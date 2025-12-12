@@ -97,7 +97,33 @@ var (
 	// Configuration loaded at startup
 	appConfig    pawscript.PSLConfig
 	configHelper *pawgui.ConfigHelper
+
+	// Launcher narrow strip (for multiple toolbar buttons)
+	launcherNarrowStrip   *gtk.Box    // The narrow strip container
+	launcherMenuButton    *gtk.Button // Hamburger button in path selector (when strip hidden)
+	launcherStripMenuBtn  *gtk.Button // Hamburger button in narrow strip (when strip visible)
+	launcherWidePanel     *gtk.Box    // The wide panel (file browser)
+	launcherRegisteredBtns []*ToolbarButton // Additional registered buttons for launcher
 )
+
+// ToolbarButton represents a registered toolbar button
+type ToolbarButton struct {
+	Icon     string           // Icon name or path
+	Tooltip  string           // Tooltip text
+	OnClick  func()           // Click handler
+	Menu     *gtk.Menu        // Optional dropdown menu (if nil, OnClick is used)
+	widget   *gtk.Button      // The actual button widget
+}
+
+// ToolbarStrip manages a collapsible strip of toolbar buttons
+type ToolbarStrip struct {
+	container      *gtk.Box          // The strip container
+	buttons        []*ToolbarButton  // Registered buttons (excluding mandatory first)
+	menuButton     *gtk.Button       // The mandatory hamburger menu button
+	menu           *gtk.Menu         // The hamburger menu
+	minWidth       int               // Minimum width before collapsing
+	isScriptWindow bool              // True if this is a script window (no wide panel)
+}
 
 // --- Configuration Management ---
 
@@ -274,6 +300,93 @@ func clearRecentPaths() {
 	delete(appConfig, "launcher_recent_paths")
 	saveConfig(appConfig)
 }
+
+// --- Toolbar Strip and Hamburger Menu ---
+
+// showAboutDialog displays the About PawScript dialog
+func showAboutDialog(parent gtk.IWindow) {
+	dialog := gtk.MessageDialogNew(
+		parent,
+		gtk.DIALOG_MODAL|gtk.DIALOG_DESTROY_WITH_PARENT,
+		gtk.MESSAGE_INFO,
+		gtk.BUTTONS_OK,
+		"",
+	)
+	dialog.SetTitle("About PawScript")
+
+	// Build about text
+	aboutText := fmt.Sprintf(`<b>PawScript</b>
+Version: %s
+
+<i>A scripting language for creative coding</i>
+
+Copyright © 2025 Jeffrey R. Day
+License: MIT
+
+<small>Permission is hereby granted, free of charge, to any person
+obtaining a copy of this software and associated documentation
+files (the "Software"), to deal in the Software without restriction,
+including without limitation the rights to use, copy, modify, merge,
+publish, distribute, sublicense, and/or sell copies of the Software.</small>`, version)
+
+	dialog.SetMarkup(aboutText)
+	dialog.Run()
+	dialog.Destroy()
+}
+
+// createHamburgerMenu creates the hamburger dropdown menu
+// isScriptWindow: true for script windows (slightly different options)
+func createHamburgerMenu(parent gtk.IWindow, isScriptWindow bool) *gtk.Menu {
+	menu, _ := gtk.MenuNew()
+
+	// About option
+	aboutItem, _ := gtk.MenuItemNewWithLabel("About PawScript...")
+	aboutItem.Connect("activate", func() {
+		showAboutDialog(parent)
+	})
+	menu.Append(aboutItem)
+
+	menu.ShowAll()
+	return menu
+}
+
+// createHamburgerButton creates a hamburger menu button (☰ icon)
+func createHamburgerButton(menu *gtk.Menu) *gtk.Button {
+	btn, _ := gtk.ButtonNewWithLabel("☰")
+	btn.SetSizeRequest(32, 32)
+	btn.SetTooltipText("Menu")
+
+	// Pop up the menu on click
+	btn.Connect("clicked", func() {
+		menu.PopupAtWidget(btn, gdk.GDK_GRAVITY_SOUTH_WEST, gdk.GDK_GRAVITY_NORTH_WEST, nil)
+	})
+
+	return btn
+}
+
+// createToolbarStrip creates a vertical strip of toolbar buttons
+// Returns the strip container and the hamburger button
+func createToolbarStrip(parent gtk.IWindow, isScriptWindow bool) (*gtk.Box, *gtk.Button, *gtk.Menu) {
+	strip, _ := gtk.BoxNew(gtk.ORIENTATION_VERTICAL, 2)
+	strip.SetMarginStart(2)
+	strip.SetMarginEnd(2)
+	strip.SetMarginTop(5)
+	strip.SetMarginBottom(5)
+
+	// Create hamburger menu and button
+	menu := createHamburgerMenu(parent, isScriptWindow)
+	menuBtn := createHamburgerButton(menu)
+
+	strip.PackStart(menuBtn, false, false, 0)
+
+	return strip, menuBtn, menu
+}
+
+// Minimum widths for panel collapse behavior
+const (
+	minWidePanelWidth   = 150 // Minimum width before wide panel collapses
+	minNarrowStripWidth = 40  // Minimum width before narrow strip collapses
+)
 
 // applyTheme sets the GTK theme based on the configuration.
 // "auto" = let GTK/OS decide, "dark" = force dark, "light" = force light
@@ -775,11 +888,30 @@ func runScriptInWindow(gtkApp *gtk.Application, scriptContent, scriptFile string
 	// Set font fallbacks
 	winTerminal.SetFontFallbacks(getFontFamilyUnicode(), getFontFamilyCJK())
 
-	// Create terminal widget
+	// Create main layout with collapsible toolbar strip
+	paned, _ := gtk.PanedNew(gtk.ORIENTATION_HORIZONTAL)
+
+	// Narrow strip for script window (always starts visible, collapsible)
+	strip, _, _ := createToolbarStrip(win, true)
+	paned.Pack1(strip, false, true)
+
+	// Terminal on the right
 	termWidget := winTerminal.Widget()
 	termWidget.SetVExpand(true)
 	termWidget.SetHExpand(true)
-	win.Add(termWidget)
+	termWidget.SetMarginStart(8) // Spacing from splitter
+	paned.Pack2(termWidget, true, false)
+
+	// Set initial strip width and collapse behavior
+	paned.SetPosition(minNarrowStripWidth)
+	paned.Connect("notify::position", func() {
+		pos := paned.GetPosition()
+		if pos > 0 && pos < minNarrowStripWidth {
+			paned.SetPosition(0) // Snap to collapsed
+		}
+	})
+
+	win.Add(paned)
 	win.ShowAll()
 
 	// Create I/O channels for this window's console
@@ -1078,10 +1210,25 @@ func activate(application *gtk.Application) {
 	paned, _ := gtk.PanedNew(gtk.ORIENTATION_HORIZONTAL)
 	paned.SetPosition(getLauncherWidth())
 
-	// Left panel: File browser
+	// Left panel container: holds wide panel (file browser) and narrow strip side by side
+	leftContainer, _ := gtk.BoxNew(gtk.ORIENTATION_HORIZONTAL, 0)
+
+	// Wide panel: File browser
+	widePanel := createFileBrowser()
+	leftContainer.PackStart(widePanel, true, true, 0)
+
+	// Narrow strip: toolbar buttons (created but hidden initially - only 1 button)
+	launcherNarrowStrip, launcherStripMenuBtn, _ = createToolbarStrip(mainWindow, false)
+	launcherNarrowStrip.SetNoShowAll(true) // Don't show when ShowAll is called
+	leftContainer.PackStart(launcherNarrowStrip, false, false, 0)
+
+	// Initially: hamburger button visible in path selector, narrow strip hidden
+	// (since we only have 1 button registered by default)
+	launcherMenuButton.Show()
+	launcherNarrowStrip.Hide()
+
 	// Pack1(widget, resize, shrink): resize=false (fixed), shrink=true (can collapse)
-	leftPanel := createFileBrowser()
-	paned.Pack1(leftPanel, false, true)
+	paned.Pack1(leftContainer, false, true)
 
 	// Right panel: Terminal (with left margin for spacing from divider)
 	rightPanel := createTerminal()
@@ -1089,15 +1236,43 @@ func activate(application *gtk.Application) {
 	paned.Pack2(rightPanel, true, false)
 
 	// Save launcher width when user adjusts the splitter
-	// Also implement snap-to-collapse: if width goes below threshold, snap to 0
-	const collapseThreshold = 196
+	// Implement multi-stage collapse:
+	// - Below minWidePanelWidth: hide wide panel, show only narrow strip
+	// - Below minNarrowStripWidth: hide everything (only splitter)
 	paned.Connect("notify::position", func() {
 		pos := paned.GetPosition()
-		if pos > 0 && pos < collapseThreshold {
-			// Below threshold but not collapsed - snap to collapsed
+		hasMultipleButtons := len(launcherRegisteredBtns) > 0
+
+		if pos == 0 {
+			// Fully collapsed
+			saveLauncherWidth(pos)
+		} else if pos < minNarrowStripWidth {
+			// Too narrow even for strip - snap to collapsed
+			paned.SetPosition(0)
+		} else if pos < minWidePanelWidth && hasMultipleButtons {
+			// Between narrow and wide threshold with multiple buttons
+			// Show only narrow strip
+			launcherWidePanel.Hide()
+			launcherNarrowStrip.Show()
+			launcherMenuButton.Hide()
+			launcherStripMenuBtn.Show()
+			saveLauncherWidth(pos)
+		} else if pos < minWidePanelWidth && !hasMultipleButtons {
+			// Single button mode, below wide threshold - snap to collapsed
 			paned.SetPosition(0)
 		} else {
-			// Save the width (including 0 for collapsed)
+			// Wide enough for full panel
+			launcherWidePanel.Show()
+			if hasMultipleButtons {
+				// Multiple buttons: show narrow strip, hide menu button in path row
+				launcherNarrowStrip.Show()
+				launcherMenuButton.Hide()
+				launcherStripMenuBtn.Show()
+			} else {
+				// Single button: hide narrow strip, show menu button in path row
+				launcherNarrowStrip.Hide()
+				launcherMenuButton.Show()
+			}
 			saveLauncherWidth(pos)
 		}
 	})
@@ -1157,9 +1332,16 @@ func createFileBrowser() *gtk.Box {
 	box.SetMarginTop(5)
 	box.SetMarginBottom(5)
 
+	// Store reference for collapse handling
+	launcherWidePanel = box
+
+	// Top row: path selector + hamburger menu button
+	topRow, _ := gtk.BoxNew(gtk.ORIENTATION_HORIZONTAL, 4)
+
 	// Path selector button with dropdown menu - ellipsizes at start to show end of path
 	pathButton, _ = gtk.MenuButtonNew()
 	pathButton.SetSizeRequest(0, -1)
+	pathButton.SetHExpand(true)
 
 	// Create label with ellipsis at start (shows end of path)
 	pathLabel, _ = gtk.LabelNew(currentDir)
@@ -1172,7 +1354,15 @@ func createFileBrowser() *gtk.Box {
 	pathMenu, _ = gtk.MenuNew()
 	pathButton.SetPopup(pathMenu)
 
-	box.PackStart(pathButton, false, true, 0)
+	topRow.PackStart(pathButton, true, true, 0)
+
+	// Hamburger menu button (shown when narrow strip is hidden)
+	// Note: menu parent will be set to mainWindow after it's created
+	launcherMenu := createHamburgerMenu(nil, false)
+	launcherMenuButton = createHamburgerButton(launcherMenu)
+	topRow.PackStart(launcherMenuButton, false, false, 0)
+
+	box.PackStart(topRow, false, true, 0)
 
 	// Scrolled window for file list
 	scroll, _ := gtk.ScrolledWindowNew(nil, nil)
@@ -1677,11 +1867,30 @@ func createConsoleWindow(filePath string) {
 	// Set font fallbacks for Unicode/CJK characters
 	winTerminal.SetFontFallbacks(getFontFamilyUnicode(), getFontFamilyCJK())
 
-	// Add terminal to window
+	// Create main layout with collapsible toolbar strip
+	paned, _ := gtk.PanedNew(gtk.ORIENTATION_HORIZONTAL)
+
+	// Narrow strip for script window (always starts visible, collapsible)
+	strip, _, _ := createToolbarStrip(win, true)
+	paned.Pack1(strip, false, true)
+
+	// Terminal on the right
 	termWidget := winTerminal.Widget()
 	termWidget.SetVExpand(true)
 	termWidget.SetHExpand(true)
-	win.Add(termWidget)
+	termWidget.SetMarginStart(8) // Spacing from splitter
+	paned.Pack2(termWidget, true, false)
+
+	// Set initial strip width and collapse behavior
+	paned.SetPosition(minNarrowStripWidth)
+	paned.Connect("notify::position", func() {
+		pos := paned.GetPosition()
+		if pos > 0 && pos < minNarrowStripWidth {
+			paned.SetPosition(0) // Snap to collapsed
+		}
+	})
+
+	win.Add(paned)
 
 	// Create context menu for this console window
 	winContextMenu, _ := gtk.MenuNew()
