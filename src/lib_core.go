@@ -965,9 +965,9 @@ func (ps *PawScript) RegisterCoreLib() {
 			return cfg.Nil + "null" + cfg.Reset
 		case bool:
 			if v {
-				return cfg.Bool + "true" + cfg.Reset
+				return cfg.True + "true" + cfg.Reset
 			}
-			return cfg.Bool + "false" + cfg.Reset
+			return cfg.False + "false" + cfg.Reset
 		case int64:
 			return cfg.Int + fmt.Sprintf("%d", v) + cfg.Reset
 		case int:

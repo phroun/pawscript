@@ -111,8 +111,11 @@ func loadCLIConfig() {
 				if v := getColorString(namedArgs, "float"); v != "" {
 					cliConfig.PSLColors.Float = v
 				}
-				if v := getColorString(namedArgs, "bool"); v != "" {
-					cliConfig.PSLColors.Bool = v
+				if v := getColorString(namedArgs, "true"); v != "" {
+					cliConfig.PSLColors.True = v
+				}
+				if v := getColorString(namedArgs, "false"); v != "" {
+					cliConfig.PSLColors.False = v
 				}
 				if v := getColorString(namedArgs, "nil"); v != "" {
 					cliConfig.PSLColors.Nil = v
@@ -181,7 +184,8 @@ psl_colors: (
     string: "\e[32m",
     int: "\e[33m",
     float: "\e[93m",
-    bool: "\e[35m",
+    true: "\e[92m",
+    false: "\e[91m",
     nil: "\e[31m",
     bracket: "\e[37m",
     colon: "\e[90m",
