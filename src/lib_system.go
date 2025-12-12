@@ -1220,6 +1220,26 @@ func (ps *PawScript) RegisterSystemLib(scriptArgs []string) {
 			// Default to #in channel
 			inputCh = resolveChannel(ctx, "#in")
 		}
+
+		// Stop any existing key input manager on the SAME input channel to prevent doubled input
+		// This allows multiple handlers on different input streams
+		ctx.executor.mu.Lock()
+		oldManager := ctx.executor.keyInputManager
+		oldInputCh := ctx.executor.keyInputChannel
+		if oldManager != nil && oldInputCh == inputCh {
+			ctx.executor.keyInputManager = nil
+			ctx.executor.keyInputChannel = nil
+			ctx.executor.mu.Unlock()
+			// Stop the old manager
+			oldManager.Stop()
+			// Restore old channel to line mode
+			if oldInputCh != nil && oldInputCh.NativeSend != nil {
+				oldInputCh.NativeSend("line")
+			}
+		} else {
+			ctx.executor.mu.Unlock()
+		}
+
 		if inputCh == nil || inputCh.NativeRecv == nil {
 			ctx.LogError(CatIO, "readkey_init: no valid input channel (need #in or explicit channel with NativeRecv)")
 			return BoolStatus(false)
