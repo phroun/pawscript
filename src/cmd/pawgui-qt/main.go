@@ -381,12 +381,13 @@ func createHamburgerMenu(parent *qt.QWidget, isScriptWindow bool) *qt.QMenu {
 // createHamburgerButton creates a hamburger menu button (☰ icon)
 func createHamburgerButton(menu *qt.QMenu) *qt.QPushButton {
 	btn := qt.NewQPushButton3("☰")
-	btn.SetFixedSize2(32, 32)
 	btn.SetToolTip("Menu")
+	// Style to match other buttons with square form and proper padding
+	btn.SetStyleSheet("padding: 5px 10px;")
+	btn.SetSizePolicy(*qt.NewQSizePolicy2(qt.QSizePolicy__Fixed, qt.QSizePolicy__Fixed))
 	// Don't use SetMenu() as it adds a dropdown arrow - manually pop up the menu on click
 	btn.OnClicked(func() {
 		// Show menu at the button's position
-		btn.MapToGlobal(btn.Rect().BottomLeft())
 		menu.Popup(btn.MapToGlobal(btn.Rect().BottomLeft()))
 	})
 	return btn
@@ -489,8 +490,10 @@ func setDummyButtons(count int) {
 		launcherRegisteredBtns = append(launcherRegisteredBtns, btn)
 	}
 
-	// Update the toolbar strip
-	updateLauncherToolbarButtons()
+	// Update the toolbar strip on Qt main thread using a 0ms timer
+	qt.QTimer_SingleShot(0, func() {
+		updateLauncherToolbarButtons()
+	})
 }
 
 // registerDummyButtonCommand registers the dummy_button command with PawScript
@@ -1228,7 +1231,43 @@ func runScriptInWindow(scriptContent, scriptFile string, scriptArgs []string,
 	// Set font fallbacks
 	winTerminal.SetFontFallbacks(getFontFamilyUnicode(), getFontFamilyCJK())
 
-	win.SetCentralWidget(winTerminal.Widget())
+	// Create splitter for toolbar strip + terminal
+	winSplitter := qt.NewQSplitter3(qt.Horizontal)
+
+	// Create toolbar strip for this window (script windows only have narrow strip, no wide panel)
+	winNarrowStrip, winStripMenuBtn, _ := createToolbarStrip(win.QWidget, true)
+	winNarrowStrip.SetFixedWidth(minNarrowStripWidth)
+	// Start visible with hamburger menu
+	winNarrowStrip.Show()
+	winStripMenuBtn.Show()
+
+	winSplitter.AddWidget(winNarrowStrip)
+	winSplitter.AddWidget(winTerminal.Widget())
+
+	// Set stretch factors so strip is fixed and terminal is flexible
+	winSplitter.SetStretchFactor(0, 0)
+	winSplitter.SetStretchFactor(1, 1)
+
+	// Set initial sizes
+	winSplitter.SetSizes([]int{minNarrowStripWidth, 900 - minNarrowStripWidth})
+
+	// Script windows only have two positions: 0 (collapsed) or minNarrowStripWidth (visible)
+	winSplitter.OnSplitterMoved(func(pos int, index int) {
+		if index != 1 {
+			return
+		}
+		if pos == 0 {
+			// Already collapsed, do nothing
+		} else if pos < minNarrowStripWidth/2 {
+			// Less than half - snap to collapsed
+			winSplitter.SetSizes([]int{0, winSplitter.Width()})
+		} else if pos != minNarrowStripWidth {
+			// More than half but not at fixed width - snap to visible
+			winSplitter.SetSizes([]int{minNarrowStripWidth, winSplitter.Width() - minNarrowStripWidth})
+		}
+	})
+
+	win.SetCentralWidget(winSplitter.QWidget)
 
 	// Create I/O channels for this window
 	winStdinReader, winStdinWriter := io.Pipe()
@@ -2131,8 +2170,52 @@ func createConsoleWindow(filePath string) {
 		return
 	}
 
-	// Add terminal to window
-	win.SetCentralWidget(winTerminal.Widget())
+	// Create splitter for toolbar strip + terminal
+	winSplitter := qt.NewQSplitter3(qt.Horizontal)
+
+	// Create toolbar strip for this window (script windows only have narrow strip, no wide panel)
+	winNarrowStrip, winStripMenuBtn, _ := createToolbarStrip(win.QWidget, true)
+	winNarrowStrip.SetFixedWidth(minNarrowStripWidth)
+	// Start visible if there are registered buttons, hidden otherwise
+	hasMultipleButtons := len(launcherRegisteredBtns) > 0
+	if hasMultipleButtons {
+		winNarrowStrip.Show()
+		winStripMenuBtn.Show()
+	} else {
+		winNarrowStrip.Hide()
+	}
+
+	winSplitter.AddWidget(winNarrowStrip)
+	winSplitter.AddWidget(winTerminal.Widget())
+
+	// Set stretch factors so strip is fixed and terminal is flexible
+	winSplitter.SetStretchFactor(0, 0)
+	winSplitter.SetStretchFactor(1, 1)
+
+	// Set initial sizes
+	if hasMultipleButtons {
+		winSplitter.SetSizes([]int{minNarrowStripWidth, 900 - minNarrowStripWidth})
+	} else {
+		winSplitter.SetSizes([]int{0, 900})
+	}
+
+	// Script windows only have two positions: 0 (collapsed) or minNarrowStripWidth (visible)
+	winSplitter.OnSplitterMoved(func(pos int, index int) {
+		if index != 1 {
+			return
+		}
+		if pos == 0 {
+			// Already collapsed, do nothing
+		} else if pos < minNarrowStripWidth/2 {
+			// Less than half - snap to collapsed
+			winSplitter.SetSizes([]int{0, winSplitter.Width()})
+		} else if pos != minNarrowStripWidth {
+			// More than half but not at fixed width - snap to visible
+			winSplitter.SetSizes([]int{minNarrowStripWidth, winSplitter.Width() - minNarrowStripWidth})
+		}
+	})
+
+	win.SetCentralWidget(winSplitter.QWidget)
 
 	// Create I/O channels for this window's console
 	winStdinReader, winStdinWriter := io.Pipe()
