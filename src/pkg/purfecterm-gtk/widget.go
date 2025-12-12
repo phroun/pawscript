@@ -336,6 +336,8 @@ type Widget struct {
 	horizScrollbar *gtk.Scrollbar // Horizontal scrollbar
 	box            *gtk.Box       // Outer vertical box
 	innerBox       *gtk.Box       // Inner horizontal box (drawingArea + vscrollbar)
+	bottomBox      *gtk.Box       // Bottom horizontal box (hscrollbar + corner)
+	cornerArea     *gtk.DrawingArea // Corner area between scrollbars
 
 	// Terminal state
 	buffer *purfecterm.Buffer
@@ -473,13 +475,32 @@ func NewWidget(cols, rows, scrollbackSize int) (*Widget, error) {
 	w.horizScrollbar.SetName("purfecterm-hscrollbar")
 	w.applyScrollbarCSS()
 
+	// Create bottom container (horizontal: horizontal scrollbar + corner widget)
+	w.bottomBox, err = gtk.BoxNew(gtk.ORIENTATION_HORIZONTAL, 0)
+	if err != nil {
+		return nil, err
+	}
+
+	// Create corner area (small widget that fills the corner between scrollbars)
+	w.cornerArea, err = gtk.DrawingAreaNew()
+	if err != nil {
+		return nil, err
+	}
+	// Set corner to same size as vertical scrollbar width (typically ~14-16px)
+	w.cornerArea.SetSizeRequest(14, -1)
+	w.cornerArea.Connect("draw", w.onCornerDraw)
+
 	// Pack widgets: inner box holds drawing area and vertical scrollbar
 	w.innerBox.PackStart(w.drawingArea, true, true, 0)
 	w.innerBox.PackStart(w.scrollbar, false, false, 0)
 
-	// Outer box holds inner box and horizontal scrollbar
+	// Bottom box holds horizontal scrollbar and corner widget
+	w.bottomBox.PackStart(w.horizScrollbar, true, true, 0)
+	w.bottomBox.PackStart(w.cornerArea, false, false, 0)
+
+	// Outer box holds inner box and bottom box
 	w.box.PackStart(w.innerBox, true, true, 0)
-	w.box.PackStart(w.horizScrollbar, false, false, 0)
+	w.box.PackStart(w.bottomBox, false, false, 0)
 
 	// Get clipboard
 	w.clipboard, _ = gtk.ClipboardGet(gdk.SELECTION_CLIPBOARD)
@@ -1104,6 +1125,7 @@ func (w *Widget) SetColorScheme(scheme purfecterm.ColorScheme) {
 	w.mu.Unlock()
 	w.applyScrollbarCSS() // Update scrollbar background to match
 	w.drawingArea.QueueDraw()
+	w.cornerArea.QueueDraw() // Update corner area background
 }
 
 // applyScrollbarCSS applies macOS-style CSS to the scrollbar with the current scheme's background
@@ -1149,6 +1171,24 @@ func (w *Widget) applyScrollbarCSS() {
 	if err == nil {
 		gtk.AddProviderForScreen(screen, cssProvider, gtk.STYLE_PROVIDER_PRIORITY_APPLICATION)
 	}
+}
+
+// onCornerDraw draws the corner area between scrollbars with the terminal background color
+func (w *Widget) onCornerDraw(da *gtk.DrawingArea, cr *cairo.Context) bool {
+	w.mu.Lock()
+	scheme := w.scheme
+	w.mu.Unlock()
+
+	// Fill with terminal background color
+	alloc := da.GetAllocation()
+	cr.SetSourceRGB(
+		float64(scheme.Background.R)/255.0,
+		float64(scheme.Background.G)/255.0,
+		float64(scheme.Background.B)/255.0)
+	cr.Rectangle(0, 0, float64(alloc.GetWidth()), float64(alloc.GetHeight()))
+	cr.Fill()
+
+	return true
 }
 
 // SetInputCallback sets the callback for handling input

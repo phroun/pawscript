@@ -371,6 +371,14 @@ func (b *Buffer) Resize(cols, rows int) {
 		b.cursorY = effectiveRows - 1
 	}
 
+	// Clamp scroll offset after resize - when physical window gets larger,
+	// logicalHiddenAbove decreases and scrollOffset might be too high.
+	// This prevents blank lines appearing above logical line 0.
+	maxOffset := b.getMaxScrollOffsetInternal()
+	if b.scrollOffset > maxOffset {
+		b.scrollOffset = maxOffset
+	}
+
 	b.markDirty()
 }
 
@@ -703,6 +711,21 @@ func (b *Buffer) CheckCursorAutoScroll() bool {
 		return false
 	}
 
+	effectiveRows := b.EffectiveRows()
+	logicalHiddenAbove := 0
+	if effectiveRows > b.rows {
+		logicalHiddenAbove = effectiveRows - b.rows
+	}
+
+	// FIRST: If we're viewing scrollback (scrollOffset > logicalHiddenAbove),
+	// instantly snap to the logical screen boundary. The scrollback should be
+	// forced off screen before any gradual auto-scrolling happens.
+	if b.scrollOffset > logicalHiddenAbove {
+		b.scrollOffset = logicalHiddenAbove
+		b.markDirty()
+		return true
+	}
+
 	// If cursor was drawn, no scroll needed
 	if b.cursorDrawnLastFrame {
 		return false
@@ -723,11 +746,6 @@ func (b *Buffer) CheckCursorAutoScroll() bool {
 		// The cursor can never be in the scrollback buffer, so limit scrolling
 		// to logicalHiddenAbove - beyond that we'd be scrolling into scrollback
 		// where the cursor cannot exist.
-		effectiveRows := b.EffectiveRows()
-		logicalHiddenAbove := 0
-		if effectiveRows > b.rows {
-			logicalHiddenAbove = effectiveRows - b.rows
-		}
 		if b.scrollOffset < logicalHiddenAbove {
 			b.scrollOffset++
 			b.markDirty()
@@ -1940,6 +1958,21 @@ func (b *Buffer) CheckCursorAutoScrollHoriz() bool {
 		return false
 	}
 
+	// FIRST: If we're viewing scrollback, snap to logical screen boundary first.
+	// The scrollback should be forced off screen before any horizontal auto-scrolling.
+	// (Vertical auto-scroll handles this too, but in case horizontal is called first
+	// or vertical didn't trigger, we ensure scrollback is off-screen here too.)
+	effectiveRows := b.EffectiveRows()
+	logicalHiddenAbove := 0
+	if effectiveRows > b.rows {
+		logicalHiddenAbove = effectiveRows - b.rows
+	}
+	if b.scrollOffset > logicalHiddenAbove {
+		b.scrollOffset = logicalHiddenAbove
+		b.markDirty()
+		return true
+	}
+
 	// Check if cursor line was rendered (from cursorDrawnLastFrame set by vertical tracking)
 	// If cursor line isn't visible vertically, don't do horizontal auto-scroll
 	if !b.cursorDrawnLastFrame {
@@ -2045,6 +2078,12 @@ func (b *Buffer) CheckCursorAutoScrollHoriz() bool {
 	// Apply the scroll
 	if scrollAmount > 0 {
 		if scrollLeft {
+			// Scroll one extra position left to show the character that was just typed
+			// (since cursor lands one position to the right of the output)
+			// unless we're already at or would be at position 0
+			if b.horizOffset > scrollAmount {
+				scrollAmount++
+			}
 			b.horizOffset -= scrollAmount
 			if b.horizOffset < 0 {
 				b.horizOffset = 0
