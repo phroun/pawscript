@@ -153,6 +153,7 @@ type Buffer struct {
 	lastKeyboardActivity time.Time // When keyboard activity last occurred
 	cursorDrawnLastFrame bool      // Set by widget after drawing cursor
 	lastCursorMoveDir    int       // -1=up, 0=none, 1=down (for vertical auto-scroll)
+	lastManualVertScroll time.Time // When user last manually scrolled vertically
 
 	// Horizontal auto-scroll tracking
 	lastHorizCursorMoveDir  int       // -1=left, 0=unknown, 1=right (for horiz auto-scroll)
@@ -711,9 +712,47 @@ func (b *Buffer) NotifyKeyboardActivity() {
 	b.lastKeyboardActivity = time.Now()
 }
 
+// NotifyManualVertScroll signals that the user manually scrolled vertically
+// (via mouse wheel, scrollbar, etc). This cancels vertical auto-scroll
+// to avoid fighting with user intent.
+func (b *Buffer) NotifyManualVertScroll() {
+	b.mu.Lock()
+	defer b.mu.Unlock()
+	b.lastManualVertScroll = time.Now()
+}
+
+// isVertAutoScrollActive returns true if vertical auto-scroll should be active.
+// It checks keyboard activity and whether manual scroll should take precedence.
+// Must be called with lock held.
+func (b *Buffer) isVertAutoScrollActive() bool {
+	// Must have recent keyboard activity
+	if b.lastKeyboardActivity.IsZero() {
+		return false
+	}
+	if time.Since(b.lastKeyboardActivity) >= keyboardAutoScrollDuration {
+		return false
+	}
+
+	// If user manually scrolled more recently than keyboard activity, defer to user
+	if !b.lastManualVertScroll.IsZero() && b.lastManualVertScroll.After(b.lastKeyboardActivity) {
+		return false
+	}
+
+	return true
+}
+
+// extendAutoScrollTimer extends the keyboard activity timer when auto-scroll
+// is actively working to bring the cursor into view. This allows longer output
+// to keep scrolling without the timer expiring mid-scroll.
+// Must be called with lock held.
+func (b *Buffer) extendAutoScrollTimer() {
+	b.lastKeyboardActivity = time.Now()
+}
+
 // isAutoScrollActive returns true if keyboard activity occurred recently
 // enough that cursor movements should auto-scroll the view.
 // Must be called with lock held.
+// DEPRECATED: Use isVertAutoScrollActive instead for more accurate behavior.
 func (b *Buffer) isAutoScrollActive() bool {
 	if b.lastKeyboardActivity.IsZero() {
 		return false
@@ -730,8 +769,9 @@ func (b *Buffer) SetCursorDrawn(drawn bool) {
 }
 
 // CheckCursorAutoScroll checks if the cursor was not drawn last frame and
-// auto-scroll is active, then scrolls by one row toward the cursor position
-// to bring the cursor back into view.
+// auto-scroll is active, then scrolls toward the cursor position to bring
+// the cursor back into view. When the cursor is multiple lines away, it
+// scrolls multiple lines at once for faster catch-up.
 // Returns true if a scroll occurred.
 func (b *Buffer) CheckCursorAutoScroll() bool {
 	b.mu.Lock()
@@ -742,8 +782,8 @@ func (b *Buffer) CheckCursorAutoScroll() bool {
 		return false
 	}
 
-	// Only auto-scroll if keyboard activity is recent
-	if !b.isAutoScrollActive() {
+	// Only auto-scroll if keyboard activity is recent and user hasn't manually scrolled
+	if !b.isVertAutoScrollActive() {
 		return false
 	}
 
@@ -758,6 +798,7 @@ func (b *Buffer) CheckCursorAutoScroll() bool {
 	// forced off screen before any gradual auto-scrolling happens.
 	if b.scrollOffset > logicalHiddenAbove {
 		b.scrollOffset = logicalHiddenAbove
+		b.extendAutoScrollTimer() // Extend timer since we're actively scrolling
 		b.markDirty()
 		return true
 	}
@@ -767,23 +808,48 @@ func (b *Buffer) CheckCursorAutoScroll() bool {
 		return false
 	}
 
-	// Cursor wasn't drawn - scroll one row in the direction of last cursor movement.
-	// Movement direction accounts for screen scrolls (scrollUpInternal increments
-	// scrollsSinceCursorSet, which is added to lastCursorY when comparing).
+	// Calculate cursor's visible Y position to determine how far off-screen it is
+	effectiveScrollOffset := b.getEffectiveScrollOffset()
+	visibleY := b.cursorY - logicalHiddenAbove + effectiveScrollOffset
+
+	// Determine how many rows to scroll
+	var scrollAmount int
 	if b.lastCursorMoveDir > 0 {
-		// Cursor moved down - scroll down (decrease scroll offset toward 0)
-		if b.scrollOffset > 0 {
-			b.scrollOffset--
+		// Cursor moved down - need to scroll down (decrease scroll offset)
+		// visibleY >= b.rows means cursor is below visible area
+		if visibleY >= b.rows {
+			scrollAmount = visibleY - b.rows + 1 // How far below the visible area
+		} else if b.scrollOffset > 0 {
+			scrollAmount = 1 // Just scroll one row if we can
+		}
+
+		if scrollAmount > 0 && b.scrollOffset > 0 {
+			// Don't scroll more than we have offset
+			if scrollAmount > b.scrollOffset {
+				scrollAmount = b.scrollOffset
+			}
+			b.scrollOffset -= scrollAmount
+			b.extendAutoScrollTimer() // Extend timer since we're actively scrolling
 			b.markDirty()
 			return true
 		}
 	} else if b.lastCursorMoveDir < 0 {
-		// Cursor moved up - scroll up (increase scroll offset)
-		// The cursor can never be in the scrollback buffer, so limit scrolling
-		// to logicalHiddenAbove - beyond that we'd be scrolling into scrollback
-		// where the cursor cannot exist.
-		if b.scrollOffset < logicalHiddenAbove {
-			b.scrollOffset++
+		// Cursor moved up - need to scroll up (increase scroll offset)
+		// visibleY < 0 means cursor is above visible area
+		if visibleY < 0 {
+			scrollAmount = -visibleY // How far above (positive value)
+		} else if b.scrollOffset < logicalHiddenAbove {
+			scrollAmount = 1 // Just scroll one row if we can
+		}
+
+		if scrollAmount > 0 && b.scrollOffset < logicalHiddenAbove {
+			// Don't scroll beyond logicalHiddenAbove
+			maxScroll := logicalHiddenAbove - b.scrollOffset
+			if scrollAmount > maxScroll {
+				scrollAmount = maxScroll
+			}
+			b.scrollOffset += scrollAmount
+			b.extendAutoScrollTimer() // Extend timer since we're actively scrolling
 			b.markDirty()
 			return true
 		}

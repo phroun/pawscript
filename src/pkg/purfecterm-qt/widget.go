@@ -445,6 +445,7 @@ func (w *Widget) initScrollbar() {
 		if !w.scrollbarUpdating {
 			maxScroll := w.scrollbar.Maximum()
 			w.buffer.SetScrollOffset(maxScroll - value)
+			w.buffer.NotifyManualVertScroll() // User initiated scroll
 			// Don't snap here - let scrollbar move smoothly
 			// The visual interpretation handles the magnetic zone
 		}
@@ -2737,6 +2738,7 @@ func (w *Widget) wheelEvent(event *qt.QWheelEvent) {
 			offset = scrollbackSize
 		}
 		w.buffer.SetScrollOffset(offset)
+		w.buffer.NotifyManualVertScroll() // User initiated scroll
 	} else if deltaY < 0 {
 		// Scrolling DOWN toward logical screen
 		offset -= 3
@@ -2746,6 +2748,7 @@ func (w *Widget) wheelEvent(event *qt.QWheelEvent) {
 		w.buffer.SetScrollOffset(offset)
 		// Only snap to 0 when scrolling DOWN into the magnetic zone
 		w.buffer.NormalizeScrollOffset()
+		w.buffer.NotifyManualVertScroll() // User initiated scroll
 	}
 
 	w.updateScrollbar()
