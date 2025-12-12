@@ -2393,6 +2393,7 @@ func (w *Widget) onScroll(da *gtk.DrawingArea, ev *gdk.Event) bool {
 				offset = maxOffset
 			}
 			w.buffer.SetScrollOffset(offset)
+			w.buffer.NotifyManualVertScroll() // User initiated scroll
 		}
 	case gdk.SCROLL_DOWN:
 		if hasShift {
@@ -2414,6 +2415,7 @@ func (w *Widget) onScroll(da *gtk.DrawingArea, ev *gdk.Event) bool {
 			w.buffer.SetScrollOffset(offset)
 			// Snap to 0 if in the magnetic zone (creates sticky boundary effect)
 			w.buffer.NormalizeScrollOffset()
+			w.buffer.NotifyManualVertScroll() // User initiated scroll
 		}
 	case gdk.SCROLL_LEFT:
 		// Horizontal scroll left
@@ -3017,6 +3019,7 @@ func (w *Widget) onScrollbarChanged(sb *gtk.Scrollbar) {
 	maxOffset := w.buffer.GetMaxScrollOffset()
 	// Invert - scrollbar at top means scrolled back
 	w.buffer.SetScrollOffset(maxOffset - val)
+	w.buffer.NotifyManualVertScroll() // User initiated scroll
 	// Don't snap here - let scrollbar move smoothly
 	// The visual interpretation handles the magnetic zone
 	w.updateHorizScrollbar() // Horizontal scrollbar depends on scroll position
