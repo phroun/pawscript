@@ -1446,6 +1446,12 @@ func (w *Widget) paintEvent(event *qt.QPaintEvent) {
 	// is being rendered, regardless of whether the cursor itself is visible.
 	cursorLineY := w.buffer.GetCursorVisibleY()
 
+	// Get cursor's logical X position for horizontal auto-scroll
+	cursorLogicalX, _ := w.buffer.GetCursor()
+
+	// Clear horizontal memos for this paint frame
+	w.buffer.ClearHorizMemos()
+
 	// Get screen scaling factors
 	horizScale := w.buffer.GetHorizontalScale()
 	vertScale := w.buffer.GetVerticalScale()
@@ -1779,6 +1785,48 @@ func (w *Widget) paintEvent(event *qt.QPaintEvent) {
 				}
 			}
 		}
+
+		// Populate horizontal memo for this scanline if it's the cursor's line
+		if y == cursorLineY && cursorLineY >= 0 {
+			leftmostCell := horizOffset
+			rightmostCell := horizOffset + effectiveCols - 1
+
+			// Calculate max column that can be reached by scrolling (considering screenCrop)
+			maxReachableCol := -1 // -1 means no crop limit
+			if widthCrop > 0 {
+				// Approximate: widthCrop is in sprite units, convert to columns
+				// Assuming 1 cell = 1 column (ignoring Asian width for simplicity)
+				maxReachableCol = widthCrop/unitX - 1
+			}
+
+			memo := purfecterm.HorizMemo{
+				Valid:           true,
+				LogicalRow:      -1, // Would need scroll offset calculation for exact value
+				LeftmostCell:    leftmostCell,
+				RightmostCell:   rightmostCell,
+				DistanceToLeft:  -1,
+				DistanceToRight: -1,
+				CursorLocated:   false,
+			}
+
+			// Determine cursor position relative to rendered area
+			if cursorLogicalX >= leftmostCell && cursorLogicalX <= rightmostCell {
+				// Cursor is within the rendered area
+				memo.CursorLocated = true
+			} else if cursorLogicalX < leftmostCell && cursorLogicalX >= 0 {
+				// Cursor is to the left of rendered area (but not negative)
+				memo.DistanceToLeft = leftmostCell - cursorLogicalX
+			} else if cursorLogicalX > rightmostCell {
+				// Cursor is to the right of rendered area
+				// Check if it's beyond screenCrop (can't scroll to it)
+				if maxReachableCol < 0 || cursorLogicalX <= maxReachableCol {
+					memo.DistanceToRight = cursorLogicalX - rightmostCell
+				}
+				// If beyond crop, DistanceToRight stays -1 (can't reach)
+			}
+
+			w.buffer.SetHorizMemo(y, memo)
+		}
 	}
 
 	// Render front sprites (overlay on top of text)
@@ -1820,9 +1868,14 @@ func (w *Widget) paintEvent(event *qt.QPaintEvent) {
 	// off-screen or invisible, but if its line is visible, auto-scroll should stop.
 	w.buffer.SetCursorDrawn(cursorLineWasRendered)
 
-	// Check if we need to auto-scroll to bring cursor into view
+	// Check if we need to auto-scroll to bring cursor into view (vertical)
 	if w.buffer.CheckCursorAutoScroll() {
 		// Scroll happened, redraw will be triggered by markDirty
+	}
+
+	// Check if we need to auto-scroll horizontally
+	if w.buffer.CheckCursorAutoScrollHoriz() {
+		// Horizontal scroll happened, redraw will be triggered by markDirty
 	}
 
 	// Update scrollbars after rendering (safe here since we're not holding buffer lock)

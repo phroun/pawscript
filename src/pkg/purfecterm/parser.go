@@ -653,7 +653,8 @@ func (p *Parser) executePrivateModeSet(set bool) {
 		case 1: // DECCKM - Application cursor keys
 			// Not yet implemented
 		case 7: // DECAWM - Auto-wrap mode
-			// Not yet implemented
+			// h = enable auto-wrap (cursor wraps to next line), l = disable (stay at last column)
+			p.buffer.SetAutoWrapMode(set)
 		case 12: // Cursor blink rate: h=fast, l=slow
 			shape, _ := p.buffer.GetCursorStyle()
 			if set {
@@ -664,6 +665,10 @@ func (p *Parser) executePrivateModeSet(set bool) {
 		case 7700: // PurfecTerm: Disable scrollback buffer (for games)
 			// h = disable scrollback accumulation, l = re-enable
 			p.buffer.SetScrollbackDisabled(set)
+		case 7701: // PurfecTerm: Disable cursor-following auto-scroll
+			// h = disable auto-scroll, l = re-enable
+			// When disabled, tracking still occurs but no automatic scrolling happens
+			p.buffer.SetAutoScrollDisabled(set)
 		}
 	}
 }
