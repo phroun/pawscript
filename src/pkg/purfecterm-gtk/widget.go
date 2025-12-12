@@ -482,6 +482,7 @@ func NewWidget(cols, rows, scrollbackSize int) (*Widget, error) {
 	}
 
 	// Create corner area (small widget that fills the corner between scrollbars)
+	// This also serves as a resize handle for the window
 	w.cornerArea, err = gtk.DrawingAreaNew()
 	if err != nil {
 		return nil, err
@@ -489,6 +490,9 @@ func NewWidget(cols, rows, scrollbackSize int) (*Widget, error) {
 	// Set corner to same size as vertical scrollbar width (typically ~14-16px)
 	w.cornerArea.SetSizeRequest(14, -1)
 	w.cornerArea.Connect("draw", w.onCornerDraw)
+	// Enable button press events for resize handle
+	w.cornerArea.AddEvents(int(gdk.BUTTON_PRESS_MASK))
+	w.cornerArea.Connect("button-press-event", w.onCornerButtonPress)
 
 	// Pack widgets: inner box holds drawing area and vertical scrollbar
 	w.innerBox.PackStart(w.drawingArea, true, true, 0)
@@ -1187,6 +1191,40 @@ func (w *Widget) onCornerDraw(da *gtk.DrawingArea, cr *cairo.Context) bool {
 		float64(scheme.Background.B)/255.0)
 	cr.Rectangle(0, 0, float64(alloc.GetWidth()), float64(alloc.GetHeight()))
 	cr.Fill()
+
+	return true
+}
+
+// onCornerButtonPress handles button press on the corner widget to initiate window resize
+func (w *Widget) onCornerButtonPress(da *gtk.DrawingArea, event *gdk.Event) bool {
+	buttonEvent := gdk.EventButtonNewFromEvent(event)
+	if buttonEvent.Button() != gdk.BUTTON_PRIMARY {
+		return false
+	}
+
+	// Get the toplevel window
+	toplevel, err := da.GetToplevel()
+	if err != nil || toplevel == nil {
+		return false
+	}
+
+	window, ok := toplevel.(*gtk.Window)
+	if !ok {
+		return false
+	}
+
+	// Get root coordinates for the resize drag
+	rootX, rootY := buttonEvent.RootCoords()
+
+	// Initiate resize from bottom-right corner
+	// GDK_WINDOW_EDGE_SOUTH_EAST = 4
+	window.BeginResizeDrag(
+		gdk.WindowEdge(4), // SOUTH_EAST
+		int(buttonEvent.Button()),
+		int(rootX),
+		int(rootY),
+		buttonEvent.Time(),
+	)
 
 	return true
 }
