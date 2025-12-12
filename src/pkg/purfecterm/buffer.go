@@ -13,6 +13,22 @@ const scrollMagneticThresholdPercent = 5
 // will auto-scroll to keep the cursor visible on cursor movements.
 const keyboardAutoScrollDuration = 500 * time.Millisecond
 
+// manualScrollCooldown is how long after manual scrolling before auto-scroll
+// can resume (if no keyboard activity or scroll-causing event occurs).
+const manualScrollCooldown = 5 * time.Second
+
+// HorizMemo stores horizontal scroll memo data for a single scanline.
+// This is populated during paint to track cursor position relative to rendered content.
+type HorizMemo struct {
+	Valid           bool // True if this scanline was processed during paint
+	LogicalRow      int  // Which buffer row is being rendered at this scanline (for debugging)
+	LeftmostCell    int  // Leftmost rendered cell column number
+	RightmostCell   int  // Rightmost rendered cell column number
+	DistanceToLeft  int  // Distance to scroll left to reach cursor (-1 if N/A)
+	DistanceToRight int  // Distance to scroll right to reach cursor (-1 if N/A)
+	CursorLocated   bool // True if cursor was found within rendered area
+}
+
 // scrollMagneticThresholdMin is the minimum magnetic threshold in lines.
 const scrollMagneticThresholdMin = 2
 
@@ -136,7 +152,20 @@ type Buffer struct {
 	// Auto-scroll to cursor on keyboard activity
 	lastKeyboardActivity time.Time // When keyboard activity last occurred
 	cursorDrawnLastFrame bool      // Set by widget after drawing cursor
-	lastCursorMoveDir    int       // -1=up, 0=none, 1=down (set by scrollUpInternal)
+	lastCursorMoveDir    int       // -1=up, 0=none, 1=down (for vertical auto-scroll)
+
+	// Horizontal auto-scroll tracking
+	lastHorizCursorMoveDir  int       // -1=left, 0=unknown, 1=right (for horiz auto-scroll)
+	lastManualHorizScroll   time.Time // When user last manually scrolled horizontally
+	lastScrollCausingEvent  time.Time // When a scroll-causing event last occurred (line to scrollback)
+	horizMemos              []HorizMemo // Per-scanline horizontal scroll memos (populated during paint)
+	isAbsoluteHorizPosition bool      // True if last horiz move was absolute (CSI H/f/G)
+
+	// Auto-scroll mode control (DEC Private Mode)
+	autoScrollDisabled bool // When true, cursor-following auto-scroll is disabled
+
+	// DECAWM - Auto-wrap mode (DEC Private Mode 7)
+	autoWrapMode bool // When true (default), cursor wraps to next line at end of row
 
 	selectionActive      bool
 	selStartX, selStartY int
@@ -221,6 +250,7 @@ func NewBuffer(cols, rows, maxScrollback int) *Buffer {
 		widthCrop:           -1, // -1 = no crop
 		heightCrop:          -1, // -1 = no crop
 		screenSplits:        make(map[int]*ScreenSplit),
+		autoWrapMode:        true, // DECAWM default enabled
 	}
 	b.initScreen()
 	return b
@@ -582,6 +612,14 @@ func (b *Buffer) trackCursorYMove(newY int) {
 	// If equal, keep previous direction
 }
 
+// setHorizMoveDir sets the horizontal cursor movement direction for horizontal auto-scroll.
+// dir: -1=left, 0=unknown/absolute, 1=right
+// isAbsolute: true if this was an absolute positioning command (CSI H/f/G)
+func (b *Buffer) setHorizMoveDir(dir int, isAbsolute bool) {
+	b.lastHorizCursorMoveDir = dir
+	b.isAbsoluteHorizPosition = isAbsolute
+}
+
 func (b *Buffer) setCursorInternal(x, y int) {
 	// Use effective (logical) dimensions for cursor bounds
 	effectiveCols := b.EffectiveCols()
@@ -600,6 +638,7 @@ func (b *Buffer) setCursorInternal(x, y int) {
 	}
 
 	b.trackCursorYMove(y)
+	b.setHorizMoveDir(0, true) // Absolute positioning - direction unknown
 	b.cursorX = x
 	b.cursorY = y
 	b.markDirty()
@@ -653,6 +692,11 @@ func (b *Buffer) SetCursorDrawn(drawn bool) {
 func (b *Buffer) CheckCursorAutoScroll() bool {
 	b.mu.Lock()
 	defer b.mu.Unlock()
+
+	// Check if auto-scroll is disabled by DEC Private Mode
+	if b.autoScrollDisabled {
+		return false
+	}
 
 	// Only auto-scroll if keyboard activity is recent
 	if !b.isAutoScrollActive() {
@@ -919,7 +963,7 @@ func (b *Buffer) writeCharInternal(ch rune) {
 		charWidth = 1.0
 	}
 
-	// Handle line wrap
+	// Handle line wrap (DECAWM mode 7)
 	// If visual width wrap is enabled, wrap based on accumulated visual width
 	// Otherwise, wrap based on cell count (traditional behavior)
 	shouldWrap := false
@@ -933,12 +977,19 @@ func (b *Buffer) writeCharInternal(ch rune) {
 	}
 
 	if shouldWrap {
-		b.cursorX = 0
-		b.trackCursorYMove(b.cursorY + 1)
-		b.cursorY++
-		if b.cursorY >= effectiveRows {
-			b.scrollUpInternal()
-			b.cursorY = effectiveRows - 1
+		if b.autoWrapMode {
+			// Auto-wrap enabled: move to next line
+			b.setHorizMoveDir(-1, false) // Word-wrap moves cursor left to start of line
+			b.cursorX = 0
+			b.trackCursorYMove(b.cursorY + 1)
+			b.cursorY++
+			if b.cursorY >= effectiveRows {
+				b.scrollUpInternal()
+				b.cursorY = effectiveRows - 1
+			}
+		} else {
+			// Auto-wrap disabled (DECAWM off): stay at last column, overwrite character
+			b.cursorX = effectiveCols - 1
 		}
 	}
 
@@ -975,6 +1026,10 @@ func (b *Buffer) writeCharInternal(ch rune) {
 	cell.CellWidth = charWidth
 
 	b.screen[b.cursorY][b.cursorX] = cell
+	// Only set direction to right if we didn't wrap (wrap already set it to left)
+	if !shouldWrap {
+		b.setHorizMoveDir(1, false) // Character output moves cursor right
+	}
 	b.cursorX++
 	b.markDirty()
 }
@@ -1056,6 +1111,7 @@ func (b *Buffer) Newline() {
 func (b *Buffer) CarriageReturn() {
 	b.mu.Lock()
 	defer b.mu.Unlock()
+	b.setHorizMoveDir(-1, false) // Moving left
 	b.cursorX = 0
 	b.markDirty()
 }
@@ -1078,6 +1134,7 @@ func (b *Buffer) LineFeed() {
 func (b *Buffer) Tab() {
 	b.mu.Lock()
 	defer b.mu.Unlock()
+	b.setHorizMoveDir(1, false) // Moving right
 	b.cursorX = ((b.cursorX / 8) + 1) * 8
 	effectiveCols := b.EffectiveCols()
 	if b.cursorX >= effectiveCols {
@@ -1090,6 +1147,7 @@ func (b *Buffer) Tab() {
 func (b *Buffer) Backspace() {
 	b.mu.Lock()
 	defer b.mu.Unlock()
+	b.setHorizMoveDir(-1, false) // Moving left
 	if b.cursorX > 0 {
 		b.cursorX--
 	}
@@ -1101,8 +1159,9 @@ func (b *Buffer) scrollUpInternal() {
 		return
 	}
 
-	// Push top line to scrollback
+	// Push top line to scrollback - this is a scroll-causing event
 	b.pushLineToScrollback(b.screen[0], b.lineInfos[0])
+	b.lastScrollCausingEvent = time.Now()
 
 	// Shift screen up
 	copy(b.screen, b.screen[1:])
@@ -1740,6 +1799,300 @@ func (b *Buffer) GetHorizOffset() int {
 	return b.horizOffset
 }
 
+// NotifyManualHorizScroll should be called when the user manually scrolls horizontally.
+// This temporarily suppresses horizontal auto-scrolling.
+func (b *Buffer) NotifyManualHorizScroll() {
+	b.mu.Lock()
+	defer b.mu.Unlock()
+	b.lastManualHorizScroll = time.Now()
+}
+
+// SetAutoScrollDisabled enables or disables cursor-following auto-scroll.
+// When disabled, tracking still occurs but no automatic scrolling happens.
+// This is controlled by a DEC Private Mode sequence.
+func (b *Buffer) SetAutoScrollDisabled(disabled bool) {
+	b.mu.Lock()
+	defer b.mu.Unlock()
+	b.autoScrollDisabled = disabled
+}
+
+// IsAutoScrollDisabled returns true if auto-scroll is disabled.
+func (b *Buffer) IsAutoScrollDisabled() bool {
+	b.mu.RLock()
+	defer b.mu.RUnlock()
+	return b.autoScrollDisabled
+}
+
+// SetAutoWrapMode enables or disables auto-wrap at end of line (DECAWM, mode 7).
+// When disabled, the cursor stays at the last column and characters overwrite that position.
+func (b *Buffer) SetAutoWrapMode(enabled bool) {
+	b.mu.Lock()
+	defer b.mu.Unlock()
+	b.autoWrapMode = enabled
+}
+
+// IsAutoWrapModeEnabled returns true if auto-wrap is enabled (DECAWM).
+func (b *Buffer) IsAutoWrapModeEnabled() bool {
+	b.mu.RLock()
+	defer b.mu.RUnlock()
+	return b.autoWrapMode
+}
+
+// ClearHorizMemos clears all horizontal scroll memos before a new paint frame.
+// Call this at the start of each paint.
+func (b *Buffer) ClearHorizMemos() {
+	b.mu.Lock()
+	defer b.mu.Unlock()
+	// Ensure slice is sized to match screen rows
+	if len(b.horizMemos) != b.rows {
+		b.horizMemos = make([]HorizMemo, b.rows)
+	} else {
+		// Clear existing entries
+		for i := range b.horizMemos {
+			b.horizMemos[i] = HorizMemo{}
+		}
+	}
+}
+
+// SetHorizMemo sets the horizontal scroll memo for a specific scanline.
+// Call this during paint for each row where the cursor's logical line is being rendered.
+func (b *Buffer) SetHorizMemo(scanline int, memo HorizMemo) {
+	b.mu.Lock()
+	defer b.mu.Unlock()
+	if scanline >= 0 && scanline < len(b.horizMemos) {
+		b.horizMemos[scanline] = memo
+	}
+}
+
+// GetHorizMemos returns a copy of all horizontal memos (for debugging/inspection).
+func (b *Buffer) GetHorizMemos() []HorizMemo {
+	b.mu.RLock()
+	defer b.mu.RUnlock()
+	result := make([]HorizMemo, len(b.horizMemos))
+	copy(result, b.horizMemos)
+	return result
+}
+
+// isHorizAutoScrollActive returns true if horizontal auto-scroll should be active.
+// It checks keyboard activity, manual scroll cooldown, and scrollback viewing state.
+func (b *Buffer) isHorizAutoScrollActive() bool {
+	// Must have recent keyboard activity
+	if b.lastKeyboardActivity.IsZero() {
+		return false
+	}
+	if time.Since(b.lastKeyboardActivity) >= keyboardAutoScrollDuration {
+		return false
+	}
+
+	// Don't auto-scroll if viewing scrollback
+	if b.IsViewingScrollbackInternal() {
+		return false
+	}
+
+	// Check manual scroll cooldown
+	if !b.lastManualHorizScroll.IsZero() {
+		timeSinceManualScroll := time.Since(b.lastManualHorizScroll)
+
+		// If keyboard activity occurred after manual scroll, allow auto-scroll
+		if b.lastKeyboardActivity.After(b.lastManualHorizScroll) {
+			return true
+		}
+
+		// If within cooldown period, check if a scroll-causing event occurred after manual scroll
+		if timeSinceManualScroll < manualScrollCooldown {
+			return false
+		}
+
+		// Past cooldown, but need a scroll-causing event to have occurred after manual scroll
+		if b.lastScrollCausingEvent.IsZero() || b.lastScrollCausingEvent.Before(b.lastManualHorizScroll) {
+			return false
+		}
+	}
+
+	return true
+}
+
+// IsViewingScrollbackInternal returns true if currently viewing scrollback buffer (internal, no lock).
+func (b *Buffer) IsViewingScrollbackInternal() bool {
+	effectiveRows := b.EffectiveRows()
+	logicalHiddenAbove := 0
+	if effectiveRows > b.rows {
+		logicalHiddenAbove = effectiveRows - b.rows
+	}
+	// If scroll offset is beyond logicalHiddenAbove, we're viewing actual scrollback
+	return b.scrollOffset > logicalHiddenAbove
+}
+
+// CheckCursorAutoScrollHoriz checks horizontal memos and auto-scrolls if needed.
+// Returns true if a scroll occurred.
+// Call this after paint, after memos have been populated.
+func (b *Buffer) CheckCursorAutoScrollHoriz() bool {
+	b.mu.Lock()
+	defer b.mu.Unlock()
+
+	// Check if auto-scroll is disabled by DEC Private Mode
+	if b.autoScrollDisabled {
+		return false
+	}
+
+	// Check if horizontal auto-scroll is active
+	if !b.isHorizAutoScrollActive() {
+		return false
+	}
+
+	// Check if cursor line was rendered (from cursorDrawnLastFrame set by vertical tracking)
+	// If cursor line isn't visible vertically, don't do horizontal auto-scroll
+	if !b.cursorDrawnLastFrame {
+		return false
+	}
+
+	// Analyze memos to find the nearest distance to cursor
+	minDistLeft := -1
+	minDistRight := -1
+	cursorFound := false
+
+	// For absolute positioning check
+	cursorX := b.cursorX
+
+	for _, memo := range b.horizMemos {
+		if !memo.Valid {
+			continue
+		}
+
+		if memo.CursorLocated {
+			cursorFound = true
+			break
+		}
+
+		if memo.DistanceToLeft > 0 {
+			if minDistLeft < 0 || memo.DistanceToLeft < minDistLeft {
+				minDistLeft = memo.DistanceToLeft
+			}
+		}
+
+		if memo.DistanceToRight > 0 {
+			if minDistRight < 0 || memo.DistanceToRight < minDistRight {
+				minDistRight = memo.DistanceToRight
+			}
+		}
+	}
+
+	// If cursor was found in rendered area, no scroll needed
+	if cursorFound {
+		return false
+	}
+
+	// If no distances found, no scroll possible
+	if minDistLeft < 0 && minDistRight < 0 {
+		return false
+	}
+
+	// Determine scroll direction and amount
+	var scrollAmount int
+	var scrollLeft bool
+
+	// Check for absolute positioning - look for cursor just outside rendered bounds
+	if b.isAbsoluteHorizPosition {
+		for _, memo := range b.horizMemos {
+			if !memo.Valid {
+				continue
+			}
+			// Cursor just one position to the left of rendered area
+			if cursorX == memo.LeftmostCell-1 && memo.DistanceToLeft == 1 {
+				scrollAmount = 1
+				scrollLeft = true
+				break
+			}
+			// Cursor just one position to the right of rendered area
+			if cursorX == memo.RightmostCell+1 && memo.DistanceToRight == 1 {
+				scrollAmount = 1
+				scrollLeft = false
+				break
+			}
+		}
+	}
+
+	// If absolute positioning didn't set a scroll, use direction-based or nearest algorithm
+	if scrollAmount == 0 {
+		if b.lastHorizCursorMoveDir < 0 && minDistLeft > 0 {
+			// Known direction: left
+			scrollAmount = minDistLeft
+			scrollLeft = true
+		} else if b.lastHorizCursorMoveDir > 0 && minDistRight > 0 {
+			// Known direction: right
+			scrollAmount = minDistRight
+			scrollLeft = false
+		} else {
+			// Direction unknown - use nearest, favor left on tie
+			if minDistLeft > 0 && minDistRight > 0 {
+				if minDistLeft <= minDistRight {
+					scrollAmount = minDistLeft
+					scrollLeft = true
+				} else {
+					scrollAmount = minDistRight
+					scrollLeft = false
+				}
+			} else if minDistLeft > 0 {
+				scrollAmount = minDistLeft
+				scrollLeft = true
+			} else if minDistRight > 0 {
+				scrollAmount = minDistRight
+				scrollLeft = false
+			}
+		}
+	}
+
+	// Apply the scroll
+	if scrollAmount > 0 {
+		if scrollLeft {
+			b.horizOffset -= scrollAmount
+			if b.horizOffset < 0 {
+				b.horizOffset = 0
+			}
+		} else {
+			b.horizOffset += scrollAmount
+			// Cap at max offset
+			maxOffset := b.getMaxHorizOffsetInternal()
+			if b.horizOffset > maxOffset {
+				b.horizOffset = maxOffset
+			}
+		}
+		b.markDirty()
+		return true
+	}
+
+	return false
+}
+
+// getMaxHorizOffsetInternal calculates max horizontal offset (internal, no lock).
+func (b *Buffer) getMaxHorizOffsetInternal() int {
+	// Similar to GetMaxHorizOffset but without locking
+	cols := b.cols
+	splitWidth := b.splitContentWidth
+	currentOffset := b.horizOffset
+
+	// Calculate longest line - simplified version for internal use
+	longest := 0
+	for _, line := range b.screen {
+		if len(line) > longest {
+			longest = len(line)
+		}
+	}
+	if splitWidth > longest {
+		longest = splitWidth
+	}
+
+	contentBasedMax := 0
+	if longest > cols {
+		contentBasedMax = longest - cols
+	}
+
+	if currentOffset > contentBasedMax {
+		return currentOffset
+	}
+	return contentBasedMax
+}
+
 // SetScrollbackDisabled enables or disables scrollback accumulation.
 // When disabled, lines scrolling off the top are discarded instead of saved.
 // Existing scrollback is preserved but inaccessible until re-enabled.
@@ -1915,10 +2268,11 @@ func (b *Buffer) MoveCursorDown(n int) {
 	b.markDirty()
 }
 
-// MoveCursorForward moves cursor right n columns
+// MoveCursorForward moves cursor right n columns (CSI C)
 func (b *Buffer) MoveCursorForward(n int) {
 	b.mu.Lock()
 	defer b.mu.Unlock()
+	b.setHorizMoveDir(1, false) // Moving right
 	b.cursorX += n
 	effectiveCols := b.EffectiveCols()
 	if b.cursorX >= effectiveCols {
@@ -1927,10 +2281,11 @@ func (b *Buffer) MoveCursorForward(n int) {
 	b.markDirty()
 }
 
-// MoveCursorBackward moves cursor left n columns
+// MoveCursorBackward moves cursor left n columns (CSI D)
 func (b *Buffer) MoveCursorBackward(n int) {
 	b.mu.Lock()
 	defer b.mu.Unlock()
+	b.setHorizMoveDir(-1, false) // Moving left
 	b.cursorX -= n
 	if b.cursorX < 0 {
 		b.cursorX = 0
