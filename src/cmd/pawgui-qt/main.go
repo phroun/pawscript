@@ -417,8 +417,8 @@ func createHamburgerButton(menu *qt.QMenu) *qt.QPushButton {
 func createToolbarStrip(parent *qt.QWidget, isScriptWindow bool) (*qt.QWidget, *qt.QPushButton, *qt.QMenu) {
 	strip := qt.NewQWidget2()
 	layout := qt.NewQVBoxLayout2()
-	layout.SetContentsMargins(2, 5, 2, 5)
-	layout.SetSpacing(2)
+	layout.SetContentsMargins(2, 7, 2, 5) // Extra 2px top margin for hamburger spacing
+	layout.SetSpacing(4)                  // 4px spacing between buttons
 
 	// Create hamburger menu and button
 	menu := createHamburgerMenu(parent, isScriptWindow)
@@ -456,7 +456,9 @@ func updateLauncherToolbarButtons() {
 	// Add new dummy buttons (insert after hamburger button, before stretch)
 	for _, btn := range launcherRegisteredBtns {
 		button := qt.NewQPushButton3(btn.Icon)
-		button.SetFixedSize2(32, 32)
+		// Style to match hamburger button
+		button.SetStyleSheet("padding: 5px 10px;")
+		button.SetSizePolicy(*qt.NewQSizePolicy2(qt.QSizePolicy__Fixed, qt.QSizePolicy__Fixed))
 		button.SetToolTip(btn.Tooltip)
 		if btn.OnClick != nil {
 			callback := btn.OnClick // Capture for closure
@@ -513,7 +515,9 @@ func updateWindowToolbarButtons(strip *qt.QWidget, buttons []*QtToolbarButton) {
 	// Add new dummy buttons (insert after hamburger button, before stretch)
 	for _, btn := range buttons {
 		button := qt.NewQPushButton3(btn.Icon)
-		button.SetFixedSize2(32, 32)
+		// Style to match hamburger button
+		button.SetStyleSheet("padding: 5px 10px;")
+		button.SetSizePolicy(*qt.NewQSizePolicy2(qt.QSizePolicy__Fixed, qt.QSizePolicy__Fixed))
 		button.SetToolTip(btn.Tooltip)
 		if btn.OnClick != nil {
 			callback := btn.OnClick // Capture for closure
