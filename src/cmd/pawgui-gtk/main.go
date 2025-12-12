@@ -401,13 +401,19 @@ func updateLauncherToolbarButtons() {
 	// Actually the strip IS the box, so we work with it directly
 
 	// Remove existing dummy buttons (but keep the hamburger menu button)
-	children := launcherNarrowStrip.GetChildren()
-	for i, child := range children.Data() {
+	// Collect widgets to remove (skip first child which is hamburger button)
+	var toRemove []gtk.IWidget
+	i := 0
+	launcherNarrowStrip.GetChildren().Foreach(func(item interface{}) {
 		if i > 0 { // Skip first child (hamburger button)
-			if widget, ok := child.(*gtk.Widget); ok {
-				widget.Destroy()
+			if widget, ok := item.(gtk.IWidget); ok {
+				toRemove = append(toRemove, widget)
 			}
 		}
+		i++
+	})
+	for _, widget := range toRemove {
+		launcherNarrowStrip.Remove(widget)
 	}
 
 	// Add new dummy buttons
