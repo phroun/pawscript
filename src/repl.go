@@ -8,6 +8,8 @@ import (
 	"strings"
 	"sync"
 	"unicode/utf8"
+
+	"golang.org/x/term"
 )
 
 // REPL color codes
@@ -22,6 +24,8 @@ const (
 	replColorDarkGray    = "\x1b[90m" // Dark gray for dark backgrounds
 	replColorSilver      = "\x1b[37m" // Silver/light gray for light backgrounds
 	replColorReset       = "\x1b[0m"
+	// Elide indicator: bright white on red background
+	replColorElide       = "\x1b[97;41m"
 )
 
 // REPLConfig configures the REPL behavior
@@ -54,6 +58,9 @@ type REPL struct {
 	lightBackground bool                   // True if background is bright (>50%)
 	pslColors       DisplayColorConfig     // PSL result display colors
 	pslColorsSet    bool                   // True if custom PSL colors have been set
+	// Horizontal scroll state for long input lines
+	scrollOffset    int                    // First visible character index in currentLine
+	terminalWidth   int                    // Terminal width (0 = use default 80)
 }
 
 // NewREPL creates a new REPL instance
@@ -191,6 +198,42 @@ func (r *REPL) SetPSLColors(colors DisplayColorConfig) {
 	r.pslColors = colors
 	r.pslColorsSet = true
 	r.mu.Unlock()
+}
+
+// SetTerminalWidth sets the terminal width for horizontal scrolling calculations
+// For GUI terminals, this should be called when the logical width changes
+func (r *REPL) SetTerminalWidth(width int) {
+	r.mu.Lock()
+	r.terminalWidth = width
+	r.mu.Unlock()
+}
+
+// getTerminalWidth returns the terminal width for input display
+// Uses configured width, falls back to IOConfig terminal width, then system terminal, then 80
+func (r *REPL) getTerminalWidth() int {
+	r.mu.Lock()
+	width := r.terminalWidth
+	r.mu.Unlock()
+
+	if width > 0 {
+		return width
+	}
+
+	// Try IOConfig terminal width
+	if r.config.IOConfig != nil && r.config.IOConfig.Stdin != nil {
+		if r.config.IOConfig.Stdin.Terminal != nil {
+			if w := r.config.IOConfig.Stdin.Terminal.Width; w > 0 {
+				return w
+			}
+		}
+	}
+
+	// Fall back to system terminal size (for CLI)
+	if w, _, err := term.GetSize(int(os.Stdout.Fd())); err == nil && w > 0 {
+		return w
+	}
+
+	return 80 // Default fallback
 }
 
 // getPSLColors returns the configured PSL colors or defaults
@@ -344,10 +387,12 @@ func (r *REPL) HandleInput(data []byte) bool {
 		case 0x15: // Ctrl+U - clear line
 			r.currentLine = nil
 			r.cursorPos = 0
+			r.scrollOffset = 0
 			r.redrawLine()
 
 		case 0x0b: // Ctrl+K - kill to end of line
 			r.currentLine = r.currentLine[:r.cursorPos]
+			// scrollOffset stays the same since we're keeping content before cursor
 			r.redrawLine()
 
 		case 0x01: // Ctrl+A - beginning of line
@@ -481,15 +526,250 @@ func (r *REPL) getContinuationPrompt(input string) string {
 	return prompt.String()
 }
 
+// getPromptWidth returns the display width of the current prompt
+func (r *REPL) getPromptWidth() int {
+	if len(r.lines) == 0 {
+		return 5 // "paw* " = 5 characters
+	}
+	// Continuation prompts: calculate from getContinuationPrompt
+	fullInput := strings.Join(r.lines, "\n")
+	prompt := r.getContinuationPrompt(fullInput)
+	return len(prompt) + 1 // +1 for the trailing space
+}
+
+// getInputAreaWidth returns the width available for input display (terminal width minus prompt)
+func (r *REPL) getInputAreaWidth() int {
+	termWidth := r.getTerminalWidth()
+	promptWidth := r.getPromptWidth()
+	available := termWidth - promptWidth
+	if available < 10 {
+		available = 10 // Minimum reasonable width
+	}
+	return available
+}
+
+// calculatePeekAhead returns the peek-ahead size based on input area width
+// Tries for 8 characters, but reduces if space is tight
+func (r *REPL) calculatePeekAhead(inputAreaWidth int) int {
+	// If input area < 20, reduce peek so non-peek zone >= peek zone
+	// With 2 peek zones (left and right), we want: inputAreaWidth - 2*peek >= peek
+	// So: inputAreaWidth >= 3*peek, thus peek <= inputAreaWidth/3
+	if inputAreaWidth < 20 {
+		peek := inputAreaWidth / 3
+		if peek < 1 {
+			peek = 1
+		}
+		return peek
+	}
+	return 8 // Default peek-ahead
+}
+
+// adjustScrollOffset ensures the cursor is visible within the input area
+// with appropriate peek-ahead context. Returns true if offset changed.
+func (r *REPL) adjustScrollOffset() bool {
+	oldOffset := r.scrollOffset
+	inputWidth := r.getInputAreaWidth()
+	peek := r.calculatePeekAhead(inputWidth)
+	lineLen := len(r.currentLine)
+
+	// If line fits entirely, no scrolling needed
+	if lineLen <= inputWidth {
+		r.scrollOffset = 0
+		return r.scrollOffset != oldOffset
+	}
+
+	// Calculate visible range with current scroll offset
+	// If there's content to the left, we show '<' which takes 1 char
+	leftIndicator := 0
+	if r.scrollOffset > 0 {
+		leftIndicator = 1
+	}
+
+	// Available space for actual content (may need space for indicators)
+	contentSpace := inputWidth - leftIndicator
+
+	// Cursor position relative to scroll offset
+	cursorInView := r.cursorPos - r.scrollOffset
+
+	// If cursor is too far left (within left peek zone), scroll left
+	if cursorInView < peek && r.scrollOffset > 0 {
+		// Scroll left to put cursor at peek position from left edge
+		newOffset := r.cursorPos - peek
+		if newOffset < 0 {
+			newOffset = 0
+		}
+		r.scrollOffset = newOffset
+	}
+
+	// Recalculate after potential left scroll
+	if r.scrollOffset > 0 {
+		leftIndicator = 1
+	} else {
+		leftIndicator = 0
+	}
+	contentSpace = inputWidth - leftIndicator
+
+	// Check if there will be right indicator and make room for it
+	rightEnd := r.scrollOffset + contentSpace
+	if rightEnd < lineLen {
+		contentSpace-- // Make room for '>'
+	}
+
+	// If cursor is too far right (within right peek zone), scroll right
+	cursorInView = r.cursorPos - r.scrollOffset - leftIndicator
+	rightBoundary := contentSpace - peek
+	if rightBoundary < 1 {
+		rightBoundary = 1
+	}
+
+	if cursorInView > rightBoundary {
+		// Scroll right to put cursor at rightBoundary position
+		newOffset := r.cursorPos - rightBoundary - leftIndicator
+		if newOffset < 0 {
+			newOffset = 0
+		}
+		// Don't scroll past the end
+		maxOffset := lineLen - inputWidth + 2 // +2 for potential indicators
+		if newOffset > maxOffset {
+			newOffset = maxOffset
+		}
+		r.scrollOffset = newOffset
+	}
+
+	return r.scrollOffset != oldOffset
+}
+
+// formatDisplayLine returns the visible portion of the input line with elide indicators
+// Also returns the cursor position within the displayed string
+func (r *REPL) formatDisplayLine() (display string, cursorDisplayPos int) {
+	inputWidth := r.getInputAreaWidth()
+	lineLen := len(r.currentLine)
+
+	// If line fits entirely, return it as-is with control char replacement
+	if lineLen <= inputWidth {
+		r.scrollOffset = 0
+		return r.formatControlChars(r.currentLine), r.cursorPos
+	}
+
+	// Calculate what portion to show
+	leftIndicator := r.scrollOffset > 0
+	startIdx := r.scrollOffset
+
+	// Available space for content
+	contentSpace := inputWidth
+	if leftIndicator {
+		contentSpace--
+	}
+
+	// Check if we need right indicator
+	endIdx := startIdx + contentSpace
+	if endIdx > lineLen {
+		endIdx = lineLen
+	}
+	rightIndicator := endIdx < lineLen
+
+	// Adjust content space if right indicator needed
+	if rightIndicator {
+		contentSpace--
+		endIdx = startIdx + contentSpace
+		if endIdx > lineLen {
+			endIdx = lineLen
+		}
+	}
+
+	// Build the display string
+	var buf strings.Builder
+	if leftIndicator {
+		buf.WriteString(replColorElide + "<" + replColorReset)
+	}
+
+	// Format the visible portion with control char replacement
+	visiblePortion := r.currentLine[startIdx:endIdx]
+	buf.WriteString(r.formatControlChars(visiblePortion))
+
+	if rightIndicator {
+		buf.WriteString(replColorElide + ">" + replColorReset)
+	}
+
+	// Calculate cursor position in display
+	cursorDisplayPos = r.cursorPos - startIdx
+	if leftIndicator {
+		cursorDisplayPos++ // Account for '<' indicator
+	}
+
+	return buf.String(), cursorDisplayPos
+}
+
+// formatControlChars replaces control characters (CR, LF) with visible ^M, ^J in elide color
+func (r *REPL) formatControlChars(runes []rune) string {
+	var buf strings.Builder
+	for _, ch := range runes {
+		switch ch {
+		case '\r':
+			buf.WriteString(replColorElide + "^M" + replColorReset)
+		case '\n':
+			buf.WriteString(replColorElide + "^J" + replColorReset)
+		default:
+			buf.WriteRune(ch)
+		}
+	}
+	return buf.String()
+}
+
+// countDisplayWidth returns the display width of runes, accounting for ^M/^J replacements
+func (r *REPL) countDisplayWidth(runes []rune) int {
+	width := 0
+	for _, ch := range runes {
+		if ch == '\r' || ch == '\n' {
+			width += 2 // ^M or ^J
+		} else {
+			width++
+		}
+	}
+	return width
+}
+
 func (r *REPL) redrawLine() {
+	// Adjust scroll offset to ensure cursor is visible
+	r.adjustScrollOffset()
+
 	// Clear line and redraw
 	r.output("\r\x1b[K") // Move to start and clear line
 	r.printPrompt()
-	r.output(string(r.currentLine))
-	// Move cursor to correct position
-	if r.cursorPos < len(r.currentLine) {
-		r.output(fmt.Sprintf("\x1b[%dD", len(r.currentLine)-r.cursorPos))
+
+	// Get the formatted display line with potential scroll indicators
+	displayLine, cursorDisplayPos := r.formatDisplayLine()
+	r.output(displayLine)
+
+	// Calculate the actual display width (accounting for ^M/^J which are 2 chars each)
+	// and the ANSI escape codes which don't take display space
+	// The cursor position is in terms of logical characters, not bytes
+	displayWidth := r.calculateDisplayWidth(displayLine)
+
+	// Move cursor to correct position within the displayed content
+	if cursorDisplayPos < displayWidth {
+		r.output(fmt.Sprintf("\x1b[%dD", displayWidth-cursorDisplayPos))
 	}
+}
+
+// calculateDisplayWidth returns the visual width of a string, ignoring ANSI escape codes
+func (r *REPL) calculateDisplayWidth(s string) int {
+	width := 0
+	inEscape := false
+	for _, ch := range s {
+		if ch == '\x1b' {
+			inEscape = true
+			continue
+		}
+		if inEscape {
+			if (ch >= 'A' && ch <= 'Z') || (ch >= 'a' && ch <= 'z') {
+				inEscape = false
+			}
+			continue
+		}
+		width++
+	}
+	return width
 }
 
 func (r *REPL) handleUpArrow() {
@@ -501,6 +781,7 @@ func (r *REPL) handleUpArrow() {
 		r.historyPos--
 		r.currentLine = []rune(r.history[r.historyPos])
 		r.cursorPos = len(r.currentLine)
+		r.scrollOffset = 0 // Reset scroll for new content
 		r.redrawLine()
 	}
 }
@@ -517,6 +798,7 @@ func (r *REPL) handleDownArrow() {
 			r.cursorPos = len(r.currentLine)
 			r.inHistory = false
 		}
+		r.scrollOffset = 0 // Reset scroll for new content
 		r.redrawLine()
 	}
 }
@@ -524,28 +806,50 @@ func (r *REPL) handleDownArrow() {
 func (r *REPL) handleLeftArrow() {
 	if r.cursorPos > 0 {
 		r.cursorPos--
-		r.output("\x1b[D")
+		// If line is longer than visible area, always redraw to handle scroll
+		if len(r.currentLine) > r.getInputAreaWidth() {
+			r.redrawLine()
+		} else {
+			r.output("\x1b[D")
+		}
 	}
 }
 
 func (r *REPL) handleRightArrow() {
 	if r.cursorPos < len(r.currentLine) {
 		r.cursorPos++
-		r.output("\x1b[C")
+		// If line is longer than visible area, always redraw to handle scroll
+		if len(r.currentLine) > r.getInputAreaWidth() {
+			r.redrawLine()
+		} else {
+			r.output("\x1b[C")
+		}
 	}
 }
 
 func (r *REPL) handleHome() {
 	if r.cursorPos > 0 {
-		r.output(fmt.Sprintf("\x1b[%dD", r.cursorPos))
+		oldPos := r.cursorPos
 		r.cursorPos = 0
+		// If line is longer than visible area, redraw to handle scroll
+		if len(r.currentLine) > r.getInputAreaWidth() {
+			r.redrawLine()
+		} else {
+			r.output(fmt.Sprintf("\x1b[%dD", oldPos))
+		}
 	}
 }
 
 func (r *REPL) handleEnd() {
 	if r.cursorPos < len(r.currentLine) {
-		r.output(fmt.Sprintf("\x1b[%dC", len(r.currentLine)-r.cursorPos))
+		oldPos := r.cursorPos
 		r.cursorPos = len(r.currentLine)
+		// If line is longer than visible area, redraw to handle scroll
+		if len(r.currentLine) > r.getInputAreaWidth() {
+			r.redrawLine()
+		} else {
+			r.output(fmt.Sprintf("\x1b[%dC", len(r.currentLine)-oldPos))
+		}
 	}
 }
 
@@ -572,7 +876,25 @@ func (r *REPL) insertChar(ch rune) {
 }
 
 func (r *REPL) handleEnter() {
+	// If input was scrolled/elided, re-echo the full line before newline
+	inputWidth := r.getInputAreaWidth()
+	wasScrolled := r.scrollOffset > 0 || len(r.currentLine) > inputWidth
+
+	if wasScrolled && len(r.currentLine) > 0 {
+		// Move cursor back to start of input area (after prompt)
+		// Clear from cursor to end of line, then print full input
+		r.output("\r")          // Go to start of line
+		r.printPrompt()         // Re-print prompt
+		r.output("\x1b[K")      // Clear to end of line (CSI K)
+		r.output(replColorReset) // Reset to default color
+		// Print full input (this may wrap naturally)
+		r.output(string(r.currentLine))
+	}
+
 	r.output("\r\n")
+
+	// Reset scroll state for next input
+	r.scrollOffset = 0
 
 	// Flush output before potentially blocking execution
 	// This ensures the newline appears before async operations like msleep
