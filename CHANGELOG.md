@@ -10,7 +10,8 @@
     ambiguous characters as narrow (1.0), wide (2.0), or auto-match previous
   - Mouse selection and rendering properly handle variable cell widths
   - Mouse selection tracks buffer-absolute coordinates for scroll stability
-  - Drag-beyond-edge auto-scrolling during text selection (GTK)
+  - Drag-beyond-edge auto-scrolling during text selection (GTK, Qt):
+    vertical and horizontal scrolling when dragging selection beyond edges
   - Custom glyph system for tile-based pixel-art graphics:
     - OSC 7000: Palette management (create, delete, set entries)
     - OSC 7001: Glyph definition (replace Unicode chars with pixel-art)

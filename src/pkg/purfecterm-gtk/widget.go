@@ -368,9 +368,11 @@ type Widget struct {
 	selectionMoved bool // True if mouse moved since button press
 
 	// Auto-scroll when dragging beyond edges
-	autoScrollTimerID glib.SourceHandle // Timer for auto-scrolling
-	autoScrollDelta   int               // Scroll direction (-1=up, 1=down), magnitude used for speed
-	lastMouseX        int               // Last known mouse X cell position
+	autoScrollTimerID    glib.SourceHandle // Timer for auto-scrolling
+	autoScrollDelta      int               // Vertical scroll direction (-1=up, 1=down), magnitude used for speed
+	autoScrollHorizDelta int               // Horizontal scroll direction (-1=left, 1=right), magnitude for speed
+	lastMouseX           int               // Last known mouse X cell position
+	lastMouseY           int               // Last known mouse Y cell position
 
 	// Cursor blink
 	cursorBlinkOn  bool
@@ -2170,12 +2172,15 @@ func (w *Widget) onMotionNotify(da *gtk.DrawingArea, ev *gdk.Event) bool {
 	cellX, cellY := w.screenToCell(float64(x), float64(y))
 
 	// Get terminal dimensions for edge detection
-	_, rows := w.buffer.GetSize()
+	cols, rows := w.buffer.GetSize()
 
 	w.mu.Lock()
+	charWidth := w.charWidth
 	charHeight := w.charHeight
+	horizScale := w.buffer.GetHorizontalScale()
 	vertScale := w.buffer.GetVerticalScale()
 	w.mu.Unlock()
+	scaledCharWidth := float64(charWidth) * horizScale
 	scaledCharHeight := float64(charHeight) * vertScale
 
 	// Only start selection once mouse has moved to a different cell
@@ -2192,12 +2197,14 @@ func (w *Widget) onMotionNotify(da *gtk.DrawingArea, ev *gdk.Event) bool {
 		}
 	}
 
-	// Track last mouse X for auto-scroll selection updates
+	// Track last mouse position for auto-scroll selection updates
 	w.lastMouseX = cellX
+	w.lastMouseY = cellY
 
-	// Check for auto-scroll: mouse beyond top or bottom edge
+	// Check for vertical auto-scroll: mouse beyond top or bottom edge
 	mouseY := float64(y)
 	terminalHeight := float64(rows) * scaledCharHeight
+	vertDelta := 0
 
 	if mouseY < 0 {
 		// Above top edge - scroll up
@@ -2205,16 +2212,41 @@ func (w *Widget) onMotionNotify(da *gtk.DrawingArea, ev *gdk.Event) bool {
 		if rowsAbove > 5 {
 			rowsAbove = 5 // Cap speed
 		}
-		w.startAutoScroll(-rowsAbove)
+		vertDelta = -rowsAbove
 	} else if mouseY >= terminalHeight {
 		// Below bottom edge - scroll down
 		rowsBelow := int(((mouseY - terminalHeight) / scaledCharHeight) + 1)
 		if rowsBelow > 5 {
 			rowsBelow = 5 // Cap speed
 		}
-		w.startAutoScroll(rowsBelow)
+		vertDelta = rowsBelow
+	}
+
+	// Check for horizontal auto-scroll: mouse beyond left or right edge
+	mouseX := float64(x)
+	terminalWidth := float64(cols) * scaledCharWidth
+	horizDelta := 0
+
+	if mouseX < 0 {
+		// Left of left edge - scroll left
+		colsLeft := int((-mouseX / scaledCharWidth) + 1)
+		if colsLeft > 5 {
+			colsLeft = 5 // Cap speed
+		}
+		horizDelta = -colsLeft
+	} else if mouseX >= terminalWidth {
+		// Right of right edge - scroll right
+		colsRight := int(((mouseX - terminalWidth) / scaledCharWidth) + 1)
+		if colsRight > 5 {
+			colsRight = 5 // Cap speed
+		}
+		horizDelta = colsRight
+	}
+
+	// Start or update auto-scroll based on edge crossing
+	if vertDelta != 0 || horizDelta != 0 {
+		w.startAutoScroll(vertDelta, horizDelta)
 	} else {
-		// Mouse is within terminal area - stop auto-scroll
 		w.stopAutoScroll()
 	}
 
@@ -2222,65 +2254,96 @@ func (w *Widget) onMotionNotify(da *gtk.DrawingArea, ev *gdk.Event) bool {
 	return true
 }
 
-// startAutoScroll begins auto-scrolling in the given direction
-// delta: negative = scroll up (toward scrollback), positive = scroll down (toward current)
-func (w *Widget) startAutoScroll(delta int) {
-	if delta == 0 {
+// startAutoScroll begins auto-scrolling in the given direction(s)
+// vertDelta: negative = scroll up (toward scrollback), positive = scroll down (toward current)
+// horizDelta: negative = scroll left, positive = scroll right
+func (w *Widget) startAutoScroll(vertDelta, horizDelta int) {
+	if vertDelta == 0 && horizDelta == 0 {
 		w.stopAutoScroll()
 		return
 	}
 
-	w.autoScrollDelta = delta
+	w.autoScrollDelta = vertDelta
+	w.autoScrollHorizDelta = horizDelta
 
-	// If timer already running, just update the delta
+	// If timer already running, just update the deltas
 	if w.autoScrollTimerID != 0 {
 		return
 	}
 
 	// Start auto-scroll timer (fires every 50ms for smooth scrolling)
 	w.autoScrollTimerID = glib.TimeoutAdd(50, func() bool {
-		if !w.selecting || w.autoScrollDelta == 0 {
+		if !w.selecting || (w.autoScrollDelta == 0 && w.autoScrollHorizDelta == 0) {
 			w.autoScrollTimerID = 0
 			return false // Stop timer
 		}
 
-		// Get current scroll offset
-		offset := w.buffer.GetScrollOffset()
-		maxOffset := w.buffer.GetMaxScrollOffset()
+		cols, rows := w.buffer.GetSize()
+		selX := w.lastMouseX
+		selY := w.lastMouseY
 
-		// Calculate scroll amount based on delta magnitude
-		scrollAmount := 1
-		if w.autoScrollDelta < 0 {
-			scrollAmount = -w.autoScrollDelta
-		} else {
-			scrollAmount = w.autoScrollDelta
-		}
+		// Handle vertical scrolling
+		if w.autoScrollDelta != 0 {
+			offset := w.buffer.GetScrollOffset()
+			maxOffset := w.buffer.GetMaxScrollOffset()
 
-		// Apply scroll
-		if w.autoScrollDelta < 0 {
-			// Scroll up (toward scrollback)
-			offset += scrollAmount
-			if offset > maxOffset {
-				offset = maxOffset
+			// Calculate scroll amount based on delta magnitude
+			scrollAmount := w.autoScrollDelta
+			if scrollAmount < 0 {
+				scrollAmount = -scrollAmount
 			}
-		} else {
-			// Scroll down (toward current)
-			offset -= scrollAmount
-			if offset < 0 {
-				offset = 0
-			}
-		}
-		w.buffer.SetScrollOffset(offset)
 
-		// Update selection to edge
-		_, rows := w.buffer.GetSize()
-		if w.autoScrollDelta < 0 {
-			// Scrolling up - selection extends to top row
-			w.buffer.UpdateSelection(w.lastMouseX, 0)
-		} else {
-			// Scrolling down - selection extends to bottom row
-			w.buffer.UpdateSelection(w.lastMouseX, rows-1)
+			// Apply vertical scroll
+			if w.autoScrollDelta < 0 {
+				// Scroll up (toward scrollback)
+				offset += scrollAmount
+				if offset > maxOffset {
+					offset = maxOffset
+				}
+				selY = 0 // Selection extends to top row
+			} else {
+				// Scroll down (toward current)
+				offset -= scrollAmount
+				if offset < 0 {
+					offset = 0
+				}
+				selY = rows - 1 // Selection extends to bottom row
+			}
+			w.buffer.SetScrollOffset(offset)
 		}
+
+		// Handle horizontal scrolling
+		if w.autoScrollHorizDelta != 0 {
+			horizOffset := w.buffer.GetHorizOffset()
+			maxHorizOffset := w.buffer.GetMaxHorizOffset()
+
+			// Calculate scroll amount based on delta magnitude
+			scrollAmount := w.autoScrollHorizDelta
+			if scrollAmount < 0 {
+				scrollAmount = -scrollAmount
+			}
+
+			// Apply horizontal scroll
+			if w.autoScrollHorizDelta < 0 {
+				// Scroll left
+				horizOffset -= scrollAmount
+				if horizOffset < 0 {
+					horizOffset = 0
+				}
+				selX = 0 // Selection extends to left edge
+			} else {
+				// Scroll right
+				horizOffset += scrollAmount
+				if horizOffset > maxHorizOffset {
+					horizOffset = maxHorizOffset
+				}
+				selX = cols - 1 // Selection extends to right edge
+			}
+			w.buffer.SetHorizOffset(horizOffset)
+		}
+
+		// Update selection to appropriate edge(s)
+		w.buffer.UpdateSelection(selX, selY)
 
 		return true // Continue timer
 	})
@@ -2293,6 +2356,7 @@ func (w *Widget) stopAutoScroll() {
 		w.autoScrollTimerID = 0
 	}
 	w.autoScrollDelta = 0
+	w.autoScrollHorizDelta = 0
 }
 
 func (w *Widget) onScroll(da *gtk.DrawingArea, ev *gdk.Event) bool {
