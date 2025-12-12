@@ -373,12 +373,7 @@ func showAboutDialog(parent *qt.QWidget) {
 <p>Version: %s</p>
 <p><i>A scripting language for creative coding</i></p>
 <p>Copyright © 2025 Jeffrey R. Day<br>
-License: MIT</p>
-<p><small>Permission is hereby granted, free of charge, to any person
-obtaining a copy of this software and associated documentation
-files (the "Software"), to deal in the Software without restriction,
-including without limitation the rights to use, copy, modify, merge,
-publish, distribute, sublicense, and/or sell copies of the Software.</small></p>`, version)
+License: MIT</p>`, version)
 
 	qt.QMessageBox_About(parent, "About PawScript", aboutText)
 }
@@ -398,7 +393,7 @@ func createHamburgerMenu(parent *qt.QWidget, isScriptWindow bool) *qt.QMenu {
 }
 
 // Toolbar button size constant for consistent square buttons
-const toolbarButtonSize = 32
+const toolbarButtonSize = 64
 
 // createHamburgerButton creates a hamburger menu button (☰ icon)
 func createHamburgerButton(menu *qt.QMenu) *qt.QPushButton {
