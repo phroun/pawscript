@@ -76,7 +76,7 @@ type QtToolbarButton struct {
 
 // Minimum widths for panel collapse behavior
 const (
-	minWidePanelWidth   = 150 // Minimum width before wide panel collapses
+	minWidePanelWidth   = 196 // Minimum width before wide panel collapses
 	minNarrowStripWidth = 40  // Minimum width before narrow strip collapses
 )
 
