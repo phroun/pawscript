@@ -388,6 +388,127 @@ const (
 	minNarrowStripWidth = 40  // Minimum width before narrow strip collapses
 )
 
+// Random icons for dummy buttons
+var dummyIcons = []string{"★", "♦", "♠", "♣", "♥", "●", "■", "▲", "◆", "⬟", "⬢", "✦", "✧", "⚡", "☀", "☁", "☂", "☃", "✿", "❀"}
+
+// updateLauncherToolbarButtons updates the launcher's narrow strip with the current registered buttons
+func updateLauncherToolbarButtons() {
+	if launcherNarrowStrip == nil {
+		return
+	}
+
+	// Get the strip's layout box (first child is the layout container)
+	// Actually the strip IS the box, so we work with it directly
+
+	// Remove existing dummy buttons (but keep the hamburger menu button)
+	children, _ := launcherNarrowStrip.GetChildren()
+	for i, child := range children.Data() {
+		if i > 0 { // Skip first child (hamburger button)
+			if widget, ok := child.(*gtk.Widget); ok {
+				widget.Destroy()
+			}
+		}
+	}
+
+	// Add new dummy buttons
+	for _, btn := range launcherRegisteredBtns {
+		button, _ := gtk.ButtonNewWithLabel(btn.Icon)
+		button.SetSizeRequest(32, 32)
+		button.SetTooltipText(btn.Tooltip)
+		if btn.OnClick != nil {
+			callback := btn.OnClick // Capture for closure
+			button.Connect("clicked", func() {
+				callback()
+			})
+		}
+		btn.widget = button
+		launcherNarrowStrip.PackStart(button, false, false, 0)
+		button.Show()
+	}
+
+	// Update visibility based on button count
+	hasMultipleButtons := len(launcherRegisteredBtns) > 0
+	if hasMultipleButtons {
+		// Show narrow strip, hide menu button in path row
+		launcherNarrowStrip.Show()
+		if launcherMenuButton != nil {
+			launcherMenuButton.Hide()
+		}
+		if launcherStripMenuBtn != nil {
+			launcherStripMenuBtn.Show()
+		}
+	} else {
+		// Hide narrow strip, show menu button in path row
+		launcherNarrowStrip.Hide()
+		if launcherMenuButton != nil {
+			launcherMenuButton.Show()
+		}
+	}
+}
+
+// setDummyButtons sets the number of dummy buttons in the toolbar strip
+func setDummyButtons(count int) {
+	// Clear existing dummy buttons
+	launcherRegisteredBtns = nil
+
+	// Add new dummy buttons
+	for i := 0; i < count; i++ {
+		icon := dummyIcons[i%len(dummyIcons)]
+		idx := i // Capture for closure
+		btn := &ToolbarButton{
+			Icon:    icon,
+			Tooltip: fmt.Sprintf("Dummy Button %d", i+1),
+			OnClick: func() {
+				if terminal != nil {
+					terminal.Feed(fmt.Sprintf("\r\nDummy button %d clicked!\r\n", idx+1))
+				}
+			},
+		}
+		launcherRegisteredBtns = append(launcherRegisteredBtns, btn)
+	}
+
+	// Update the toolbar strip on GTK main thread
+	glib.IdleAdd(func() bool {
+		updateLauncherToolbarButtons()
+		return false
+	})
+}
+
+// registerDummyButtonCommand registers the dummy_button command with PawScript
+func registerDummyButtonCommand(ps *pawscript.PawScript) {
+	ps.RegisterCommand("dummy_button", func(ctx *pawscript.Context) pawscript.Result {
+		if len(ctx.Args) < 1 {
+			ctx.LogError(pawscript.CatCommand, "dummy_button requires a count argument")
+			return pawscript.BoolStatus(false)
+		}
+
+		// Get the count argument
+		count := 0
+		switch v := ctx.Args[0].(type) {
+		case int:
+			count = v
+		case int64:
+			count = int(v)
+		case float64:
+			count = int(v)
+		default:
+			ctx.LogError(pawscript.CatCommand, "dummy_button requires a numeric argument")
+			return pawscript.BoolStatus(false)
+		}
+
+		if count < 0 {
+			count = 0
+		}
+		if count > 20 {
+			count = 20 // Cap at 20 buttons
+		}
+
+		setDummyButtons(count)
+		ctx.SetResult(count)
+		return pawscript.BoolStatus(true)
+	})
+}
+
 // applyTheme sets the GTK theme based on the configuration.
 // "auto" = let GTK/OS decide, "dark" = force dark, "light" = force light
 func applyTheme(theme pawgui.ThemeMode) {
@@ -2427,4 +2548,7 @@ func createConsoleChannels() {
 	consoleREPL.SetBackgroundRGB(bg.R, bg.G, bg.B)
 	consoleREPL.SetPSLColors(getPSLColors())
 	consoleREPL.Start()
+
+	// Register the dummy_button command with the REPL's PawScript instance
+	registerDummyButtonCommand(consoleREPL.GetPawScript())
 }

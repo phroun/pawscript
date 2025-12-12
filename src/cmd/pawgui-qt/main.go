@@ -80,6 +80,9 @@ const (
 	minNarrowStripWidth = 40  // Minimum width before narrow strip collapses
 )
 
+// Random icons for dummy buttons
+var dummyIcons = []string{"★", "♦", "♠", "♣", "♥", "●", "■", "▲", "◆", "⬟", "⬢", "✦", "✧", "⚡", "☀", "☁", "☂", "☃", "✿", "❀"}
+
 // --- Configuration Management ---
 
 func getConfigDir() string {
@@ -400,6 +403,123 @@ func createToolbarStrip(parent *qt.QWidget, isScriptWindow bool) (*qt.QWidget, *
 	layout.AddStretch(1) // Push buttons to top
 
 	return strip, menuBtn, menu
+}
+
+// updateLauncherToolbarButtons updates the launcher's narrow strip with the current registered buttons
+func updateLauncherToolbarButtons() {
+	if launcherNarrowStrip == nil {
+		return
+	}
+
+	// Get the strip's layout
+	layout := launcherNarrowStrip.Layout()
+	if layout == nil {
+		return
+	}
+	vbox := qt.UnsafeNewQVBoxLayout(layout.UnsafePointer(), nil)
+
+	// Remove existing dummy buttons (but keep the hamburger menu button and stretch at the end)
+	// We skip index 0 (hamburger) and the stretch item at the end
+	for vbox.Count() > 2 {
+		item := vbox.TakeAt(1)
+		if item != nil && item.Widget() != nil {
+			item.Widget().DeleteLater()
+		}
+	}
+
+	// Add new dummy buttons (insert after hamburger button, before stretch)
+	for _, btn := range launcherRegisteredBtns {
+		button := qt.NewQPushButton3(btn.Icon)
+		button.SetFixedSize2(32, 32)
+		button.SetToolTip(btn.Tooltip)
+		if btn.OnClick != nil {
+			callback := btn.OnClick // Capture for closure
+			button.OnClicked(func() {
+				callback()
+			})
+		}
+		btn.widget = button
+		vbox.InsertWidget(vbox.Count()-1, button.QWidget) // Insert before stretch
+	}
+
+	// Update visibility based on button count
+	hasMultipleButtons := len(launcherRegisteredBtns) > 0
+	if hasMultipleButtons {
+		// Show narrow strip, hide menu button in path row
+		launcherNarrowStrip.Show()
+		if launcherMenuButton != nil {
+			launcherMenuButton.Hide()
+		}
+		if launcherStripMenuBtn != nil {
+			launcherStripMenuBtn.Show()
+		}
+	} else {
+		// Hide narrow strip, show menu button in path row
+		launcherNarrowStrip.Hide()
+		if launcherMenuButton != nil {
+			launcherMenuButton.Show()
+		}
+	}
+}
+
+// setDummyButtons sets the number of dummy buttons in the toolbar strip
+func setDummyButtons(count int) {
+	// Clear existing dummy buttons
+	launcherRegisteredBtns = nil
+
+	// Add new dummy buttons
+	for i := 0; i < count; i++ {
+		icon := dummyIcons[i%len(dummyIcons)]
+		idx := i // Capture for closure
+		btn := &QtToolbarButton{
+			Icon:    icon,
+			Tooltip: fmt.Sprintf("Dummy Button %d", i+1),
+			OnClick: func() {
+				if terminal != nil {
+					terminal.Feed(fmt.Sprintf("\r\nDummy button %d clicked!\r\n", idx+1))
+				}
+			},
+		}
+		launcherRegisteredBtns = append(launcherRegisteredBtns, btn)
+	}
+
+	// Update the toolbar strip
+	updateLauncherToolbarButtons()
+}
+
+// registerDummyButtonCommand registers the dummy_button command with PawScript
+func registerDummyButtonCommand(ps *pawscript.PawScript) {
+	ps.RegisterCommand("dummy_button", func(ctx *pawscript.Context) pawscript.Result {
+		if len(ctx.Args) < 1 {
+			ctx.LogError(pawscript.CatCommand, "dummy_button requires a count argument")
+			return pawscript.BoolStatus(false)
+		}
+
+		// Get the count argument
+		count := 0
+		switch v := ctx.Args[0].(type) {
+		case int:
+			count = v
+		case int64:
+			count = int(v)
+		case float64:
+			count = int(v)
+		default:
+			ctx.LogError(pawscript.CatCommand, "dummy_button requires a numeric argument")
+			return pawscript.BoolStatus(false)
+		}
+
+		if count < 0 {
+			count = 0
+		}
+		if count > 20 {
+			count = 20 // Cap at 20 buttons
+		}
+
+		setDummyButtons(count)
+		ctx.SetResult(count)
+		return pawscript.BoolStatus(true)
+	})
 }
 
 // applyTheme sets the Qt application palette based on the configuration.
@@ -1585,6 +1705,9 @@ func startREPL() {
 	consoleREPL.SetBackgroundRGB(bg.R, bg.G, bg.B)
 	consoleREPL.SetPSLColors(getPSLColors())
 	consoleREPL.Start()
+
+	// Register the dummy_button command with the REPL's PawScript instance
+	registerDummyButtonCommand(consoleREPL.GetPawScript())
 }
 
 // fileItemData stores path and isDir for list items
