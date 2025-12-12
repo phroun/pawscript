@@ -498,15 +498,13 @@ Screen splits allow different regions of the screen to show different parts of t
 
 **Split parameters:**
 - `ID` - Unique numeric identifier for the split
-- `SCREENY` - Y coordinate in sprite units relative to the logical screen start (see note below)
+- `SCREENY` - Y coordinate in sprite units where split begins on screen
 - `BUFROW` - 1-indexed row in logical screen to start drawing from (0 = inherit)
 - `BUFCOL` - 1-indexed column to start drawing from (0 = inherit)
 - `TOPFINE` - Top fine scroll: 0 = no clipping, 1-7 = clip top of first row (with 8 subdivisions)
 - `LEFTFINE` - Left fine scroll: 0 = no clipping, 1-7 = clip left of first column
 - `CWS` - Character width scale multiplier (0 = inherit from main screen)
 - `LD` - Line density override (0 = inherit from main screen)
-
-**Important:** `SCREENY` is a **logical** scanline number relative to the scroll boundary (the yellow dotted line that separates scrollback from the active screen). The first logical scanline (0) begins immediately after the scrollback area. Splits cannot appear in the scrollback region above the yellow dotted line.
 
 The main screen (starting at ScreenY=0) is implicit. Splits with ScreenY > 0 overlay portions of the main screen.
 
