@@ -86,9 +86,11 @@ type QtWindowToolbarData struct {
 
 // Per-window toolbar data (keyed by PawScript instance)
 var (
-	qtToolbarDataByPS   = make(map[*pawscript.PawScript]*QtWindowToolbarData)
-	qtToolbarDataMu     sync.Mutex
-	launcherToolbarData *QtWindowToolbarData // Toolbar data for the launcher window
+	qtToolbarDataByPS     = make(map[*pawscript.PawScript]*QtWindowToolbarData)
+	qtToolbarDataMu       sync.Mutex
+	launcherToolbarData   *QtWindowToolbarData   // Toolbar data for the launcher window
+	pendingWindowUpdates  []*QtWindowToolbarData // Windows that need toolbar updates
+	pendingWindowUpdateMu sync.Mutex
 )
 
 // Minimum widths for panel collapse behavior
@@ -549,10 +551,11 @@ func setDummyButtonsForWindow(data *QtWindowToolbarData, count int) {
 		data.registeredBtns = append(data.registeredBtns, btn)
 	}
 
-	// Signal the main thread to update the toolbar strip
-	// The uiUpdateTimer will check this flag and call the updateFunc
+	// Queue this window for update on the main thread
 	if data.updateFunc != nil {
-		pendingToolbarUpdate = true
+		pendingWindowUpdateMu.Lock()
+		pendingWindowUpdates = append(pendingWindowUpdates, data)
+		pendingWindowUpdateMu.Unlock()
 	}
 }
 
@@ -1127,10 +1130,20 @@ func launchGUIMode() {
 	uiUpdateTimer := qt.NewQTimer2(mainWindow.QObject)
 	uiUpdateTimer.OnTimeout(func() {
 		updatePathButtonText()
-		// Check for pending toolbar updates (set from other goroutines)
+		// Check for pending launcher toolbar updates
 		if pendingToolbarUpdate {
 			pendingToolbarUpdate = false
 			updateLauncherToolbarButtons()
+		}
+		// Process pending window toolbar updates
+		pendingWindowUpdateMu.Lock()
+		updates := pendingWindowUpdates
+		pendingWindowUpdates = nil
+		pendingWindowUpdateMu.Unlock()
+		for _, data := range updates {
+			if data.updateFunc != nil {
+				data.updateFunc()
+			}
 		}
 	})
 	uiUpdateTimer.Start(250)
@@ -2309,14 +2322,9 @@ func createConsoleWindow(filePath string) {
 	// Create toolbar strip for this window (script windows only have narrow strip, no wide panel)
 	winNarrowStrip, winStripMenuBtn, _ := createToolbarStrip(win.QWidget, true)
 	winNarrowStrip.SetFixedWidth(minNarrowStripWidth)
-	// Start visible if there are registered buttons, hidden otherwise
-	hasMultipleButtons := len(launcherRegisteredBtns) > 0
-	if hasMultipleButtons {
-		winNarrowStrip.Show()
-		winStripMenuBtn.Show()
-	} else {
-		winNarrowStrip.Hide()
-	}
+	// Always show the strip (has hamburger menu)
+	winNarrowStrip.Show()
+	winStripMenuBtn.Show()
 
 	winSplitter.AddWidget(winNarrowStrip)
 	winSplitter.AddWidget(winTerminal.Widget())
@@ -2325,12 +2333,8 @@ func createConsoleWindow(filePath string) {
 	winSplitter.SetStretchFactor(0, 0)
 	winSplitter.SetStretchFactor(1, 1)
 
-	// Set initial sizes
-	if hasMultipleButtons {
-		winSplitter.SetSizes([]int{minNarrowStripWidth, 900 - minNarrowStripWidth})
-	} else {
-		winSplitter.SetSizes([]int{0, 900})
-	}
+	// Set initial sizes - always show narrow strip
+	winSplitter.SetSizes([]int{minNarrowStripWidth, 900 - minNarrowStripWidth})
 
 	// Script windows only have two positions: 0 (collapsed) or minNarrowStripWidth (visible)
 	winSplitter.OnSplitterMoved(func(pos int, index int) {
