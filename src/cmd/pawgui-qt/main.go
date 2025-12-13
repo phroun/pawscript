@@ -645,21 +645,27 @@ func updateLauncherToolbarButtons() {
 	hasMultipleButtons := len(launcherRegisteredBtns) > 0
 
 	// Adjust splitter position when transitioning between modes
-	// Only adjust if we're in wide mode (wide panel is visible)
-	if launcherSplitter != nil && launcherWidePanel != nil && launcherWidePanel.IsVisible() {
+	// Only adjust if we're in wide mode (position indicates wide panel is showing)
+	if launcherSplitter != nil {
 		sizes := launcherSplitter.Sizes()
 		if len(sizes) >= 2 {
 			pos := sizes[0]
-			if hadButtons && !hasMultipleButtons {
-				// Transitioning from both mode to wide-only: subtract strip width
-				splitterAdjusting = true
-				launcherSplitter.SetSizes([]int{pos - minNarrowStripWidth, sizes[1] + minNarrowStripWidth})
-				splitterAdjusting = false
-			} else if !hadButtons && hasMultipleButtons {
-				// Transitioning from wide-only to both mode: add strip width
-				splitterAdjusting = true
-				launcherSplitter.SetSizes([]int{pos + minNarrowStripWidth, sizes[1] - minNarrowStripWidth})
-				splitterAdjusting = false
+			totalWidth := sizes[0] + sizes[1]
+			// Only adjust in wide mode (not collapsed, not narrow-only)
+			if pos >= minWidePanelWidth {
+				if hadButtons && !hasMultipleButtons {
+					// Transitioning from both mode to wide-only: subtract strip width
+					newPos := pos - minNarrowStripWidth
+					splitterAdjusting = true
+					launcherSplitter.SetSizes([]int{newPos, totalWidth - newPos})
+					splitterAdjusting = false
+				} else if !hadButtons && hasMultipleButtons {
+					// Transitioning from wide-only to both mode: add strip width
+					newPos := pos + minNarrowStripWidth
+					splitterAdjusting = true
+					launcherSplitter.SetSizes([]int{newPos, totalWidth - newPos})
+					splitterAdjusting = false
+				}
 			}
 		}
 	}
