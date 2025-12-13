@@ -1191,8 +1191,10 @@ func updateLauncherToolbarButtons() {
 		if len(sizes) >= 2 {
 			pos := sizes[0]
 			totalWidth := sizes[0] + sizes[1]
+			// Use same threshold as isWideMode() for consistency
+			bothThreshold := (minWidePanelWidth / 2) + minNarrowStripWidth
 			// Only adjust in wide mode (not collapsed, not narrow-only)
-			if pos >= minWidePanelWidth {
+			if pos >= bothThreshold {
 				if hadButtons && !hasMultipleButtons {
 					// Transitioning from both mode to wide-only: subtract strip width
 					newPos := pos - minNarrowStripWidth
