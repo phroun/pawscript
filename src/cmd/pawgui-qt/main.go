@@ -801,8 +801,13 @@ func restoreBufferDialog(parent *qt.QWidget, term *purfectermqt.Terminal) {
 		return
 	}
 
-	// Feed content to terminal (preceded by a linefeed)
-	term.Feed("\n" + string(content))
+	// Convert LF to CR+LF for proper terminal display
+	// (LF alone moves down without returning to column 0)
+	contentStr := strings.ReplaceAll(string(content), "\r\n", "\n") // Normalize first
+	contentStr = strings.ReplaceAll(contentStr, "\n", "\r\n")       // Then convert to CR+LF
+
+	// Feed content to terminal
+	term.Feed(contentStr)
 }
 
 // createBlankConsoleWindow creates a new blank terminal window with REPL
