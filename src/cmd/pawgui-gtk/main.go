@@ -327,7 +327,6 @@ func showAboutDialog(parent gtk.IWindow) {
 		"",
 	)
 	dialog.SetTitle("About PawScript")
-	dialog.SetPosition(gtk.WIN_POS_CENTER_ON_PARENT)
 
 	// Build about text
 	aboutText := fmt.Sprintf(`<b>PawScript</b>
@@ -339,6 +338,26 @@ Copyright © 2025 Jeffrey R. Day
 License: MIT`, version)
 
 	dialog.SetMarkup(aboutText)
+
+	// Center on parent window manually
+	if parent != nil {
+		if win, ok := parent.(*gtk.Window); ok {
+			px, py := win.GetPosition()
+			pw, ph := win.GetSize()
+			dialog.Connect("realize", func() {
+				dw, dh := dialog.GetSize()
+				dialog.Move(px+(pw-dw)/2, py+(ph-dh)/2)
+			})
+		} else if appWin, ok := parent.(*gtk.ApplicationWindow); ok {
+			px, py := appWin.GetPosition()
+			pw, ph := appWin.GetSize()
+			dialog.Connect("realize", func() {
+				dw, dh := dialog.GetSize()
+				dialog.Move(px+(pw-dw)/2, py+(ph-dh)/2)
+			})
+		}
+	}
+
 	dialog.Run()
 	dialog.Destroy()
 }
