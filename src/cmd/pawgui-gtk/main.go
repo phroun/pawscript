@@ -2572,6 +2572,17 @@ func createConsoleWindow(filePath string) {
 	winScriptRunning = true
 	winScriptMu.Unlock()
 
+	// Handle window close - clean up resources to prevent GC issues
+	win.Connect("destroy", func() {
+		// Close pipes to stop goroutines
+		stdinWriter.Close()
+		stdoutWriter.Close()
+		stdinReader.Close()
+		stdoutReader.Close()
+		// Close output queue to stop its goroutine
+		close(outputQueue)
+	})
+
 	go func() {
 		snapshot := ps.CreateRestrictedSnapshot()
 		result := ps.ExecuteWithEnvironment(string(content), snapshot, filePath, 0, 0)
