@@ -96,7 +96,7 @@ var (
 // Minimum widths for panel collapse behavior
 const (
 	minWidePanelWidth   = 196 // Minimum width before wide panel collapses
-	minNarrowStripWidth = 40  // Minimum width before narrow strip collapses
+	minNarrowStripWidth = 48  // Minimum width to fit 40px toolbar buttons
 )
 
 // Embedded SVG icons (fill color is replaced at runtime based on theme)
