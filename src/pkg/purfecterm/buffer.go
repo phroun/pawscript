@@ -4028,9 +4028,8 @@ func (b *Buffer) SaveScrollbackANS() string {
 
 	// ========== SECTION 1b: Terminal Mode Settings ==========
 
-	// Always enable flex width mode for ANS files so CJK and other wide
-	// characters render at their proper visual width when restored
-	result.WriteString("\x1b[?2027h")
+	// Flex width mode (?2027) is toggled per-character as needed based on cell.FlexWidth
+	// Start with it off (default state)
 
 	// Output ambiguous width mode setting
 	switch b.ambiguousWidthMode {
@@ -4050,6 +4049,7 @@ func (b *Buffer) SaveScrollbackANS() string {
 	// Track current attributes to minimize escape sequences
 	var lastFg, lastBg Color
 	var lastBold, lastItalic, lastUnderline, lastReverse, lastBlink bool
+	var lastFlexWidth bool // Track flex width mode state
 	var lastBGP int = -1
 	var lastXFlip, lastYFlip bool
 	var lastLineAttr LineAttribute = LineAttrNormal
@@ -4166,6 +4166,16 @@ func (b *Buffer) SaveScrollbackANS() string {
 					result.WriteString("\x1b[152m") // YFlip off
 				}
 				lastYFlip = cell.YFlip
+			}
+
+			// Toggle flex width mode if needed for this character
+			if cell.FlexWidth != lastFlexWidth {
+				if cell.FlexWidth {
+					result.WriteString("\x1b[?2027h") // Enable flex width
+				} else {
+					result.WriteString("\x1b[?2027l") // Disable flex width
+				}
+				lastFlexWidth = cell.FlexWidth
 			}
 
 			// Output character and combining marks
