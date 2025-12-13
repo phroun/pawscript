@@ -2457,7 +2457,7 @@ func activate(application *gtk.Application) {
 					launcherPaned.SetPosition(savedWidth)
 				}
 			}
-			updateLauncherToolbarButtons()
+			// Note: Position callback handles all visibility updates
 		},
 		CloseWindow: func() {
 			mainWindow.Close()
