@@ -3,6 +3,7 @@
 package pawgui
 
 import (
+	"fmt"
 	"os"
 	"path/filepath"
 	"runtime"
@@ -147,6 +148,9 @@ func (h *ConfigHelper) GetOptimizationLevel() int {
 func getConfigSectionString(config interface{}, key string) string {
 	// Helper to extract string from various value types
 	toString := func(v interface{}) string {
+		if v == nil {
+			return ""
+		}
 		switch s := v.(type) {
 		case string:
 			return s
@@ -156,7 +160,16 @@ func getConfigSectionString(config interface{}, key string) string {
 			return string(s)
 		case pawscript.Symbol:
 			return string(s)
+		default:
+			// Last resort: convert to string
+			if str, ok := v.(fmt.Stringer); ok {
+				return str.String()
+			}
+			return fmt.Sprintf("%v", v)
 		}
+	}
+
+	if config == nil {
 		return ""
 	}
 
@@ -170,8 +183,15 @@ func getConfigSectionString(config interface{}, key string) string {
 		return ""
 	}
 
-	// Try as a map (covers PSLConfig and map[string]interface{})
-	// Use reflection-free approach by trying type assertion to map
+	// Try PSLConfig explicitly (it's a named type for map[string]interface{})
+	if pc, ok := config.(pawscript.PSLConfig); ok {
+		if v, ok := pc[key]; ok {
+			return toString(v)
+		}
+		return ""
+	}
+
+	// Try as a plain map (covers map[string]interface{})
 	if m, ok := config.(map[string]interface{}); ok {
 		if v, ok := m[key]; ok {
 			return toString(v)
@@ -179,10 +199,16 @@ func getConfigSectionString(config interface{}, key string) string {
 		return ""
 	}
 
-	// Try PSLConfig explicitly (it's a named type for map[string]interface{})
-	if pc, ok := config.(pawscript.PSLConfig); ok {
-		if v, ok := pc[key]; ok {
-			return toString(v)
+	// Try PSLList (might have named items)
+	if pl, ok := config.(pawscript.PSLList); ok {
+		// PSLList is []interface{}, so we can't directly get named args
+		// But check if it has a single map item
+		for _, item := range pl {
+			if m, ok := item.(map[string]interface{}); ok {
+				if v, ok := m[key]; ok {
+					return toString(v)
+				}
+			}
 		}
 		return ""
 	}
