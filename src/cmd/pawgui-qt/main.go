@@ -393,7 +393,7 @@ func createHamburgerMenu(parent *qt.QWidget, isScriptWindow bool) *qt.QMenu {
 }
 
 // Toolbar button size constant for consistent square buttons
-const toolbarButtonSize = 64
+const toolbarButtonSize = 48
 
 // createHamburgerButton creates a hamburger menu button (☰ icon)
 func createHamburgerButton(menu *qt.QMenu) *qt.QPushButton {
