@@ -319,6 +319,11 @@ func clearRecentPaths() {
 
 // showAboutDialog displays the About PawScript dialog
 func showAboutDialog(parent gtk.IWindow) {
+	// Use mainWindow as fallback if parent is nil
+	if parent == nil && mainWindow != nil {
+		parent = mainWindow
+	}
+
 	dialog := gtk.MessageDialogNew(
 		parent,
 		gtk.DIALOG_MODAL|gtk.DIALOG_DESTROY_WITH_PARENT,
