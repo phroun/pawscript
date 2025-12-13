@@ -530,7 +530,7 @@ func applyToolbarButtonStyle(btn *gtk.Button, forVerticalStrip bool) {
 	if err != nil {
 		return
 	}
-	styleCtx.AddProvider(cssProvider, gtk.STYLE_PROVIDER_PRIORITY_APPLICATION)
+	styleCtx.AddProvider(cssProvider, gtk.STYLE_PROVIDER_PRIORITY_USER)
 }
 
 // Random icons for dummy buttons
