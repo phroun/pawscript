@@ -559,9 +559,12 @@ License: MIT</p>`, version)
 func createHamburgerMenu(parent *qt.QWidget, isScriptWindow bool, term *purfectermqt.Terminal, isScriptRunningFunc func() bool, closeWindowFunc func()) *qt.QMenu {
 	menu := qt.NewQMenu2()
 
-	// Use global terminal if none specified
-	if term == nil {
-		term = terminal
+	// Helper to get the terminal (uses provided term or falls back to global)
+	getTerminal := func() *purfectermqt.Terminal {
+		if term != nil {
+			return term
+		}
+		return terminal
 	}
 
 	// About option (both)
@@ -611,28 +614,28 @@ func createHamburgerMenu(parent *qt.QWidget, isScriptWindow bool, term *purfecte
 	// Save Scrollback (both)
 	saveScrollbackAction := menu.AddAction("Save Scrollback...")
 	saveScrollbackAction.OnTriggered(func() {
-		saveScrollbackDialog(parent, term)
+		saveScrollbackDialog(parent, getTerminal())
 	})
 
 	// Restore Buffer (both)
 	restoreBufferAction := menu.AddAction("Restore Buffer...")
 	restoreBufferAction.OnTriggered(func() {
-		restoreBufferDialog(parent, term)
+		restoreBufferDialog(parent, getTerminal())
 	})
 
 	// Clear Scrollback (both)
 	clearScrollbackAction := menu.AddAction("Clear Scrollback")
 	clearScrollbackAction.OnTriggered(func() {
-		if term != nil {
-			term.ClearScrollback()
+		if t := getTerminal(); t != nil {
+			t.ClearScrollback()
 		}
 	})
 
 	// Reset Terminal (both)
 	resetTerminalAction := menu.AddAction("Reset Terminal")
 	resetTerminalAction.OnTriggered(func() {
-		if term != nil {
-			term.Reset()
+		if t := getTerminal(); t != nil {
+			t.Reset()
 		}
 	})
 
