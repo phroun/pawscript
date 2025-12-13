@@ -347,6 +347,11 @@ func getBlinkMode() purfecterm.BlinkMode         { return configHelper.GetBlinkM
 func getQuitShortcut() string                    { return configHelper.GetQuitShortcut() }
 func getDefaultQuitShortcut() string             { return pawgui.GetDefaultQuitShortcut() }
 func getPSLColors() pawscript.DisplayColorConfig { return configHelper.GetPSLColors() }
+func isTermThemeDark() bool                      { return configHelper.IsTermThemeDark() }
+
+func getColorSchemeForTheme(isDark bool) purfecterm.ColorScheme {
+	return configHelper.GetColorSchemeForTheme(isDark)
+}
 
 func showCopyright() {
 	fmt.Fprintf(os.Stderr, "pawgui-qt, the PawScript GUI interpreter version %s (with Qt)\nCopyright (c) 2025 Jeffrey R. Day\nLicense: MIT\n", version)
@@ -874,6 +879,20 @@ func createBlankConsoleWindow() {
 		win.Close()
 		return
 	}
+
+	// Set font fallbacks for Unicode/CJK characters
+	winTerminal.SetFontFallbacks(getFontFamilyUnicode(), getFontFamilyCJK())
+
+	// Set up terminal theme from config
+	prefersDark := isTermThemeDark()
+	winTerminal.Buffer().SetPreferredDarkTheme(prefersDark)
+	winTerminal.Buffer().SetDarkTheme(prefersDark)
+
+	// Set up theme change callback (for CSI ? 5 h/l escape sequences)
+	winTerminal.Buffer().SetThemeChangeCallback(func(isDark bool) {
+		qt.QMetaObject_InvokeMethod(winTerminal.Widget(), "update")
+		winTerminal.SetColorScheme(getColorSchemeForTheme(isDark))
+	})
 
 	// Track script running state for this window (starts with no script)
 	var winScriptRunning bool
@@ -2126,6 +2145,17 @@ func runScriptInWindow(scriptContent, scriptFile string, scriptArgs []string,
 	// Set font fallbacks
 	winTerminal.SetFontFallbacks(getFontFamilyUnicode(), getFontFamilyCJK())
 
+	// Set up terminal theme from config
+	prefersDark := isTermThemeDark()
+	winTerminal.Buffer().SetPreferredDarkTheme(prefersDark)
+	winTerminal.Buffer().SetDarkTheme(prefersDark)
+
+	// Set up theme change callback (for CSI ? 5 h/l escape sequences)
+	winTerminal.Buffer().SetThemeChangeCallback(func(isDark bool) {
+		qt.QMetaObject_InvokeMethod(winTerminal.Widget(), "update")
+		winTerminal.SetColorScheme(getColorSchemeForTheme(isDark))
+	})
+
 	// In standalone script mode, script is always running
 	winScriptRunning := true
 
@@ -2469,6 +2499,17 @@ func createTerminalPanel() *qt.QWidget {
 
 	// Set font fallbacks for Unicode/CJK characters
 	terminal.SetFontFallbacks(getFontFamilyUnicode(), getFontFamilyCJK())
+
+	// Set up terminal theme from config
+	prefersDark := isTermThemeDark()
+	terminal.Buffer().SetPreferredDarkTheme(prefersDark)
+	terminal.Buffer().SetDarkTheme(prefersDark)
+
+	// Set up theme change callback (for CSI ? 5 h/l escape sequences)
+	terminal.Buffer().SetThemeChangeCallback(func(isDark bool) {
+		qt.QMetaObject_InvokeMethod(terminal.Widget(), "update")
+		terminal.SetColorScheme(getColorSchemeForTheme(isDark))
+	})
 
 	layout.AddWidget2(terminal.Widget(), 1)
 
@@ -3083,6 +3124,20 @@ func createConsoleWindow(filePath string) {
 		win.Close()
 		return
 	}
+
+	// Set font fallbacks for Unicode/CJK characters
+	winTerminal.SetFontFallbacks(getFontFamilyUnicode(), getFontFamilyCJK())
+
+	// Set up terminal theme from config
+	prefersDark := isTermThemeDark()
+	winTerminal.Buffer().SetPreferredDarkTheme(prefersDark)
+	winTerminal.Buffer().SetDarkTheme(prefersDark)
+
+	// Set up theme change callback (for CSI ? 5 h/l escape sequences)
+	winTerminal.Buffer().SetThemeChangeCallback(func(isDark bool) {
+		qt.QMetaObject_InvokeMethod(winTerminal.Widget(), "update")
+		winTerminal.SetColorScheme(getColorSchemeForTheme(isDark))
+	})
 
 	// Track script running state for this window
 	var winScriptRunning bool

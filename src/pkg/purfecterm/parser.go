@@ -622,6 +622,9 @@ func (p *Parser) executePrivateModeSet(set bool) {
 		switch param {
 		case 3: // DECCOLM - 132 Column Mode (horizontal scale 0.6060)
 			p.buffer.Set132ColumnMode(set)
+		case 5: // DECSCNM - Screen Mode (reverse video)
+			// h = reverse video (light mode), l = normal video (dark mode)
+			p.buffer.SetDarkTheme(!set)
 		case 25: // DECTCEM - Cursor visibility
 			p.buffer.SetCursorVisible(set)
 		case 1049: // Alternate screen buffer

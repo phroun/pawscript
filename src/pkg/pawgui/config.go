@@ -142,34 +142,110 @@ func (h *ConfigHelper) GetOptimizationLevel() int {
 	return 1
 }
 
-// GetTerminalBackground returns the configured terminal background color.
+// GetTerminalBackground returns the configured terminal background color for the current theme.
 func (h *ConfigHelper) GetTerminalBackground() purfecterm.Color {
-	if h.Config != nil {
-		if hex := h.Config.GetString("terminal_background", ""); hex != "" {
-			if c, ok := purfecterm.ParseHexColor(hex); ok {
-				return c
+	return h.GetTerminalBackgroundForTheme(h.IsTermThemeDark())
+}
+
+// GetTerminalBackgroundForTheme returns the terminal background color for the specified theme.
+func (h *ConfigHelper) GetTerminalBackgroundForTheme(isDark bool) purfecterm.Color {
+	if h.Config == nil {
+		if isDark {
+			return purfecterm.TrueColor(30, 30, 30) // Default dark background
+		}
+		return purfecterm.TrueColor(255, 255, 255) // Default light background
+	}
+
+	// Try theme-specific section first
+	themeSection := "term_colors_dark"
+	if !isDark {
+		themeSection = "term_colors_light"
+	}
+	if themeConfig, ok := h.Config[themeSection]; ok {
+		if tc, ok := themeConfig.(pawscript.PSLConfig); ok {
+			if hex := tc.GetString("0_background", ""); hex != "" {
+				if c, ok := purfecterm.ParseHexColor(hex); ok {
+					return c
+				}
 			}
 		}
 	}
-	return purfecterm.TrueColor(30, 30, 30) // Default dark background
+
+	// Fall back to base term_colors section
+	if termConfig, ok := h.Config["term_colors"]; ok {
+		if tc, ok := termConfig.(pawscript.PSLConfig); ok {
+			if hex := tc.GetString("0_background", ""); hex != "" {
+				if c, ok := purfecterm.ParseHexColor(hex); ok {
+					return c
+				}
+			}
+		}
+	}
+
+	// Default colors
+	if isDark {
+		return purfecterm.TrueColor(30, 30, 30)
+	}
+	return purfecterm.TrueColor(255, 255, 255)
 }
 
-// GetTerminalForeground returns the configured terminal foreground color.
+// GetTerminalForeground returns the configured terminal foreground color for the current theme.
 func (h *ConfigHelper) GetTerminalForeground() purfecterm.Color {
-	if h.Config != nil {
-		if hex := h.Config.GetString("terminal_foreground", ""); hex != "" {
-			if c, ok := purfecterm.ParseHexColor(hex); ok {
-				return c
+	return h.GetTerminalForegroundForTheme(h.IsTermThemeDark())
+}
+
+// GetTerminalForegroundForTheme returns the terminal foreground color for the specified theme.
+func (h *ConfigHelper) GetTerminalForegroundForTheme(isDark bool) purfecterm.Color {
+	if h.Config == nil {
+		if isDark {
+			return purfecterm.TrueColor(212, 212, 212) // Default light gray on dark
+		}
+		return purfecterm.TrueColor(30, 30, 30) // Default dark text on light
+	}
+
+	// Try theme-specific section first
+	themeSection := "term_colors_dark"
+	if !isDark {
+		themeSection = "term_colors_light"
+	}
+	if themeConfig, ok := h.Config[themeSection]; ok {
+		if tc, ok := themeConfig.(pawscript.PSLConfig); ok {
+			if hex := tc.GetString("9_foreground", ""); hex != "" {
+				if c, ok := purfecterm.ParseHexColor(hex); ok {
+					return c
+				}
 			}
 		}
 	}
-	return purfecterm.TrueColor(212, 212, 212) // Default light gray
+
+	// Fall back to base term_colors section
+	if termConfig, ok := h.Config["term_colors"]; ok {
+		if tc, ok := termConfig.(pawscript.PSLConfig); ok {
+			if hex := tc.GetString("9_foreground", ""); hex != "" {
+				if c, ok := purfecterm.ParseHexColor(hex); ok {
+					return c
+				}
+			}
+		}
+	}
+
+	// Default colors
+	if isDark {
+		return purfecterm.TrueColor(212, 212, 212)
+	}
+	return purfecterm.TrueColor(30, 30, 30)
 }
 
-// GetColorPalette returns the configured 16-color ANSI palette.
+// GetColorPalette returns the configured 16-color ANSI palette for the current theme.
+func (h *ConfigHelper) GetColorPalette() []purfecterm.Color {
+	return h.GetColorPaletteForTheme(h.IsTermThemeDark())
+}
+
+// GetColorPaletteForTheme returns the 16-color ANSI palette for the specified theme.
 // Config uses VGA-style naming (01_dark_blue, etc.) but ANSI escape codes
 // expect ANSI order (index 1 = red). We map VGA config indices to ANSI palette indices.
-func (h *ConfigHelper) GetColorPalette() []purfecterm.Color {
+// Colors are merged: term_colors base + term_colors_light/dark theme overrides.
+func (h *ConfigHelper) GetColorPaletteForTheme(isDark bool) []purfecterm.Color {
 	palette := make([]purfecterm.Color, 16)
 	copy(palette, purfecterm.ANSIColors)
 
@@ -177,14 +253,32 @@ func (h *ConfigHelper) GetColorPalette() []purfecterm.Color {
 		return palette
 	}
 
-	// Check for palette_colors nested config
-	if paletteConfig, ok := h.Config["palette_colors"]; ok {
-		if pc, ok := paletteConfig.(pawscript.PSLConfig); ok {
-			names := purfecterm.PaletteColorNames()
+	names := purfecterm.PaletteColorNames()
+
+	// First apply base term_colors
+	if termConfig, ok := h.Config["term_colors"]; ok {
+		if tc, ok := termConfig.(pawscript.PSLConfig); ok {
 			for vgaIdx, name := range names {
-				if hex := pc.GetString(name, ""); hex != "" {
+				if hex := tc.GetString(name, ""); hex != "" {
 					if c, ok := purfecterm.ParseHexColor(hex); ok {
-						// Map VGA config index to ANSI palette index
+						ansiIdx := purfecterm.VGAToANSI[vgaIdx]
+						palette[ansiIdx] = c
+					}
+				}
+			}
+		}
+	}
+
+	// Then apply theme-specific overrides
+	themeSection := "term_colors_dark"
+	if !isDark {
+		themeSection = "term_colors_light"
+	}
+	if themeConfig, ok := h.Config[themeSection]; ok {
+		if tc, ok := themeConfig.(pawscript.PSLConfig); ok {
+			for vgaIdx, name := range names {
+				if hex := tc.GetString(name, ""); hex != "" {
+					if c, ok := purfecterm.ParseHexColor(hex); ok {
 						ansiIdx := purfecterm.VGAToANSI[vgaIdx]
 						palette[ansiIdx] = c
 					}
@@ -239,58 +333,105 @@ func (h *ConfigHelper) GetTheme() ThemeMode {
 	return ThemeAuto
 }
 
-// GetColorScheme returns a complete ColorScheme from config.
+// GetTermTheme returns the configured terminal theme.
+// Valid values: "light", "dark" (default: "dark")
+func (h *ConfigHelper) GetTermTheme() string {
+	if h.Config != nil {
+		theme := h.Config.GetString("term_theme", "dark")
+		if theme == "light" || theme == "dark" {
+			return theme
+		}
+	}
+	return "dark"
+}
+
+// IsTermThemeDark returns true if the terminal theme is dark
+func (h *ConfigHelper) IsTermThemeDark() bool {
+	return h.GetTermTheme() == "dark"
+}
+
+// GetColorScheme returns a complete ColorScheme from config for the current theme.
 func (h *ConfigHelper) GetColorScheme() purfecterm.ColorScheme {
+	return h.GetColorSchemeForTheme(h.IsTermThemeDark())
+}
+
+// GetColorSchemeForTheme returns a complete ColorScheme for the specified theme.
+func (h *ConfigHelper) GetColorSchemeForTheme(isDark bool) purfecterm.ColorScheme {
 	return purfecterm.ColorScheme{
-		Foreground: h.GetTerminalForeground(),
-		Background: h.GetTerminalBackground(),
+		Foreground: h.GetTerminalForegroundForTheme(isDark),
+		Background: h.GetTerminalBackgroundForTheme(isDark),
 		Cursor:     purfecterm.TrueColor(255, 255, 255),
 		Selection:  purfecterm.TrueColor(68, 68, 68),
-		Palette:    h.GetColorPalette(),
+		Palette:    h.GetColorPaletteForTheme(isDark),
 		BlinkMode:  h.GetBlinkMode(),
 	}
 }
 
-// GetPSLColors returns the PSL result display color configuration.
+// GetPSLColors returns the PSL result display color configuration for the current theme.
 func (h *ConfigHelper) GetPSLColors() pawscript.DisplayColorConfig {
+	return h.GetPSLColorsForTheme(h.IsTermThemeDark())
+}
+
+// GetPSLColorsForTheme returns the PSL result display color configuration for the specified theme.
+// It checks psl_colors_light/dark first, then falls back to psl_colors for each key.
+func (h *ConfigHelper) GetPSLColorsForTheme(isDark bool) pawscript.DisplayColorConfig {
 	cfg := pawscript.DefaultDisplayColors()
 
 	if h.Config == nil {
 		return cfg
 	}
 
-	colorsVal, ok := h.Config["psl_colors"]
-	if !ok {
-		return cfg
+	// Helper to get named args from a config value
+	getNamedArgs := func(key string) map[string]interface{} {
+		val, ok := h.Config[key]
+		if !ok {
+			return nil
+		}
+		switch v := val.(type) {
+		case pawscript.StoredList:
+			return v.NamedArgs()
+		case pawscript.PSLConfig:
+			return map[string]interface{}(v)
+		case map[string]interface{}:
+			return v
+		}
+		return nil
 	}
 
-	// Handle both StoredList and PSLConfig (which is a map)
-	var namedArgs map[string]interface{}
-	switch v := colorsVal.(type) {
-	case pawscript.StoredList:
-		namedArgs = v.NamedArgs()
-	case pawscript.PSLConfig:
-		namedArgs = map[string]interface{}(v)
-	case map[string]interface{}:
-		namedArgs = v
-	default:
-		return cfg
+	// Get base and theme-specific configs
+	baseArgs := getNamedArgs("psl_colors")
+	themeSection := "psl_colors_dark"
+	if !isDark {
+		themeSection = "psl_colors_light"
 	}
+	themeArgs := getNamedArgs(themeSection)
 
-	if namedArgs == nil {
-		return cfg
-	}
-
-	// Helper to extract string value
+	// Helper to extract string value with theme override
 	getStr := func(key string) string {
-		if v, ok := namedArgs[key]; ok {
-			switch s := v.(type) {
-			case string:
-				return s
-			case pawscript.QuotedString:
-				return string(s)
-			case pawscript.Symbol:
-				return string(s)
+		// Try theme-specific first
+		if themeArgs != nil {
+			if v, ok := themeArgs[key]; ok {
+				switch s := v.(type) {
+				case string:
+					return s
+				case pawscript.QuotedString:
+					return string(s)
+				case pawscript.Symbol:
+					return string(s)
+				}
+			}
+		}
+		// Fall back to base
+		if baseArgs != nil {
+			if v, ok := baseArgs[key]; ok {
+				switch s := v.(type) {
+				case string:
+					return s
+				case pawscript.QuotedString:
+					return string(s)
+				case pawscript.Symbol:
+					return string(s)
+				}
 			}
 		}
 		return ""
@@ -380,28 +521,46 @@ func (h *ConfigHelper) PopulateDefaults() bool {
 		h.Config.Set("theme", "auto")
 		modified = true
 	}
-	if _, exists := h.Config["terminal_background"]; !exists {
-		h.Config.Set("terminal_background", "#1E1E1E")
-		modified = true
-	}
-	if _, exists := h.Config["terminal_foreground"]; !exists {
-		h.Config.Set("terminal_foreground", "#D4D4D4")
-		modified = true
-	}
-	if _, exists := h.Config["palette_colors"]; !exists {
-		paletteConfig := pawscript.PSLConfig{}
-		names := purfecterm.PaletteColorNames()
-		hexColors := purfecterm.DefaultPaletteHex()
-		for i, name := range names {
-			paletteConfig.Set(name, hexColors[i])
-		}
-		h.Config.Set("palette_colors", paletteConfig)
+	if _, exists := h.Config["term_theme"]; !exists {
+		h.Config.Set("term_theme", "dark")
 		modified = true
 	}
 	if _, exists := h.Config["default_blink"]; !exists {
 		h.Config.Set("default_blink", "bounce")
 		modified = true
 	}
+
+	// term_colors: base palette colors (can be overridden by theme-specific sections)
+	if _, exists := h.Config["term_colors"]; !exists {
+		termConfig := pawscript.PSLConfig{}
+		names := purfecterm.PaletteColorNames()
+		hexColors := purfecterm.DefaultPaletteHex()
+		for i, name := range names {
+			termConfig.Set(name, hexColors[i])
+		}
+		h.Config.Set("term_colors", termConfig)
+		modified = true
+	}
+
+	// term_colors_dark: dark theme overrides (includes background/foreground)
+	if _, exists := h.Config["term_colors_dark"]; !exists {
+		darkConfig := pawscript.PSLConfig{}
+		darkConfig.Set("0_background", "#1E1E1E")
+		darkConfig.Set("9_foreground", "#D4D4D4")
+		h.Config.Set("term_colors_dark", darkConfig)
+		modified = true
+	}
+
+	// term_colors_light: light theme overrides (includes background/foreground)
+	if _, exists := h.Config["term_colors_light"]; !exists {
+		lightConfig := pawscript.PSLConfig{}
+		lightConfig.Set("0_background", "#FFFFFF")
+		lightConfig.Set("9_foreground", "#1E1E1E")
+		h.Config.Set("term_colors_light", lightConfig)
+		modified = true
+	}
+
+	// psl_colors: base PSL display colors
 	if _, exists := h.Config["psl_colors"]; !exists {
 		pslColorsConfig := pawscript.PSLConfig{}
 		defaultColors := pawscript.DefaultDisplayColors()
@@ -419,6 +578,18 @@ func (h *ConfigHelper) PopulateDefaults() bool {
 		pslColorsConfig.Set("object", defaultColors.Object)
 		pslColorsConfig.Set("bytes", defaultColors.Bytes)
 		h.Config.Set("psl_colors", pslColorsConfig)
+		modified = true
+	}
+
+	// psl_colors_dark: dark theme PSL color overrides (empty by default)
+	if _, exists := h.Config["psl_colors_dark"]; !exists {
+		h.Config.Set("psl_colors_dark", pawscript.PSLConfig{})
+		modified = true
+	}
+
+	// psl_colors_light: light theme PSL color overrides (empty by default)
+	if _, exists := h.Config["psl_colors_light"]; !exists {
+		h.Config.Set("psl_colors_light", pawscript.PSLConfig{})
 		modified = true
 	}
 

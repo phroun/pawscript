@@ -180,7 +180,12 @@ type Buffer struct {
 
 	dirty         bool
 	onDirty       func()
-	onScaleChange func() // Called when screen scaling modes change
+	onScaleChange func()     // Called when screen scaling modes change
+	onThemeChange func(bool) // Called when theme changes (arg: isDark)
+
+	// Theme state (DECSCNM - Screen Mode)
+	darkTheme          bool // Current theme: true=dark, false=light
+	preferredDarkTheme bool // User's preferred theme from config (restored on reset)
 
 	// Screen scaling modes
 	columnMode132 bool // 132-column mode: horizontal scale 0.6060 (ESC [ 3 h/l)
@@ -243,6 +248,8 @@ func NewBuffer(cols, rows, maxScrollback int) *Buffer {
 		maxScrollback:       maxScrollback,
 		screenInfo:          DefaultScreenInfo(),
 		dirty:               true,
+		darkTheme:           true, // Default to dark theme
+		preferredDarkTheme:  true, // User preference defaults to dark
 		lineDensity:         25,            // Default line density
 		currentBGP:          -1,            // -1 = use foreground color code as palette
 		palettes:     make(map[int]*Palette),
@@ -302,6 +309,59 @@ func (b *Buffer) notifyScaleChange() {
 	if b.onScaleChange != nil {
 		b.onScaleChange()
 	}
+}
+
+// SetThemeChangeCallback sets a callback to be invoked when the terminal theme changes
+// The callback receives true for dark theme, false for light theme
+func (b *Buffer) SetThemeChangeCallback(fn func(bool)) {
+	b.mu.Lock()
+	defer b.mu.Unlock()
+	b.onThemeChange = fn
+}
+
+func (b *Buffer) notifyThemeChange() {
+	if b.onThemeChange != nil {
+		b.onThemeChange(b.darkTheme)
+	}
+}
+
+// SetDarkTheme sets the current theme (true=dark, false=light)
+// This is called by DECSCNM (CSI ? 5 h/l) escape sequences
+func (b *Buffer) SetDarkTheme(dark bool) {
+	b.mu.Lock()
+	changed := b.darkTheme != dark
+	b.darkTheme = dark
+	if changed {
+		b.markDirty()
+	}
+	b.mu.Unlock()
+	if changed {
+		b.notifyThemeChange()
+	}
+}
+
+// IsDarkTheme returns the current theme state (true=dark, false=light)
+func (b *Buffer) IsDarkTheme() bool {
+	b.mu.RLock()
+	defer b.mu.RUnlock()
+	return b.darkTheme
+}
+
+// SetPreferredDarkTheme sets the user's preferred theme from config
+// This is restored on terminal reset
+func (b *Buffer) SetPreferredDarkTheme(dark bool) {
+	b.mu.Lock()
+	defer b.mu.Unlock()
+	b.preferredDarkTheme = dark
+	// Also set current theme to match preference initially
+	b.darkTheme = dark
+}
+
+// GetPreferredDarkTheme returns the user's preferred theme
+func (b *Buffer) GetPreferredDarkTheme() bool {
+	b.mu.RLock()
+	defer b.mu.RUnlock()
+	return b.preferredDarkTheme
 }
 
 func (b *Buffer) initScreen() {
@@ -3911,6 +3971,10 @@ func (b *Buffer) Reset() {
 	b.columnMode40 = false
 	b.lineDensity = 25
 
+	// Reset theme to user preference
+	themeChanged := b.darkTheme != b.preferredDarkTheme
+	b.darkTheme = b.preferredDarkTheme
+
 	// Reset custom graphics state
 	b.currentBGP = -1
 	b.currentXFlip = false
@@ -3922,6 +3986,9 @@ func (b *Buffer) Reset() {
 
 	b.markDirty()
 	b.notifyScaleChange()
+	if themeChanged {
+		b.notifyThemeChange()
+	}
 }
 
 // SaveScrollbackText returns the scrollback and screen content as plain text

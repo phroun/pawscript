@@ -220,6 +220,11 @@ func getBlinkMode() purfecterm.BlinkMode         { return configHelper.GetBlinkM
 func getQuitShortcut() string                    { return configHelper.GetQuitShortcut() }
 func getDefaultQuitShortcut() string             { return pawgui.GetDefaultQuitShortcut() }
 func getPSLColors() pawscript.DisplayColorConfig { return configHelper.GetPSLColors() }
+func isTermThemeDark() bool                      { return configHelper.IsTermThemeDark() }
+
+func getColorSchemeForTheme(isDark bool) purfecterm.ColorScheme {
+	return configHelper.GetColorSchemeForTheme(isDark)
+}
 
 // getLauncherWidth returns the saved launcher panel width, defaulting to 280
 func getLauncherWidth() int {
@@ -755,6 +760,18 @@ func createBlankConsoleWindow() {
 
 	// Set font fallbacks for Unicode/CJK characters
 	winTerminal.SetFontFallbacks(getFontFamilyUnicode(), getFontFamilyCJK())
+
+	// Set up terminal theme from config
+	prefersDark := isTermThemeDark()
+	winTerminal.Buffer().SetPreferredDarkTheme(prefersDark)
+	winTerminal.Buffer().SetDarkTheme(prefersDark)
+
+	// Set up theme change callback (for CSI ? 5 h/l escape sequences)
+	winTerminal.Buffer().SetThemeChangeCallback(func(isDark bool) {
+		glib.IdleAdd(func() {
+			winTerminal.SetColorScheme(getColorSchemeForTheme(isDark))
+		})
+	})
 
 	// Create main layout with collapsible toolbar strip
 	paned, _ := gtk.PanedNew(gtk.ORIENTATION_HORIZONTAL)
@@ -2043,6 +2060,18 @@ func runScriptInWindow(gtkApp *gtk.Application, scriptContent, scriptFile string
 	// Set font fallbacks
 	winTerminal.SetFontFallbacks(getFontFamilyUnicode(), getFontFamilyCJK())
 
+	// Set up terminal theme from config
+	prefersDark := isTermThemeDark()
+	winTerminal.Buffer().SetPreferredDarkTheme(prefersDark)
+	winTerminal.Buffer().SetDarkTheme(prefersDark)
+
+	// Set up theme change callback (for CSI ? 5 h/l escape sequences)
+	winTerminal.Buffer().SetThemeChangeCallback(func(isDark bool) {
+		glib.IdleAdd(func() {
+			winTerminal.SetColorScheme(getColorSchemeForTheme(isDark))
+		})
+	})
+
 	// Create main layout with collapsible toolbar strip
 	paned, _ := gtk.PanedNew(gtk.ORIENTATION_HORIZONTAL)
 
@@ -2880,6 +2909,18 @@ func createTerminal() *gtk.Box {
 	// Set font fallbacks for Unicode/CJK characters
 	terminal.SetFontFallbacks(getFontFamilyUnicode(), getFontFamilyCJK())
 
+	// Set up terminal theme from config
+	prefersDark := isTermThemeDark()
+	terminal.Buffer().SetPreferredDarkTheme(prefersDark)
+	terminal.Buffer().SetDarkTheme(prefersDark)
+
+	// Set up theme change callback (for CSI ? 5 h/l escape sequences)
+	terminal.Buffer().SetThemeChangeCallback(func(isDark bool) {
+		glib.IdleAdd(func() {
+			terminal.SetColorScheme(getColorSchemeForTheme(isDark))
+		})
+	})
+
 	// Add terminal widget to box
 	termWidget := terminal.Widget()
 	termWidget.SetVExpand(true)
@@ -3324,6 +3365,18 @@ func createConsoleWindow(filePath string) {
 
 	// Set font fallbacks for Unicode/CJK characters
 	winTerminal.SetFontFallbacks(getFontFamilyUnicode(), getFontFamilyCJK())
+
+	// Set up terminal theme from config
+	prefersDark := isTermThemeDark()
+	winTerminal.Buffer().SetPreferredDarkTheme(prefersDark)
+	winTerminal.Buffer().SetDarkTheme(prefersDark)
+
+	// Set up theme change callback (for CSI ? 5 h/l escape sequences)
+	winTerminal.Buffer().SetThemeChangeCallback(func(isDark bool) {
+		glib.IdleAdd(func() {
+			winTerminal.SetColorScheme(getColorSchemeForTheme(isDark))
+		})
+	})
 
 	// Create main layout with collapsible toolbar strip
 	paned, _ := gtk.PanedNew(gtk.ORIENTATION_HORIZONTAL)
