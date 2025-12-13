@@ -4028,10 +4028,9 @@ func (b *Buffer) SaveScrollbackANS() string {
 
 	// ========== SECTION 1b: Terminal Mode Settings ==========
 
-	// Output flex width mode if enabled (DEC private mode 2027)
-	if b.flexWidthMode {
-		result.WriteString("\x1b[?2027h")
-	}
+	// Always enable flex width mode for ANS files so CJK and other wide
+	// characters render at their proper visual width when restored
+	result.WriteString("\x1b[?2027h")
 
 	// Output ambiguous width mode setting
 	switch b.ambiguousWidthMode {
