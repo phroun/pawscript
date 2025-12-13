@@ -136,12 +136,12 @@ func getSVGIcon(svgTemplate string) string {
 
 // createIconFromSVG creates a QIcon from SVG data
 func createIconFromSVG(svgData string, size int) *qt.QIcon {
-	// Load SVG into QPixmap
+	// Load SVG into QPixmap using raw bytes
 	pixmap := qt.NewQPixmap()
-	byteArray := qt.NewQByteArray2(svgData)
-	if pixmap.LoadFromData(byteArray.ConstData(), int64(byteArray.Length()), "SVG") {
+	data := []byte(svgData)
+	if pixmap.LoadFromData(unsafe.SliceData(data), uint(len(data))) {
 		// Scale to desired size
-		scaled := pixmap.Scaled2(size, size, qt.KeepAspectRatio, qt.SmoothTransformation)
+		scaled := pixmap.Scaled2(size, size, qt.KeepAspectRatio)
 		return qt.NewQIcon2(scaled)
 	}
 	return nil
