@@ -145,30 +145,48 @@ func (h *ConfigHelper) GetOptimizationLevel() int {
 // getConfigSectionString extracts a string value from a config section.
 // Handles PSLConfig, StoredList, and map[string]interface{} types.
 func getConfigSectionString(config interface{}, key string) string {
-	switch c := config.(type) {
-	case pawscript.PSLConfig:
-		return c.GetString(key, "")
-	case pawscript.StoredList:
-		if args := c.NamedArgs(); args != nil {
-			if v, ok := args[key]; ok {
-				switch s := v.(type) {
-				case string:
-					return s
-				case pawscript.QuotedString:
-					return string(s)
-				}
-			}
+	// Helper to extract string from various value types
+	toString := func(v interface{}) string {
+		switch s := v.(type) {
+		case string:
+			return s
+		case pawscript.QuotedString:
+			return string(s)
+		case pawscript.StoredString:
+			return string(s)
+		case pawscript.Symbol:
+			return string(s)
 		}
-	case map[string]interface{}:
-		if v, ok := c[key]; ok {
-			switch s := v.(type) {
-			case string:
-				return s
-			case pawscript.QuotedString:
-				return string(s)
-			}
-		}
+		return ""
 	}
+
+	// Try StoredList first (has NamedArgs method)
+	if sl, ok := config.(pawscript.StoredList); ok {
+		if args := sl.NamedArgs(); args != nil {
+			if v, ok := args[key]; ok {
+				return toString(v)
+			}
+		}
+		return ""
+	}
+
+	// Try as a map (covers PSLConfig and map[string]interface{})
+	// Use reflection-free approach by trying type assertion to map
+	if m, ok := config.(map[string]interface{}); ok {
+		if v, ok := m[key]; ok {
+			return toString(v)
+		}
+		return ""
+	}
+
+	// Try PSLConfig explicitly (it's a named type for map[string]interface{})
+	if pc, ok := config.(pawscript.PSLConfig); ok {
+		if v, ok := pc[key]; ok {
+			return toString(v)
+		}
+		return ""
+	}
+
 	return ""
 }
 
