@@ -379,6 +379,7 @@ type MenuContext struct {
 	ToggleFileList   func()                   // Launcher only: toggles wide/narrow mode
 	CloseWindow      func()                   // Closes this window
 	FileListCheckItem *gtk.CheckMenuItem      // Reference to update check state
+	updatingCheckbox bool                     // Flag to prevent toggled signal during programmatic updates
 }
 
 // createHamburgerMenu creates the hamburger dropdown menu
@@ -397,11 +398,17 @@ func createHamburgerMenu(ctx *MenuContext) *gtk.Menu {
 	if !ctx.IsScriptWindow && ctx.ToggleFileList != nil {
 		fileListItem, _ := gtk.CheckMenuItemNewWithLabel("File List")
 		ctx.FileListCheckItem = fileListItem
-		// Set initial state
+		// Set initial state (with flag to prevent triggering toggle)
 		if ctx.IsFileListWide != nil {
+			ctx.updatingCheckbox = true
 			fileListItem.SetActive(ctx.IsFileListWide())
+			ctx.updatingCheckbox = false
 		}
 		fileListItem.Connect("toggled", func() {
+			// Skip if this is a programmatic update (not user action)
+			if ctx.updatingCheckbox {
+				return
+			}
 			if ctx.ToggleFileList != nil {
 				ctx.ToggleFileList()
 			}
@@ -444,9 +451,11 @@ func createHamburgerMenu(ctx *MenuContext) *gtk.Menu {
 		if ctx.IsScriptRunning != nil {
 			stopScriptItem.SetSensitive(ctx.IsScriptRunning())
 		}
-		// Also update file list checkbox state
+		// Update file list checkbox state (with flag to prevent triggering toggle)
 		if ctx.FileListCheckItem != nil && ctx.IsFileListWide != nil {
+			ctx.updatingCheckbox = true
 			ctx.FileListCheckItem.SetActive(ctx.IsFileListWide())
+			ctx.updatingCheckbox = false
 		}
 	})
 
