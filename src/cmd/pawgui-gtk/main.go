@@ -387,7 +387,7 @@ func createHamburgerButton(menu *gtk.Menu, forVerticalStrip bool) *gtk.Button {
 // Returns the strip container and the hamburger button
 func createToolbarStrip(parent gtk.IWindow, isScriptWindow bool) (*gtk.Box, *gtk.Button, *gtk.Menu) {
 	strip, _ := gtk.BoxNew(gtk.ORIENTATION_VERTICAL, 4) // 4px spacing between buttons
-	strip.SetMarginStart(6)                             // Left padding for menu positioning
+	strip.SetMarginStart(2)
 	strip.SetMarginEnd(2)
 	strip.SetMarginTop(5)
 	strip.SetMarginBottom(5)
@@ -1680,6 +1680,33 @@ func activate(application *gtk.Application) {
 	terminal.Feed("Select a .paw file and click Run to execute.\r\n\r\n")
 
 	mainWindow.ShowAll()
+
+	// Apply correct UI state based on saved position
+	// (The position handler only fires on changes, not initial load)
+	savedPos := getLauncherWidth()
+	bothThreshold := minWidePanelWidth + minNarrowStripWidth
+	hasMultipleButtons := len(launcherRegisteredBtns) > 0
+
+	if savedPos == 0 {
+		// Fully collapsed - panels already hidden by ShowAll behavior
+	} else if savedPos < bothThreshold {
+		// Narrow-only mode: hide wide panel, show narrow strip
+		launcherWidePanel.Hide()
+		launcherNarrowStrip.Show()
+		launcherMenuButton.Hide()
+		launcherStripMenuBtn.Show()
+	} else {
+		// Wide mode
+		launcherWidePanel.Show()
+		if hasMultipleButtons {
+			launcherNarrowStrip.Show()
+			launcherMenuButton.Hide()
+			launcherStripMenuBtn.Show()
+		} else {
+			launcherNarrowStrip.Hide()
+			launcherMenuButton.Show()
+		}
+	}
 
 	// Focus the Run button
 	runButton.GrabFocus()
