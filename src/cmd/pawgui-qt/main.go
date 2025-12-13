@@ -574,6 +574,9 @@ func createHamburgerMenu(parent *qt.QWidget, isScriptWindow bool, term *purfecte
 		showAboutDialog(parent)
 	})
 
+	// Separator after About
+	menu.AddSeparator()
+
 	// File List checkbox (launcher only)
 	var fileListAction *qt.QAction
 	if !isScriptWindow {
@@ -604,6 +607,14 @@ func createHamburgerMenu(parent *qt.QWidget, isScriptWindow bool, term *purfecte
 	// Stop Script (both) - disabled when no script running
 	stopScriptAction := menu.AddAction("Stop Script")
 	stopScriptAction.SetEnabled(false) // Initially disabled
+
+	// Reset Terminal (both) - directly under Stop Script
+	resetTerminalAction := menu.AddAction("Reset Terminal")
+	resetTerminalAction.OnTriggered(func() {
+		if t := getTerminal(); t != nil {
+			t.Reset()
+		}
+	})
 
 	// Update dynamic states when menu is about to show
 	menu.OnAboutToShow(func() {
@@ -636,14 +647,6 @@ func createHamburgerMenu(parent *qt.QWidget, isScriptWindow bool, term *purfecte
 	clearScrollbackAction.OnTriggered(func() {
 		if t := getTerminal(); t != nil {
 			t.ClearScrollback()
-		}
-	})
-
-	// Reset Terminal (both)
-	resetTerminalAction := menu.AddAction("Reset Terminal")
-	resetTerminalAction.OnTriggered(func() {
-		if t := getTerminal(); t != nil {
-			t.Reset()
 		}
 	})
 

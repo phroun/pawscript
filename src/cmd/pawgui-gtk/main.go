@@ -395,6 +395,10 @@ func createHamburgerMenu(ctx *MenuContext) *gtk.Menu {
 	})
 	menu.Append(aboutItem)
 
+	// Separator after About
+	sepAbout, _ := gtk.SeparatorMenuItemNew()
+	menu.Append(sepAbout)
+
 	// File List checkbox (launcher only)
 	// Note: Each menu instance gets its own checkbox that syncs via the show handler
 	var localFileListItem *gtk.CheckMenuItem
@@ -449,6 +453,15 @@ func createHamburgerMenu(ctx *MenuContext) *gtk.Menu {
 	})
 	menu.Append(stopScriptItem)
 
+	// Reset Terminal (both) - directly under Stop Script
+	resetTerminalItem, _ := gtk.MenuItemNewWithLabel("Reset Terminal")
+	resetTerminalItem.Connect("activate", func() {
+		if ctx.Terminal != nil {
+			ctx.Terminal.Reset()
+		}
+	})
+	menu.Append(resetTerminalItem)
+
 	// Update sensitivity when menu is shown
 	menu.Connect("show", func() {
 		if ctx.IsScriptRunning != nil {
@@ -493,15 +506,6 @@ func createHamburgerMenu(ctx *MenuContext) *gtk.Menu {
 		}
 	})
 	menu.Append(clearScrollbackItem)
-
-	// Reset Terminal (both)
-	resetTerminalItem, _ := gtk.MenuItemNewWithLabel("Reset Terminal")
-	resetTerminalItem.Connect("activate", func() {
-		if ctx.Terminal != nil {
-			ctx.Terminal.Reset()
-		}
-	})
-	menu.Append(resetTerminalItem)
 
 	// Separator
 	sep3, _ := gtk.SeparatorMenuItemNew()
