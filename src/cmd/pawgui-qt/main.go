@@ -890,7 +890,6 @@ func createBlankConsoleWindow() {
 
 	// Set up theme change callback (for CSI ? 5 h/l escape sequences)
 	winTerminal.Buffer().SetThemeChangeCallback(func(isDark bool) {
-		qt.QMetaObject_InvokeMethod(winTerminal.Widget(), "update")
 		winTerminal.SetColorScheme(getColorSchemeForTheme(isDark))
 	})
 
@@ -2152,7 +2151,6 @@ func runScriptInWindow(scriptContent, scriptFile string, scriptArgs []string,
 
 	// Set up theme change callback (for CSI ? 5 h/l escape sequences)
 	winTerminal.Buffer().SetThemeChangeCallback(func(isDark bool) {
-		qt.QMetaObject_InvokeMethod(winTerminal.Widget(), "update")
 		winTerminal.SetColorScheme(getColorSchemeForTheme(isDark))
 	})
 
@@ -2507,7 +2505,6 @@ func createTerminalPanel() *qt.QWidget {
 
 	// Set up theme change callback (for CSI ? 5 h/l escape sequences)
 	terminal.Buffer().SetThemeChangeCallback(func(isDark bool) {
-		qt.QMetaObject_InvokeMethod(terminal.Widget(), "update")
 		terminal.SetColorScheme(getColorSchemeForTheme(isDark))
 	})
 
@@ -3135,7 +3132,6 @@ func createConsoleWindow(filePath string) {
 
 	// Set up theme change callback (for CSI ? 5 h/l escape sequences)
 	winTerminal.Buffer().SetThemeChangeCallback(func(isDark bool) {
-		qt.QMetaObject_InvokeMethod(winTerminal.Widget(), "update")
 		winTerminal.SetColorScheme(getColorSchemeForTheme(isDark))
 	})
 

@@ -373,3 +373,13 @@ func (t *Terminal) SaveScrollbackText() string {
 func (t *Terminal) SaveScrollbackANS() string {
 	return t.widget.buffer.SaveScrollbackANS()
 }
+
+// Buffer returns the underlying terminal buffer
+func (t *Terminal) Buffer() *purfecterm.Buffer {
+	return t.widget.Buffer()
+}
+
+// SetColorScheme sets the terminal color scheme
+func (t *Terminal) SetColorScheme(scheme purfecterm.ColorScheme) {
+	t.widget.SetColorScheme(scheme)
+}
