@@ -64,6 +64,7 @@ var (
 	launcherWidePanel      *qt.QWidget        // The wide panel (file browser)
 	launcherSplitter       *qt.QSplitter      // The main launcher splitter
 	launcherRegisteredBtns []*QtToolbarButton // Additional registered buttons for launcher
+	launcherMenu           *qt.QMenu          // Shared hamburger menu for launcher (used by both buttons)
 	pendingToolbarUpdate   bool               // Flag to signal main thread to update toolbar
 	splitterAdjusting      bool               // Flag to prevent recursive splitter callbacks
 )
@@ -1086,13 +1087,17 @@ func createBlankConsoleWindow() {
 
 // createToolbarStripForWindow creates a vertical strip of toolbar buttons for a specific window
 func createToolbarStripForWindow(parent *qt.QWidget, isScriptWindow bool, term *purfectermqt.Terminal, isScriptRunningFunc func() bool, closeWindowFunc func()) (*qt.QWidget, *IconButton, *qt.QMenu) {
+	menu := createHamburgerMenu(parent, isScriptWindow, term, isScriptRunningFunc, closeWindowFunc)
+	return createToolbarStripWithMenu(menu)
+}
+
+// createToolbarStripWithMenu creates a vertical strip of toolbar buttons using an existing menu
+func createToolbarStripWithMenu(menu *qt.QMenu) (*qt.QWidget, *IconButton, *qt.QMenu) {
 	strip := qt.NewQWidget2()
 	layout := qt.NewQVBoxLayout2()
 	layout.SetContentsMargins(4, 9, 4, 5)
 	layout.SetSpacing(8)
 
-	// Create hamburger menu and button with window-specific callbacks
-	menu := createHamburgerMenu(parent, isScriptWindow, term, isScriptRunningFunc, closeWindowFunc)
 	menuBtn := createHamburgerButton(menu)
 
 	layout.AddWidget(menuBtn.QWidget)
@@ -1744,12 +1749,24 @@ func launchGUIMode() {
 	leftLayout.SetSpacing(0)
 	leftContainer.SetLayout(leftLayout.QLayout)
 
-	// Wide panel (file browser)
+	// Create shared hamburger menu for launcher (used by both wide panel and narrow strip buttons)
+	launcherMenu = createHamburgerMenu(leftContainer, false, nil, func() bool {
+		scriptMu.Lock()
+		defer scriptMu.Unlock()
+		return scriptRunning
+	}, func() {
+		if mainWindow != nil {
+			mainWindow.Close()
+		}
+	})
+
+	// Wide panel (file browser) - uses shared launcherMenu
 	widePanel := createFilePanel()
 	leftLayout.AddWidget2(widePanel, 1)
 
 	// Narrow strip: toolbar buttons (created but hidden initially - only 1 button)
-	launcherNarrowStrip, launcherStripMenuBtn, _ = createToolbarStrip(leftContainer, false)
+	// Uses the same shared launcherMenu as the wide panel button
+	launcherNarrowStrip, launcherStripMenuBtn, _ = createToolbarStripWithMenu(launcherMenu)
 	launcherNarrowStrip.SetFixedWidth(minNarrowStripWidth) // Fixed width
 	launcherNarrowStrip.Hide()                             // Hidden initially since we only have 1 button
 	leftLayout.AddWidget(launcherNarrowStrip)
@@ -2384,15 +2401,7 @@ func createFilePanel() *qt.QWidget {
 	topRowLayout.AddWidget2(pathButton.QWidget, 1)
 
 	// Hamburger menu button (shown when narrow strip is hidden)
-	launcherMenu := createHamburgerMenu(panel, false, nil, func() bool {
-		scriptMu.Lock()
-		defer scriptMu.Unlock()
-		return scriptRunning
-	}, func() {
-		if mainWindow != nil {
-			mainWindow.Close()
-		}
-	})
+	// Uses the shared launcherMenu which is created before createFilePanel is called
 	launcherMenuButton = createHamburgerButton(launcherMenu)
 	topRowLayout.AddWidget(launcherMenuButton.QWidget)
 
