@@ -201,6 +201,23 @@ func NewIconButton(buttonSize, iconSize int, svgData string) *IconButton {
 		widget.Update()
 	})
 
+	// Clear hover state when widget is hidden (e.g., by a popup menu)
+	widget.OnHideEvent(func(super func(event *qt.QHideEvent), event *qt.QHideEvent) {
+		btn.isHovered = false
+		btn.isPressed = false
+		super(event)
+	})
+
+	// Clear hover state on any event if mouse is no longer over the button
+	widget.OnEvent(func(super func(event *qt.QEvent) bool, event *qt.QEvent) bool {
+		if btn.isHovered && !widget.UnderMouse() {
+			btn.isHovered = false
+			btn.isPressed = false
+			widget.Update()
+		}
+		return super(event)
+	})
+
 	return btn
 }
 
