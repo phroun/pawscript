@@ -707,11 +707,12 @@ func quitApplication(parent *qt.QWidget) {
 
 	if isRunning {
 		// Show confirmation dialog
-		result := qt.QMessageBox_Question4(
+		result := qt.QMessageBox_Question6(
 			parent,
 			"Quit PawScript",
 			"This will stop all scripts. Are you sure?",
 			qt.QMessageBox__Yes|qt.QMessageBox__No,
+			qt.QMessageBox__No,
 		)
 		if result != qt.QMessageBox__Yes {
 			return
@@ -719,9 +720,7 @@ func quitApplication(parent *qt.QWidget) {
 	}
 
 	// Quit the application
-	if qtApp != nil {
-		qtApp.Quit()
-	}
+	qt.QApplication_Quit()
 }
 
 // saveScrollbackDialog shows a file dialog to save terminal scrollback
@@ -754,7 +753,7 @@ func saveScrollbackDialog(parent *qt.QWidget, term *purfectermqt.Terminal) {
 
 	// Write to file
 	if err := os.WriteFile(file, []byte(content), 0644); err != nil {
-		qt.QMessageBox_Critical4(
+		qt.QMessageBox_Critical5(
 			parent,
 			"Error",
 			fmt.Sprintf("Failed to save file: %v", err),
@@ -783,7 +782,7 @@ func restoreBufferDialog(parent *qt.QWidget, term *purfectermqt.Terminal) {
 	// Read file content
 	content, err := os.ReadFile(file)
 	if err != nil {
-		qt.QMessageBox_Critical4(
+		qt.QMessageBox_Critical5(
 			parent,
 			"Error",
 			fmt.Sprintf("Failed to read file: %v", err),
