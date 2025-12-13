@@ -107,6 +107,7 @@ var (
 	launcherRegisteredBtns []*ToolbarButton   // Additional registered buttons for launcher
 	launcherToolbarData    *WindowToolbarData // Toolbar data for the launcher window
 	launcherMenuCtx        *MenuContext       // Menu context for launcher window (updated after creation)
+	launcherMenu           *gtk.Menu          // Shared hamburger menu for launcher (used by both buttons)
 
 	// Per-window toolbar data (keyed by PawScript instance)
 	toolbarDataByPS = make(map[*pawscript.PawScript]*WindowToolbarData)
@@ -1125,14 +1126,24 @@ func createHamburgerButton(menu *gtk.Menu, forVerticalStrip bool) *gtk.Button {
 // createToolbarStripWithContext creates a vertical strip of toolbar buttons with full context
 // Returns the strip container, the hamburger button, and the MenuContext
 func createToolbarStripWithContext(ctx *MenuContext) (*gtk.Box, *gtk.Button, *MenuContext) {
+	return createToolbarStripWithMenu(ctx, nil)
+}
+
+// createToolbarStripWithMenu creates a vertical strip of toolbar buttons with an optional existing menu
+// If existingMenu is nil, a new menu is created; otherwise the provided menu is used
+// Returns the strip container, the hamburger button, and the MenuContext
+func createToolbarStripWithMenu(ctx *MenuContext, existingMenu *gtk.Menu) (*gtk.Box, *gtk.Button, *MenuContext) {
 	strip, _ := gtk.BoxNew(gtk.ORIENTATION_VERTICAL, 4) // 4px spacing between buttons
 	strip.SetMarginStart(2)
 	strip.SetMarginEnd(2)
 	strip.SetMarginTop(5)
 	strip.SetMarginBottom(5)
 
-	// Create hamburger menu and button
-	menu := createHamburgerMenu(ctx)
+	// Use existing menu or create a new one
+	menu := existingMenu
+	if menu == nil {
+		menu = createHamburgerMenu(ctx)
+	}
 	menuBtn := createHamburgerButton(menu, true) // true = vertical strip
 
 	strip.PackStart(menuBtn, false, false, 0)
@@ -2467,12 +2478,16 @@ func activate(application *gtk.Application) {
 		},
 	}
 
-	// Wide panel: File browser (uses launcherMenuCtx for hamburger menu)
+	// Create shared hamburger menu for launcher (used by both wide panel and narrow strip buttons)
+	launcherMenu = createHamburgerMenu(launcherMenuCtx)
+
+	// Wide panel: File browser (uses shared launcherMenu)
 	widePanel := createFileBrowser()
 	leftContainer.PackStart(widePanel, true, true, 0)
 
 	// Narrow strip: toolbar buttons (created but hidden initially - only 1 button)
-	launcherNarrowStrip, launcherStripMenuBtn, _ = createToolbarStripWithContext(launcherMenuCtx)
+	// Uses the same shared launcherMenu as the wide panel button
+	launcherNarrowStrip, launcherStripMenuBtn, _ = createToolbarStripWithMenu(launcherMenuCtx, launcherMenu)
 	launcherNarrowStrip.SetNoShowAll(true)                      // Don't show when ShowAll is called
 	launcherNarrowStrip.SetSizeRequest(minNarrowStripWidth, -1) // Fixed width
 	leftContainer.PackStart(launcherNarrowStrip, false, false, 0)
@@ -2776,8 +2791,7 @@ func createFileBrowser() *gtk.Box {
 	topRow.PackStart(pathButton, true, true, 0)
 
 	// Hamburger menu button (shown when narrow strip is hidden)
-	// Uses global launcherMenuCtx which is initialized before createFileBrowser is called
-	launcherMenu := createHamburgerMenu(launcherMenuCtx)
+	// Uses the shared launcherMenu which is initialized before createFileBrowser is called
 	launcherMenuButton = createHamburgerButton(launcherMenu, false) // false = horizontal row
 	topRow.PackStart(launcherMenuButton, false, false, 0)
 
