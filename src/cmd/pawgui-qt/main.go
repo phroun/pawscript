@@ -574,8 +574,9 @@ func createHamburgerMenu(parent *qt.QWidget, isScriptWindow bool, term *purfecte
 	})
 
 	// File List checkbox (launcher only)
+	var fileListAction *qt.QAction
 	if !isScriptWindow {
-		fileListAction := menu.AddAction("File List")
+		fileListAction = menu.AddAction("File List")
 		fileListAction.SetCheckable(true)
 		fileListAction.SetChecked(isWideMode())
 		fileListAction.OnTriggered(func() {
@@ -602,12 +603,18 @@ func createHamburgerMenu(parent *qt.QWidget, isScriptWindow bool, term *purfecte
 	// Stop Script (both) - disabled when no script running
 	stopScriptAction := menu.AddAction("Stop Script")
 	stopScriptAction.SetEnabled(false) // Initially disabled
-	if isScriptRunningFunc != nil {
-		// Update enabled state when menu is about to show
-		menu.OnAboutToShow(func() {
+
+	// Update dynamic states when menu is about to show
+	menu.OnAboutToShow(func() {
+		// Update File List checkbox to match current state
+		if fileListAction != nil {
+			fileListAction.SetChecked(isWideMode())
+		}
+		// Update Stop Script enabled state
+		if isScriptRunningFunc != nil {
 			stopScriptAction.SetEnabled(isScriptRunningFunc())
-		})
-	}
+		}
+	})
 
 	menu.AddSeparator()
 
