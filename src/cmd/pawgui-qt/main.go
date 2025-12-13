@@ -442,7 +442,12 @@ func createHamburgerMenu(parent *qt.QWidget, isScriptWindow bool) *qt.QMenu {
 
 // Toolbar button size constant for consistent square buttons
 const toolbarButtonSize = 38
-const toolbarIconSize = 28 // 5px padding per side
+const toolbarIconSize = 24 // Smaller icon with visible padding
+
+// applyToolbarButtonStyle applies padding stylesheet to Qt toolbar buttons
+func applyToolbarButtonStyle(btn *qt.QPushButton) {
+	btn.SetStyleSheet("QPushButton { padding: 5px; }")
+}
 
 // createHamburgerButton creates a hamburger menu button with SVG icon
 func createHamburgerButton(menu *qt.QMenu) *qt.QPushButton {
@@ -450,6 +455,7 @@ func createHamburgerButton(menu *qt.QMenu) *qt.QPushButton {
 	btn.SetToolTip("Menu")
 	// Fixed square size for consistent toolbar appearance
 	btn.SetFixedSize2(toolbarButtonSize, toolbarButtonSize)
+	applyToolbarButtonStyle(btn)
 
 	// Set SVG icon with appropriate color for current theme
 	svgData := getSVGIcon(hamburgerIconSVG)
@@ -516,6 +522,7 @@ func updateLauncherToolbarButtons() {
 		// Fixed square size to match hamburger button
 		button.SetFixedSize2(toolbarButtonSize, toolbarButtonSize)
 		button.SetToolTip(btn.Tooltip)
+		applyToolbarButtonStyle(button)
 		// Set SVG icon with appropriate color for current theme
 		svgData := getSVGIcon(starIconSVG)
 		if icon := createIconFromSVG(svgData, toolbarIconSize); icon != nil {
@@ -583,6 +590,7 @@ func updateWindowToolbarButtons(strip *qt.QWidget, buttons []*QtToolbarButton) {
 		// Fixed square size to match hamburger button
 		button.SetFixedSize2(toolbarButtonSize, toolbarButtonSize)
 		button.SetToolTip(btn.Tooltip)
+		applyToolbarButtonStyle(button)
 		// Set SVG icon with appropriate color for current theme
 		svgData := getSVGIcon(starIconSVG)
 		if icon := createIconFromSVG(svgData, toolbarIconSize); icon != nil {
