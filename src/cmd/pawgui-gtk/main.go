@@ -1324,11 +1324,13 @@ func runScriptInWindow(gtkApp *gtk.Application, scriptContent, scriptFile string
 	// Track position changes for drag detection
 	var consolePanedPressPos int = -1
 	var consolePanedDragged bool
+	var consolePanedOnHandle bool
+	const consoleHandleClickWidth = 10 // Pixels around handle position to detect clicks
 
 	paned.Connect("notify::position", func() {
 		pos := paned.GetPosition()
 		// Track dragging
-		if consolePanedPressPos >= 0 && pos != consolePanedPressPos {
+		if consolePanedPressPos >= 0 && consolePanedOnHandle && pos != consolePanedPressPos {
 			consolePanedDragged = true
 		}
 		// Snap behavior
@@ -1343,11 +1345,18 @@ func runScriptInWindow(gtkApp *gtk.Application, scriptContent, scriptFile string
 		}
 	})
 
-	// Handle click events on the console splitter handle
+	// Handle click events on the console splitter handle only
 	paned.Connect("button-press-event", func(p *gtk.Paned, ev *gdk.Event) bool {
 		btnEvent := gdk.EventButtonNewFromEvent(ev)
 		if btnEvent.Button() == 1 {
-			consolePanedPressPos = p.GetPosition()
+			// Check if click is on the handle area
+			clickX := int(btnEvent.X())
+			handlePos := p.GetPosition()
+			consolePanedOnHandle = clickX >= handlePos-consoleHandleClickWidth && clickX <= handlePos+consoleHandleClickWidth
+			if !consolePanedOnHandle {
+				return false
+			}
+			consolePanedPressPos = handlePos
 			consolePanedDragged = false
 		}
 		return false
@@ -1355,8 +1364,9 @@ func runScriptInWindow(gtkApp *gtk.Application, scriptContent, scriptFile string
 
 	paned.Connect("button-release-event", func(p *gtk.Paned, ev *gdk.Event) bool {
 		btnEvent := gdk.EventButtonNewFromEvent(ev)
-		if btnEvent.Button() != 1 || consolePanedDragged || consolePanedPressPos < 0 {
+		if btnEvent.Button() != 1 || !consolePanedOnHandle || consolePanedDragged || consolePanedPressPos < 0 {
 			consolePanedPressPos = -1
+			consolePanedOnHandle = false
 			return false
 		}
 		// Single click: toggle between collapsed and narrow mode
@@ -1366,6 +1376,7 @@ func runScriptInWindow(gtkApp *gtk.Application, scriptContent, scriptFile string
 			p.SetPosition(0)
 		}
 		consolePanedPressPos = -1
+		consolePanedOnHandle = false
 		return true
 	})
 
@@ -1753,15 +1764,26 @@ func activate(application *gtk.Application) {
 		}
 	})
 
-	// Handle click events on the splitter handle
+	// Handle click events on the splitter handle only
 	// Track if the position changed during a press-release cycle (drag vs click)
 	var launcherPanedPressPos int = -1
 	var launcherPanedDragged bool
 	var launcherPanedDoubleClick bool
+	var launcherPanedOnHandle bool
+	const handleClickWidth = 10 // Pixels around handle position to detect clicks
 
 	launcherPaned.Connect("button-press-event", func(paned *gtk.Paned, ev *gdk.Event) bool {
 		btnEvent := gdk.EventButtonNewFromEvent(ev)
 		if btnEvent.Button() == 1 { // Left mouse button
+			// Check if click is on the handle area (near the splitter position)
+			clickX := int(btnEvent.X())
+			handlePos := paned.GetPosition()
+			launcherPanedOnHandle = clickX >= handlePos-handleClickWidth && clickX <= handlePos+handleClickWidth
+
+			if !launcherPanedOnHandle {
+				return false // Not on handle, let event propagate normally
+			}
+
 			// Check for double-click (detected on press in GTK)
 			if btnEvent.Type() == gdk.EVENT_2BUTTON_PRESS {
 				launcherPanedDoubleClick = true
@@ -1769,7 +1791,7 @@ func activate(application *gtk.Application) {
 				paned.SetPosition(0)
 				return true
 			}
-			launcherPanedPressPos = paned.GetPosition()
+			launcherPanedPressPos = handlePos
 			launcherPanedDragged = false
 			launcherPanedDoubleClick = false
 		}
@@ -1778,7 +1800,7 @@ func activate(application *gtk.Application) {
 
 	// Track position changes during drag (additional handler)
 	launcherPaned.Connect("notify::position", func() {
-		if launcherPanedPressPos >= 0 {
+		if launcherPanedPressPos >= 0 && launcherPanedOnHandle {
 			currentPos := launcherPaned.GetPosition()
 			if currentPos != launcherPanedPressPos {
 				launcherPanedDragged = true
@@ -1792,21 +1814,29 @@ func activate(application *gtk.Application) {
 			return false
 		}
 
+		// If not on handle, ignore
+		if !launcherPanedOnHandle {
+			return false
+		}
+
 		// If it was a double-click, already handled in press
 		if launcherPanedDoubleClick {
 			launcherPanedDoubleClick = false
 			launcherPanedPressPos = -1
+			launcherPanedOnHandle = false
 			return true
 		}
 
 		// If dragged, don't treat as click
 		if launcherPanedDragged {
 			launcherPanedPressPos = -1
+			launcherPanedOnHandle = false
 			return false
 		}
 
 		// If no press was recorded, ignore
 		if launcherPanedPressPos < 0 {
+			launcherPanedOnHandle = false
 			return false
 		}
 
@@ -1834,6 +1864,7 @@ func activate(application *gtk.Application) {
 		}
 
 		launcherPanedPressPos = -1
+		launcherPanedOnHandle = false
 		return true
 	})
 
@@ -2493,11 +2524,13 @@ func createConsoleWindow(filePath string) {
 	// Track position changes for drag detection
 	var consolePanedPressPos int = -1
 	var consolePanedDragged bool
+	var consolePanedOnHandle bool
+	const consoleHandleClickWidth2 = 10 // Pixels around handle position to detect clicks
 
 	paned.Connect("notify::position", func() {
 		pos := paned.GetPosition()
 		// Track dragging
-		if consolePanedPressPos >= 0 && pos != consolePanedPressPos {
+		if consolePanedPressPos >= 0 && consolePanedOnHandle && pos != consolePanedPressPos {
 			consolePanedDragged = true
 		}
 		// Snap behavior
@@ -2512,11 +2545,18 @@ func createConsoleWindow(filePath string) {
 		}
 	})
 
-	// Handle click events on the console splitter handle
+	// Handle click events on the console splitter handle only
 	paned.Connect("button-press-event", func(p *gtk.Paned, ev *gdk.Event) bool {
 		btnEvent := gdk.EventButtonNewFromEvent(ev)
 		if btnEvent.Button() == 1 {
-			consolePanedPressPos = p.GetPosition()
+			// Check if click is on the handle area
+			clickX := int(btnEvent.X())
+			handlePos := p.GetPosition()
+			consolePanedOnHandle = clickX >= handlePos-consoleHandleClickWidth2 && clickX <= handlePos+consoleHandleClickWidth2
+			if !consolePanedOnHandle {
+				return false
+			}
+			consolePanedPressPos = handlePos
 			consolePanedDragged = false
 		}
 		return false
@@ -2524,8 +2564,9 @@ func createConsoleWindow(filePath string) {
 
 	paned.Connect("button-release-event", func(p *gtk.Paned, ev *gdk.Event) bool {
 		btnEvent := gdk.EventButtonNewFromEvent(ev)
-		if btnEvent.Button() != 1 || consolePanedDragged || consolePanedPressPos < 0 {
+		if btnEvent.Button() != 1 || !consolePanedOnHandle || consolePanedDragged || consolePanedPressPos < 0 {
 			consolePanedPressPos = -1
+			consolePanedOnHandle = false
 			return false
 		}
 		// Single click: toggle between collapsed and narrow mode
@@ -2535,6 +2576,7 @@ func createConsoleWindow(filePath string) {
 			p.SetPosition(0)
 		}
 		consolePanedPressPos = -1
+		consolePanedOnHandle = false
 		return true
 	})
 
