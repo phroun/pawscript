@@ -442,6 +442,7 @@ func createHamburgerMenu(parent *qt.QWidget, isScriptWindow bool) *qt.QMenu {
 
 // Toolbar button size constant for consistent square buttons
 const toolbarButtonSize = 40
+const toolbarIconSize = toolbarButtonSize - 12 // 6px padding per side (2px extra)
 
 // createHamburgerButton creates a hamburger menu button with SVG icon
 func createHamburgerButton(menu *qt.QMenu) *qt.QPushButton {
@@ -452,9 +453,9 @@ func createHamburgerButton(menu *qt.QMenu) *qt.QPushButton {
 
 	// Set SVG icon with appropriate color for current theme
 	svgData := getSVGIcon(hamburgerIconSVG)
-	if icon := createIconFromSVG(svgData, toolbarButtonSize-8); icon != nil {
+	if icon := createIconFromSVG(svgData, toolbarIconSize); icon != nil {
 		btn.SetIcon(icon)
-		btn.SetIconSize(qt.NewQSize2(toolbarButtonSize-8, toolbarButtonSize-8))
+		btn.SetIconSize(qt.NewQSize2(toolbarIconSize, toolbarIconSize))
 	} else {
 		// Fallback to text if SVG loading fails
 		btn.SetText("☰")
@@ -474,7 +475,7 @@ func createToolbarStrip(parent *qt.QWidget, isScriptWindow bool) (*qt.QWidget, *
 	strip := qt.NewQWidget2()
 	layout := qt.NewQVBoxLayout2()
 	layout.SetContentsMargins(4, 9, 4, 5) // Margins: left, top, right, bottom
-	layout.SetSpacing(6)                  // 6px spacing between buttons
+	layout.SetSpacing(4)                  // 4px spacing between buttons
 
 	// Create hamburger menu and button
 	menu := createHamburgerMenu(parent, isScriptWindow)
@@ -517,9 +518,9 @@ func updateLauncherToolbarButtons() {
 		button.SetToolTip(btn.Tooltip)
 		// Set SVG icon with appropriate color for current theme
 		svgData := getSVGIcon(starIconSVG)
-		if icon := createIconFromSVG(svgData, toolbarButtonSize-8); icon != nil {
+		if icon := createIconFromSVG(svgData, toolbarIconSize); icon != nil {
 			button.SetIcon(icon)
-			button.SetIconSize(qt.NewQSize2(toolbarButtonSize-8, toolbarButtonSize-8))
+			button.SetIconSize(qt.NewQSize2(toolbarIconSize, toolbarIconSize))
 		} else {
 			// Fallback to text if SVG loading fails
 			button.SetText(btn.Icon)
@@ -584,9 +585,9 @@ func updateWindowToolbarButtons(strip *qt.QWidget, buttons []*QtToolbarButton) {
 		button.SetToolTip(btn.Tooltip)
 		// Set SVG icon with appropriate color for current theme
 		svgData := getSVGIcon(starIconSVG)
-		if icon := createIconFromSVG(svgData, toolbarButtonSize-8); icon != nil {
+		if icon := createIconFromSVG(svgData, toolbarIconSize); icon != nil {
 			button.SetIcon(icon)
-			button.SetIconSize(qt.NewQSize2(toolbarButtonSize-8, toolbarButtonSize-8))
+			button.SetIconSize(qt.NewQSize2(toolbarIconSize, toolbarIconSize))
 		} else {
 			// Fallback to text if SVG loading fails
 			button.SetText(btn.Icon)
