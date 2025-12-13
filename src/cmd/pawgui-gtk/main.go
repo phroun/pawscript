@@ -1264,8 +1264,10 @@ func runScriptInWindow(gtkApp *gtk.Application, scriptContent, scriptFile string
 	paned, _ := gtk.PanedNew(gtk.ORIENTATION_HORIZONTAL)
 
 	// Narrow strip for script window (always starts visible, collapsible)
+	// Console windows always show strip-only, so use extra left padding
 	strip, _, _ := createToolbarStrip(win, true)
-	strip.SetSizeRequest(minNarrowStripWidth, -1) // Fixed width
+	strip.SetMarginStart(2 + narrowOnlyExtraPadding)
+	strip.SetSizeRequest(minNarrowStripWidth+narrowOnlyExtraPadding, -1) // Fixed width with extra padding
 	paned.Pack1(strip, false, true)
 
 	// Terminal on the right
@@ -1276,18 +1278,19 @@ func runScriptInWindow(gtkApp *gtk.Application, scriptContent, scriptFile string
 	paned.Pack2(termWidget, true, false)
 
 	// Set initial strip width and collapse behavior
-	// Script windows only have two positions: 0 (collapsed) or minNarrowStripWidth (visible)
-	paned.SetPosition(minNarrowStripWidth)
+	// Script windows only have two positions: 0 (collapsed) or visible (with extra padding)
+	consoleStripWidth := minNarrowStripWidth + narrowOnlyExtraPadding
+	paned.SetPosition(consoleStripWidth)
 	paned.Connect("notify::position", func() {
 		pos := paned.GetPosition()
 		if pos == 0 {
 			// Already collapsed, do nothing
-		} else if pos < minNarrowStripWidth/2 {
+		} else if pos < consoleStripWidth/2 {
 			// Less than half - snap to collapsed
 			paned.SetPosition(0)
-		} else if pos != minNarrowStripWidth {
+		} else if pos != consoleStripWidth {
 			// More than half but not at fixed width - snap to visible
-			paned.SetPosition(minNarrowStripWidth)
+			paned.SetPosition(consoleStripWidth)
 		}
 	})
 
@@ -2296,8 +2299,10 @@ func createConsoleWindow(filePath string) {
 	paned, _ := gtk.PanedNew(gtk.ORIENTATION_HORIZONTAL)
 
 	// Narrow strip for script window (always starts visible, collapsible)
+	// Console windows always show strip-only, so use extra left padding
 	strip, _, _ := createToolbarStrip(win, true)
-	strip.SetSizeRequest(minNarrowStripWidth, -1) // Fixed width
+	strip.SetMarginStart(2 + narrowOnlyExtraPadding)
+	strip.SetSizeRequest(minNarrowStripWidth+narrowOnlyExtraPadding, -1) // Fixed width with extra padding
 	paned.Pack1(strip, false, true)
 
 	// Terminal on the right
@@ -2308,18 +2313,19 @@ func createConsoleWindow(filePath string) {
 	paned.Pack2(termWidget, true, false)
 
 	// Set initial strip width and collapse behavior
-	// Script windows only have two positions: 0 (collapsed) or minNarrowStripWidth (visible)
-	paned.SetPosition(minNarrowStripWidth)
+	// Script windows only have two positions: 0 (collapsed) or visible (with extra padding)
+	consoleStripWidth := minNarrowStripWidth + narrowOnlyExtraPadding
+	paned.SetPosition(consoleStripWidth)
 	paned.Connect("notify::position", func() {
 		pos := paned.GetPosition()
 		if pos == 0 {
 			// Already collapsed, do nothing
-		} else if pos < minNarrowStripWidth/2 {
+		} else if pos < consoleStripWidth/2 {
 			// Less than half - snap to collapsed
 			paned.SetPosition(0)
-		} else if pos != minNarrowStripWidth {
+		} else if pos != consoleStripWidth {
 			// More than half but not at fixed width - snap to visible
-			paned.SetPosition(minNarrowStripWidth)
+			paned.SetPosition(consoleStripWidth)
 		}
 	})
 
