@@ -142,6 +142,36 @@ func (h *ConfigHelper) GetOptimizationLevel() int {
 	return 1
 }
 
+// getConfigSectionString extracts a string value from a config section.
+// Handles PSLConfig, StoredList, and map[string]interface{} types.
+func getConfigSectionString(config interface{}, key string) string {
+	switch c := config.(type) {
+	case pawscript.PSLConfig:
+		return c.GetString(key, "")
+	case pawscript.StoredList:
+		if args := c.NamedArgs(); args != nil {
+			if v, ok := args[key]; ok {
+				switch s := v.(type) {
+				case string:
+					return s
+				case pawscript.QuotedString:
+					return string(s)
+				}
+			}
+		}
+	case map[string]interface{}:
+		if v, ok := c[key]; ok {
+			switch s := v.(type) {
+			case string:
+				return s
+			case pawscript.QuotedString:
+				return string(s)
+			}
+		}
+	}
+	return ""
+}
+
 // GetTerminalBackground returns the configured terminal background color for the current theme.
 func (h *ConfigHelper) GetTerminalBackground() purfecterm.Color {
 	return h.GetTerminalBackgroundForTheme(h.IsTermThemeDark())
@@ -162,22 +192,18 @@ func (h *ConfigHelper) GetTerminalBackgroundForTheme(isDark bool) purfecterm.Col
 		themeSection = "term_colors_light"
 	}
 	if themeConfig, ok := h.Config[themeSection]; ok {
-		if tc, ok := themeConfig.(pawscript.PSLConfig); ok {
-			if hex := tc.GetString("0_background", ""); hex != "" {
-				if c, ok := purfecterm.ParseHexColor(hex); ok {
-					return c
-				}
+		if hex := getConfigSectionString(themeConfig, "0_background"); hex != "" {
+			if c, ok := purfecterm.ParseHexColor(hex); ok {
+				return c
 			}
 		}
 	}
 
 	// Fall back to base term_colors section
 	if termConfig, ok := h.Config["term_colors"]; ok {
-		if tc, ok := termConfig.(pawscript.PSLConfig); ok {
-			if hex := tc.GetString("0_background", ""); hex != "" {
-				if c, ok := purfecterm.ParseHexColor(hex); ok {
-					return c
-				}
+		if hex := getConfigSectionString(termConfig, "0_background"); hex != "" {
+			if c, ok := purfecterm.ParseHexColor(hex); ok {
+				return c
 			}
 		}
 	}
@@ -209,22 +235,18 @@ func (h *ConfigHelper) GetTerminalForegroundForTheme(isDark bool) purfecterm.Col
 		themeSection = "term_colors_light"
 	}
 	if themeConfig, ok := h.Config[themeSection]; ok {
-		if tc, ok := themeConfig.(pawscript.PSLConfig); ok {
-			if hex := tc.GetString("9_foreground", ""); hex != "" {
-				if c, ok := purfecterm.ParseHexColor(hex); ok {
-					return c
-				}
+		if hex := getConfigSectionString(themeConfig, "9_foreground"); hex != "" {
+			if c, ok := purfecterm.ParseHexColor(hex); ok {
+				return c
 			}
 		}
 	}
 
 	// Fall back to base term_colors section
 	if termConfig, ok := h.Config["term_colors"]; ok {
-		if tc, ok := termConfig.(pawscript.PSLConfig); ok {
-			if hex := tc.GetString("9_foreground", ""); hex != "" {
-				if c, ok := purfecterm.ParseHexColor(hex); ok {
-					return c
-				}
+		if hex := getConfigSectionString(termConfig, "9_foreground"); hex != "" {
+			if c, ok := purfecterm.ParseHexColor(hex); ok {
+				return c
 			}
 		}
 	}
@@ -257,13 +279,11 @@ func (h *ConfigHelper) GetColorPaletteForTheme(isDark bool) []purfecterm.Color {
 
 	// First apply base term_colors
 	if termConfig, ok := h.Config["term_colors"]; ok {
-		if tc, ok := termConfig.(pawscript.PSLConfig); ok {
-			for vgaIdx, name := range names {
-				if hex := tc.GetString(name, ""); hex != "" {
-					if c, ok := purfecterm.ParseHexColor(hex); ok {
-						ansiIdx := purfecterm.VGAToANSI[vgaIdx]
-						palette[ansiIdx] = c
-					}
+		for vgaIdx, name := range names {
+			if hex := getConfigSectionString(termConfig, name); hex != "" {
+				if c, ok := purfecterm.ParseHexColor(hex); ok {
+					ansiIdx := purfecterm.VGAToANSI[vgaIdx]
+					palette[ansiIdx] = c
 				}
 			}
 		}
@@ -275,13 +295,11 @@ func (h *ConfigHelper) GetColorPaletteForTheme(isDark bool) []purfecterm.Color {
 		themeSection = "term_colors_light"
 	}
 	if themeConfig, ok := h.Config[themeSection]; ok {
-		if tc, ok := themeConfig.(pawscript.PSLConfig); ok {
-			for vgaIdx, name := range names {
-				if hex := tc.GetString(name, ""); hex != "" {
-					if c, ok := purfecterm.ParseHexColor(hex); ok {
-						ansiIdx := purfecterm.VGAToANSI[vgaIdx]
-						palette[ansiIdx] = c
-					}
+		for vgaIdx, name := range names {
+			if hex := getConfigSectionString(themeConfig, name); hex != "" {
+				if c, ok := purfecterm.ParseHexColor(hex); ok {
+					ansiIdx := purfecterm.VGAToANSI[vgaIdx]
+					palette[ansiIdx] = c
 				}
 			}
 		}
