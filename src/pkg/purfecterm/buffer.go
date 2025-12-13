@@ -171,6 +171,9 @@ type Buffer struct {
 	// DECAWM - Auto-wrap mode (DEC Private Mode 7)
 	autoWrapMode bool // When true (default), cursor wraps to next line at end of row
 
+	// Smart word wrap mode (DEC Private Mode 7702)
+	smartWordWrap bool // When true, wrap at word boundaries instead of mid-word
+
 	selectionActive      bool
 	selStartX, selStartY int
 	selEndX, selEndY     int
@@ -1161,14 +1164,69 @@ func (b *Buffer) writeCharInternal(ch rune) {
 
 	if shouldWrap {
 		if b.autoWrapMode {
-			// Auto-wrap enabled: move to next line
-			b.setHorizMoveDir(-1, false) // Word-wrap moves cursor left to start of line
-			b.cursorX = 0
-			b.trackCursorYMove(b.cursorY + 1)
-			b.cursorY++
-			if b.cursorY >= effectiveRows {
-				b.scrollUpInternal()
-				b.cursorY = effectiveRows - 1
+			// Check for smart word wrap
+			if b.smartWordWrap && b.cursorY < len(b.screen) {
+				// Look backwards for a word boundary character
+				// Word boundaries: space, hyphen, comma, semicolon, emdash (U+2014)
+				line := b.screen[b.cursorY]
+				wrapPoint := -1
+				for i := len(line) - 1; i >= 0; i-- {
+					ch := line[i].Char
+					if ch == ' ' || ch == '-' || ch == ',' || ch == ';' || ch == '—' {
+						wrapPoint = i
+						break
+					}
+				}
+
+				if wrapPoint >= 0 && wrapPoint < len(line)-1 {
+					// Found a word boundary - move cells after it to new line
+					cellsToMove := make([]Cell, len(line)-wrapPoint-1)
+					copy(cellsToMove, line[wrapPoint+1:])
+
+					// Trim the current line to just before the boundary (keep the boundary char)
+					b.screen[b.cursorY] = line[:wrapPoint+1]
+
+					// Move to next line
+					b.setHorizMoveDir(-1, false)
+					b.trackCursorYMove(b.cursorY + 1)
+					b.cursorY++
+					if b.cursorY >= effectiveRows {
+						b.scrollUpInternal()
+						b.cursorY = effectiveRows - 1
+					}
+
+					// Ensure screen has enough rows
+					for b.cursorY >= len(b.screen) {
+						b.screen = append(b.screen, b.makeEmptyLine())
+						b.lineInfos = append(b.lineInfos, b.makeDefaultLineInfo())
+					}
+
+					// Place moved cells at the start of the new line
+					b.screen[b.cursorY] = append(cellsToMove, b.screen[b.cursorY]...)
+
+					// Position cursor after the moved cells
+					b.cursorX = len(cellsToMove)
+				} else {
+					// No word boundary found - use standard wrap
+					b.setHorizMoveDir(-1, false)
+					b.cursorX = 0
+					b.trackCursorYMove(b.cursorY + 1)
+					b.cursorY++
+					if b.cursorY >= effectiveRows {
+						b.scrollUpInternal()
+						b.cursorY = effectiveRows - 1
+					}
+				}
+			} else {
+				// Standard auto-wrap: move to next line
+				b.setHorizMoveDir(-1, false)
+				b.cursorX = 0
+				b.trackCursorYMove(b.cursorY + 1)
+				b.cursorY++
+				if b.cursorY >= effectiveRows {
+					b.scrollUpInternal()
+					b.cursorY = effectiveRows - 1
+				}
 			}
 		} else {
 			// Auto-wrap disabled (DECAWM off): stay at last column, overwrite character
@@ -2019,6 +2077,22 @@ func (b *Buffer) IsAutoWrapModeEnabled() bool {
 	b.mu.RLock()
 	defer b.mu.RUnlock()
 	return b.autoWrapMode
+}
+
+// SetSmartWordWrap enables or disables smart word wrap (mode 7702).
+// When enabled, wrap occurs at word boundaries (space, hyphen, comma, semicolon, emdash)
+// instead of mid-word.
+func (b *Buffer) SetSmartWordWrap(enabled bool) {
+	b.mu.Lock()
+	defer b.mu.Unlock()
+	b.smartWordWrap = enabled
+}
+
+// IsSmartWordWrapEnabled returns true if smart word wrap is enabled.
+func (b *Buffer) IsSmartWordWrapEnabled() bool {
+	b.mu.RLock()
+	defer b.mu.RUnlock()
+	return b.smartWordWrap
 }
 
 // ClearHorizMemos clears all horizontal scroll memos before a new paint frame.
@@ -3965,6 +4039,7 @@ func (b *Buffer) Reset() {
 	b.visualWidthWrap = false
 	b.ambiguousWidthMode = AmbiguousWidthAuto
 	b.autoWrapMode = true
+	b.smartWordWrap = false
 	b.autoScrollDisabled = false
 	b.scrollbackDisabled = false
 	b.columnMode132 = false

@@ -672,6 +672,9 @@ func (p *Parser) executePrivateModeSet(set bool) {
 			// h = disable auto-scroll, l = re-enable
 			// When disabled, tracking still occurs but no automatic scrolling happens
 			p.buffer.SetAutoScrollDisabled(set)
+		case 7702: // PurfecTerm: Smart word wrap
+			// h = enable smart word wrap (wrap at word boundaries), l = disable
+			p.buffer.SetSmartWordWrap(set)
 		}
 	}
 }
