@@ -99,6 +99,54 @@ const (
 	minNarrowStripWidth = 40  // Minimum width before narrow strip collapses
 )
 
+// Embedded SVG icons (fill color is replaced at runtime based on theme)
+const hamburgerIconSVG = `<svg width="48" height="48" viewBox="0 0 12.7 12.7" xmlns="http://www.w3.org/2000/svg">
+  <rect style="fill:{{FILL}};stroke:none" width="11.346176" height="2.25" x="0.70038122" y="0.8404575"/>
+  <rect style="fill:{{FILL}};stroke:none" width="11.346176" height="2.25" x="0.70038122" y="5.3383746"/>
+  <rect style="fill:{{FILL}};stroke:none" width="11.346176" height="2.25" x="0.70038122" y="9.8362913"/>
+</svg>`
+
+const starIconSVG = `<svg width="48" height="48" viewBox="0 0 12.7 12.7" xmlns="http://www.w3.org/2000/svg">
+  <path style="fill:{{FILL}};stroke:none" d="M 6.4849512,1.5761366 8.0478061,4.7428264 11.542456,5.250629 9.0137037,7.7155534 9.6106608,11.196082 6.484951,9.5527997 3.359241,11.196082 3.9561984,7.7155534 1.4274463,5.2506288 4.9220959,4.7428264 Z" transform="matrix(1.1757817,0,0,1.1757817,-1.274887,-1.2479333)"/>
+</svg>`
+
+// getIconFillColor returns the appropriate icon fill color based on theme
+func getIconFillColor() string {
+	theme := configHelper.GetTheme()
+	switch theme {
+	case pawgui.ThemeDark:
+		return "#ffffff"
+	case pawgui.ThemeLight:
+		return "#000000"
+	default: // ThemeAuto - try to detect from terminal background
+		bg := getTerminalBackground()
+		// Calculate luminance: if background is dark, use white icon
+		luminance := 0.299*float64(bg.R) + 0.587*float64(bg.G) + 0.114*float64(bg.B)
+		if luminance < 128 {
+			return "#ffffff"
+		}
+		return "#000000"
+	}
+}
+
+// getSVGIcon returns SVG data with the fill color set appropriately for current theme
+func getSVGIcon(svgTemplate string) string {
+	return strings.Replace(svgTemplate, "{{FILL}}", getIconFillColor(), -1)
+}
+
+// createIconFromSVG creates a QIcon from SVG data
+func createIconFromSVG(svgData string, size int) *qt.QIcon {
+	// Load SVG into QPixmap
+	pixmap := qt.NewQPixmap()
+	byteArray := qt.NewQByteArray2(svgData)
+	if pixmap.LoadFromData(byteArray.ConstData(), int64(byteArray.Length()), "SVG") {
+		// Scale to desired size
+		scaled := pixmap.Scaled2(size, size, qt.KeepAspectRatio, qt.SmoothTransformation)
+		return qt.NewQIcon2(scaled)
+	}
+	return nil
+}
+
 // Random icons for dummy buttons
 var dummyIcons = []string{"★", "♦", "♠", "♣", "♥", "●", "■", "▲", "◆", "⬟", "⬢", "✦", "✧", "⚡", "☀", "☁", "☂", "☃", "✿", "❀"}
 
@@ -395,12 +443,23 @@ func createHamburgerMenu(parent *qt.QWidget, isScriptWindow bool) *qt.QMenu {
 // Toolbar button size constant for consistent square buttons
 const toolbarButtonSize = 40
 
-// createHamburgerButton creates a hamburger menu button (☰ icon)
+// createHamburgerButton creates a hamburger menu button with SVG icon
 func createHamburgerButton(menu *qt.QMenu) *qt.QPushButton {
-	btn := qt.NewQPushButton3("☰")
+	btn := qt.NewQPushButton2()
 	btn.SetToolTip("Menu")
 	// Fixed square size for consistent toolbar appearance
 	btn.SetFixedSize2(toolbarButtonSize, toolbarButtonSize)
+
+	// Set SVG icon with appropriate color for current theme
+	svgData := getSVGIcon(hamburgerIconSVG)
+	if icon := createIconFromSVG(svgData, toolbarButtonSize-8); icon != nil {
+		btn.SetIcon(icon)
+		btn.SetIconSize(qt.NewQSize2(toolbarButtonSize-8, toolbarButtonSize-8))
+	} else {
+		// Fallback to text if SVG loading fails
+		btn.SetText("☰")
+	}
+
 	// Don't use SetMenu() as it adds a dropdown arrow - manually pop up the menu on click
 	btn.OnClicked(func() {
 		// Show menu at the button's position
@@ -452,10 +511,19 @@ func updateLauncherToolbarButtons() {
 
 	// Add new dummy buttons (insert after hamburger button, before stretch)
 	for _, btn := range launcherRegisteredBtns {
-		button := qt.NewQPushButton3(btn.Icon)
+		button := qt.NewQPushButton2()
 		// Fixed square size to match hamburger button
 		button.SetFixedSize2(toolbarButtonSize, toolbarButtonSize)
 		button.SetToolTip(btn.Tooltip)
+		// Set SVG icon with appropriate color for current theme
+		svgData := getSVGIcon(starIconSVG)
+		if icon := createIconFromSVG(svgData, toolbarButtonSize-8); icon != nil {
+			button.SetIcon(icon)
+			button.SetIconSize(qt.NewQSize2(toolbarButtonSize-8, toolbarButtonSize-8))
+		} else {
+			// Fallback to text if SVG loading fails
+			button.SetText(btn.Icon)
+		}
 		if btn.OnClick != nil {
 			callback := btn.OnClick // Capture for closure
 			button.OnClicked(func() {
@@ -510,10 +578,19 @@ func updateWindowToolbarButtons(strip *qt.QWidget, buttons []*QtToolbarButton) {
 
 	// Add new dummy buttons (insert after hamburger button, before stretch)
 	for _, btn := range buttons {
-		button := qt.NewQPushButton3(btn.Icon)
+		button := qt.NewQPushButton2()
 		// Fixed square size to match hamburger button
 		button.SetFixedSize2(toolbarButtonSize, toolbarButtonSize)
 		button.SetToolTip(btn.Tooltip)
+		// Set SVG icon with appropriate color for current theme
+		svgData := getSVGIcon(starIconSVG)
+		if icon := createIconFromSVG(svgData, toolbarButtonSize-8); icon != nil {
+			button.SetIcon(icon)
+			button.SetIconSize(qt.NewQSize2(toolbarButtonSize-8, toolbarButtonSize-8))
+		} else {
+			// Fallback to text if SVG loading fails
+			button.SetText(btn.Icon)
+		}
 		if btn.OnClick != nil {
 			callback := btn.OnClick // Capture for closure
 			button.OnClicked(func() {

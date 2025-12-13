@@ -357,11 +357,21 @@ func createHamburgerMenu(parent gtk.IWindow, isScriptWindow bool) *gtk.Menu {
 	return menu
 }
 
-// createHamburgerButton creates a hamburger menu button (☰ icon)
+// createHamburgerButton creates a hamburger menu button with SVG icon
 func createHamburgerButton(menu *gtk.Menu) *gtk.Button {
-	btn, _ := gtk.ButtonNewWithLabel("☰")
+	btn, _ := gtk.ButtonNew()
 	btn.SetSizeRequest(32, 32)
 	btn.SetTooltipText("Menu")
+
+	// Set SVG icon with appropriate color for current theme
+	svgData := getSVGIcon(hamburgerIconSVG)
+	if img := createImageFromSVG(svgData, 24); img != nil {
+		btn.SetImage(img)
+		btn.SetAlwaysShowImage(true)
+	} else {
+		// Fallback to text if SVG loading fails
+		btn.SetLabel("☰")
+	}
 
 	// Pop up the menu on click
 	btn.Connect("clicked", func() {
@@ -395,6 +405,82 @@ const (
 	minNarrowStripWidth = 40  // Minimum width before narrow strip collapses
 )
 
+// Embedded SVG icons (fill color is replaced at runtime based on theme)
+const hamburgerIconSVG = `<svg width="48" height="48" viewBox="0 0 12.7 12.7" xmlns="http://www.w3.org/2000/svg">
+  <rect style="fill:{{FILL}};stroke:none" width="11.346176" height="2.25" x="0.70038122" y="0.8404575"/>
+  <rect style="fill:{{FILL}};stroke:none" width="11.346176" height="2.25" x="0.70038122" y="5.3383746"/>
+  <rect style="fill:{{FILL}};stroke:none" width="11.346176" height="2.25" x="0.70038122" y="9.8362913"/>
+</svg>`
+
+const starIconSVG = `<svg width="48" height="48" viewBox="0 0 12.7 12.7" xmlns="http://www.w3.org/2000/svg">
+  <path style="fill:{{FILL}};stroke:none" d="M 6.4849512,1.5761366 8.0478061,4.7428264 11.542456,5.250629 9.0137037,7.7155534 9.6106608,11.196082 6.484951,9.5527997 3.359241,11.196082 3.9561984,7.7155534 1.4274463,5.2506288 4.9220959,4.7428264 Z" transform="matrix(1.1757817,0,0,1.1757817,-1.274887,-1.2479333)"/>
+</svg>`
+
+// getIconFillColor returns the appropriate icon fill color based on theme
+func getIconFillColor() string {
+	theme := configHelper.GetTheme()
+	switch theme {
+	case pawgui.ThemeDark:
+		return "#ffffff"
+	case pawgui.ThemeLight:
+		return "#000000"
+	default: // ThemeAuto - try to detect from terminal background
+		bg := getTerminalBackground()
+		// Calculate luminance: if background is dark, use white icon
+		luminance := 0.299*float64(bg.R) + 0.587*float64(bg.G) + 0.114*float64(bg.B)
+		if luminance < 128 {
+			return "#ffffff"
+		}
+		return "#000000"
+	}
+}
+
+// getSVGIcon returns SVG data with the fill color set appropriately for current theme
+func getSVGIcon(svgTemplate string) string {
+	return strings.Replace(svgTemplate, "{{FILL}}", getIconFillColor(), -1)
+}
+
+// createImageFromSVG creates a GtkImage from SVG data
+func createImageFromSVG(svgData string, size int) *gtk.Image {
+	// Create a PixbufLoader for SVG
+	loader, err := gdk.PixbufLoaderNew()
+	if err != nil {
+		return nil
+	}
+
+	// Write SVG data to loader
+	_, err = loader.Write([]byte(svgData))
+	if err != nil {
+		loader.Close()
+		return nil
+	}
+
+	err = loader.Close()
+	if err != nil {
+		return nil
+	}
+
+	// Get the pixbuf
+	pixbuf, err := loader.GetPixbuf()
+	if err != nil || pixbuf == nil {
+		return nil
+	}
+
+	// Scale to desired size
+	scaled, err := pixbuf.ScaleSimple(size, size, gdk.INTERP_BILINEAR)
+	if err != nil || scaled == nil {
+		return nil
+	}
+
+	// Create image from pixbuf
+	img, err := gtk.ImageNewFromPixbuf(scaled)
+	if err != nil {
+		return nil
+	}
+
+	return img
+}
+
 // Random icons for dummy buttons
 var dummyIcons = []string{"★", "♦", "♠", "♣", "♥", "●", "■", "▲", "◆", "⬟", "⬢", "✦", "✧", "⚡", "☀", "☁", "☂", "☃", "✿", "❀"}
 
@@ -425,9 +511,18 @@ func updateLauncherToolbarButtons() {
 
 	// Add new dummy buttons
 	for _, btn := range launcherRegisteredBtns {
-		button, _ := gtk.ButtonNewWithLabel(btn.Icon)
+		button, _ := gtk.ButtonNew()
 		button.SetSizeRequest(32, 32)
 		button.SetTooltipText(btn.Tooltip)
+		// Set SVG icon with appropriate color for current theme
+		svgData := getSVGIcon(starIconSVG)
+		if img := createImageFromSVG(svgData, 24); img != nil {
+			button.SetImage(img)
+			button.SetAlwaysShowImage(true)
+		} else {
+			// Fallback to text if SVG loading fails
+			button.SetLabel(btn.Icon)
+		}
 		if btn.OnClick != nil {
 			callback := btn.OnClick // Capture for closure
 			button.Connect("clicked", func() {
@@ -482,9 +577,18 @@ func updateWindowToolbarButtons(strip *gtk.Box, buttons []*ToolbarButton) {
 
 	// Add new dummy buttons
 	for _, btn := range buttons {
-		button, _ := gtk.ButtonNewWithLabel(btn.Icon)
+		button, _ := gtk.ButtonNew()
 		button.SetSizeRequest(32, 32)
 		button.SetTooltipText(btn.Tooltip)
+		// Set SVG icon with appropriate color for current theme
+		svgData := getSVGIcon(starIconSVG)
+		if img := createImageFromSVG(svgData, 24); img != nil {
+			button.SetImage(img)
+			button.SetAlwaysShowImage(true)
+		} else {
+			// Fallback to text if SVG loading fails
+			button.SetLabel(btn.Icon)
+		}
 		if btn.OnClick != nil {
 			callback := btn.OnClick // Capture for closure
 			button.Connect("clicked", func() {
