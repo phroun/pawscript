@@ -424,13 +424,26 @@ func getIconFillColor() string {
 		return "#ffffff"
 	case pawgui.ThemeLight:
 		return "#000000"
-	default: // ThemeAuto - try to detect from terminal background
-		bg := getTerminalBackground()
-		// Calculate luminance: if background is dark, use white icon
-		luminance := 0.299*float64(bg.R) + 0.587*float64(bg.G) + 0.114*float64(bg.B)
-		if luminance < 128 {
-			return "#ffffff"
+	default: // ThemeAuto - query GTK to see if dark theme is active
+		settings, err := gtk.SettingsGetDefault()
+		if err == nil {
+			darkPref, err := settings.GetProperty("gtk-application-prefer-dark-theme")
+			if err == nil {
+				if isDark, ok := darkPref.(bool); ok && isDark {
+					return "#ffffff"
+				}
+			}
+			// Also check the theme name for "dark" suffix as fallback
+			themeName, err := settings.GetProperty("gtk-theme-name")
+			if err == nil {
+				if name, ok := themeName.(string); ok {
+					if strings.Contains(strings.ToLower(name), "dark") {
+						return "#ffffff"
+					}
+				}
+			}
 		}
+		// Default to black (light theme) if we can't determine
 		return "#000000"
 	}
 }
