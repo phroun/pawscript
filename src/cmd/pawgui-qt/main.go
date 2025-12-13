@@ -60,7 +60,7 @@ var (
 	// Launcher narrow strip (for multiple toolbar buttons)
 	launcherNarrowStrip    *qt.QWidget        // The narrow strip container
 	launcherMenuButton     *qt.QPushButton    // Hamburger button in path selector (when strip hidden)
-	launcherStripMenuBtn   *qt.QPushButton    // Hamburger button in narrow strip (when strip visible)
+	launcherStripMenuBtn   *IconButton        // Hamburger button in narrow strip (when strip visible)
 	launcherWidePanel      *qt.QWidget        // The wide panel (file browser)
 	launcherRegisteredBtns []*QtToolbarButton // Additional registered buttons for launcher
 	pendingToolbarUpdate   bool               // Flag to signal main thread to update toolbar
@@ -69,11 +69,11 @@ var (
 
 // QtToolbarButton represents a registered toolbar button for Qt
 type QtToolbarButton struct {
-	Icon    string          // Icon name or path
-	Tooltip string          // Tooltip text
-	OnClick func()          // Click handler
-	Menu    *qt.QMenu       // Optional dropdown menu (if nil, OnClick is used)
-	widget  *qt.QPushButton // The actual button widget
+	Icon    string      // Icon name or path
+	Tooltip string      // Tooltip text
+	OnClick func()      // Click handler
+	Menu    *qt.QMenu   // Optional dropdown menu (if nil, OnClick is used)
+	widget  *IconButton // The actual button widget
 }
 
 // QtWindowToolbarData holds per-window toolbar state for dummy_button command
@@ -134,17 +134,113 @@ func getSVGIcon(svgTemplate string) string {
 	return strings.Replace(svgTemplate, "{{FILL}}", getIconFillColor(), -1)
 }
 
-// createIconFromSVG creates a QIcon from SVG data
-func createIconFromSVG(svgData string, size int) *qt.QIcon {
-	// Load SVG into QPixmap using raw bytes
+// createPixmapFromSVG creates a QPixmap from SVG data at the specified size
+func createPixmapFromSVG(svgData string, size int) *qt.QPixmap {
 	pixmap := qt.NewQPixmap()
 	data := []byte(svgData)
 	if pixmap.LoadFromData(unsafe.SliceData(data), uint(len(data))) {
-		// Scale to desired size
 		scaled := pixmap.Scaled2(size, size, qt.KeepAspectRatio)
-		return qt.NewQIcon2(scaled)
+		return scaled
 	}
 	return nil
+}
+
+// IconButton is a custom widget that draws an icon centered with proper padding
+type IconButton struct {
+	*qt.QWidget
+	pixmap    *qt.QPixmap
+	onClick   func()
+	tooltip   string
+	isHovered bool
+	isPressed bool
+}
+
+// NewIconButton creates a new icon button with the given size and icon
+func NewIconButton(buttonSize, iconSize int, svgData string) *IconButton {
+	widget := qt.NewQWidget2()
+
+	btn := &IconButton{
+		QWidget: widget,
+		pixmap:  createPixmapFromSVG(svgData, iconSize),
+	}
+
+	// Set fixed size
+	widget.SetMinimumSize2(buttonSize, buttonSize)
+	widget.SetMaximumSize2(buttonSize, buttonSize)
+
+	// Enable mouse tracking for hover effects
+	widget.SetMouseTracking(true)
+
+	// Override paint event
+	widget.OnPaintEvent(func(super func(event *qt.QPaintEvent), event *qt.QPaintEvent) {
+		btn.paintEvent(event)
+	})
+
+	// Override mouse events
+	widget.OnMousePressEvent(func(super func(event *qt.QMouseEvent), event *qt.QMouseEvent) {
+		btn.isPressed = true
+		widget.Update()
+	})
+
+	widget.OnMouseReleaseEvent(func(super func(event *qt.QMouseEvent), event *qt.QMouseEvent) {
+		if btn.isPressed && btn.onClick != nil {
+			btn.onClick()
+		}
+		btn.isPressed = false
+		widget.Update()
+	})
+
+	widget.OnEnterEvent(func(super func(event *qt.QEnterEvent), event *qt.QEnterEvent) {
+		btn.isHovered = true
+		widget.Update()
+	})
+
+	widget.OnLeaveEvent(func(super func(event *qt.QEvent), event *qt.QEvent) {
+		btn.isHovered = false
+		btn.isPressed = false
+		widget.Update()
+	})
+
+	return btn
+}
+
+func (btn *IconButton) paintEvent(event *qt.QPaintEvent) {
+	painter := qt.NewQPainter2(btn.QWidget.PaintDevice())
+	defer painter.End()
+
+	// Get widget dimensions
+	w := btn.Width()
+	h := btn.Height()
+
+	// Draw button background based on state
+	if btn.isPressed {
+		painter.FillRect6(0, 0, w, h, qt.NewQColor3(128, 128, 128, 80))
+	} else if btn.isHovered {
+		painter.FillRect6(0, 0, w, h, qt.NewQColor3(128, 128, 128, 40))
+	}
+
+	// Draw the icon centered
+	if btn.pixmap != nil && !btn.pixmap.IsNull() {
+		iconW := btn.pixmap.Width()
+		iconH := btn.pixmap.Height()
+		x := (w - iconW) / 2
+		y := (h - iconH) / 2
+		painter.DrawPixmap3(x, y, btn.pixmap)
+	}
+}
+
+func (btn *IconButton) SetOnClick(callback func()) {
+	btn.onClick = callback
+}
+
+func (btn *IconButton) SetToolTip(tip string) {
+	btn.tooltip = tip
+	btn.QWidget.SetToolTip(tip)
+}
+
+func (btn *IconButton) UpdateIcon(svgData string, iconSize int) {
+	btn.pixmap = createPixmapFromSVG(svgData, iconSize)
+	btn.QWidget.Update()
 }
 
 // Random icons for dummy buttons
@@ -442,29 +538,16 @@ func createHamburgerMenu(parent *qt.QWidget, isScriptWindow bool) *qt.QMenu {
 
 // Toolbar button size constant for consistent square buttons
 const toolbarButtonSize = 40
-const toolbarIconSize = 20 // Icon is smaller than button, creating visible padding
+const toolbarIconSize = 24 // Icon is smaller than button, creating visible padding
 
-// createHamburgerButton creates a hamburger menu button with SVG icon
-func createHamburgerButton(menu *qt.QMenu) *qt.QPushButton {
-	btn := qt.NewQPushButton2()
-	btn.SetToolTip("Menu")
-	// Fixed square size for consistent toolbar appearance
-	btn.SetMinimumSize2(toolbarButtonSize, toolbarButtonSize)
-	btn.SetMaximumSize2(toolbarButtonSize, toolbarButtonSize)
-
-	// Set SVG icon with appropriate color for current theme
+// createHamburgerButton creates a hamburger menu button with custom icon widget
+func createHamburgerButton(menu *qt.QMenu) *IconButton {
 	svgData := getSVGIcon(hamburgerIconSVG)
-	if icon := createIconFromSVG(svgData, toolbarIconSize); icon != nil {
-		btn.SetIcon(icon)
-		btn.SetIconSize(qt.NewQSize2(toolbarIconSize, toolbarIconSize))
-	} else {
-		// Fallback to text if SVG loading fails
-		btn.SetText("☰")
-	}
+	btn := NewIconButton(toolbarButtonSize, toolbarIconSize, svgData)
+	btn.SetToolTip("Menu")
 
-	// Don't use SetMenu() as it adds a dropdown arrow - manually pop up the menu on click
-	btn.OnClicked(func() {
-		// Show menu at the button's position
+	// Show menu at the button's position when clicked
+	btn.SetOnClick(func() {
 		menu.Popup(btn.MapToGlobal(btn.Rect().BottomLeft()))
 	})
 	return btn
@@ -472,7 +555,7 @@ func createHamburgerButton(menu *qt.QMenu) *qt.QPushButton {
 
 // createToolbarStrip creates a vertical strip of toolbar buttons
 // Returns the strip container, the hamburger button, and the menu
-func createToolbarStrip(parent *qt.QWidget, isScriptWindow bool) (*qt.QWidget, *qt.QPushButton, *qt.QMenu) {
+func createToolbarStrip(parent *qt.QWidget, isScriptWindow bool) (*qt.QWidget, *IconButton, *qt.QMenu) {
 	strip := qt.NewQWidget2()
 	layout := qt.NewQVBoxLayout2()
 	layout.SetContentsMargins(4, 9, 4, 5) // Margins: left, top, right, bottom
@@ -513,23 +596,12 @@ func updateLauncherToolbarButtons() {
 
 	// Add new dummy buttons (insert after hamburger button, before stretch)
 	for _, btn := range launcherRegisteredBtns {
-		button := qt.NewQPushButton2()
-		// Fixed square size to match hamburger button
-		button.SetMinimumSize2(toolbarButtonSize, toolbarButtonSize)
-		button.SetMaximumSize2(toolbarButtonSize, toolbarButtonSize)
-		button.SetToolTip(btn.Tooltip)
-		// Set SVG icon with appropriate color for current theme
 		svgData := getSVGIcon(starIconSVG)
-		if icon := createIconFromSVG(svgData, toolbarIconSize); icon != nil {
-			button.SetIcon(icon)
-			button.SetIconSize(qt.NewQSize2(toolbarIconSize, toolbarIconSize))
-		} else {
-			// Fallback to text if SVG loading fails
-			button.SetText(btn.Icon)
-		}
+		button := NewIconButton(toolbarButtonSize, toolbarIconSize, svgData)
+		button.SetToolTip(btn.Tooltip)
 		if btn.OnClick != nil {
 			callback := btn.OnClick // Capture for closure
-			button.OnClicked(func() {
+			button.SetOnClick(func() {
 				callback()
 			})
 		}
@@ -581,23 +653,12 @@ func updateWindowToolbarButtons(strip *qt.QWidget, buttons []*QtToolbarButton) {
 
 	// Add new dummy buttons (insert after hamburger button, before stretch)
 	for _, btn := range buttons {
-		button := qt.NewQPushButton2()
-		// Fixed square size to match hamburger button
-		button.SetMinimumSize2(toolbarButtonSize, toolbarButtonSize)
-		button.SetMaximumSize2(toolbarButtonSize, toolbarButtonSize)
-		button.SetToolTip(btn.Tooltip)
-		// Set SVG icon with appropriate color for current theme
 		svgData := getSVGIcon(starIconSVG)
-		if icon := createIconFromSVG(svgData, toolbarIconSize); icon != nil {
-			button.SetIcon(icon)
-			button.SetIconSize(qt.NewQSize2(toolbarIconSize, toolbarIconSize))
-		} else {
-			// Fallback to text if SVG loading fails
-			button.SetText(btn.Icon)
-		}
+		button := NewIconButton(toolbarButtonSize, toolbarIconSize, svgData)
+		button.SetToolTip(btn.Tooltip)
 		if btn.OnClick != nil {
 			callback := btn.OnClick // Capture for closure
-			button.OnClicked(func() {
+			button.SetOnClick(func() {
 				callback()
 			})
 		}
