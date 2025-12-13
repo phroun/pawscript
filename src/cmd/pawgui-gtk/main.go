@@ -418,6 +418,13 @@ func createHamburgerMenu(ctx *MenuContext) *gtk.Menu {
 		menu.Append(showLauncherItem)
 	}
 
+	// New Window (both - creates a blank console window)
+	newWindowItem, _ := gtk.MenuItemNewWithLabel("New Window")
+	newWindowItem.Connect("activate", func() {
+		createBlankConsoleWindow()
+	})
+	menu.Append(newWindowItem)
+
 	// Separator
 	sep1, _ := gtk.SeparatorMenuItemNew()
 	menu.Append(sep1)
@@ -455,6 +462,15 @@ func createHamburgerMenu(ctx *MenuContext) *gtk.Menu {
 		}
 	})
 	menu.Append(saveScrollbackItem)
+
+	// Restore Buffer (both)
+	restoreBufferItem, _ := gtk.MenuItemNewWithLabel("Restore Buffer...")
+	restoreBufferItem.Connect("activate", func() {
+		if ctx.Terminal != nil {
+			restoreBufferDialog(ctx.Parent, ctx.Terminal)
+		}
+	})
+	menu.Append(restoreBufferItem)
 
 	// Clear Scrollback (both)
 	clearScrollbackItem, _ := gtk.MenuItemNewWithLabel("Clear Scrollback")
@@ -620,6 +636,443 @@ func saveScrollbackDialog(parent gtk.IWindow, term *purfectermgtk.Terminal) {
 			errDialog.Destroy()
 		}
 	}
+}
+
+// restoreBufferDialog shows a file dialog to load and display terminal content
+func restoreBufferDialog(parent gtk.IWindow, term *purfectermgtk.Terminal) {
+	dialog, err := gtk.FileChooserDialogNewWith2Buttons(
+		"Restore Buffer",
+		parent.(*gtk.Window),
+		gtk.FILE_CHOOSER_ACTION_OPEN,
+		"Cancel", gtk.RESPONSE_CANCEL,
+		"Open", gtk.RESPONSE_ACCEPT,
+	)
+	if err != nil {
+		return
+	}
+	defer dialog.Destroy()
+
+	// Add file filters
+	ansFilter, _ := gtk.FileFilterNew()
+	ansFilter.SetName("ANSI Files (*.ans)")
+	ansFilter.AddPattern("*.ans")
+	dialog.AddFilter(ansFilter)
+
+	txtFilter, _ := gtk.FileFilterNew()
+	txtFilter.SetName("Text Files (*.txt)")
+	txtFilter.AddPattern("*.txt")
+	dialog.AddFilter(txtFilter)
+
+	allFilter, _ := gtk.FileFilterNew()
+	allFilter.SetName("All Files (*)")
+	allFilter.AddPattern("*")
+	dialog.AddFilter(allFilter)
+
+	if dialog.Run() == gtk.RESPONSE_ACCEPT {
+		filename := dialog.GetFilename()
+
+		// Read file content
+		content, err := os.ReadFile(filename)
+		if err != nil {
+			errDialog := gtk.MessageDialogNew(
+				parent,
+				gtk.DIALOG_MODAL|gtk.DIALOG_DESTROY_WITH_PARENT,
+				gtk.MESSAGE_ERROR,
+				gtk.BUTTONS_OK,
+				"Failed to read file: %v", err,
+			)
+			errDialog.Run()
+			errDialog.Destroy()
+			return
+		}
+
+		// Feed content to terminal (preceded by a linefeed)
+		term.Feed("\n" + string(content))
+	}
+}
+
+// createBlankConsoleWindow creates a new blank terminal window with REPL
+// This creates the same environment as the Run button, but without running a script
+func createBlankConsoleWindow() {
+	if app == nil {
+		return
+	}
+
+	// Create new window
+	win, err := gtk.ApplicationWindowNew(app)
+	if err != nil {
+		return
+	}
+	win.SetTitle("PawScript - Console")
+	win.SetDefaultSize(900, 600)
+
+	// Create terminal for this window
+	winTerminal, err := purfectermgtk.New(purfectermgtk.Options{
+		Cols:           100,
+		Rows:           30,
+		ScrollbackSize: 10000,
+		FontFamily:     getFontFamily(),
+		FontSize:       getFontSize(),
+		Scheme: purfecterm.ColorScheme{
+			Foreground: getTerminalForeground(),
+			Background: getTerminalBackground(),
+			Cursor:     purfecterm.Color{R: 255, G: 255, B: 255},
+			Selection:  purfecterm.Color{R: 68, G: 68, B: 68},
+			Palette:    getColorPalette(),
+			BlinkMode:  getBlinkMode(),
+		},
+	})
+	if err != nil {
+		win.Destroy()
+		return
+	}
+
+	// Set font fallbacks for Unicode/CJK characters
+	winTerminal.SetFontFallbacks(getFontFamilyUnicode(), getFontFamilyCJK())
+
+	// Create main layout with collapsible toolbar strip
+	paned, _ := gtk.PanedNew(gtk.ORIENTATION_HORIZONTAL)
+
+	// Track script running state for this window (starts with no script)
+	var winScriptRunning bool
+	var winScriptMu sync.Mutex
+
+	// Create MenuContext for this console window
+	consoleMenuCtx := &MenuContext{
+		Parent:         win,
+		IsScriptWindow: true,
+		Terminal:       winTerminal,
+		IsScriptRunning: func() bool {
+			winScriptMu.Lock()
+			defer winScriptMu.Unlock()
+			return winScriptRunning
+		},
+		CloseWindow: func() {
+			win.Close()
+		},
+	}
+
+	// Narrow strip for console window (always starts visible, collapsible)
+	strip, _, _ := createToolbarStripWithContext(consoleMenuCtx)
+	strip.SetMarginStart(2 + narrowOnlyExtraPadding)
+	strip.SetSizeRequest(minNarrowStripWidth, -1)
+	paned.Pack1(strip, false, true)
+
+	// Terminal on the right
+	termWidget := winTerminal.Widget()
+	termWidget.SetVExpand(true)
+	termWidget.SetHExpand(true)
+	termWidget.SetMarginStart(8)
+	paned.Pack2(termWidget, true, false)
+
+	// Set initial strip width and collapse behavior
+	consoleStripWidth := minNarrowStripWidth + 4 + narrowOnlyExtraPadding
+	paned.SetPosition(consoleStripWidth)
+
+	// Track position changes for drag detection
+	var consolePanedPressPos int = -1
+	var consolePanedDragged bool
+	var consolePanedOnHandle bool
+
+	paned.Connect("notify::position", func() {
+		pos := paned.GetPosition()
+		if consolePanedPressPos >= 0 && consolePanedOnHandle && pos != consolePanedPressPos {
+			consolePanedDragged = true
+		}
+		if pos == 0 {
+			// Already collapsed
+		} else if pos < consoleStripWidth/2 {
+			paned.SetPosition(0)
+		} else if pos != consoleStripWidth {
+			paned.SetPosition(consoleStripWidth)
+		}
+	})
+
+	paned.Connect("button-press-event", func(p *gtk.Paned, ev *gdk.Event) bool {
+		btnEvent := gdk.EventButtonNewFromEvent(ev)
+		if btnEvent.Button() == 1 {
+			consolePanedOnHandle = false
+			if handleWindow, err := p.GetHandleWindow(); err == nil && handleWindow != nil {
+				hx, hy := handleWindow.GetRootOrigin()
+				hw := handleWindow.WindowGetWidth()
+				hh := handleWindow.WindowGetHeight()
+				clickX, clickY := int(btnEvent.XRoot()), int(btnEvent.YRoot())
+				consolePanedOnHandle = clickX >= hx && clickX < hx+hw && clickY >= hy && clickY < hy+hh
+			}
+			if !consolePanedOnHandle {
+				return false
+			}
+			consolePanedPressPos = p.GetPosition()
+			consolePanedDragged = false
+		}
+		return false
+	})
+
+	paned.Connect("button-release-event", func(p *gtk.Paned, ev *gdk.Event) bool {
+		btnEvent := gdk.EventButtonNewFromEvent(ev)
+		if btnEvent.Button() != 1 || !consolePanedOnHandle || consolePanedDragged || consolePanedPressPos < 0 {
+			consolePanedPressPos = -1
+			consolePanedOnHandle = false
+			return false
+		}
+		if p.GetPosition() == 0 {
+			p.SetPosition(consoleStripWidth)
+		} else {
+			p.SetPosition(0)
+		}
+		consolePanedPressPos = -1
+		consolePanedOnHandle = false
+		return true
+	})
+
+	win.Add(paned)
+
+	// Create context menu for this console window
+	winContextMenu, _ := gtk.MenuNew()
+
+	winCopyItem, _ := gtk.MenuItemNewWithLabel("Copy")
+	winCopyItem.Connect("activate", func() {
+		winTerminal.CopySelection()
+	})
+	winContextMenu.Append(winCopyItem)
+
+	winPasteItem, _ := gtk.MenuItemNewWithLabel("Paste")
+	winPasteItem.Connect("activate", func() {
+		winTerminal.PasteClipboard()
+	})
+	winContextMenu.Append(winPasteItem)
+
+	winSelectAllItem, _ := gtk.MenuItemNewWithLabel("Select All")
+	winSelectAllItem.Connect("activate", func() {
+		winTerminal.SelectAll()
+	})
+	winContextMenu.Append(winSelectAllItem)
+
+	winClearItem, _ := gtk.MenuItemNewWithLabel("Clear")
+	winClearItem.Connect("activate", func() {
+		winTerminal.Clear()
+	})
+	winContextMenu.Append(winClearItem)
+
+	winContextMenu.ShowAll()
+
+	termWidget.Connect("button-press-event", func(widget *gtk.Box, ev *gdk.Event) bool {
+		btn := gdk.EventButtonNewFromEvent(ev)
+		if btn.Button() == 3 {
+			winContextMenu.PopupAtPointer(ev)
+			return true
+		}
+		return false
+	})
+
+	// Create I/O channels for this window's console
+	stdoutReader, stdoutWriter := io.Pipe()
+	stdinReader, stdinWriter := io.Pipe()
+
+	// Get terminal capabilities from the widget (auto-updates on resize)
+	termCaps := winTerminal.GetTerminalCapabilities()
+
+	// Non-blocking output queue
+	outputQueue := make(chan interface{}, 256)
+	go func() {
+		for item := range outputQueue {
+			switch v := item.(type) {
+			case []byte:
+				stdoutWriter.Write(v)
+			case chan struct{}:
+				close(v)
+			}
+		}
+	}()
+
+	winOutCh := &pawscript.StoredChannel{
+		BufferSize:       0,
+		Messages:         make([]pawscript.ChannelMessage, 0),
+		Subscribers:      make(map[int]*pawscript.StoredChannel),
+		NextSubscriberID: 1,
+		IsClosed:         false,
+		Timestamp:        time.Now(),
+		Terminal:         termCaps,
+		NativeSend: func(v interface{}) error {
+			var text string
+			switch d := v.(type) {
+			case []byte:
+				text = string(d)
+			case string:
+				text = d
+			default:
+				text = fmt.Sprintf("%v", v)
+			}
+			text = strings.ReplaceAll(text, "\r\n", "\n")
+			text = strings.ReplaceAll(text, "\n", "\r\n")
+			data := []byte(text)
+			select {
+			case outputQueue <- data:
+			default:
+			}
+			return nil
+		},
+		NativeRecv: func() (interface{}, error) {
+			return nil, fmt.Errorf("cannot receive from console_out")
+		},
+		NativeFlush: func() error {
+			writerDone := make(chan struct{})
+			select {
+			case outputQueue <- writerDone:
+				<-writerDone
+			default:
+			}
+			glibDone := make(chan struct{})
+			glib.IdleAdd(func() bool {
+				close(glibDone)
+				return false
+			})
+			select {
+			case <-glibDone:
+			case <-time.After(100 * time.Millisecond):
+			}
+			return nil
+		},
+	}
+
+	// Non-blocking input queue
+	inputQueue := make(chan byte, 256)
+	go func() {
+		buf := make([]byte, 1)
+		for {
+			n, err := stdinReader.Read(buf)
+			if err != nil || n == 0 {
+				close(inputQueue)
+				return
+			}
+			select {
+			case inputQueue <- buf[0]:
+			default:
+				select {
+				case <-inputQueue:
+				default:
+				}
+				select {
+				case inputQueue <- buf[0]:
+				default:
+				}
+			}
+		}
+	}()
+
+	winInCh := &pawscript.StoredChannel{
+		BufferSize:       0,
+		Messages:         make([]pawscript.ChannelMessage, 0),
+		Subscribers:      make(map[int]*pawscript.StoredChannel),
+		NextSubscriberID: 1,
+		IsClosed:         false,
+		Timestamp:        time.Now(),
+		Terminal:         termCaps,
+		NativeRecv: func() (interface{}, error) {
+			b, ok := <-inputQueue
+			if !ok {
+				return nil, fmt.Errorf("input closed")
+			}
+			return []byte{b}, nil
+		},
+		NativeSend: func(v interface{}) error {
+			return fmt.Errorf("cannot send to console_in")
+		},
+	}
+
+	// Read from stdout pipe and feed to terminal
+	go func() {
+		buf := make([]byte, 4096)
+		for {
+			n, err := stdoutReader.Read(buf)
+			if n > 0 {
+				data := make([]byte, n)
+				copy(data, buf[:n])
+				glib.IdleAdd(func() bool {
+					winTerminal.FeedBytes(data)
+					return false
+				})
+			}
+			if err != nil {
+				return
+			}
+		}
+	}()
+
+	// REPL for interactive mode
+	var winREPL *pawscript.REPL
+
+	// Wire keyboard input
+	winTerminal.SetInputCallback(func(data []byte) {
+		winScriptMu.Lock()
+		isRunning := winScriptRunning
+		winScriptMu.Unlock()
+
+		if isRunning {
+			stdinWriter.Write(data)
+		} else if winREPL != nil && winREPL.IsRunning() {
+			if winREPL.IsBusy() {
+				// REPL is executing a command (e.g., read) - send to stdin pipe
+				stdinWriter.Write(data)
+			} else {
+				// REPL is waiting for input - send to REPL for line editing
+				winREPL.HandleInput(data)
+			}
+		}
+	})
+
+	// Handle window close - clean up resources
+	win.Connect("destroy", func() {
+		winContextMenu.Destroy()
+		stdinWriter.Close()
+		stdoutWriter.Close()
+		stdinReader.Close()
+		stdoutReader.Close()
+		close(outputQueue)
+	})
+
+	win.ShowAll()
+
+	// Start REPL immediately (no script to run first)
+	go func() {
+		winREPL = pawscript.NewREPL(pawscript.REPLConfig{
+			Debug:        false,
+			Unrestricted: false,
+			OptLevel:     getOptimizationLevel(),
+			ShowBanner:   true,
+			IOConfig: &pawscript.IOChannelConfig{
+				Stdout: winOutCh,
+				Stdin:  winInCh,
+				Stderr: winOutCh,
+			},
+		}, func(s string) {
+			glib.IdleAdd(func() bool {
+				winTerminal.Feed(s)
+				return false
+			})
+		})
+		// Set flush callback to ensure output appears before blocking execution
+		winREPL.SetFlush(func() {
+			for i := 0; i < 10 && gtk.EventsPending(); i++ {
+				gtk.MainIterationDo(false)
+			}
+		})
+		// Set background color for prompt color selection
+		bg := getTerminalBackground()
+		winREPL.SetBackgroundRGB(bg.R, bg.G, bg.B)
+		winREPL.SetPSLColors(getPSLColors())
+		winREPL.Start()
+
+		// Register the dummy_button command with the window's REPL
+		winToolbarData := &WindowToolbarData{
+			strip:    strip,
+			terminal: winTerminal,
+		}
+		winToolbarData.updateFunc = func() {
+			updateWindowToolbarButtons(winToolbarData.strip, winToolbarData.registeredBtns)
+		}
+		registerDummyButtonCommand(winREPL.GetPawScript(), winToolbarData)
+	}()
 }
 
 // createHamburgerButton creates a hamburger menu button with SVG icon

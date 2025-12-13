@@ -2,6 +2,7 @@ package purfecterm
 
 import (
 	"fmt"
+	"sort"
 	"strings"
 	"sync"
 	"time"
@@ -3928,17 +3929,86 @@ func (b *Buffer) SaveScrollbackText() string {
 	return result.String()
 }
 
-// SaveScrollbackANS returns the scrollback and screen with ANSI codes preserved
-// This is a basic implementation - full implementation would include:
-// - Custom palette definitions at the top
-// - Custom glyph definitions  
-// - Line attributes (DEC double height/width)
-// - Background color handling with CSI 2 K
+// SaveScrollbackANS returns the scrollback and screen with full ANSI/PawScript codes preserved.
+// The output format:
+// 1. TOP: Custom palette definitions (OSC 7000), custom glyph definitions (OSC 7001)
+// 2. BODY: Content lines with DEC line attributes, SGR codes, BGP/flip attributes
+// 3. END: Sprite units, screen splits, screen crop, crop rectangles, sprites, cursor position
 func (b *Buffer) SaveScrollbackANS() string {
 	b.mu.RLock()
 	defer b.mu.RUnlock()
 
 	var result strings.Builder
+
+	// ========== SECTION 1: Definitions at TOP ==========
+
+	// Output palette definitions (OSC 7000)
+	// Get sorted palette keys for deterministic output
+	paletteKeys := make([]int, 0, len(b.palettes))
+	for k := range b.palettes {
+		paletteKeys = append(paletteKeys, k)
+	}
+	sort.Ints(paletteKeys)
+
+	for _, n := range paletteKeys {
+		palette := b.palettes[n]
+		if palette == nil || len(palette.Entries) == 0 {
+			continue
+		}
+		// Init palette: ESC ] 7000 ; i ; N ; LEN BEL
+		result.WriteString(fmt.Sprintf("\x1b]7000;i;%d;%d\x07", n, len(palette.Entries)))
+		// Set each entry
+		for idx, entry := range palette.Entries {
+			switch entry.Type {
+			case PaletteEntryColor:
+				// True color: ESC ] 7000 ; s ; N ; IDX ; r ; R ; G ; B BEL
+				// or with dim: ESC ] 7000 ; s ; N ; IDX ; r ; 2 ; R ; G ; B BEL
+				if entry.Dim {
+					result.WriteString(fmt.Sprintf("\x1b]7000;s;%d;%d;r;2;%d;%d;%d\x07",
+						n, idx, entry.Color.R, entry.Color.G, entry.Color.B))
+				} else {
+					result.WriteString(fmt.Sprintf("\x1b]7000;s;%d;%d;r;%d;%d;%d\x07",
+						n, idx, entry.Color.R, entry.Color.G, entry.Color.B))
+				}
+			case PaletteEntryTransparent:
+				// Transparent (use background): SGR code 8
+				result.WriteString(fmt.Sprintf("\x1b]7000;s;%d;%d;8\x07", n, idx))
+			case PaletteEntryDefaultFG:
+				// Use foreground: SGR code 9
+				result.WriteString(fmt.Sprintf("\x1b]7000;s;%d;%d;9\x07", n, idx))
+			}
+		}
+	}
+
+	// Output glyph definitions (OSC 7001)
+	// Get sorted glyph runes for deterministic output
+	glyphRunes := make([]rune, 0, len(b.customGlyphs))
+	for r := range b.customGlyphs {
+		glyphRunes = append(glyphRunes, r)
+	}
+	sort.Slice(glyphRunes, func(i, j int) bool { return glyphRunes[i] < glyphRunes[j] })
+
+	for _, r := range glyphRunes {
+		glyph := b.customGlyphs[r]
+		if glyph == nil || glyph.Width == 0 || len(glyph.Pixels) == 0 {
+			continue
+		}
+		// Set glyph: ESC ] 7001 ; s ; RUNE ; WIDTH ; P1 ; P2 ; ... BEL
+		result.WriteString(fmt.Sprintf("\x1b]7001;s;%d;%d", int(r), glyph.Width))
+		for _, px := range glyph.Pixels {
+			result.WriteString(fmt.Sprintf(";%d", px))
+		}
+		result.WriteString("\x07")
+	}
+
+	// ========== SECTION 2: Content Lines ==========
+
+	// Track current attributes to minimize escape sequences
+	var lastFg, lastBg Color
+	var lastBold, lastItalic, lastUnderline, lastReverse, lastBlink bool
+	var lastBGP int = -1
+	var lastXFlip, lastYFlip bool
+	var lastLineAttr LineAttribute = LineAttrNormal
 
 	// Helper to write ANSI color code
 	writeColor := func(c Color, isFg bool) {
@@ -3949,15 +4019,31 @@ func (b *Buffer) SaveScrollbackANS() string {
 		}
 	}
 
-	// Track current attributes to minimize escape sequences
-	var lastFg, lastBg Color
-	var lastBold, lastItalic, lastUnderline, lastReverse, lastBlink bool
+	// Count total lines for cursor positioning later
+	totalLines := len(b.scrollback) + len(b.screen)
+	currentLineNum := 0
 
 	outputLine := func(line []Cell, lineInfo LineInfo) {
 		hasNonDefaultBg := false
+		currentLineNum++
+
+		// Output DEC line attribute if changed (at start of line)
+		if lineInfo.Attribute != lastLineAttr {
+			switch lineInfo.Attribute {
+			case LineAttrDoubleWidth:
+				result.WriteString("\x1b#6") // DECDWL
+			case LineAttrDoubleTop:
+				result.WriteString("\x1b#3") // DECDHL top
+			case LineAttrDoubleBottom:
+				result.WriteString("\x1b#4") // DECDHL bottom
+			case LineAttrNormal:
+				result.WriteString("\x1b#5") // DECSWL (single width)
+			}
+			lastLineAttr = lineInfo.Attribute
+		}
 
 		for _, cell := range line {
-			// Check if attributes changed
+			// Check if standard attributes changed (need reset)
 			needsReset := false
 			if cell.Bold != lastBold || cell.Italic != lastItalic ||
 				cell.Underline != lastUnderline || cell.Reverse != lastReverse ||
@@ -3966,7 +4052,7 @@ func (b *Buffer) SaveScrollbackANS() string {
 			}
 
 			if needsReset {
-				result.WriteString("\x1b[0m") // Reset
+				result.WriteString("\x1b[0m") // Reset all
 				lastFg = Color{}
 				lastBg = Color{}
 				lastBold = false
@@ -3974,9 +4060,10 @@ func (b *Buffer) SaveScrollbackANS() string {
 				lastUnderline = false
 				lastReverse = false
 				lastBlink = false
+				// Reset doesn't affect BGP/flip, but we track them separately
 			}
 
-			// Set attributes
+			// Set standard attributes
 			if cell.Bold && !lastBold {
 				result.WriteString("\x1b[1m")
 				lastBold = true
@@ -3999,27 +4086,60 @@ func (b *Buffer) SaveScrollbackANS() string {
 			}
 
 			// Set colors
-			if cell.Fg != lastFg {
-				writeColor(cell.Fg, true)
-				lastFg = cell.Fg
+			if cell.Foreground != lastFg {
+				writeColor(cell.Foreground, true)
+				lastFg = cell.Foreground
 			}
-			if cell.Bg != lastBg {
-				writeColor(cell.Bg, false)
-				lastBg = cell.Bg
-				if cell.Bg != (Color{}) {
+			if cell.Background != lastBg {
+				writeColor(cell.Background, false)
+				lastBg = cell.Background
+				if cell.Background != (Color{}) {
 					hasNonDefaultBg = true
 				}
 			}
 
-			// Output character
+			// Set BGP if changed
+			if cell.BGP != lastBGP {
+				if cell.BGP < 0 {
+					result.WriteString("\x1b[169m") // Reset BGP
+				} else {
+					result.WriteString(fmt.Sprintf("\x1b[168;5;%dm", cell.BGP))
+				}
+				lastBGP = cell.BGP
+			}
+
+			// Set XFlip if changed
+			if cell.XFlip != lastXFlip {
+				if cell.XFlip {
+					result.WriteString("\x1b[151m") // XFlip on
+				} else {
+					result.WriteString("\x1b[150m") // XFlip off
+				}
+				lastXFlip = cell.XFlip
+			}
+
+			// Set YFlip if changed
+			if cell.YFlip != lastYFlip {
+				if cell.YFlip {
+					result.WriteString("\x1b[153m") // YFlip on
+				} else {
+					result.WriteString("\x1b[152m") // YFlip off
+				}
+				lastYFlip = cell.YFlip
+			}
+
+			// Output character and combining marks
 			if cell.Char != 0 {
 				result.WriteRune(cell.Char)
+				if len(cell.Combining) > 0 {
+					result.WriteString(cell.Combining)
+				}
 			}
 		}
 
-		// If line had background color, clear to end and reset before newline
+		// If line had background color, clear to end of line
 		if hasNonDefaultBg {
-			result.WriteString("\x1b[K") // Clear to end of line
+			result.WriteString("\x1b[K") // Clear to end of line (preserves bg)
 		}
 		result.WriteString("\x1b[0m\n") // Reset and newline
 		lastFg = Color{}
@@ -4030,7 +4150,7 @@ func (b *Buffer) SaveScrollbackANS() string {
 		lastReverse = false
 		lastBlink = false
 
-		// If background was dirty, clear next line
+		// If background was dirty, clear the next line to prevent bleeding
 		if hasNonDefaultBg {
 			result.WriteString("\x1b[2K") // Clear entire line
 		}
@@ -4052,6 +4172,135 @@ func (b *Buffer) SaveScrollbackANS() string {
 			lineInfo = b.lineInfos[i]
 		}
 		outputLine(line, lineInfo)
+	}
+
+	// ========== SECTION 3: State at END ==========
+
+	// Output sprite units if not default (8x8)
+	if b.spriteUnitX != 8 || b.spriteUnitY != 8 {
+		result.WriteString(fmt.Sprintf("\x1b]7002;u;%d;%d\x07", b.spriteUnitX, b.spriteUnitY))
+	}
+
+	// Output screen splits (OSC 7003 ss)
+	splitIDs := make([]int, 0, len(b.screenSplits))
+	for id := range b.screenSplits {
+		splitIDs = append(splitIDs, id)
+	}
+	sort.Ints(splitIDs)
+
+	for _, id := range splitIDs {
+		split := b.screenSplits[id]
+		if split == nil {
+			continue
+		}
+		// Format: ss;ID;SCREENY;BUFROW;BUFCOL;TOPFINE;LEFTFINE;CWS;LD
+		// BUFROW/BUFCOL are 1-indexed in the escape sequence (0 means inherit)
+		bufRow := split.BufferRow
+		bufCol := split.BufferCol
+		if bufRow > 0 {
+			bufRow++ // Convert 0-indexed to 1-indexed
+		}
+		if bufCol > 0 {
+			bufCol++
+		}
+		result.WriteString(fmt.Sprintf("\x1b]7003;ss;%d;%d;%d;%d;%d;%d;%g;%d\x07",
+			id, split.ScreenY, bufRow, bufCol,
+			split.TopFineScroll, split.LeftFineScroll,
+			split.CharWidthScale, split.LineDensity))
+	}
+
+	// Output screen crop if set (OSC 7003 c)
+	if b.widthCrop >= 0 || b.heightCrop >= 0 {
+		if b.widthCrop >= 0 && b.heightCrop >= 0 {
+			result.WriteString(fmt.Sprintf("\x1b]7003;c;%d;%d\x07", b.widthCrop, b.heightCrop))
+		} else if b.widthCrop >= 0 {
+			result.WriteString(fmt.Sprintf("\x1b]7003;c;%d\x07", b.widthCrop))
+		} else {
+			result.WriteString(fmt.Sprintf("\x1b]7003;c;;%d\x07", b.heightCrop))
+		}
+	}
+
+	// Output crop rectangles (OSC 7002 cs)
+	cropIDs := make([]int, 0, len(b.cropRects))
+	for id := range b.cropRects {
+		cropIDs = append(cropIDs, id)
+	}
+	sort.Ints(cropIDs)
+
+	for _, id := range cropIDs {
+		crop := b.cropRects[id]
+		if crop == nil {
+			continue
+		}
+		// Format: cs;ID;MINX;MINY;MAXX;MAXY
+		result.WriteString(fmt.Sprintf("\x1b]7002;cs;%d;%g;%g;%g;%g\x07",
+			id, crop.MinX, crop.MinY, crop.MaxX, crop.MaxY))
+	}
+
+	// Output sprites (OSC 7002 s)
+	spriteIDs := make([]int, 0, len(b.sprites))
+	for id := range b.sprites {
+		spriteIDs = append(spriteIDs, id)
+	}
+	sort.Ints(spriteIDs)
+
+	for _, id := range spriteIDs {
+		sprite := b.sprites[id]
+		if sprite == nil {
+			continue
+		}
+		// Format: s;ID;X;Y;Z;FGP;FLIP;XS;YS;CROP;R1;R2;...
+		// Collect all runes from the 2D array
+		var runes []rune
+		for rowIdx, row := range sprite.Runes {
+			if rowIdx > 0 {
+				runes = append(runes, 10) // Newline separator
+			}
+			runes = append(runes, row...)
+		}
+		result.WriteString(fmt.Sprintf("\x1b]7002;s;%d;%g;%g;%d;%d;%d;%g;%g;%d",
+			id, sprite.X, sprite.Y, sprite.ZIndex, sprite.FGP, sprite.FlipCode,
+			sprite.XScale, sprite.YScale, sprite.CropRect))
+		for _, r := range runes {
+			result.WriteString(fmt.Sprintf(";%d", int(r)))
+		}
+		result.WriteString("\x07")
+	}
+
+	// Output cursor position restoration (only if cursor is not at end of content)
+	// The cursor is considered "at end" if it's on the last line at or past the content
+	// In that case, we don't need CSI A or G codes
+	if totalLines > 0 {
+		// Calculate how far back the cursor needs to go
+		linesFromEnd := totalLines - (len(b.scrollback) + b.cursorY + 1)
+
+		// Find the last non-empty character position on the last line
+		lastLineLen := 0
+		if len(b.screen) > 0 {
+			lastLine := b.screen[len(b.screen)-1]
+			for i := len(lastLine) - 1; i >= 0; i-- {
+				if lastLine[i].Char != 0 && lastLine[i].Char != ' ' {
+					lastLineLen = i + 1
+					break
+				}
+			}
+		}
+
+		// Only output cursor positioning if cursor is NOT at the natural end position
+		// Natural end = last line, at or after last content character
+		cursorAtEnd := (linesFromEnd == 0) && (b.cursorX >= lastLineLen)
+
+		if !cursorAtEnd {
+			// Need to reposition cursor
+			if linesFromEnd > 0 {
+				// Move up N lines
+				result.WriteString(fmt.Sprintf("\x1b[%dA", linesFromEnd))
+			}
+			if b.cursorX > 0 {
+				// Move to column (1-indexed)
+				result.WriteString(fmt.Sprintf("\x1b[%dG", b.cursorX+1))
+			}
+		}
 	}
 
 	return result.String()
