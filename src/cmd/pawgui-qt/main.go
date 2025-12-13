@@ -720,7 +720,7 @@ func quitApplication(parent *qt.QWidget) {
 	}
 
 	// Quit the application
-	qt.QApplication_Quit()
+	qt.QCoreApplication_Quit()
 }
 
 // saveScrollbackDialog shows a file dialog to save terminal scrollback
