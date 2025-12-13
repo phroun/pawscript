@@ -506,10 +506,10 @@ func applyToolbarButtonStyle(btn *gtk.Button, forVerticalStrip bool) {
 	}
 	var css string
 	if forVerticalStrip {
-		// Vertical strip: equal padding on all sides for square buttons
+		// Vertical strip: more vertical padding for taller buttons
 		css = `
 			button {
-				padding: 4px;
+				padding: 6px 4px;
 				min-width: 0;
 				min-height: 0;
 			}
