@@ -106,6 +106,7 @@ var (
 	launcherPaned          *gtk.Paned         // The main splitter
 	launcherRegisteredBtns []*ToolbarButton   // Additional registered buttons for launcher
 	launcherToolbarData    *WindowToolbarData // Toolbar data for the launcher window
+	launcherMenuCtx        *MenuContext       // Menu context for launcher window (updated after creation)
 
 	// Per-window toolbar data (keyed by PawScript instance)
 	toolbarDataByPS = make(map[*pawscript.PawScript]*WindowToolbarData)
@@ -367,20 +368,258 @@ License: MIT`, version)
 	dialog.Destroy()
 }
 
+// MenuContext holds callbacks and state for hamburger menu items
+type MenuContext struct {
+	Parent           gtk.IWindow
+	IsScriptWindow   bool
+	Terminal         *purfectermgtk.Terminal
+	IsScriptRunning  func() bool
+	StopScript       func()
+	IsFileListWide   func() bool              // Launcher only: returns true if wide panel visible
+	ToggleFileList   func()                   // Launcher only: toggles wide/narrow mode
+	CloseWindow      func()                   // Closes this window
+	FileListCheckItem *gtk.CheckMenuItem      // Reference to update check state
+}
+
 // createHamburgerMenu creates the hamburger dropdown menu
-// isScriptWindow: true for script windows (slightly different options)
-func createHamburgerMenu(parent gtk.IWindow, isScriptWindow bool) *gtk.Menu {
+// ctx provides callbacks for menu actions
+func createHamburgerMenu(ctx *MenuContext) *gtk.Menu {
 	menu, _ := gtk.MenuNew()
 
-	// About option
+	// About option (both)
 	aboutItem, _ := gtk.MenuItemNewWithLabel("About PawScript...")
 	aboutItem.Connect("activate", func() {
-		showAboutDialog(parent)
+		showAboutDialog(ctx.Parent)
 	})
 	menu.Append(aboutItem)
 
+	// File List checkbox (launcher only)
+	if !ctx.IsScriptWindow && ctx.ToggleFileList != nil {
+		fileListItem, _ := gtk.CheckMenuItemNewWithLabel("File List")
+		ctx.FileListCheckItem = fileListItem
+		// Set initial state
+		if ctx.IsFileListWide != nil {
+			fileListItem.SetActive(ctx.IsFileListWide())
+		}
+		fileListItem.Connect("toggled", func() {
+			if ctx.ToggleFileList != nil {
+				ctx.ToggleFileList()
+			}
+		})
+		menu.Append(fileListItem)
+	}
+
+	// Show Launcher (console windows only)
+	if ctx.IsScriptWindow {
+		showLauncherItem, _ := gtk.MenuItemNewWithLabel("Show Launcher")
+		showLauncherItem.Connect("activate", func() {
+			showOrCreateLauncher()
+		})
+		menu.Append(showLauncherItem)
+	}
+
+	// Separator
+	sep1, _ := gtk.SeparatorMenuItemNew()
+	menu.Append(sep1)
+
+	// Stop Script (both) - disabled when no script running
+	stopScriptItem, _ := gtk.MenuItemNewWithLabel("Stop Script")
+	stopScriptItem.SetSensitive(false) // Initially disabled
+	stopScriptItem.Connect("activate", func() {
+		if ctx.StopScript != nil {
+			ctx.StopScript()
+		}
+	})
+	menu.Append(stopScriptItem)
+
+	// Update sensitivity when menu is shown
+	menu.Connect("show", func() {
+		if ctx.IsScriptRunning != nil {
+			stopScriptItem.SetSensitive(ctx.IsScriptRunning())
+		}
+		// Also update file list checkbox state
+		if ctx.FileListCheckItem != nil && ctx.IsFileListWide != nil {
+			ctx.FileListCheckItem.SetActive(ctx.IsFileListWide())
+		}
+	})
+
+	// Separator
+	sep2, _ := gtk.SeparatorMenuItemNew()
+	menu.Append(sep2)
+
+	// Save Scrollback (both)
+	saveScrollbackItem, _ := gtk.MenuItemNewWithLabel("Save Scrollback...")
+	saveScrollbackItem.Connect("activate", func() {
+		if ctx.Terminal != nil {
+			saveScrollbackDialog(ctx.Parent, ctx.Terminal)
+		}
+	})
+	menu.Append(saveScrollbackItem)
+
+	// Clear Scrollback (both)
+	clearScrollbackItem, _ := gtk.MenuItemNewWithLabel("Clear Scrollback")
+	clearScrollbackItem.Connect("activate", func() {
+		if ctx.Terminal != nil {
+			ctx.Terminal.ClearScrollback()
+		}
+	})
+	menu.Append(clearScrollbackItem)
+
+	// Reset Terminal (both)
+	resetTerminalItem, _ := gtk.MenuItemNewWithLabel("Reset Terminal")
+	resetTerminalItem.Connect("activate", func() {
+		if ctx.Terminal != nil {
+			ctx.Terminal.Reset()
+		}
+	})
+	menu.Append(resetTerminalItem)
+
+	// Separator
+	sep3, _ := gtk.SeparatorMenuItemNew()
+	menu.Append(sep3)
+
+	// Close (both)
+	closeItem, _ := gtk.MenuItemNewWithLabel("Close")
+	closeItem.Connect("activate", func() {
+		if ctx.CloseWindow != nil {
+			ctx.CloseWindow()
+		}
+	})
+	menu.Append(closeItem)
+
+	// Quit PawScript (both)
+	quitItem, _ := gtk.MenuItemNewWithLabel("Quit PawScript")
+	quitItem.Connect("activate", func() {
+		quitApplication(ctx.Parent)
+	})
+	menu.Append(quitItem)
+
 	menu.ShowAll()
 	return menu
+}
+
+// showOrCreateLauncher brings the launcher window to front, or creates one if hidden/closed
+func showOrCreateLauncher() {
+	if mainWindow != nil {
+		mainWindow.Present()
+	} else if app != nil {
+		// Launcher was closed, create a new one
+		glib.IdleAdd(func() {
+			activate(app)
+		})
+	}
+}
+
+// quitApplication prompts for confirmation if scripts are running, then exits
+func quitApplication(parent gtk.IWindow) {
+	// Count windows with running scripts
+	runningScripts := 0
+	if app != nil {
+		windows := app.GetWindows()
+		for l := windows; l != nil; l = l.Next() {
+			// Check each window - we track script state per window
+			runningScripts++ // Simplified: count all windows for now
+		}
+	}
+
+	// Check if main launcher has running script
+	scriptMu.Lock()
+	launcherRunning := scriptRunning
+	scriptMu.Unlock()
+
+	// Count script windows with running scripts
+	toolbarDataMu.Lock()
+	scriptWindowCount := len(toolbarDataByPS)
+	toolbarDataMu.Unlock()
+
+	hasRunningScripts := launcherRunning || scriptWindowCount > 0
+
+	if hasRunningScripts {
+		// Show confirmation dialog
+		dialog := gtk.MessageDialogNew(
+			parent,
+			gtk.DIALOG_MODAL|gtk.DIALOG_DESTROY_WITH_PARENT,
+			gtk.MESSAGE_QUESTION,
+			gtk.BUTTONS_YES_NO,
+			"This will stop all scripts. Are you sure?",
+		)
+		dialog.SetTitle("Quit PawScript")
+		response := dialog.Run()
+		dialog.Destroy()
+
+		if response != gtk.RESPONSE_YES {
+			return
+		}
+	}
+
+	// Quit the application
+	if app != nil {
+		app.Quit()
+	}
+}
+
+// saveScrollbackDialog shows a file dialog to save terminal scrollback
+func saveScrollbackDialog(parent gtk.IWindow, term *purfectermgtk.Terminal) {
+	dialog, err := gtk.FileChooserDialogNewWith2Buttons(
+		"Save Scrollback",
+		parent.(*gtk.Window),
+		gtk.FILE_CHOOSER_ACTION_SAVE,
+		"Cancel", gtk.RESPONSE_CANCEL,
+		"Save", gtk.RESPONSE_ACCEPT,
+	)
+	if err != nil {
+		return
+	}
+	defer dialog.Destroy()
+
+	// Add file filters
+	ansFilter, _ := gtk.FileFilterNew()
+	ansFilter.SetName("ANSI Files (*.ans)")
+	ansFilter.AddPattern("*.ans")
+	dialog.AddFilter(ansFilter)
+
+	txtFilter, _ := gtk.FileFilterNew()
+	txtFilter.SetName("Text Files (*.txt)")
+	txtFilter.AddPattern("*.txt")
+	dialog.AddFilter(txtFilter)
+
+	allFilter, _ := gtk.FileFilterNew()
+	allFilter.SetName("All Files (*)")
+	allFilter.AddPattern("*")
+	dialog.AddFilter(allFilter)
+
+	// Set default filename
+	dialog.SetCurrentName("scrollback.ans")
+	dialog.SetDoOverwriteConfirmation(true)
+
+	if dialog.Run() == gtk.RESPONSE_ACCEPT {
+		filename := dialog.GetFilename()
+
+		// Determine format from extension
+		isANS := strings.HasSuffix(strings.ToLower(filename), ".ans")
+
+		// Get scrollback content from terminal
+		var content string
+		if isANS {
+			content = term.SaveScrollbackANS()
+		} else {
+			content = term.SaveScrollbackText()
+		}
+
+		// Write to file
+		if err := os.WriteFile(filename, []byte(content), 0644); err != nil {
+			// Show error dialog
+			errDialog := gtk.MessageDialogNew(
+				parent,
+				gtk.DIALOG_MODAL|gtk.DIALOG_DESTROY_WITH_PARENT,
+				gtk.MESSAGE_ERROR,
+				gtk.BUTTONS_OK,
+				"Failed to save file: %v", err,
+			)
+			errDialog.Run()
+			errDialog.Destroy()
+		}
+	}
 }
 
 // createHamburgerButton creates a hamburger menu button with SVG icon
@@ -409,9 +648,9 @@ func createHamburgerButton(menu *gtk.Menu, forVerticalStrip bool) *gtk.Button {
 	return btn
 }
 
-// createToolbarStrip creates a vertical strip of toolbar buttons
-// Returns the strip container and the hamburger button
-func createToolbarStrip(parent gtk.IWindow, isScriptWindow bool) (*gtk.Box, *gtk.Button, *gtk.Menu) {
+// createToolbarStripWithContext creates a vertical strip of toolbar buttons with full context
+// Returns the strip container, the hamburger button, and the MenuContext
+func createToolbarStripWithContext(ctx *MenuContext) (*gtk.Box, *gtk.Button, *MenuContext) {
 	strip, _ := gtk.BoxNew(gtk.ORIENTATION_VERTICAL, 4) // 4px spacing between buttons
 	strip.SetMarginStart(2)
 	strip.SetMarginEnd(2)
@@ -419,12 +658,23 @@ func createToolbarStrip(parent gtk.IWindow, isScriptWindow bool) (*gtk.Box, *gtk
 	strip.SetMarginBottom(5)
 
 	// Create hamburger menu and button
-	menu := createHamburgerMenu(parent, isScriptWindow)
+	menu := createHamburgerMenu(ctx)
 	menuBtn := createHamburgerButton(menu, true) // true = vertical strip
 
 	strip.PackStart(menuBtn, false, false, 0)
 
-	return strip, menuBtn, menu
+	return strip, menuBtn, ctx
+}
+
+// createToolbarStrip creates a vertical strip of toolbar buttons (simplified version)
+// Returns the strip container and the hamburger button
+func createToolbarStrip(parent gtk.IWindow, isScriptWindow bool, term *purfectermgtk.Terminal) (*gtk.Box, *gtk.Button, *MenuContext) {
+	ctx := &MenuContext{
+		Parent:         parent,
+		IsScriptWindow: isScriptWindow,
+		Terminal:       term,
+	}
+	return createToolbarStripWithContext(ctx)
 }
 
 // Minimum widths for panel collapse behavior
@@ -1307,9 +1557,19 @@ func runScriptInWindow(gtkApp *gtk.Application, scriptContent, scriptFile string
 	// Create main layout with collapsible toolbar strip
 	paned, _ := gtk.PanedNew(gtk.ORIENTATION_HORIZONTAL)
 
+	// Create MenuContext for this window
+	menuCtx := &MenuContext{
+		Parent:         win,
+		IsScriptWindow: true,
+		Terminal:       winTerminal,
+		CloseWindow: func() {
+			win.Close()
+		},
+	}
+
 	// Narrow strip for script window (always starts visible, collapsible)
 	// Console windows always show strip-only, so use extra left padding
-	strip, _, _ := createToolbarStrip(win, true)
+	strip, _, _ := createToolbarStripWithContext(menuCtx)
 	strip.SetMarginStart(2 + narrowOnlyExtraPadding)
 	strip.SetSizeRequest(minNarrowStripWidth, -1) // Keep original width, margin adds the extra space
 	paned.Pack1(strip, false, true)
@@ -1691,12 +1951,46 @@ func activate(application *gtk.Application) {
 	// Left panel container: holds wide panel (file browser) and narrow strip side by side
 	leftContainer, _ := gtk.BoxNew(gtk.ORIENTATION_HORIZONTAL, 0)
 
-	// Wide panel: File browser
+	// Create MenuContext for the launcher window first (before createFileBrowser which uses it)
+	launcherMenuCtx = &MenuContext{
+		Parent:         mainWindow,
+		IsScriptWindow: false,
+		Terminal:       terminal, // Main launcher terminal
+		IsScriptRunning: func() bool {
+			scriptMu.Lock()
+			defer scriptMu.Unlock()
+			return scriptRunning
+		},
+		IsFileListWide: func() bool {
+			// Wide if position > narrow strip width
+			return launcherPaned.GetPosition() > minNarrowStripWidth
+		},
+		ToggleFileList: func() {
+			pos := launcherPaned.GetPosition()
+			if pos > minNarrowStripWidth {
+				// Currently wide, collapse to narrow
+				launcherPaned.SetPosition(minNarrowStripWidth)
+			} else {
+				// Currently narrow, expand to wide
+				savedWidth := 300 // Default width
+				if appConfig != nil {
+					savedWidth = appConfig.GetInt("launcher_width", 300)
+				}
+				launcherPaned.SetPosition(savedWidth + minNarrowStripWidth)
+			}
+			updateLauncherToolbarButtons()
+		},
+		CloseWindow: func() {
+			mainWindow.Close()
+		},
+	}
+
+	// Wide panel: File browser (uses launcherMenuCtx for hamburger menu)
 	widePanel := createFileBrowser()
 	leftContainer.PackStart(widePanel, true, true, 0)
 
 	// Narrow strip: toolbar buttons (created but hidden initially - only 1 button)
-	launcherNarrowStrip, launcherStripMenuBtn, _ = createToolbarStrip(mainWindow, false)
+	launcherNarrowStrip, launcherStripMenuBtn, _ = createToolbarStripWithContext(launcherMenuCtx)
 	launcherNarrowStrip.SetNoShowAll(true)                      // Don't show when ShowAll is called
 	launcherNarrowStrip.SetSizeRequest(minNarrowStripWidth, -1) // Fixed width
 	leftContainer.PackStart(launcherNarrowStrip, false, false, 0)
@@ -1997,8 +2291,8 @@ func createFileBrowser() *gtk.Box {
 	topRow.PackStart(pathButton, true, true, 0)
 
 	// Hamburger menu button (shown when narrow strip is hidden)
-	// Note: menu parent will be set to mainWindow after it's created
-	launcherMenu := createHamburgerMenu(nil, false)
+	// Uses global launcherMenuCtx which is initialized before createFileBrowser is called
+	launcherMenu := createHamburgerMenu(launcherMenuCtx)
 	launcherMenuButton = createHamburgerButton(launcherMenu, false) // false = horizontal row
 	topRow.PackStart(launcherMenuButton, false, false, 0)
 
@@ -2515,9 +2809,28 @@ func createConsoleWindow(filePath string) {
 	// Create main layout with collapsible toolbar strip
 	paned, _ := gtk.PanedNew(gtk.ORIENTATION_HORIZONTAL)
 
+	// Track script running state for this window
+	var winScriptRunning bool
+	var winScriptMu sync.Mutex
+
+	// Create MenuContext for this console window
+	consoleMenuCtx := &MenuContext{
+		Parent:         win,
+		IsScriptWindow: true,
+		Terminal:       winTerminal,
+		IsScriptRunning: func() bool {
+			winScriptMu.Lock()
+			defer winScriptMu.Unlock()
+			return winScriptRunning
+		},
+		CloseWindow: func() {
+			win.Close()
+		},
+	}
+
 	// Narrow strip for script window (always starts visible, collapsible)
 	// Console windows always show strip-only, so use extra left padding
-	strip, _, _ := createToolbarStrip(win, true)
+	strip, _, _ := createToolbarStripWithContext(consoleMenuCtx)
 	strip.SetMarginStart(2 + narrowOnlyExtraPadding)
 	strip.SetSizeRequest(minNarrowStripWidth, -1) // Keep original width, margin adds the extra space
 	paned.Pack1(strip, false, true)
@@ -2772,9 +3085,7 @@ func createConsoleWindow(filePath string) {
 		}
 	}()
 
-	// Track script running state for this window
-	var winScriptRunning bool
-	var winScriptMu sync.Mutex
+	// REPL for interactive mode when no script is running
 	var winREPL *pawscript.REPL
 
 	// Wire keyboard input

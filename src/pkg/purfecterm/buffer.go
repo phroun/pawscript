@@ -1,6 +1,8 @@
 package purfecterm
 
 import (
+	"fmt"
+	"strings"
 	"sync"
 	"time"
 )
@@ -3822,4 +3824,235 @@ func (b *Buffer) resolveSpriteEntry(entry *PaletteEntry, fg, bg Color) (Color, b
 		}
 		return color, true
 	}
+}
+
+// --- Scrollback Management Methods ---
+
+// ClearScrollback clears the scrollback buffer
+func (b *Buffer) ClearScrollback() {
+	b.mu.Lock()
+	defer b.mu.Unlock()
+	b.scrollback = nil
+	b.scrollbackInfo = nil
+	b.scrollOffset = 0
+	b.markDirty()
+}
+
+// Reset resets the terminal to initial state
+// Moves current screen content to scrollback, then resets all modes and cursor
+func (b *Buffer) Reset() {
+	b.mu.Lock()
+	defer b.mu.Unlock()
+
+	// Push current screen content to scrollback first
+	for i := 0; i < len(b.screen); i++ {
+		if len(b.screen[i]) > 0 {
+			b.pushLineToScrollback(b.screen[i], b.lineInfos[i])
+		}
+	}
+
+	// Reset screen
+	b.initScreen()
+
+	// Reset cursor
+	b.cursorX = 0
+	b.cursorY = 0
+	b.cursorVisible = true
+	b.cursorShape = 0
+	b.cursorBlink = 0
+	b.savedCursorX = 0
+	b.savedCursorY = 0
+
+	// Reset attributes
+	b.currentFg = Color{}
+	b.currentBg = Color{}
+	b.currentBold = false
+	b.currentItalic = false
+	b.currentUnderline = false
+	b.currentReverse = false
+	b.currentBlink = false
+	b.currentFlexWidth = false
+
+	// Reset modes
+	b.bracketedPasteMode = false
+	b.flexWidthMode = false
+	b.visualWidthWrap = false
+	b.ambiguousWidthMode = AmbiguousWidthAuto
+	b.autoWrapMode = true
+	b.autoScrollDisabled = false
+	b.scrollbackDisabled = false
+	b.columnMode132 = false
+	b.columnMode40 = false
+	b.lineDensity = 25
+
+	// Reset custom graphics state
+	b.currentBGP = -1
+	b.currentXFlip = false
+	b.currentYFlip = false
+
+	// Reset scroll offset
+	b.scrollOffset = 0
+	b.horizOffset = 0
+
+	b.markDirty()
+	b.notifyScaleChange()
+}
+
+// SaveScrollbackText returns the scrollback and screen content as plain text
+func (b *Buffer) SaveScrollbackText() string {
+	b.mu.RLock()
+	defer b.mu.RUnlock()
+
+	var result strings.Builder
+
+	// Output scrollback lines
+	for _, line := range b.scrollback {
+		for _, cell := range line {
+			if cell.Char != 0 {
+				result.WriteRune(cell.Char)
+			}
+		}
+		result.WriteString("\n")
+	}
+
+	// Output screen lines
+	for _, line := range b.screen {
+		for _, cell := range line {
+			if cell.Char != 0 {
+				result.WriteRune(cell.Char)
+			}
+		}
+		result.WriteString("\n")
+	}
+
+	return result.String()
+}
+
+// SaveScrollbackANS returns the scrollback and screen with ANSI codes preserved
+// This is a basic implementation - full implementation would include:
+// - Custom palette definitions at the top
+// - Custom glyph definitions  
+// - Line attributes (DEC double height/width)
+// - Background color handling with CSI 2 K
+func (b *Buffer) SaveScrollbackANS() string {
+	b.mu.RLock()
+	defer b.mu.RUnlock()
+
+	var result strings.Builder
+
+	// Helper to write ANSI color code
+	writeColor := func(c Color, isFg bool) {
+		if isFg {
+			result.WriteString(fmt.Sprintf("\x1b[38;2;%d;%d;%dm", c.R, c.G, c.B))
+		} else {
+			result.WriteString(fmt.Sprintf("\x1b[48;2;%d;%d;%dm", c.R, c.G, c.B))
+		}
+	}
+
+	// Track current attributes to minimize escape sequences
+	var lastFg, lastBg Color
+	var lastBold, lastItalic, lastUnderline, lastReverse, lastBlink bool
+
+	outputLine := func(line []Cell, lineInfo LineInfo) {
+		hasNonDefaultBg := false
+
+		for _, cell := range line {
+			// Check if attributes changed
+			needsReset := false
+			if cell.Bold != lastBold || cell.Italic != lastItalic ||
+				cell.Underline != lastUnderline || cell.Reverse != lastReverse ||
+				cell.Blink != lastBlink {
+				needsReset = true
+			}
+
+			if needsReset {
+				result.WriteString("\x1b[0m") // Reset
+				lastFg = Color{}
+				lastBg = Color{}
+				lastBold = false
+				lastItalic = false
+				lastUnderline = false
+				lastReverse = false
+				lastBlink = false
+			}
+
+			// Set attributes
+			if cell.Bold && !lastBold {
+				result.WriteString("\x1b[1m")
+				lastBold = true
+			}
+			if cell.Italic && !lastItalic {
+				result.WriteString("\x1b[3m")
+				lastItalic = true
+			}
+			if cell.Underline && !lastUnderline {
+				result.WriteString("\x1b[4m")
+				lastUnderline = true
+			}
+			if cell.Reverse && !lastReverse {
+				result.WriteString("\x1b[7m")
+				lastReverse = true
+			}
+			if cell.Blink && !lastBlink {
+				result.WriteString("\x1b[5m")
+				lastBlink = true
+			}
+
+			// Set colors
+			if cell.Fg != lastFg {
+				writeColor(cell.Fg, true)
+				lastFg = cell.Fg
+			}
+			if cell.Bg != lastBg {
+				writeColor(cell.Bg, false)
+				lastBg = cell.Bg
+				if cell.Bg != (Color{}) {
+					hasNonDefaultBg = true
+				}
+			}
+
+			// Output character
+			if cell.Char != 0 {
+				result.WriteRune(cell.Char)
+			}
+		}
+
+		// If line had background color, clear to end and reset before newline
+		if hasNonDefaultBg {
+			result.WriteString("\x1b[K") // Clear to end of line
+		}
+		result.WriteString("\x1b[0m\n") // Reset and newline
+		lastFg = Color{}
+		lastBg = Color{}
+		lastBold = false
+		lastItalic = false
+		lastUnderline = false
+		lastReverse = false
+		lastBlink = false
+
+		// If background was dirty, clear next line
+		if hasNonDefaultBg {
+			result.WriteString("\x1b[2K") // Clear entire line
+		}
+	}
+
+	// Output scrollback lines
+	for i, line := range b.scrollback {
+		var lineInfo LineInfo
+		if i < len(b.scrollbackInfo) {
+			lineInfo = b.scrollbackInfo[i]
+		}
+		outputLine(line, lineInfo)
+	}
+
+	// Output screen lines
+	for i, line := range b.screen {
+		var lineInfo LineInfo
+		if i < len(b.lineInfos) {
+			lineInfo = b.lineInfos[i]
+		}
+		outputLine(line, lineInfo)
+	}
+
+	return result.String()
 }

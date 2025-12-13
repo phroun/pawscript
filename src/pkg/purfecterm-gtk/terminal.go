@@ -354,3 +354,23 @@ func (t *Terminal) GetHorizontalScale() float64 {
 func (t *Terminal) GetVerticalScale() float64 {
 	return t.widget.buffer.GetVerticalScale()
 }
+
+// ClearScrollback clears the scrollback buffer
+func (t *Terminal) ClearScrollback() {
+	t.widget.buffer.ClearScrollback()
+}
+
+// Reset resets the terminal to initial state (clears screen to scrollback, resets modes)
+func (t *Terminal) Reset() {
+	t.widget.buffer.Reset()
+}
+
+// SaveScrollbackText returns the entire scrollback and screen as plain text
+func (t *Terminal) SaveScrollbackText() string {
+	return t.widget.buffer.SaveScrollbackText()
+}
+
+// SaveScrollbackANS returns the scrollback and screen with ANSI escape codes preserved
+func (t *Terminal) SaveScrollbackANS() string {
+	return t.widget.buffer.SaveScrollbackANS()
+}
