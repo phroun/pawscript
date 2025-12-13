@@ -1300,8 +1300,18 @@ func runScriptInWindow(gtkApp *gtk.Application, scriptContent, scriptFile string
 	// Script windows only have two positions: 0 (collapsed) or visible (with extra padding)
 	consoleStripWidth := minNarrowStripWidth + narrowOnlyExtraPadding
 	paned.SetPosition(consoleStripWidth)
+
+	// Track position changes for drag detection
+	var consolePanedPressPos int = -1
+	var consolePanedDragged bool
+
 	paned.Connect("notify::position", func() {
 		pos := paned.GetPosition()
+		// Track dragging
+		if consolePanedPressPos >= 0 && pos != consolePanedPressPos {
+			consolePanedDragged = true
+		}
+		// Snap behavior
 		if pos == 0 {
 			// Already collapsed, do nothing
 		} else if pos < consoleStripWidth/2 {
@@ -1311,6 +1321,32 @@ func runScriptInWindow(gtkApp *gtk.Application, scriptContent, scriptFile string
 			// More than half but not at fixed width - snap to visible
 			paned.SetPosition(consoleStripWidth)
 		}
+	})
+
+	// Handle click events on the console splitter handle
+	paned.Connect("button-press-event", func(p *gtk.Paned, ev *gdk.Event) bool {
+		btnEvent := gdk.EventButtonNewFromEvent(ev)
+		if btnEvent.Button() == 1 {
+			consolePanedPressPos = p.GetPosition()
+			consolePanedDragged = false
+		}
+		return false
+	})
+
+	paned.Connect("button-release-event", func(p *gtk.Paned, ev *gdk.Event) bool {
+		btnEvent := gdk.EventButtonNewFromEvent(ev)
+		if btnEvent.Button() != 1 || consolePanedDragged || consolePanedPressPos < 0 {
+			consolePanedPressPos = -1
+			return false
+		}
+		// Single click: toggle between collapsed and narrow mode
+		if p.GetPosition() == 0 {
+			p.SetPosition(consoleStripWidth)
+		} else {
+			p.SetPosition(0)
+		}
+		consolePanedPressPos = -1
+		return true
 	})
 
 	win.Add(paned)
@@ -1695,6 +1731,90 @@ func activate(application *gtk.Application) {
 				saveLauncherWidth(launcherPaned.GetPosition())
 			}
 		}
+	})
+
+	// Handle click events on the splitter handle
+	// Track if the position changed during a press-release cycle (drag vs click)
+	var launcherPanedPressPos int = -1
+	var launcherPanedDragged bool
+	var launcherPanedDoubleClick bool
+
+	launcherPaned.Connect("button-press-event", func(paned *gtk.Paned, ev *gdk.Event) bool {
+		btnEvent := gdk.EventButtonNewFromEvent(ev)
+		if btnEvent.Button() == 1 { // Left mouse button
+			// Check for double-click (detected on press in GTK)
+			if btnEvent.Type() == gdk.EVENT_2BUTTON_PRESS {
+				launcherPanedDoubleClick = true
+				// Double-click: collapse completely
+				paned.SetPosition(0)
+				return true
+			}
+			launcherPanedPressPos = paned.GetPosition()
+			launcherPanedDragged = false
+			launcherPanedDoubleClick = false
+		}
+		return false // Let GTK handle the event too
+	})
+
+	// Track position changes during drag (additional handler)
+	launcherPaned.Connect("notify::position", func() {
+		if launcherPanedPressPos >= 0 {
+			currentPos := launcherPaned.GetPosition()
+			if currentPos != launcherPanedPressPos {
+				launcherPanedDragged = true
+			}
+		}
+	})
+
+	launcherPaned.Connect("button-release-event", func(paned *gtk.Paned, ev *gdk.Event) bool {
+		btnEvent := gdk.EventButtonNewFromEvent(ev)
+		if btnEvent.Button() != 1 { // Only handle left mouse button
+			return false
+		}
+
+		// If it was a double-click, already handled in press
+		if launcherPanedDoubleClick {
+			launcherPanedDoubleClick = false
+			launcherPanedPressPos = -1
+			return true
+		}
+
+		// If dragged, don't treat as click
+		if launcherPanedDragged {
+			launcherPanedPressPos = -1
+			return false
+		}
+
+		// If no press was recorded, ignore
+		if launcherPanedPressPos < 0 {
+			return false
+		}
+
+		pos := paned.GetPosition()
+		hasMultipleButtons := len(launcherRegisteredBtns) > 0
+
+		// Single click behavior based on current state
+		if pos == 0 {
+			// Collapsed -> narrow mode
+			paned.SetPosition(narrowOnlyWidth)
+		} else if pos <= narrowOnlyWidth {
+			// Narrow mode -> wide mode
+			savedWidth := getLauncherWidth()
+			if savedWidth <= narrowOnlyWidth {
+				savedWidth = 280 // Default wide width
+			}
+			if hasMultipleButtons {
+				paned.SetPosition(savedWidth + minNarrowStripWidth)
+			} else {
+				paned.SetPosition(savedWidth)
+			}
+		} else {
+			// Wide mode -> narrow mode
+			paned.SetPosition(narrowOnlyWidth)
+		}
+
+		launcherPanedPressPos = -1
+		return true
 	})
 
 	mainBox.PackStart(launcherPaned, true, true, 0)
@@ -2349,8 +2469,18 @@ func createConsoleWindow(filePath string) {
 	// Script windows only have two positions: 0 (collapsed) or visible (with extra padding)
 	consoleStripWidth := minNarrowStripWidth + 4 + narrowOnlyExtraPadding
 	paned.SetPosition(consoleStripWidth)
+
+	// Track position changes for drag detection
+	var consolePanedPressPos int = -1
+	var consolePanedDragged bool
+
 	paned.Connect("notify::position", func() {
 		pos := paned.GetPosition()
+		// Track dragging
+		if consolePanedPressPos >= 0 && pos != consolePanedPressPos {
+			consolePanedDragged = true
+		}
+		// Snap behavior
 		if pos == 0 {
 			// Already collapsed, do nothing
 		} else if pos < consoleStripWidth/2 {
@@ -2360,6 +2490,32 @@ func createConsoleWindow(filePath string) {
 			// More than half but not at fixed width - snap to visible
 			paned.SetPosition(consoleStripWidth)
 		}
+	})
+
+	// Handle click events on the console splitter handle
+	paned.Connect("button-press-event", func(p *gtk.Paned, ev *gdk.Event) bool {
+		btnEvent := gdk.EventButtonNewFromEvent(ev)
+		if btnEvent.Button() == 1 {
+			consolePanedPressPos = p.GetPosition()
+			consolePanedDragged = false
+		}
+		return false
+	})
+
+	paned.Connect("button-release-event", func(p *gtk.Paned, ev *gdk.Event) bool {
+		btnEvent := gdk.EventButtonNewFromEvent(ev)
+		if btnEvent.Button() != 1 || consolePanedDragged || consolePanedPressPos < 0 {
+			consolePanedPressPos = -1
+			return false
+		}
+		// Single click: toggle between collapsed and narrow mode
+		if p.GetPosition() == 0 {
+			p.SetPosition(consoleStripWidth)
+		} else {
+			p.SetPosition(0)
+		}
+		consolePanedPressPos = -1
+		return true
 	})
 
 	win.Add(paned)

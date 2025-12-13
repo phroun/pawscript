@@ -1261,8 +1261,8 @@ func launchGUIMode() {
 
 		hasMultipleButtons := len(launcherRegisteredBtns) > 0
 
-		// Calculate threshold for showing both panels (wide panel needs its min width plus narrow strip width)
-		bothThreshold := minWidePanelWidth + minNarrowStripWidth
+		// Calculate threshold for showing both panels (use halfway point for easier expansion)
+		bothThreshold := (minWidePanelWidth / 2) + minNarrowStripWidth
 
 		// Use halfway points for snapping decisions
 		narrowSnapPoint := minNarrowStripWidth / 2 // 20 - below this, collapse fully
@@ -1307,6 +1307,122 @@ func launchGUIMode() {
 			}
 		}
 	})
+
+	// Handle click events on the splitter handle
+	// Track if the position changed during a press-release cycle (drag vs click)
+	var launcherSplitterPressPos int = -1
+	var launcherSplitterDragged bool
+
+	splitterHandle := launcherSplitter.Handle(1)
+	if splitterHandle != nil {
+		splitterHandle.OnMousePressEvent(func(super func(event *qt.QMouseEvent), event *qt.QMouseEvent) {
+			if event.Button() == qt.LeftButton {
+				sizes := launcherSplitter.Sizes()
+				if len(sizes) >= 1 {
+					launcherSplitterPressPos = sizes[0]
+				}
+				launcherSplitterDragged = false
+			}
+			super(event)
+		})
+
+		splitterHandle.OnMouseMoveEvent(func(super func(event *qt.QMouseEvent), event *qt.QMouseEvent) {
+			// If mouse moved while pressed, it's a drag
+			if launcherSplitterPressPos >= 0 {
+				launcherSplitterDragged = true
+			}
+			super(event)
+		})
+
+		splitterHandle.OnMouseReleaseEvent(func(super func(event *qt.QMouseEvent), event *qt.QMouseEvent) {
+			if event.Button() != qt.LeftButton {
+				super(event)
+				return
+			}
+
+			// If dragged or no press recorded, don't treat as click
+			if launcherSplitterDragged || launcherSplitterPressPos < 0 {
+				launcherSplitterPressPos = -1
+				super(event)
+				return
+			}
+
+			sizes := launcherSplitter.Sizes()
+			if len(sizes) < 2 {
+				launcherSplitterPressPos = -1
+				super(event)
+				return
+			}
+
+			pos := sizes[0]
+			totalWidth := sizes[0] + sizes[1]
+			hasMultipleButtons := len(launcherRegisteredBtns) > 0
+
+			// Single click behavior based on current state
+			if pos == 0 {
+				// Collapsed -> narrow mode
+				splitterAdjusting = true
+				launcherSplitter.SetSizes([]int{minNarrowStripWidth, totalWidth - minNarrowStripWidth})
+				splitterAdjusting = false
+				launcherWidePanel.Hide()
+				launcherNarrowStrip.Show()
+				launcherMenuButton.Hide()
+				launcherStripMenuBtn.Show()
+			} else if pos <= minNarrowStripWidth {
+				// Narrow mode -> wide mode
+				savedWidth := getLauncherWidth()
+				if savedWidth <= minNarrowStripWidth {
+					savedWidth = 280 // Default wide width
+				}
+				newPos := savedWidth
+				if hasMultipleButtons {
+					newPos = savedWidth + minNarrowStripWidth
+				}
+				splitterAdjusting = true
+				launcherSplitter.SetSizes([]int{newPos, totalWidth - newPos})
+				splitterAdjusting = false
+				launcherWidePanel.Show()
+				if hasMultipleButtons {
+					launcherNarrowStrip.Show()
+					launcherMenuButton.Hide()
+					launcherStripMenuBtn.Show()
+				} else {
+					launcherNarrowStrip.Hide()
+					launcherMenuButton.Show()
+				}
+			} else {
+				// Wide mode -> narrow mode
+				splitterAdjusting = true
+				launcherSplitter.SetSizes([]int{minNarrowStripWidth, totalWidth - minNarrowStripWidth})
+				splitterAdjusting = false
+				launcherWidePanel.Hide()
+				launcherNarrowStrip.Show()
+				launcherMenuButton.Hide()
+				launcherStripMenuBtn.Show()
+			}
+
+			launcherSplitterPressPos = -1
+			// Don't call super to prevent default behavior
+		})
+
+		splitterHandle.OnMouseDoubleClickEvent(func(super func(event *qt.QMouseEvent), event *qt.QMouseEvent) {
+			if event.Button() == qt.LeftButton {
+				// Double-click: collapse completely
+				sizes := launcherSplitter.Sizes()
+				if len(sizes) >= 2 {
+					totalWidth := sizes[0] + sizes[1]
+					splitterAdjusting = true
+					launcherSplitter.SetSizes([]int{0, totalWidth})
+					splitterAdjusting = false
+					launcherWidePanel.Hide()
+					launcherNarrowStrip.Hide()
+					launcherMenuButton.Show()
+					saveLauncherWidth(0)
+				}
+			}
+			// Don't call super to prevent default behavior
+		})
+	}
 
 	mainLayout.AddWidget(launcherSplitter.QWidget)
 	mainWindow.SetCentralWidget(centralWidget)
@@ -1601,6 +1717,50 @@ func runScriptInWindow(scriptContent, scriptFile string, scriptArgs []string,
 			winSplitter.SetSizes([]int{minNarrowStripWidth, winSplitter.Width() - minNarrowStripWidth})
 		}
 	})
+
+	// Handle click events on the console splitter handle
+	var winSplitterPressPos int = -1
+	var winSplitterDragged bool
+
+	winSplitterHandle := winSplitter.Handle(1)
+	if winSplitterHandle != nil {
+		winSplitterHandle.OnMousePressEvent(func(super func(event *qt.QMouseEvent), event *qt.QMouseEvent) {
+			if event.Button() == qt.LeftButton {
+				sizes := winSplitter.Sizes()
+				if len(sizes) >= 1 {
+					winSplitterPressPos = sizes[0]
+				}
+				winSplitterDragged = false
+			}
+			super(event)
+		})
+
+		winSplitterHandle.OnMouseMoveEvent(func(super func(event *qt.QMouseEvent), event *qt.QMouseEvent) {
+			if winSplitterPressPos >= 0 {
+				winSplitterDragged = true
+			}
+			super(event)
+		})
+
+		winSplitterHandle.OnMouseReleaseEvent(func(super func(event *qt.QMouseEvent), event *qt.QMouseEvent) {
+			if event.Button() != qt.LeftButton || winSplitterDragged || winSplitterPressPos < 0 {
+				winSplitterPressPos = -1
+				super(event)
+				return
+			}
+			sizes := winSplitter.Sizes()
+			if len(sizes) >= 2 {
+				totalWidth := sizes[0] + sizes[1]
+				// Single click: toggle between collapsed and narrow mode
+				if sizes[0] == 0 {
+					winSplitter.SetSizes([]int{minNarrowStripWidth, totalWidth - minNarrowStripWidth})
+				} else {
+					winSplitter.SetSizes([]int{0, totalWidth})
+				}
+			}
+			winSplitterPressPos = -1
+		})
+	}
 
 	win.SetCentralWidget(winSplitter.QWidget)
 
@@ -2552,6 +2712,50 @@ func createConsoleWindow(filePath string) {
 			winSplitter.SetSizes([]int{minNarrowStripWidth, winSplitter.Width() - minNarrowStripWidth})
 		}
 	})
+
+	// Handle click events on the console splitter handle
+	var winSplitterPressPos int = -1
+	var winSplitterDragged bool
+
+	winSplitterHandle := winSplitter.Handle(1)
+	if winSplitterHandle != nil {
+		winSplitterHandle.OnMousePressEvent(func(super func(event *qt.QMouseEvent), event *qt.QMouseEvent) {
+			if event.Button() == qt.LeftButton {
+				sizes := winSplitter.Sizes()
+				if len(sizes) >= 1 {
+					winSplitterPressPos = sizes[0]
+				}
+				winSplitterDragged = false
+			}
+			super(event)
+		})
+
+		winSplitterHandle.OnMouseMoveEvent(func(super func(event *qt.QMouseEvent), event *qt.QMouseEvent) {
+			if winSplitterPressPos >= 0 {
+				winSplitterDragged = true
+			}
+			super(event)
+		})
+
+		winSplitterHandle.OnMouseReleaseEvent(func(super func(event *qt.QMouseEvent), event *qt.QMouseEvent) {
+			if event.Button() != qt.LeftButton || winSplitterDragged || winSplitterPressPos < 0 {
+				winSplitterPressPos = -1
+				super(event)
+				return
+			}
+			sizes := winSplitter.Sizes()
+			if len(sizes) >= 2 {
+				totalWidth := sizes[0] + sizes[1]
+				// Single click: toggle between collapsed and narrow mode
+				if sizes[0] == 0 {
+					winSplitter.SetSizes([]int{minNarrowStripWidth, totalWidth - minNarrowStripWidth})
+				} else {
+					winSplitter.SetSizes([]int{0, totalWidth})
+				}
+			}
+			winSplitterPressPos = -1
+		})
+	}
 
 	win.SetCentralWidget(winSplitter.QWidget)
 
