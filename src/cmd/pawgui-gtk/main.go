@@ -1267,7 +1267,7 @@ func runScriptInWindow(gtkApp *gtk.Application, scriptContent, scriptFile string
 	// Console windows always show strip-only, so use extra left padding
 	strip, _, _ := createToolbarStrip(win, true)
 	strip.SetMarginStart(2 + narrowOnlyExtraPadding)
-	strip.SetSizeRequest(minNarrowStripWidth+narrowOnlyExtraPadding, -1) // Fixed width with extra padding
+	strip.SetSizeRequest(minNarrowStripWidth, -1) // Keep original width, margin adds the extra space
 	paned.Pack1(strip, false, true)
 
 	// Terminal on the right
@@ -2302,7 +2302,7 @@ func createConsoleWindow(filePath string) {
 	// Console windows always show strip-only, so use extra left padding
 	strip, _, _ := createToolbarStrip(win, true)
 	strip.SetMarginStart(2 + narrowOnlyExtraPadding)
-	strip.SetSizeRequest(minNarrowStripWidth+narrowOnlyExtraPadding, -1) // Fixed width with extra padding
+	strip.SetSizeRequest(minNarrowStripWidth, -1) // Keep original width, margin adds the extra space
 	paned.Pack1(strip, false, true)
 
 	// Terminal on the right
