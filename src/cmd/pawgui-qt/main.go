@@ -691,24 +691,39 @@ func toggleFileList() {
 		return
 	}
 	totalWidth := sizes[0] + sizes[1]
+	hasMultipleButtons := len(launcherRegisteredBtns) > 0
 
 	// Use same threshold as isWideMode() for consistency
 	bothThreshold := (minWidePanelWidth / 2) + minNarrowStripWidth
 
 	if sizes[0] >= bothThreshold {
 		// Currently wide - collapse to narrow-only strip
+		// Must hide wide panel BEFORE setting sizes, otherwise it fights for space
+		launcherWidePanel.Hide()
+		launcherNarrowStrip.Show()
+		launcherMenuButton.Hide()
+		launcherStripMenuBtn.Show()
 		launcherSplitter.SetSizes([]int{minNarrowStripWidth, totalWidth - minNarrowStripWidth})
+		saveLauncherWidth(minNarrowStripWidth)
 	} else {
 		// Currently narrow or collapsed - expand to wide
 		savedWidth := 300 // Default
 		if appConfig != nil {
 			savedWidth = appConfig.GetInt("launcher_width", 300)
 		}
-		hasMultipleButtons := len(launcherRegisteredBtns) > 0
+		// Show wide panel before resizing
+		launcherWidePanel.Show()
 		if hasMultipleButtons {
+			launcherNarrowStrip.Show()
+			launcherMenuButton.Hide()
+			launcherStripMenuBtn.Show()
 			launcherSplitter.SetSizes([]int{savedWidth + minNarrowStripWidth, totalWidth - savedWidth - minNarrowStripWidth})
+			saveLauncherWidth(savedWidth)
 		} else {
+			launcherNarrowStrip.Hide()
+			launcherMenuButton.Show()
 			launcherSplitter.SetSizes([]int{savedWidth, totalWidth - savedWidth})
+			saveLauncherWidth(savedWidth)
 		}
 	}
 }

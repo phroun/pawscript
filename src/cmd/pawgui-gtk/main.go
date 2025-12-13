@@ -395,9 +395,11 @@ func createHamburgerMenu(ctx *MenuContext) *gtk.Menu {
 	menu.Append(aboutItem)
 
 	// File List checkbox (launcher only)
+	// Note: Each menu instance gets its own checkbox that syncs via the show handler
+	var localFileListItem *gtk.CheckMenuItem
 	if !ctx.IsScriptWindow && ctx.ToggleFileList != nil {
 		fileListItem, _ := gtk.CheckMenuItemNewWithLabel("File List")
-		ctx.FileListCheckItem = fileListItem
+		localFileListItem = fileListItem
 		// Set initial state (with flag to prevent triggering toggle)
 		if ctx.IsFileListWide != nil {
 			ctx.updatingCheckbox = true
@@ -452,9 +454,10 @@ func createHamburgerMenu(ctx *MenuContext) *gtk.Menu {
 			stopScriptItem.SetSensitive(ctx.IsScriptRunning())
 		}
 		// Update file list checkbox state (with flag to prevent triggering toggle)
-		if ctx.FileListCheckItem != nil && ctx.IsFileListWide != nil {
+		// Uses localFileListItem so each menu updates its own checkbox, not a shared reference
+		if localFileListItem != nil && ctx.IsFileListWide != nil {
 			ctx.updatingCheckbox = true
-			ctx.FileListCheckItem.SetActive(ctx.IsFileListWide())
+			localFileListItem.SetActive(ctx.IsFileListWide())
 			ctx.updatingCheckbox = false
 		}
 	})
