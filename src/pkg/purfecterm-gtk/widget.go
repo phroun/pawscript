@@ -1536,14 +1536,8 @@ func (w *Widget) renderScreenSplits(cr *cairo.Context, splits []*purfecterm.Scre
 				continue
 			}
 
-			fg := cell.Foreground
-			bg := cell.Background
-			if fg.IsDefault() {
-				fg = scheme.Foreground
-			}
-			if bg.IsDefault() {
-				bg = scheme.Background
-			}
+			fg := scheme.ResolveColor(cell.Foreground, true)
+			bg := scheme.ResolveColor(cell.Background, false)
 
 			// Draw cell background if different from terminal background
 			if bg != scheme.Background {
@@ -1710,14 +1704,8 @@ func (w *Widget) onDraw(da *gtk.DrawingArea, cr *cairo.Context) bool {
 			}
 
 			// Determine colors
-			fg := cell.Foreground
-			bg := cell.Background
-			if fg.IsDefault() {
-				fg = scheme.Foreground
-			}
-			if bg.IsDefault() {
-				bg = scheme.Background
-			}
+			fg := scheme.ResolveColor(cell.Foreground, true)
+			bg := scheme.ResolveColor(cell.Background, false)
 
 			// Handle blink attribute based on mode
 			blinkVisible := true // For traditional blink mode

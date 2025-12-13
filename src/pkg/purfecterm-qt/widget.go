@@ -1405,14 +1405,8 @@ func (w *Widget) renderScreenSplits(painter *qt.QPainter, splits []*purfecterm.S
 				continue
 			}
 
-			fg := cell.Foreground
-			bg := cell.Background
-			if fg.IsDefault() {
-				fg = scheme.Foreground
-			}
-			if bg.IsDefault() {
-				bg = scheme.Background
-			}
+			fg := scheme.ResolveColor(cell.Foreground, true)
+			bg := scheme.ResolveColor(cell.Background, false)
 
 			// Draw cell background if different from terminal background
 			if bg != scheme.Background {
@@ -1558,14 +1552,8 @@ func (w *Widget) paintEvent(event *qt.QPaintEvent) {
 				cellVisualWidth = cell.CellWidth
 			}
 
-			fg := cell.Foreground
-			bg := cell.Background
-			if fg.IsDefault() {
-				fg = scheme.Foreground
-			}
-			if bg.IsDefault() {
-				bg = scheme.Background
-			}
+			fg := scheme.ResolveColor(cell.Foreground, true)
+			bg := scheme.ResolveColor(cell.Background, false)
 
 			// Handle blink
 			blinkVisible := true

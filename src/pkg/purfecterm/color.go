@@ -268,6 +268,37 @@ type ColorScheme struct {
 	BlinkMode  BlinkMode
 }
 
+// ResolveColor resolves a color using this scheme's palette.
+// For ColorTypeStandard (0-15), looks up the color in the scheme's Palette.
+// For ColorTypeDefault, returns the scheme's foreground (if isFg) or background.
+// For other types, returns the color unchanged.
+func (s ColorScheme) ResolveColor(c Color, isFg bool) Color {
+	switch c.Type {
+	case ColorTypeDefault:
+		if isFg {
+			return s.Foreground
+		}
+		return s.Background
+	case ColorTypeStandard:
+		idx := int(c.Index)
+		if idx >= 0 && idx < len(s.Palette) {
+			return s.Palette[idx]
+		}
+		// Fall back to default palette if scheme palette is empty/short
+		if idx >= 0 && idx < len(ANSIColors) {
+			return ANSIColors[idx]
+		}
+	case ColorTypePalette:
+		// For 256-color palette, indices 0-15 use scheme palette
+		idx := int(c.Index)
+		if idx < 16 && idx < len(s.Palette) {
+			return s.Palette[idx]
+		}
+		// Indices 16-255 use the fixed 256-color values (already baked in)
+	}
+	return c
+}
+
 // ParseBlinkMode parses a blink mode string
 func ParseBlinkMode(s string) BlinkMode {
 	switch s {
