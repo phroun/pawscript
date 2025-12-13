@@ -1538,10 +1538,10 @@ func (w *Widget) renderScreenSplits(cr *cairo.Context, splits []*purfecterm.Scre
 
 			fg := cell.Foreground
 			bg := cell.Background
-			if fg.Default {
+			if fg.IsDefault() {
 				fg = scheme.Foreground
 			}
-			if bg.Default {
+			if bg.IsDefault() {
 				bg = scheme.Background
 			}
 
@@ -1712,10 +1712,10 @@ func (w *Widget) onDraw(da *gtk.DrawingArea, cr *cairo.Context) bool {
 			// Determine colors
 			fg := cell.Foreground
 			bg := cell.Background
-			if fg.Default {
+			if fg.IsDefault() {
 				fg = scheme.Foreground
 			}
-			if bg.Default {
+			if bg.IsDefault() {
 				bg = scheme.Background
 			}
 

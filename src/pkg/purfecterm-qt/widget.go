@@ -1407,10 +1407,10 @@ func (w *Widget) renderScreenSplits(painter *qt.QPainter, splits []*purfecterm.S
 
 			fg := cell.Foreground
 			bg := cell.Background
-			if fg.Default {
+			if fg.IsDefault() {
 				fg = scheme.Foreground
 			}
-			if bg.Default {
+			if bg.IsDefault() {
 				bg = scheme.Background
 			}
 
@@ -1560,10 +1560,10 @@ func (w *Widget) paintEvent(event *qt.QPaintEvent) {
 
 			fg := cell.Foreground
 			bg := cell.Background
-			if fg.Default {
+			if fg.IsDefault() {
 				fg = scheme.Foreground
 			}
-			if bg.Default {
+			if bg.IsDefault() {
 				bg = scheme.Background
 			}
 
