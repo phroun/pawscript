@@ -617,7 +617,11 @@ func saveScrollbackDialog(parent gtk.IWindow, term *purfectermgtk.Terminal) {
 		// Get scrollback content from terminal
 		var content string
 		if isANS {
-			content = term.SaveScrollbackANS()
+			// Add header comment with version info using OSC 9999
+			timestamp := time.Now().UTC().Format("2006-01-02T15:04:05Z")
+			header := fmt.Sprintf("\x1b]9999;PawScript %s (GTK; %s; %s) Buffer Saved %s\x07",
+				version, runtime.GOOS, runtime.GOARCH, timestamp)
+			content = header + term.SaveScrollbackANS()
 		} else {
 			content = term.SaveScrollbackText()
 		}

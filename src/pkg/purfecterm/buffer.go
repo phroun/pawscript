@@ -3959,6 +3959,7 @@ func (b *Buffer) SaveScrollbackText() string {
 // 1. TOP: Custom palette definitions (OSC 7000), custom glyph definitions (OSC 7001)
 // 2. BODY: Content lines with DEC line attributes, SGR codes, BGP/flip attributes
 // 3. END: Sprite units, screen splits, screen crop, crop rectangles, sprites, cursor position
+// Callers may prepend a header comment using OSC 9999 before this output.
 func (b *Buffer) SaveScrollbackANS() string {
 	b.mu.RLock()
 	defer b.mu.RUnlock()
@@ -4049,7 +4050,8 @@ func (b *Buffer) SaveScrollbackANS() string {
 	// Track current attributes to minimize escape sequences
 	var lastFg, lastBg Color
 	var lastBold, lastItalic, lastUnderline, lastReverse, lastBlink bool
-	var lastFlexWidth bool // Track flex width mode state
+	var lastFlexWidth bool                                    // Track flex width mode state
+	var lastAmbiguousWide bool                                // Track if ambiguous width is set to wide
 	var lastBGP int = -1
 	var lastXFlip, lastYFlip bool
 	var lastLineAttr LineAttribute = LineAttrNormal
@@ -4176,6 +4178,20 @@ func (b *Buffer) SaveScrollbackANS() string {
 					result.WriteString("\x1b[?2027l") // Disable flex width
 				}
 				lastFlexWidth = cell.FlexWidth
+			}
+
+			// For ambiguous width characters, toggle wide/narrow mode as needed
+			// This ensures characters like Greek, Cyrillic, symbols render at correct width
+			if cell.FlexWidth && cell.Char != 0 && IsAmbiguousWidth(cell.Char) {
+				needsWide := cell.CellWidth >= 2.0
+				if needsWide != lastAmbiguousWide {
+					if needsWide {
+						result.WriteString("\x1b[?2030h") // Ambiguous width: wide
+					} else {
+						result.WriteString("\x1b[?2029h") // Ambiguous width: narrow
+					}
+					lastAmbiguousWide = needsWide
+				}
 			}
 
 			// Output character and combining marks
