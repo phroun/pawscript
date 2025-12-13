@@ -327,6 +327,7 @@ func showAboutDialog(parent gtk.IWindow) {
 		"",
 	)
 	dialog.SetTitle("About PawScript")
+	dialog.SetPosition(gtk.WIN_POS_CENTER_ON_PARENT)
 
 	// Build about text
 	aboutText := fmt.Sprintf(`<b>PawScript</b>

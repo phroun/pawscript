@@ -548,7 +548,25 @@ func showAboutDialog(parent *qt.QWidget) {
 <p>Copyright © 2025 Jeffrey R. Day<br>
 License: MIT</p>`, version)
 
-	qt.QMessageBox_About(parent, "About PawScript", aboutText)
+	// Create a custom message box to ensure proper centering
+	msgBox := qt.NewQMessageBox2(parent)
+	msgBox.SetWindowTitle("About PawScript")
+	msgBox.SetTextFormat(qt.RichText)
+	msgBox.SetText(aboutText)
+	msgBox.SetIcon(qt.QMessageBox__Information)
+	msgBox.SetStandardButtons(qt.QMessageBox__Ok)
+
+	// Center on parent window
+	if parent != nil {
+		parentGeo := parent.Geometry()
+		msgBox.Show() // Need to show first to get size
+		msgBox.Move2(
+			parentGeo.X()+(parentGeo.Width()-msgBox.Width())/2,
+			parentGeo.Y()+(parentGeo.Height()-msgBox.Height())/2,
+		)
+	}
+
+	msgBox.Exec()
 }
 
 // createHamburgerMenu creates the hamburger dropdown menu
