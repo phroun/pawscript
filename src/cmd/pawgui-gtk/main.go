@@ -404,7 +404,7 @@ func createToolbarStrip(parent gtk.IWindow, isScriptWindow bool) (*gtk.Box, *gtk
 // Minimum widths for panel collapse behavior
 const (
 	minWidePanelWidth   = 196 // Minimum width before wide panel collapses
-	minNarrowStripWidth = 40  // Minimum width before narrow strip collapses
+	minNarrowStripWidth = 46  // Minimum width before narrow strip collapses
 )
 
 // Embedded SVG icons (fill color is replaced at runtime based on theme)
