@@ -2314,7 +2314,7 @@ func createConsoleWindow(filePath string) {
 
 	// Set initial strip width and collapse behavior
 	// Script windows only have two positions: 0 (collapsed) or visible (with extra padding)
-	consoleStripWidth := minNarrowStripWidth + narrowOnlyExtraPadding
+	consoleStripWidth := minNarrowStripWidth + 4 + narrowOnlyExtraPadding
 	paned.SetPosition(consoleStripWidth)
 	paned.Connect("notify::position", func() {
 		pos := paned.GetPosition()
