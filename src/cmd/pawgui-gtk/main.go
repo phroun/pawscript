@@ -1630,7 +1630,7 @@ func activate(application *gtk.Application) {
 		hasMultipleButtons := len(launcherRegisteredBtns) > 0
 
 		// Calculate threshold for showing both panels (wide panel needs its min width plus narrow strip width)
-		bothThreshold := minWidePanelWidth + minNarrowStripWidth
+		bothThreshold := (minWidePanelWidth / 2) + minNarrowStripWidth
 		// Halfway point for collapsing narrow strip
 		narrowSnapPoint := minNarrowStripWidth / 2
 
@@ -1656,6 +1656,11 @@ func activate(application *gtk.Application) {
 		} else {
 			// Wide enough for full panel
 			launcherWidePanel.Show()
+			if hasMultipleButtons {
+				paned.SetPosition(max(pos, minWidePanelWidth + minNarrowStripWidth)) // Jeff
+			} else {
+				paned.SetPosition(max(pos, minWidePanelWidth)) // Jeff
+			}
 			launcherNarrowStrip.SetMarginStart(2) // Normal padding in wide mode
 			if hasMultipleButtons {
 				// Multiple buttons: show narrow strip, hide menu button in path row
