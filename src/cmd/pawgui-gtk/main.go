@@ -2580,6 +2580,8 @@ func createConsoleWindow(filePath string) {
 
 	// Handle window close - clean up resources to prevent GC issues
 	win.Connect("destroy", func() {
+		// Destroy the context menu explicitly to prevent GC finalizer crash
+		winContextMenu.Destroy()
 		// Close pipes to stop goroutines
 		stdinWriter.Close()
 		stdoutWriter.Close()
