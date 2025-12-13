@@ -358,11 +358,12 @@ func createHamburgerMenu(parent gtk.IWindow, isScriptWindow bool) *gtk.Menu {
 }
 
 // createHamburgerButton creates a hamburger menu button with SVG icon
-func createHamburgerButton(menu *gtk.Menu) *gtk.Button {
+// forVerticalStrip: true for vertical toolbar strip, false for horizontal rows (file selector)
+func createHamburgerButton(menu *gtk.Menu, forVerticalStrip bool) *gtk.Button {
 	btn, _ := gtk.ButtonNew()
 	btn.SetSizeRequest(32, 32)
 	btn.SetTooltipText("Menu")
-	applyToolbarButtonStyle(btn)
+	applyToolbarButtonStyle(btn, forVerticalStrip)
 
 	// Set SVG icon with appropriate color for current theme
 	svgData := getSVGIcon(hamburgerIconSVG)
@@ -385,7 +386,7 @@ func createHamburgerButton(menu *gtk.Menu) *gtk.Button {
 // createToolbarStrip creates a vertical strip of toolbar buttons
 // Returns the strip container and the hamburger button
 func createToolbarStrip(parent gtk.IWindow, isScriptWindow bool) (*gtk.Box, *gtk.Button, *gtk.Menu) {
-	strip, _ := gtk.BoxNew(gtk.ORIENTATION_VERTICAL, 2)
+	strip, _ := gtk.BoxNew(gtk.ORIENTATION_VERTICAL, 4) // 4px spacing between buttons
 	strip.SetMarginStart(2)
 	strip.SetMarginEnd(2)
 	strip.SetMarginTop(5)
@@ -393,7 +394,7 @@ func createToolbarStrip(parent gtk.IWindow, isScriptWindow bool) (*gtk.Box, *gtk
 
 	// Create hamburger menu and button
 	menu := createHamburgerMenu(parent, isScriptWindow)
-	menuBtn := createHamburgerButton(menu)
+	menuBtn := createHamburgerButton(menu, true) // true = vertical strip
 
 	strip.PackStart(menuBtn, false, false, 0)
 
@@ -495,19 +496,34 @@ func createImageFromSVG(svgData string, size int) *gtk.Image {
 	return img
 }
 
-// applyToolbarButtonStyle applies CSS to make toolbar buttons square with minimal padding
-func applyToolbarButtonStyle(btn *gtk.Button) {
+// applyToolbarButtonStyle applies CSS to make toolbar buttons square with equal padding
+// forVerticalStrip: true for buttons in the vertical toolbar strip (need more top/bottom)
+//                   false for buttons in horizontal rows like file selector (match row height)
+func applyToolbarButtonStyle(btn *gtk.Button, forVerticalStrip bool) {
 	cssProvider, err := gtk.CssProviderNew()
 	if err != nil {
 		return
 	}
-	css := `
-		button {
-			padding: 2px;
-			min-width: 0;
-			min-height: 0;
-		}
-	`
+	var css string
+	if forVerticalStrip {
+		// Vertical strip: equal padding on all sides for square buttons
+		css = `
+			button {
+				padding: 4px;
+				min-width: 0;
+				min-height: 0;
+			}
+		`
+	} else {
+		// Horizontal row: more horizontal padding to be closer to square while matching row height
+		css = `
+			button {
+				padding: 4px 6px;
+				min-width: 0;
+				min-height: 0;
+			}
+		`
+	}
 	cssProvider.LoadFromData(css)
 	styleCtx, err := btn.GetStyleContext()
 	if err != nil {
@@ -549,7 +565,7 @@ func updateLauncherToolbarButtons() {
 		button, _ := gtk.ButtonNew()
 		button.SetSizeRequest(32, 32)
 		button.SetTooltipText(btn.Tooltip)
-		applyToolbarButtonStyle(button)
+		applyToolbarButtonStyle(button, true) // true = vertical strip
 		// Set SVG icon with appropriate color for current theme
 		svgData := getSVGIcon(starIconSVG)
 		if img := createImageFromSVG(svgData, 24); img != nil {
@@ -616,7 +632,7 @@ func updateWindowToolbarButtons(strip *gtk.Box, buttons []*ToolbarButton) {
 		button, _ := gtk.ButtonNew()
 		button.SetSizeRequest(32, 32)
 		button.SetTooltipText(btn.Tooltip)
-		applyToolbarButtonStyle(button)
+		applyToolbarButtonStyle(button, true) // true = vertical strip
 		// Set SVG icon with appropriate color for current theme
 		svgData := getSVGIcon(starIconSVG)
 		if img := createImageFromSVG(svgData, 24); img != nil {
@@ -1730,7 +1746,7 @@ func createFileBrowser() *gtk.Box {
 	// Hamburger menu button (shown when narrow strip is hidden)
 	// Note: menu parent will be set to mainWindow after it's created
 	launcherMenu := createHamburgerMenu(nil, false)
-	launcherMenuButton = createHamburgerButton(launcherMenu)
+	launcherMenuButton = createHamburgerButton(launcherMenu, false) // false = horizontal row
 	topRow.PackStart(launcherMenuButton, false, false, 0)
 
 	box.PackStart(topRow, false, true, 0)
