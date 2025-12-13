@@ -59,7 +59,7 @@ var (
 
 	// Launcher narrow strip (for multiple toolbar buttons)
 	launcherNarrowStrip    *qt.QWidget        // The narrow strip container
-	launcherMenuButton     *qt.QPushButton    // Hamburger button in path selector (when strip hidden)
+	launcherMenuButton     *IconButton        // Hamburger button in path selector (when strip hidden)
 	launcherStripMenuBtn   *IconButton        // Hamburger button in narrow strip (when strip visible)
 	launcherWidePanel      *qt.QWidget        // The wide panel (file browser)
 	launcherRegisteredBtns []*QtToolbarButton // Additional registered buttons for launcher
@@ -190,7 +190,7 @@ func NewIconButton(buttonSize, iconSize int, svgData string) *IconButton {
 		widget.Update()
 	})
 
-	widget.OnEnterEvent(func(super func(event *qt.QEnterEvent), event *qt.QEnterEvent) {
+	widget.OnEnterEvent(func(super func(event *qt.QEvent), event *qt.QEvent) {
 		btn.isHovered = true
 		widget.Update()
 	})
@@ -205,7 +205,7 @@ func NewIconButton(buttonSize, iconSize int, svgData string) *IconButton {
 }
 
 func (btn *IconButton) paintEvent(event *qt.QPaintEvent) {
-	painter := qt.NewQPainter2(btn.QWidget.PaintDevice())
+	painter := qt.NewQPainter2(btn.QWidget)
 	defer painter.End()
 
 	// Get widget dimensions
@@ -214,9 +214,13 @@ func (btn *IconButton) paintEvent(event *qt.QPaintEvent) {
 
 	// Draw button background based on state
 	if btn.isPressed {
-		painter.FillRect6(0, 0, w, h, qt.NewQColor3(128, 128, 128, 80))
+		bgColor := qt.NewQColor3(128, 128, 128)
+		bgColor.SetAlpha(80)
+		painter.FillRect(qt.NewQRect2(0, 0, w, h), bgColor)
 	} else if btn.isHovered {
-		painter.FillRect6(0, 0, w, h, qt.NewQColor3(128, 128, 128, 40))
+		bgColor := qt.NewQColor3(128, 128, 128)
+		bgColor.SetAlpha(40)
+		painter.FillRect(qt.NewQRect2(0, 0, w, h), bgColor)
 	}
 
 	// Draw the icon centered
@@ -225,7 +229,7 @@ func (btn *IconButton) paintEvent(event *qt.QPaintEvent) {
 		iconH := btn.pixmap.Height()
 		x := (w - iconW) / 2
 		y := (h - iconH) / 2
-		painter.DrawPixmap3(x, y, btn.pixmap)
+		painter.DrawPixmap(x, y, btn.pixmap)
 	}
 }
 
