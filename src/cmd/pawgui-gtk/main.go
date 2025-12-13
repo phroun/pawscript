@@ -2459,23 +2459,39 @@ func activate(application *gtk.Application) {
 			pos := launcherPaned.GetPosition()
 			bothThreshold := (minWidePanelWidth / 2) + minNarrowStripWidth
 			narrowOnlyWidth := minNarrowStripWidth + narrowOnlyExtraPadding
+			hasMultipleButtons := len(launcherRegisteredBtns) > 0
 			if pos >= bothThreshold {
 				// Currently wide, collapse to narrow-only strip
+				// Hide wide panel and show narrow strip BEFORE setting position
+				launcherWidePanel.Hide()
+				launcherNarrowStrip.SetMarginStart(2 + narrowOnlyExtraPadding)
+				launcherNarrowStrip.Show()
+				launcherMenuButton.Hide()
+				launcherStripMenuBtn.Show()
 				launcherPaned.SetPosition(narrowOnlyWidth)
+				saveLauncherWidth(narrowOnlyWidth)
 			} else {
 				// Currently narrow or collapsed, expand to wide
 				savedWidth := 300 // Default width
 				if appConfig != nil {
 					savedWidth = appConfig.GetInt("launcher_width", 300)
 				}
-				hasMultipleButtons := len(launcherRegisteredBtns) > 0
+				// Show wide panel BEFORE setting position
+				launcherWidePanel.Show()
+				launcherNarrowStrip.SetMarginStart(2) // Normal padding in wide mode
 				if hasMultipleButtons {
+					launcherNarrowStrip.Show()
+					launcherMenuButton.Hide()
+					launcherStripMenuBtn.Show()
 					launcherPaned.SetPosition(savedWidth + minNarrowStripWidth)
+					saveLauncherWidth(savedWidth)
 				} else {
+					launcherNarrowStrip.Hide()
+					launcherMenuButton.Show()
 					launcherPaned.SetPosition(savedWidth)
+					saveLauncherWidth(savedWidth)
 				}
 			}
-			// Note: Position callback handles all visibility updates
 		},
 		CloseWindow: func() {
 			mainWindow.Close()
