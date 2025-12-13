@@ -362,6 +362,7 @@ func createHamburgerButton(menu *gtk.Menu) *gtk.Button {
 	btn, _ := gtk.ButtonNew()
 	btn.SetSizeRequest(32, 32)
 	btn.SetTooltipText("Menu")
+	applyToolbarButtonStyle(btn)
 
 	// Set SVG icon with appropriate color for current theme
 	svgData := getSVGIcon(hamburgerIconSVG)
@@ -494,6 +495,27 @@ func createImageFromSVG(svgData string, size int) *gtk.Image {
 	return img
 }
 
+// applyToolbarButtonStyle applies CSS to make toolbar buttons square with minimal padding
+func applyToolbarButtonStyle(btn *gtk.Button) {
+	cssProvider, err := gtk.CssProviderNew()
+	if err != nil {
+		return
+	}
+	css := `
+		button {
+			padding: 2px;
+			min-width: 0;
+			min-height: 0;
+		}
+	`
+	cssProvider.LoadFromData(css)
+	styleCtx, err := btn.GetStyleContext()
+	if err != nil {
+		return
+	}
+	styleCtx.AddProvider(cssProvider, gtk.STYLE_PROVIDER_PRIORITY_APPLICATION)
+}
+
 // Random icons for dummy buttons
 var dummyIcons = []string{"★", "♦", "♠", "♣", "♥", "●", "■", "▲", "◆", "⬟", "⬢", "✦", "✧", "⚡", "☀", "☁", "☂", "☃", "✿", "❀"}
 
@@ -527,6 +549,7 @@ func updateLauncherToolbarButtons() {
 		button, _ := gtk.ButtonNew()
 		button.SetSizeRequest(32, 32)
 		button.SetTooltipText(btn.Tooltip)
+		applyToolbarButtonStyle(button)
 		// Set SVG icon with appropriate color for current theme
 		svgData := getSVGIcon(starIconSVG)
 		if img := createImageFromSVG(svgData, 24); img != nil {
@@ -593,6 +616,7 @@ func updateWindowToolbarButtons(strip *gtk.Box, buttons []*ToolbarButton) {
 		button, _ := gtk.ButtonNew()
 		button.SetSizeRequest(32, 32)
 		button.SetTooltipText(btn.Tooltip)
+		applyToolbarButtonStyle(button)
 		// Set SVG icon with appropriate color for current theme
 		svgData := getSVGIcon(starIconSVG)
 		if img := createImageFromSVG(svgData, 24); img != nil {
