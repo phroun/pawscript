@@ -692,7 +692,10 @@ func toggleFileList() {
 	}
 	totalWidth := sizes[0] + sizes[1]
 
-	if sizes[0] >= minWidePanelWidth {
+	// Use same threshold as isWideMode() for consistency
+	bothThreshold := (minWidePanelWidth / 2) + minNarrowStripWidth
+
+	if sizes[0] >= bothThreshold {
 		// Currently wide - collapse to narrow-only strip
 		launcherSplitter.SetSizes([]int{minNarrowStripWidth, totalWidth - minNarrowStripWidth})
 	} else {
