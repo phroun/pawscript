@@ -553,16 +553,506 @@ License: MIT</p>`, version)
 
 // createHamburgerMenu creates the hamburger dropdown menu
 // isScriptWindow: true for script windows (slightly different options)
-func createHamburgerMenu(parent *qt.QWidget, isScriptWindow bool) *qt.QMenu {
+// term: terminal widget for this window (nil to use global terminal)
+// isScriptRunningFunc: returns true if a script is running in this window
+// closeWindowFunc: closes this window
+func createHamburgerMenu(parent *qt.QWidget, isScriptWindow bool, term *purfectermqt.Terminal, isScriptRunningFunc func() bool, closeWindowFunc func()) *qt.QMenu {
 	menu := qt.NewQMenu2()
 
-	// About option
+	// Use global terminal if none specified
+	if term == nil {
+		term = terminal
+	}
+
+	// About option (both)
 	aboutAction := menu.AddAction("About PawScript...")
 	aboutAction.OnTriggered(func() {
 		showAboutDialog(parent)
 	})
 
+	// File List checkbox (launcher only)
+	if !isScriptWindow {
+		fileListAction := menu.AddAction("File List")
+		fileListAction.SetCheckable(true)
+		fileListAction.SetChecked(isWideMode())
+		fileListAction.OnTriggered(func() {
+			toggleFileList()
+		})
+	}
+
+	// Show Launcher (console windows only)
+	if isScriptWindow {
+		showLauncherAction := menu.AddAction("Show Launcher")
+		showLauncherAction.OnTriggered(func() {
+			showOrCreateLauncher()
+		})
+	}
+
+	// New Window (both - creates a blank console window)
+	newWindowAction := menu.AddAction("New Window")
+	newWindowAction.OnTriggered(func() {
+		createBlankConsoleWindow()
+	})
+
+	menu.AddSeparator()
+
+	// Stop Script (both) - disabled when no script running
+	stopScriptAction := menu.AddAction("Stop Script")
+	stopScriptAction.SetEnabled(false) // Initially disabled
+	if isScriptRunningFunc != nil {
+		// Update enabled state when menu is about to show
+		menu.OnAboutToShow(func() {
+			stopScriptAction.SetEnabled(isScriptRunningFunc())
+		})
+	}
+
+	menu.AddSeparator()
+
+	// Save Scrollback (both)
+	saveScrollbackAction := menu.AddAction("Save Scrollback...")
+	saveScrollbackAction.OnTriggered(func() {
+		saveScrollbackDialog(parent, term)
+	})
+
+	// Restore Buffer (both)
+	restoreBufferAction := menu.AddAction("Restore Buffer...")
+	restoreBufferAction.OnTriggered(func() {
+		restoreBufferDialog(parent, term)
+	})
+
+	// Clear Scrollback (both)
+	clearScrollbackAction := menu.AddAction("Clear Scrollback")
+	clearScrollbackAction.OnTriggered(func() {
+		if term != nil {
+			term.ClearScrollback()
+		}
+	})
+
+	// Reset Terminal (both)
+	resetTerminalAction := menu.AddAction("Reset Terminal")
+	resetTerminalAction.OnTriggered(func() {
+		if term != nil {
+			term.Reset()
+		}
+	})
+
+	menu.AddSeparator()
+
+	// Close (both)
+	closeAction := menu.AddAction("Close")
+	closeAction.OnTriggered(func() {
+		if closeWindowFunc != nil {
+			closeWindowFunc()
+		} else if mainWindow != nil {
+			mainWindow.Close()
+		}
+	})
+
+	// Quit PawScript (both)
+	quitAction := menu.AddAction("Quit PawScript")
+	quitAction.OnTriggered(func() {
+		quitApplication(parent)
+	})
+
 	return menu
+}
+
+// isWideMode returns true if the file list panel is visible
+func isWideMode() bool {
+	if launcherSplitter == nil {
+		return true
+	}
+	sizes := launcherSplitter.Sizes()
+	if len(sizes) >= 2 {
+		return sizes[0] >= minWidePanelWidth
+	}
+	return true
+}
+
+// toggleFileList toggles between wide and collapsed file list modes
+func toggleFileList() {
+	if launcherSplitter == nil {
+		return
+	}
+	sizes := launcherSplitter.Sizes()
+	if len(sizes) < 2 {
+		return
+	}
+	totalWidth := sizes[0] + sizes[1]
+
+	if sizes[0] >= minWidePanelWidth {
+		// Currently wide - collapse
+		launcherSplitter.SetSizes([]int{0, totalWidth})
+	} else {
+		// Currently collapsed - expand to wide
+		launcherSplitter.SetSizes([]int{minWidePanelWidth + minNarrowStripWidth, totalWidth - minWidePanelWidth - minNarrowStripWidth})
+	}
+}
+
+// showOrCreateLauncher brings the launcher window to front, or creates one if needed
+func showOrCreateLauncher() {
+	if mainWindow != nil {
+		mainWindow.Show()
+		mainWindow.Raise()
+		mainWindow.ActivateWindow()
+	}
+}
+
+// quitApplication prompts for confirmation if scripts are running, then exits
+func quitApplication(parent *qt.QWidget) {
+	// Check if any scripts are running
+	scriptMu.Lock()
+	isRunning := scriptRunning
+	scriptMu.Unlock()
+
+	if isRunning {
+		// Show confirmation dialog
+		result := qt.QMessageBox_Question4(
+			parent,
+			"Quit PawScript",
+			"This will stop all scripts. Are you sure?",
+			qt.QMessageBox__Yes|qt.QMessageBox__No,
+		)
+		if result != qt.QMessageBox__Yes {
+			return
+		}
+	}
+
+	// Quit the application
+	if qtApp != nil {
+		qtApp.Quit()
+	}
+}
+
+// saveScrollbackDialog shows a file dialog to save terminal scrollback
+func saveScrollbackDialog(parent *qt.QWidget, term *purfectermqt.Terminal) {
+	if term == nil {
+		return
+	}
+
+	file := qt.QFileDialog_GetSaveFileName4(
+		parent,
+		"Save Scrollback",
+		"scrollback.ans",
+		"ANSI Files (*.ans);;Text Files (*.txt);;All Files (*)",
+	)
+
+	if file == "" {
+		return
+	}
+
+	// Determine format from extension
+	isANS := strings.HasSuffix(strings.ToLower(file), ".ans")
+
+	// Get scrollback content from terminal
+	var content string
+	if isANS {
+		content = term.SaveScrollbackANS()
+	} else {
+		content = term.SaveScrollbackText()
+	}
+
+	// Write to file
+	if err := os.WriteFile(file, []byte(content), 0644); err != nil {
+		qt.QMessageBox_Critical4(
+			parent,
+			"Error",
+			fmt.Sprintf("Failed to save file: %v", err),
+			qt.QMessageBox__Ok,
+		)
+	}
+}
+
+// restoreBufferDialog shows a file dialog to load and display terminal content
+func restoreBufferDialog(parent *qt.QWidget, term *purfectermqt.Terminal) {
+	if term == nil {
+		return
+	}
+
+	file := qt.QFileDialog_GetOpenFileName4(
+		parent,
+		"Restore Buffer",
+		"",
+		"ANSI Files (*.ans);;Text Files (*.txt);;All Files (*)",
+	)
+
+	if file == "" {
+		return
+	}
+
+	// Read file content
+	content, err := os.ReadFile(file)
+	if err != nil {
+		qt.QMessageBox_Critical4(
+			parent,
+			"Error",
+			fmt.Sprintf("Failed to read file: %v", err),
+			qt.QMessageBox__Ok,
+		)
+		return
+	}
+
+	// Feed content to terminal (preceded by a linefeed)
+	term.Feed("\n" + string(content))
+}
+
+// createBlankConsoleWindow creates a new blank terminal window with REPL
+func createBlankConsoleWindow() {
+	// Create new window
+	win := qt.NewQMainWindow2()
+	win.SetWindowTitle("PawScript - Console")
+	win.SetMinimumSize2(900, 600)
+
+	// Create terminal for this window with color scheme from config
+	winTerminal, err := purfectermqt.New(purfectermqt.Options{
+		Cols:           100,
+		Rows:           30,
+		ScrollbackSize: 10000,
+		FontFamily:     getFontFamily(),
+		FontSize:       getFontSize(),
+		Scheme: purfecterm.ColorScheme{
+			Foreground: getTerminalForeground(),
+			Background: getTerminalBackground(),
+			Cursor:     purfecterm.Color{R: 255, G: 255, B: 255},
+			Selection:  purfecterm.Color{R: 68, G: 68, B: 68},
+			Palette:    getColorPalette(),
+			BlinkMode:  getBlinkMode(),
+		},
+	})
+	if err != nil {
+		win.Close()
+		return
+	}
+
+	// Track script running state for this window (starts with no script)
+	var winScriptRunning bool
+	var winScriptMu sync.Mutex
+
+	// Create splitter for toolbar strip + terminal
+	winSplitter := qt.NewQSplitter3(qt.Horizontal)
+
+	// Create toolbar strip for this window
+	winNarrowStrip, winStripMenuBtn, _ := createToolbarStripForWindow(win.QWidget, true, winTerminal, func() bool {
+		winScriptMu.Lock()
+		defer winScriptMu.Unlock()
+		return winScriptRunning
+	}, func() {
+		win.Close()
+	})
+	winNarrowStrip.SetFixedWidth(minNarrowStripWidth)
+	winNarrowStrip.Show()
+	winStripMenuBtn.Show()
+
+	winSplitter.AddWidget(winNarrowStrip)
+	winSplitter.AddWidget(winTerminal.Widget())
+
+	winSplitter.SetStretchFactor(0, 0)
+	winSplitter.SetStretchFactor(1, 1)
+	winSplitter.SetSizes([]int{minNarrowStripWidth, 900 - minNarrowStripWidth})
+
+	winSplitter.OnSplitterMoved(func(pos int, index int) {
+		if index != 1 {
+			return
+		}
+		if pos == 0 {
+			// Already collapsed
+		} else if pos < minNarrowStripWidth/2 {
+			winSplitter.SetSizes([]int{0, winSplitter.Width()})
+		} else if pos != minNarrowStripWidth {
+			winSplitter.SetSizes([]int{minNarrowStripWidth, winSplitter.Width() - minNarrowStripWidth})
+		}
+	})
+
+	win.SetCentralWidget(winSplitter.QWidget)
+
+	// Create I/O channels for this window's console
+	winStdinReader, winStdinWriter := io.Pipe()
+
+	// Terminal capabilities for this window
+	winWidth, winHeight := 100, 30
+	winTermCaps := &pawscript.TerminalCapabilities{
+		TermType:      "gui-console",
+		IsTerminal:    true,
+		SupportsANSI:  true,
+		SupportsColor: true,
+		ColorDepth:    256,
+		Width:         winWidth,
+		Height:        winHeight,
+		SupportsInput: true,
+		EchoEnabled:   false,
+		LineMode:      false,
+		Metadata:      make(map[string]interface{}),
+	}
+
+	// Non-blocking output queue
+	winOutputQueue := make(chan interface{}, 256)
+	go func() {
+		for item := range winOutputQueue {
+			switch v := item.(type) {
+			case []byte:
+				winTerminal.Feed(string(v))
+			case string:
+				winTerminal.Feed(v)
+			case chan struct{}:
+				close(v)
+			}
+		}
+	}()
+
+	winOutCh := &pawscript.StoredChannel{
+		BufferSize:       0,
+		Messages:         make([]pawscript.ChannelMessage, 0),
+		Subscribers:      make(map[int]*pawscript.StoredChannel),
+		NextSubscriberID: 1,
+		IsClosed:         false,
+		Timestamp:        time.Now(),
+		Terminal:         winTermCaps,
+		NativeSend: func(v interface{}) error {
+			var text string
+			switch d := v.(type) {
+			case []byte:
+				text = string(d)
+			case string:
+				text = d
+			default:
+				text = fmt.Sprintf("%v", v)
+			}
+			text = strings.ReplaceAll(text, "\r\n", "\n")
+			text = strings.ReplaceAll(text, "\n", "\r\n")
+			select {
+			case winOutputQueue <- []byte(text):
+			default:
+			}
+			return nil
+		},
+		NativeRecv: func() (interface{}, error) {
+			return nil, fmt.Errorf("cannot receive from console_out")
+		},
+		NativeFlush: func() error {
+			writerDone := make(chan struct{})
+			select {
+			case winOutputQueue <- writerDone:
+				<-writerDone
+			default:
+			}
+			return nil
+		},
+	}
+
+	// Non-blocking input queue
+	winInputQueue := make(chan byte, 256)
+	go func() {
+		buf := make([]byte, 1)
+		for {
+			n, err := winStdinReader.Read(buf)
+			if err != nil || n == 0 {
+				close(winInputQueue)
+				return
+			}
+			select {
+			case winInputQueue <- buf[0]:
+			default:
+				select {
+				case <-winInputQueue:
+				default:
+				}
+				select {
+				case winInputQueue <- buf[0]:
+				default:
+				}
+			}
+		}
+	}()
+
+	winInCh := &pawscript.StoredChannel{
+		BufferSize:       0,
+		Messages:         make([]pawscript.ChannelMessage, 0),
+		Subscribers:      make(map[int]*pawscript.StoredChannel),
+		NextSubscriberID: 1,
+		IsClosed:         false,
+		Timestamp:        time.Now(),
+		Terminal:         winTermCaps,
+		NativeRecv: func() (interface{}, error) {
+			b, ok := <-winInputQueue
+			if !ok {
+				return nil, fmt.Errorf("input closed")
+			}
+			return []byte{b}, nil
+		},
+		NativeSend: func(v interface{}) error {
+			return fmt.Errorf("cannot send to console_in")
+		},
+	}
+
+	var winREPL *pawscript.REPL
+
+	// Wire keyboard input
+	winTerminal.SetInputCallback(func(data []byte) {
+		winScriptMu.Lock()
+		isRunning := winScriptRunning
+		winScriptMu.Unlock()
+
+		if isRunning {
+			winStdinWriter.Write(data)
+		} else if winREPL != nil && winREPL.IsRunning() {
+			if winREPL.IsBusy() {
+				winStdinWriter.Write(data)
+			} else {
+				winREPL.HandleInput(data)
+			}
+		}
+	})
+
+	// Clean up on window close
+	win.OnDestroyed(func() {
+		winStdinWriter.Close()
+		winStdinReader.Close()
+		close(winOutputQueue)
+	})
+
+	win.Show()
+
+	// Start REPL immediately (no script to run first)
+	go func() {
+		winREPL = pawscript.NewREPL(pawscript.REPLConfig{
+			Debug:        false,
+			Unrestricted: false,
+			OptLevel:     getOptimizationLevel(),
+			ShowBanner:   true,
+			IOConfig: &pawscript.IOChannelConfig{
+				Stdout: winOutCh,
+				Stdin:  winInCh,
+				Stderr: winOutCh,
+			},
+		}, func(s string) {
+			winTerminal.Feed(s)
+		})
+		winREPL.SetFlush(func() {
+			// Qt doesn't need explicit event processing like GTK
+		})
+		bg := getTerminalBackground()
+		winREPL.SetBackgroundRGB(bg.R, bg.G, bg.B)
+		winREPL.SetPSLColors(getPSLColors())
+		winREPL.Start()
+	}()
+}
+
+// createToolbarStripForWindow creates a vertical strip of toolbar buttons for a specific window
+func createToolbarStripForWindow(parent *qt.QWidget, isScriptWindow bool, term *purfectermqt.Terminal, isScriptRunningFunc func() bool, closeWindowFunc func()) (*qt.QWidget, *IconButton, *qt.QMenu) {
+	strip := qt.NewQWidget2()
+	layout := qt.NewQVBoxLayout2()
+	layout.SetContentsMargins(4, 9, 4, 5)
+	layout.SetSpacing(8)
+
+	// Create hamburger menu and button with window-specific callbacks
+	menu := createHamburgerMenu(parent, isScriptWindow, term, isScriptRunningFunc, closeWindowFunc)
+	menuBtn := createHamburgerButton(menu)
+
+	layout.AddWidget(menuBtn.QWidget)
+	layout.AddStretch()
+	strip.SetLayout(layout.QLayout)
+
+	return strip, menuBtn, menu
 }
 
 // Toolbar button size constant for consistent square buttons
@@ -585,20 +1075,18 @@ func createHamburgerButton(menu *qt.QMenu) *IconButton {
 // createToolbarStrip creates a vertical strip of toolbar buttons
 // Returns the strip container, the hamburger button, and the menu
 func createToolbarStrip(parent *qt.QWidget, isScriptWindow bool) (*qt.QWidget, *IconButton, *qt.QMenu) {
-	strip := qt.NewQWidget2()
-	layout := qt.NewQVBoxLayout2()
-	layout.SetContentsMargins(4, 9, 4, 5) // Margins: left, top, right, bottom
-	layout.SetSpacing(8)                  // 8px spacing between buttons
-
-	// Create hamburger menu and button
-	menu := createHamburgerMenu(parent, isScriptWindow)
-	menuBtn := createHamburgerButton(menu)
-
-	layout.AddWidget(menuBtn.QWidget)
-	layout.AddStretch() // Push buttons to top
-	strip.SetLayout(layout.QLayout)
-
-	return strip, menuBtn, menu
+	// Use global terminal for the main launcher
+	isScriptRunningFunc := func() bool {
+		scriptMu.Lock()
+		defer scriptMu.Unlock()
+		return scriptRunning
+	}
+	closeWindowFunc := func() {
+		if mainWindow != nil {
+			mainWindow.Close()
+		}
+	}
+	return createToolbarStripForWindow(parent, isScriptWindow, nil, isScriptRunningFunc, closeWindowFunc)
 }
 
 // updateLauncherToolbarButtons updates the launcher's narrow strip with the current registered buttons
@@ -1569,11 +2057,18 @@ func runScriptInWindow(scriptContent, scriptFile string, scriptArgs []string,
 	// Set font fallbacks
 	winTerminal.SetFontFallbacks(getFontFamilyUnicode(), getFontFamilyCJK())
 
+	// In standalone script mode, script is always running
+	winScriptRunning := true
+
 	// Create splitter for toolbar strip + terminal
 	winSplitter := qt.NewQSplitter3(qt.Horizontal)
 
 	// Create toolbar strip for this window (script windows only have narrow strip, no wide panel)
-	winNarrowStrip, winStripMenuBtn, _ := createToolbarStrip(win.QWidget, true)
+	winNarrowStrip, winStripMenuBtn, _ := createToolbarStripForWindow(win.QWidget, true, winTerminal, func() bool {
+		return winScriptRunning
+	}, func() {
+		win.Close()
+	})
 	winNarrowStrip.SetFixedWidth(minNarrowStripWidth)
 	// Start visible with hamburger menu
 	winNarrowStrip.Show()
@@ -1842,7 +2337,15 @@ func createFilePanel() *qt.QWidget {
 	topRowLayout.AddWidget2(pathButton.QWidget, 1)
 
 	// Hamburger menu button (shown when narrow strip is hidden)
-	launcherMenu := createHamburgerMenu(panel, false)
+	launcherMenu := createHamburgerMenu(panel, false, nil, func() bool {
+		scriptMu.Lock()
+		defer scriptMu.Unlock()
+		return scriptRunning
+	}, func() {
+		if mainWindow != nil {
+			mainWindow.Close()
+		}
+	})
 	launcherMenuButton = createHamburgerButton(launcherMenu)
 	topRowLayout.AddWidget(launcherMenuButton.QWidget)
 
@@ -2520,11 +3023,21 @@ func createConsoleWindow(filePath string) {
 		return
 	}
 
+	// Track script running state for this window
+	var winScriptRunning bool
+	var winScriptMu sync.Mutex
+
 	// Create splitter for toolbar strip + terminal
 	winSplitter := qt.NewQSplitter3(qt.Horizontal)
 
 	// Create toolbar strip for this window (script windows only have narrow strip, no wide panel)
-	winNarrowStrip, winStripMenuBtn, _ := createToolbarStrip(win.QWidget, true)
+	winNarrowStrip, winStripMenuBtn, _ := createToolbarStripForWindow(win.QWidget, true, winTerminal, func() bool {
+		winScriptMu.Lock()
+		defer winScriptMu.Unlock()
+		return winScriptRunning
+	}, func() {
+		win.Close()
+	})
 	winNarrowStrip.SetFixedWidth(minNarrowStripWidth)
 	// Always show the strip (has hamburger menu)
 	winNarrowStrip.Show()
@@ -2677,9 +3190,6 @@ func createConsoleWindow(filePath string) {
 		},
 	}
 
-	// Track script running state for this window
-	var winScriptRunning bool
-	var winScriptMu sync.Mutex
 	var winREPL *pawscript.REPL
 
 	// Wire keyboard input
