@@ -475,7 +475,7 @@ func createToolbarStrip(parent *qt.QWidget, isScriptWindow bool) (*qt.QWidget, *
 	strip := qt.NewQWidget2()
 	layout := qt.NewQVBoxLayout2()
 	layout.SetContentsMargins(4, 9, 4, 5) // Margins: left, top, right, bottom
-	layout.SetSpacing(4)                  // 4px spacing between buttons
+	layout.SetSpacing(8)                  // 8px spacing between buttons
 
 	// Create hamburger menu and button
 	menu := createHamburgerMenu(parent, isScriptWindow)
