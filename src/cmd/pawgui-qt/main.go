@@ -674,12 +674,14 @@ func isWideMode() bool {
 	}
 	sizes := launcherSplitter.Sizes()
 	if len(sizes) >= 2 {
-		return sizes[0] >= minWidePanelWidth
+		// Wide mode when position >= bothThreshold (file list panel visible)
+		bothThreshold := (minWidePanelWidth / 2) + minNarrowStripWidth
+		return sizes[0] >= bothThreshold
 	}
 	return true
 }
 
-// toggleFileList toggles between wide and collapsed file list modes
+// toggleFileList toggles between wide and narrow-only file list modes
 func toggleFileList() {
 	if launcherSplitter == nil {
 		return
@@ -691,11 +693,20 @@ func toggleFileList() {
 	totalWidth := sizes[0] + sizes[1]
 
 	if sizes[0] >= minWidePanelWidth {
-		// Currently wide - collapse
-		launcherSplitter.SetSizes([]int{0, totalWidth})
+		// Currently wide - collapse to narrow-only strip
+		launcherSplitter.SetSizes([]int{minNarrowStripWidth, totalWidth - minNarrowStripWidth})
 	} else {
-		// Currently collapsed - expand to wide
-		launcherSplitter.SetSizes([]int{minWidePanelWidth + minNarrowStripWidth, totalWidth - minWidePanelWidth - minNarrowStripWidth})
+		// Currently narrow or collapsed - expand to wide
+		savedWidth := 300 // Default
+		if appConfig != nil {
+			savedWidth = appConfig.GetInt("launcher_width", 300)
+		}
+		hasMultipleButtons := len(launcherRegisteredBtns) > 0
+		if hasMultipleButtons {
+			launcherSplitter.SetSizes([]int{savedWidth + minNarrowStripWidth, totalWidth - savedWidth - minNarrowStripWidth})
+		} else {
+			launcherSplitter.SetSizes([]int{savedWidth, totalWidth - savedWidth})
+		}
 	}
 }
 

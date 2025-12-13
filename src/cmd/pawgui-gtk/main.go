@@ -2424,21 +2424,29 @@ func activate(application *gtk.Application) {
 			return scriptRunning
 		},
 		IsFileListWide: func() bool {
-			// Wide if position > narrow strip width
-			return launcherPaned.GetPosition() > minNarrowStripWidth
+			// Wide if position >= bothThreshold (file list panel visible)
+			bothThreshold := (minWidePanelWidth / 2) + minNarrowStripWidth
+			return launcherPaned.GetPosition() >= bothThreshold
 		},
 		ToggleFileList: func() {
 			pos := launcherPaned.GetPosition()
-			if pos > minNarrowStripWidth {
-				// Currently wide, collapse to narrow
-				launcherPaned.SetPosition(minNarrowStripWidth)
+			bothThreshold := (minWidePanelWidth / 2) + minNarrowStripWidth
+			narrowOnlyWidth := minNarrowStripWidth + narrowOnlyExtraPadding
+			if pos >= bothThreshold {
+				// Currently wide, collapse to narrow-only strip
+				launcherPaned.SetPosition(narrowOnlyWidth)
 			} else {
-				// Currently narrow, expand to wide
+				// Currently narrow or collapsed, expand to wide
 				savedWidth := 300 // Default width
 				if appConfig != nil {
 					savedWidth = appConfig.GetInt("launcher_width", 300)
 				}
-				launcherPaned.SetPosition(savedWidth + minNarrowStripWidth)
+				hasMultipleButtons := len(launcherRegisteredBtns) > 0
+				if hasMultipleButtons {
+					launcherPaned.SetPosition(savedWidth + minNarrowStripWidth)
+				} else {
+					launcherPaned.SetPosition(savedWidth)
+				}
 			}
 			updateLauncherToolbarButtons()
 		},
@@ -2486,7 +2494,10 @@ func activate(application *gtk.Application) {
 		narrowSnapPoint := minNarrowStripWidth / 2
 
 		if pos == 0 {
-			// Fully collapsed
+			// Fully collapsed - hide all left panels, show hamburger in path selector
+			launcherWidePanel.Hide()
+			launcherNarrowStrip.Hide()
+			launcherMenuButton.Show()
 			saveLauncherWidth(pos)
 		} else if pos < narrowSnapPoint {
 			// Too narrow even for strip - snap to collapsed
