@@ -449,7 +449,8 @@ func createHamburgerButton(menu *qt.QMenu) *qt.QPushButton {
 	btn := qt.NewQPushButton2()
 	btn.SetToolTip("Menu")
 	// Fixed square size for consistent toolbar appearance
-	btn.SetFixedSize2(toolbarButtonSize, toolbarButtonSize)
+	btn.SetMinimumSize2(toolbarButtonSize, toolbarButtonSize)
+	btn.SetMaximumSize2(toolbarButtonSize, toolbarButtonSize)
 
 	// Set SVG icon with appropriate color for current theme
 	svgData := getSVGIcon(hamburgerIconSVG)
@@ -514,7 +515,8 @@ func updateLauncherToolbarButtons() {
 	for _, btn := range launcherRegisteredBtns {
 		button := qt.NewQPushButton2()
 		// Fixed square size to match hamburger button
-		button.SetFixedSize2(toolbarButtonSize, toolbarButtonSize)
+		button.SetMinimumSize2(toolbarButtonSize, toolbarButtonSize)
+		button.SetMaximumSize2(toolbarButtonSize, toolbarButtonSize)
 		button.SetToolTip(btn.Tooltip)
 		// Set SVG icon with appropriate color for current theme
 		svgData := getSVGIcon(starIconSVG)
@@ -581,7 +583,8 @@ func updateWindowToolbarButtons(strip *qt.QWidget, buttons []*QtToolbarButton) {
 	for _, btn := range buttons {
 		button := qt.NewQPushButton2()
 		// Fixed square size to match hamburger button
-		button.SetFixedSize2(toolbarButtonSize, toolbarButtonSize)
+		button.SetMinimumSize2(toolbarButtonSize, toolbarButtonSize)
+		button.SetMaximumSize2(toolbarButtonSize, toolbarButtonSize)
 		button.SetToolTip(btn.Tooltip)
 		// Set SVG icon with appropriate color for current theme
 		svgData := getSVGIcon(starIconSVG)
