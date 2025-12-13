@@ -579,7 +579,7 @@ func createHamburgerMenu(parent *qt.QWidget, isScriptWindow bool, term *purfecte
 		fileListAction = menu.AddAction("File List")
 		fileListAction.SetCheckable(true)
 		fileListAction.SetChecked(isWideMode())
-		fileListAction.OnTriggered(func() {
+		fileListAction.OnTriggeredWithChecked(func(checked bool) {
 			toggleFileList()
 		})
 	}
