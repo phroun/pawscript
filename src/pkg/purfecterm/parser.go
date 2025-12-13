@@ -544,32 +544,32 @@ func (p *Parser) executeSGR() {
 
 		// Foreground colors (30-37)
 		case 30, 31, 32, 33, 34, 35, 36, 37:
-			p.buffer.SetForeground(ANSIColors[param-30])
+			p.buffer.SetForeground(StandardColor(param - 30))
 
 		// Bright foreground colors (90-97)
 		case 90, 91, 92, 93, 94, 95, 96, 97:
-			p.buffer.SetForeground(ANSIColors[param-90+8])
+			p.buffer.SetForeground(StandardColor(param - 90 + 8))
 
 		// Background colors (40-47)
 		case 40, 41, 42, 43, 44, 45, 46, 47:
-			p.buffer.SetBackground(ANSIColors[param-40])
+			p.buffer.SetBackground(StandardColor(param - 40))
 
 		// Bright background colors (100-107)
 		case 100, 101, 102, 103, 104, 105, 106, 107:
-			p.buffer.SetBackground(ANSIColors[param-100+8])
+			p.buffer.SetBackground(StandardColor(param - 100 + 8))
 
 		case 38: // Extended foreground color
 			if i+2 < len(p.csiParams) && p.csiParams[i+1] == 5 {
 				// 256-color mode: ESC[38;5;Nm
-				p.buffer.SetForeground(Get256Color(p.csiParams[i+2]))
+				p.buffer.SetForeground(PaletteColor(p.csiParams[i+2]))
 				i += 2
 			} else if i+4 < len(p.csiParams) && p.csiParams[i+1] == 2 {
 				// True color mode: ESC[38;2;R;G;Bm
-				p.buffer.SetForeground(Color{
-					R: uint8(p.csiParams[i+2]),
-					G: uint8(p.csiParams[i+3]),
-					B: uint8(p.csiParams[i+4]),
-				})
+				p.buffer.SetForeground(TrueColor(
+					uint8(p.csiParams[i+2]),
+					uint8(p.csiParams[i+3]),
+					uint8(p.csiParams[i+4]),
+				))
 				i += 4
 			}
 
@@ -579,15 +579,15 @@ func (p *Parser) executeSGR() {
 		case 48: // Extended background color
 			if i+2 < len(p.csiParams) && p.csiParams[i+1] == 5 {
 				// 256-color mode: ESC[48;5;Nm
-				p.buffer.SetBackground(Get256Color(p.csiParams[i+2]))
+				p.buffer.SetBackground(PaletteColor(p.csiParams[i+2]))
 				i += 2
 			} else if i+4 < len(p.csiParams) && p.csiParams[i+1] == 2 {
 				// True color mode: ESC[48;2;R;G;Bm
-				p.buffer.SetBackground(Color{
-					R: uint8(p.csiParams[i+2]),
-					G: uint8(p.csiParams[i+3]),
-					B: uint8(p.csiParams[i+4]),
-				})
+				p.buffer.SetBackground(TrueColor(
+					uint8(p.csiParams[i+2]),
+					uint8(p.csiParams[i+3]),
+					uint8(p.csiParams[i+4]),
+				))
 				i += 4
 			}
 
@@ -791,7 +791,7 @@ func (p *Parser) executeOSCPalette(args string) {
 					r, _ := strconv.Atoi(parts[rgbStart])
 					g, _ := strconv.Atoi(parts[rgbStart+1])
 					b, _ := strconv.Atoi(parts[rgbStart+2])
-					color := Color{R: uint8(r), G: uint8(g), B: uint8(b)}
+					color := TrueColor(uint8(r), uint8(g), uint8(b))
 					p.buffer.SetPaletteEntryColor(n, idx, color, dim)
 				}
 

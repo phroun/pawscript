@@ -3225,18 +3225,18 @@ func (b *Buffer) fallbackGlyphColor(cell *Cell, paletteIdx int) (Color, bool) {
 		return cell.Foreground, true
 	case 2:
 		// Dim variant - darken the foreground
-		return Color{
-			R: uint8(float64(cell.Foreground.R) * 0.6),
-			G: uint8(float64(cell.Foreground.G) * 0.6),
-			B: uint8(float64(cell.Foreground.B) * 0.6),
-		}, true
+		return TrueColor(
+			uint8(float64(cell.Foreground.R)*0.6),
+			uint8(float64(cell.Foreground.G)*0.6),
+			uint8(float64(cell.Foreground.B)*0.6),
+		), true
 	default:
 		// Bright variant - lighten the foreground
-		return Color{
-			R: uint8(min(255, int(cell.Foreground.R)+64)),
-			G: uint8(min(255, int(cell.Foreground.G)+64)),
-			B: uint8(min(255, int(cell.Foreground.B)+64)),
-		}, true
+		return TrueColor(
+			uint8(min(255, int(cell.Foreground.R)+64)),
+			uint8(min(255, int(cell.Foreground.G)+64)),
+			uint8(min(255, int(cell.Foreground.B)+64)),
+		), true
 	}
 }
 
@@ -3247,37 +3247,62 @@ func (b *Buffer) resolveEntry(entry *PaletteEntry, cell *Cell) (Color, bool) {
 		return cell.Background, true
 	case PaletteEntryDefaultFG:
 		if entry.Dim {
-			return Color{
-				R: uint8(float64(cell.Foreground.R) * 0.6),
-				G: uint8(float64(cell.Foreground.G) * 0.6),
-				B: uint8(float64(cell.Foreground.B) * 0.6),
-			}, true
+			return TrueColor(
+				uint8(float64(cell.Foreground.R)*0.6),
+				uint8(float64(cell.Foreground.G)*0.6),
+				uint8(float64(cell.Foreground.B)*0.6),
+			), true
 		}
 		return cell.Foreground, true
 	default:
 		color := entry.Color
 		if entry.Dim {
-			color = Color{
-				R: uint8(float64(color.R) * 0.6),
-				G: uint8(float64(color.G) * 0.6),
-				B: uint8(float64(color.B) * 0.6),
-			}
+			color = TrueColor(
+				uint8(float64(color.R)*0.6),
+				uint8(float64(color.G)*0.6),
+				uint8(float64(color.B)*0.6),
+			)
 		}
 		return color, true
 	}
 }
 
-// ColorToANSICode attempts to map a color back to an ANSI color code.
-// Returns 37 (white) as default if no match.
+// ColorToANSICode returns the ANSI color code for this color.
+// For Standard colors (0-15), returns 30-37 or 90-97.
+// For Palette colors (0-255), returns the palette index mapped to SGR codes.
+// For TrueColor or Default, returns 37 (white) as fallback.
 func (b *Buffer) ColorToANSICode(c Color) int {
-	// Check against ANSI colors
-	for i, ansi := range ANSIColors {
-		if c.R == ansi.R && c.G == ansi.G && c.B == ansi.B {
-			if i < 8 {
-				return 30 + i
-			}
-			return 90 + (i - 8)
+	switch c.Type {
+	case ColorTypeStandard:
+		idx := int(c.Index)
+		if idx < 8 {
+			return 30 + idx
 		}
+		return 90 + (idx - 8)
+	case ColorTypePalette:
+		// For palette colors 0-15, treat like standard colors
+		idx := int(c.Index)
+		if idx < 8 {
+			return 30 + idx
+		} else if idx < 16 {
+			return 90 + (idx - 8)
+		}
+		// For extended palette colors, return the index directly
+		// (caller should use 38;5;N format)
+		return idx
+	case ColorTypeDefault:
+		return 39 // Default foreground code
+	case ColorTypeTrueColor:
+		// Try to find matching ANSI color by RGB
+		for i, ansi := range ANSIColorsRGB {
+			if c.R == ansi.R && c.G == ansi.G && c.B == ansi.B {
+				if i < 8 {
+					return 30 + i
+				}
+				return 90 + (i - 8)
+			}
+		}
+		return 37 // Fallback to white
 	}
 	return 37 // Default to white
 }
@@ -3785,18 +3810,18 @@ func (b *Buffer) fallbackSpriteColor(paletteIdx int, fg, bg Color) (Color, bool)
 		return fg, true
 	case 2:
 		// Dim variant
-		return Color{
-			R: uint8(float64(fg.R) * 0.6),
-			G: uint8(float64(fg.G) * 0.6),
-			B: uint8(float64(fg.B) * 0.6),
-		}, true
+		return TrueColor(
+			uint8(float64(fg.R)*0.6),
+			uint8(float64(fg.G)*0.6),
+			uint8(float64(fg.B)*0.6),
+		), true
 	default:
 		// Bright variant
-		return Color{
-			R: uint8(min(255, int(fg.R)+64)),
-			G: uint8(min(255, int(fg.G)+64)),
-			B: uint8(min(255, int(fg.B)+64)),
-		}, true
+		return TrueColor(
+			uint8(min(255, int(fg.R)+64)),
+			uint8(min(255, int(fg.G)+64)),
+			uint8(min(255, int(fg.B)+64)),
+		), true
 	}
 }
 
@@ -3807,21 +3832,21 @@ func (b *Buffer) resolveSpriteEntry(entry *PaletteEntry, fg, bg Color) (Color, b
 		return Color{}, false // Transparent for sprites
 	case PaletteEntryDefaultFG:
 		if entry.Dim {
-			return Color{
-				R: uint8(float64(fg.R) * 0.6),
-				G: uint8(float64(fg.G) * 0.6),
-				B: uint8(float64(fg.B) * 0.6),
-			}, true
+			return TrueColor(
+				uint8(float64(fg.R)*0.6),
+				uint8(float64(fg.G)*0.6),
+				uint8(float64(fg.B)*0.6),
+			), true
 		}
 		return fg, true
 	default:
 		color := entry.Color
 		if entry.Dim {
-			color = Color{
-				R: uint8(float64(color.R) * 0.6),
-				G: uint8(float64(color.G) * 0.6),
-				B: uint8(float64(color.B) * 0.6),
-			}
+			color = TrueColor(
+				uint8(float64(color.R)*0.6),
+				uint8(float64(color.G)*0.6),
+				uint8(float64(color.B)*0.6),
+			)
 		}
 		return color, true
 	}
@@ -3865,8 +3890,8 @@ func (b *Buffer) Reset() {
 	b.savedCursorY = 0
 
 	// Reset attributes
-	b.currentFg = Color{}
-	b.currentBg = Color{}
+	b.currentFg = DefaultForeground
+	b.currentBg = DefaultBackground
 	b.currentBold = false
 	b.currentItalic = false
 	b.currentUnderline = false
@@ -4001,6 +4026,26 @@ func (b *Buffer) SaveScrollbackANS() string {
 		result.WriteString("\x07")
 	}
 
+	// ========== SECTION 1b: Terminal Mode Settings ==========
+
+	// Output flex width mode if enabled (DEC private mode 2027)
+	if b.flexWidthMode {
+		result.WriteString("\x1b[?2027h")
+	}
+
+	// Output ambiguous width mode setting
+	switch b.ambiguousWidthMode {
+	case AmbiguousWidthNarrow:
+		result.WriteString("\x1b[?2029h") // Enable narrow mode
+	case AmbiguousWidthWide:
+		result.WriteString("\x1b[?2030h") // Enable wide mode
+	}
+
+	// Output visual width wrap mode if enabled (DEC private mode 2028)
+	if b.visualWidthWrap {
+		result.WriteString("\x1b[?2028h")
+	}
+
 	// ========== SECTION 2: Content Lines ==========
 
 	// Track current attributes to minimize escape sequences
@@ -4010,13 +4055,9 @@ func (b *Buffer) SaveScrollbackANS() string {
 	var lastXFlip, lastYFlip bool
 	var lastLineAttr LineAttribute = LineAttrNormal
 
-	// Helper to write ANSI color code
+	// Helper to write ANSI color code using proper SGR codes
 	writeColor := func(c Color, isFg bool) {
-		if isFg {
-			result.WriteString(fmt.Sprintf("\x1b[38;2;%d;%d;%dm", c.R, c.G, c.B))
-		} else {
-			result.WriteString(fmt.Sprintf("\x1b[48;2;%d;%d;%dm", c.R, c.G, c.B))
-		}
+		result.WriteString("\x1b[" + c.ToSGRCode(isFg) + "m")
 	}
 
 	// Count total lines for cursor positioning later
@@ -4093,7 +4134,7 @@ func (b *Buffer) SaveScrollbackANS() string {
 			if cell.Background != lastBg {
 				writeColor(cell.Background, false)
 				lastBg = cell.Background
-				if cell.Background != (Color{}) {
+				if !cell.Background.IsDefault() {
 					hasNonDefaultBg = true
 				}
 			}

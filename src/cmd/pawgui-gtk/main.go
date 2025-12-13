@@ -721,8 +721,8 @@ func createBlankConsoleWindow() {
 		Scheme: purfecterm.ColorScheme{
 			Foreground: getTerminalForeground(),
 			Background: getTerminalBackground(),
-			Cursor:     purfecterm.Color{R: 255, G: 255, B: 255},
-			Selection:  purfecterm.Color{R: 68, G: 68, B: 68},
+			Cursor:     purfecterm.TrueColor(255, 255, 255),
+			Selection:  purfecterm.TrueColor(68, 68, 68),
 			Palette:    getColorPalette(),
 			BlinkMode:  getBlinkMode(),
 		},
@@ -1997,8 +1997,8 @@ func runScriptInWindow(gtkApp *gtk.Application, scriptContent, scriptFile string
 		Scheme: purfecterm.ColorScheme{
 			Foreground: getTerminalForeground(),
 			Background: getTerminalBackground(),
-			Cursor:     purfecterm.Color{R: 255, G: 255, B: 255},
-			Selection:  purfecterm.Color{R: 68, G: 68, B: 68},
+			Cursor:     purfecterm.TrueColor(255, 255, 255),
+			Selection:  purfecterm.TrueColor(68, 68, 68),
 			Palette:    getColorPalette(),
 			BlinkMode:  getBlinkMode(),
 		},
@@ -2802,8 +2802,8 @@ func createTerminal() *gtk.Box {
 		Scheme: purfecterm.ColorScheme{
 			Foreground: getTerminalForeground(),
 			Background: getTerminalBackground(),
-			Cursor:     purfecterm.Color{R: 255, G: 255, B: 255},
-			Selection:  purfecterm.Color{R: 68, G: 68, B: 68},
+			Cursor:     purfecterm.TrueColor(255, 255, 255),
+			Selection:  purfecterm.TrueColor(68, 68, 68),
 			Palette:    getColorPalette(),
 			BlinkMode:  getBlinkMode(),
 		},
@@ -3249,8 +3249,8 @@ func createConsoleWindow(filePath string) {
 		Scheme: purfecterm.ColorScheme{
 			Foreground: getTerminalForeground(),
 			Background: getTerminalBackground(),
-			Cursor:     purfecterm.Color{R: 255, G: 255, B: 255},
-			Selection:  purfecterm.Color{R: 68, G: 68, B: 68},
+			Cursor:     purfecterm.TrueColor(255, 255, 255),
+			Selection:  purfecterm.TrueColor(68, 68, 68),
 			Palette:    getColorPalette(),
 			BlinkMode:  getBlinkMode(),
 		},

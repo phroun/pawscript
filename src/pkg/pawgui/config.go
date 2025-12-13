@@ -151,7 +151,7 @@ func (h *ConfigHelper) GetTerminalBackground() purfecterm.Color {
 			}
 		}
 	}
-	return purfecterm.Color{R: 30, G: 30, B: 30} // Default dark background
+	return purfecterm.TrueColor(30, 30, 30) // Default dark background
 }
 
 // GetTerminalForeground returns the configured terminal foreground color.
@@ -163,7 +163,7 @@ func (h *ConfigHelper) GetTerminalForeground() purfecterm.Color {
 			}
 		}
 	}
-	return purfecterm.Color{R: 212, G: 212, B: 212} // Default light gray
+	return purfecterm.TrueColor(212, 212, 212) // Default light gray
 }
 
 // GetColorPalette returns the configured 16-color ANSI palette.
@@ -244,8 +244,8 @@ func (h *ConfigHelper) GetColorScheme() purfecterm.ColorScheme {
 	return purfecterm.ColorScheme{
 		Foreground: h.GetTerminalForeground(),
 		Background: h.GetTerminalBackground(),
-		Cursor:     purfecterm.Color{R: 255, G: 255, B: 255},
-		Selection:  purfecterm.Color{R: 68, G: 68, B: 68},
+		Cursor:     purfecterm.TrueColor(255, 255, 255),
+		Selection:  purfecterm.TrueColor(68, 68, 68),
 		Palette:    h.GetColorPalette(),
 		BlinkMode:  h.GetBlinkMode(),
 	}

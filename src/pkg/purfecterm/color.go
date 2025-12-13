@@ -12,17 +12,121 @@
 // implementations that use this core package.
 package purfecterm
 
-// Color represents an RGB color
+// ColorType indicates how a color was specified
+type ColorType uint8
+
+const (
+	ColorTypeDefault   ColorType = iota // Use terminal default fg/bg (SGR 39/49)
+	ColorTypeStandard                   // Standard 16 ANSI colors (0-15)
+	ColorTypePalette                    // 256-color palette (0-255)
+	ColorTypeTrueColor                  // 24-bit RGB
+)
+
+// Color represents a terminal color with its original specification preserved.
+// This allows proper round-tripping for ANS files and dynamic palette swapping.
 type Color struct {
-	R, G, B uint8
-	Default bool // Use default fg/bg color instead of RGB values
+	Type    ColorType // How the color was specified
+	Index   uint8     // For Standard (0-15) or Palette (0-255)
+	R, G, B uint8     // For TrueColor, or resolved RGB for display
 }
 
 // Predefined colors
 var (
-	DefaultForeground = Color{R: 212, G: 212, B: 212, Default: true}
-	DefaultBackground = Color{R: 30, G: 30, B: 30, Default: true}
+	DefaultForeground = Color{Type: ColorTypeDefault, R: 212, G: 212, B: 212}
+	DefaultBackground = Color{Type: ColorTypeDefault, R: 30, G: 30, B: 30}
 )
+
+// StandardColor creates a standard 16-color ANSI color (index 0-15)
+func StandardColor(index int) Color {
+	if index < 0 || index > 15 {
+		index = 7 // Default to white
+	}
+	rgb := ANSIColorsRGB[index]
+	return Color{Type: ColorTypeStandard, Index: uint8(index), R: rgb.R, G: rgb.G, B: rgb.B}
+}
+
+// PaletteColor creates a 256-color palette color (index 0-255)
+func PaletteColor(index int) Color {
+	if index < 0 || index > 255 {
+		index = 7 // Default to white
+	}
+	rgb := Get256ColorRGB(index)
+	return Color{Type: ColorTypePalette, Index: uint8(index), R: rgb.R, G: rgb.G, B: rgb.B}
+}
+
+// TrueColor creates a 24-bit true color
+func TrueColor(r, g, b uint8) Color {
+	return Color{Type: ColorTypeTrueColor, R: r, G: g, B: b}
+}
+
+// IsDefault returns true if this is the default fg/bg color
+func (c Color) IsDefault() bool {
+	return c.Type == ColorTypeDefault
+}
+
+// ToANSIIndex returns the color index for standard/palette colors, or -1 for true color
+func (c Color) ToANSIIndex() int {
+	switch c.Type {
+	case ColorTypeStandard, ColorTypePalette:
+		return int(c.Index)
+	default:
+		return -1
+	}
+}
+
+// ToSGRCode returns the SGR color code(s) for this color (foreground if isFg=true)
+func (c Color) ToSGRCode(isFg bool) string {
+	switch c.Type {
+	case ColorTypeDefault:
+		if isFg {
+			return "39"
+		}
+		return "49"
+	case ColorTypeStandard:
+		idx := int(c.Index)
+		if idx < 8 {
+			// Normal colors: 30-37 or 40-47
+			if isFg {
+				return itoa(30 + idx)
+			}
+			return itoa(40 + idx)
+		}
+		// Bright colors: 90-97 or 100-107
+		if isFg {
+			return itoa(90 + idx - 8)
+		}
+		return itoa(100 + idx - 8)
+	case ColorTypePalette:
+		if isFg {
+			return "38;5;" + itoa(int(c.Index))
+		}
+		return "48;5;" + itoa(int(c.Index))
+	case ColorTypeTrueColor:
+		if isFg {
+			return "38;2;" + itoa(int(c.R)) + ";" + itoa(int(c.G)) + ";" + itoa(int(c.B))
+		}
+		return "48;2;" + itoa(int(c.R)) + ";" + itoa(int(c.G)) + ";" + itoa(int(c.B))
+	}
+	return ""
+}
+
+// itoa is a simple int to string conversion
+func itoa(i int) string {
+	if i == 0 {
+		return "0"
+	}
+	if i < 0 {
+		return "-" + itoa(-i)
+	}
+	var buf [20]byte
+	pos := len(buf)
+	for i > 0 {
+		pos--
+		buf[pos] = byte('0' + i%10)
+		i /= 10
+	}
+	return string(buf[pos:])
+}
 
 // BlinkMode determines how the blink attribute is rendered
 type BlinkMode int
@@ -33,8 +137,13 @@ const (
 	BlinkModeBright                  // Interpret as bright background (VGA style)
 )
 
-// Standard ANSI 16-color palette (in ANSI order for escape code compatibility)
-var ANSIColors = []Color{
+// RGB holds just the red, green, blue components (used internally)
+type RGB struct {
+	R, G, B uint8
+}
+
+// Standard ANSI 16-color palette RGB values (in ANSI order for escape code compatibility)
+var ANSIColorsRGB = []RGB{
 	{R: 0, G: 0, B: 0},       // ANSI 0: Black
 	{R: 170, G: 0, B: 0},     // ANSI 1: Red
 	{R: 0, G: 170, B: 0},     // ANSI 2: Green
@@ -54,26 +163,45 @@ var ANSIColors = []Color{
 	{R: 255, G: 255, B: 255}, // ANSI 15: White
 }
 
+// ANSIColors returns standard ANSI colors as full Color structs (for backwards compatibility)
+var ANSIColors = func() []Color {
+	colors := make([]Color, 16)
+	for i := 0; i < 16; i++ {
+		colors[i] = StandardColor(i)
+	}
+	return colors
+}()
+
 // VGAToANSI maps VGA/CGA color index to ANSI color index
 var VGAToANSI = []int{0, 4, 2, 6, 1, 5, 3, 7, 8, 12, 10, 14, 9, 13, 11, 15}
 
 // ANSIToVGA maps ANSI color index to VGA/CGA color index
 var ANSIToVGA = []int{0, 4, 2, 6, 1, 5, 3, 7, 8, 12, 10, 14, 9, 13, 11, 15}
 
-// Get256Color returns the color for a 256-color mode index
-func Get256Color(idx int) Color {
+// Get256ColorRGB returns the RGB values for a 256-color palette index
+func Get256ColorRGB(idx int) RGB {
+	if idx < 0 {
+		idx = 0
+	} else if idx > 255 {
+		idx = 255
+	}
 	if idx < 16 {
-		return ANSIColors[idx]
+		return ANSIColorsRGB[idx]
 	} else if idx < 232 {
 		idx -= 16
 		b := idx % 6
 		g := (idx / 6) % 6
 		r := idx / 36
-		return Color{R: uint8(r * 51), G: uint8(g * 51), B: uint8(b * 51)}
+		return RGB{R: uint8(r * 51), G: uint8(g * 51), B: uint8(b * 51)}
 	} else {
 		gray := uint8((idx-232)*10 + 8)
-		return Color{R: gray, G: gray, B: gray}
+		return RGB{R: gray, G: gray, B: gray}
 	}
+}
+
+// Get256Color returns the color for a 256-color mode index (returns PaletteColor type)
+func Get256Color(idx int) Color {
+	return PaletteColor(idx)
 }
 
 // ToHex returns the color as a hex string like "#RRGGBB"
@@ -87,6 +215,7 @@ func hexByte(b uint8) string {
 }
 
 // ParseHexColor parses a hex color string in "#RRGGBB" or "#RGB" format
+// Returns a TrueColor type
 func ParseHexColor(s string) (Color, bool) {
 	if len(s) == 0 || s[0] != '#' {
 		return Color{}, false
@@ -105,7 +234,7 @@ func ParseHexColor(s string) (Color, bool) {
 	default:
 		return Color{}, false
 	}
-	return Color{R: r, G: g, B: b}, true
+	return TrueColor(r, g, b), true
 }
 
 func parseHexNibble(c byte) uint8 {
@@ -173,10 +302,10 @@ func PaletteColorNames() []string {
 // DefaultColorScheme returns a dark color scheme similar to VS Code
 func DefaultColorScheme() ColorScheme {
 	return ColorScheme{
-		Foreground: Color{R: 212, G: 212, B: 212},
-		Background: Color{R: 30, G: 30, B: 30},
-		Cursor:     Color{R: 255, G: 255, B: 255},
-		Selection:  Color{R: 68, G: 68, B: 68},
+		Foreground: TrueColor(212, 212, 212),
+		Background: TrueColor(30, 30, 30),
+		Cursor:     TrueColor(255, 255, 255),
+		Selection:  TrueColor(68, 68, 68),
 		Palette:    ANSIColors,
 	}
 }
