@@ -551,6 +551,24 @@ func (r *REPL) HandleKeyEvent(key string) bool {
 	case "Tab":
 		r.insertChar('\t')
 
+	case "S-Space", " ": // Shift+Space (kitty: \e[32;2u) -> treat as regular space
+		r.insertChar(' ')
+
+	case "S-Enter": // Shift+Enter (kitty: \e[13;2u) -> treat as regular enter
+		r.handleEnter()
+
+	case "S-Left": // Shift+Left (\e[1;2D) -> move word left
+		r.handleWordLeft()
+
+	case "M-Right": // Alt+Right (\e[1;3C) -> move word right
+		r.handleWordRight()
+
+	case "S-Up": // Shift+Up (\e[1;2A) -> go to first history item
+		r.handleHistoryFirst()
+
+	case "S-Down": // Shift+Down (\e[1;2B) -> go to last history item
+		r.handleHistoryLast()
+
 	default:
 		// Check for single characters (printable)
 		if len(key) == 1 && key[0] >= 32 && key[0] < 127 {
@@ -1017,6 +1035,83 @@ func (r *REPL) handleEnd() {
 			r.output(fmt.Sprintf("\x1b[%dC", len(r.currentLine)-oldPos))
 		}
 	}
+}
+
+// isWordChar returns true if the rune is considered part of a word
+func isWordChar(ch rune) bool {
+	return (ch >= 'a' && ch <= 'z') || (ch >= 'A' && ch <= 'Z') ||
+		(ch >= '0' && ch <= '9') || ch == '_' || ch == '-'
+}
+
+func (r *REPL) handleWordLeft() {
+	if r.cursorPos == 0 {
+		return
+	}
+
+	// Skip any whitespace/non-word chars immediately before cursor
+	for r.cursorPos > 0 && !isWordChar(r.currentLine[r.cursorPos-1]) {
+		r.cursorPos--
+	}
+
+	// Move to the beginning of the word
+	for r.cursorPos > 0 && isWordChar(r.currentLine[r.cursorPos-1]) {
+		r.cursorPos--
+	}
+
+	r.redrawLine()
+}
+
+func (r *REPL) handleWordRight() {
+	lineLen := len(r.currentLine)
+	if r.cursorPos >= lineLen {
+		return
+	}
+
+	// Skip any whitespace/non-word chars at cursor
+	for r.cursorPos < lineLen && !isWordChar(r.currentLine[r.cursorPos]) {
+		r.cursorPos++
+	}
+
+	// Move to the end of the word
+	for r.cursorPos < lineLen && isWordChar(r.currentLine[r.cursorPos]) {
+		r.cursorPos++
+	}
+
+	r.redrawLine()
+}
+
+func (r *REPL) handleHistoryFirst() {
+	if len(r.history) == 0 {
+		return
+	}
+
+	if !r.inHistory {
+		r.savedLine = string(r.currentLine)
+		r.inHistory = true
+	}
+
+	r.historyPos = 0
+	r.currentLine = []rune(r.history[0])
+	r.cursorPos = len(r.currentLine)
+	r.scrollOffset = 0
+	r.redrawLine()
+}
+
+func (r *REPL) handleHistoryLast() {
+	if len(r.history) == 0 {
+		return
+	}
+
+	if !r.inHistory {
+		r.savedLine = string(r.currentLine)
+		r.inHistory = true
+	}
+
+	r.historyPos = len(r.history) - 1
+	r.currentLine = []rune(r.history[r.historyPos])
+	r.cursorPos = len(r.currentLine)
+	r.scrollOffset = 0
+	r.redrawLine()
 }
 
 func (r *REPL) handleBackspace() {
