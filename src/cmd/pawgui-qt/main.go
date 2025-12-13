@@ -96,7 +96,7 @@ var (
 // Minimum widths for panel collapse behavior
 const (
 	minWidePanelWidth   = 196 // Minimum width before wide panel collapses
-	minNarrowStripWidth = 40  // Minimum width before narrow strip collapses
+	minNarrowStripWidth = 56  // Minimum width before narrow strip collapses (fits 48px buttons)
 )
 
 // Embedded SVG icons (fill color is replaced at runtime based on theme)
@@ -441,8 +441,8 @@ func createHamburgerMenu(parent *qt.QWidget, isScriptWindow bool) *qt.QMenu {
 }
 
 // Toolbar button size constant for consistent square buttons
-const toolbarButtonSize = 40
-const toolbarIconSize = toolbarButtonSize - 12 // 6px padding per side (2px extra)
+const toolbarButtonSize = 48
+const toolbarIconSize = 40 // 4px padding per side (button is 8px larger than icon)
 
 // createHamburgerButton creates a hamburger menu button with SVG icon
 func createHamburgerButton(menu *qt.QMenu) *qt.QPushButton {
