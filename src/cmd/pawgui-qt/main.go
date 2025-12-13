@@ -205,7 +205,7 @@ func NewIconButton(buttonSize, iconSize int, svgData string) *IconButton {
 }
 
 func (btn *IconButton) paintEvent(event *qt.QPaintEvent) {
-	painter := qt.NewQPainter2(btn.QWidget)
+	painter := qt.NewQPainter2(btn.QWidget.QPaintDevice)
 	defer painter.End()
 
 	// Get widget dimensions
@@ -216,11 +216,11 @@ func (btn *IconButton) paintEvent(event *qt.QPaintEvent) {
 	if btn.isPressed {
 		bgColor := qt.NewQColor3(128, 128, 128)
 		bgColor.SetAlpha(80)
-		painter.FillRect(qt.NewQRect2(0, 0, w, h), bgColor)
+		painter.FillRect5(0, 0, w, h, bgColor)
 	} else if btn.isHovered {
 		bgColor := qt.NewQColor3(128, 128, 128)
 		bgColor.SetAlpha(40)
-		painter.FillRect(qt.NewQRect2(0, 0, w, h), bgColor)
+		painter.FillRect5(0, 0, w, h, bgColor)
 	}
 
 	// Draw the icon centered
@@ -229,7 +229,7 @@ func (btn *IconButton) paintEvent(event *qt.QPaintEvent) {
 		iconH := btn.pixmap.Height()
 		x := (w - iconW) / 2
 		y := (h - iconH) / 2
-		painter.DrawPixmap(x, y, btn.pixmap)
+		painter.DrawPixmap9(x, y, btn.pixmap)
 	}
 }
 
