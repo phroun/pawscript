@@ -1348,11 +1348,15 @@ func runScriptInWindow(gtkApp *gtk.Application, scriptContent, scriptFile string
 	paned.Connect("button-press-event", func(p *gtk.Paned, ev *gdk.Event) bool {
 		btnEvent := gdk.EventButtonNewFromEvent(ev)
 		if btnEvent.Button() == 1 {
-			// Check if click is on the handle by comparing event window to handle window
-			handleWindow, _ := p.GetHandleWindow()
-			eventWindow := btnEvent.Window()
-			consolePanedOnHandle = handleWindow != nil && eventWindow != nil &&
-				handleWindow.Native() == eventWindow.Native()
+			// Check if click is on the handle using handle window geometry
+			consolePanedOnHandle = false
+			if handleWindow, err := p.GetHandleWindow(); err == nil && handleWindow != nil {
+				hx, hy := handleWindow.GetRootOrigin()
+				hw := handleWindow.WindowGetWidth()
+				hh := handleWindow.WindowGetHeight()
+				clickX, clickY := int(btnEvent.XRoot()), int(btnEvent.YRoot())
+				consolePanedOnHandle = clickX >= hx && clickX < hx+hw && clickY >= hy && clickY < hy+hh
+			}
 			if !consolePanedOnHandle {
 				return false
 			}
@@ -1774,11 +1778,15 @@ func activate(application *gtk.Application) {
 	launcherPaned.Connect("button-press-event", func(paned *gtk.Paned, ev *gdk.Event) bool {
 		btnEvent := gdk.EventButtonNewFromEvent(ev)
 		if btnEvent.Button() == 1 { // Left mouse button
-			// Check if click is on the handle by comparing event window to handle window
-			handleWindow, _ := paned.GetHandleWindow()
-			eventWindow := btnEvent.Window()
-			launcherPanedOnHandle = handleWindow != nil && eventWindow != nil &&
-				handleWindow.Native() == eventWindow.Native()
+			// Check if click is on the handle using handle window geometry
+			launcherPanedOnHandle = false
+			if handleWindow, err := paned.GetHandleWindow(); err == nil && handleWindow != nil {
+				hx, hy := handleWindow.GetRootOrigin()
+				hw := handleWindow.WindowGetWidth()
+				hh := handleWindow.WindowGetHeight()
+				clickX, clickY := int(btnEvent.XRoot()), int(btnEvent.YRoot())
+				launcherPanedOnHandle = clickX >= hx && clickX < hx+hw && clickY >= hy && clickY < hy+hh
+			}
 
 			if !launcherPanedOnHandle {
 				return false // Not on handle, let event propagate normally
@@ -2548,11 +2556,15 @@ func createConsoleWindow(filePath string) {
 	paned.Connect("button-press-event", func(p *gtk.Paned, ev *gdk.Event) bool {
 		btnEvent := gdk.EventButtonNewFromEvent(ev)
 		if btnEvent.Button() == 1 {
-			// Check if click is on the handle by comparing event window to handle window
-			handleWindow, _ := p.GetHandleWindow()
-			eventWindow := btnEvent.Window()
-			consolePanedOnHandle = handleWindow != nil && eventWindow != nil &&
-				handleWindow.Native() == eventWindow.Native()
+			// Check if click is on the handle using handle window geometry
+			consolePanedOnHandle = false
+			if handleWindow, err := p.GetHandleWindow(); err == nil && handleWindow != nil {
+				hx, hy := handleWindow.GetRootOrigin()
+				hw := handleWindow.WindowGetWidth()
+				hh := handleWindow.WindowGetHeight()
+				clickX, clickY := int(btnEvent.XRoot()), int(btnEvent.YRoot())
+				consolePanedOnHandle = clickX >= hx && clickX < hx+hw && clickY >= hy && clickY < hy+hh
+			}
 			if !consolePanedOnHandle {
 				return false
 			}
