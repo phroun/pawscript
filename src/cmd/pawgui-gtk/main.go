@@ -103,6 +103,7 @@ var (
 	launcherMenuButton     *gtk.Button        // Hamburger button in path selector (when strip hidden)
 	launcherStripMenuBtn   *gtk.Button        // Hamburger button in narrow strip (when strip visible)
 	launcherWidePanel      *gtk.Box           // The wide panel (file browser)
+	launcherPaned          *gtk.Paned         // The main splitter
 	launcherRegisteredBtns []*ToolbarButton   // Additional registered buttons for launcher
 	launcherToolbarData    *WindowToolbarData // Toolbar data for the launcher window
 
@@ -499,7 +500,8 @@ func createImageFromSVG(svgData string, size int) *gtk.Image {
 
 // applyToolbarButtonStyle applies CSS to make toolbar buttons square with equal padding
 // forVerticalStrip: true for buttons in the vertical toolbar strip (need more top/bottom)
-//                   false for buttons in horizontal rows like file selector (match row height)
+//
+//	false for buttons in horizontal rows like file selector (match row height)
 func applyToolbarButtonStyle(btn *gtk.Button, forVerticalStrip bool) {
 	cssProvider, err := gtk.CssProviderNew()
 	if err != nil {
@@ -541,6 +543,9 @@ func updateLauncherToolbarButtons() {
 	if launcherNarrowStrip == nil {
 		return
 	}
+
+	// Check current state before updating (strip visible = had buttons before)
+	hadButtons := launcherNarrowStrip.GetVisible()
 
 	// Get the strip's layout box (first child is the layout container)
 	// Actually the strip IS the box, so we work with it directly
@@ -589,6 +594,20 @@ func updateLauncherToolbarButtons() {
 
 	// Update visibility based on button count
 	hasMultipleButtons := len(launcherRegisteredBtns) > 0
+
+	// Adjust splitter position when transitioning between modes
+	// Only adjust if we're in wide mode (position > narrow-only threshold)
+	if launcherPaned != nil && launcherWidePanel != nil && launcherWidePanel.GetVisible() {
+		pos := launcherPaned.GetPosition()
+		if hadButtons && !hasMultipleButtons {
+			// Transitioning from both mode to wide-only: subtract strip width
+			launcherPaned.SetPosition(pos - minNarrowStripWidth)
+		} else if !hadButtons && hasMultipleButtons {
+			// Transitioning from wide-only to both mode: add strip width
+			launcherPaned.SetPosition(pos + minNarrowStripWidth)
+		}
+	}
+
 	if hasMultipleButtons {
 		// Show narrow strip, hide menu button in path row
 		launcherNarrowStrip.Show()
@@ -1590,8 +1609,8 @@ func activate(application *gtk.Application) {
 	})
 
 	// Create main horizontal paned (split view)
-	paned, _ := gtk.PanedNew(gtk.ORIENTATION_HORIZONTAL)
-	paned.SetPosition(getLauncherWidth())
+	launcherPaned, _ = gtk.PanedNew(gtk.ORIENTATION_HORIZONTAL)
+	// Position will be set after ShowAll based on saved width and button state
 
 	// Left panel container: holds wide panel (file browser) and narrow strip side by side
 	leftContainer, _ := gtk.BoxNew(gtk.ORIENTATION_HORIZONTAL, 0)
@@ -1612,12 +1631,12 @@ func activate(application *gtk.Application) {
 	launcherNarrowStrip.Hide()
 
 	// Pack1(widget, resize, shrink): resize=false (fixed), shrink=true (can collapse)
-	paned.Pack1(leftContainer, false, true)
+	launcherPaned.Pack1(leftContainer, false, true)
 
 	// Right panel: Terminal (with left margin for spacing from divider)
 	rightPanel := createTerminal()
 	rightPanel.SetMarginStart(8) // 8 pixel spacer from divider
-	paned.Pack2(rightPanel, true, false)
+	launcherPaned.Pack2(rightPanel, true, false)
 
 	// Save launcher width when user adjusts the splitter
 	// Implement multi-stage collapse:
@@ -1625,8 +1644,8 @@ func activate(application *gtk.Application) {
 	// - Narrow only mode: when pos >= minNarrowStripWidth but < threshold for wide panel
 	// - Collapsed: when pos < halfway point of narrow strip
 	narrowOnlyWidth := minNarrowStripWidth + narrowOnlyExtraPadding
-	paned.Connect("notify::position", func() {
-		pos := paned.GetPosition()
+	launcherPaned.Connect("notify::position", func() {
+		pos := launcherPaned.GetPosition()
 		hasMultipleButtons := len(launcherRegisteredBtns) > 0
 
 		// Calculate threshold for showing both panels (wide panel needs its min width plus narrow strip width)
@@ -1639,7 +1658,7 @@ func activate(application *gtk.Application) {
 			saveLauncherWidth(pos)
 		} else if pos < narrowSnapPoint {
 			// Too narrow even for strip - snap to collapsed
-			paned.SetPosition(0)
+			launcherPaned.SetPosition(0)
 		} else if pos < bothThreshold {
 			// Between narrow snap point and both-panels threshold
 			// Show only narrow strip at its fixed width with extra left padding
@@ -1650,16 +1669,16 @@ func activate(application *gtk.Application) {
 			launcherStripMenuBtn.Show()
 			// Snap to narrow strip width plus extra padding
 			if pos != narrowOnlyWidth {
-				paned.SetPosition(narrowOnlyWidth)
+				launcherPaned.SetPosition(narrowOnlyWidth)
 			}
 			saveLauncherWidth(narrowOnlyWidth)
 		} else {
 			// Wide enough for full panel
 			launcherWidePanel.Show()
 			if hasMultipleButtons {
-				paned.SetPosition(max(pos, minWidePanelWidth + minNarrowStripWidth)) // Jeff
+				launcherPaned.SetPosition(max(pos, minWidePanelWidth+minNarrowStripWidth))
 			} else {
-				paned.SetPosition(max(pos, minWidePanelWidth)) // Jeff
+				launcherPaned.SetPosition(max(pos, minWidePanelWidth))
 			}
 			launcherNarrowStrip.SetMarginStart(2) // Normal padding in wide mode
 			if hasMultipleButtons {
@@ -1667,16 +1686,18 @@ func activate(application *gtk.Application) {
 				launcherNarrowStrip.Show()
 				launcherMenuButton.Hide()
 				launcherStripMenuBtn.Show()
+				// Save only the wide panel width (subtract strip width)
+				saveLauncherWidth(launcherPaned.GetPosition() - minNarrowStripWidth)
 			} else {
 				// Single button: hide narrow strip, show menu button in path row
 				launcherNarrowStrip.Hide()
 				launcherMenuButton.Show()
+				saveLauncherWidth(launcherPaned.GetPosition())
 			}
-			saveLauncherWidth(pos)
 		}
 	})
 
-	mainBox.PackStart(paned, true, true, 0)
+	mainBox.PackStart(launcherPaned, true, true, 0)
 	mainWindow.Add(mainBox)
 
 	// Load initial directory
@@ -1693,23 +1714,30 @@ func activate(application *gtk.Application) {
 
 	mainWindow.ShowAll()
 
-	// Apply correct UI state based on saved position
-	// (The position handler only fires on changes, not initial load)
+	// Apply correct UI state and position based on saved position
+	// Note: savedPos represents only the wide panel width (not including strip)
+	// When in both mode with buttons, we add strip width to get actual position
 	savedPos := getLauncherWidth()
-	bothThreshold := minWidePanelWidth + minNarrowStripWidth
 	hasMultipleButtons := len(launcherRegisteredBtns) > 0
 
 	if savedPos == 0 {
-		// Fully collapsed - panels already hidden by ShowAll behavior
-	} else if savedPos < bothThreshold {
+		// Fully collapsed
+		launcherPaned.SetPosition(0)
+	} else if savedPos == narrowOnlyWidth {
 		// Narrow-only mode: hide wide panel, show narrow strip with extra padding
+		launcherPaned.SetPosition(narrowOnlyWidth)
 		launcherWidePanel.Hide()
 		launcherNarrowStrip.SetMarginStart(2 + narrowOnlyExtraPadding)
 		launcherNarrowStrip.Show()
 		launcherMenuButton.Hide()
 		launcherStripMenuBtn.Show()
 	} else {
-		// Wide mode
+		// Wide mode - add strip width if buttons exist
+		actualPos := savedPos
+		if hasMultipleButtons {
+			actualPos = savedPos + minNarrowStripWidth
+		}
+		launcherPaned.SetPosition(actualPos)
 		launcherWidePanel.Show()
 		launcherNarrowStrip.SetMarginStart(2) // Normal padding
 		if hasMultipleButtons {

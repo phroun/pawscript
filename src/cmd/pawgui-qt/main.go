@@ -62,6 +62,7 @@ var (
 	launcherMenuButton     *IconButton        // Hamburger button in path selector (when strip hidden)
 	launcherStripMenuBtn   *IconButton        // Hamburger button in narrow strip (when strip visible)
 	launcherWidePanel      *qt.QWidget        // The wide panel (file browser)
+	launcherSplitter       *qt.QSplitter      // The main launcher splitter
 	launcherRegisteredBtns []*QtToolbarButton // Additional registered buttons for launcher
 	pendingToolbarUpdate   bool               // Flag to signal main thread to update toolbar
 	splitterAdjusting      bool               // Flag to prevent recursive splitter callbacks
@@ -606,6 +607,9 @@ func updateLauncherToolbarButtons() {
 		return
 	}
 
+	// Check current state before updating (strip visible = had buttons before)
+	hadButtons := launcherNarrowStrip.IsVisible()
+
 	// Get the strip's layout
 	layout := launcherNarrowStrip.Layout()
 	if layout == nil {
@@ -639,6 +643,27 @@ func updateLauncherToolbarButtons() {
 
 	// Update visibility based on button count
 	hasMultipleButtons := len(launcherRegisteredBtns) > 0
+
+	// Adjust splitter position when transitioning between modes
+	// Only adjust if we're in wide mode (wide panel is visible)
+	if launcherSplitter != nil && launcherWidePanel != nil && launcherWidePanel.IsVisible() {
+		sizes := launcherSplitter.Sizes()
+		if len(sizes) >= 2 {
+			pos := sizes[0]
+			if hadButtons && !hasMultipleButtons {
+				// Transitioning from both mode to wide-only: subtract strip width
+				splitterAdjusting = true
+				launcherSplitter.SetSizes([]int{pos - minNarrowStripWidth, sizes[1] + minNarrowStripWidth})
+				splitterAdjusting = false
+			} else if !hadButtons && hasMultipleButtons {
+				// Transitioning from wide-only to both mode: add strip width
+				splitterAdjusting = true
+				launcherSplitter.SetSizes([]int{pos + minNarrowStripWidth, sizes[1] - minNarrowStripWidth})
+				splitterAdjusting = false
+			}
+		}
+	}
+
 	if hasMultipleButtons {
 		// Show narrow strip, hide menu button in path row
 		launcherNarrowStrip.Show()
@@ -1169,7 +1194,7 @@ func launchGUIMode() {
 	centralWidget.SetLayout(mainLayout.QLayout)
 
 	// Create splitter
-	splitter := qt.NewQSplitter3(qt.Horizontal)
+	launcherSplitter = qt.NewQSplitter3(qt.Horizontal)
 
 	// Left container: holds wide panel (file browser) and narrow strip side by side
 	leftContainer := qt.NewQWidget2()
@@ -1191,27 +1216,35 @@ func launchGUIMode() {
 	// Initially: hamburger button visible in path selector, narrow strip hidden
 	launcherMenuButton.Show()
 
-	splitter.AddWidget(leftContainer)
+	launcherSplitter.AddWidget(leftContainer)
 
 	// Right panel (terminal)
 	rightPanel := createTerminalPanel()
-	splitter.AddWidget(rightPanel)
+	launcherSplitter.AddWidget(rightPanel)
 
-	// Set initial splitter sizes using saved launcher width (default 280)
-	launcherWidth := getLauncherWidth()
-	splitter.SetSizes([]int{launcherWidth, 900 - launcherWidth})
+	// Set initial splitter sizes using saved launcher width
+	// Note: savedWidth represents only the wide panel width (not including strip)
+	// When buttons exist, we add strip width to get actual splitter position
+	savedWidth := getLauncherWidth()
+	hasMultipleButtons := len(launcherRegisteredBtns) > 0
+	initialWidth := savedWidth
+	if hasMultipleButtons && savedWidth > minNarrowStripWidth {
+		// Wide mode with buttons: add strip width
+		initialWidth = savedWidth + minNarrowStripWidth
+	}
+	launcherSplitter.SetSizes([]int{initialWidth, 900 - initialWidth})
 
 	// Configure stretch factors so left panel stays fixed and right panel is flexible
 	// This matches the GTK behavior where additional space goes to the console
-	splitter.SetStretchFactor(0, 0) // Left panel: fixed size (doesn't stretch)
-	splitter.SetStretchFactor(1, 1) // Right panel: flexible (absorbs size changes)
+	launcherSplitter.SetStretchFactor(0, 0) // Left panel: fixed size (doesn't stretch)
+	launcherSplitter.SetStretchFactor(1, 1) // Right panel: flexible (absorbs size changes)
 
 	// Save launcher width when user adjusts the splitter
 	// Implement multi-stage collapse:
 	// - Wide + narrow mode: when pos >= minWidePanelWidth + minNarrowStripWidth
 	// - Narrow only mode: when pos >= minNarrowStripWidth but < threshold for wide panel
 	// - Collapsed: when pos < halfway point of narrow strip
-	splitter.OnSplitterMoved(func(pos int, index int) {
+	launcherSplitter.OnSplitterMoved(func(pos int, index int) {
 		if index != 1 {
 			return
 		}
@@ -1231,7 +1264,7 @@ func launchGUIMode() {
 		if pos < narrowSnapPoint {
 			// Too narrow even for strip - collapse fully
 			splitterAdjusting = true
-			splitter.SetSizes([]int{0, splitter.Width()})
+			launcherSplitter.SetSizes([]int{0, launcherSplitter.Width()})
 			splitterAdjusting = false
 			// Hide everything
 			launcherWidePanel.Hide()
@@ -1248,7 +1281,7 @@ func launchGUIMode() {
 			// Snap to just the narrow strip width
 			if pos != minNarrowStripWidth {
 				splitterAdjusting = true
-				splitter.SetSizes([]int{minNarrowStripWidth, splitter.Width() - minNarrowStripWidth})
+				launcherSplitter.SetSizes([]int{minNarrowStripWidth, launcherSplitter.Width() - minNarrowStripWidth})
 				splitterAdjusting = false
 			}
 			saveLauncherWidth(minNarrowStripWidth)
@@ -1259,15 +1292,17 @@ func launchGUIMode() {
 				launcherNarrowStrip.Show()
 				launcherMenuButton.Hide()
 				launcherStripMenuBtn.Show()
+				// Save only the wide panel width (subtract strip width)
+				saveLauncherWidth(pos - minNarrowStripWidth)
 			} else {
 				launcherNarrowStrip.Hide()
 				launcherMenuButton.Show()
+				saveLauncherWidth(pos)
 			}
-			saveLauncherWidth(pos)
 		}
 	})
 
-	mainLayout.AddWidget(splitter.QWidget)
+	mainLayout.AddWidget(launcherSplitter.QWidget)
 	mainWindow.SetCentralWidget(centralWidget)
 
 	// Set up console I/O
