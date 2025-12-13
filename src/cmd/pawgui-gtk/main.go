@@ -1325,7 +1325,6 @@ func runScriptInWindow(gtkApp *gtk.Application, scriptContent, scriptFile string
 	var consolePanedPressPos int = -1
 	var consolePanedDragged bool
 	var consolePanedOnHandle bool
-	const consoleHandleClickWidth = 10 // Pixels around handle position to detect clicks
 
 	paned.Connect("notify::position", func() {
 		pos := paned.GetPosition()
@@ -1349,14 +1348,15 @@ func runScriptInWindow(gtkApp *gtk.Application, scriptContent, scriptFile string
 	paned.Connect("button-press-event", func(p *gtk.Paned, ev *gdk.Event) bool {
 		btnEvent := gdk.EventButtonNewFromEvent(ev)
 		if btnEvent.Button() == 1 {
-			// Check if click is on the handle area
-			clickX := int(btnEvent.X())
-			handlePos := p.GetPosition()
-			consolePanedOnHandle = clickX >= handlePos-consoleHandleClickWidth && clickX <= handlePos+consoleHandleClickWidth
+			// Check if click is on the handle by comparing event window to handle window
+			handleWindow, _ := p.GetHandleWindow()
+			eventWindow := btnEvent.Window()
+			consolePanedOnHandle = handleWindow != nil && eventWindow != nil &&
+				handleWindow.Native() == eventWindow.Native()
 			if !consolePanedOnHandle {
 				return false
 			}
-			consolePanedPressPos = handlePos
+			consolePanedPressPos = p.GetPosition()
 			consolePanedDragged = false
 		}
 		return false
@@ -1770,15 +1770,15 @@ func activate(application *gtk.Application) {
 	var launcherPanedDragged bool
 	var launcherPanedDoubleClick bool
 	var launcherPanedOnHandle bool
-	const handleClickWidth = 10 // Pixels around handle position to detect clicks
 
 	launcherPaned.Connect("button-press-event", func(paned *gtk.Paned, ev *gdk.Event) bool {
 		btnEvent := gdk.EventButtonNewFromEvent(ev)
 		if btnEvent.Button() == 1 { // Left mouse button
-			// Check if click is on the handle area (near the splitter position)
-			clickX := int(btnEvent.X())
-			handlePos := paned.GetPosition()
-			launcherPanedOnHandle = clickX >= handlePos-handleClickWidth && clickX <= handlePos+handleClickWidth
+			// Check if click is on the handle by comparing event window to handle window
+			handleWindow, _ := paned.GetHandleWindow()
+			eventWindow := btnEvent.Window()
+			launcherPanedOnHandle = handleWindow != nil && eventWindow != nil &&
+				handleWindow.Native() == eventWindow.Native()
 
 			if !launcherPanedOnHandle {
 				return false // Not on handle, let event propagate normally
@@ -1791,7 +1791,7 @@ func activate(application *gtk.Application) {
 				paned.SetPosition(0)
 				return true
 			}
-			launcherPanedPressPos = handlePos
+			launcherPanedPressPos = paned.GetPosition()
 			launcherPanedDragged = false
 			launcherPanedDoubleClick = false
 		}
@@ -2525,7 +2525,6 @@ func createConsoleWindow(filePath string) {
 	var consolePanedPressPos int = -1
 	var consolePanedDragged bool
 	var consolePanedOnHandle bool
-	const consoleHandleClickWidth2 = 10 // Pixels around handle position to detect clicks
 
 	paned.Connect("notify::position", func() {
 		pos := paned.GetPosition()
@@ -2549,14 +2548,15 @@ func createConsoleWindow(filePath string) {
 	paned.Connect("button-press-event", func(p *gtk.Paned, ev *gdk.Event) bool {
 		btnEvent := gdk.EventButtonNewFromEvent(ev)
 		if btnEvent.Button() == 1 {
-			// Check if click is on the handle area
-			clickX := int(btnEvent.X())
-			handlePos := p.GetPosition()
-			consolePanedOnHandle = clickX >= handlePos-consoleHandleClickWidth2 && clickX <= handlePos+consoleHandleClickWidth2
+			// Check if click is on the handle by comparing event window to handle window
+			handleWindow, _ := p.GetHandleWindow()
+			eventWindow := btnEvent.Window()
+			consolePanedOnHandle = handleWindow != nil && eventWindow != nil &&
+				handleWindow.Native() == eventWindow.Native()
 			if !consolePanedOnHandle {
 				return false
 			}
-			consolePanedPressPos = handlePos
+			consolePanedPressPos = p.GetPosition()
 			consolePanedDragged = false
 		}
 		return false
