@@ -208,16 +208,23 @@ func (btn *IconButton) paintEvent(event *qt.QPaintEvent) {
 	painter := qt.NewQPainter2(btn.QWidget.QPaintDevice)
 	defer painter.End()
 
+	// Verify hover state matches reality (in case leave event was missed)
+	actuallyHovered := btn.QWidget.UnderMouse()
+	if btn.isHovered && !actuallyHovered {
+		btn.isHovered = false
+		btn.isPressed = false
+	}
+
 	// Get widget dimensions
 	w := btn.Width()
 	h := btn.Height()
 
 	// Draw button background based on state
-	if btn.isPressed {
+	if btn.isPressed && actuallyHovered {
 		bgColor := qt.NewQColor3(128, 128, 128)
 		bgColor.SetAlpha(80)
 		painter.FillRect5(0, 0, w, h, bgColor)
-	} else if btn.isHovered {
+	} else if btn.isHovered && actuallyHovered {
 		bgColor := qt.NewQColor3(128, 128, 128)
 		bgColor.SetAlpha(40)
 		painter.FillRect5(0, 0, w, h, bgColor)

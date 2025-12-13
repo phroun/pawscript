@@ -387,7 +387,7 @@ func createHamburgerButton(menu *gtk.Menu, forVerticalStrip bool) *gtk.Button {
 // Returns the strip container and the hamburger button
 func createToolbarStrip(parent gtk.IWindow, isScriptWindow bool) (*gtk.Box, *gtk.Button, *gtk.Menu) {
 	strip, _ := gtk.BoxNew(gtk.ORIENTATION_VERTICAL, 4) // 4px spacing between buttons
-	strip.SetMarginStart(2)
+	strip.SetMarginStart(6)                             // Left padding for menu positioning
 	strip.SetMarginEnd(2)
 	strip.SetMarginTop(5)
 	strip.SetMarginBottom(5)
