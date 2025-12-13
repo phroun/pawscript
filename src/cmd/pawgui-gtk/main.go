@@ -2512,12 +2512,14 @@ func activate(application *gtk.Application) {
 					launcherNarrowStrip.Show()
 					launcherMenuButton.Hide()
 					launcherStripMenuBtn.Show()
-					launcherPaned.SetPosition(savedWidth + minNarrowStripWidth)
+					// Enforce minimum threshold like the drag handler does
+					launcherPaned.SetPosition(max(savedWidth+minNarrowStripWidth, minWidePanelWidth+minNarrowStripWidth))
 					saveLauncherWidth(savedWidth)
 				} else {
 					launcherNarrowStrip.Hide()
 					launcherMenuButton.Show()
-					launcherPaned.SetPosition(savedWidth)
+					// Enforce minimum threshold like the drag handler does
+					launcherPaned.SetPosition(max(savedWidth, minWidePanelWidth))
 					saveLauncherWidth(savedWidth)
 				}
 			}
