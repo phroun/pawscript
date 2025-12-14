@@ -626,6 +626,28 @@ func updateToolbarIcons() {
 			launcherStripMenuBtn.SetImage(img)
 		}
 	}
+
+	// Update all registered buttons in launcher toolbar
+	for _, btn := range launcherRegisteredBtns {
+		if btn.widget != nil {
+			svgData := getSVGIcon(starIconSVG)
+			if img := createImageFromSVG(svgData, 24); img != nil {
+				btn.widget.SetImage(img)
+			}
+		}
+	}
+
+	// Update buttons in all script windows
+	for _, data := range toolbarDataByPS {
+		for _, btn := range data.registeredBtns {
+			if btn.widget != nil {
+				svgData := getSVGIcon(starIconSVG)
+				if img := createImageFromSVG(svgData, 24); img != nil {
+					btn.widget.SetImage(img)
+				}
+			}
+		}
+	}
 }
 
 // applyConsoleTheme applies the console theme to all terminals
