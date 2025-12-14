@@ -116,6 +116,38 @@ const starIconSVG = `<svg width="48" height="48" viewBox="0 0 12.7 12.7" xmlns="
   <path style="fill:{{FILL}};stroke:none" d="M 6.4849512,1.5761366 8.0478061,4.7428264 11.542456,5.250629 9.0137037,7.7155534 9.6106608,11.196082 6.484951,9.5527997 3.359241,11.196082 3.9561984,7.7155534 1.4274463,5.2506288 4.9220959,4.7428264 Z" transform="matrix(1.1757817,0,0,1.1757817,-1.274887,-1.2479333)"/>
 </svg>`
 
+const trashIconSVG = `<svg width="48" height="48" viewBox="0 0 12.7 12.7" xmlns="http://www.w3.org/2000/svg">
+  <g transform="translate(0,-0.42545335)">
+    <path style="fill:none;stroke:{{FILL}};stroke-width:1.25;stroke-linecap:butt;stroke-linejoin:miter" d="M 1.737022,2.4884974 3.2171891,11.510245 H 9.4828113 L 10.962978,2.4884974 Z"/>
+    <path style="fill:{{FILL}};stroke:{{FILL}};stroke-linecap:round;stroke-linejoin:round" d="M 1.3199,1.9156617 H 11.38 l 0.399747,1.3487906 H 0.92025 Z"/>
+    <g style="stroke-width:1.37432" transform="matrix(0.9098144,0,0,0.90927138,0.51615218,0.22722416)">
+      <path style="fill:none;stroke:{{FILL}};stroke-width:1.37432;stroke-linecap:butt;stroke-linejoin:miter" d="M 9.7179479,10.776284 2.2806355,3.3389676"/>
+      <path style="fill:none;stroke:{{FILL}};stroke-width:1.37432;stroke-linecap:butt;stroke-linejoin:miter" d="M 2.8490844,10.909391 10.419365,3.3389676"/>
+      <rect style="fill:none;stroke:{{FILL}};stroke-width:1.37432;stroke-linecap:round;stroke-linejoin:round" width="4.892848" height="4.892848" x="7.282187" y="-1.6980692" transform="rotate(45)"/>
+    </g>
+  </g>
+</svg>`
+
+const folderIconSVG = `<svg width="48" height="48" viewBox="0 0 12.7 12.7" xmlns="http://www.w3.org/2000/svg">
+  <path style="fill:{{FILL}};stroke-linecap:round;stroke-linejoin:round" d="M 1.9065339,1.7962728 C 1.5842088,1.7963101 1.2979459,2.0022696 1.1954661,2.3078695 L 0.5663737,3.8958863 c -0.0256507,0.07611 -0.038911,0.1558459 -0.0392741,0.2361613 v 6.7556604 c -1.4756e-4,0.414463 0.33587832,0.750489 0.75034179,0.750342 h 8.8397706 c 0.337275,-3.16e-4 0.632863,-0.225708 0.722436,-0.550871 l 1.588017,-5.7557214 c 0.02486,-0.092219 0.03187,-0.1883361 0.02067,-0.2831869 -0.01456,0.00205 -0.02923,0.00326 -0.04392,0.00362 H 4.0664185 L 2.4861532,10.456009 C 2.4269087,10.657739 2.2159526,10.773834 2.0138306,10.715942 1.8099565,10.657629 1.6924277,10.444594 1.7518311,10.241035 L 3.4121948,4.5617955 C 3.459762,4.3986948 3.609202,4.2865095 3.7790975,4.2863601 H 11.39672 V 4.1318476 C 11.396582,3.7175863 11.06064,3.3818756 10.646379,3.3820225 H 6.4021932 L 5.0642904,2.0203486 C 4.9232898,1.87690 4.7305827,1.7960934 4.5294393,1.7962728 Z"/>
+</svg>`
+
+const homeIconSVG = `<svg width="48" height="48" viewBox="0 0 12.7 12.7" xmlns="http://www.w3.org/2000/svg">
+  <g transform="translate(-0.00109499,1.0501825)">
+    <path style="fill:{{FILL}};stroke:{{FILL}};stroke-linecap:round;stroke-linejoin:miter" d="M 3.2755313,6.4035176 6.3499999,3.7576843 9.4244685,6.4035176 V 9.8547301 H 8.4943104 7.7936896 c -0.050205,-0.7055517 0.050205,-3.5196369 0,-3.1534491 L 4.9063104,6.6797301 v 3.175 H 4.2056896 3.2755313 Z"/>
+    <path style="fill:none;stroke:{{FILL}};stroke-width:1.5;stroke-linecap:butt;stroke-linejoin:miter" d="M 1.3781068,5.4138305 6.34781,1.2300618 11.317513,5.5125077"/>
+  </g>
+</svg>`
+
+const uncheckedIconSVG = `<svg width="48" height="48" viewBox="0 0 12.7 12.7" xmlns="http://www.w3.org/2000/svg">
+  <rect style="fill:none;stroke:{{FILL}};stroke-width:1;stroke-linecap:round" width="10.104374" height="10.104374" x="1.2978133" y="1.2978133"/>
+</svg>`
+
+const checkedIconSVG = `<svg width="48" height="48" viewBox="0 0 12.7 12.7" xmlns="http://www.w3.org/2000/svg">
+  <rect style="fill:none;stroke:{{FILL}};stroke-width:1;stroke-linecap:round" width="10.104374" height="10.104374" x="1.2978133" y="1.2978133"/>
+  <path style="fill:none;stroke:{{FILL}};stroke-width:2.25;stroke-linecap:round;stroke-linejoin:round" d="M 3.3162955,7.1623081 5.7369373,9.2379784 10.237921,3.5516806"/>
+</svg>`
+
 // getIconFillColor returns the appropriate icon fill color based on applied theme
 func getIconFillColor() string {
 	if appliedThemeIsDark {
@@ -136,6 +168,16 @@ func createPixmapFromSVG(svgData string, size int) *qt.QPixmap {
 	if pixmap.LoadFromData(unsafe.SliceData(data), uint(len(data))) {
 		scaled := pixmap.Scaled2(size, size, qt.KeepAspectRatio)
 		return scaled
+	}
+	return nil
+}
+
+// createIconFromSVG creates a QIcon from SVG template at the specified size
+func createIconFromSVG(svgTemplate string, size int) *qt.QIcon {
+	svgData := getSVGIcon(svgTemplate)
+	pixmap := createPixmapFromSVG(svgData, size)
+	if pixmap != nil {
+		return qt.NewQIcon2(pixmap)
 	}
 	return nil
 }
@@ -768,13 +810,21 @@ func createHamburgerMenu(parent *qt.QWidget, isScriptWindow bool, term *purfecte
 	// Separator after About/Settings
 	menu.AddSeparator()
 
-	// File List checkbox (launcher only)
+	// File List toggle with custom icon (launcher only)
 	var fileListAction *qt.QAction
 	if !isScriptWindow {
 		fileListAction = menu.AddAction("File List")
-		fileListAction.SetCheckable(true)
-		fileListAction.SetChecked(isWideMode())
-		fileListAction.OnTriggeredWithChecked(func(checked bool) {
+		// Set initial icon based on current state
+		if isWideMode() {
+			if icon := createIconFromSVG(checkedIconSVG, 16); icon != nil {
+				fileListAction.SetIcon(icon)
+			}
+		} else {
+			if icon := createIconFromSVG(uncheckedIconSVG, 16); icon != nil {
+				fileListAction.SetIcon(icon)
+			}
+		}
+		fileListAction.OnTriggered(func() {
 			toggleFileList()
 		})
 	}
@@ -809,9 +859,17 @@ func createHamburgerMenu(parent *qt.QWidget, isScriptWindow bool, term *purfecte
 
 	// Update dynamic states when menu is about to show
 	menu.OnAboutToShow(func() {
-		// Update File List checkbox to match current state
+		// Update File List icon to match current state
 		if fileListAction != nil {
-			fileListAction.SetChecked(isWideMode())
+			if isWideMode() {
+				if icon := createIconFromSVG(checkedIconSVG, 16); icon != nil {
+					fileListAction.SetIcon(icon)
+				}
+			} else {
+				if icon := createIconFromSVG(uncheckedIconSVG, 16); icon != nil {
+					fileListAction.SetIcon(icon)
+				}
+			}
 		}
 		// Update Stop Script enabled state
 		if isScriptRunningFunc != nil {
@@ -3221,7 +3279,10 @@ func updatePathMenu() {
 
 	// Add Home directory
 	if home := getHomeDir(); home != "" {
-		homeAction := pathMenu.AddAction("🏠 Home")
+		homeAction := pathMenu.AddAction("Home")
+		if icon := createIconFromSVG(homeIconSVG, 16); icon != nil {
+			homeAction.SetIcon(icon)
+		}
 		homeAction.OnTriggered(func() {
 			if info, err := os.Stat(home); err == nil && info.IsDir() {
 				loadDirectory(home)
@@ -3231,7 +3292,10 @@ func updatePathMenu() {
 
 	// Add Examples directory
 	if examples := getExamplesDir(); examples != "" {
-		examplesAction := pathMenu.AddAction("📁 Examples")
+		examplesAction := pathMenu.AddAction("Examples")
+		if icon := createIconFromSVG(folderIconSVG, 16); icon != nil {
+			examplesAction.SetIcon(icon)
+		}
 		examplesAction.OnTriggered(func() {
 			if info, err := os.Stat(examples); err == nil && info.IsDir() {
 				loadDirectory(examples)
@@ -3257,7 +3321,10 @@ func updatePathMenu() {
 	// Add Clear Recent Paths option
 	if len(recentPaths) > 0 {
 		pathMenu.AddSeparator()
-		clearAction := pathMenu.AddAction("🗑 Clear Recent Paths")
+		clearAction := pathMenu.AddAction("Clear Recent Paths")
+		if icon := createIconFromSVG(trashIconSVG, 16); icon != nil {
+			clearAction.SetIcon(icon)
+		}
 		clearAction.OnTriggered(func() {
 			clearRecentPaths()
 			updatePathMenu()
