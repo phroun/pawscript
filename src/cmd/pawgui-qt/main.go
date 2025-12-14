@@ -557,6 +557,136 @@ License: MIT</p>`, version)
 	qt.QMessageBox_About(parent, "About PawScript", aboutText)
 }
 
+// showSettingsDialog displays the Settings dialog with tabbed interface
+func showSettingsDialog(parent *qt.QWidget) {
+	// Create dialog
+	dialog := qt.NewQDialog2(parent, qt.Qt__Dialog)
+	dialog.SetWindowTitle("Settings")
+	dialog.SetMinimumSize2(400, 300)
+	dialog.SetModal(true)
+
+	// Main layout
+	mainLayout := qt.NewQVBoxLayout2(dialog)
+	mainLayout.SetContentsMargins(12, 12, 12, 12)
+	mainLayout.SetSpacing(12)
+
+	// Create tab widget
+	tabWidget := qt.NewQTabWidget2(dialog)
+	mainLayout.AddWidget3(tabWidget, 1, 0)
+
+	// --- Appearance Tab ---
+	appearanceWidget := qt.NewQWidget2(dialog)
+	appearanceLayout := qt.NewQFormLayout2(appearanceWidget)
+	appearanceLayout.SetContentsMargins(12, 12, 12, 12)
+	appearanceLayout.SetSpacing(12)
+
+	// Window Theme combo
+	windowThemeCombo := qt.NewQComboBox2(appearanceWidget)
+	windowThemeCombo.AddItem("Auto")
+	windowThemeCombo.AddItem("Light")
+	windowThemeCombo.AddItem("Dark")
+	// Set current value from config
+	switch configHelper.GetTheme() {
+	case pawgui.ThemeLight:
+		windowThemeCombo.SetCurrentIndex(1)
+	case pawgui.ThemeDark:
+		windowThemeCombo.SetCurrentIndex(2)
+	default:
+		windowThemeCombo.SetCurrentIndex(0) // Auto
+	}
+	appearanceLayout.AddRow3("Window Theme:", windowThemeCombo)
+
+	// Console Theme combo
+	consoleThemeCombo := qt.NewQComboBox2(appearanceWidget)
+	consoleThemeCombo.AddItem("Auto")
+	consoleThemeCombo.AddItem("Light")
+	consoleThemeCombo.AddItem("Dark")
+	// Set current value from config
+	termTheme := appConfig.GetString("term_theme", "dark")
+	switch termTheme {
+	case "light":
+		consoleThemeCombo.SetCurrentIndex(1)
+	case "dark":
+		consoleThemeCombo.SetCurrentIndex(2)
+	default:
+		consoleThemeCombo.SetCurrentIndex(0) // Auto (defaults to dark)
+	}
+	appearanceLayout.AddRow3("Console Theme:", consoleThemeCombo)
+
+	tabWidget.AddTab(appearanceWidget, "Appearance")
+
+	// --- Button Box ---
+	buttonLayout := qt.NewQHBoxLayout()
+	buttonLayout.AddStretch(1)
+
+	cancelBtn := qt.NewQPushButton3("Cancel", dialog)
+	cancelBtn.OnClicked(func() {
+		dialog.Reject()
+	})
+	buttonLayout.AddWidget2(cancelBtn)
+
+	saveBtn := qt.NewQPushButton3("Save", dialog)
+	saveBtn.SetDefault(true)
+	saveBtn.OnClicked(func() {
+		dialog.Accept()
+	})
+	buttonLayout.AddWidget2(saveBtn)
+
+	mainLayout.AddLayout(buttonLayout, 0)
+
+	// Show dialog and handle response
+	if dialog.Exec() == int(qt.QDialog__Accepted) {
+		// Save settings
+		windowThemeIdx := windowThemeCombo.CurrentIndex()
+		consoleThemeIdx := consoleThemeCombo.CurrentIndex()
+
+		switch windowThemeIdx {
+		case 1:
+			appConfig.Set("theme", "light")
+		case 2:
+			appConfig.Set("theme", "dark")
+		default:
+			appConfig.Set("theme", "auto")
+		}
+
+		switch consoleThemeIdx {
+		case 1:
+			appConfig.Set("term_theme", "light")
+		case 2:
+			appConfig.Set("term_theme", "dark")
+		default:
+			appConfig.Set("term_theme", "auto")
+		}
+
+		// Refresh config helper
+		configHelper = pawgui.NewConfigHelper(appConfig)
+
+		// Save config to file
+		saveConfig(appConfig)
+
+		// Apply window theme
+		applyTheme(configHelper.GetTheme())
+
+		// Apply console theme to all terminals
+		applyConsoleTheme()
+	}
+
+	dialog.DeleteLater()
+}
+
+// applyConsoleTheme applies the console theme to all terminals
+func applyConsoleTheme() {
+	isDark := isTermThemeDark()
+	scheme := getColorSchemeForTheme(isDark)
+
+	// Apply to launcher terminal
+	if terminal != nil {
+		terminal.Buffer().SetPreferredDarkTheme(isDark)
+		terminal.Buffer().SetDarkTheme(isDark)
+		terminal.SetColorScheme(scheme)
+	}
+}
+
 // createHamburgerMenu creates the hamburger dropdown menu
 // isScriptWindow: true for script windows (slightly different options)
 // term: terminal widget for this window (nil to use global terminal)
@@ -579,7 +709,13 @@ func createHamburgerMenu(parent *qt.QWidget, isScriptWindow bool, term *purfecte
 		showAboutDialog(parent)
 	})
 
-	// Separator after About
+	// Settings option (both)
+	settingsAction := menu.AddAction("Settings...")
+	settingsAction.OnTriggered(func() {
+		showSettingsDialog(parent)
+	})
+
+	// Separator after About/Settings
 	menu.AddSeparator()
 
 	// File List checkbox (launcher only)
@@ -635,10 +771,16 @@ func createHamburgerMenu(parent *qt.QWidget, isScriptWindow bool, term *purfecte
 
 	menu.AddSeparator()
 
-	// Save Scrollback (both)
-	saveScrollbackAction := menu.AddAction("Save Scrollback...")
-	saveScrollbackAction.OnTriggered(func() {
-		saveScrollbackDialog(parent, getTerminal())
+	// Save Scrollback ANSI (both)
+	saveScrollbackANSIAction := menu.AddAction("Save Scrollback ANSI...")
+	saveScrollbackANSIAction.OnTriggered(func() {
+		saveScrollbackANSIDialog(parent, getTerminal())
+	})
+
+	// Save Scrollback Text (both)
+	saveScrollbackTextAction := menu.AddAction("Save Scrollback Text...")
+	saveScrollbackTextAction.OnTriggered(func() {
+		saveScrollbackTextDialog(parent, getTerminal())
 	})
 
 	// Restore Buffer (both)
@@ -771,37 +913,62 @@ func quitApplication(parent *qt.QWidget) {
 	qt.QCoreApplication_Quit()
 }
 
-// saveScrollbackDialog shows a file dialog to save terminal scrollback
-func saveScrollbackDialog(parent *qt.QWidget, term *purfectermqt.Terminal) {
+// saveScrollbackANSIDialog shows a file dialog to save terminal scrollback as ANSI
+func saveScrollbackANSIDialog(parent *qt.QWidget, term *purfectermqt.Terminal) {
 	if term == nil {
 		return
 	}
 
 	file := qt.QFileDialog_GetSaveFileName4(
 		parent,
-		"Save Scrollback",
+		"Save Scrollback ANSI",
 		"scrollback.ans",
-		"ANSI Files (*.ans);;Text Files (*.txt);;All Files (*)",
+		"ANSI Files (*.ans);;All Files (*)",
 	)
 
 	if file == "" {
 		return
 	}
 
-	// Determine format from extension
-	isANS := strings.HasSuffix(strings.ToLower(file), ".ans")
+	// Add header comment with version info using OSC 9999
+	timestamp := time.Now().UTC().Format("2006-01-02T15:04:05Z")
+	header := fmt.Sprintf("\x1b]9999;PawScript %s (Qt; %s; %s) Buffer Saved %s\x07",
+		version, runtime.GOOS, runtime.GOARCH, timestamp)
+	content := header + term.SaveScrollbackANS()
 
-	// Get scrollback content from terminal
-	var content string
-	if isANS {
-		// Add header comment with version info using OSC 9999
-		timestamp := time.Now().UTC().Format("2006-01-02T15:04:05Z")
-		header := fmt.Sprintf("\x1b]9999;PawScript %s (Qt; %s; %s) Buffer Saved %s\x07",
-			version, runtime.GOOS, runtime.GOARCH, timestamp)
-		content = header + term.SaveScrollbackANS()
-	} else {
-		content = term.SaveScrollbackText()
+	// Write to file
+	if err := os.WriteFile(file, []byte(content), 0644); err != nil {
+		qt.QMessageBox_Critical5(
+			parent,
+			"Error",
+			fmt.Sprintf("Failed to save file: %v", err),
+			qt.QMessageBox__Ok,
+		)
 	}
+}
+
+// saveScrollbackTextDialog shows a file dialog to save terminal scrollback as plain text
+func saveScrollbackTextDialog(parent *qt.QWidget, term *purfectermqt.Terminal) {
+	if term == nil {
+		return
+	}
+
+	file := qt.QFileDialog_GetSaveFileName4(
+		parent,
+		"Save Scrollback Text",
+		"scrollback.txt",
+		"Text Files (*.txt);;All Files (*)",
+	)
+
+	if file == "" {
+		return
+	}
+
+	// Add header comment with version info as text comment
+	timestamp := time.Now().UTC().Format("2006-01-02T15:04:05Z")
+	header := fmt.Sprintf("# PawScript %s (Qt; %s; %s) Buffer Saved %s\n",
+		version, runtime.GOOS, runtime.GOARCH, timestamp)
+	content := header + term.SaveScrollbackText()
 
 	// Write to file
 	if err := os.WriteFile(file, []byte(content), 0644); err != nil {
