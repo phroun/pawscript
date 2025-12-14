@@ -1580,11 +1580,21 @@ func createMenuItemWithIcon(svgTemplate string, labelText string, callback func(
 		return nil
 	}
 
+	// Add CSS class and style to make this item's background transparent
+	// so we can control the gutter from within the box
+	styleCtx, _ := item.GetStyleContext()
+	if styleCtx != nil {
+		styleCtx.AddClass("has-icon")
+	}
+
 	// Create horizontal box to hold icon and label
 	hbox, err := gtk.BoxNew(gtk.ORIENTATION_HORIZONTAL, 0)
 	if err != nil {
 		return nil
 	}
+
+	// Apply gutter background to the box itself
+	applyMenuItemBoxCSS(hbox)
 
 	// Create the icon image (16x16)
 	svgData := getSVGIcon(svgTemplate)
@@ -1613,6 +1623,40 @@ func createMenuItemWithIcon(svgTemplate string, labelText string, callback func(
 	return item
 }
 
+// applyMenuItemBoxCSS applies the gutter gradient to a menu item's inner box
+func applyMenuItemBoxCSS(box *gtk.Box) {
+	cssProvider, err := gtk.CssProviderNew()
+	if err != nil {
+		return
+	}
+
+	var gutterColor, edgeColor, contentColor string
+	if appliedThemeIsDark {
+		gutterColor = "#505050"
+		edgeColor = "#666666"
+		contentColor = "#383838"
+	} else {
+		gutterColor = "#e0e0e0"
+		edgeColor = "#c0c0c0"
+		contentColor = "#ffffff"
+	}
+
+	css := fmt.Sprintf(`
+		box {
+			background-image: linear-gradient(to right,
+				%s 0px, %s 33px,
+				%s 33px, %s 34px,
+				%s 34px, %s 100%%);
+		}
+	`, gutterColor, gutterColor, edgeColor, edgeColor, contentColor, contentColor)
+
+	cssProvider.LoadFromData(css)
+	styleCtx, err := box.GetStyleContext()
+	if err == nil {
+		styleCtx.AddProvider(cssProvider, gtk.STYLE_PROVIDER_PRIORITY_USER+100)
+	}
+}
+
 // updateFileListMenuIcon updates the icon on a File List menu item based on checked state
 func updateFileListMenuIcon(item *gtk.MenuItem, isChecked bool) {
 	if item == nil {
@@ -1638,30 +1682,31 @@ func updateFileListMenuIcon(item *gtk.MenuItem, isChecked bool) {
 		return
 	}
 
-	// Get children of the box - first child should be the image
+	// Remove all children from the box
 	children := box.GetChildren()
-	if children.Length() == 0 {
-		return
-	}
-
-	// Remove the old image (first child)
-	firstChild := children.NthData(0)
-	if firstChild != nil {
-		if oldImg, ok := firstChild.(*gtk.Image); ok {
-			box.Remove(oldImg)
+	children.Foreach(func(item interface{}) {
+		if widget, ok := item.(gtk.IWidget); ok {
+			box.Remove(widget)
 		}
-	}
+	})
 
-	// Create new icon and add it at the beginning
+	// Recreate the icon
 	svgData := getSVGIcon(iconSVG)
 	newImg := createImageFromSVG(svgData, 16)
 	if newImg != nil {
 		newImg.SetMarginStart(8)
 		newImg.SetMarginEnd(9)
 		box.PackStart(newImg, false, false, 0)
-		box.ReorderChild(newImg, 0)
-		newImg.Show()
 	}
+
+	// Recreate the label
+	label, err := gtk.LabelNew("File List")
+	if err == nil {
+		label.SetXAlign(0)
+		box.PackStart(label, true, true, 0)
+	}
+
+	box.ShowAll()
 }
 
 // applyToolbarButtonStyle applies CSS to make toolbar buttons square with equal padding
@@ -2018,12 +2063,25 @@ func applyMenuCSS(isDark bool) {
 			menuitem > label {
 				margin-left: 33px;
 			}
+			menuitem.has-icon {
+				background-image: none;
+				background-color: transparent;
+				padding: 6px 20px 6px 0px;
+			}
 			menuitem:hover {
 				background-image: none;
 				background-color: #4a4a4a;
 				border: 1px solid #888888;
 				padding: 5px 19px 5px 0px;
 				color: #ffffff;
+			}
+			menuitem.has-icon:hover {
+				background-color: transparent;
+				border: none;
+				padding: 6px 20px 6px 0px;
+			}
+			menuitem.has-icon:hover box {
+				background-color: #4a4a4a;
 			}
 			menuitem check,
 			menuitem radio {
@@ -2067,12 +2125,25 @@ func applyMenuCSS(isDark bool) {
 			menuitem > label {
 				margin-left: 33px;
 			}
+			menuitem.has-icon {
+				background-image: none;
+				background-color: transparent;
+				padding: 6px 20px 6px 0px;
+			}
 			menuitem:hover {
 				background-image: none;
 				background-color: #e5f3ff;
 				border: 1px solid #6699cc;
 				padding: 5px 19px 5px 0px;
 				color: #000000;
+			}
+			menuitem.has-icon:hover {
+				background-color: transparent;
+				border: none;
+				padding: 6px 20px 6px 0px;
+			}
+			menuitem.has-icon:hover box {
+				background-color: #e5f3ff;
 			}
 			menuitem check,
 			menuitem radio {
