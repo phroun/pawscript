@@ -1758,7 +1758,7 @@ func applyTheme(theme pawgui.ThemeMode) {
 				margin-left: 12px;
 			}
 			QMenu::indicator:checked {
-				image: url("data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 16 16'><path fill='%23ffffff' stroke='%23ffffff' stroke-width='1.5' d='M3,8 L6,11 L13,4'/></svg>");
+				image: url("data:image/svg+xml;base64,PHN2ZyB4bWxucz0iaHR0cDovL3d3dy53My5vcmcvMjAwMC9zdmciIHdpZHRoPSIxNiIgaGVpZ2h0PSIxNiI+PHBhdGggZD0iTTMsOCBMNiwxMiBMMTMsNCIgc3Ryb2tlPSJ3aGl0ZSIgc3Ryb2tlLXdpZHRoPSIzIiBmaWxsPSJub25lIiBzdHJva2UtbGluZWNhcD0icm91bmQiIHN0cm9rZS1saW5lam9pbj0icm91bmQiLz48L3N2Zz4=");
 			}
 			QMenu::separator {
 				height: 1px;
@@ -1874,7 +1874,7 @@ func applyTheme(theme pawgui.ThemeMode) {
 				margin-left: 12px;
 			}
 			QMenu::indicator:checked {
-				image: url("data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 16 16'><path fill='%23000000' stroke='%23000000' stroke-width='1.5' d='M3,8 L6,11 L13,4'/></svg>");
+				image: url("data:image/svg+xml;base64,PHN2ZyB4bWxucz0iaHR0cDovL3d3dy53My5vcmcvMjAwMC9zdmciIHdpZHRoPSIxNiIgaGVpZ2h0PSIxNiI+PHBhdGggZD0iTTMsOCBMNiwxMiBMMTMsNCIgc3Ryb2tlPSJibGFjayIgc3Ryb2tlLXdpZHRoPSIzIiBmaWxsPSJub25lIiBzdHJva2UtbGluZWNhcD0icm91bmQiIHN0cm9rZS1saW5lam9pbj0icm91bmQiLz48L3N2Zz4=");
 			}
 			QMenu::separator {
 				height: 1px;
