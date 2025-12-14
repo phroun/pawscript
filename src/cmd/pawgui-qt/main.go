@@ -2128,7 +2128,7 @@ func applyTheme(theme pawgui.ThemeMode) {
 			QMenu::separator {
 				height: 1px;
 				background: #555555;
-				margin: 4px 8px 4px 48px;
+				margin: 2px 8px 2px 48px;
 			}
 		`)
 
@@ -2269,7 +2269,7 @@ func applyTheme(theme pawgui.ThemeMode) {
 			QMenu::separator {
 				height: 1px;
 				background: #c0c0c0;
-				margin: 4px 8px 4px 48px;
+				margin: 2px 8px 2px 48px;
 			}
 		`)
 	}
