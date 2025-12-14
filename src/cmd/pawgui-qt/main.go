@@ -1753,12 +1753,20 @@ func applyTheme(theme pawgui.ThemeMode) {
 				margin-left: 12px;
 			}
 			QMenu::indicator {
-				width: 18px;
-				height: 18px;
+				width: 16px;
+				height: 16px;
 				margin-left: 12px;
+				background-color: transparent;
 			}
 			QMenu::indicator:checked {
-				image: url("data:image/svg+xml;base64,PHN2ZyB4bWxucz0iaHR0cDovL3d3dy53My5vcmcvMjAwMC9zdmciIHdpZHRoPSIxNiIgaGVpZ2h0PSIxNiI+PHBhdGggZD0iTTMsOCBMNiwxMiBMMTMsNCIgc3Ryb2tlPSJ3aGl0ZSIgc3Ryb2tlLXdpZHRoPSIzIiBmaWxsPSJub25lIiBzdHJva2UtbGluZWNhcD0icm91bmQiIHN0cm9rZS1saW5lam9pbj0icm91bmQiLz48L3N2Zz4=");
+				background-color: transparent;
+				border-left: 3px solid #ffffff;
+				border-bottom: 3px solid #ffffff;
+				width: 5px;
+				height: 10px;
+				margin-left: 14px;
+				margin-top: 2px;
+				margin-bottom: 6px;
 			}
 			QMenu::separator {
 				height: 1px;
@@ -1869,12 +1877,20 @@ func applyTheme(theme pawgui.ThemeMode) {
 				margin-left: 12px;
 			}
 			QMenu::indicator {
-				width: 18px;
-				height: 18px;
+				width: 16px;
+				height: 16px;
 				margin-left: 12px;
+				background-color: transparent;
 			}
 			QMenu::indicator:checked {
-				image: url("data:image/svg+xml;base64,PHN2ZyB4bWxucz0iaHR0cDovL3d3dy53My5vcmcvMjAwMC9zdmciIHdpZHRoPSIxNiIgaGVpZ2h0PSIxNiI+PHBhdGggZD0iTTMsOCBMNiwxMiBMMTMsNCIgc3Ryb2tlPSJibGFjayIgc3Ryb2tlLXdpZHRoPSIzIiBmaWxsPSJub25lIiBzdHJva2UtbGluZWNhcD0icm91bmQiIHN0cm9rZS1saW5lam9pbj0icm91bmQiLz48L3N2Zz4=");
+				background-color: transparent;
+				border-left: 3px solid #000000;
+				border-bottom: 3px solid #000000;
+				width: 5px;
+				height: 10px;
+				margin-left: 14px;
+				margin-top: 2px;
+				margin-bottom: 6px;
 			}
 			QMenu::separator {
 				height: 1px;
