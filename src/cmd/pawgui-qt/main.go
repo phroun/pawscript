@@ -648,8 +648,8 @@ func showSettingsDialog(parent *qt.QWidget) {
 	tabWidget.AddTab(appearanceWidget, "Appearance")
 
 	// --- Button Box ---
-	buttonLayout := qt.NewQHBoxLayout()
-	buttonLayout.AddStretch(1)
+	buttonLayout := qt.NewQHBoxLayout2()
+	buttonLayout.AddStretch()
 
 	cancelBtn := qt.NewQPushButton3("Cancel")
 	cancelBtn.OnClicked(func() {
@@ -664,7 +664,7 @@ func showSettingsDialog(parent *qt.QWidget) {
 	})
 	buttonLayout.AddWidget(saveBtn.QWidget)
 
-	mainLayout.AddLayout(buttonLayout.QLayout, 0)
+	mainLayout.AddLayout(buttonLayout.QLayout)
 
 	// Show dialog and handle response
 	if dialog.Exec() == 1 { // QDialog::Accepted = 1

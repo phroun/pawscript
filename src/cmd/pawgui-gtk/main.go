@@ -555,10 +555,10 @@ func applyWindowTheme() {
 	if settings == nil {
 		return
 	}
-	switch appConfig.WindowTheme {
-	case "light":
+	switch configHelper.GetTheme() {
+	case pawgui.ThemeLight:
 		settings.SetProperty("gtk-application-prefer-dark-theme", false)
-	case "dark":
+	case pawgui.ThemeDark:
 		settings.SetProperty("gtk-application-prefer-dark-theme", true)
 	default:
 		// Auto: use system preference (reset to default)
