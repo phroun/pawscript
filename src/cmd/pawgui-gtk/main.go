@@ -3,10 +3,10 @@
 package main
 
 import (
-	"encoding/base64"
 	"flag"
 	"fmt"
 	"io"
+	"net/url"
 	"os"
 	"path/filepath"
 	"runtime"
@@ -1572,6 +1572,18 @@ func createImageFromSVG(svgData string, size int) *gtk.Image {
 	return img
 }
 
+// svgToDataURI converts an SVG string to a URL-encoded data URI for CSS
+func svgToDataURI(svgData string) string {
+	// URL-encode the SVG for use in CSS data URI
+	encoded := url.PathEscape(svgData)
+	// Replace some characters that url.PathEscape encodes but CSS allows
+	encoded = strings.ReplaceAll(encoded, "%20", " ")
+	encoded = strings.ReplaceAll(encoded, "%3D", "=")
+	encoded = strings.ReplaceAll(encoded, "%3A", ":")
+	encoded = strings.ReplaceAll(encoded, "%2F", "/")
+	return "data:image/svg+xml," + encoded
+}
+
 // createMenuItemWithIcon creates a GTK menu item with an SVG icon and label
 // Uses CSS background with icon embedded as data URI positioned in the gutter
 func createMenuItemWithIcon(svgTemplate string, labelText string, callback func()) *gtk.MenuItem {
@@ -1580,10 +1592,16 @@ func createMenuItemWithIcon(svgTemplate string, labelText string, callback func(
 		return nil
 	}
 
+	// Add CSS class for specificity
+	styleCtx, err := item.GetStyleContext()
+	if err != nil {
+		return item
+	}
+	styleCtx.AddClass("has-icon")
+
 	// Apply CSS with icon as background image positioned in the gutter
 	svgData := getSVGIcon(svgTemplate)
-	// Encode SVG as base64 for CSS data URI
-	svgBase64 := base64.StdEncoding.EncodeToString([]byte(svgData))
+	dataURI := svgToDataURI(svgData)
 
 	cssProvider, err := gtk.CssProviderNew()
 	if err == nil {
@@ -1600,8 +1618,8 @@ func createMenuItemWithIcon(svgTemplate string, labelText string, callback func(
 		}
 
 		css := fmt.Sprintf(`
-			menuitem {
-				background-image: url("data:image/svg+xml;base64,%s"),
+			menuitem.has-icon {
+				background-image: url("%s"),
 					linear-gradient(to right,
 						%s 0px, %s 32px,
 						%s 32px, %s 33px,
@@ -1610,13 +1628,10 @@ func createMenuItemWithIcon(svgTemplate string, labelText string, callback func(
 				background-repeat: no-repeat, no-repeat;
 				background-size: 16px 16px, auto;
 			}
-		`, svgBase64, gutterColor, gutterColor, edgeColor, edgeColor, contentColor, contentColor)
+		`, dataURI, gutterColor, gutterColor, edgeColor, edgeColor, contentColor, contentColor)
 
 		cssProvider.LoadFromData(css)
-		styleCtx, err := item.GetStyleContext()
-		if err == nil {
-			styleCtx.AddProvider(cssProvider, gtk.STYLE_PROVIDER_PRIORITY_USER+1)
-		}
+		styleCtx.AddProvider(cssProvider, gtk.STYLE_PROVIDER_PRIORITY_USER+100)
 	}
 
 	if callback != nil {
@@ -1640,9 +1655,16 @@ func updateFileListMenuIcon(item *gtk.MenuItem, isChecked bool) {
 		iconSVG = uncheckedIconSVG
 	}
 
+	// Add CSS class for specificity
+	styleCtx, err := item.GetStyleContext()
+	if err != nil {
+		return
+	}
+	styleCtx.AddClass("has-icon")
+
 	// Apply CSS with icon as background image
 	svgData := getSVGIcon(iconSVG)
-	svgBase64 := base64.StdEncoding.EncodeToString([]byte(svgData))
+	dataURI := svgToDataURI(svgData)
 
 	cssProvider, err := gtk.CssProviderNew()
 	if err == nil {
@@ -1658,8 +1680,8 @@ func updateFileListMenuIcon(item *gtk.MenuItem, isChecked bool) {
 		}
 
 		css := fmt.Sprintf(`
-			menuitem {
-				background-image: url("data:image/svg+xml;base64,%s"),
+			menuitem.has-icon {
+				background-image: url("%s"),
 					linear-gradient(to right,
 						%s 0px, %s 32px,
 						%s 32px, %s 33px,
@@ -1668,13 +1690,10 @@ func updateFileListMenuIcon(item *gtk.MenuItem, isChecked bool) {
 				background-repeat: no-repeat, no-repeat;
 				background-size: 16px 16px, auto;
 			}
-		`, svgBase64, gutterColor, gutterColor, edgeColor, edgeColor, contentColor, contentColor)
+		`, dataURI, gutterColor, gutterColor, edgeColor, edgeColor, contentColor, contentColor)
 
 		cssProvider.LoadFromData(css)
-		styleCtx, err := item.GetStyleContext()
-		if err == nil {
-			styleCtx.AddProvider(cssProvider, gtk.STYLE_PROVIDER_PRIORITY_USER+1)
-		}
+		styleCtx.AddProvider(cssProvider, gtk.STYLE_PROVIDER_PRIORITY_USER+100)
 	}
 }
 
