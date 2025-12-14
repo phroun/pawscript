@@ -529,6 +529,8 @@ func (p *Parser) executeSGR() {
 			p.buffer.SetBlink(true)
 		case 7: // Reverse video
 			p.buffer.SetReverse(true)
+		case 9: // Strikethrough
+			p.buffer.SetStrikethrough(true)
 		case 21: // Bold off (double underline in some terminals)
 			p.buffer.SetBold(false)
 		case 22: // Normal intensity
@@ -541,6 +543,8 @@ func (p *Parser) executeSGR() {
 			p.buffer.SetBlink(false)
 		case 27: // Reverse off
 			p.buffer.SetReverse(false)
+		case 29: // Strikethrough off
+			p.buffer.SetStrikethrough(false)
 
 		// Foreground colors (30-37)
 		case 30, 31, 32, 33, 34, 35, 36, 37:

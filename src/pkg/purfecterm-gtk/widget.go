@@ -1960,6 +1960,22 @@ func (w *Widget) onDraw(da *gtk.DrawingArea, cr *cairo.Context) bool {
 				cr.Fill()
 			}
 
+			// Draw strikethrough if needed
+			if cell.Strikethrough {
+				cr.SetSourceRGB(
+					float64(fg.R)/255.0,
+					float64(fg.G)/255.0,
+					float64(fg.B)/255.0)
+				// Position at ~40% from top for good uppercase/lowercase compromise
+				strikeY := cellY + cellH*0.4
+				strikeH := 1.0
+				if lineAttr == purfecterm.LineAttrDoubleTop || lineAttr == purfecterm.LineAttrDoubleBottom {
+					strikeH = 2.0
+				}
+				cr.Rectangle(cellX, strikeY, cellW, strikeH)
+				cr.Fill()
+			}
+
 			// Draw cursor based on shape (0=block, 1=underline, 2=bar)
 			if isCursor {
 				cr.SetSourceRGB(

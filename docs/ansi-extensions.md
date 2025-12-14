@@ -93,12 +93,14 @@ Standard SGR (Select Graphic Rendition) via `ESC [ <params> m`:
 | 4 | Underline |
 | 5 | Blink |
 | 7 | Reverse video |
+| 9 | Strikethrough |
 | 21 | Bold off |
 | 22 | Normal intensity |
 | 23 | Italic off |
 | 24 | Underline off |
 | 25 | Blink off |
 | 27 | Reverse off |
+| 29 | Strikethrough off |
 | 30-37 | Standard foreground colors |
 | 38;5;N | 256-color foreground |
 | 38;2;R;G;B | 24-bit RGB foreground |

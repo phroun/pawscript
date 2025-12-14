@@ -122,13 +122,14 @@ type Buffer struct {
 	bracketedPasteMode bool
 
 	currentFg        Color
-	currentBg        Color
-	currentBold      bool
-	currentItalic    bool
-	currentUnderline bool
-	currentReverse   bool
-	currentBlink     bool
-	currentFlexWidth bool // Current attribute for East Asian Width mode
+	currentBg            Color
+	currentBold          bool
+	currentItalic        bool
+	currentUnderline     bool
+	currentReverse       bool
+	currentBlink         bool
+	currentStrikethrough bool
+	currentFlexWidth     bool // Current attribute for East Asian Width mode
 
 	// Flexible cell width mode (East Asian Width)
 	flexWidthMode      bool               // When true, new chars get FlexWidth=true and calculated CellWidth
@@ -1279,17 +1280,19 @@ func (b *Buffer) writeCharInternal(ch rune) {
 	}
 
 	cell := Cell{
-		Char:       ch,
-		Foreground: fg,
-		Background: bg,
-		Bold:       b.currentBold,
-		Italic:     b.currentItalic,
-		Underline:  b.currentUnderline,
-		Blink:      b.currentBlink,
-		FlexWidth:  b.currentFlexWidth,
-		BGP:        b.currentBGP,
-		XFlip:      b.currentXFlip,
-		YFlip:      b.currentYFlip,
+		Char:          ch,
+		Foreground:    fg,
+		Background:    bg,
+		Bold:          b.currentBold,
+		Italic:        b.currentItalic,
+		Underline:     b.currentUnderline,
+		Reverse:       b.currentReverse,
+		Blink:         b.currentBlink,
+		Strikethrough: b.currentStrikethrough,
+		FlexWidth:     b.currentFlexWidth,
+		BGP:           b.currentBGP,
+		XFlip:         b.currentXFlip,
+		YFlip:         b.currentYFlip,
 	}
 
 	// Use the calculated charWidth (already accounts for custom glyphs and ambiguous width mode)
@@ -1649,6 +1652,7 @@ func (b *Buffer) ResetAttributes() {
 	b.currentUnderline = false
 	b.currentReverse = false
 	b.currentBlink = false
+	b.currentStrikethrough = false
 }
 
 // SetForeground sets the current foreground color
@@ -1698,6 +1702,13 @@ func (b *Buffer) SetBlink(blink bool) {
 	b.mu.Lock()
 	defer b.mu.Unlock()
 	b.currentBlink = blink
+}
+
+// SetStrikethrough sets strikethrough attribute
+func (b *Buffer) SetStrikethrough(strikethrough bool) {
+	b.mu.Lock()
+	defer b.mu.Unlock()
+	b.currentStrikethrough = strikethrough
 }
 
 // GetCell returns the cell at the given screen position
@@ -4070,6 +4081,7 @@ func (b *Buffer) Reset() {
 	b.currentUnderline = false
 	b.currentReverse = false
 	b.currentBlink = false
+	b.currentStrikethrough = false
 	b.currentFlexWidth = false
 
 	// Reset modes
@@ -4230,8 +4242,8 @@ func (b *Buffer) SaveScrollbackANS() string {
 
 	// Track current attributes to minimize escape sequences
 	var lastFg, lastBg Color
-	var lastBold, lastItalic, lastUnderline, lastReverse, lastBlink bool
-	var lastFlexWidth bool                                    // Track flex width mode state
+	var lastBold, lastItalic, lastUnderline, lastReverse, lastBlink, lastStrikethrough bool
+	var lastFlexWidth bool // Track flex width mode state
 	var lastAmbiguousWide bool                                // Track if ambiguous width is set to wide
 	var lastBGP int = -1
 	var lastXFlip, lastYFlip bool
@@ -4270,7 +4282,7 @@ func (b *Buffer) SaveScrollbackANS() string {
 			needsReset := false
 			if cell.Bold != lastBold || cell.Italic != lastItalic ||
 				cell.Underline != lastUnderline || cell.Reverse != lastReverse ||
-				cell.Blink != lastBlink {
+				cell.Blink != lastBlink || cell.Strikethrough != lastStrikethrough {
 				needsReset = true
 			}
 
@@ -4283,6 +4295,7 @@ func (b *Buffer) SaveScrollbackANS() string {
 				lastUnderline = false
 				lastReverse = false
 				lastBlink = false
+				lastStrikethrough = false
 				// Reset doesn't affect BGP/flip, but we track them separately
 			}
 
@@ -4306,6 +4319,10 @@ func (b *Buffer) SaveScrollbackANS() string {
 			if cell.Blink && !lastBlink {
 				result.WriteString("\x1b[5m")
 				lastBlink = true
+			}
+			if cell.Strikethrough && !lastStrikethrough {
+				result.WriteString("\x1b[9m")
+				lastStrikethrough = true
 			}
 
 			// Set colors
@@ -4396,6 +4413,7 @@ func (b *Buffer) SaveScrollbackANS() string {
 		lastUnderline = false
 		lastReverse = false
 		lastBlink = false
+		lastStrikethrough = false
 
 		// If background was dirty, clear the next line to prevent bleeding
 		if hasNonDefaultBg {
