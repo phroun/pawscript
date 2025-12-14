@@ -1769,6 +1769,16 @@ func applyTheme(theme pawgui.ThemeMode) {
 				margin-top: 2px;
 				margin-bottom: 6px;
 			}
+			QMenu::indicator:checked:selected {
+				background-color: transparent;
+				border-left: 3px solid #ffffff;
+				border-bottom: 3px solid #ffffff;
+				width: 5px;
+				height: 10px;
+				margin-left: 14px;
+				margin-top: 2px;
+				margin-bottom: 6px;
+			}
 			QMenu::separator {
 				height: 1px;
 				background: #555555;
@@ -1891,6 +1901,16 @@ func applyTheme(theme pawgui.ThemeMode) {
 				width: 5px;
 				height: 10px;
 				margin-left: -26px;
+				margin-top: 2px;
+				margin-bottom: 6px;
+			}
+			QMenu::indicator:checked:selected {
+				background-color: transparent;
+				border-left: 3px solid #000000;
+				border-bottom: 3px solid #000000;
+				width: 5px;
+				height: 10px;
+				margin-left: 14px;
 				margin-top: 2px;
 				margin-bottom: 6px;
 			}
