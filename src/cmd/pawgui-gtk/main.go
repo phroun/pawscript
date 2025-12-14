@@ -1592,14 +1592,13 @@ func createMenuItemWithIcon(svgTemplate string, labelText string, callback func(
 	}
 
 	// Create icon from SVG (16x16 for menu items)
-	// Position icon in the gutter (centered in 32px gutter = 8px from left)
-	// MenuItem has 8px left padding, so icon needs no additional left margin
-	// but needs right margin to create space before the label
+	// Position icon in the gutter: pull it left with negative margin
+	// Gutter is 32px wide, want icon centered at ~8px from left
+	// Content normally starts at ~33px, so pull icon left by ~25px
 	svgData := getSVGIcon(svgTemplate)
 	iconImage := createImageFromSVG(svgData, 16)
 	if iconImage != nil {
-		// Right margin positions the label after the gutter edge (33px)
-		// Icon at 8px + 16px width = 24px, need 9px gap to reach 33px
+		iconImage.SetMarginStart(-25)
 		iconImage.SetMarginEnd(9)
 		box.PackStart(iconImage, false, false, 0)
 	}
@@ -1668,7 +1667,8 @@ func updateFileListMenuIcon(item *gtk.MenuItem, isChecked bool) {
 		return
 	}
 
-	// Set margin to position icon in gutter (matching createMenuItemWithIcon)
+	// Set margins to position icon in gutter (matching createMenuItemWithIcon)
+	newImage.SetMarginStart(-25)
 	newImage.SetMarginEnd(9)
 
 	// Replace the old image with the new one
