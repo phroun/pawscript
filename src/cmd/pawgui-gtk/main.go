@@ -2088,6 +2088,7 @@ func applyMenuCSS(isDark bool) {
 			menuitem:hover {
 				background-color: #e5f3ff;
 				box-shadow: inset 0 0 0 1px #6699cc;
+				color: #000000;
 			}
 		`
 	}
