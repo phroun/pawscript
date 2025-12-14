@@ -1768,7 +1768,7 @@ func (w *Widget) paintEvent(event *qt.QPaintEvent) {
 				// Use underline color if set, otherwise use foreground color
 				ulColor := fg
 				if cell.HasUnderlineColor {
-					ulColor = w.resolveColor(cell.UnderlineColor, scheme)
+					ulColor = scheme.ResolveColor(cell.UnderlineColor, true)
 				}
 				ulQColor := qt.NewQColor3(int(ulColor.R), int(ulColor.G), int(ulColor.B))
 
@@ -1809,7 +1809,7 @@ func (w *Widget) paintEvent(event *qt.QPaintEvent) {
 						y := float64(underlineY) + amplitude*math.Sin(t*numCycles*2*math.Pi)
 						path.LineTo2(x, y)
 					}
-					painter.DrawPathWithPath(path)
+					painter.DrawPath(path)
 
 				case purfecterm.UnderlineDotted:
 					// Dotted line
