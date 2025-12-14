@@ -1734,28 +1734,28 @@ func applyTheme(theme pawgui.ThemeMode) {
 				background: transparent;
 			}
 			QMenu {
-				background: qlineargradient(x1:0, y1:0, x2:1, y2:0,
-					stop:0 #505050, stop:0.18 #505050,
-					stop:0.18 #666666, stop:0.185 #666666,
-					stop:0.185 #383838, stop:1 #383838);
+				background-color: #505050;
 				border: 1px solid #555555;
 				padding: 4px 0px;
 			}
 			QMenu::item {
-				background-color: transparent;
-				padding: 6px 20px 6px 48px;
+				background-color: #383838;
+				border-left: 1px solid #666666;
+				margin-left: 40px;
+				padding: 6px 20px 6px 8px;
 			}
 			QMenu::item:selected {
 				background-color: #4a4a4a;
 				border: 1px solid #888888;
+				margin-left: 40px;
 			}
 			QMenu::icon {
-				margin-left: 12px;
+				margin-left: -28px;
 			}
 			QMenu::indicator {
 				width: 16px;
 				height: 16px;
-				margin-left: 12px;
+				margin-left: -28px;
 				background-color: transparent;
 			}
 			QMenu::indicator:checked {
@@ -1764,14 +1764,14 @@ func applyTheme(theme pawgui.ThemeMode) {
 				border-bottom: 3px solid #ffffff;
 				width: 5px;
 				height: 10px;
-				margin-left: 14px;
+				margin-left: -26px;
 				margin-top: 2px;
 				margin-bottom: 6px;
 			}
 			QMenu::separator {
 				height: 1px;
 				background: #555555;
-				margin: 4px 8px;
+				margin: 4px 8px 4px 48px;
 			}
 		`)
 
@@ -1858,28 +1858,28 @@ func applyTheme(theme pawgui.ThemeMode) {
 				background: transparent;
 			}
 			QMenu {
-				background: qlineargradient(x1:0, y1:0, x2:1, y2:0,
-					stop:0 #e0e0e0, stop:0.18 #e0e0e0,
-					stop:0.18 #c0c0c0, stop:0.185 #c0c0c0,
-					stop:0.185 #ffffff, stop:1 #ffffff);
+				background-color: #e0e0e0;
 				border: 1px solid #c0c0c0;
 				padding: 4px 0px;
 			}
 			QMenu::item {
-				background-color: transparent;
-				padding: 6px 20px 6px 48px;
+				background-color: #ffffff;
+				border-left: 1px solid #c0c0c0;
+				margin-left: 40px;
+				padding: 6px 20px 6px 8px;
 			}
 			QMenu::item:selected {
 				background-color: #e5f3ff;
 				border: 1px solid #6699cc;
+				margin-left: 40px;
 			}
 			QMenu::icon {
-				margin-left: 12px;
+				margin-left: -28px;
 			}
 			QMenu::indicator {
 				width: 16px;
 				height: 16px;
-				margin-left: 12px;
+				margin-left: -28px;
 				background-color: transparent;
 			}
 			QMenu::indicator:checked {
@@ -1888,14 +1888,14 @@ func applyTheme(theme pawgui.ThemeMode) {
 				border-bottom: 3px solid #000000;
 				width: 5px;
 				height: 10px;
-				margin-left: 14px;
+				margin-left: -26px;
 				margin-top: 2px;
 				margin-bottom: 6px;
 			}
 			QMenu::separator {
 				height: 1px;
 				background: #c0c0c0;
-				margin: 4px 8px;
+				margin: 4px 8px 4px 48px;
 			}
 		`)
 	}
