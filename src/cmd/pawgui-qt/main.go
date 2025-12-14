@@ -1818,13 +1818,16 @@ func applyTheme(theme pawgui.ThemeMode) {
 				color: #888888;
 			}
 			QMenu::icon {
-				margin-left: -28px;
+				subcontrol-position: left center;
+				position: absolute;
+				left: 12px;
 			}
 			QMenu::indicator {
 				width: 16px;
 				height: 16px;
-				margin-left: -28px;
-				background-color: transparent;
+				subcontrol-position: left center;
+				position: absolute;
+				left: 12px;
 			}
 			QMenu::indicator:checked {
 				background-color: transparent;
@@ -1832,9 +1835,9 @@ func applyTheme(theme pawgui.ThemeMode) {
 				border-bottom: 3px solid #ffffff;
 				width: 5px;
 				height: 10px;
-				margin-left: -26px;
-				margin-top: 2px;
-				margin-bottom: 6px;
+				subcontrol-position: left center;
+				position: absolute;
+				left: 14px;
 			}
 			QMenu::indicator:checked:selected {
 				background-color: transparent;
@@ -1842,9 +1845,9 @@ func applyTheme(theme pawgui.ThemeMode) {
 				border-bottom: 3px solid #ffffff;
 				width: 5px;
 				height: 10px;
-				margin-left: 14px;
-				margin-top: 2px;
-				margin-bottom: 6px;
+				subcontrol-position: left center;
+				position: absolute;
+				left: 14px;
 			}
 			QMenu::separator {
 				height: 1px;
@@ -1956,13 +1959,16 @@ func applyTheme(theme pawgui.ThemeMode) {
 				color: #888888;
 			}
 			QMenu::icon {
-				margin-left: -28px;
+				subcontrol-position: left center;
+				position: absolute;
+				left: 12px;
 			}
 			QMenu::indicator {
 				width: 16px;
 				height: 16px;
-				margin-left: -28px;
-				background-color: transparent;
+				subcontrol-position: left center;
+				position: absolute;
+				left: 12px;
 			}
 			QMenu::indicator:checked {
 				background-color: transparent;
@@ -1970,9 +1976,9 @@ func applyTheme(theme pawgui.ThemeMode) {
 				border-bottom: 3px solid #000000;
 				width: 5px;
 				height: 10px;
-				margin-left: -26px;
-				margin-top: 2px;
-				margin-bottom: 6px;
+				subcontrol-position: left center;
+				position: absolute;
+				left: 14px;
 			}
 			QMenu::indicator:checked:selected {
 				background-color: transparent;
@@ -1980,9 +1986,9 @@ func applyTheme(theme pawgui.ThemeMode) {
 				border-bottom: 3px solid #000000;
 				width: 5px;
 				height: 10px;
-				margin-left: 14px;
-				margin-top: 2px;
-				margin-bottom: 6px;
+				subcontrol-position: left center;
+				position: absolute;
+				left: 14px;
 			}
 			QMenu::separator {
 				height: 1px;
