@@ -1584,18 +1584,19 @@ func createMenuItemWithIcon(svgTemplate string, labelText string, callback func(
 	svgData := getSVGIcon(svgTemplate)
 	img := createImageFromSVG(svgData, 16)
 	if img != nil {
-		// Add some margin around the icon to center it in gutter
-		img.SetMarginStart(8)
-		img.SetMarginEnd(9) // 8 + 16 + 9 = 33 (gutter width)
+		// Position icon in gutter - minimal left margin, space after for edge line
+		img.SetMarginStart(4)
+		img.SetMarginEnd(14) // 4 + 16 + 14 = 34 (gutter + edge)
 		img.SetVAlign(gtk.ALIGN_CENTER)
 		hbox.PackStart(img, false, false, 0)
 	}
 
-	// Create label
+	// Create label with spacing after gutter edge
 	label, err := gtk.LabelNew(labelText)
 	if err == nil {
 		label.SetXAlign(0) // Left align
 		label.SetVAlign(gtk.ALIGN_CENTER)
+		label.SetMarginStart(8) // Space after edge line
 		hbox.PackStart(label, true, true, 0)
 	}
 
@@ -1634,12 +1635,12 @@ func createMenuItemWithGutter(labelText string, callback func()) *gtk.MenuItem {
 	// Apply gutter background to the box itself
 	applyMenuItemBoxCSS(hbox)
 
-	// Create label with left margin to account for gutter space
+	// Create label with left margin to account for gutter + edge + spacing
 	label, err := gtk.LabelNew(labelText)
 	if err == nil {
 		label.SetXAlign(0) // Left align
 		label.SetVAlign(gtk.ALIGN_CENTER)
-		label.SetMarginStart(33) // Gutter width
+		label.SetMarginStart(42) // Gutter (34) + spacing (8)
 		hbox.PackStart(label, true, true, 0)
 	}
 
@@ -1727,8 +1728,9 @@ func updateFileListMenuIcon(item *gtk.MenuItem, isChecked bool) {
 	svgData := getSVGIcon(iconSVG)
 	newImg := createImageFromSVG(svgData, 16)
 	if newImg != nil {
-		newImg.SetMarginStart(8)
-		newImg.SetMarginEnd(9)
+		newImg.SetMarginStart(4)
+		newImg.SetMarginEnd(14)
+		newImg.SetVAlign(gtk.ALIGN_CENTER)
 		box.PackStart(newImg, false, false, 0)
 	}
 
@@ -1736,6 +1738,8 @@ func updateFileListMenuIcon(item *gtk.MenuItem, isChecked bool) {
 	label, err := gtk.LabelNew("File List")
 	if err == nil {
 		label.SetXAlign(0)
+		label.SetVAlign(gtk.ALIGN_CENTER)
+		label.SetMarginStart(8)
 		box.PackStart(label, true, true, 0)
 	}
 
@@ -2076,10 +2080,12 @@ var menuCSSProvider *gtk.CssProvider
 func applyMenuCSS(isDark bool) {
 	var css string
 	if isDark {
-		// Dark theme: charcoal background, gutter comes from item box widgets
+		// Dark theme: gutter gradient on menu background to blend GTK spacing
 		css = `
 			menu {
-				background-color: #383838;
+				background-image: linear-gradient(to right,
+					#505050 0px, #505050 40px,
+					#383838 40px, #383838 100%);
 				border: 1px solid #555555;
 				padding: 4px 0px;
 			}
@@ -2089,9 +2095,6 @@ func applyMenuCSS(isDark bool) {
 			}
 			menuitem:hover {
 				background-color: #4a4a4a;
-				border: 1px solid #888888;
-				padding: 0px 19px 0px 0px;
-				color: #ffffff;
 			}
 			menuitem.has-icon,
 			menuitem.has-gutter {
@@ -2100,20 +2103,20 @@ func applyMenuCSS(isDark bool) {
 			menuitem.has-icon:hover,
 			menuitem.has-gutter:hover {
 				background-color: transparent;
-				border: none;
-				padding: 0px 20px 0px 0px;
 			}
 			menuitem.has-icon:hover box,
 			menuitem.has-gutter:hover box {
 				background-image: none;
-				background-color: #4a4a4a;
+				background-color: #505a6a;
 			}
 		`
 	} else {
-		// Light theme: white background, gutter comes from item box widgets
+		// Light theme: gutter gradient on menu background to blend GTK spacing
 		css = `
 			menu {
-				background-color: #ffffff;
+				background-image: linear-gradient(to right,
+					#e0e0e0 0px, #e0e0e0 40px,
+					#ffffff 40px, #ffffff 100%);
 				border: 1px solid #c0c0c0;
 				padding: 4px 0px;
 			}
@@ -2123,9 +2126,6 @@ func applyMenuCSS(isDark bool) {
 			}
 			menuitem:hover {
 				background-color: #e5f3ff;
-				border: 1px solid #6699cc;
-				padding: 0px 19px 0px 0px;
-				color: #000000;
 			}
 			menuitem.has-icon,
 			menuitem.has-gutter {
@@ -2134,13 +2134,11 @@ func applyMenuCSS(isDark bool) {
 			menuitem.has-icon:hover,
 			menuitem.has-gutter:hover {
 				background-color: transparent;
-				border: none;
-				padding: 0px 20px 0px 0px;
 			}
 			menuitem.has-icon:hover box,
 			menuitem.has-gutter:hover box {
 				background-image: none;
-				background-color: #e5f3ff;
+				background-color: #cce8ff;
 			}
 		`
 	}
