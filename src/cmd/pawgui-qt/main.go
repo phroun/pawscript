@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"io"
 	"os"
+	"os/exec"
 	"path/filepath"
 	"runtime"
 	"strings"
@@ -56,6 +57,9 @@ var (
 	// Configuration
 	appConfig    pawscript.PSLConfig
 	configHelper *pawgui.ConfigHelper
+
+	// Track actual applied theme (resolved from Auto if needed)
+	appliedThemeIsDark bool
 
 	// Launcher narrow strip (for multiple toolbar buttons)
 	launcherNarrowStrip    *qt.QWidget        // The narrow strip container
@@ -112,23 +116,12 @@ const starIconSVG = `<svg width="48" height="48" viewBox="0 0 12.7 12.7" xmlns="
   <path style="fill:{{FILL}};stroke:none" d="M 6.4849512,1.5761366 8.0478061,4.7428264 11.542456,5.250629 9.0137037,7.7155534 9.6106608,11.196082 6.484951,9.5527997 3.359241,11.196082 3.9561984,7.7155534 1.4274463,5.2506288 4.9220959,4.7428264 Z" transform="matrix(1.1757817,0,0,1.1757817,-1.274887,-1.2479333)"/>
 </svg>`
 
-// getIconFillColor returns the appropriate icon fill color based on theme
+// getIconFillColor returns the appropriate icon fill color based on applied theme
 func getIconFillColor() string {
-	theme := configHelper.GetTheme()
-	switch theme {
-	case pawgui.ThemeDark:
+	if appliedThemeIsDark {
 		return "#ffffff"
-	case pawgui.ThemeLight:
-		return "#000000"
-	default: // ThemeAuto - try to detect from terminal background
-		bg := getTerminalBackground()
-		// Calculate luminance: if background is dark, use white icon
-		luminance := 0.299*float64(bg.R) + 0.587*float64(bg.G) + 0.114*float64(bg.B)
-		if luminance < 128 {
-			return "#ffffff"
-		}
-		return "#000000"
 	}
+	return "#000000"
 }
 
 // getSVGIcon returns SVG data with the fill color set appropriately for current theme
@@ -1613,8 +1606,23 @@ func registerDummyButtonCommand(ps *pawscript.PawScript, data *QtWindowToolbarDa
 }
 
 // isSystemDarkMode detects if the OS is currently using dark mode
-// by checking the system palette's window background color luminance
 func isSystemDarkMode() bool {
+	// On macOS, check AppleInterfaceStyle preference
+	if runtime.GOOS == "darwin" {
+		// Try to read macOS dark mode setting
+		cmd := exec.Command("defaults", "read", "-g", "AppleInterfaceStyle")
+		output, err := cmd.Output()
+		if err == nil && strings.TrimSpace(string(output)) == "Dark" {
+			return true
+		}
+		// If the key doesn't exist, system is in light mode
+		return false
+	}
+
+	// For other platforms, check Qt palette
+	// Process events first to ensure palette is fully initialized
+	qt.QCoreApplication_ProcessEvents()
+
 	palette := qt.QGuiApplication_Palette()
 	windowColor := palette.ColorWithCr(qt.QPalette__Window)
 	// Calculate luminance using standard formula
@@ -1637,6 +1645,9 @@ func applyTheme(theme pawgui.ThemeMode) {
 			theme = pawgui.ThemeLight
 		}
 	}
+
+	// Track the actual applied theme for icon colors
+	appliedThemeIsDark = (theme == pawgui.ThemeDark)
 
 	switch theme {
 	case pawgui.ThemeDark:
@@ -1721,7 +1732,10 @@ func applyTheme(theme pawgui.ThemeMode) {
 				background: transparent;
 			}
 			QMenu {
-				background-color: #404040;
+				background: qlineargradient(x1:0, y1:0, x2:1, y2:0,
+					stop:0 #454545, stop:0.115 #454545,
+					stop:0.115 #555555, stop:0.12 #555555,
+					stop:0.12 #404040, stop:1 #404040);
 				border: 1px solid #555555;
 				padding: 4px 0px;
 			}
@@ -1730,18 +1744,18 @@ func applyTheme(theme pawgui.ThemeMode) {
 				padding: 6px 20px 6px 30px;
 			}
 			QMenu::item:selected {
-				background-color: #505050;
+				background: qlineargradient(x1:0, y1:0, x2:1, y2:0,
+					stop:0 #454545, stop:0.115 #454545,
+					stop:0.115 #555555, stop:0.12 #555555,
+					stop:0.12 #505050, stop:1 #505050);
 			}
 			QMenu::icon {
-				padding-left: 8px;
+				margin-left: 6px;
 			}
 			QMenu::indicator {
 				width: 16px;
 				height: 16px;
-				padding-left: 8px;
-			}
-			QMenu::left-arrow, QMenu::right-arrow {
-				padding-right: 8px;
+				margin-left: 6px;
 			}
 			QMenu::separator {
 				height: 1px;
@@ -1833,7 +1847,10 @@ func applyTheme(theme pawgui.ThemeMode) {
 				background: transparent;
 			}
 			QMenu {
-				background-color: #ffffff;
+				background: qlineargradient(x1:0, y1:0, x2:1, y2:0,
+					stop:0 #e0e0e0, stop:0.115 #e0e0e0,
+					stop:0.115 #c0c0c0, stop:0.12 #c0c0c0,
+					stop:0.12 #ffffff, stop:1 #ffffff);
 				border: 1px solid #c0c0c0;
 				padding: 4px 0px;
 			}
@@ -1842,18 +1859,18 @@ func applyTheme(theme pawgui.ThemeMode) {
 				padding: 6px 20px 6px 30px;
 			}
 			QMenu::item:selected {
-				background-color: #e5f3ff;
+				background: qlineargradient(x1:0, y1:0, x2:1, y2:0,
+					stop:0 #e0e0e0, stop:0.115 #e0e0e0,
+					stop:0.115 #c0c0c0, stop:0.12 #c0c0c0,
+					stop:0.12 #e5f3ff, stop:1 #e5f3ff);
 			}
 			QMenu::icon {
-				padding-left: 8px;
+				margin-left: 6px;
 			}
 			QMenu::indicator {
 				width: 16px;
 				height: 16px;
-				padding-left: 8px;
-			}
-			QMenu::left-arrow, QMenu::right-arrow {
-				padding-right: 8px;
+				margin-left: 6px;
 			}
 			QMenu::separator {
 				height: 1px;

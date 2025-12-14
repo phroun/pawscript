@@ -98,6 +98,9 @@ var (
 	appConfig    pawscript.PSLConfig
 	configHelper *pawgui.ConfigHelper
 
+	// Track actual applied theme (resolved from Auto if needed)
+	appliedThemeIsDark bool
+
 	// Launcher narrow strip (for multiple toolbar buttons)
 	launcherNarrowStrip    *gtk.Box           // The narrow strip container
 	launcherMenuButton     *gtk.Button        // Hamburger button in path selector (when strip hidden)
@@ -598,22 +601,7 @@ func showSettingsDialog(parent gtk.IWindow) {
 
 // applyWindowTheme applies the window theme setting
 func applyWindowTheme() {
-	settings, _ := gtk.SettingsGetDefault()
-	if settings == nil {
-		return
-	}
-	switch configHelper.GetTheme() {
-	case pawgui.ThemeLight:
-		settings.SetProperty("gtk-application-prefer-dark-theme", false)
-	case pawgui.ThemeDark:
-		settings.SetProperty("gtk-application-prefer-dark-theme", true)
-	default:
-		// Auto: use system preference (reset to default)
-		// GTK will follow system preference when not explicitly set
-		settings.SetProperty("gtk-application-prefer-dark-theme", false)
-	}
-
-	// Update toolbar icons to match new theme colors
+	applyTheme(configHelper.GetTheme())
 	updateToolbarIcons()
 }
 
@@ -1494,36 +1482,12 @@ const starIconSVG = `<svg width="48" height="48" viewBox="0 0 12.7 12.7" xmlns="
   <path style="fill:{{FILL}};stroke:none" d="M 6.4849512,1.5761366 8.0478061,4.7428264 11.542456,5.250629 9.0137037,7.7155534 9.6106608,11.196082 6.484951,9.5527997 3.359241,11.196082 3.9561984,7.7155534 1.4274463,5.2506288 4.9220959,4.7428264 Z" transform="matrix(1.1757817,0,0,1.1757817,-1.274887,-1.2479333)"/>
 </svg>`
 
-// getIconFillColor returns the appropriate icon fill color based on theme
+// getIconFillColor returns the appropriate icon fill color based on applied theme
 func getIconFillColor() string {
-	theme := configHelper.GetTheme()
-	switch theme {
-	case pawgui.ThemeDark:
+	if appliedThemeIsDark {
 		return "#ffffff"
-	case pawgui.ThemeLight:
-		return "#000000"
-	default: // ThemeAuto - query GTK to see if dark theme is active
-		settings, err := gtk.SettingsGetDefault()
-		if err == nil {
-			darkPref, err := settings.GetProperty("gtk-application-prefer-dark-theme")
-			if err == nil {
-				if isDark, ok := darkPref.(bool); ok && isDark {
-					return "#ffffff"
-				}
-			}
-			// Also check the theme name for "dark" suffix as fallback
-			themeName, err := settings.GetProperty("gtk-theme-name")
-			if err == nil {
-				if name, ok := themeName.(string); ok {
-					if strings.Contains(strings.ToLower(name), "dark") {
-						return "#ffffff"
-					}
-				}
-			}
-		}
-		// Default to black (light theme) if we can't determine
-		return "#000000"
 	}
+	return "#000000"
 }
 
 // getSVGIcon returns SVG data with the fill color set appropriately for current theme
@@ -1854,21 +1818,44 @@ func registerDummyButtonCommand(ps *pawscript.PawScript, data *WindowToolbarData
 }
 
 // applyTheme sets the GTK theme based on the configuration.
-// "auto" = let GTK/OS decide, "dark" = force dark, "light" = force light
+// "auto" = detect OS preference, "dark" = force dark, "light" = force light
 func applyTheme(theme pawgui.ThemeMode) {
 	settings, err := gtk.SettingsGetDefault()
 	if err != nil {
 		return
 	}
 
+	// For Auto mode, detect the system preference
+	if theme == pawgui.ThemeAuto {
+		// Check if GTK is already preferring dark theme or theme name contains "dark"
+		if darkPref, err := settings.GetProperty("gtk-application-prefer-dark-theme"); err == nil {
+			if isDark, ok := darkPref.(bool); ok && isDark {
+				theme = pawgui.ThemeDark
+			} else {
+				// Also check theme name for "dark" suffix
+				if themeName, err := settings.GetProperty("gtk-theme-name"); err == nil {
+					if name, ok := themeName.(string); ok && strings.Contains(strings.ToLower(name), "dark") {
+						theme = pawgui.ThemeDark
+					} else {
+						theme = pawgui.ThemeLight
+					}
+				} else {
+					theme = pawgui.ThemeLight
+				}
+			}
+		} else {
+			theme = pawgui.ThemeLight
+		}
+	}
+
+	// Track the actual applied theme for icon colors
+	appliedThemeIsDark = (theme == pawgui.ThemeDark)
+
 	switch theme {
 	case pawgui.ThemeDark:
 		settings.SetProperty("gtk-application-prefer-dark-theme", true)
 	case pawgui.ThemeLight:
 		settings.SetProperty("gtk-application-prefer-dark-theme", false)
-	case pawgui.ThemeAuto:
-		// Let GTK use the system default - no explicit setting needed
-		// On most systems, this will follow the OS dark/light mode preference
 	}
 }
 
