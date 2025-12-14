@@ -5046,11 +5046,12 @@ func createConsoleChannels() {
 	})
 
 	// Create and start the REPL for interactive mode
+	// ShowBanner is false because we print our own welcome message above
 	consoleREPL = pawscript.NewREPL(pawscript.REPLConfig{
 		Debug:        false,
 		Unrestricted: false,
 		OptLevel:     getOptimizationLevel(),
-		ShowBanner:   true,
+		ShowBanner:   false,
 		IOConfig: &pawscript.IOChannelConfig{
 			Stdout: consoleOutCh,
 			Stdin:  consoleInCh,
