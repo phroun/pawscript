@@ -461,12 +461,10 @@ func saveLauncherWidth(width int) {
 
 // getLauncherPosition returns the saved launcher window position (x, y)
 func getLauncherPosition() (int, int) {
-	if v, ok := appConfig["launcher_position"]; ok {
-		if list, ok := v.([]interface{}); ok && len(list) >= 2 {
-			x := toInt(list[0])
-			y := toInt(list[1])
-			return x, y
-		}
+	if items := appConfig.GetItems("launcher_position"); len(items) >= 2 {
+		x := pslToInt(items[0])
+		y := pslToInt(items[1])
+		return x, y
 	}
 	return -1, -1 // -1 means not set (let window manager decide)
 }
@@ -479,13 +477,11 @@ func saveLauncherPosition(x, y int) {
 
 // getLauncherSize returns the saved launcher window size (width, height)
 func getLauncherSize() (int, int) {
-	if v, ok := appConfig["launcher_size"]; ok {
-		if list, ok := v.([]interface{}); ok && len(list) >= 2 {
-			w := toInt(list[0])
-			h := toInt(list[1])
-			if w > 0 && h > 0 {
-				return w, h
-			}
+	if items := appConfig.GetItems("launcher_size"); len(items) >= 2 {
+		w := pslToInt(items[0])
+		h := pslToInt(items[1])
+		if w > 0 && h > 0 {
+			return w, h
 		}
 	}
 	return 1100, 700 // Default size
@@ -497,8 +493,8 @@ func saveLauncherSize(width, height int) {
 	saveConfig(appConfig)
 }
 
-// toInt converts an interface{} to int
-func toInt(v interface{}) int {
+// pslToInt converts a PSL list item to int
+func pslToInt(v interface{}) int {
 	switch n := v.(type) {
 	case int:
 		return n
@@ -1995,7 +1991,7 @@ func launchGUIMode() {
 	mainWindow.SetWindowTitle(appName)
 
 	// Get screen dimensions for bounds checking
-	screen := qtApp.PrimaryScreen()
+	screen := qt.QGuiApplication_PrimaryScreen()
 	screenGeom := screen.AvailableGeometry()
 	screenWidth := screenGeom.Width()
 	screenHeight := screenGeom.Height()
@@ -2032,13 +2028,13 @@ func launchGUIMode() {
 		if savedY < 0 {
 			savedY = 0
 		}
-		mainWindow.Move2(savedX, savedY)
+		mainWindow.Move(savedX, savedY)
 	}
 
 	// Track window geometry changes using event filter
 	mainWindow.InstallEventFilter(mainWindow.QObject)
 	var lastX, lastY, lastWidth, lastHeight int
-	mainWindow.OnEventFilter(func(watched *qt.QObject, event *qt.QEvent) bool {
+	mainWindow.OnEventFilter(func(super func(watched *qt.QObject, event *qt.QEvent) bool, watched *qt.QObject, event *qt.QEvent) bool {
 		if event.Type() == qt.QEvent__Move {
 			pos := mainWindow.Pos()
 			x, y := pos.X(), pos.Y()
@@ -2054,7 +2050,7 @@ func launchGUIMode() {
 				saveLauncherSize(w, h)
 			}
 		}
-		return false // Don't filter the event
+		return super(watched, event) // Let the event propagate normally
 	})
 
 	// Create central widget with horizontal splitter
@@ -2106,14 +2102,14 @@ func launchGUIMode() {
 	launcherSplitter.AddWidget(rightPanel)
 
 	// Set initial splitter sizes using saved launcher width
-	// Note: savedWidth represents only the wide panel width (not including strip)
+	// Note: panelWidth represents only the wide panel width (not including strip)
 	// When buttons exist, we add strip width to get actual splitter position
-	savedWidth := getLauncherWidth()
+	panelWidth := getLauncherWidth()
 	hasMultipleButtons := len(launcherRegisteredBtns) > 0
-	initialWidth := savedWidth
-	if hasMultipleButtons && savedWidth > minNarrowStripWidth {
+	initialWidth := panelWidth
+	if hasMultipleButtons && panelWidth > minNarrowStripWidth {
 		// Wide mode with buttons: add strip width
-		initialWidth = savedWidth + minNarrowStripWidth
+		initialWidth = panelWidth + minNarrowStripWidth
 	}
 	launcherSplitter.SetSizes([]int{initialWidth, 900 - initialWidth})
 
