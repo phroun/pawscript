@@ -813,7 +813,8 @@ func showSettingsDialog(parent *qt.QWidget) {
 	scaleLayout.SetContentsMargins(0, 0, 0, 0)
 
 	// QSlider uses integers, so scale by 10 (0.5 -> 5, 3.0 -> 30)
-	windowScaleSlider := qt.NewQSlider2(qt.Horizontal)
+	windowScaleSlider := qt.NewQSlider2()
+	windowScaleSlider.SetOrientation(qt.Horizontal)
 	windowScaleSlider.SetRange(int(minScale*10), int(maxScale*10))
 	windowScaleSlider.SetSingleStep(1)
 	windowScaleSlider.SetValue(int(currentScale * 10))
