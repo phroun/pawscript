@@ -1581,20 +1581,6 @@ func createMenuItemWithIcon(svgTemplate string, labelText string, callback func(
 		return item
 	}
 
-	// Apply CSS to remove left padding so we can position icon in gutter
-	cssProvider, err := gtk.CssProviderNew()
-	if err == nil {
-		cssProvider.LoadFromData(`
-			menuitem {
-				padding-left: 0px;
-			}
-		`)
-		styleCtx, err := item.GetStyleContext()
-		if err == nil {
-			styleCtx.AddProvider(cssProvider, gtk.STYLE_PROVIDER_PRIORITY_USER)
-		}
-	}
-
 	// Create horizontal box to hold icon and label
 	box, err := gtk.BoxNew(gtk.ORIENTATION_HORIZONTAL, 0)
 	if err != nil {
@@ -2043,12 +2029,15 @@ func applyMenuCSS(isDark bool) {
 					#383838 33px, #383838 100%);
 			}
 			menuitem {
-				padding: 6px 20px 6px 8px;
+				padding: 6px 20px 6px 0px;
+			}
+			menuitem > label {
+				margin-left: 33px;
 			}
 			menuitem:hover {
 				background-color: #4a4a4a;
 				border: 1px solid #888888;
-				padding: 5px 19px 5px 7px;
+				padding: 5px 19px 5px 0px;
 				color: #ffffff;
 			}
 			menuitem check,
@@ -2092,12 +2081,15 @@ func applyMenuCSS(isDark bool) {
 					#ffffff 33px, #ffffff 100%);
 			}
 			menuitem {
-				padding: 6px 20px 6px 8px;
+				padding: 6px 20px 6px 0px;
+			}
+			menuitem > label {
+				margin-left: 33px;
 			}
 			menuitem:hover {
 				background-color: #e5f3ff;
 				border: 1px solid #6699cc;
-				padding: 5px 19px 5px 7px;
+				padding: 5px 19px 5px 0px;
 				color: #000000;
 			}
 			menuitem check,
