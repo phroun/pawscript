@@ -1895,26 +1895,32 @@ func applyMenuCSS(isDark bool) {
 					#383838 33px, #383838 100%);
 			}
 			menuitem {
-				padding: 4px 20px 4px 8px;
-				min-height: 0;
+				padding: 6px 20px 6px 8px;
 			}
 			menuitem:hover {
 				background-color: #4a4a4a;
 				border: 1px solid #888888;
+				color: #ffffff;
 			}
 			menuitem check,
 			menuitem radio {
-				min-width: 16px;
-				min-height: 16px;
-				margin-left: 8px;
-				margin-right: 8px;
+				min-width: 5px;
+				min-height: 10px;
+				margin-left: 12px;
+				margin-right: 12px;
+				margin-top: 2px;
+				margin-bottom: 2px;
 				-gtk-icon-source: none;
 				background-image: none;
 				background-color: transparent;
+				border: none;
 			}
 			menuitem check:checked,
 			menuitem radio:checked {
-				-gtk-icon-source: url("data:image/svg+xml;base64,PHN2ZyB4bWxucz0iaHR0cDovL3d3dy53My5vcmcvMjAwMC9zdmciIHdpZHRoPSIxNiIgaGVpZ2h0PSIxNiI+PHBhdGggZD0iTTMsOCBMNiwxMiBMMTMsNCIgc3Ryb2tlPSJ3aGl0ZSIgc3Ryb2tlLXdpZHRoPSIzIiBmaWxsPSJub25lIiBzdHJva2UtbGluZWNhcD0icm91bmQiIHN0cm9rZS1saW5lam9pbj0icm91bmQiLz48L3N2Zz4=");
+				border-left: 3px solid #ffffff;
+				border-bottom: 3px solid #ffffff;
+				border-top: none;
+				border-right: none;
 			}
 		`
 	} else {
@@ -1937,26 +1943,32 @@ func applyMenuCSS(isDark bool) {
 					#ffffff 33px, #ffffff 100%);
 			}
 			menuitem {
-				padding: 4px 20px 4px 8px;
-				min-height: 0;
+				padding: 6px 20px 6px 8px;
 			}
 			menuitem:hover {
 				background-color: #e5f3ff;
 				border: 1px solid #6699cc;
+				color: #000000;
 			}
 			menuitem check,
 			menuitem radio {
-				min-width: 16px;
-				min-height: 16px;
-				margin-left: 8px;
-				margin-right: 8px;
+				min-width: 5px;
+				min-height: 10px;
+				margin-left: 12px;
+				margin-right: 12px;
+				margin-top: 2px;
+				margin-bottom: 2px;
 				-gtk-icon-source: none;
 				background-image: none;
 				background-color: transparent;
+				border: none;
 			}
 			menuitem check:checked,
 			menuitem radio:checked {
-				-gtk-icon-source: url("data:image/svg+xml;base64,PHN2ZyB4bWxucz0iaHR0cDovL3d3dy53My5vcmcvMjAwMC9zdmciIHdpZHRoPSIxNiIgaGVpZ2h0PSIxNiI+PHBhdGggZD0iTTMsOCBMNiwxMiBMMTMsNCIgc3Ryb2tlPSJibGFjayIgc3Ryb2tlLXdpZHRoPSIzIiBmaWxsPSJub25lIiBzdHJva2UtbGluZWNhcD0icm91bmQiIHN0cm9rZS1saW5lam9pbj0icm91bmQiLz48L3N2Zz4=");
+				border-left: 3px solid #000000;
+				border-bottom: 3px solid #000000;
+				border-top: none;
+				border-right: none;
 			}
 		`
 	}
