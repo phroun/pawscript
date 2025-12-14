@@ -670,16 +670,15 @@ func applyConsoleTheme() {
 
 // MenuContext holds callbacks and state for hamburger menu items
 type MenuContext struct {
-	Parent            gtk.IWindow
-	IsScriptWindow    bool
-	Terminal          *purfectermgtk.Terminal
-	IsScriptRunning   func() bool
-	StopScript        func()
-	IsFileListWide    func() bool        // Launcher only: returns true if wide panel visible
-	ToggleFileList    func()             // Launcher only: toggles wide/narrow mode
-	CloseWindow       func()             // Closes this window
-	FileListCheckItem *gtk.CheckMenuItem // Reference to update check state
-	updatingCheckbox  bool               // Flag to prevent toggled signal during programmatic updates
+	Parent           gtk.IWindow
+	IsScriptWindow   bool
+	Terminal         *purfectermgtk.Terminal
+	IsScriptRunning  func() bool
+	StopScript       func()
+	IsFileListWide   func() bool   // Launcher only: returns true if wide panel visible
+	ToggleFileList   func()        // Launcher only: toggles wide/narrow mode
+	CloseWindow      func()        // Closes this window
+	FileListMenuItem *gtk.MenuItem // Reference to File List toggle item
 }
 
 // createHamburgerMenu creates the hamburger dropdown menu
@@ -705,27 +704,26 @@ func createHamburgerMenu(ctx *MenuContext) *gtk.Menu {
 	sepAbout, _ := gtk.SeparatorMenuItemNew()
 	menu.Append(sepAbout)
 
-	// File List checkbox (launcher only)
-	// Note: Each menu instance gets its own checkbox that syncs via the show handler
-	var localFileListItem *gtk.CheckMenuItem
+	// File List toggle (launcher only) - uses custom SVG icons for checked/unchecked state
+	var localFileListItem *gtk.MenuItem
 	if !ctx.IsScriptWindow && ctx.ToggleFileList != nil {
-		fileListItem, _ := gtk.CheckMenuItemNewWithLabel("File List")
-		localFileListItem = fileListItem
-		// Set initial state (with flag to prevent triggering toggle)
+		// Determine current state and choose appropriate icon
+		isWide := false
 		if ctx.IsFileListWide != nil {
-			ctx.updatingCheckbox = true
-			fileListItem.SetActive(ctx.IsFileListWide())
-			ctx.updatingCheckbox = false
+			isWide = ctx.IsFileListWide()
 		}
-		fileListItem.Connect("toggled", func() {
-			// Skip if this is a programmatic update (not user action)
-			if ctx.updatingCheckbox {
-				return
-			}
+		var iconSVG string
+		if isWide {
+			iconSVG = checkedIconSVG
+		} else {
+			iconSVG = uncheckedIconSVG
+		}
+		fileListItem := createMenuItemWithIcon(iconSVG, "File List", func() {
 			if ctx.ToggleFileList != nil {
 				ctx.ToggleFileList()
 			}
 		})
+		localFileListItem = fileListItem
 		menu.Append(fileListItem)
 	}
 
@@ -773,12 +771,9 @@ func createHamburgerMenu(ctx *MenuContext) *gtk.Menu {
 		if ctx.IsScriptRunning != nil {
 			stopScriptItem.SetSensitive(ctx.IsScriptRunning())
 		}
-		// Update file list checkbox state (with flag to prevent triggering toggle)
-		// Uses localFileListItem so each menu updates its own checkbox, not a shared reference
+		// Update file list toggle icon based on current state
 		if localFileListItem != nil && ctx.IsFileListWide != nil {
-			ctx.updatingCheckbox = true
-			localFileListItem.SetActive(ctx.IsFileListWide())
-			ctx.updatingCheckbox = false
+			updateFileListMenuIcon(localFileListItem, ctx.IsFileListWide())
 		}
 	})
 
@@ -1618,6 +1613,60 @@ func createMenuItemWithIcon(svgTemplate string, labelText string, callback func(
 	}
 
 	return item
+}
+
+// updateFileListMenuIcon updates the icon on a File List menu item based on checked state
+func updateFileListMenuIcon(item *gtk.MenuItem, isChecked bool) {
+	if item == nil {
+		return
+	}
+
+	// Get the container (Box) that holds the icon and label
+	child, err := item.GetChild()
+	if err != nil || child == nil {
+		return
+	}
+
+	box, ok := child.(*gtk.Box)
+	if !ok {
+		return
+	}
+
+	// Get the first child (the image)
+	children := box.GetChildren()
+	if children.Length() == 0 {
+		return
+	}
+
+	firstChild := children.NthData(0)
+	if firstChild == nil {
+		return
+	}
+
+	oldImage, ok := firstChild.(*gtk.Image)
+	if !ok {
+		return
+	}
+
+	// Create new icon based on state
+	var iconSVG string
+	if isChecked {
+		iconSVG = checkedIconSVG
+	} else {
+		iconSVG = uncheckedIconSVG
+	}
+
+	svgData := getSVGIcon(iconSVG)
+	newImage := createImageFromSVG(svgData, 16)
+	if newImage == nil {
+		return
+	}
+
+	// Replace the old image with the new one
+	box.Remove(oldImage)
+	box.PackStart(newImage, false, false, 0)
+	box.ReorderChild(newImage, 0)
+	newImage.Show()
 }
 
 // applyToolbarButtonStyle applies CSS to make toolbar buttons square with equal padding
