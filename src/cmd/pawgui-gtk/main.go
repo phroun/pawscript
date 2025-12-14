@@ -2045,10 +2045,17 @@ func applyMenuCSS(isDark bool) {
 					#666666 40px, #666666 41px,
 					#383838 41px, #383838 100%);
 				border: 1px solid #555555;
-				padding: 4px 0px;
+				padding: 4px 0px 4px 0px;
+				margin: 0px;
+			}
+			menu > * {
+				margin: 0px;
+				padding-left: 0px;
+				padding-right: 0px;
 			}
 			menuitem {
-				padding: 4px 20px 4px 0px;
+				padding: 4px 12px 4px 0px;
+				margin: 0px;
 				background-color: transparent;
 			}
 			menuitem:hover {
@@ -2064,10 +2071,17 @@ func applyMenuCSS(isDark bool) {
 					#c0c0c0 40px, #c0c0c0 41px,
 					#ffffff 41px, #ffffff 100%);
 				border: 1px solid #c0c0c0;
-				padding: 4px 0px;
+				padding: 4px 0px 4px 0px;
+				margin: 0px;
+			}
+			menu > * {
+				margin: 0px;
+				padding-left: 0px;
+				padding-right: 0px;
 			}
 			menuitem {
-				padding: 4px 20px 4px 0px;
+				padding: 4px 12px 4px 0px;
+				margin: 0px;
 				background-color: transparent;
 			}
 			menuitem:hover {
