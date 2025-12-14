@@ -39,6 +39,10 @@ When a wrap would occur, all cells after the last word boundary are moved to the
 
 **Single Word / No Break Available:** If a line contains only one word (after leading spaces), or if no word boundary exists after the indentation, the text simply wraps to the next line with the same indentation applied—no cells are moved back from the previous line.
 
+**Default Behavior:** Smart word wrap is enabled by default when the terminal is created or reset.
+
+**Auto-Toggle with Logical Size:** When a logical screen width is set via `ESC [ 8 ; rows ; cols t` (with cols > 0), smart word wrap is automatically disabled. When the default width is restored (cols = 0 or omitted), smart word wrap is automatically re-enabled. This allows applications that set a specific logical width to have predictable wrap behavior.
+
 ## OSC Sequences
 
 Format: `ESC ] <cmd> ; <args> BEL` (or `ESC ] <cmd> ; <args> ESC \`)

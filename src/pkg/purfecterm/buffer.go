@@ -265,6 +265,7 @@ func NewBuffer(cols, rows, maxScrollback int) *Buffer {
 		heightCrop:          -1, // -1 = no crop
 		screenSplits:        make(map[int]*ScreenSplit),
 		autoWrapMode:        true, // DECAWM default enabled
+		smartWordWrap:       true, // Smart word wrap default enabled
 	}
 	b.initScreen()
 	return b
@@ -589,6 +590,15 @@ func (b *Buffer) SetLogicalSize(logicalRows, logicalCols int) {
 	// Update logical dimensions (0 means use physical)
 	b.logicalCols = logicalCols
 	b.logicalRows = logicalRows
+
+	// Auto-toggle smart word wrap based on logical width:
+	// - When a specific width is set (cols > 0), disable smart wrap
+	// - When returning to default (cols = 0), enable smart wrap
+	if logicalCols > 0 {
+		b.smartWordWrap = false
+	} else {
+		b.smartWordWrap = true
+	}
 
 	newEffectiveRows := b.EffectiveRows()
 
@@ -4058,7 +4068,7 @@ func (b *Buffer) Reset() {
 	b.visualWidthWrap = false
 	b.ambiguousWidthMode = AmbiguousWidthAuto
 	b.autoWrapMode = true
-	b.smartWordWrap = false
+	b.smartWordWrap = true // Smart word wrap default enabled
 	b.autoScrollDisabled = false
 	b.scrollbackDisabled = false
 	b.columnMode132 = false
