@@ -1166,11 +1166,22 @@ func (b *Buffer) writeCharInternal(ch rune) {
 		if b.autoWrapMode {
 			// Check for smart word wrap
 			if b.smartWordWrap && b.cursorY < len(b.screen) {
-				// Look backwards for a word boundary character
-				// Word boundaries: space, hyphen, comma, semicolon, emdash (U+2014)
 				line := b.screen[b.cursorY]
+
+				// Count leading spaces for indentation preservation
+				leadingSpaces := 0
+				for _, cell := range line {
+					if cell.Char == ' ' {
+						leadingSpaces++
+					} else {
+						break
+					}
+				}
+
+				// Look backwards for a word boundary character AFTER the leading indent
+				// Word boundaries: space, hyphen, comma, semicolon, emdash (U+2014)
 				wrapPoint := -1
-				for i := len(line) - 1; i >= 0; i-- {
+				for i := len(line) - 1; i > leadingSpaces; i-- {
 					ch := line[i].Char
 					if ch == ' ' || ch == '-' || ch == ',' || ch == ';' || ch == '—' {
 						wrapPoint = i
@@ -1178,48 +1189,38 @@ func (b *Buffer) writeCharInternal(ch rune) {
 					}
 				}
 
-				if wrapPoint >= 0 && wrapPoint < len(line)-1 {
-					// Count leading spaces for indentation preservation
-					leadingSpaces := 0
-					for _, cell := range line {
-						if cell.Char == ' ' {
-							leadingSpaces++
-						} else {
-							break
-						}
-					}
+				// Move to next line
+				b.setHorizMoveDir(-1, false)
+				b.trackCursorYMove(b.cursorY + 1)
+				b.cursorY++
+				if b.cursorY >= effectiveRows {
+					b.scrollUpInternal()
+					b.cursorY = effectiveRows - 1
+				}
 
-					// Found a word boundary - move cells after it to new line
+				// Ensure screen has enough rows
+				for b.cursorY >= len(b.screen) {
+					b.screen = append(b.screen, b.makeEmptyLine())
+					b.lineInfos = append(b.lineInfos, b.makeDefaultLineInfo())
+				}
+
+				// Create indent cells (spaces with default attributes)
+				indentCells := make([]Cell, leadingSpaces)
+				for i := range indentCells {
+					indentCells[i] = Cell{
+						Char:       ' ',
+						Foreground: DefaultForeground,
+						Background: DefaultBackground,
+					}
+				}
+
+				if wrapPoint > leadingSpaces && wrapPoint < len(line)-1 {
+					// Found a valid word boundary - move cells after it to new line
 					cellsToMove := make([]Cell, len(line)-wrapPoint-1)
 					copy(cellsToMove, line[wrapPoint+1:])
 
-					// Trim the current line to just before the boundary (keep the boundary char)
-					b.screen[b.cursorY] = line[:wrapPoint+1]
-
-					// Move to next line
-					b.setHorizMoveDir(-1, false)
-					b.trackCursorYMove(b.cursorY + 1)
-					b.cursorY++
-					if b.cursorY >= effectiveRows {
-						b.scrollUpInternal()
-						b.cursorY = effectiveRows - 1
-					}
-
-					// Ensure screen has enough rows
-					for b.cursorY >= len(b.screen) {
-						b.screen = append(b.screen, b.makeEmptyLine())
-						b.lineInfos = append(b.lineInfos, b.makeDefaultLineInfo())
-					}
-
-					// Create indent cells (spaces with default attributes)
-					indentCells := make([]Cell, leadingSpaces)
-					for i := range indentCells {
-						indentCells[i] = Cell{
-							Char:       ' ',
-							Foreground: DefaultForeground,
-							Background: DefaultBackground,
-						}
-					}
+					// Trim the current line (keep the boundary char)
+					b.screen[b.cursorY-1] = line[:wrapPoint+1]
 
 					// Place indent + moved cells at the start of the new line
 					newLine := append(indentCells, cellsToMove...)
@@ -1228,15 +1229,12 @@ func (b *Buffer) writeCharInternal(ch rune) {
 					// Position cursor after the indent and moved cells
 					b.cursorX = leadingSpaces + len(cellsToMove)
 				} else {
-					// No word boundary found - use standard wrap
-					b.setHorizMoveDir(-1, false)
-					b.cursorX = 0
-					b.trackCursorYMove(b.cursorY + 1)
-					b.cursorY++
-					if b.cursorY >= effectiveRows {
-						b.scrollUpInternal()
-						b.cursorY = effectiveRows - 1
+					// No valid word boundary (single word or no break after indent)
+					// Just wrap with indent, no cells moved
+					if leadingSpaces > 0 {
+						b.screen[b.cursorY] = append(indentCells, b.screen[b.cursorY]...)
 					}
+					b.cursorX = leadingSpaces
 				}
 			} else {
 				// Standard auto-wrap: move to next line

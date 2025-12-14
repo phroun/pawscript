@@ -33,9 +33,11 @@ When enabled, word wrap occurs at word boundary characters instead of mid-word. 
 - Semicolon (`;`)
 - Emdash (`—`, U+2014)
 
-When a wrap would occur, all cells after the last word boundary are moved to the beginning of the next line, preserving all cell attributes (colors, styles, etc.). If no word boundary is found on the line, standard wrap behavior is used.
+When a wrap would occur, all cells after the last word boundary are moved to the beginning of the next line, preserving all cell attributes (colors, styles, etc.).
 
 **Indentation Preservation:** Wrapped lines automatically inherit the indentation of the original line. The number of leading space characters on the source line is counted, and that same indentation is applied to the wrapped content. This keeps wrapped text aligned with the paragraph it belongs to.
+
+**Single Word / No Break Available:** If a line contains only one word (after leading spaces), or if no word boundary exists after the indentation, the text simply wraps to the next line with the same indentation applied—no cells are moved back from the previous line.
 
 ## OSC Sequences
 
