@@ -559,29 +559,35 @@ License: MIT</p>`, version)
 
 // showSettingsDialog displays the Settings dialog with tabbed interface
 func showSettingsDialog(parent *qt.QWidget) {
+	// Save original values for reverting on Cancel
+	origWindowTheme := appConfig.GetString("theme", "auto")
+	origTermTheme := appConfig.GetString("term_theme", "auto")
+
 	// Create dialog
-	dialog := qt.NewQDialog2(parent, qt.Qt__Dialog)
+	dialog := qt.NewQDialog2()
 	dialog.SetWindowTitle("Settings")
 	dialog.SetMinimumSize2(400, 300)
 	dialog.SetModal(true)
 
 	// Main layout
-	mainLayout := qt.NewQVBoxLayout2(dialog)
+	mainLayout := qt.NewQVBoxLayout2()
 	mainLayout.SetContentsMargins(12, 12, 12, 12)
 	mainLayout.SetSpacing(12)
+	dialog.SetLayout(mainLayout.QLayout)
 
 	// Create tab widget
-	tabWidget := qt.NewQTabWidget2(dialog)
-	mainLayout.AddWidget3(tabWidget, 1, 0)
+	tabWidget := qt.NewQTabWidget2()
+	mainLayout.AddWidget(tabWidget.QWidget)
 
 	// --- Appearance Tab ---
-	appearanceWidget := qt.NewQWidget2(dialog)
-	appearanceLayout := qt.NewQFormLayout2(appearanceWidget)
+	appearanceWidget := qt.NewQWidget2()
+	appearanceLayout := qt.NewQFormLayout2()
 	appearanceLayout.SetContentsMargins(12, 12, 12, 12)
 	appearanceLayout.SetSpacing(12)
+	appearanceWidget.SetLayout(appearanceLayout.QLayout)
 
 	// Window Theme combo
-	windowThemeCombo := qt.NewQComboBox2(appearanceWidget)
+	windowThemeCombo := qt.NewQComboBox2()
 	windowThemeCombo.AddItem("Auto")
 	windowThemeCombo.AddItem("Light")
 	windowThemeCombo.AddItem("Dark")
@@ -594,53 +600,9 @@ func showSettingsDialog(parent *qt.QWidget) {
 	default:
 		windowThemeCombo.SetCurrentIndex(0) // Auto
 	}
-	appearanceLayout.AddRow3("Window Theme:", windowThemeCombo)
-
-	// Console Theme combo
-	consoleThemeCombo := qt.NewQComboBox2(appearanceWidget)
-	consoleThemeCombo.AddItem("Auto")
-	consoleThemeCombo.AddItem("Light")
-	consoleThemeCombo.AddItem("Dark")
-	// Set current value from config
-	termTheme := appConfig.GetString("term_theme", "dark")
-	switch termTheme {
-	case "light":
-		consoleThemeCombo.SetCurrentIndex(1)
-	case "dark":
-		consoleThemeCombo.SetCurrentIndex(2)
-	default:
-		consoleThemeCombo.SetCurrentIndex(0) // Auto (defaults to dark)
-	}
-	appearanceLayout.AddRow3("Console Theme:", consoleThemeCombo)
-
-	tabWidget.AddTab(appearanceWidget, "Appearance")
-
-	// --- Button Box ---
-	buttonLayout := qt.NewQHBoxLayout()
-	buttonLayout.AddStretch(1)
-
-	cancelBtn := qt.NewQPushButton3("Cancel", dialog)
-	cancelBtn.OnClicked(func() {
-		dialog.Reject()
-	})
-	buttonLayout.AddWidget2(cancelBtn)
-
-	saveBtn := qt.NewQPushButton3("Save", dialog)
-	saveBtn.SetDefault(true)
-	saveBtn.OnClicked(func() {
-		dialog.Accept()
-	})
-	buttonLayout.AddWidget2(saveBtn)
-
-	mainLayout.AddLayout(buttonLayout, 0)
-
-	// Show dialog and handle response
-	if dialog.Exec() == int(qt.QDialog__Accepted) {
-		// Save settings
-		windowThemeIdx := windowThemeCombo.CurrentIndex()
-		consoleThemeIdx := consoleThemeCombo.CurrentIndex()
-
-		switch windowThemeIdx {
+	// Apply immediately on change
+	windowThemeCombo.OnCurrentIndexChanged(func(index int) {
+		switch index {
 		case 1:
 			appConfig.Set("theme", "light")
 		case 2:
@@ -648,8 +610,29 @@ func showSettingsDialog(parent *qt.QWidget) {
 		default:
 			appConfig.Set("theme", "auto")
 		}
+		configHelper = pawgui.NewConfigHelper(appConfig)
+		applyTheme(configHelper.GetTheme())
+	})
+	appearanceLayout.AddRow3("Window Theme:", windowThemeCombo.QWidget)
 
-		switch consoleThemeIdx {
+	// Console Theme combo
+	consoleThemeCombo := qt.NewQComboBox2()
+	consoleThemeCombo.AddItem("Auto")
+	consoleThemeCombo.AddItem("Light")
+	consoleThemeCombo.AddItem("Dark")
+	// Set current value from config
+	termTheme := appConfig.GetString("term_theme", "auto")
+	switch termTheme {
+	case "light":
+		consoleThemeCombo.SetCurrentIndex(1)
+	case "dark":
+		consoleThemeCombo.SetCurrentIndex(2)
+	default:
+		consoleThemeCombo.SetCurrentIndex(0) // Auto
+	}
+	// Apply immediately on change
+	consoleThemeCombo.OnCurrentIndexChanged(func(index int) {
+		switch index {
 		case 1:
 			appConfig.Set("term_theme", "light")
 		case 2:
@@ -657,17 +640,42 @@ func showSettingsDialog(parent *qt.QWidget) {
 		default:
 			appConfig.Set("term_theme", "auto")
 		}
-
-		// Refresh config helper
 		configHelper = pawgui.NewConfigHelper(appConfig)
+		applyConsoleTheme()
+	})
+	appearanceLayout.AddRow3("Console Theme:", consoleThemeCombo.QWidget)
 
-		// Save config to file
+	tabWidget.AddTab(appearanceWidget, "Appearance")
+
+	// --- Button Box ---
+	buttonLayout := qt.NewQHBoxLayout()
+	buttonLayout.AddStretch(1)
+
+	cancelBtn := qt.NewQPushButton3("Cancel")
+	cancelBtn.OnClicked(func() {
+		dialog.Reject()
+	})
+	buttonLayout.AddWidget(cancelBtn.QWidget)
+
+	saveBtn := qt.NewQPushButton3("Save")
+	saveBtn.SetDefault(true)
+	saveBtn.OnClicked(func() {
+		dialog.Accept()
+	})
+	buttonLayout.AddWidget(saveBtn.QWidget)
+
+	mainLayout.AddLayout(buttonLayout.QLayout, 0)
+
+	// Show dialog and handle response
+	if dialog.Exec() == 1 { // QDialog::Accepted = 1
+		// Save config to file (settings already applied via change handlers)
 		saveConfig(appConfig)
-
-		// Apply window theme
+	} else {
+		// Revert to original values on Cancel
+		appConfig.Set("theme", origWindowTheme)
+		appConfig.Set("term_theme", origTermTheme)
+		configHelper = pawgui.NewConfigHelper(appConfig)
 		applyTheme(configHelper.GetTheme())
-
-		// Apply console theme to all terminals
 		applyConsoleTheme()
 	}
 

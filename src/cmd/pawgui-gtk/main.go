@@ -381,6 +381,10 @@ func showSettingsDialog(parent gtk.IWindow) {
 		parent = mainWindow
 	}
 
+	// Save original values for reverting on Cancel
+	origWindowTheme := appConfig.GetString("theme", "auto")
+	origTermTheme := appConfig.GetString("term_theme", "auto")
+
 	// Create dialog
 	dlg, _ := gtk.DialogNew()
 	dlg.SetTitle("Settings")
@@ -424,14 +428,27 @@ func showSettingsDialog(parent gtk.IWindow) {
 	windowThemeCombo.AppendText("Light")
 	windowThemeCombo.AppendText("Dark")
 	// Set current value from config
-	switch appConfig.WindowTheme {
-	case "light":
+	switch configHelper.GetTheme() {
+	case pawgui.ThemeLight:
 		windowThemeCombo.SetActive(1)
-	case "dark":
+	case pawgui.ThemeDark:
 		windowThemeCombo.SetActive(2)
 	default:
 		windowThemeCombo.SetActive(0) // Auto
 	}
+	// Apply immediately on change
+	windowThemeCombo.Connect("changed", func() {
+		switch windowThemeCombo.GetActive() {
+		case 1:
+			appConfig.Set("theme", "light")
+		case 2:
+			appConfig.Set("theme", "dark")
+		default:
+			appConfig.Set("theme", "auto")
+		}
+		configHelper = pawgui.NewConfigHelper(appConfig)
+		applyWindowTheme()
+	})
 	windowThemeRow.PackStart(windowThemeCombo, true, true, 0)
 	appearanceBox.PackStart(windowThemeRow, false, false, 0)
 
@@ -447,7 +464,8 @@ func showSettingsDialog(parent gtk.IWindow) {
 	consoleThemeCombo.AppendText("Light")
 	consoleThemeCombo.AppendText("Dark")
 	// Set current value from config
-	switch appConfig.TermTheme {
+	termTheme := appConfig.GetString("term_theme", "auto")
+	switch termTheme {
 	case "light":
 		consoleThemeCombo.SetActive(1)
 	case "dark":
@@ -455,6 +473,19 @@ func showSettingsDialog(parent gtk.IWindow) {
 	default:
 		consoleThemeCombo.SetActive(0) // Auto
 	}
+	// Apply immediately on change
+	consoleThemeCombo.Connect("changed", func() {
+		switch consoleThemeCombo.GetActive() {
+		case 1:
+			appConfig.Set("term_theme", "light")
+		case 2:
+			appConfig.Set("term_theme", "dark")
+		default:
+			appConfig.Set("term_theme", "auto")
+		}
+		configHelper = pawgui.NewConfigHelper(appConfig)
+		applyConsoleTheme()
+	})
 	consoleThemeRow.PackStart(consoleThemeCombo, true, true, 0)
 	appearanceBox.PackStart(consoleThemeRow, false, false, 0)
 
@@ -505,35 +536,14 @@ func showSettingsDialog(parent gtk.IWindow) {
 	// Run dialog and handle response
 	response := dlg.Run()
 	if response == gtk.RESPONSE_OK {
-		// Save settings
-		windowThemeIdx := windowThemeCombo.GetActive()
-		consoleThemeIdx := consoleThemeCombo.GetActive()
-
-		switch windowThemeIdx {
-		case 1:
-			appConfig.WindowTheme = "light"
-		case 2:
-			appConfig.WindowTheme = "dark"
-		default:
-			appConfig.WindowTheme = "auto"
-		}
-
-		switch consoleThemeIdx {
-		case 1:
-			appConfig.TermTheme = "light"
-		case 2:
-			appConfig.TermTheme = "dark"
-		default:
-			appConfig.TermTheme = "auto"
-		}
-
-		// Save config to file
+		// Save config to file (settings already applied via change handlers)
 		saveConfig(appConfig)
-
-		// Apply window theme
+	} else {
+		// Revert to original values on Cancel
+		appConfig.Set("theme", origWindowTheme)
+		appConfig.Set("term_theme", origTermTheme)
+		configHelper = pawgui.NewConfigHelper(appConfig)
 		applyWindowTheme()
-
-		// Apply console theme to all terminals
 		applyConsoleTheme()
 	}
 	dlg.Destroy()
