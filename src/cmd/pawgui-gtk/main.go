@@ -374,6 +374,213 @@ License: MIT`, version)
 	dialog.Destroy()
 }
 
+// showSettingsDialog displays the Settings dialog with tabbed interface
+func showSettingsDialog(parent gtk.IWindow) {
+	// Use mainWindow as fallback if parent is nil
+	if parent == nil && mainWindow != nil {
+		parent = mainWindow
+	}
+
+	// Create dialog
+	dlg, _ := gtk.DialogNew()
+	dlg.SetTitle("Settings")
+	dlg.SetModal(true)
+	dlg.SetDefaultSize(400, 300)
+	if parent != nil {
+		if win, ok := parent.(*gtk.Window); ok {
+			dlg.SetTransientFor(win)
+		} else if appWin, ok := parent.(*gtk.ApplicationWindow); ok {
+			dlg.SetTransientFor(&appWin.Window)
+		}
+	}
+
+	// Get content area
+	contentArea, _ := dlg.GetContentArea()
+	contentArea.SetMarginStart(12)
+	contentArea.SetMarginEnd(12)
+	contentArea.SetMarginTop(12)
+	contentArea.SetMarginBottom(12)
+
+	// Create notebook for tabs
+	notebook, _ := gtk.NotebookNew()
+	contentArea.PackStart(notebook, true, true, 0)
+
+	// --- Appearance Tab ---
+	appearanceBox, _ := gtk.BoxNew(gtk.ORIENTATION_VERTICAL, 12)
+	appearanceBox.SetMarginStart(12)
+	appearanceBox.SetMarginEnd(12)
+	appearanceBox.SetMarginTop(12)
+	appearanceBox.SetMarginBottom(12)
+
+	// Window Theme row
+	windowThemeRow, _ := gtk.BoxNew(gtk.ORIENTATION_HORIZONTAL, 12)
+	windowThemeLabel, _ := gtk.LabelNew("Window Theme:")
+	windowThemeLabel.SetHAlign(gtk.ALIGN_START)
+	windowThemeLabel.SetWidthChars(15)
+	windowThemeRow.PackStart(windowThemeLabel, false, false, 0)
+
+	windowThemeCombo, _ := gtk.ComboBoxTextNew()
+	windowThemeCombo.AppendText("Auto")
+	windowThemeCombo.AppendText("Light")
+	windowThemeCombo.AppendText("Dark")
+	// Set current value from config
+	switch appConfig.WindowTheme {
+	case "light":
+		windowThemeCombo.SetActive(1)
+	case "dark":
+		windowThemeCombo.SetActive(2)
+	default:
+		windowThemeCombo.SetActive(0) // Auto
+	}
+	windowThemeRow.PackStart(windowThemeCombo, true, true, 0)
+	appearanceBox.PackStart(windowThemeRow, false, false, 0)
+
+	// Console Theme row
+	consoleThemeRow, _ := gtk.BoxNew(gtk.ORIENTATION_HORIZONTAL, 12)
+	consoleThemeLabel, _ := gtk.LabelNew("Console Theme:")
+	consoleThemeLabel.SetHAlign(gtk.ALIGN_START)
+	consoleThemeLabel.SetWidthChars(15)
+	consoleThemeRow.PackStart(consoleThemeLabel, false, false, 0)
+
+	consoleThemeCombo, _ := gtk.ComboBoxTextNew()
+	consoleThemeCombo.AppendText("Auto")
+	consoleThemeCombo.AppendText("Light")
+	consoleThemeCombo.AppendText("Dark")
+	// Set current value from config
+	switch appConfig.TermTheme {
+	case "light":
+		consoleThemeCombo.SetActive(1)
+	case "dark":
+		consoleThemeCombo.SetActive(2)
+	default:
+		consoleThemeCombo.SetActive(0) // Auto
+	}
+	consoleThemeRow.PackStart(consoleThemeCombo, true, true, 0)
+	appearanceBox.PackStart(consoleThemeRow, false, false, 0)
+
+	// Add appearance tab to notebook
+	appearanceLabel, _ := gtk.LabelNew("Appearance")
+	notebook.AppendPage(appearanceBox, appearanceLabel)
+
+	// --- Button Box ---
+	buttonBox, _ := gtk.BoxNew(gtk.ORIENTATION_HORIZONTAL, 8)
+	buttonBox.SetHAlign(gtk.ALIGN_END)
+	buttonBox.SetMarginTop(12)
+
+	cancelBtn, _ := gtk.ButtonNewWithLabel("Cancel")
+	cancelBtn.Connect("clicked", func() {
+		dlg.Response(gtk.RESPONSE_CANCEL)
+	})
+	buttonBox.PackStart(cancelBtn, false, false, 0)
+
+	saveBtn, _ := gtk.ButtonNewWithLabel("Save")
+	saveBtn.Connect("clicked", func() {
+		dlg.Response(gtk.RESPONSE_OK)
+	})
+	buttonBox.PackStart(saveBtn, false, false, 0)
+
+	contentArea.PackStart(buttonBox, false, false, 0)
+
+	// Center on parent window
+	if parent != nil {
+		if win, ok := parent.(*gtk.Window); ok {
+			px, py := win.GetPosition()
+			pw, ph := win.GetSize()
+			dlg.Connect("realize", func() {
+				dw, dh := dlg.GetSize()
+				dlg.Move(px+(pw-dw)/2, py+(ph-dh)/2)
+			})
+		} else if appWin, ok := parent.(*gtk.ApplicationWindow); ok {
+			px, py := appWin.GetPosition()
+			pw, ph := appWin.GetSize()
+			dlg.Connect("realize", func() {
+				dw, dh := dlg.GetSize()
+				dlg.Move(px+(pw-dw)/2, py+(ph-dh)/2)
+			})
+		}
+	}
+
+	dlg.ShowAll()
+
+	// Run dialog and handle response
+	response := dlg.Run()
+	if response == gtk.RESPONSE_OK {
+		// Save settings
+		windowThemeIdx := windowThemeCombo.GetActive()
+		consoleThemeIdx := consoleThemeCombo.GetActive()
+
+		switch windowThemeIdx {
+		case 1:
+			appConfig.WindowTheme = "light"
+		case 2:
+			appConfig.WindowTheme = "dark"
+		default:
+			appConfig.WindowTheme = "auto"
+		}
+
+		switch consoleThemeIdx {
+		case 1:
+			appConfig.TermTheme = "light"
+		case 2:
+			appConfig.TermTheme = "dark"
+		default:
+			appConfig.TermTheme = "auto"
+		}
+
+		// Save config to file
+		saveConfig(appConfig)
+
+		// Apply window theme
+		applyWindowTheme()
+
+		// Apply console theme to all terminals
+		applyConsoleTheme()
+	}
+	dlg.Destroy()
+}
+
+// applyWindowTheme applies the window theme setting
+func applyWindowTheme() {
+	settings, _ := gtk.SettingsGetDefault()
+	if settings == nil {
+		return
+	}
+	switch appConfig.WindowTheme {
+	case "light":
+		settings.SetProperty("gtk-application-prefer-dark-theme", false)
+	case "dark":
+		settings.SetProperty("gtk-application-prefer-dark-theme", true)
+	default:
+		// Auto: use system preference (reset to default)
+		// GTK will follow system preference when not explicitly set
+		settings.SetProperty("gtk-application-prefer-dark-theme", false)
+	}
+}
+
+// applyConsoleTheme applies the console theme to all terminals
+func applyConsoleTheme() {
+	isDark := isTermThemeDark()
+	scheme := getColorSchemeForTheme(isDark)
+
+	// Apply to launcher terminal
+	if terminal != nil {
+		terminal.Buffer().SetPreferredDarkTheme(isDark)
+		terminal.Buffer().SetDarkTheme(isDark)
+		terminal.SetColorScheme(scheme)
+	}
+
+	// Apply to all console windows
+	if app != nil {
+		windows := app.GetWindows()
+		for l := windows; l != nil; l = l.Next() {
+			if win, ok := l.Data().(*gtk.ApplicationWindow); ok {
+				// Find terminal in window (this is a simplification)
+				_ = win // Each console window manages its own terminal
+			}
+		}
+	}
+}
+
 // MenuContext holds callbacks and state for hamburger menu items
 type MenuContext struct {
 	Parent           gtk.IWindow
@@ -400,7 +607,14 @@ func createHamburgerMenu(ctx *MenuContext) *gtk.Menu {
 	})
 	menu.Append(aboutItem)
 
-	// Separator after About
+	// Settings option (both)
+	settingsItem, _ := gtk.MenuItemNewWithLabel("Settings...")
+	settingsItem.Connect("activate", func() {
+		showSettingsDialog(ctx.Parent)
+	})
+	menu.Append(settingsItem)
+
+	// Separator after About/Settings
 	sepAbout, _ := gtk.SeparatorMenuItemNew()
 	menu.Append(sepAbout)
 
@@ -485,14 +699,23 @@ func createHamburgerMenu(ctx *MenuContext) *gtk.Menu {
 	sep2, _ := gtk.SeparatorMenuItemNew()
 	menu.Append(sep2)
 
-	// Save Scrollback (both)
-	saveScrollbackItem, _ := gtk.MenuItemNewWithLabel("Save Scrollback...")
-	saveScrollbackItem.Connect("activate", func() {
+	// Save Scrollback ANSI (both)
+	saveScrollbackANSIItem, _ := gtk.MenuItemNewWithLabel("Save Scrollback ANSI...")
+	saveScrollbackANSIItem.Connect("activate", func() {
 		if ctx.Parent != nil && ctx.Terminal != nil {
-			saveScrollbackDialog(ctx.Parent, ctx.Terminal)
+			saveScrollbackANSIDialog(ctx.Parent, ctx.Terminal)
 		}
 	})
-	menu.Append(saveScrollbackItem)
+	menu.Append(saveScrollbackANSIItem)
+
+	// Save Scrollback Text (both)
+	saveScrollbackTextItem, _ := gtk.MenuItemNewWithLabel("Save Scrollback Text...")
+	saveScrollbackTextItem.Connect("activate", func() {
+		if ctx.Parent != nil && ctx.Terminal != nil {
+			saveScrollbackTextDialog(ctx.Parent, ctx.Terminal)
+		}
+	})
+	menu.Append(saveScrollbackTextItem)
 
 	// Restore Buffer (both)
 	restoreBufferItem, _ := gtk.MenuItemNewWithLabel("Restore Buffer...")
@@ -596,8 +819,8 @@ func quitApplication(parent gtk.IWindow) {
 	}
 }
 
-// saveScrollbackDialog shows a file dialog to save terminal scrollback
-func saveScrollbackDialog(parent gtk.IWindow, term *purfectermgtk.Terminal) {
+// saveScrollbackANSIDialog shows a file dialog to save terminal scrollback as ANSI
+func saveScrollbackANSIDialog(parent gtk.IWindow, term *purfectermgtk.Terminal) {
 	// Use global terminal as fallback if term is nil
 	if term == nil {
 		term = terminal
@@ -608,9 +831,8 @@ func saveScrollbackDialog(parent gtk.IWindow, term *purfectermgtk.Terminal) {
 
 	// Use sqweek/dialog for native file save dialog
 	filename, err := dialog.File().
-		Title("Save Scrollback").
+		Title("Save Scrollback ANSI").
 		Filter("ANSI files", "ans").
-		Filter("Text files", "txt").
 		Filter("All files", "*").
 		SetStartFile("scrollback.ans").
 		Save()
@@ -618,20 +840,44 @@ func saveScrollbackDialog(parent gtk.IWindow, term *purfectermgtk.Terminal) {
 		return
 	}
 
-	// Determine format from extension
-	isANS := strings.HasSuffix(strings.ToLower(filename), ".ans")
+	// Add header comment with version info using OSC 9999
+	timestamp := time.Now().UTC().Format("2006-01-02T15:04:05Z")
+	header := fmt.Sprintf("\x1b]9999;PawScript %s (GTK; %s; %s) Buffer Saved %s\x07",
+		version, runtime.GOOS, runtime.GOARCH, timestamp)
+	content := header + term.SaveScrollbackANS()
 
-	// Get scrollback content from terminal
-	var content string
-	if isANS {
-		// Add header comment with version info using OSC 9999
-		timestamp := time.Now().UTC().Format("2006-01-02T15:04:05Z")
-		header := fmt.Sprintf("\x1b]9999;PawScript %s (GTK; %s; %s) Buffer Saved %s\x07",
-			version, runtime.GOOS, runtime.GOARCH, timestamp)
-		content = header + term.SaveScrollbackANS()
-	} else {
-		content = term.SaveScrollbackText()
+	// Write to file
+	if err := os.WriteFile(filename, []byte(content), 0644); err != nil {
+		dialog.Message("Failed to save file: %v", err).Title("Error").Error()
 	}
+}
+
+// saveScrollbackTextDialog shows a file dialog to save terminal scrollback as plain text
+func saveScrollbackTextDialog(parent gtk.IWindow, term *purfectermgtk.Terminal) {
+	// Use global terminal as fallback if term is nil
+	if term == nil {
+		term = terminal
+	}
+	if term == nil {
+		return
+	}
+
+	// Use sqweek/dialog for native file save dialog
+	filename, err := dialog.File().
+		Title("Save Scrollback Text").
+		Filter("Text files", "txt").
+		Filter("All files", "*").
+		SetStartFile("scrollback.txt").
+		Save()
+	if err != nil || filename == "" {
+		return
+	}
+
+	// Add header comment with version info as text comment
+	timestamp := time.Now().UTC().Format("2006-01-02T15:04:05Z")
+	header := fmt.Sprintf("# PawScript %s (GTK; %s; %s) Buffer Saved %s\n",
+		version, runtime.GOOS, runtime.GOARCH, timestamp)
+	content := header + term.SaveScrollbackText()
 
 	// Write to file
 	if err := os.WriteFile(filename, []byte(content), 0644); err != nil {
