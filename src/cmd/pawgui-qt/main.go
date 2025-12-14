@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"io"
 	"os"
+	"os/exec"
 	"path/filepath"
 	"runtime"
 	"strings"
@@ -1613,8 +1614,23 @@ func registerDummyButtonCommand(ps *pawscript.PawScript, data *QtWindowToolbarDa
 }
 
 // isSystemDarkMode detects if the OS is currently using dark mode
-// by checking the system palette's window background color luminance
 func isSystemDarkMode() bool {
+	// On macOS, check AppleInterfaceStyle preference
+	if runtime.GOOS == "darwin" {
+		// Try to read macOS dark mode setting
+		cmd := exec.Command("defaults", "read", "-g", "AppleInterfaceStyle")
+		output, err := cmd.Output()
+		if err == nil && strings.TrimSpace(string(output)) == "Dark" {
+			return true
+		}
+		// If the key doesn't exist, system is in light mode
+		return false
+	}
+
+	// For other platforms, check Qt palette
+	// Process events first to ensure palette is fully initialized
+	qt.QCoreApplication_ProcessEvents()
+
 	palette := qt.QGuiApplication_Palette()
 	windowColor := palette.ColorWithCr(qt.QPalette__Window)
 	// Calculate luminance using standard formula
