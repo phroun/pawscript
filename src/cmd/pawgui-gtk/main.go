@@ -2015,7 +2015,10 @@ func applyMenuCSS(isDark bool) {
 		// Dark theme: medium grey gutter, light edge, charcoal background
 		css = `
 			menu {
-				background-color: #383838;
+				background-image: linear-gradient(to right,
+					#505050 0%, #505050 32px,
+					#666666 32px, #666666 33px,
+					#383838 33px, #383838 100%);
 				border: 1px solid #555555;
 				padding: 4px 0px;
 			}
@@ -2061,7 +2064,10 @@ func applyMenuCSS(isDark bool) {
 		// Light theme: grey gutter, dark edge, white background
 		css = `
 			menu {
-				background-color: #ffffff;
+				background-image: linear-gradient(to right,
+					#e0e0e0 0%, #e0e0e0 32px,
+					#c0c0c0 32px, #c0c0c0 33px,
+					#ffffff 33px, #ffffff 100%);
 				border: 1px solid #c0c0c0;
 				padding: 4px 0px;
 			}
