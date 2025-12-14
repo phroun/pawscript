@@ -1950,7 +1950,7 @@ func (w *Widget) onDraw(da *gtk.DrawingArea, cr *cairo.Context) bool {
 				// Use underline color if set, otherwise use foreground color
 				ulColor := fg
 				if cell.HasUnderlineColor {
-					ulColor = w.resolveColor(cell.UnderlineColor, scheme)
+					ulColor = scheme.ResolveColor(cell.UnderlineColor, true)
 				}
 				cr.SetSourceRGB(
 					float64(ulColor.R)/255.0,
