@@ -1889,7 +1889,10 @@ func applyTheme(theme pawgui.ThemeMode) {
 
 // updateToolbarIcons regenerates all toolbar icons with the current theme's colors
 func updateToolbarIcons() {
-	// Update launcher hamburger button
+	// Update both launcher hamburger buttons (path selector and narrow strip)
+	if launcherMenuButton != nil {
+		launcherMenuButton.UpdateIcon(getSVGIcon(hamburgerIconSVG), toolbarIconSize)
+	}
 	if launcherStripMenuBtn != nil {
 		launcherStripMenuBtn.UpdateIcon(getSVGIcon(hamburgerIconSVG), toolbarIconSize)
 	}
