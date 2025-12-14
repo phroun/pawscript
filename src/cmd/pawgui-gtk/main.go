@@ -2043,33 +2043,18 @@ var menuCSSProvider *gtk.CssProvider
 func applyMenuCSS(isDark bool) {
 	var css string
 	if isDark {
-		// Dark theme: medium grey gutter, light edge, charcoal background
+		// Dark theme: charcoal background, gutter comes from item box widgets
 		css = `
 			menu {
-				background-image: linear-gradient(to right,
-					#505050 0%, #505050 32px,
-					#666666 32px, #666666 33px,
-					#383838 33px, #383838 100%);
+				background-color: #383838;
 				border: 1px solid #555555;
 				padding: 4px 0px;
 			}
 			menuitem {
 				padding: 6px 20px 6px 0px;
-				background-image: linear-gradient(to right,
-					#505050 0%, #505050 32px,
-					#666666 32px, #666666 33px,
-					#383838 33px, #383838 100%);
-			}
-			menuitem > label {
-				margin-left: 33px;
-			}
-			menuitem.has-icon {
-				background-image: none;
 				background-color: transparent;
-				padding: 6px 20px 6px 0px;
 			}
 			menuitem:hover {
-				background-image: none;
 				background-color: #4a4a4a;
 				border: 1px solid #888888;
 				padding: 5px 19px 5px 0px;
@@ -2083,55 +2068,20 @@ func applyMenuCSS(isDark bool) {
 			menuitem.has-icon:hover box {
 				background-color: #4a4a4a;
 			}
-			menuitem check,
-			menuitem radio {
-				min-width: 5px;
-				min-height: 10px;
-				margin-left: 12px;
-				margin-right: 12px;
-				margin-top: 2px;
-				margin-bottom: 2px;
-				-gtk-icon-source: none;
-				background-image: none;
-				background-color: transparent;
-				border: none;
-			}
-			menuitem check:checked,
-			menuitem radio:checked {
-				border-left: 3px solid #ffffff;
-				border-bottom: 3px solid #ffffff;
-				border-top: none;
-				border-right: none;
-			}
 		`
 	} else {
-		// Light theme: grey gutter, dark edge, white background
+		// Light theme: white background, gutter comes from item box widgets
 		css = `
 			menu {
-				background-image: linear-gradient(to right,
-					#e0e0e0 0%, #e0e0e0 32px,
-					#c0c0c0 32px, #c0c0c0 33px,
-					#ffffff 33px, #ffffff 100%);
+				background-color: #ffffff;
 				border: 1px solid #c0c0c0;
 				padding: 4px 0px;
 			}
 			menuitem {
 				padding: 6px 20px 6px 0px;
-				background-image: linear-gradient(to right,
-					#e0e0e0 0%, #e0e0e0 32px,
-					#c0c0c0 32px, #c0c0c0 33px,
-					#ffffff 33px, #ffffff 100%);
-			}
-			menuitem > label {
-				margin-left: 33px;
-			}
-			menuitem.has-icon {
-				background-image: none;
 				background-color: transparent;
-				padding: 6px 20px 6px 0px;
 			}
 			menuitem:hover {
-				background-image: none;
 				background-color: #e5f3ff;
 				border: 1px solid #6699cc;
 				padding: 5px 19px 5px 0px;
@@ -2144,26 +2094,6 @@ func applyMenuCSS(isDark bool) {
 			}
 			menuitem.has-icon:hover box {
 				background-color: #e5f3ff;
-			}
-			menuitem check,
-			menuitem radio {
-				min-width: 5px;
-				min-height: 10px;
-				margin-left: 12px;
-				margin-right: 12px;
-				margin-top: 2px;
-				margin-bottom: 2px;
-				-gtk-icon-source: none;
-				background-image: none;
-				background-color: transparent;
-				border: none;
-			}
-			menuitem check:checked,
-			menuitem radio:checked {
-				border-left: 3px solid #000000;
-				border-bottom: 3px solid #000000;
-				border-top: none;
-				border-right: none;
 			}
 		`
 	}
