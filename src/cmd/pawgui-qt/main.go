@@ -1741,8 +1741,22 @@ func applyTheme(theme pawgui.ThemeMode) {
 		`)
 
 	case pawgui.ThemeAuto:
-		// Let Qt use the system default - no explicit setting needed
-		// Qt will follow the OS dark/light mode preference on supported platforms
+		// Let Qt use the system default - clear any explicit stylesheet
+		qtApp.SetStyleSheet("")
+	}
+
+	// Re-apply UI scaling after theme change (theme replaces stylesheet)
+	applyUIScale(getUIScale())
+
+	// Update toolbar icons to match new theme colors
+	updateToolbarIcons()
+}
+
+// updateToolbarIcons regenerates all toolbar icons with the current theme's colors
+func updateToolbarIcons() {
+	// Update launcher hamburger button
+	if launcherStripMenuBtn != nil {
+		launcherStripMenuBtn.UpdateIcon(getSVGIcon(hamburgerIconSVG), toolbarIconSize)
 	}
 }
 

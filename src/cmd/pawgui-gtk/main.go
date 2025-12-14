@@ -565,6 +565,20 @@ func applyWindowTheme() {
 		// GTK will follow system preference when not explicitly set
 		settings.SetProperty("gtk-application-prefer-dark-theme", false)
 	}
+
+	// Update toolbar icons to match new theme colors
+	updateToolbarIcons()
+}
+
+// updateToolbarIcons regenerates all toolbar icons with the current theme's colors
+func updateToolbarIcons() {
+	// Update launcher hamburger button
+	if launcherStripMenuBtn != nil {
+		svgData := getSVGIcon(hamburgerIconSVG)
+		if img := createImageFromSVG(svgData, 24); img != nil {
+			launcherStripMenuBtn.SetImage(img)
+		}
+	}
 }
 
 // applyConsoleTheme applies the console theme to all terminals
