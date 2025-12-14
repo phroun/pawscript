@@ -1581,6 +1581,20 @@ func createMenuItemWithIcon(svgTemplate string, labelText string, callback func(
 		return item
 	}
 
+	// Apply CSS to remove left padding so we can position icon in gutter
+	cssProvider, err := gtk.CssProviderNew()
+	if err == nil {
+		cssProvider.LoadFromData(`
+			menuitem {
+				padding-left: 0px;
+			}
+		`)
+		styleCtx, err := item.GetStyleContext()
+		if err == nil {
+			styleCtx.AddProvider(cssProvider, gtk.STYLE_PROVIDER_PRIORITY_USER)
+		}
+	}
+
 	// Create horizontal box to hold icon and label
 	box, err := gtk.BoxNew(gtk.ORIENTATION_HORIZONTAL, 0)
 	if err != nil {
@@ -1592,18 +1606,16 @@ func createMenuItemWithIcon(svgTemplate string, labelText string, callback func(
 	}
 
 	// Create icon from SVG (16x16 for menu items)
-	// Position icon in the gutter: pull it left with negative margin
-	// Gutter is 32px wide, want icon centered at ~8px from left
-	// Content normally starts at ~33px, so pull icon left by ~25px
+	// Icon centered in 32px gutter: (32-16)/2 = 8px from left
 	svgData := getSVGIcon(svgTemplate)
 	iconImage := createImageFromSVG(svgData, 16)
 	if iconImage != nil {
-		iconImage.SetMarginStart(-25)
-		iconImage.SetMarginEnd(9)
+		iconImage.SetMarginStart(8)
+		iconImage.SetMarginEnd(9) // 8 + 16 + 9 = 33px where text starts
 		box.PackStart(iconImage, false, false, 0)
 	}
 
-	// Create label
+	// Create label - no extra margin needed, positioned after icon
 	label, err := gtk.LabelNew(labelText)
 	if err == nil {
 		label.SetHAlign(gtk.ALIGN_START)
@@ -1668,7 +1680,7 @@ func updateFileListMenuIcon(item *gtk.MenuItem, isChecked bool) {
 	}
 
 	// Set margins to position icon in gutter (matching createMenuItemWithIcon)
-	newImage.SetMarginStart(-25)
+	newImage.SetMarginStart(8)
 	newImage.SetMarginEnd(9)
 
 	// Replace the old image with the new one
