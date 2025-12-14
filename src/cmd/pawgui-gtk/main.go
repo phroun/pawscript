@@ -689,15 +689,13 @@ func createHamburgerMenu(ctx *MenuContext) *gtk.Menu {
 	menu, _ := gtk.MenuNew()
 
 	// About option (both)
-	aboutItem, _ := gtk.MenuItemNewWithLabel("About PawScript...")
-	aboutItem.Connect("activate", func() {
+	aboutItem := createMenuItemWithGutter("About PawScript...", func() {
 		showAboutDialog(ctx.Parent)
 	})
 	menu.Append(aboutItem)
 
 	// Settings option (both)
-	settingsItem, _ := gtk.MenuItemNewWithLabel("Settings...")
-	settingsItem.Connect("activate", func() {
+	settingsItem := createMenuItemWithGutter("Settings...", func() {
 		showSettingsDialog(ctx.Parent)
 	})
 	menu.Append(settingsItem)
@@ -731,16 +729,14 @@ func createHamburgerMenu(ctx *MenuContext) *gtk.Menu {
 
 	// Show Launcher (console windows only)
 	if ctx.IsScriptWindow {
-		showLauncherItem, _ := gtk.MenuItemNewWithLabel("Show Launcher")
-		showLauncherItem.Connect("activate", func() {
+		showLauncherItem := createMenuItemWithGutter("Show Launcher", func() {
 			showOrCreateLauncher()
 		})
 		menu.Append(showLauncherItem)
 	}
 
 	// New Window (both - creates a blank console window)
-	newWindowItem, _ := gtk.MenuItemNewWithLabel("New Window")
-	newWindowItem.Connect("activate", func() {
+	newWindowItem := createMenuItemWithGutter("New Window", func() {
 		createBlankConsoleWindow()
 	})
 	menu.Append(newWindowItem)
@@ -750,18 +746,16 @@ func createHamburgerMenu(ctx *MenuContext) *gtk.Menu {
 	menu.Append(sep1)
 
 	// Stop Script (both) - disabled when no script running
-	stopScriptItem, _ := gtk.MenuItemNewWithLabel("Stop Script")
-	stopScriptItem.SetSensitive(false) // Initially disabled
-	stopScriptItem.Connect("activate", func() {
+	stopScriptItem := createMenuItemWithGutter("Stop Script", func() {
 		if ctx.StopScript != nil {
 			ctx.StopScript()
 		}
 	})
+	stopScriptItem.SetSensitive(false) // Initially disabled
 	menu.Append(stopScriptItem)
 
 	// Reset Terminal (both) - directly under Stop Script
-	resetTerminalItem, _ := gtk.MenuItemNewWithLabel("Reset Terminal")
-	resetTerminalItem.Connect("activate", func() {
+	resetTerminalItem := createMenuItemWithGutter("Reset Terminal", func() {
 		if ctx.Terminal != nil {
 			ctx.Terminal.Reset()
 		}
@@ -784,8 +778,7 @@ func createHamburgerMenu(ctx *MenuContext) *gtk.Menu {
 	menu.Append(sep2)
 
 	// Save Scrollback ANSI (both)
-	saveScrollbackANSIItem, _ := gtk.MenuItemNewWithLabel("Save Scrollback ANSI...")
-	saveScrollbackANSIItem.Connect("activate", func() {
+	saveScrollbackANSIItem := createMenuItemWithGutter("Save Scrollback ANSI...", func() {
 		if ctx.Parent != nil && ctx.Terminal != nil {
 			saveScrollbackANSIDialog(ctx.Parent, ctx.Terminal)
 		}
@@ -793,8 +786,7 @@ func createHamburgerMenu(ctx *MenuContext) *gtk.Menu {
 	menu.Append(saveScrollbackANSIItem)
 
 	// Save Scrollback Text (both)
-	saveScrollbackTextItem, _ := gtk.MenuItemNewWithLabel("Save Scrollback Text...")
-	saveScrollbackTextItem.Connect("activate", func() {
+	saveScrollbackTextItem := createMenuItemWithGutter("Save Scrollback Text...", func() {
 		if ctx.Parent != nil && ctx.Terminal != nil {
 			saveScrollbackTextDialog(ctx.Parent, ctx.Terminal)
 		}
@@ -802,8 +794,7 @@ func createHamburgerMenu(ctx *MenuContext) *gtk.Menu {
 	menu.Append(saveScrollbackTextItem)
 
 	// Restore Buffer (both)
-	restoreBufferItem, _ := gtk.MenuItemNewWithLabel("Restore Buffer...")
-	restoreBufferItem.Connect("activate", func() {
+	restoreBufferItem := createMenuItemWithGutter("Restore Buffer...", func() {
 		if ctx.Parent != nil && ctx.Terminal != nil {
 			restoreBufferDialog(ctx.Parent, ctx.Terminal)
 		}
@@ -811,8 +802,7 @@ func createHamburgerMenu(ctx *MenuContext) *gtk.Menu {
 	menu.Append(restoreBufferItem)
 
 	// Clear Scrollback (both)
-	clearScrollbackItem, _ := gtk.MenuItemNewWithLabel("Clear Scrollback")
-	clearScrollbackItem.Connect("activate", func() {
+	clearScrollbackItem := createMenuItemWithGutter("Clear Scrollback", func() {
 		if ctx.Terminal != nil {
 			ctx.Terminal.ClearScrollback()
 		}
@@ -824,8 +814,7 @@ func createHamburgerMenu(ctx *MenuContext) *gtk.Menu {
 	menu.Append(sep3)
 
 	// Close (both)
-	closeItem, _ := gtk.MenuItemNewWithLabel("Close")
-	closeItem.Connect("activate", func() {
+	closeItem := createMenuItemWithGutter("Close", func() {
 		if ctx.CloseWindow != nil {
 			ctx.CloseWindow()
 		}
@@ -833,8 +822,7 @@ func createHamburgerMenu(ctx *MenuContext) *gtk.Menu {
 	menu.Append(closeItem)
 
 	// Quit PawScript (both)
-	quitItem, _ := gtk.MenuItemNewWithLabel("Quit PawScript")
-	quitItem.Connect("activate", func() {
+	quitItem := createMenuItemWithGutter("Quit PawScript", func() {
 		quitApplication(ctx.Parent)
 	})
 	menu.Append(quitItem)
@@ -1157,26 +1145,22 @@ func createBlankConsoleWindow() {
 	// Create context menu for this console window
 	winContextMenu, _ := gtk.MenuNew()
 
-	winCopyItem, _ := gtk.MenuItemNewWithLabel("Copy")
-	winCopyItem.Connect("activate", func() {
+	winCopyItem := createMenuItemWithGutter("Copy", func() {
 		winTerminal.CopySelection()
 	})
 	winContextMenu.Append(winCopyItem)
 
-	winPasteItem, _ := gtk.MenuItemNewWithLabel("Paste")
-	winPasteItem.Connect("activate", func() {
+	winPasteItem := createMenuItemWithGutter("Paste", func() {
 		winTerminal.PasteClipboard()
 	})
 	winContextMenu.Append(winPasteItem)
 
-	winSelectAllItem, _ := gtk.MenuItemNewWithLabel("Select All")
-	winSelectAllItem.Connect("activate", func() {
+	winSelectAllItem := createMenuItemWithGutter("Select All", func() {
 		winTerminal.SelectAll()
 	})
 	winContextMenu.Append(winSelectAllItem)
 
-	winClearItem, _ := gtk.MenuItemNewWithLabel("Clear")
-	winClearItem.Connect("activate", func() {
+	winClearItem := createMenuItemWithGutter("Clear", func() {
 		winTerminal.Clear()
 	})
 	winContextMenu.Append(winClearItem)
@@ -1580,8 +1564,7 @@ func createMenuItemWithIcon(svgTemplate string, labelText string, callback func(
 		return nil
 	}
 
-	// Add CSS class and style to make this item's background transparent
-	// so we can control the gutter from within the box
+	// Add CSS class for styling
 	styleCtx, _ := item.GetStyleContext()
 	if styleCtx != nil {
 		styleCtx.AddClass("has-icon")
@@ -1592,6 +1575,7 @@ func createMenuItemWithIcon(svgTemplate string, labelText string, callback func(
 	if err != nil {
 		return nil
 	}
+	hbox.SetVExpand(true) // Expand to fill vertical space
 
 	// Apply gutter background to the box itself
 	applyMenuItemBoxCSS(hbox)
@@ -1603,6 +1587,7 @@ func createMenuItemWithIcon(svgTemplate string, labelText string, callback func(
 		// Add some margin around the icon to center it in gutter
 		img.SetMarginStart(8)
 		img.SetMarginEnd(9) // 8 + 16 + 9 = 33 (gutter width)
+		img.SetVAlign(gtk.ALIGN_CENTER)
 		hbox.PackStart(img, false, false, 0)
 	}
 
@@ -1610,6 +1595,51 @@ func createMenuItemWithIcon(svgTemplate string, labelText string, callback func(
 	label, err := gtk.LabelNew(labelText)
 	if err == nil {
 		label.SetXAlign(0) // Left align
+		label.SetVAlign(gtk.ALIGN_CENTER)
+		hbox.PackStart(label, true, true, 0)
+	}
+
+	// Add the box to the menu item
+	item.Add(hbox)
+
+	if callback != nil {
+		item.Connect("activate", callback)
+	}
+
+	return item
+}
+
+// createMenuItemWithGutter creates a GTK menu item with gutter but no icon
+// Uses a GtkBox with Label for consistent gutter appearance
+func createMenuItemWithGutter(labelText string, callback func()) *gtk.MenuItem {
+	// Create a plain menu item (no built-in label)
+	item, err := gtk.MenuItemNew()
+	if err != nil {
+		return nil
+	}
+
+	// Add CSS class for styling
+	styleCtx, _ := item.GetStyleContext()
+	if styleCtx != nil {
+		styleCtx.AddClass("has-gutter")
+	}
+
+	// Create horizontal box
+	hbox, err := gtk.BoxNew(gtk.ORIENTATION_HORIZONTAL, 0)
+	if err != nil {
+		return nil
+	}
+	hbox.SetVExpand(true) // Expand to fill vertical space
+
+	// Apply gutter background to the box itself
+	applyMenuItemBoxCSS(hbox)
+
+	// Create label with left margin to account for gutter space
+	label, err := gtk.LabelNew(labelText)
+	if err == nil {
+		label.SetXAlign(0) // Left align
+		label.SetVAlign(gtk.ALIGN_CENTER)
+		label.SetMarginStart(33) // Gutter width
 		hbox.PackStart(label, true, true, 0)
 	}
 
@@ -1647,6 +1677,9 @@ func applyMenuItemBoxCSS(box *gtk.Box) {
 				%s 0px, %s 33px,
 				%s 33px, %s 34px,
 				%s 34px, %s 100%%);
+			min-height: 24px;
+			padding-top: 4px;
+			padding-bottom: 4px;
 		}
 	`, gutterColor, gutterColor, edgeColor, edgeColor, contentColor, contentColor)
 
@@ -2051,21 +2084,28 @@ func applyMenuCSS(isDark bool) {
 				padding: 4px 0px;
 			}
 			menuitem {
-				padding: 6px 20px 6px 0px;
+				padding: 0px 20px 0px 0px;
 				background-color: transparent;
 			}
 			menuitem:hover {
 				background-color: #4a4a4a;
 				border: 1px solid #888888;
-				padding: 5px 19px 5px 0px;
+				padding: 0px 19px 0px 0px;
 				color: #ffffff;
 			}
-			menuitem.has-icon:hover {
+			menuitem.has-icon,
+			menuitem.has-gutter {
+				padding: 0px 20px 0px 0px;
+			}
+			menuitem.has-icon:hover,
+			menuitem.has-gutter:hover {
 				background-color: transparent;
 				border: none;
-				padding: 6px 20px 6px 0px;
+				padding: 0px 20px 0px 0px;
 			}
-			menuitem.has-icon:hover box {
+			menuitem.has-icon:hover box,
+			menuitem.has-gutter:hover box {
+				background-image: none;
 				background-color: #4a4a4a;
 			}
 		`
@@ -2078,21 +2118,28 @@ func applyMenuCSS(isDark bool) {
 				padding: 4px 0px;
 			}
 			menuitem {
-				padding: 6px 20px 6px 0px;
+				padding: 0px 20px 0px 0px;
 				background-color: transparent;
 			}
 			menuitem:hover {
 				background-color: #e5f3ff;
 				border: 1px solid #6699cc;
-				padding: 5px 19px 5px 0px;
+				padding: 0px 19px 0px 0px;
 				color: #000000;
 			}
-			menuitem.has-icon:hover {
+			menuitem.has-icon,
+			menuitem.has-gutter {
+				padding: 0px 20px 0px 0px;
+			}
+			menuitem.has-icon:hover,
+			menuitem.has-gutter:hover {
 				background-color: transparent;
 				border: none;
-				padding: 6px 20px 6px 0px;
+				padding: 0px 20px 0px 0px;
 			}
-			menuitem.has-icon:hover box {
+			menuitem.has-icon:hover box,
+			menuitem.has-gutter:hover box {
+				background-image: none;
 				background-color: #e5f3ff;
 			}
 		`
@@ -3004,32 +3051,28 @@ func activate(application *gtk.Application) {
 	// Create context menu for terminal (right-click)
 	contextMenu, _ = gtk.MenuNew()
 
-	copyItem, _ := gtk.MenuItemNewWithLabel("Copy")
-	copyItem.Connect("activate", func() {
+	copyItem := createMenuItemWithGutter("Copy", func() {
 		if terminal != nil {
 			terminal.CopySelection()
 		}
 	})
 	contextMenu.Append(copyItem)
 
-	pasteItem, _ := gtk.MenuItemNewWithLabel("Paste")
-	pasteItem.Connect("activate", func() {
+	pasteItem := createMenuItemWithGutter("Paste", func() {
 		if terminal != nil {
 			terminal.PasteClipboard()
 		}
 	})
 	contextMenu.Append(pasteItem)
 
-	selectAllItem, _ := gtk.MenuItemNewWithLabel("Select All")
-	selectAllItem.Connect("activate", func() {
+	selectAllItem := createMenuItemWithGutter("Select All", func() {
 		if terminal != nil {
 			terminal.SelectAll()
 		}
 	})
 	contextMenu.Append(selectAllItem)
 
-	clearItem, _ := gtk.MenuItemNewWithLabel("Clear")
-	clearItem.Connect("activate", func() {
+	clearItem := createMenuItemWithGutter("Clear", func() {
 		if terminal != nil {
 			terminal.Clear()
 		}
@@ -3561,8 +3604,7 @@ func updatePathMenu() {
 
 	// Helper to add a menu item with callback
 	addMenuItem := func(label string, callback func()) {
-		item, _ := gtk.MenuItemNewWithLabel(label)
-		item.Connect("activate", callback)
+		item := createMenuItemWithGutter(label, callback)
 		pathMenu.Append(item)
 	}
 
@@ -3579,7 +3621,7 @@ func updatePathMenu() {
 	}
 
 	// Add current path (just shows where we are)
-	currentItem, _ := gtk.MenuItemNewWithLabel(currentDir)
+	currentItem := createMenuItemWithGutter(currentDir, nil)
 	currentItem.SetSensitive(false)
 	pathMenu.Append(currentItem)
 
@@ -4092,26 +4134,22 @@ func createConsoleWindow(filePath string) {
 	// Create context menu for this console window
 	winContextMenu, _ := gtk.MenuNew()
 
-	winCopyItem, _ := gtk.MenuItemNewWithLabel("Copy")
-	winCopyItem.Connect("activate", func() {
+	winCopyItem := createMenuItemWithGutter("Copy", func() {
 		winTerminal.CopySelection()
 	})
 	winContextMenu.Append(winCopyItem)
 
-	winPasteItem, _ := gtk.MenuItemNewWithLabel("Paste")
-	winPasteItem.Connect("activate", func() {
+	winPasteItem := createMenuItemWithGutter("Paste", func() {
 		winTerminal.PasteClipboard()
 	})
 	winContextMenu.Append(winPasteItem)
 
-	winSelectAllItem, _ := gtk.MenuItemNewWithLabel("Select All")
-	winSelectAllItem.Connect("activate", func() {
+	winSelectAllItem := createMenuItemWithGutter("Select All", func() {
 		winTerminal.SelectAll()
 	})
 	winContextMenu.Append(winSelectAllItem)
 
-	winClearItem, _ := gtk.MenuItemNewWithLabel("Clear")
-	winClearItem.Connect("activate", func() {
+	winClearItem := createMenuItemWithGutter("Clear", func() {
 		winTerminal.Clear()
 	})
 	winContextMenu.Append(winClearItem)
