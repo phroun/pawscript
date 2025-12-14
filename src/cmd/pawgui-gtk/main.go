@@ -6,7 +6,6 @@ import (
 	"flag"
 	"fmt"
 	"io"
-	"net/url"
 	"os"
 	"path/filepath"
 	"runtime"
@@ -1572,67 +1571,40 @@ func createImageFromSVG(svgData string, size int) *gtk.Image {
 	return img
 }
 
-// svgToDataURI converts an SVG string to a URL-encoded data URI for CSS
-func svgToDataURI(svgData string) string {
-	// URL-encode the SVG for use in CSS data URI
-	encoded := url.PathEscape(svgData)
-	// Replace some characters that url.PathEscape encodes but CSS allows
-	encoded = strings.ReplaceAll(encoded, "%20", " ")
-	encoded = strings.ReplaceAll(encoded, "%3D", "=")
-	encoded = strings.ReplaceAll(encoded, "%3A", ":")
-	encoded = strings.ReplaceAll(encoded, "%2F", "/")
-	return "data:image/svg+xml," + encoded
-}
-
 // createMenuItemWithIcon creates a GTK menu item with an SVG icon and label
-// Uses CSS background with icon embedded as data URI positioned in the gutter
+// Uses a GtkBox with Image and Label for proper icon display in gutter
 func createMenuItemWithIcon(svgTemplate string, labelText string, callback func()) *gtk.MenuItem {
-	item, err := gtk.MenuItemNewWithLabel(labelText)
+	// Create a plain menu item (no built-in label)
+	item, err := gtk.MenuItemNew()
 	if err != nil {
 		return nil
 	}
 
-	// Add CSS class for specificity
-	styleCtx, err := item.GetStyleContext()
+	// Create horizontal box to hold icon and label
+	hbox, err := gtk.BoxNew(gtk.ORIENTATION_HORIZONTAL, 0)
 	if err != nil {
-		return item
+		return nil
 	}
-	styleCtx.AddClass("has-icon")
 
-	// Apply CSS with icon as background image positioned in the gutter
+	// Create the icon image (16x16)
 	svgData := getSVGIcon(svgTemplate)
-	dataURI := svgToDataURI(svgData)
-
-	cssProvider, err := gtk.CssProviderNew()
-	if err == nil {
-		// Multi-layer background: icon on top, gradient behind
-		var gutterColor, edgeColor, contentColor string
-		if appliedThemeIsDark {
-			gutterColor = "#505050"
-			edgeColor = "#666666"
-			contentColor = "#383838"
-		} else {
-			gutterColor = "#e0e0e0"
-			edgeColor = "#c0c0c0"
-			contentColor = "#ffffff"
-		}
-
-		css := fmt.Sprintf(`
-			menuitem.has-icon {
-				background-image: url("%s"),
-					linear-gradient(to right,
-						%s 0px, %s 32px,
-						%s 32px, %s 33px,
-						%s 33px, %s 100%%);
-				background-position: 8px center, left top;
-				background-repeat: no-repeat, no-repeat;
-				background-size: 16px 16px, auto;
-			}
-		`, dataURI, gutterColor, gutterColor, edgeColor, edgeColor, contentColor, contentColor)
-
-		cssProvider.LoadFromData(css)
-		styleCtx.AddProvider(cssProvider, gtk.STYLE_PROVIDER_PRIORITY_USER+100)
+	img := createImageFromSVG(svgData, 16)
+	if img != nil {
+		// Add some margin around the icon to center it in gutter
+		img.SetMarginStart(8)
+		img.SetMarginEnd(9) // 8 + 16 + 9 = 33 (gutter width)
+		hbox.PackStart(img, false, false, 0)
 	}
+
+	// Create label
+	label, err := gtk.LabelNew(labelText)
+	if err == nil {
+		label.SetXAlign(0) // Left align
+		hbox.PackStart(label, true, true, 0)
+	}
+
+	// Add the box to the menu item
+	item.Add(hbox)
 
 	if callback != nil {
 		item.Connect("activate", callback)
@@ -1655,45 +1627,40 @@ func updateFileListMenuIcon(item *gtk.MenuItem, isChecked bool) {
 		iconSVG = uncheckedIconSVG
 	}
 
-	// Add CSS class for specificity
-	styleCtx, err := item.GetStyleContext()
-	if err != nil {
+	// Get the box child of the menu item
+	child, err := item.GetChild()
+	if err != nil || child == nil {
 		return
 	}
-	styleCtx.AddClass("has-icon")
 
-	// Apply CSS with icon as background image
-	svgData := getSVGIcon(iconSVG)
-	dataURI := svgToDataURI(svgData)
+	box, ok := child.(*gtk.Box)
+	if !ok {
+		return
+	}
 
-	cssProvider, err := gtk.CssProviderNew()
-	if err == nil {
-		var gutterColor, edgeColor, contentColor string
-		if appliedThemeIsDark {
-			gutterColor = "#505050"
-			edgeColor = "#666666"
-			contentColor = "#383838"
-		} else {
-			gutterColor = "#e0e0e0"
-			edgeColor = "#c0c0c0"
-			contentColor = "#ffffff"
+	// Get children of the box - first child should be the image
+	children := box.GetChildren()
+	if children.Length() == 0 {
+		return
+	}
+
+	// Remove the old image (first child)
+	firstChild := children.NthData(0)
+	if firstChild != nil {
+		if oldImg, ok := firstChild.(*gtk.Image); ok {
+			box.Remove(oldImg)
 		}
+	}
 
-		css := fmt.Sprintf(`
-			menuitem.has-icon {
-				background-image: url("%s"),
-					linear-gradient(to right,
-						%s 0px, %s 32px,
-						%s 32px, %s 33px,
-						%s 33px, %s 100%%);
-				background-position: 8px center, left top;
-				background-repeat: no-repeat, no-repeat;
-				background-size: 16px 16px, auto;
-			}
-		`, dataURI, gutterColor, gutterColor, edgeColor, edgeColor, contentColor, contentColor)
-
-		cssProvider.LoadFromData(css)
-		styleCtx.AddProvider(cssProvider, gtk.STYLE_PROVIDER_PRIORITY_USER+100)
+	// Create new icon and add it at the beginning
+	svgData := getSVGIcon(iconSVG)
+	newImg := createImageFromSVG(svgData, 16)
+	if newImg != nil {
+		newImg.SetMarginStart(8)
+		newImg.SetMarginEnd(9)
+		box.PackStart(newImg, false, false, 0)
+		box.ReorderChild(newImg, 0)
+		newImg.Show()
 	}
 }
 
