@@ -1863,6 +1863,78 @@ func applyTheme(theme pawgui.ThemeMode) {
 	case pawgui.ThemeLight:
 		settings.SetProperty("gtk-application-prefer-dark-theme", false)
 	}
+
+	// Apply menu CSS styling
+	applyMenuCSS(theme == pawgui.ThemeDark)
+}
+
+// menuCSSProvider is reused to avoid creating multiple providers
+var menuCSSProvider *gtk.CssProvider
+
+// applyMenuCSS applies retro Office 2003/Delphi 7 style menu styling
+func applyMenuCSS(isDark bool) {
+	var css string
+	if isDark {
+		// Dark theme: medium grey gutter, light edge, charcoal background
+		css = `
+			menu {
+				background-image: linear-gradient(to right,
+					#505050 0%, #505050 28px,
+					#666666 28px, #666666 29px,
+					#383838 29px, #383838 100%);
+				border: 1px solid #555555;
+				padding: 4px 0px;
+			}
+			menuitem {
+				padding: 6px 20px 6px 38px;
+			}
+			menuitem:hover {
+				background-color: #4a4a4a;
+				border: 1px solid #888888;
+			}
+			menuitem check {
+				min-width: 16px;
+				min-height: 16px;
+				margin-left: 10px;
+			}
+		`
+	} else {
+		// Light theme: grey gutter, dark edge, white background
+		css = `
+			menu {
+				background-image: linear-gradient(to right,
+					#e0e0e0 0%, #e0e0e0 28px,
+					#c0c0c0 28px, #c0c0c0 29px,
+					#ffffff 29px, #ffffff 100%);
+				border: 1px solid #c0c0c0;
+				padding: 4px 0px;
+			}
+			menuitem {
+				padding: 6px 20px 6px 38px;
+			}
+			menuitem:hover {
+				background-color: #e5f3ff;
+				border: 1px solid #6699cc;
+			}
+			menuitem check {
+				min-width: 16px;
+				min-height: 16px;
+				margin-left: 10px;
+			}
+		`
+	}
+
+	// Create or reuse the CSS provider
+	if menuCSSProvider == nil {
+		menuCSSProvider, _ = gtk.CssProviderNew()
+	}
+	menuCSSProvider.LoadFromData(css)
+
+	// Apply to screen if we have a main window
+	if mainWindow != nil {
+		screen := mainWindow.GetScreen()
+		gtk.AddProviderForScreen(screen, menuCSSProvider, gtk.STYLE_PROVIDER_PRIORITY_APPLICATION)
+	}
 }
 
 // setupQuitShortcut configures the keyboard shortcut to quit the application
