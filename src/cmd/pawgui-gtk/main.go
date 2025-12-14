@@ -1581,9 +1581,9 @@ func createMenuItemWithIcon(svgTemplate string, labelText string, callback func(
 	svgData := getSVGIcon(svgTemplate)
 	img := createImageFromSVG(svgData, 16)
 	if img != nil {
-		// Position icon in gutter - minimal left margin, space after for edge line
-		img.SetMarginStart(4)
-		img.SetMarginEnd(14) // 4 + 16 + 14 = 34 (gutter + edge)
+		// Position icon as far left as possible
+		img.SetMarginStart(0)
+		img.SetMarginEnd(18) // 0 + 16 + 18 = 34 (gutter + edge)
 		img.SetVAlign(gtk.ALIGN_CENTER)
 		hbox.PackStart(img, false, false, 0)
 	}
@@ -1685,8 +1685,8 @@ func updateFileListMenuIcon(item *gtk.MenuItem, isChecked bool) {
 	svgData := getSVGIcon(iconSVG)
 	newImg := createImageFromSVG(svgData, 16)
 	if newImg != nil {
-		newImg.SetMarginStart(4)
-		newImg.SetMarginEnd(14)
+		newImg.SetMarginStart(0)
+		newImg.SetMarginEnd(18)
 		newImg.SetVAlign(gtk.ALIGN_CENTER)
 		box.PackStart(newImg, false, false, 0)
 	}
