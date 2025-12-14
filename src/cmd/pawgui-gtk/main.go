@@ -2032,6 +2032,7 @@ func applyMenuCSS(isDark bool) {
 			}
 			menuitem {
 				padding: 6px 20px 6px 0px;
+				background: transparent;
 			}
 			menuitem > label {
 				margin-left: 33px;
@@ -2084,6 +2085,7 @@ func applyMenuCSS(isDark bool) {
 			}
 			menuitem {
 				padding: 6px 20px 6px 0px;
+				background: transparent;
 			}
 			menuitem > label {
 				margin-left: 33px;
