@@ -72,7 +72,7 @@ static int font_has_glyph(const char *family_name, int font_size, gunichar codep
 // Render text using Pango for proper Unicode combining character support
 // This handles complex text shaping that Cairo's ShowText cannot do
 static void pango_render_text(cairo_t *cr, const char *text, const char *font_family,
-                              int font_size, int bold, double r, double g, double b) {
+                              int font_size, int bold, int italic, double r, double g, double b) {
     PangoLayout *layout = pango_cairo_create_layout(cr);
 
     // Create font description
@@ -81,6 +81,9 @@ static void pango_render_text(cairo_t *cr, const char *text, const char *font_fa
     pango_font_description_set_size(desc, font_size * PANGO_SCALE);
     if (bold) {
         pango_font_description_set_weight(desc, PANGO_WEIGHT_BOLD);
+    }
+    if (italic) {
+        pango_font_description_set_style(desc, PANGO_STYLE_ITALIC);
     }
 
     pango_layout_set_font_description(layout, desc);
@@ -96,7 +99,7 @@ static void pango_render_text(cairo_t *cr, const char *text, const char *font_fa
 
 // Get the pixel width of text rendered with Pango
 static int pango_text_width(cairo_t *cr, const char *text, const char *font_family,
-                            int font_size, int bold) {
+                            int font_size, int bold, int italic) {
     PangoLayout *layout = pango_cairo_create_layout(cr);
 
     PangoFontDescription *desc = pango_font_description_new();
@@ -104,6 +107,9 @@ static int pango_text_width(cairo_t *cr, const char *text, const char *font_fami
     pango_font_description_set_size(desc, font_size * PANGO_SCALE);
     if (bold) {
         pango_font_description_set_weight(desc, PANGO_WEIGHT_BOLD);
+    }
+    if (italic) {
+        pango_font_description_set_style(desc, PANGO_STYLE_ITALIC);
     }
 
     pango_layout_set_font_description(layout, desc);
@@ -153,7 +159,7 @@ static void pango_get_font_metrics_standalone(const char *font_family, int font_
 
 // Get text width standalone (creates its own temp surface)
 static int pango_text_width_standalone(const char *text, const char *font_family,
-                                       int font_size, int bold) {
+                                       int font_size, int bold, int italic) {
     cairo_surface_t *surface = cairo_image_surface_create(CAIRO_FORMAT_ARGB32, 1, 1);
     cairo_t *cr = cairo_create(surface);
 
@@ -164,6 +170,9 @@ static int pango_text_width_standalone(const char *text, const char *font_family
     pango_font_description_set_size(desc, font_size * PANGO_SCALE);
     if (bold) {
         pango_font_description_set_weight(desc, PANGO_WEIGHT_BOLD);
+    }
+    if (italic) {
+        pango_font_description_set_style(desc, PANGO_STYLE_ITALIC);
     }
 
     pango_layout_set_font_description(layout, desc);
@@ -717,7 +726,7 @@ func resolveFirstAvailableFont(familyList string) string {
 
 // pangoRenderText renders text using Pango for proper combining character support.
 // This replaces Cairo's ShowText which doesn't handle complex text shaping.
-func pangoRenderText(cr *cairo.Context, text, fontFamily string, fontSize int, bold bool, r, g, b float64) {
+func pangoRenderText(cr *cairo.Context, text, fontFamily string, fontSize int, bold, italic bool, r, g, b float64) {
 	cText := C.CString(text)
 	cFont := C.CString(fontFamily)
 	defer C.free(unsafe.Pointer(cText))
@@ -726,15 +735,19 @@ func pangoRenderText(cr *cairo.Context, text, fontFamily string, fontSize int, b
 	boldInt := 0
 	if bold {
 		boldInt = 1
+	}
+	italicInt := 0
+	if italic {
+		italicInt = 1
 	}
 
 	// Get native cairo context pointer
 	crNative := (*C.cairo_t)(unsafe.Pointer(cr.Native()))
-	C.pango_render_text(crNative, cText, cFont, C.int(fontSize), C.int(boldInt), C.double(r), C.double(g), C.double(b))
+	C.pango_render_text(crNative, cText, cFont, C.int(fontSize), C.int(boldInt), C.int(italicInt), C.double(r), C.double(g), C.double(b))
 }
 
 // pangoTextWidth returns the pixel width of text rendered with Pango.
-func pangoTextWidth(cr *cairo.Context, text, fontFamily string, fontSize int, bold bool) int {
+func pangoTextWidth(cr *cairo.Context, text, fontFamily string, fontSize int, bold, italic bool) int {
 	cText := C.CString(text)
 	cFont := C.CString(fontFamily)
 	defer C.free(unsafe.Pointer(cText))
@@ -744,9 +757,13 @@ func pangoTextWidth(cr *cairo.Context, text, fontFamily string, fontSize int, bo
 	if bold {
 		boldInt = 1
 	}
+	italicInt := 0
+	if italic {
+		italicInt = 1
+	}
 
 	crNative := (*C.cairo_t)(unsafe.Pointer(cr.Native()))
-	return int(C.pango_text_width(crNative, cText, cFont, C.int(fontSize), C.int(boldInt)))
+	return int(C.pango_text_width(crNative, cText, cFont, C.int(fontSize), C.int(boldInt), C.int(italicInt)))
 }
 
 // pangoFontMetrics returns the ascent, descent, and total height for a font.
@@ -1561,7 +1578,7 @@ func (w *Widget) renderScreenSplits(cr *cairo.Context, splits []*purfecterm.Scre
 				cr.Save()
 				cr.Translate(cellX, rowPixelY)
 				cr.Scale(horizScale, vertScale)
-				pangoRenderText(cr, charStr, charFont, fontSize, cell.Bold, fgR, fgG, fgB)
+				pangoRenderText(cr, charStr, charFont, fontSize, cell.Bold, cell.Italic, fgR, fgG, fgB)
 				cr.Restore()
 			}
 		}
@@ -1794,7 +1811,7 @@ func (w *Widget) onDraw(da *gtk.DrawingArea, cr *cairo.Context) bool {
 				charStr := cell.String()
 
 				// Measure actual character width using Pango (handles combining chars properly)
-				actualWidth := float64(pangoTextWidth(cr, charStr, charFont, fontSize, cell.Bold))
+				actualWidth := float64(pangoTextWidth(cr, charStr, charFont, fontSize, cell.Bold, cell.Italic))
 
 				// Get foreground color as floats
 				fgR := float64(fg.R) / 255.0
@@ -1849,7 +1866,7 @@ func (w *Widget) onDraw(da *gtk.DrawingArea, cr *cairo.Context) bool {
 					cr.Translate(textBaseX, textBaseY)
 					cr.Scale(textScaleX, vertScale)
 					// Use Pango for proper combining character rendering
-					pangoRenderText(cr, charStr, charFont, fontSize, cell.Bold, fgR, fgG, fgB)
+					pangoRenderText(cr, charStr, charFont, fontSize, cell.Bold, cell.Italic, fgR, fgG, fgB)
 					cr.Restore()
 
 				case purfecterm.LineAttrDoubleWidth:
@@ -1870,7 +1887,7 @@ func (w *Widget) onDraw(da *gtk.DrawingArea, cr *cairo.Context) bool {
 					textY := cellY + yOffset
 					cr.Translate(textX, textY)
 					cr.Scale(textScaleX, vertScale)
-					pangoRenderText(cr, charStr, charFont, fontSize, cell.Bold, fgR, fgG, fgB)
+					pangoRenderText(cr, charStr, charFont, fontSize, cell.Bold, cell.Italic, fgR, fgG, fgB)
 					cr.Restore()
 
 				case purfecterm.LineAttrDoubleTop:
@@ -1894,7 +1911,7 @@ func (w *Widget) onDraw(da *gtk.DrawingArea, cr *cairo.Context) bool {
 					textY := cellY + yOffset*2
 					cr.Translate(textX, textY)
 					cr.Scale(textScaleX, textScaleY)
-					pangoRenderText(cr, charStr, charFont, fontSize, cell.Bold, fgR, fgG, fgB)
+					pangoRenderText(cr, charStr, charFont, fontSize, cell.Bold, cell.Italic, fgR, fgG, fgB)
 					cr.Restore()
 
 				case purfecterm.LineAttrDoubleBottom:
@@ -1918,7 +1935,7 @@ func (w *Widget) onDraw(da *gtk.DrawingArea, cr *cairo.Context) bool {
 					textY := cellY - float64(charHeight) + yOffset*2
 					cr.Translate(textX, textY)
 					cr.Scale(textScaleX, textScaleY)
-					pangoRenderText(cr, charStr, charFont, fontSize, cell.Bold, fgR, fgG, fgB)
+					pangoRenderText(cr, charStr, charFont, fontSize, cell.Bold, cell.Italic, fgR, fgG, fgB)
 					cr.Restore()
 				}
 			}
