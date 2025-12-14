@@ -488,7 +488,7 @@ func createHamburgerMenu(ctx *MenuContext) *gtk.Menu {
 	// Save Scrollback (both)
 	saveScrollbackItem, _ := gtk.MenuItemNewWithLabel("Save Scrollback...")
 	saveScrollbackItem.Connect("activate", func() {
-		if ctx.Terminal != nil {
+		if ctx.Parent != nil && ctx.Terminal != nil {
 			saveScrollbackDialog(ctx.Parent, ctx.Terminal)
 		}
 	})
@@ -497,7 +497,7 @@ func createHamburgerMenu(ctx *MenuContext) *gtk.Menu {
 	// Restore Buffer (both)
 	restoreBufferItem, _ := gtk.MenuItemNewWithLabel("Restore Buffer...")
 	restoreBufferItem.Connect("activate", func() {
-		if ctx.Terminal != nil {
+		if ctx.Parent != nil && ctx.Terminal != nil {
 			restoreBufferDialog(ctx.Parent, ctx.Terminal)
 		}
 	})
@@ -598,128 +598,74 @@ func quitApplication(parent gtk.IWindow) {
 
 // saveScrollbackDialog shows a file dialog to save terminal scrollback
 func saveScrollbackDialog(parent gtk.IWindow, term *purfectermgtk.Terminal) {
-	dialog, err := gtk.FileChooserDialogNewWith2Buttons(
-		"Save Scrollback",
-		parent.(*gtk.Window),
-		gtk.FILE_CHOOSER_ACTION_SAVE,
-		"Cancel", gtk.RESPONSE_CANCEL,
-		"Save", gtk.RESPONSE_ACCEPT,
-	)
-	if err != nil {
+	if term == nil {
 		return
 	}
-	defer dialog.Destroy()
 
-	// Add file filters
-	ansFilter, _ := gtk.FileFilterNew()
-	ansFilter.SetName("ANSI Files (*.ans)")
-	ansFilter.AddPattern("*.ans")
-	dialog.AddFilter(ansFilter)
+	// Use sqweek/dialog for native file save dialog
+	filename, err := dialog.File().
+		Title("Save Scrollback").
+		Filter("ANSI files", "ans").
+		Filter("Text files", "txt").
+		Filter("All files", "*").
+		SetStartFile("scrollback.ans").
+		Save()
+	if err != nil || filename == "" {
+		return
+	}
 
-	txtFilter, _ := gtk.FileFilterNew()
-	txtFilter.SetName("Text Files (*.txt)")
-	txtFilter.AddPattern("*.txt")
-	dialog.AddFilter(txtFilter)
+	// Determine format from extension
+	isANS := strings.HasSuffix(strings.ToLower(filename), ".ans")
 
-	allFilter, _ := gtk.FileFilterNew()
-	allFilter.SetName("All Files (*)")
-	allFilter.AddPattern("*")
-	dialog.AddFilter(allFilter)
+	// Get scrollback content from terminal
+	var content string
+	if isANS {
+		// Add header comment with version info using OSC 9999
+		timestamp := time.Now().UTC().Format("2006-01-02T15:04:05Z")
+		header := fmt.Sprintf("\x1b]9999;PawScript %s (GTK; %s; %s) Buffer Saved %s\x07",
+			version, runtime.GOOS, runtime.GOARCH, timestamp)
+		content = header + term.SaveScrollbackANS()
+	} else {
+		content = term.SaveScrollbackText()
+	}
 
-	// Set default filename
-	dialog.SetCurrentName("scrollback.ans")
-	dialog.SetDoOverwriteConfirmation(true)
-
-	if dialog.Run() == gtk.RESPONSE_ACCEPT {
-		filename := dialog.GetFilename()
-
-		// Determine format from extension
-		isANS := strings.HasSuffix(strings.ToLower(filename), ".ans")
-
-		// Get scrollback content from terminal
-		var content string
-		if isANS {
-			// Add header comment with version info using OSC 9999
-			timestamp := time.Now().UTC().Format("2006-01-02T15:04:05Z")
-			header := fmt.Sprintf("\x1b]9999;PawScript %s (GTK; %s; %s) Buffer Saved %s\x07",
-				version, runtime.GOOS, runtime.GOARCH, timestamp)
-			content = header + term.SaveScrollbackANS()
-		} else {
-			content = term.SaveScrollbackText()
-		}
-
-		// Write to file
-		if err := os.WriteFile(filename, []byte(content), 0644); err != nil {
-			// Show error dialog
-			errDialog := gtk.MessageDialogNew(
-				parent,
-				gtk.DIALOG_MODAL|gtk.DIALOG_DESTROY_WITH_PARENT,
-				gtk.MESSAGE_ERROR,
-				gtk.BUTTONS_OK,
-				"Failed to save file: %v", err,
-			)
-			errDialog.Run()
-			errDialog.Destroy()
-		}
+	// Write to file
+	if err := os.WriteFile(filename, []byte(content), 0644); err != nil {
+		dialog.Message("Failed to save file: %v", err).Title("Error").Error()
 	}
 }
 
 // restoreBufferDialog shows a file dialog to load and display terminal content
 func restoreBufferDialog(parent gtk.IWindow, term *purfectermgtk.Terminal) {
-	dialog, err := gtk.FileChooserDialogNewWith2Buttons(
-		"Restore Buffer",
-		parent.(*gtk.Window),
-		gtk.FILE_CHOOSER_ACTION_OPEN,
-		"Cancel", gtk.RESPONSE_CANCEL,
-		"Open", gtk.RESPONSE_ACCEPT,
-	)
-	if err != nil {
+	if term == nil {
 		return
 	}
-	defer dialog.Destroy()
 
-	// Add file filters
-	ansFilter, _ := gtk.FileFilterNew()
-	ansFilter.SetName("ANSI Files (*.ans)")
-	ansFilter.AddPattern("*.ans")
-	dialog.AddFilter(ansFilter)
-
-	txtFilter, _ := gtk.FileFilterNew()
-	txtFilter.SetName("Text Files (*.txt)")
-	txtFilter.AddPattern("*.txt")
-	dialog.AddFilter(txtFilter)
-
-	allFilter, _ := gtk.FileFilterNew()
-	allFilter.SetName("All Files (*)")
-	allFilter.AddPattern("*")
-	dialog.AddFilter(allFilter)
-
-	if dialog.Run() == gtk.RESPONSE_ACCEPT {
-		filename := dialog.GetFilename()
-
-		// Read file content
-		content, err := os.ReadFile(filename)
-		if err != nil {
-			errDialog := gtk.MessageDialogNew(
-				parent,
-				gtk.DIALOG_MODAL|gtk.DIALOG_DESTROY_WITH_PARENT,
-				gtk.MESSAGE_ERROR,
-				gtk.BUTTONS_OK,
-				"Failed to read file: %v", err,
-			)
-			errDialog.Run()
-			errDialog.Destroy()
-			return
-		}
-
-		// Convert LF to CR+LF for proper terminal display
-		// (LF alone moves down without returning to column 0)
-		contentStr := strings.ReplaceAll(string(content), "\r\n", "\n") // Normalize first
-		contentStr = strings.ReplaceAll(contentStr, "\n", "\r\n")       // Then convert to CR+LF
-
-		// Feed content to terminal
-		term.Feed(contentStr)
+	// Use sqweek/dialog for native file open dialog
+	filename, err := dialog.File().
+		Title("Restore Buffer").
+		Filter("ANSI files", "ans").
+		Filter("Text files", "txt").
+		Filter("All files", "*").
+		Load()
+	if err != nil || filename == "" {
+		return
 	}
+
+	// Read file content
+	content, err := os.ReadFile(filename)
+	if err != nil {
+		dialog.Message("Failed to read file: %v", err).Title("Error").Error()
+		return
+	}
+
+	// Convert LF to CR+LF for proper terminal display
+	// (LF alone moves down without returning to column 0)
+	contentStr := strings.ReplaceAll(string(content), "\r\n", "\n") // Normalize first
+	contentStr = strings.ReplaceAll(contentStr, "\n", "\r\n")       // Then convert to CR+LF
+
+	// Feed content to terminal
+	term.Feed(contentStr)
 }
 
 // createBlankConsoleWindow creates a new blank terminal window with REPL
