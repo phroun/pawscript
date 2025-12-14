@@ -1818,15 +1818,15 @@ func applyTheme(theme pawgui.ThemeMode) {
 				color: #888888;
 			}
 			QMenu::icon {
+				subcontrol-origin: margin;
 				subcontrol-position: left center;
-				position: absolute;
 				left: 12px;
 			}
 			QMenu::indicator {
 				width: 16px;
 				height: 16px;
+				subcontrol-origin: margin;
 				subcontrol-position: left center;
-				position: absolute;
 				left: 12px;
 			}
 			QMenu::indicator:checked {
@@ -1835,8 +1835,8 @@ func applyTheme(theme pawgui.ThemeMode) {
 				border-bottom: 3px solid #ffffff;
 				width: 5px;
 				height: 10px;
+				subcontrol-origin: margin;
 				subcontrol-position: left center;
-				position: absolute;
 				left: 14px;
 			}
 			QMenu::indicator:checked:selected {
@@ -1845,8 +1845,8 @@ func applyTheme(theme pawgui.ThemeMode) {
 				border-bottom: 3px solid #ffffff;
 				width: 5px;
 				height: 10px;
+				subcontrol-origin: margin;
 				subcontrol-position: left center;
-				position: absolute;
 				left: 14px;
 			}
 			QMenu::separator {
@@ -1959,15 +1959,15 @@ func applyTheme(theme pawgui.ThemeMode) {
 				color: #888888;
 			}
 			QMenu::icon {
+				subcontrol-origin: margin;
 				subcontrol-position: left center;
-				position: absolute;
 				left: 12px;
 			}
 			QMenu::indicator {
 				width: 16px;
 				height: 16px;
+				subcontrol-origin: margin;
 				subcontrol-position: left center;
-				position: absolute;
 				left: 12px;
 			}
 			QMenu::indicator:checked {
@@ -1976,8 +1976,8 @@ func applyTheme(theme pawgui.ThemeMode) {
 				border-bottom: 3px solid #000000;
 				width: 5px;
 				height: 10px;
+				subcontrol-origin: margin;
 				subcontrol-position: left center;
-				position: absolute;
 				left: 14px;
 			}
 			QMenu::indicator:checked:selected {
@@ -1986,8 +1986,8 @@ func applyTheme(theme pawgui.ThemeMode) {
 				border-bottom: 3px solid #000000;
 				width: 5px;
 				height: 10px;
+				subcontrol-origin: margin;
 				subcontrol-position: left center;
-				position: absolute;
 				left: 14px;
 			}
 			QMenu::separator {
