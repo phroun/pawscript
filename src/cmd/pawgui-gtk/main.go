@@ -1967,9 +1967,9 @@ func applyMenuCSS(isDark bool) {
 	}
 	menuCSSProvider.LoadFromData(css)
 
-	// Apply to screen if we have a main window
-	if mainWindow != nil {
-		screen := mainWindow.GetScreen()
+	// Apply to default screen (works even before main window exists)
+	screen, err := gdk.ScreenGetDefault()
+	if err == nil && screen != nil {
 		gtk.AddProviderForScreen(screen, menuCSSProvider, gtk.STYLE_PROVIDER_PRIORITY_APPLICATION)
 	}
 }
