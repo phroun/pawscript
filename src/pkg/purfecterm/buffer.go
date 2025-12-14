@@ -1179,6 +1179,16 @@ func (b *Buffer) writeCharInternal(ch rune) {
 				}
 
 				if wrapPoint >= 0 && wrapPoint < len(line)-1 {
+					// Count leading spaces for indentation preservation
+					leadingSpaces := 0
+					for _, cell := range line {
+						if cell.Char == ' ' {
+							leadingSpaces++
+						} else {
+							break
+						}
+					}
+
 					// Found a word boundary - move cells after it to new line
 					cellsToMove := make([]Cell, len(line)-wrapPoint-1)
 					copy(cellsToMove, line[wrapPoint+1:])
@@ -1201,11 +1211,22 @@ func (b *Buffer) writeCharInternal(ch rune) {
 						b.lineInfos = append(b.lineInfos, b.makeDefaultLineInfo())
 					}
 
-					// Place moved cells at the start of the new line
-					b.screen[b.cursorY] = append(cellsToMove, b.screen[b.cursorY]...)
+					// Create indent cells (spaces with default attributes)
+					indentCells := make([]Cell, leadingSpaces)
+					for i := range indentCells {
+						indentCells[i] = Cell{
+							Char:       ' ',
+							Foreground: DefaultForeground,
+							Background: DefaultBackground,
+						}
+					}
 
-					// Position cursor after the moved cells
-					b.cursorX = len(cellsToMove)
+					// Place indent + moved cells at the start of the new line
+					newLine := append(indentCells, cellsToMove...)
+					b.screen[b.cursorY] = append(newLine, b.screen[b.cursorY]...)
+
+					// Position cursor after the indent and moved cells
+					b.cursorX = leadingSpaces + len(cellsToMove)
 				} else {
 					// No word boundary found - use standard wrap
 					b.setHorizMoveDir(-1, false)

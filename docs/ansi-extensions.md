@@ -35,6 +35,8 @@ When enabled, word wrap occurs at word boundary characters instead of mid-word. 
 
 When a wrap would occur, all cells after the last word boundary are moved to the beginning of the next line, preserving all cell attributes (colors, styles, etc.). If no word boundary is found on the line, standard wrap behavior is used.
 
+**Indentation Preservation:** Wrapped lines automatically inherit the indentation of the original line. The number of leading space characters on the source line is counted, and that same indentation is applied to the wrapped content. This keeps wrapped text aligned with the paragraph it belongs to.
+
 ## OSC Sequences
 
 Format: `ESC ] <cmd> ; <args> BEL` (or `ESC ] <cmd> ; <args> ESC \`)
