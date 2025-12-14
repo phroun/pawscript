@@ -3,6 +3,7 @@
 package main
 
 import (
+	"encoding/base64"
 	"flag"
 	"fmt"
 	"io"
@@ -1572,47 +1573,51 @@ func createImageFromSVG(svgData string, size int) *gtk.Image {
 }
 
 // createMenuItemWithIcon creates a GTK menu item with an SVG icon and label
+// Uses CSS background with icon embedded as data URI positioned in the gutter
 func createMenuItemWithIcon(svgTemplate string, labelText string, callback func()) *gtk.MenuItem {
-	item, err := gtk.MenuItemNew()
+	item, err := gtk.MenuItemNewWithLabel(labelText)
 	if err != nil {
-		// Fallback to plain menu item
-		item, _ = gtk.MenuItemNewWithLabel(labelText)
-		if callback != nil {
-			item.Connect("activate", callback)
-		}
-		return item
+		return nil
 	}
 
-	// Create horizontal box to hold icon and label
-	box, err := gtk.BoxNew(gtk.ORIENTATION_HORIZONTAL, 0)
-	if err != nil {
-		item, _ = gtk.MenuItemNewWithLabel(labelText)
-		if callback != nil {
-			item.Connect("activate", callback)
-		}
-		return item
-	}
-
-	// Create icon from SVG (16x16 for menu items)
-	// GTK menuitem has indicator area before content starts
-	// Use negative margin to pull icon back into the gutter area
+	// Apply CSS with icon as background image positioned in the gutter
 	svgData := getSVGIcon(svgTemplate)
-	iconImage := createImageFromSVG(svgData, 16)
-	if iconImage != nil {
-		iconImage.SetMarginStart(-50)
-		iconImage.SetMarginEnd(9)
-		box.PackStart(iconImage, false, false, 0)
-	}
+	// Encode SVG as base64 for CSS data URI
+	svgBase64 := base64.StdEncoding.EncodeToString([]byte(svgData))
 
-	// Create label - no extra margin needed, positioned after icon
-	label, err := gtk.LabelNew(labelText)
+	cssProvider, err := gtk.CssProviderNew()
 	if err == nil {
-		label.SetHAlign(gtk.ALIGN_START)
-		box.PackStart(label, true, true, 0)
-	}
+		// Multi-layer background: icon on top, gradient behind
+		var gutterColor, edgeColor, contentColor string
+		if appliedThemeIsDark {
+			gutterColor = "#505050"
+			edgeColor = "#666666"
+			contentColor = "#383838"
+		} else {
+			gutterColor = "#e0e0e0"
+			edgeColor = "#c0c0c0"
+			contentColor = "#ffffff"
+		}
 
-	// Add box to menu item
-	item.Add(box)
+		css := fmt.Sprintf(`
+			menuitem {
+				background-image: url("data:image/svg+xml;base64,%s"),
+					linear-gradient(to right,
+						%s 0px, %s 32px,
+						%s 32px, %s 33px,
+						%s 33px, %s 100%%);
+				background-position: 8px center, left top;
+				background-repeat: no-repeat, no-repeat;
+				background-size: 16px 16px, auto;
+			}
+		`, svgBase64, gutterColor, gutterColor, edgeColor, edgeColor, contentColor, contentColor)
+
+		cssProvider.LoadFromData(css)
+		styleCtx, err := item.GetStyleContext()
+		if err == nil {
+			styleCtx.AddProvider(cssProvider, gtk.STYLE_PROVIDER_PRIORITY_USER+1)
+		}
+	}
 
 	if callback != nil {
 		item.Connect("activate", callback)
@@ -1627,34 +1632,7 @@ func updateFileListMenuIcon(item *gtk.MenuItem, isChecked bool) {
 		return
 	}
 
-	// Get the container (Box) that holds the icon and label
-	child, err := item.GetChild()
-	if err != nil || child == nil {
-		return
-	}
-
-	box, ok := child.(*gtk.Box)
-	if !ok {
-		return
-	}
-
-	// Get the first child (the image)
-	children := box.GetChildren()
-	if children.Length() == 0 {
-		return
-	}
-
-	firstChild := children.NthData(0)
-	if firstChild == nil {
-		return
-	}
-
-	oldImage, ok := firstChild.(*gtk.Image)
-	if !ok {
-		return
-	}
-
-	// Create new icon based on state
+	// Select icon based on state
 	var iconSVG string
 	if isChecked {
 		iconSVG = checkedIconSVG
@@ -1662,21 +1640,42 @@ func updateFileListMenuIcon(item *gtk.MenuItem, isChecked bool) {
 		iconSVG = uncheckedIconSVG
 	}
 
+	// Apply CSS with icon as background image
 	svgData := getSVGIcon(iconSVG)
-	newImage := createImageFromSVG(svgData, 16)
-	if newImage == nil {
-		return
+	svgBase64 := base64.StdEncoding.EncodeToString([]byte(svgData))
+
+	cssProvider, err := gtk.CssProviderNew()
+	if err == nil {
+		var gutterColor, edgeColor, contentColor string
+		if appliedThemeIsDark {
+			gutterColor = "#505050"
+			edgeColor = "#666666"
+			contentColor = "#383838"
+		} else {
+			gutterColor = "#e0e0e0"
+			edgeColor = "#c0c0c0"
+			contentColor = "#ffffff"
+		}
+
+		css := fmt.Sprintf(`
+			menuitem {
+				background-image: url("data:image/svg+xml;base64,%s"),
+					linear-gradient(to right,
+						%s 0px, %s 32px,
+						%s 32px, %s 33px,
+						%s 33px, %s 100%%);
+				background-position: 8px center, left top;
+				background-repeat: no-repeat, no-repeat;
+				background-size: 16px 16px, auto;
+			}
+		`, svgBase64, gutterColor, gutterColor, edgeColor, edgeColor, contentColor, contentColor)
+
+		cssProvider.LoadFromData(css)
+		styleCtx, err := item.GetStyleContext()
+		if err == nil {
+			styleCtx.AddProvider(cssProvider, gtk.STYLE_PROVIDER_PRIORITY_USER+1)
+		}
 	}
-
-	// Set margins to position icon in gutter (matching createMenuItemWithIcon)
-	newImage.SetMarginStart(-50)
-	newImage.SetMarginEnd(9)
-
-	// Replace the old image with the new one
-	box.Remove(oldImage)
-	box.PackStart(newImage, false, false, 0)
-	box.ReorderChild(newImage, 0)
-	newImage.Show()
 }
 
 // applyToolbarButtonStyle applies CSS to make toolbar buttons square with equal padding
