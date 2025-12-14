@@ -1886,13 +1886,20 @@ func updateFileListMenuIcon(item *gtk.MenuItem, isChecked bool) {
 		return
 	}
 
-	// Remove all children from the box
+	// Collect widgets to remove (don't modify during iteration)
+	var toRemove []gtk.IWidget
 	children := box.GetChildren()
 	children.Foreach(func(item interface{}) {
 		if widget, ok := item.(gtk.IWidget); ok {
-			box.Remove(widget)
+			toRemove = append(toRemove, widget)
 		}
 	})
+
+	// Remove and destroy old widgets to prevent GC/unref issues
+	for _, widget := range toRemove {
+		box.Remove(widget)
+		widget.ToWidget().Destroy()
+	}
 
 	// Recreate the icon
 	svgData := getSVGIcon(iconSVG)
