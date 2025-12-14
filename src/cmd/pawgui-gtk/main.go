@@ -603,6 +603,8 @@ func showSettingsDialog(parent gtk.IWindow) {
 func applyWindowTheme() {
 	applyTheme(configHelper.GetTheme())
 	updateToolbarIcons()
+	// Refresh path menu to update icon colors
+	updatePathMenu()
 }
 
 // updateToolbarIcons regenerates all toolbar icons with the current theme's colors
