@@ -808,17 +808,40 @@ func showSettingsDialog(parent *qt.QWidget) {
 		maxScale = currentScale
 	}
 
-	windowScaleSpinBox := qt.NewQDoubleSpinBox2()
-	windowScaleSpinBox.SetRange(minScale, maxScale)
-	windowScaleSpinBox.SetSingleStep(0.1)
-	windowScaleSpinBox.SetDecimals(1)
-	windowScaleSpinBox.SetValue(currentScale)
-	windowScaleSpinBox.OnValueChanged(func(value float64) {
-		appConfig.Set("ui_scale", value)
+	// Create horizontal layout for slider and value label
+	scaleLayout := qt.NewQHBoxLayout2()
+	scaleLayout.SetContentsMargins(0, 0, 0, 0)
+
+	// QSlider uses integers, so scale by 10 (0.5 -> 5, 3.0 -> 30)
+	windowScaleSlider := qt.NewQSlider2(qt.Horizontal)
+	windowScaleSlider.SetRange(int(minScale*10), int(maxScale*10))
+	windowScaleSlider.SetSingleStep(1)
+	windowScaleSlider.SetValue(int(currentScale * 10))
+	windowScaleSlider.SetTickPosition(qt.QSlider__TicksBelow)
+	windowScaleSlider.SetTickInterval(5) // Tick every 0.5
+
+	// Label to show current value
+	scaleValueLabel := qt.NewQLabel3(fmt.Sprintf("%.1f", currentScale))
+	scaleValueLabel.SetMinimumWidth(30)
+
+	// Update config and label while dragging
+	windowScaleSlider.OnValueChanged(func(value int) {
+		scaledValue := float64(value) / 10.0
+		appConfig.Set("ui_scale", scaledValue)
 		configHelper = pawgui.NewConfigHelper(appConfig)
+		scaleValueLabel.SetText(fmt.Sprintf("%.1f", scaledValue))
+	})
+	// Apply visual changes only when slider is released
+	windowScaleSlider.OnSliderReleased(func() {
 		applyUIScaleFromConfig()
 	})
-	appearanceLayout.AddRow3("Window Scale:", windowScaleSpinBox.QWidget)
+
+	scaleLayout.AddWidget(windowScaleSlider.QWidget)
+	scaleLayout.AddWidget(scaleValueLabel.QWidget)
+
+	scaleWidget := qt.NewQWidget2()
+	scaleWidget.SetLayout(scaleLayout.QLayout)
+	appearanceLayout.AddRow3("Window Scale:", scaleWidget)
 
 	// Console Theme combo - determine initial selection
 	var consoleThemeSelected int

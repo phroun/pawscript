@@ -537,10 +537,14 @@ func showSettingsDialog(parent gtk.IWindow) {
 	windowScaleSlider.SetValue(currentScale)
 	windowScaleSlider.SetDrawValue(true)
 	windowScaleSlider.SetHExpand(true)
+	// Update config value continuously while dragging
 	windowScaleSlider.Connect("value-changed", func() {
 		newScale := windowScaleSlider.GetValue()
 		appConfig.Set("ui_scale", newScale)
 		configHelper = pawgui.NewConfigHelper(appConfig)
+	})
+	// Apply visual changes only when mouse button is released
+	windowScaleSlider.Connect("button-release-event", func() {
 		applyUIScale()
 	})
 	windowScaleRow.PackStart(windowScaleSlider, true, true, 0)
