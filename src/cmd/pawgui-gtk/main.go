@@ -2032,12 +2032,16 @@ func applyMenuCSS(isDark bool) {
 			}
 			menuitem {
 				padding: 6px 20px 6px 0px;
-				background: transparent;
+				background-image: linear-gradient(to right,
+					#505050 0%, #505050 32px,
+					#666666 32px, #666666 33px,
+					#383838 33px, #383838 100%);
 			}
 			menuitem > label {
 				margin-left: 33px;
 			}
 			menuitem:hover {
+				background-image: none;
 				background-color: #4a4a4a;
 				border: 1px solid #888888;
 				padding: 5px 19px 5px 0px;
@@ -2085,12 +2089,16 @@ func applyMenuCSS(isDark bool) {
 			}
 			menuitem {
 				padding: 6px 20px 6px 0px;
-				background: transparent;
+				background-image: linear-gradient(to right,
+					#e0e0e0 0%, #e0e0e0 32px,
+					#c0c0c0 32px, #c0c0c0 33px,
+					#ffffff 33px, #ffffff 100%);
 			}
 			menuitem > label {
 				margin-left: 33px;
 			}
 			menuitem:hover {
+				background-image: none;
 				background-color: #e5f3ff;
 				border: 1px solid #6699cc;
 				padding: 5px 19px 5px 0px;
