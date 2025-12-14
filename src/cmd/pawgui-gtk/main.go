@@ -239,12 +239,10 @@ func saveLauncherWidth(width int) {
 
 // getLauncherPosition returns the saved launcher window position (x, y)
 func getLauncherPosition() (int, int) {
-	if v, ok := appConfig["launcher_position"]; ok {
-		if list, ok := v.([]interface{}); ok && len(list) >= 2 {
-			x := toInt(list[0])
-			y := toInt(list[1])
-			return x, y
-		}
+	if items := appConfig.GetItems("launcher_position"); len(items) >= 2 {
+		x := pslToInt(items[0])
+		y := pslToInt(items[1])
+		return x, y
 	}
 	return -1, -1 // -1 means not set (let window manager decide)
 }
@@ -257,13 +255,11 @@ func saveLauncherPosition(x, y int) {
 
 // getLauncherSize returns the saved launcher window size (width, height)
 func getLauncherSize() (int, int) {
-	if v, ok := appConfig["launcher_size"]; ok {
-		if list, ok := v.([]interface{}); ok && len(list) >= 2 {
-			w := toInt(list[0])
-			h := toInt(list[1])
-			if w > 0 && h > 0 {
-				return w, h
-			}
+	if items := appConfig.GetItems("launcher_size"); len(items) >= 2 {
+		w := pslToInt(items[0])
+		h := pslToInt(items[1])
+		if w > 0 && h > 0 {
+			return w, h
 		}
 	}
 	return 1100, 700 // Default size
@@ -275,8 +271,8 @@ func saveLauncherSize(width, height int) {
 	saveConfig(appConfig)
 }
 
-// toInt converts an interface{} to int
-func toInt(v interface{}) int {
+// pslToInt converts a PSL list item to int
+func pslToInt(v interface{}) int {
 	switch n := v.(type) {
 	case int:
 		return n
@@ -2662,7 +2658,7 @@ func activate(application *gtk.Application) {
 
 	// Get screen dimensions for bounds checking
 	display, _ := gdk.DisplayGetDefault()
-	monitor := display.GetPrimaryMonitor()
+	monitor, _ := display.GetPrimaryMonitor()
 	geometry := monitor.GetGeometry()
 	screenWidth := geometry.GetWidth()
 	screenHeight := geometry.GetHeight()

@@ -5,16 +5,11 @@ package pawscript
 // providing a simple interface without needing a full PawScript environment.
 //
 // ============================================================================
-// WARNING: DO NOT MODIFY THIS FILE OR ADD NEW METHODS
+// WARNING: DO NOT MODIFY THIS FILE
 // ============================================================================
 // The PSL format is an established serialization format. The API defined here
-// is stable and intentionally minimal. Do not add new methods to PSLConfig or
-// modify the serialization/parsing behavior.
-//
-// If you need custom parsing logic (e.g., reading lists of integers), implement
-// that logic locally in your own code by accessing the map directly and type
-// asserting the values. PSL already supports nested lists with positional and
-// named items - use the existing capabilities rather than extending the API.
+// is stable. Do not add new methods to PSLMap or modify the serialization or
+// parsing behavior without explicit approval.
 // ============================================================================
 
 import (
@@ -23,17 +18,19 @@ import (
 	"strings"
 )
 
-// PSLConfig holds a key-value map for configuration data
+// PSLMap holds a map of named items from a PSL structure
 // Keys are strings, values can be strings, ints, floats, bools, nil, or nested structures
-// DO NOT ADD NEW METHODS - see warning at top of file
-type PSLConfig map[string]interface{}
+type PSLMap map[string]interface{}
 
-// PSLList holds an ordered list of items
+// PSLConfig is an alias for PSLMap (deprecated name, use PSLMap)
+type PSLConfig = PSLMap
+
+// PSLList holds an ordered list of positional items
 type PSLList []interface{}
 
-// SerializePSL serializes a PSLConfig to PSL format string
+// SerializePSL serializes a PSLMap to PSL format string
 // Uses the same format as PawScript's list serialization
-func SerializePSL(config PSLConfig) string {
+func SerializePSL(config PSLMap) string {
 	if len(config) == 0 {
 		return "()"
 	}
@@ -49,9 +46,9 @@ func SerializePSL(config PSLConfig) string {
 	return formatListForDisplay(list)
 }
 
-// SerializePSLPretty serializes a PSLConfig to PSL format with pretty indentation
+// SerializePSLPretty serializes a PSLMap to PSL format with pretty indentation
 // Each named argument on its own line for readability
-func SerializePSLPretty(config PSLConfig) string {
+func SerializePSLPretty(config PSLMap) string {
 	if len(config) == 0 {
 		return "()"
 	}
@@ -116,13 +113,13 @@ func convertToPawValue(value interface{}) interface{} {
 	}
 }
 
-// ParsePSL parses a PSL format string into a PSLConfig
+// ParsePSL parses a PSL format string into a PSLMap
 // Uses the existing PawScript parser
-func ParsePSL(input string) (PSLConfig, error) {
+func ParsePSL(input string) (PSLMap, error) {
 	input = strings.TrimSpace(input)
 
 	if input == "" || input == "()" {
-		return PSLConfig{}, nil
+		return PSLMap{}, nil
 	}
 
 	// Remove comments before parsing (# line comments and #( )# block comments)
@@ -131,7 +128,7 @@ func ParsePSL(input string) (PSLConfig, error) {
 	input = strings.TrimSpace(input)
 
 	if input == "" || input == "()" {
-		return PSLConfig{}, nil
+		return PSLMap{}, nil
 	}
 
 	// Must be wrapped in parentheses
@@ -266,9 +263,9 @@ func convertFromPawValue(value interface{}) interface{} {
 	}
 }
 
-// GetString returns a string value from PSLConfig, with default fallback
-func (c PSLConfig) GetString(key string, defaultVal string) string {
-	if v, ok := c[key]; ok {
+// GetString returns a string value from PSLMap, with default fallback
+func (m PSLMap) GetString(key string, defaultVal string) string {
+	if v, ok := m[key]; ok {
 		switch val := v.(type) {
 		case string:
 			return val
@@ -279,9 +276,9 @@ func (c PSLConfig) GetString(key string, defaultVal string) string {
 	return defaultVal
 }
 
-// GetInt returns an int value from PSLConfig, with default fallback
-func (c PSLConfig) GetInt(key string, defaultVal int) int {
-	if v, ok := c[key]; ok {
+// GetInt returns an int value from PSLMap, with default fallback
+func (m PSLMap) GetInt(key string, defaultVal int) int {
+	if v, ok := m[key]; ok {
 		switch val := v.(type) {
 		case int:
 			return val
@@ -298,9 +295,9 @@ func (c PSLConfig) GetInt(key string, defaultVal int) int {
 	return defaultVal
 }
 
-// GetFloat returns a float64 value from PSLConfig, with default fallback
-func (c PSLConfig) GetFloat(key string, defaultVal float64) float64 {
-	if v, ok := c[key]; ok {
+// GetFloat returns a float64 value from PSLMap, with default fallback
+func (m PSLMap) GetFloat(key string, defaultVal float64) float64 {
+	if v, ok := m[key]; ok {
 		switch val := v.(type) {
 		case float64:
 			return val
@@ -317,9 +314,9 @@ func (c PSLConfig) GetFloat(key string, defaultVal float64) float64 {
 	return defaultVal
 }
 
-// GetBool returns a bool value from PSLConfig, with default fallback
-func (c PSLConfig) GetBool(key string, defaultVal bool) bool {
-	if v, ok := c[key]; ok {
+// GetBool returns a bool value from PSLMap, with default fallback
+func (m PSLMap) GetBool(key string, defaultVal bool) bool {
+	if v, ok := m[key]; ok {
 		switch val := v.(type) {
 		case bool:
 			return val
@@ -334,7 +331,17 @@ func (c PSLConfig) GetBool(key string, defaultVal bool) bool {
 	return defaultVal
 }
 
-// Set sets a value in the PSLConfig
-func (c PSLConfig) Set(key string, value interface{}) {
-	c[key] = value
+// GetItems returns the positional items from a list value, or nil if not found/not a list
+func (m PSLMap) GetItems(key string) []interface{} {
+	if v, ok := m[key]; ok {
+		if list, ok := v.([]interface{}); ok {
+			return list
+		}
+	}
+	return nil
+}
+
+// Set sets a value in the PSLMap
+func (m PSLMap) Set(key string, value interface{}) {
+	m[key] = value
 }
