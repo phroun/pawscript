@@ -1612,11 +1612,30 @@ func registerDummyButtonCommand(ps *pawscript.PawScript, data *QtWindowToolbarDa
 	})
 }
 
+// isSystemDarkMode detects if the OS is currently using dark mode
+// by checking the system palette's window background color luminance
+func isSystemDarkMode() bool {
+	palette := qt.QGuiApplication_Palette()
+	windowColor := palette.ColorWithCr(qt.QPalette__Window)
+	// Calculate luminance using standard formula
+	luminance := 0.299*float64(windowColor.Red()) + 0.587*float64(windowColor.Green()) + 0.114*float64(windowColor.Blue())
+	return luminance < 128
+}
+
 // applyTheme sets the Qt application palette based on the configuration.
-// "auto" = let Qt/OS decide, "dark" = force dark palette, "light" = force light palette
+// "auto" = detect OS preference, "dark" = force dark palette, "light" = force light palette
 func applyTheme(theme pawgui.ThemeMode) {
 	if qtApp == nil {
 		return
+	}
+
+	// For Auto mode, detect OS preference and apply appropriate theme
+	if theme == pawgui.ThemeAuto {
+		if isSystemDarkMode() {
+			theme = pawgui.ThemeDark
+		} else {
+			theme = pawgui.ThemeLight
+		}
 	}
 
 	switch theme {
@@ -1700,6 +1719,34 @@ func applyTheme(theme pawgui.ThemeMode) {
 			}
 			QScrollBar::add-page:horizontal, QScrollBar::sub-page:horizontal {
 				background: transparent;
+			}
+			QMenu {
+				background-color: #404040;
+				border: 1px solid #555555;
+				padding: 4px 0px;
+			}
+			QMenu::item {
+				background-color: transparent;
+				padding: 6px 20px 6px 30px;
+			}
+			QMenu::item:selected {
+				background-color: #505050;
+			}
+			QMenu::icon {
+				padding-left: 8px;
+			}
+			QMenu::indicator {
+				width: 16px;
+				height: 16px;
+				padding-left: 8px;
+			}
+			QMenu::left-arrow, QMenu::right-arrow {
+				padding-right: 8px;
+			}
+			QMenu::separator {
+				height: 1px;
+				background: #555555;
+				margin: 4px 8px;
 			}
 		`)
 
@@ -1785,11 +1832,35 @@ func applyTheme(theme pawgui.ThemeMode) {
 			QScrollBar::add-page:horizontal, QScrollBar::sub-page:horizontal {
 				background: transparent;
 			}
+			QMenu {
+				background-color: #ffffff;
+				border: 1px solid #c0c0c0;
+				padding: 4px 0px;
+			}
+			QMenu::item {
+				background-color: transparent;
+				padding: 6px 20px 6px 30px;
+			}
+			QMenu::item:selected {
+				background-color: #e5f3ff;
+			}
+			QMenu::icon {
+				padding-left: 8px;
+			}
+			QMenu::indicator {
+				width: 16px;
+				height: 16px;
+				padding-left: 8px;
+			}
+			QMenu::left-arrow, QMenu::right-arrow {
+				padding-right: 8px;
+			}
+			QMenu::separator {
+				height: 1px;
+				background: #c0c0c0;
+				margin: 4px 8px;
+			}
 		`)
-
-	case pawgui.ThemeAuto:
-		// Let Qt use the system default - clear any explicit stylesheet
-		qtApp.SetStyleSheet("")
 	}
 
 	// Re-apply UI scaling after theme change (theme replaces stylesheet)
@@ -1805,6 +1876,24 @@ func updateToolbarIcons() {
 	if launcherStripMenuBtn != nil {
 		launcherStripMenuBtn.UpdateIcon(getSVGIcon(hamburgerIconSVG), toolbarIconSize)
 	}
+
+	// Update all registered buttons in launcher toolbar
+	for _, btn := range launcherRegisteredBtns {
+		if btn.widget != nil {
+			btn.widget.UpdateIcon(getSVGIcon(starIconSVG), toolbarIconSize)
+		}
+	}
+
+	// Update buttons in all script windows
+	qtToolbarDataMu.Lock()
+	for _, data := range qtToolbarDataByPS {
+		for _, btn := range data.registeredBtns {
+			if btn.widget != nil {
+				btn.widget.UpdateIcon(getSVGIcon(starIconSVG), toolbarIconSize)
+			}
+		}
+	}
+	qtToolbarDataMu.Unlock()
 }
 
 // applyUIScale applies UI scaling via stylesheet (does not affect terminal)
