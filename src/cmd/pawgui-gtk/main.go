@@ -598,6 +598,10 @@ func quitApplication(parent gtk.IWindow) {
 
 // saveScrollbackDialog shows a file dialog to save terminal scrollback
 func saveScrollbackDialog(parent gtk.IWindow, term *purfectermgtk.Terminal) {
+	// Use global terminal as fallback if term is nil
+	if term == nil {
+		term = terminal
+	}
 	if term == nil {
 		return
 	}
@@ -637,6 +641,10 @@ func saveScrollbackDialog(parent gtk.IWindow, term *purfectermgtk.Terminal) {
 
 // restoreBufferDialog shows a file dialog to load and display terminal content
 func restoreBufferDialog(parent gtk.IWindow, term *purfectermgtk.Terminal) {
+	// Use global terminal as fallback if term is nil
+	if term == nil {
+		term = terminal
+	}
 	if term == nil {
 		return
 	}
