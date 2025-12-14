@@ -853,12 +853,8 @@ func showSettingsDialog(parent *qt.QWidget) {
 
 	consoleFontButton := qt.NewQPushButton3(fmt.Sprintf("%s, %dpt", firstFont, currentFontSize))
 	consoleFontButton.OnClicked(func() {
-		// Create initial font from current settings
-		initialFont := qt.NewQFont2(firstFont)
-		initialFont.SetPointSize(currentFontSize)
-
 		ok := false
-		selectedFont := qt.QFontDialog_GetFont(&ok, initialFont, dialog.QWidget, "Select Console Font")
+		selectedFont := qt.QFontDialog_GetFont(&ok)
 		if ok && selectedFont != nil {
 			newFamily := selectedFont.Family()
 			newSize := selectedFont.PointSize()
@@ -892,12 +888,8 @@ func showSettingsDialog(parent *qt.QWidget) {
 
 	cjkFontButton := qt.NewQPushButton3(firstCJKFont)
 	cjkFontButton.OnClicked(func() {
-		// Create initial font from current settings
-		initialFont := qt.NewQFont2(firstCJKFont)
-		initialFont.SetPointSize(currentFontSize) // Use console font size for display
-
 		ok := false
-		selectedFont := qt.QFontDialog_GetFont(&ok, initialFont, dialog.QWidget, "Select CJK Font")
+		selectedFont := qt.QFontDialog_GetFont(&ok)
 		if ok && selectedFont != nil {
 			newFamily := selectedFont.Family()
 			// Size is ignored for CJK font

@@ -531,9 +531,7 @@ func showSettingsDialog(parent gtk.IWindow) {
 
 	windowScaleSlider, _ := gtk.ScaleNewWithRange(gtk.ORIENTATION_HORIZONTAL, minScale, maxScale, 0.1)
 	windowScaleSlider.SetValue(currentScale)
-	windowScaleSlider.SetDigits(1)
 	windowScaleSlider.SetDrawValue(true)
-	windowScaleSlider.SetValuePos(gtk.POS_RIGHT)
 	windowScaleSlider.SetHExpand(true)
 	windowScaleSlider.Connect("value-changed", func() {
 		newScale := windowScaleSlider.GetValue()
@@ -600,7 +598,7 @@ func showSettingsDialog(parent gtk.IWindow) {
 	consoleFontButton.SetUseFont(true)
 	consoleFontButton.SetUseSize(true)
 	consoleFontButton.Connect("font-set", func() {
-		fontName := consoleFontButton.GetFontName()
+		fontName := consoleFontButton.GetFont()
 		// Parse font name - GTK format is "Family Name Size" or "Family Name Style Size"
 		// We need to extract family and size
 		parts := strings.Split(fontName, " ")
@@ -648,7 +646,7 @@ func showSettingsDialog(parent gtk.IWindow) {
 	cjkFontButton.SetUseFont(true)
 	cjkFontButton.SetUseSize(false) // Don't show size since we ignore it
 	cjkFontButton.Connect("font-set", func() {
-		fontName := cjkFontButton.GetFontName()
+		fontName := cjkFontButton.GetFont()
 		// Parse font name - extract just the family, ignore size
 		parts := strings.Split(fontName, " ")
 		if len(parts) >= 2 {
