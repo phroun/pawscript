@@ -1750,6 +1750,9 @@ func applyTheme(theme pawgui.ThemeMode) {
 				margin-left: 0px;
 				padding-left: 48px;
 			}
+			QMenu::item:disabled {
+				color: #888888;
+			}
 			QMenu::icon {
 				margin-left: -28px;
 			}
@@ -1884,6 +1887,9 @@ func applyTheme(theme pawgui.ThemeMode) {
 				border: 1px solid #6699cc;
 				margin-left: 0px;
 				padding-left: 48px;
+			}
+			QMenu::item:disabled {
+				color: #888888;
 			}
 			QMenu::icon {
 				margin-left: -28px;
