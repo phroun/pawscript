@@ -1748,12 +1748,15 @@ func applyTheme(theme pawgui.ThemeMode) {
 				border: 1px solid #888888;
 			}
 			QMenu::icon {
-				margin-left: 10px;
+				margin-left: 14px;
 			}
 			QMenu::indicator {
-				width: 16px;
-				height: 16px;
-				margin-left: 10px;
+				width: 18px;
+				height: 18px;
+				margin-left: 14px;
+			}
+			QMenu::indicator:checked {
+				image: url("data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 16 16'><path fill='%23ffffff' stroke='%23ffffff' stroke-width='1.5' d='M3,8 L6,11 L13,4'/></svg>");
 			}
 			QMenu::separator {
 				height: 1px;
@@ -1861,12 +1864,15 @@ func applyTheme(theme pawgui.ThemeMode) {
 				border: 1px solid #6699cc;
 			}
 			QMenu::icon {
-				margin-left: 10px;
+				margin-left: 14px;
 			}
 			QMenu::indicator {
-				width: 16px;
-				height: 16px;
-				margin-left: 10px;
+				width: 18px;
+				height: 18px;
+				margin-left: 14px;
+			}
+			QMenu::indicator:checked {
+				image: url("data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 16 16'><path fill='%23000000' stroke='%23000000' stroke-width='1.5' d='M3,8 L6,11 L13,4'/></svg>");
 			}
 			QMenu::separator {
 				height: 1px;
