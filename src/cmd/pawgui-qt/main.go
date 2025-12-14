@@ -1733,9 +1733,9 @@ func applyTheme(theme pawgui.ThemeMode) {
 			}
 			QMenu {
 				background: qlineargradient(x1:0, y1:0, x2:1, y2:0,
-					stop:0 #454545, stop:0.115 #454545,
-					stop:0.115 #555555, stop:0.12 #555555,
-					stop:0.12 #404040, stop:1 #404040);
+					stop:0 #505050, stop:0.115 #505050,
+					stop:0.115 #666666, stop:0.12 #666666,
+					stop:0.12 #383838, stop:1 #383838);
 				border: 1px solid #555555;
 				padding: 4px 0px;
 			}
@@ -1745,9 +1745,9 @@ func applyTheme(theme pawgui.ThemeMode) {
 			}
 			QMenu::item:selected {
 				background: qlineargradient(x1:0, y1:0, x2:1, y2:0,
-					stop:0 #454545, stop:0.115 #454545,
-					stop:0.115 #555555, stop:0.12 #555555,
-					stop:0.12 #505050, stop:1 #505050);
+					stop:0 #505050, stop:0.115 #505050,
+					stop:0.115 #666666, stop:0.12 #666666,
+					stop:0.12 #4a4a4a, stop:1 #4a4a4a);
 			}
 			QMenu::icon {
 				margin-left: 6px;
