@@ -1747,7 +1747,8 @@ func applyTheme(theme pawgui.ThemeMode) {
 			QMenu::item:selected {
 				background-color: #4a4a4a;
 				border: 1px solid #888888;
-				margin-left: 40px;
+				margin-left: 0px;
+				padding-left: 48px;
 			}
 			QMenu::icon {
 				margin-left: -28px;
@@ -1871,7 +1872,8 @@ func applyTheme(theme pawgui.ThemeMode) {
 			QMenu::item:selected {
 				background-color: #e5f3ff;
 				border: 1px solid #6699cc;
-				margin-left: 40px;
+				margin-left: 0px;
+				padding-left: 48px;
 			}
 			QMenu::icon {
 				margin-left: -28px;
