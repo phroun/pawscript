@@ -118,8 +118,8 @@ Standard SGR (Select Graphic Rendition) via `ESC [ <params> m`:
 | 151 | Enable horizontal flip (XFlip on) |
 | 152 | Reset vertical flip (YFlip off) |
 | 153 | Enable vertical flip (YFlip on) |
-| 168;5;N | Set Base Glyph Palette (BGP) to palette N |
-| 169 | Reset BGP to default (use foreground color) |
+| 158;N | Set Base Glyph Palette (BGP) to palette N |
+| 159 | Reset BGP to default (use foreground color) |
 
 ## Window Manipulation
 

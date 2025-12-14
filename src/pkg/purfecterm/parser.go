@@ -605,12 +605,12 @@ func (p *Parser) executeSGR() {
 			p.buffer.SetYFlip(true)
 
 		// Base Glyph Palette (BGP)
-		case 168: // Extended BGP setting: ESC[168;5;Nm
-			if i+2 < len(p.csiParams) && p.csiParams[i+1] == 5 {
-				p.buffer.SetBGP(p.csiParams[i+2])
-				i += 2
+		case 158: // Set BGP: ESC[158;Nm
+			if i+1 < len(p.csiParams) {
+				p.buffer.SetBGP(p.csiParams[i+1])
+				i++
 			}
-		case 169: // Reset BGP to default
+		case 159: // Reset BGP to default
 			p.buffer.ResetBGP()
 		}
 		i++

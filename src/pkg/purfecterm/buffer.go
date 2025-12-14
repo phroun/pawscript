@@ -4324,9 +4324,9 @@ func (b *Buffer) SaveScrollbackANS() string {
 			// Set BGP if changed
 			if cell.BGP != lastBGP {
 				if cell.BGP < 0 {
-					result.WriteString("\x1b[169m") // Reset BGP
+					result.WriteString("\x1b[159m") // Reset BGP
 				} else {
-					result.WriteString(fmt.Sprintf("\x1b[168;5;%dm", cell.BGP))
+					result.WriteString(fmt.Sprintf("\x1b[158;%dm", cell.BGP))
 				}
 				lastBGP = cell.BGP
 			}
