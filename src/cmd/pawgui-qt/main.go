@@ -1733,29 +1733,29 @@ func applyTheme(theme pawgui.ThemeMode) {
 			}
 			QMenu {
 				background: qlineargradient(x1:0, y1:0, x2:1, y2:0,
-					stop:0 #505050, stop:0.115 #505050,
-					stop:0.115 #666666, stop:0.12 #666666,
-					stop:0.12 #383838, stop:1 #383838);
+					stop:0 #505050, stop:0.14 #505050,
+					stop:0.14 #666666, stop:0.145 #666666,
+					stop:0.145 #383838, stop:1 #383838);
 				border: 1px solid #555555;
 				padding: 4px 0px;
 			}
 			QMenu::item {
 				background-color: transparent;
-				padding: 6px 20px 6px 30px;
+				padding: 6px 20px 6px 38px;
 			}
 			QMenu::item:selected {
 				background: qlineargradient(x1:0, y1:0, x2:1, y2:0,
-					stop:0 #505050, stop:0.115 #505050,
-					stop:0.115 #666666, stop:0.12 #666666,
-					stop:0.12 #4a4a4a, stop:1 #4a4a4a);
+					stop:0 #505050, stop:0.14 #505050,
+					stop:0.14 #666666, stop:0.145 #666666,
+					stop:0.145 #4a4a4a, stop:1 #4a4a4a);
 			}
 			QMenu::icon {
-				margin-left: 6px;
+				margin-left: 10px;
 			}
 			QMenu::indicator {
 				width: 16px;
 				height: 16px;
-				margin-left: 6px;
+				margin-left: 10px;
 			}
 			QMenu::separator {
 				height: 1px;
@@ -1848,29 +1848,29 @@ func applyTheme(theme pawgui.ThemeMode) {
 			}
 			QMenu {
 				background: qlineargradient(x1:0, y1:0, x2:1, y2:0,
-					stop:0 #e0e0e0, stop:0.115 #e0e0e0,
-					stop:0.115 #c0c0c0, stop:0.12 #c0c0c0,
-					stop:0.12 #ffffff, stop:1 #ffffff);
+					stop:0 #e0e0e0, stop:0.14 #e0e0e0,
+					stop:0.14 #c0c0c0, stop:0.145 #c0c0c0,
+					stop:0.145 #ffffff, stop:1 #ffffff);
 				border: 1px solid #c0c0c0;
 				padding: 4px 0px;
 			}
 			QMenu::item {
 				background-color: transparent;
-				padding: 6px 20px 6px 30px;
+				padding: 6px 20px 6px 38px;
 			}
 			QMenu::item:selected {
 				background: qlineargradient(x1:0, y1:0, x2:1, y2:0,
-					stop:0 #e0e0e0, stop:0.115 #e0e0e0,
-					stop:0.115 #c0c0c0, stop:0.12 #c0c0c0,
-					stop:0.12 #e5f3ff, stop:1 #e5f3ff);
+					stop:0 #e0e0e0, stop:0.14 #e0e0e0,
+					stop:0.14 #c0c0c0, stop:0.145 #c0c0c0,
+					stop:0.145 #e5f3ff, stop:1 #e5f3ff);
 			}
 			QMenu::icon {
-				margin-left: 6px;
+				margin-left: 10px;
 			}
 			QMenu::indicator {
 				width: 16px;
 				height: 16px;
-				margin-left: 6px;
+				margin-left: 10px;
 			}
 			QMenu::separator {
 				height: 1px;
