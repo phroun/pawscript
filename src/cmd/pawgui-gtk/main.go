@@ -1872,6 +1872,7 @@ func applyTheme(theme pawgui.ThemeMode) {
 var menuCSSProvider *gtk.CssProvider
 
 // applyMenuCSS applies retro Office 2003/Delphi 7 style menu styling
+// Gutter width matches toolbar button size (32px)
 func applyMenuCSS(isDark bool) {
 	var css string
 	if isDark {
@@ -1879,14 +1880,14 @@ func applyMenuCSS(isDark bool) {
 		css = `
 			menu {
 				background-image: linear-gradient(to right,
-					#505050 0%, #505050 28px,
-					#666666 28px, #666666 29px,
-					#383838 29px, #383838 100%);
+					#505050 0%, #505050 32px,
+					#666666 32px, #666666 33px,
+					#383838 33px, #383838 100%);
 				border: 1px solid #555555;
 				padding: 4px 0px;
 			}
 			menuitem {
-				padding: 6px 20px 6px 38px;
+				padding: 6px 20px 6px 42px;
 			}
 			menuitem:hover {
 				background-color: #4a4a4a;
@@ -1895,7 +1896,7 @@ func applyMenuCSS(isDark bool) {
 			menuitem check {
 				min-width: 16px;
 				min-height: 16px;
-				margin-left: 10px;
+				margin-left: 8px;
 			}
 		`
 	} else {
@@ -1903,14 +1904,14 @@ func applyMenuCSS(isDark bool) {
 		css = `
 			menu {
 				background-image: linear-gradient(to right,
-					#e0e0e0 0%, #e0e0e0 28px,
-					#c0c0c0 28px, #c0c0c0 29px,
-					#ffffff 29px, #ffffff 100%);
+					#e0e0e0 0%, #e0e0e0 32px,
+					#c0c0c0 32px, #c0c0c0 33px,
+					#ffffff 33px, #ffffff 100%);
 				border: 1px solid #c0c0c0;
 				padding: 4px 0px;
 			}
 			menuitem {
-				padding: 6px 20px 6px 38px;
+				padding: 6px 20px 6px 42px;
 			}
 			menuitem:hover {
 				background-color: #e5f3ff;
@@ -1919,7 +1920,7 @@ func applyMenuCSS(isDark bool) {
 			menuitem check {
 				min-width: 16px;
 				min-height: 16px;
-				margin-left: 10px;
+				margin-left: 8px;
 			}
 		`
 	}

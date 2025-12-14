@@ -628,6 +628,7 @@ func showSettingsDialog(parent *qt.QWidget) {
 
 	// Window Theme combo
 	windowThemeCombo := qt.NewQComboBox2()
+	windowThemeCombo.SetMinimumWidth(150)
 	windowThemeCombo.AddItem("Auto")
 	windowThemeCombo.AddItem("Light")
 	windowThemeCombo.AddItem("Dark")
@@ -657,6 +658,7 @@ func showSettingsDialog(parent *qt.QWidget) {
 
 	// Console Theme combo
 	consoleThemeCombo := qt.NewQComboBox2()
+	consoleThemeCombo.SetMinimumWidth(150)
 	consoleThemeCombo.AddItem("Auto")
 	consoleThemeCombo.AddItem("Light")
 	consoleThemeCombo.AddItem("Dark")
@@ -1733,27 +1735,27 @@ func applyTheme(theme pawgui.ThemeMode) {
 			}
 			QMenu {
 				background: qlineargradient(x1:0, y1:0, x2:1, y2:0,
-					stop:0 #505050, stop:0.14 #505050,
-					stop:0.14 #666666, stop:0.145 #666666,
-					stop:0.145 #383838, stop:1 #383838);
+					stop:0 #505050, stop:0.18 #505050,
+					stop:0.18 #666666, stop:0.185 #666666,
+					stop:0.185 #383838, stop:1 #383838);
 				border: 1px solid #555555;
 				padding: 4px 0px;
 			}
 			QMenu::item {
 				background-color: transparent;
-				padding: 6px 20px 6px 38px;
+				padding: 6px 20px 6px 48px;
 			}
 			QMenu::item:selected {
 				background-color: #4a4a4a;
 				border: 1px solid #888888;
 			}
 			QMenu::icon {
-				margin-left: 14px;
+				margin-left: 12px;
 			}
 			QMenu::indicator {
 				width: 18px;
 				height: 18px;
-				margin-left: 14px;
+				margin-left: 12px;
 			}
 			QMenu::indicator:checked {
 				image: url("data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 16 16'><path fill='%23ffffff' stroke='%23ffffff' stroke-width='1.5' d='M3,8 L6,11 L13,4'/></svg>");
@@ -1849,27 +1851,27 @@ func applyTheme(theme pawgui.ThemeMode) {
 			}
 			QMenu {
 				background: qlineargradient(x1:0, y1:0, x2:1, y2:0,
-					stop:0 #e0e0e0, stop:0.14 #e0e0e0,
-					stop:0.14 #c0c0c0, stop:0.145 #c0c0c0,
-					stop:0.145 #ffffff, stop:1 #ffffff);
+					stop:0 #e0e0e0, stop:0.18 #e0e0e0,
+					stop:0.18 #c0c0c0, stop:0.185 #c0c0c0,
+					stop:0.185 #ffffff, stop:1 #ffffff);
 				border: 1px solid #c0c0c0;
 				padding: 4px 0px;
 			}
 			QMenu::item {
 				background-color: transparent;
-				padding: 6px 20px 6px 38px;
+				padding: 6px 20px 6px 48px;
 			}
 			QMenu::item:selected {
 				background-color: #e5f3ff;
 				border: 1px solid #6699cc;
 			}
 			QMenu::icon {
-				margin-left: 14px;
+				margin-left: 12px;
 			}
 			QMenu::indicator {
 				width: 18px;
 				height: 18px;
-				margin-left: 14px;
+				margin-left: 12px;
 			}
 			QMenu::indicator:checked {
 				image: url("data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 16 16'><path fill='%23000000' stroke='%23000000' stroke-width='1.5' d='M3,8 L6,11 L13,4'/></svg>");
