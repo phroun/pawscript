@@ -1886,17 +1886,29 @@ func applyMenuCSS(isDark bool) {
 				border: 1px solid #555555;
 				padding: 4px 0px;
 			}
+			menu scrollbar {
+				opacity: 0;
+			}
 			menuitem {
-				padding: 6px 20px 6px 42px;
+				padding: 6px 20px 6px 8px;
 			}
 			menuitem:hover {
 				background-color: #4a4a4a;
 				border: 1px solid #888888;
 			}
-			menuitem check {
+			menuitem check,
+			menuitem radio {
 				min-width: 16px;
 				min-height: 16px;
 				margin-left: 8px;
+				margin-right: 8px;
+				-gtk-icon-source: none;
+				background-image: none;
+				background-color: transparent;
+			}
+			menuitem check:checked,
+			menuitem radio:checked {
+				-gtk-icon-source: url("data:image/svg+xml;base64,PHN2ZyB4bWxucz0iaHR0cDovL3d3dy53My5vcmcvMjAwMC9zdmciIHdpZHRoPSIxNiIgaGVpZ2h0PSIxNiI+PHBhdGggZD0iTTMsOCBMNiwxMiBMMTMsNCIgc3Ryb2tlPSJ3aGl0ZSIgc3Ryb2tlLXdpZHRoPSIzIiBmaWxsPSJub25lIiBzdHJva2UtbGluZWNhcD0icm91bmQiIHN0cm9rZS1saW5lam9pbj0icm91bmQiLz48L3N2Zz4=");
 			}
 		`
 	} else {
@@ -1910,17 +1922,29 @@ func applyMenuCSS(isDark bool) {
 				border: 1px solid #c0c0c0;
 				padding: 4px 0px;
 			}
+			menu scrollbar {
+				opacity: 0;
+			}
 			menuitem {
-				padding: 6px 20px 6px 42px;
+				padding: 6px 20px 6px 8px;
 			}
 			menuitem:hover {
 				background-color: #e5f3ff;
 				border: 1px solid #6699cc;
 			}
-			menuitem check {
+			menuitem check,
+			menuitem radio {
 				min-width: 16px;
 				min-height: 16px;
 				margin-left: 8px;
+				margin-right: 8px;
+				-gtk-icon-source: none;
+				background-image: none;
+				background-color: transparent;
+			}
+			menuitem check:checked,
+			menuitem radio:checked {
+				-gtk-icon-source: url("data:image/svg+xml;base64,PHN2ZyB4bWxucz0iaHR0cDovL3d3dy53My5vcmcvMjAwMC9zdmciIHdpZHRoPSIxNiIgaGVpZ2h0PSIxNiI+PHBhdGggZD0iTTMsOCBMNiwxMiBMMTMsNCIgc3Ryb2tlPSJibGFjayIgc3Ryb2tlLXdpZHRoPSIzIiBmaWxsPSJub25lIiBzdHJva2UtbGluZWNhcD0icm91bmQiIHN0cm9rZS1saW5lam9pbj0icm91bmQiLz48L3N2Zz4=");
 			}
 		`
 	}
