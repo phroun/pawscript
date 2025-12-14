@@ -2027,6 +2027,7 @@ func applyMenuCSS(isDark bool) {
 			menuitem:hover {
 				background-color: #4a4a4a;
 				border: 1px solid #888888;
+				padding: 5px 19px 5px 7px;
 				color: #ffffff;
 			}
 			menuitem check,
@@ -2075,6 +2076,7 @@ func applyMenuCSS(isDark bool) {
 			menuitem:hover {
 				background-color: #e5f3ff;
 				border: 1px solid #6699cc;
+				padding: 5px 19px 5px 7px;
 				color: #000000;
 			}
 			menuitem check,
