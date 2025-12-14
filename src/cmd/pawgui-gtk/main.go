@@ -2041,9 +2041,9 @@ func applyMenuCSS(isDark bool) {
 		css = `
 			menu {
 				background-image: linear-gradient(to right,
-					#505050 0px, #505050 40px,
-					#666666 40px, #666666 41px,
-					#383838 41px, #383838 100%);
+					#505050 0px, #505050 56px,
+					#666666 56px, #666666 57px,
+					#383838 57px, #383838 100%);
 				border: 1px solid #555555;
 				padding: 4px 0px 4px 0px;
 				margin: 0px;
@@ -2067,9 +2067,9 @@ func applyMenuCSS(isDark bool) {
 		css = `
 			menu {
 				background-image: linear-gradient(to right,
-					#e0e0e0 0px, #e0e0e0 40px,
-					#c0c0c0 40px, #c0c0c0 41px,
-					#ffffff 41px, #ffffff 100%);
+					#e0e0e0 0px, #e0e0e0 56px,
+					#c0c0c0 56px, #c0c0c0 57px,
+					#ffffff 57px, #ffffff 100%);
 				border: 1px solid #c0c0c0;
 				padding: 4px 0px 4px 0px;
 				margin: 0px;
