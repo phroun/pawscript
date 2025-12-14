@@ -459,6 +459,57 @@ func saveLauncherWidth(width int) {
 	saveConfig(appConfig)
 }
 
+// getLauncherPosition returns the saved launcher window position (x, y)
+func getLauncherPosition() (int, int) {
+	if v, ok := appConfig["launcher_position"]; ok {
+		if list, ok := v.([]interface{}); ok && len(list) >= 2 {
+			x := toInt(list[0])
+			y := toInt(list[1])
+			return x, y
+		}
+	}
+	return -1, -1 // -1 means not set (let window manager decide)
+}
+
+// saveLauncherPosition saves the launcher window position to config
+func saveLauncherPosition(x, y int) {
+	appConfig.Set("launcher_position", []interface{}{x, y})
+	saveConfig(appConfig)
+}
+
+// getLauncherSize returns the saved launcher window size (width, height)
+func getLauncherSize() (int, int) {
+	if v, ok := appConfig["launcher_size"]; ok {
+		if list, ok := v.([]interface{}); ok && len(list) >= 2 {
+			w := toInt(list[0])
+			h := toInt(list[1])
+			if w > 0 && h > 0 {
+				return w, h
+			}
+		}
+	}
+	return 1100, 700 // Default size
+}
+
+// saveLauncherSize saves the launcher window size to config
+func saveLauncherSize(width, height int) {
+	appConfig.Set("launcher_size", []interface{}{width, height})
+	saveConfig(appConfig)
+}
+
+// toInt converts an interface{} to int
+func toInt(v interface{}) int {
+	switch n := v.(type) {
+	case int:
+		return n
+	case int64:
+		return int(n)
+	case float64:
+		return int(n)
+	}
+	return 0
+}
+
 // getHomeDir returns the user's home directory path
 func getHomeDir() string {
 	if home, err := os.UserHomeDir(); err == nil {
@@ -1942,7 +1993,69 @@ func launchGUIMode() {
 	// Create main window
 	mainWindow = qt.NewQMainWindow2()
 	mainWindow.SetWindowTitle(appName)
-	mainWindow.Resize(1100, 700)
+
+	// Get screen dimensions for bounds checking
+	screen := qtApp.PrimaryScreen()
+	screenGeom := screen.AvailableGeometry()
+	screenWidth := screenGeom.Width()
+	screenHeight := screenGeom.Height()
+
+	// Load saved size, validate against screen bounds
+	savedWidth, savedHeight := getLauncherSize()
+	if savedWidth > screenWidth {
+		savedWidth = screenWidth
+	}
+	if savedHeight > screenHeight {
+		savedHeight = screenHeight
+	}
+	if savedWidth < 400 {
+		savedWidth = 400
+	}
+	if savedHeight < 300 {
+		savedHeight = 300
+	}
+	mainWindow.Resize(savedWidth, savedHeight)
+
+	// Load saved position, validate to ensure window is on screen
+	savedX, savedY := getLauncherPosition()
+	if savedX >= 0 && savedY >= 0 {
+		// Ensure at least 100px of window is visible on screen
+		if savedX > screenWidth-100 {
+			savedX = screenWidth - 100
+		}
+		if savedY > screenHeight-100 {
+			savedY = screenHeight - 100
+		}
+		if savedX < 0 {
+			savedX = 0
+		}
+		if savedY < 0 {
+			savedY = 0
+		}
+		mainWindow.Move2(savedX, savedY)
+	}
+
+	// Track window geometry changes using event filter
+	mainWindow.InstallEventFilter(mainWindow.QObject)
+	var lastX, lastY, lastWidth, lastHeight int
+	mainWindow.OnEventFilter(func(watched *qt.QObject, event *qt.QEvent) bool {
+		if event.Type() == qt.QEvent__Move {
+			pos := mainWindow.Pos()
+			x, y := pos.X(), pos.Y()
+			if x != lastX || y != lastY {
+				lastX, lastY = x, y
+				saveLauncherPosition(x, y)
+			}
+		} else if event.Type() == qt.QEvent__Resize {
+			size := mainWindow.Size()
+			w, h := size.Width(), size.Height()
+			if w != lastWidth || h != lastHeight {
+				lastWidth, lastHeight = w, h
+				saveLauncherSize(w, h)
+			}
+		}
+		return false // Don't filter the event
+	})
 
 	// Create central widget with horizontal splitter
 	centralWidget := qt.NewQWidget2()
