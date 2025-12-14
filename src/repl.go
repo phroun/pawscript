@@ -379,11 +379,18 @@ func (r *REPL) HandleInput(data []byte) bool {
 					i++
 					r.handleLeftArrow()
 					handled = true
-				case '3': // Possible Delete key (ESC[3~)
+				case '3': // Delete (ESC[3~) or S-Space kitty protocol (ESC[32;2u)
 					if i+1 < len(data) && data[i+1] == '~' {
 						i += 2
 						r.handleDelete()
 						handled = true
+					} else if i+3 < len(data) && data[i+1] == '2' && data[i+2] == ';' && data[i+3] == '2' {
+						// ESC[32;2u = S-Space (kitty protocol)
+						if i+4 < len(data) && data[i+4] == 'u' {
+							i += 5
+							r.insertChar(' ')
+							handled = true
+						}
 					}
 				case 'H': // Home
 					i++
@@ -393,11 +400,44 @@ func (r *REPL) HandleInput(data []byte) bool {
 					i++
 					r.handleEnd()
 					handled = true
-				case '1': // Could be Home (ESC[1~)
+				case '1': // Home (ESC[1~), modified arrows (ESC[1;modX), or S-Enter (ESC[13;2u)
 					if i+1 < len(data) && data[i+1] == '~' {
+						// ESC[1~ = Home
 						i += 2
 						r.handleHome()
 						handled = true
+					} else if i+3 < len(data) && data[i+1] == ';' {
+						// ESC[1;modX = Modified arrow keys
+						mod := data[i+2]
+						key := data[i+3]
+						i += 4
+						switch {
+						case mod == '2' && key == 'A': // S-Up -> first history
+							r.handleFirstHistory()
+							handled = true
+						case mod == '2' && key == 'B': // S-Down -> last history
+							r.handleLastHistory()
+							handled = true
+						case mod == '2' && key == 'D': // S-Left -> word left
+							r.handleWordLeft()
+							handled = true
+						case mod == '3' && key == 'C': // M-Right -> word right
+							r.handleWordRight()
+							handled = true
+						case mod == '2' && key == 'C': // S-Right (also word right)
+							r.handleWordRight()
+							handled = true
+						case mod == '3' && key == 'D': // M-Left (also word left)
+							r.handleWordLeft()
+							handled = true
+						}
+					} else if i+3 < len(data) && data[i+1] == '3' && data[i+2] == ';' && data[i+3] == '2' {
+						// ESC[13;2u = S-Enter (kitty protocol)
+						if i+4 < len(data) && data[i+4] == 'u' {
+							i += 5
+							r.handleEnter()
+							handled = true
+						}
 					}
 				case '4': // Could be End (ESC[4~)
 					if i+1 < len(data) && data[i+1] == '~' {
@@ -983,6 +1023,32 @@ func (r *REPL) handleDownArrow() {
 			r.inHistory = false
 		}
 		r.scrollOffset = 0 // Reset scroll for new content
+		r.redrawLine()
+	}
+}
+
+func (r *REPL) handleFirstHistory() {
+	if len(r.history) > 0 {
+		if !r.inHistory {
+			r.savedLine = string(r.currentLine)
+			r.inHistory = true
+		}
+		r.historyPos = 0
+		r.currentLine = []rune(r.history[r.historyPos])
+		r.cursorPos = len(r.currentLine)
+		r.scrollOffset = 0
+		r.redrawLine()
+	}
+}
+
+func (r *REPL) handleLastHistory() {
+	if r.inHistory {
+		// Return to the saved current line
+		r.historyPos = len(r.history)
+		r.currentLine = []rune(r.savedLine)
+		r.cursorPos = len(r.currentLine)
+		r.inHistory = false
+		r.scrollOffset = 0
 		r.redrawLine()
 	}
 }
