@@ -1886,11 +1886,17 @@ func applyMenuCSS(isDark bool) {
 				border: 1px solid #555555;
 				padding: 4px 0px;
 			}
-			menu scrollbar {
-				opacity: 0;
+			.menu,
+			.context-menu,
+			.popup {
+				background-image: linear-gradient(to right,
+					#505050 0%, #505050 32px,
+					#666666 32px, #666666 33px,
+					#383838 33px, #383838 100%);
 			}
 			menuitem {
-				padding: 6px 20px 6px 8px;
+				padding: 4px 20px 4px 8px;
+				min-height: 0;
 			}
 			menuitem:hover {
 				background-color: #4a4a4a;
@@ -1922,11 +1928,17 @@ func applyMenuCSS(isDark bool) {
 				border: 1px solid #c0c0c0;
 				padding: 4px 0px;
 			}
-			menu scrollbar {
-				opacity: 0;
+			.menu,
+			.context-menu,
+			.popup {
+				background-image: linear-gradient(to right,
+					#e0e0e0 0%, #e0e0e0 32px,
+					#c0c0c0 32px, #c0c0c0 33px,
+					#ffffff 33px, #ffffff 100%);
 			}
 			menuitem {
-				padding: 6px 20px 6px 8px;
+				padding: 4px 20px 4px 8px;
+				min-height: 0;
 			}
 			menuitem:hover {
 				background-color: #e5f3ff;
