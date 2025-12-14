@@ -607,7 +607,13 @@ func applyWindowTheme() {
 
 // updateToolbarIcons regenerates all toolbar icons with the current theme's colors
 func updateToolbarIcons() {
-	// Update launcher hamburger button
+	// Update both launcher hamburger buttons (path selector and narrow strip)
+	if launcherMenuButton != nil {
+		svgData := getSVGIcon(hamburgerIconSVG)
+		if img := createImageFromSVG(svgData, 24); img != nil {
+			launcherMenuButton.SetImage(img)
+		}
+	}
 	if launcherStripMenuBtn != nil {
 		svgData := getSVGIcon(hamburgerIconSVG)
 		if img := createImageFromSVG(svgData, 24); img != nil {
