@@ -641,6 +641,82 @@ License: MIT</p>`, version)
 	qt.QMessageBox_About(parent, "About PawScript", aboutText)
 }
 
+// QtSettingsComboMenu represents a styled combo menu for settings dialogs using QPushButton + QMenu
+type QtSettingsComboMenu struct {
+	Button   *qt.QPushButton
+	Menu     *qt.QMenu
+	actions  []*qt.QAction
+	options  []string
+	selected int
+	onChange func(int)
+}
+
+// createQtSettingsComboMenu creates a styled combo menu with checkmark for selected item
+func createQtSettingsComboMenu(options []string, selected int, onChange func(int)) *QtSettingsComboMenu {
+	combo := &QtSettingsComboMenu{
+		options:  options,
+		selected: selected,
+		onChange: onChange,
+	}
+
+	// Create button that shows current selection
+	combo.Button = qt.NewQPushButton3(options[selected])
+	combo.Button.SetMinimumWidth(150)
+
+	// Create menu for dropdown
+	combo.Menu = qt.NewQMenu2()
+
+	// Create checkable actions for each option
+	combo.actions = make([]*qt.QAction, len(options))
+	for i, option := range options {
+		idx := i // Capture for closure
+		action := combo.Menu.AddAction(option)
+		action.SetCheckable(true)
+		if i == selected {
+			action.SetChecked(true)
+		}
+		action.OnTriggered(func() {
+			combo.SetSelected(idx)
+			if combo.onChange != nil {
+				combo.onChange(idx)
+			}
+		})
+		combo.actions[i] = action
+	}
+
+	// Show menu when button clicked
+	combo.Button.OnClicked(func() {
+		combo.Menu.Popup(combo.Button.MapToGlobal(combo.Button.Rect().BottomLeft()))
+	})
+
+	return combo
+}
+
+// SetSelected updates the selected item in the combo menu
+func (c *QtSettingsComboMenu) SetSelected(idx int) {
+	if idx < 0 || idx >= len(c.options) {
+		return
+	}
+
+	// Uncheck old selection
+	if c.selected >= 0 && c.selected < len(c.actions) {
+		c.actions[c.selected].SetChecked(false)
+	}
+
+	c.selected = idx
+
+	// Update button text
+	c.Button.SetText(c.options[idx])
+
+	// Check new selection
+	c.actions[idx].SetChecked(true)
+}
+
+// GetSelected returns the currently selected index
+func (c *QtSettingsComboMenu) GetSelected() int {
+	return c.selected
+}
+
 // showSettingsDialog displays the Settings dialog with tabbed interface
 func showSettingsDialog(parent *qt.QWidget) {
 	// Save original values for reverting on Cancel
@@ -670,24 +746,19 @@ func showSettingsDialog(parent *qt.QWidget) {
 	appearanceLayout.SetSpacing(12)
 	appearanceWidget.SetLayout(appearanceLayout.QLayout)
 
-	// Window Theme combo
-	windowThemeCombo := qt.NewQComboBox2()
-	windowThemeCombo.SetMinimumWidth(150)
-	windowThemeCombo.AddItem("Auto")
-	windowThemeCombo.AddItem("Light")
-	windowThemeCombo.AddItem("Dark")
-	// Set current value from config
+	// Window Theme combo - determine initial selection
+	var windowThemeSelected int
 	switch configHelper.GetTheme() {
 	case pawgui.ThemeLight:
-		windowThemeCombo.SetCurrentIndex(1)
+		windowThemeSelected = 1
 	case pawgui.ThemeDark:
-		windowThemeCombo.SetCurrentIndex(2)
+		windowThemeSelected = 2
 	default:
-		windowThemeCombo.SetCurrentIndex(0) // Auto
+		windowThemeSelected = 0 // Auto
 	}
-	// Apply immediately on change
-	windowThemeCombo.OnCurrentIndexChanged(func(index int) {
-		switch index {
+
+	windowThemeCombo := createQtSettingsComboMenu([]string{"Auto", "Light", "Dark"}, windowThemeSelected, func(idx int) {
+		switch idx {
 		case 1:
 			appConfig.Set("theme", "light")
 		case 2:
@@ -698,27 +769,22 @@ func showSettingsDialog(parent *qt.QWidget) {
 		configHelper = pawgui.NewConfigHelper(appConfig)
 		applyTheme(configHelper.GetTheme())
 	})
-	appearanceLayout.AddRow3("Window Theme:", windowThemeCombo.QWidget)
+	appearanceLayout.AddRow3("Window Theme:", windowThemeCombo.Button.QWidget)
 
-	// Console Theme combo
-	consoleThemeCombo := qt.NewQComboBox2()
-	consoleThemeCombo.SetMinimumWidth(150)
-	consoleThemeCombo.AddItem("Auto")
-	consoleThemeCombo.AddItem("Light")
-	consoleThemeCombo.AddItem("Dark")
-	// Set current value from config
+	// Console Theme combo - determine initial selection
+	var consoleThemeSelected int
 	termTheme := appConfig.GetString("term_theme", "auto")
 	switch termTheme {
 	case "light":
-		consoleThemeCombo.SetCurrentIndex(1)
+		consoleThemeSelected = 1
 	case "dark":
-		consoleThemeCombo.SetCurrentIndex(2)
+		consoleThemeSelected = 2
 	default:
-		consoleThemeCombo.SetCurrentIndex(0) // Auto
+		consoleThemeSelected = 0 // Auto
 	}
-	// Apply immediately on change
-	consoleThemeCombo.OnCurrentIndexChanged(func(index int) {
-		switch index {
+
+	consoleThemeCombo := createQtSettingsComboMenu([]string{"Auto", "Light", "Dark"}, consoleThemeSelected, func(idx int) {
+		switch idx {
 		case 1:
 			appConfig.Set("term_theme", "light")
 		case 2:
@@ -729,7 +795,7 @@ func showSettingsDialog(parent *qt.QWidget) {
 		configHelper = pawgui.NewConfigHelper(appConfig)
 		applyConsoleTheme()
 	})
-	appearanceLayout.AddRow3("Console Theme:", consoleThemeCombo.QWidget)
+	appearanceLayout.AddRow3("Console Theme:", consoleThemeCombo.Button.QWidget)
 
 	tabWidget.AddTab(appearanceWidget, "Appearance")
 

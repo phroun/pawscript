@@ -475,22 +475,19 @@ func showSettingsDialog(parent gtk.IWindow) {
 	windowThemeLabel.SetWidthChars(15)
 	windowThemeRow.PackStart(windowThemeLabel, false, false, 0)
 
-	windowThemeCombo, _ := gtk.ComboBoxTextNew()
-	windowThemeCombo.AppendText("Auto")
-	windowThemeCombo.AppendText("Light")
-	windowThemeCombo.AppendText("Dark")
-	// Set current value from config
+	// Determine initial selection for window theme
+	var windowThemeSelected int
 	switch configHelper.GetTheme() {
 	case pawgui.ThemeLight:
-		windowThemeCombo.SetActive(1)
+		windowThemeSelected = 1
 	case pawgui.ThemeDark:
-		windowThemeCombo.SetActive(2)
+		windowThemeSelected = 2
 	default:
-		windowThemeCombo.SetActive(0) // Auto
+		windowThemeSelected = 0 // Auto
 	}
-	// Apply immediately on change
-	windowThemeCombo.Connect("changed", func() {
-		switch windowThemeCombo.GetActive() {
+
+	windowThemeCombo := createSettingsComboMenu([]string{"Auto", "Light", "Dark"}, windowThemeSelected, func(idx int) {
+		switch idx {
 		case 1:
 			appConfig.Set("theme", "light")
 		case 2:
@@ -501,7 +498,7 @@ func showSettingsDialog(parent gtk.IWindow) {
 		configHelper = pawgui.NewConfigHelper(appConfig)
 		applyWindowTheme()
 	})
-	windowThemeRow.PackStart(windowThemeCombo, true, true, 0)
+	windowThemeRow.PackStart(windowThemeCombo.Button, true, true, 0)
 	appearanceBox.PackStart(windowThemeRow, false, false, 0)
 
 	// Console Theme row
@@ -511,23 +508,20 @@ func showSettingsDialog(parent gtk.IWindow) {
 	consoleThemeLabel.SetWidthChars(15)
 	consoleThemeRow.PackStart(consoleThemeLabel, false, false, 0)
 
-	consoleThemeCombo, _ := gtk.ComboBoxTextNew()
-	consoleThemeCombo.AppendText("Auto")
-	consoleThemeCombo.AppendText("Light")
-	consoleThemeCombo.AppendText("Dark")
-	// Set current value from config
+	// Determine initial selection for console theme
+	var consoleThemeSelected int
 	termTheme := appConfig.GetString("term_theme", "auto")
 	switch termTheme {
 	case "light":
-		consoleThemeCombo.SetActive(1)
+		consoleThemeSelected = 1
 	case "dark":
-		consoleThemeCombo.SetActive(2)
+		consoleThemeSelected = 2
 	default:
-		consoleThemeCombo.SetActive(0) // Auto
+		consoleThemeSelected = 0 // Auto
 	}
-	// Apply immediately on change
-	consoleThemeCombo.Connect("changed", func() {
-		switch consoleThemeCombo.GetActive() {
+
+	consoleThemeCombo := createSettingsComboMenu([]string{"Auto", "Light", "Dark"}, consoleThemeSelected, func(idx int) {
+		switch idx {
 		case 1:
 			appConfig.Set("term_theme", "light")
 		case 2:
@@ -538,7 +532,7 @@ func showSettingsDialog(parent gtk.IWindow) {
 		configHelper = pawgui.NewConfigHelper(appConfig)
 		applyConsoleTheme()
 	})
-	consoleThemeRow.PackStart(consoleThemeCombo, true, true, 0)
+	consoleThemeRow.PackStart(consoleThemeCombo.Button, true, true, 0)
 	appearanceBox.PackStart(consoleThemeRow, false, false, 0)
 
 	// Add appearance tab to notebook
@@ -1734,6 +1728,156 @@ func updateFileListMenuIcon(item *gtk.MenuItem, isChecked bool) {
 	}
 
 	box.ShowAll()
+}
+
+// SettingsComboMenu represents a styled combo menu for settings dialogs
+type SettingsComboMenu struct {
+	Button   *gtk.MenuButton
+	Menu     *gtk.Menu
+	Label    *gtk.Label
+	items    []*gtk.MenuItem
+	options  []string
+	selected int
+	onChange func(int)
+}
+
+// createSettingsComboMenu creates a styled combo menu with check icon for selected item
+func createSettingsComboMenu(options []string, selected int, onChange func(int)) *SettingsComboMenu {
+	combo := &SettingsComboMenu{
+		options:  options,
+		selected: selected,
+		onChange: onChange,
+	}
+
+	// Create menu button
+	combo.Button, _ = gtk.MenuButtonNew()
+	combo.Button.SetHExpand(true)
+
+	// Create label to show current selection
+	combo.Label, _ = gtk.LabelNew(options[selected])
+	combo.Label.SetXAlign(0)
+	combo.Label.SetMarginStart(8)
+	combo.Label.SetMarginEnd(8)
+	combo.Button.Add(combo.Label)
+
+	// Create menu
+	combo.Menu, _ = gtk.MenuNew()
+	combo.Button.SetPopup(combo.Menu)
+
+	// Create menu items
+	combo.items = make([]*gtk.MenuItem, len(options))
+	for i, option := range options {
+		idx := i // Capture for closure
+		optText := option
+
+		var item *gtk.MenuItem
+		if i == selected {
+			// Selected item gets check icon
+			item = createMenuItemWithIcon(checkedIconSVG, optText, nil)
+		} else {
+			// Unselected items get gutter spacing only
+			item = createMenuItemWithGutter(optText, nil)
+		}
+
+		item.Connect("activate", func() {
+			combo.SetSelected(idx)
+			if combo.onChange != nil {
+				combo.onChange(idx)
+			}
+		})
+
+		combo.items[i] = item
+		combo.Menu.Append(item)
+	}
+
+	combo.Menu.ShowAll()
+	return combo
+}
+
+// SetSelected updates the selected item in the combo menu
+func (c *SettingsComboMenu) SetSelected(idx int) {
+	if idx < 0 || idx >= len(c.options) {
+		return
+	}
+
+	oldSelected := c.selected
+	c.selected = idx
+
+	// Update the button label
+	c.Label.SetText(c.options[idx])
+
+	// Update the menu items: remove old check, add new check
+	if oldSelected != idx {
+		// Update old selected item (remove check)
+		c.updateMenuItem(oldSelected, false)
+		// Update new selected item (add check)
+		c.updateMenuItem(idx, true)
+	}
+}
+
+// updateMenuItem recreates a menu item with or without the check icon
+func (c *SettingsComboMenu) updateMenuItem(idx int, isSelected bool) {
+	if idx < 0 || idx >= len(c.items) {
+		return
+	}
+
+	item := c.items[idx]
+	if item == nil {
+		return
+	}
+
+	// Get the box child
+	child, err := item.GetChild()
+	if err != nil || child == nil {
+		return
+	}
+
+	box, ok := child.(*gtk.Box)
+	if !ok {
+		return
+	}
+
+	// Remove all children from the box
+	children := box.GetChildren()
+	children.Foreach(func(item interface{}) {
+		if widget, ok := item.(gtk.IWidget); ok {
+			box.Remove(widget)
+		}
+	})
+
+	optText := c.options[idx]
+
+	if isSelected {
+		// Add check icon
+		svgData := getSVGIcon(checkedIconSVG)
+		img := createImageFromSVG(svgData, 16)
+		if img != nil {
+			img.SetMarginStart(0)
+			img.SetMarginEnd(18)
+			img.SetVAlign(gtk.ALIGN_CENTER)
+			box.PackStart(img, false, false, 0)
+		}
+		// Add label
+		label, _ := gtk.LabelNew(optText)
+		label.SetXAlign(0)
+		label.SetVAlign(gtk.ALIGN_CENTER)
+		label.SetMarginStart(8)
+		box.PackStart(label, true, true, 0)
+	} else {
+		// Just label with gutter margin
+		label, _ := gtk.LabelNew(optText)
+		label.SetXAlign(0)
+		label.SetVAlign(gtk.ALIGN_CENTER)
+		label.SetMarginStart(42) // Gutter (34) + spacing (8)
+		box.PackStart(label, true, true, 0)
+	}
+
+	box.ShowAll()
+}
+
+// GetSelected returns the currently selected index
+func (c *SettingsComboMenu) GetSelected() int {
+	return c.selected
 }
 
 // applyToolbarButtonStyle applies CSS to make toolbar buttons square with equal padding
