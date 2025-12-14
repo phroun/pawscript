@@ -9,6 +9,7 @@ import (
 	"os"
 	"path/filepath"
 	"runtime"
+	"strconv"
 	"strings"
 	"sync"
 	"time"
@@ -509,6 +510,40 @@ func showSettingsDialog(parent gtk.IWindow) {
 	windowThemeRow.PackStart(windowThemeCombo.Button, true, true, 0)
 	appearanceBox.PackStart(windowThemeRow, false, false, 0)
 
+	// Window Scale row
+	windowScaleRow, _ := gtk.BoxNew(gtk.ORIENTATION_HORIZONTAL, 12)
+	windowScaleLabel, _ := gtk.LabelNew("Window Scale:")
+	windowScaleLabel.SetHAlign(gtk.ALIGN_START)
+	windowScaleLabel.SetWidthChars(15)
+	windowScaleRow.PackStart(windowScaleLabel, false, false, 0)
+
+	// Get current scale value (may be out of normal range if user edited config)
+	currentScale := configHelper.GetUIScale()
+	minScale := 0.5
+	maxScale := 3.0
+	// Extend range if current value is outside normal bounds
+	if currentScale < minScale {
+		minScale = currentScale
+	}
+	if currentScale > maxScale {
+		maxScale = currentScale
+	}
+
+	windowScaleSlider, _ := gtk.ScaleNewWithRange(gtk.ORIENTATION_HORIZONTAL, minScale, maxScale, 0.1)
+	windowScaleSlider.SetValue(currentScale)
+	windowScaleSlider.SetDigits(1)
+	windowScaleSlider.SetDrawValue(true)
+	windowScaleSlider.SetValuePos(gtk.POS_RIGHT)
+	windowScaleSlider.SetHExpand(true)
+	windowScaleSlider.Connect("value-changed", func() {
+		newScale := windowScaleSlider.GetValue()
+		appConfig.Set("ui_scale", newScale)
+		configHelper = pawgui.NewConfigHelper(appConfig)
+		// Note: UI scale changes take effect on restart
+	})
+	windowScaleRow.PackStart(windowScaleSlider, true, true, 0)
+	appearanceBox.PackStart(windowScaleRow, false, false, 0)
+
 	// Console Theme row
 	consoleThemeRow, _ := gtk.BoxNew(gtk.ORIENTATION_HORIZONTAL, 12)
 	consoleThemeLabel, _ := gtk.LabelNew("Console Theme:")
@@ -542,6 +577,95 @@ func showSettingsDialog(parent gtk.IWindow) {
 	})
 	consoleThemeRow.PackStart(consoleThemeCombo.Button, true, true, 0)
 	appearanceBox.PackStart(consoleThemeRow, false, false, 0)
+
+	// Console Font row
+	consoleFontRow, _ := gtk.BoxNew(gtk.ORIENTATION_HORIZONTAL, 12)
+	consoleFontLabel, _ := gtk.LabelNew("Console Font:")
+	consoleFontLabel.SetHAlign(gtk.ALIGN_START)
+	consoleFontLabel.SetWidthChars(15)
+	consoleFontRow.PackStart(consoleFontLabel, false, false, 0)
+
+	// Get current font family (first entry only) and size
+	currentFontFamily := configHelper.GetFontFamily()
+	currentFontSize := configHelper.GetFontSize()
+	// Extract just the first font from the comma-separated list
+	firstFont := currentFontFamily
+	if idx := strings.Index(currentFontFamily, ","); idx != -1 {
+		firstFont = strings.TrimSpace(currentFontFamily[:idx])
+	}
+	// Create font description string for FontButton (e.g., "Consolas 12")
+	initialFontDesc := fmt.Sprintf("%s %d", firstFont, currentFontSize)
+
+	consoleFontButton, _ := gtk.FontButtonNewWithFont(initialFontDesc)
+	consoleFontButton.SetUseFont(true)
+	consoleFontButton.SetUseSize(true)
+	consoleFontButton.Connect("font-set", func() {
+		fontName := consoleFontButton.GetFontName()
+		// Parse font name - GTK format is "Family Name Size" or "Family Name Style Size"
+		// We need to extract family and size
+		parts := strings.Split(fontName, " ")
+		if len(parts) >= 2 {
+			// Size is typically the last part
+			sizeStr := parts[len(parts)-1]
+			if size, err := strconv.Atoi(sizeStr); err == nil && size > 0 {
+				appConfig.Set("font_size", size)
+				// Family is everything before the size
+				newFamily := strings.Join(parts[:len(parts)-1], " ")
+				// Preserve fallback fonts from original font_family
+				origFamily := appConfig.GetString("font_family", "")
+				if idx := strings.Index(origFamily, ","); idx != -1 {
+					// Keep the fallback fonts
+					newFamily = newFamily + origFamily[idx:]
+				}
+				appConfig.Set("font_family", newFamily)
+				configHelper = pawgui.NewConfigHelper(appConfig)
+			}
+		}
+	})
+	consoleFontRow.PackStart(consoleFontButton, true, true, 0)
+	appearanceBox.PackStart(consoleFontRow, false, false, 0)
+
+	// CJK Font row
+	cjkFontRow, _ := gtk.BoxNew(gtk.ORIENTATION_HORIZONTAL, 12)
+	cjkFontLabel, _ := gtk.LabelNew("CJK Font:")
+	cjkFontLabel.SetHAlign(gtk.ALIGN_START)
+	cjkFontLabel.SetWidthChars(15)
+	cjkFontRow.PackStart(cjkFontLabel, false, false, 0)
+
+	// Get current CJK font family (first entry only)
+	currentCJKFamily := appConfig.GetString("font_family_unicode", "")
+	if currentCJKFamily == "" {
+		currentCJKFamily = pawgui.GetDefaultUnicodeFont()
+	}
+	firstCJKFont := currentCJKFamily
+	if idx := strings.Index(currentCJKFamily, ","); idx != -1 {
+		firstCJKFont = strings.TrimSpace(currentCJKFamily[:idx])
+	}
+	// Use a reasonable default size for display (actual size is ignored)
+	cjkFontDesc := fmt.Sprintf("%s %d", firstCJKFont, currentFontSize)
+
+	cjkFontButton, _ := gtk.FontButtonNewWithFont(cjkFontDesc)
+	cjkFontButton.SetUseFont(true)
+	cjkFontButton.SetUseSize(false) // Don't show size since we ignore it
+	cjkFontButton.Connect("font-set", func() {
+		fontName := cjkFontButton.GetFontName()
+		// Parse font name - extract just the family, ignore size
+		parts := strings.Split(fontName, " ")
+		if len(parts) >= 2 {
+			// Size is typically the last part, family is everything before
+			newFamily := strings.Join(parts[:len(parts)-1], " ")
+			// Preserve fallback fonts from original font_family_unicode
+			origFamily := appConfig.GetString("font_family_unicode", "")
+			if idx := strings.Index(origFamily, ","); idx != -1 {
+				// Keep the fallback fonts
+				newFamily = newFamily + origFamily[idx:]
+			}
+			appConfig.Set("font_family_unicode", newFamily)
+			configHelper = pawgui.NewConfigHelper(appConfig)
+		}
+	})
+	cjkFontRow.PackStart(cjkFontButton, true, true, 0)
+	appearanceBox.PackStart(cjkFontRow, false, false, 0)
 
 	// Add appearance tab to notebook
 	appearanceLabel, _ := gtk.LabelNew("Appearance")

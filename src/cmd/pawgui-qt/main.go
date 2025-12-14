@@ -792,6 +792,30 @@ func showSettingsDialog(parent *qt.QWidget) {
 	})
 	appearanceLayout.AddRow3("Window Theme:", windowThemeCombo.Button.QWidget)
 
+	// Window Scale - use QDoubleSpinBox for precise control
+	currentScale := configHelper.GetUIScale()
+	minScale := 0.5
+	maxScale := 3.0
+	// Extend range if current value is outside normal bounds
+	if currentScale < minScale {
+		minScale = currentScale
+	}
+	if currentScale > maxScale {
+		maxScale = currentScale
+	}
+
+	windowScaleSpinBox := qt.NewQDoubleSpinBox2()
+	windowScaleSpinBox.SetRange(minScale, maxScale)
+	windowScaleSpinBox.SetSingleStep(0.1)
+	windowScaleSpinBox.SetDecimals(1)
+	windowScaleSpinBox.SetValue(currentScale)
+	windowScaleSpinBox.OnValueChanged(func(value float64) {
+		appConfig.Set("ui_scale", value)
+		configHelper = pawgui.NewConfigHelper(appConfig)
+		// Note: UI scale changes take effect on restart
+	})
+	appearanceLayout.AddRow3("Window Scale:", windowScaleSpinBox.QWidget)
+
 	// Console Theme combo - determine initial selection
 	var consoleThemeSelected int
 	termTheme := appConfig.GetString("term_theme", "auto")
@@ -817,6 +841,80 @@ func showSettingsDialog(parent *qt.QWidget) {
 		applyConsoleTheme()
 	})
 	appearanceLayout.AddRow3("Console Theme:", consoleThemeCombo.Button.QWidget)
+
+	// Console Font - button that opens font dialog
+	currentFontFamily := configHelper.GetFontFamily()
+	currentFontSize := configHelper.GetFontSize()
+	// Extract just the first font from the comma-separated list
+	firstFont := currentFontFamily
+	if idx := strings.Index(currentFontFamily, ","); idx != -1 {
+		firstFont = strings.TrimSpace(currentFontFamily[:idx])
+	}
+
+	consoleFontButton := qt.NewQPushButton3(fmt.Sprintf("%s, %dpt", firstFont, currentFontSize))
+	consoleFontButton.OnClicked(func() {
+		// Create initial font from current settings
+		initialFont := qt.NewQFont2(firstFont)
+		initialFont.SetPointSize(currentFontSize)
+
+		ok := false
+		selectedFont := qt.QFontDialog_GetFont(&ok, initialFont, dialog.QWidget, "Select Console Font")
+		if ok && selectedFont != nil {
+			newFamily := selectedFont.Family()
+			newSize := selectedFont.PointSize()
+
+			// Update font_size
+			appConfig.Set("font_size", newSize)
+
+			// Preserve fallback fonts from original font_family
+			origFamily := appConfig.GetString("font_family", "")
+			if idx := strings.Index(origFamily, ","); idx != -1 {
+				newFamily = newFamily + origFamily[idx:]
+			}
+			appConfig.Set("font_family", newFamily)
+			configHelper = pawgui.NewConfigHelper(appConfig)
+
+			// Update button text
+			consoleFontButton.SetText(fmt.Sprintf("%s, %dpt", selectedFont.Family(), newSize))
+		}
+	})
+	appearanceLayout.AddRow3("Console Font:", consoleFontButton.QWidget)
+
+	// CJK Font - button that opens font dialog (size ignored)
+	currentCJKFamily := appConfig.GetString("font_family_unicode", "")
+	if currentCJKFamily == "" {
+		currentCJKFamily = pawgui.GetDefaultUnicodeFont()
+	}
+	firstCJKFont := currentCJKFamily
+	if idx := strings.Index(currentCJKFamily, ","); idx != -1 {
+		firstCJKFont = strings.TrimSpace(currentCJKFamily[:idx])
+	}
+
+	cjkFontButton := qt.NewQPushButton3(firstCJKFont)
+	cjkFontButton.OnClicked(func() {
+		// Create initial font from current settings
+		initialFont := qt.NewQFont2(firstCJKFont)
+		initialFont.SetPointSize(currentFontSize) // Use console font size for display
+
+		ok := false
+		selectedFont := qt.QFontDialog_GetFont(&ok, initialFont, dialog.QWidget, "Select CJK Font")
+		if ok && selectedFont != nil {
+			newFamily := selectedFont.Family()
+			// Size is ignored for CJK font
+
+			// Preserve fallback fonts from original font_family_unicode
+			origFamily := appConfig.GetString("font_family_unicode", "")
+			if idx := strings.Index(origFamily, ","); idx != -1 {
+				newFamily = newFamily + origFamily[idx:]
+			}
+			appConfig.Set("font_family_unicode", newFamily)
+			configHelper = pawgui.NewConfigHelper(appConfig)
+
+			// Update button text (show family only, no size)
+			cjkFontButton.SetText(selectedFont.Family())
+		}
+	})
+	appearanceLayout.AddRow3("CJK Font:", cjkFontButton.QWidget)
 
 	tabWidget.AddTab(appearanceWidget, "Appearance")
 
