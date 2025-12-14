@@ -312,6 +312,11 @@ func (t *Terminal) SetFontFallbacks(unicodeFont, cjkFont string) {
 	t.widget.SetFontFallbacks(unicodeFont, cjkFont)
 }
 
+// SetFont sets the terminal font family and size
+func (t *Terminal) SetFont(family string, size int) {
+	t.widget.SetFont(family, size)
+}
+
 // --- Screen Scaling Mode Methods ---
 
 // Set132ColumnMode enables or disables 132-column mode (horizontal scale 0.6060)

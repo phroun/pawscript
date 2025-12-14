@@ -735,6 +735,10 @@ func showSettingsDialog(parent *qt.QWidget) {
 	// Save original values for reverting on Cancel
 	origWindowTheme := appConfig.GetString("theme", "auto")
 	origTermTheme := appConfig.GetString("term_theme", "auto")
+	origUIScale := appConfig.GetFloat("ui_scale", 1.0)
+	origFontFamily := appConfig.GetString("font_family", "")
+	origFontSize := appConfig.GetInt("font_size", pawgui.DefaultFontSize)
+	origFontFamilyUnicode := appConfig.GetString("font_family_unicode", "")
 
 	// Create dialog
 	dialog := qt.NewQDialog2()
@@ -812,7 +816,7 @@ func showSettingsDialog(parent *qt.QWidget) {
 	windowScaleSpinBox.OnValueChanged(func(value float64) {
 		appConfig.Set("ui_scale", value)
 		configHelper = pawgui.NewConfigHelper(appConfig)
-		// Note: UI scale changes take effect on restart
+		applyUIScaleFromConfig()
 	})
 	appearanceLayout.AddRow3("Window Scale:", windowScaleSpinBox.QWidget)
 
@@ -869,6 +873,7 @@ func showSettingsDialog(parent *qt.QWidget) {
 			}
 			appConfig.Set("font_family", newFamily)
 			configHelper = pawgui.NewConfigHelper(appConfig)
+			applyFontSettings()
 
 			// Update button text
 			consoleFontButton.SetText(fmt.Sprintf("%s, %dpt", selectedFont.Family(), newSize))
@@ -901,6 +906,7 @@ func showSettingsDialog(parent *qt.QWidget) {
 			}
 			appConfig.Set("font_family_unicode", newFamily)
 			configHelper = pawgui.NewConfigHelper(appConfig)
+			applyFontSettings()
 
 			// Update button text (show family only, no size)
 			cjkFontButton.SetText(selectedFont.Family())
@@ -937,9 +943,19 @@ func showSettingsDialog(parent *qt.QWidget) {
 		// Revert to original values on Cancel
 		appConfig.Set("theme", origWindowTheme)
 		appConfig.Set("term_theme", origTermTheme)
+		appConfig.Set("ui_scale", origUIScale)
+		if origFontFamily != "" {
+			appConfig.Set("font_family", origFontFamily)
+		}
+		appConfig.Set("font_size", origFontSize)
+		if origFontFamilyUnicode != "" {
+			appConfig.Set("font_family_unicode", origFontFamilyUnicode)
+		}
 		configHelper = pawgui.NewConfigHelper(appConfig)
 		applyTheme(configHelper.GetTheme())
 		applyConsoleTheme()
+		applyUIScaleFromConfig()
+		applyFontSettings()
 	}
 
 	dialog.DeleteLater()
@@ -956,6 +972,41 @@ func applyConsoleTheme() {
 		terminal.Buffer().SetDarkTheme(isDark)
 		terminal.SetColorScheme(scheme)
 	}
+}
+
+// applyFontSettings applies font settings to all open terminals
+func applyFontSettings() {
+	fontFamily := configHelper.GetFontFamily()
+	fontSize := configHelper.GetFontSize()
+	unicodeFont := getFontFamilyUnicode()
+	cjkFont := getFontFamilyCJK()
+
+	// Update main launcher terminal
+	if terminal != nil {
+		terminal.SetFont(fontFamily, fontSize)
+		terminal.SetFontFallbacks(unicodeFont, cjkFont)
+	}
+
+	// Update all script window terminals
+	qtToolbarDataMu.Lock()
+	for _, data := range qtToolbarDataByWindow {
+		if data.terminal != nil {
+			data.terminal.SetFont(fontFamily, fontSize)
+			data.terminal.SetFontFallbacks(unicodeFont, cjkFont)
+		}
+	}
+	for _, data := range qtToolbarDataByPS {
+		if data.terminal != nil {
+			data.terminal.SetFont(fontFamily, fontSize)
+			data.terminal.SetFontFallbacks(unicodeFont, cjkFont)
+		}
+	}
+	qtToolbarDataMu.Unlock()
+}
+
+// applyUIScaleFromConfig applies the current UI scale from config
+func applyUIScaleFromConfig() {
+	applyUIScale(getUIScale())
 }
 
 // createHamburgerMenu creates the hamburger dropdown menu

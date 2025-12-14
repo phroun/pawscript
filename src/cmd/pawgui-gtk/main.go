@@ -437,6 +437,10 @@ func showSettingsDialog(parent gtk.IWindow) {
 	// Save original values for reverting on Cancel
 	origWindowTheme := appConfig.GetString("theme", "auto")
 	origTermTheme := appConfig.GetString("term_theme", "auto")
+	origUIScale := appConfig.GetFloat("ui_scale", 1.0)
+	origFontFamily := appConfig.GetString("font_family", "")
+	origFontSize := appConfig.GetInt("font_size", pawgui.DefaultFontSize)
+	origFontFamilyUnicode := appConfig.GetString("font_family_unicode", "")
 
 	// Create dialog
 	dlg, _ := gtk.DialogNew()
@@ -537,7 +541,7 @@ func showSettingsDialog(parent gtk.IWindow) {
 		newScale := windowScaleSlider.GetValue()
 		appConfig.Set("ui_scale", newScale)
 		configHelper = pawgui.NewConfigHelper(appConfig)
-		// Note: UI scale changes take effect on restart
+		applyUIScale()
 	})
 	windowScaleRow.PackStart(windowScaleSlider, true, true, 0)
 	appearanceBox.PackStart(windowScaleRow, false, false, 0)
@@ -617,6 +621,7 @@ func showSettingsDialog(parent gtk.IWindow) {
 				}
 				appConfig.Set("font_family", newFamily)
 				configHelper = pawgui.NewConfigHelper(appConfig)
+				applyFontSettings()
 			}
 		}
 	})
@@ -660,6 +665,7 @@ func showSettingsDialog(parent gtk.IWindow) {
 			}
 			appConfig.Set("font_family_unicode", newFamily)
 			configHelper = pawgui.NewConfigHelper(appConfig)
+			applyFontSettings()
 		}
 	})
 	cjkFontRow.PackStart(cjkFontButton, true, true, 0)
@@ -718,9 +724,19 @@ func showSettingsDialog(parent gtk.IWindow) {
 		// Revert to original values on Cancel
 		appConfig.Set("theme", origWindowTheme)
 		appConfig.Set("term_theme", origTermTheme)
+		appConfig.Set("ui_scale", origUIScale)
+		if origFontFamily != "" {
+			appConfig.Set("font_family", origFontFamily)
+		}
+		appConfig.Set("font_size", origFontSize)
+		if origFontFamilyUnicode != "" {
+			appConfig.Set("font_family_unicode", origFontFamilyUnicode)
+		}
 		configHelper = pawgui.NewConfigHelper(appConfig)
 		applyWindowTheme()
 		applyConsoleTheme()
+		applyUIScale()
+		applyFontSettings()
 	}
 	dlg.Destroy()
 }
@@ -731,6 +747,42 @@ func applyWindowTheme() {
 	updateToolbarIcons()
 	// Refresh path menu to update icon colors
 	updatePathMenu()
+}
+
+// applyFontSettings applies font settings to all open terminals
+func applyFontSettings() {
+	fontFamily := configHelper.GetFontFamily()
+	fontSize := configHelper.GetFontSize()
+	unicodeFont := getFontFamilyUnicode()
+	cjkFont := getFontFamilyCJK()
+
+	// Update main launcher terminal
+	if terminal != nil {
+		terminal.SetFont(fontFamily, fontSize)
+		terminal.SetFontFallbacks(unicodeFont, cjkFont)
+	}
+
+	// Update all script window terminals
+	toolbarDataMu.Lock()
+	for _, data := range toolbarDataByWindow {
+		if data.terminal != nil {
+			data.terminal.SetFont(fontFamily, fontSize)
+			data.terminal.SetFontFallbacks(unicodeFont, cjkFont)
+		}
+	}
+	for _, data := range toolbarDataByPS {
+		if data.terminal != nil {
+			data.terminal.SetFont(fontFamily, fontSize)
+			data.terminal.SetFontFallbacks(unicodeFont, cjkFont)
+		}
+	}
+	toolbarDataMu.Unlock()
+}
+
+// applyUIScale applies UI scale to all windows (requires restart for full effect)
+func applyUIScale() {
+	// Re-apply the CSS with new scale
+	applyMainCSS()
 }
 
 // updateToolbarIcons regenerates all toolbar icons with the current theme's colors
@@ -2346,6 +2398,40 @@ func applyTheme(theme pawgui.ThemeMode) {
 
 // menuCSSProvider is reused to avoid creating multiple providers
 var menuCSSProvider *gtk.CssProvider
+
+// mainCSSProvider is used for UI scaling CSS
+var mainCSSProvider *gtk.CssProvider
+
+// applyMainCSS applies UI scaling CSS to all windows
+func applyMainCSS() {
+	if mainWindow == nil {
+		return
+	}
+
+	// GTK uses 0.8x the config scale to match visual appearance with Qt
+	uiScale := getUIScale() * 0.8
+	baseFontSize := int(10.0 * uiScale)
+	buttonPadding := int(6.0 * uiScale)
+
+	if mainCSSProvider == nil {
+		mainCSSProvider, _ = gtk.CssProviderNew()
+	}
+
+	mainCSSProvider.LoadFromData(fmt.Sprintf(`
+		* {
+			font-size: %dpx;
+		}
+		button {
+			padding: %dpx %dpx;
+		}
+		label {
+			font-size: %dpx;
+		}
+	`, baseFontSize*2, buttonPadding*2, buttonPadding*4, baseFontSize*2))
+
+	screen := mainWindow.GetScreen()
+	gtk.AddProviderForScreen(screen, mainCSSProvider, gtk.STYLE_PROVIDER_PRIORITY_APPLICATION)
+}
 
 // applyMenuCSS applies retro Office 2003/Delphi 7 style menu styling
 // Gutter width matches toolbar button size (32px)
