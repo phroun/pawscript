@@ -1577,9 +1577,6 @@ func createMenuItemWithIcon(svgTemplate string, labelText string, callback func(
 	}
 	hbox.SetVExpand(true) // Expand to fill vertical space
 
-	// Apply gutter background to the box itself
-	applyMenuItemBoxCSS(hbox)
-
 	// Create the icon image (16x16)
 	svgData := getSVGIcon(svgTemplate)
 	img := createImageFromSVG(svgData, 16)
@@ -1632,9 +1629,6 @@ func createMenuItemWithGutter(labelText string, callback func()) *gtk.MenuItem {
 	}
 	hbox.SetVExpand(true) // Expand to fill vertical space
 
-	// Apply gutter background to the box itself
-	applyMenuItemBoxCSS(hbox)
-
 	// Create label with left margin to account for gutter + edge + spacing
 	label, err := gtk.LabelNew(labelText)
 	if err == nil {
@@ -1652,43 +1646,6 @@ func createMenuItemWithGutter(labelText string, callback func()) *gtk.MenuItem {
 	}
 
 	return item
-}
-
-// applyMenuItemBoxCSS applies the gutter gradient to a menu item's inner box
-func applyMenuItemBoxCSS(box *gtk.Box) {
-	cssProvider, err := gtk.CssProviderNew()
-	if err != nil {
-		return
-	}
-
-	var gutterColor, edgeColor, contentColor string
-	if appliedThemeIsDark {
-		gutterColor = "#505050"
-		edgeColor = "#666666"
-		contentColor = "#383838"
-	} else {
-		gutterColor = "#e0e0e0"
-		edgeColor = "#c0c0c0"
-		contentColor = "#ffffff"
-	}
-
-	css := fmt.Sprintf(`
-		box {
-			background-image: linear-gradient(to right,
-				%s 0px, %s 33px,
-				%s 33px, %s 34px,
-				%s 34px, %s 100%%);
-			min-height: 24px;
-			padding-top: 4px;
-			padding-bottom: 4px;
-		}
-	`, gutterColor, gutterColor, edgeColor, edgeColor, contentColor, contentColor)
-
-	cssProvider.LoadFromData(css)
-	styleCtx, err := box.GetStyleContext()
-	if err == nil {
-		styleCtx.AddProvider(cssProvider, gtk.STYLE_PROVIDER_PRIORITY_USER+100)
-	}
 }
 
 // updateFileListMenuIcon updates the icon on a File List menu item based on checked state
@@ -2080,64 +2037,40 @@ var menuCSSProvider *gtk.CssProvider
 func applyMenuCSS(isDark bool) {
 	var css string
 	if isDark {
-		// Dark theme: gutter gradient on menu background to blend GTK spacing
+		// Dark theme: gutter gradient on menu background
 		css = `
 			menu {
 				background-image: linear-gradient(to right,
 					#505050 0px, #505050 40px,
-					#383838 40px, #383838 100%);
+					#666666 40px, #666666 41px,
+					#383838 41px, #383838 100%);
 				border: 1px solid #555555;
 				padding: 4px 0px;
 			}
 			menuitem {
-				padding: 0px 20px 0px 0px;
+				padding: 4px 20px 4px 0px;
 				background-color: transparent;
 			}
 			menuitem:hover {
-				background-color: #4a4a4a;
-			}
-			menuitem.has-icon,
-			menuitem.has-gutter {
-				padding: 0px 20px 0px 0px;
-			}
-			menuitem.has-icon:hover,
-			menuitem.has-gutter:hover {
-				background-color: transparent;
-			}
-			menuitem.has-icon:hover box,
-			menuitem.has-gutter:hover box {
-				background-image: none;
 				background-color: #505a6a;
 			}
 		`
 	} else {
-		// Light theme: gutter gradient on menu background to blend GTK spacing
+		// Light theme: gutter gradient on menu background
 		css = `
 			menu {
 				background-image: linear-gradient(to right,
 					#e0e0e0 0px, #e0e0e0 40px,
-					#ffffff 40px, #ffffff 100%);
+					#c0c0c0 40px, #c0c0c0 41px,
+					#ffffff 41px, #ffffff 100%);
 				border: 1px solid #c0c0c0;
 				padding: 4px 0px;
 			}
 			menuitem {
-				padding: 0px 20px 0px 0px;
+				padding: 4px 20px 4px 0px;
 				background-color: transparent;
 			}
 			menuitem:hover {
-				background-color: #e5f3ff;
-			}
-			menuitem.has-icon,
-			menuitem.has-gutter {
-				padding: 0px 20px 0px 0px;
-			}
-			menuitem.has-icon:hover,
-			menuitem.has-gutter:hover {
-				background-color: transparent;
-			}
-			menuitem.has-icon:hover box,
-			menuitem.has-gutter:hover box {
-				background-image: none;
 				background-color: #cce8ff;
 			}
 		`
