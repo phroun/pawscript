@@ -3345,10 +3345,20 @@ func (b *Buffer) ResolveGlyphColor(cell *Cell, paletteIdx int) (Color, bool) {
 	// Determine which palette to use
 	paletteNum := cell.BGP
 	if paletteNum < 0 {
-		// Use foreground color code as palette number
-		// We need to map the cell's foreground color back to a color code
-		// This is a simplification - we use the ANSI color index if possible
-		paletteNum = b.ColorToANSICode(cell.Foreground)
+		// Use foreground color SGR code as palette number
+		// Standard colors: index 0-7 → SGR 30-37, index 8-15 → SGR 90-97
+		// 256-color, truecolor, or default → use palette 39 (default foreground)
+		switch cell.Foreground.Type {
+		case ColorTypeStandard:
+			idx := int(cell.Foreground.Index)
+			if idx < 8 {
+				paletteNum = 30 + idx // SGR 30-37
+			} else {
+				paletteNum = 90 + (idx - 8) // SGR 90-97
+			}
+		default:
+			paletteNum = 39 // Default foreground palette
+		}
 	}
 
 	palette := b.palettes[paletteNum]
