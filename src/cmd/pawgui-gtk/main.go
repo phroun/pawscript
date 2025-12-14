@@ -112,14 +112,16 @@ var (
 	launcherMenuCtx        *MenuContext       // Menu context for launcher window (updated after creation)
 	launcherMenu           *gtk.Menu          // Shared hamburger menu for launcher (used by both buttons)
 
-	// Per-window toolbar data (keyed by PawScript instance)
-	toolbarDataByPS = make(map[*pawscript.PawScript]*WindowToolbarData)
-	toolbarDataMu   sync.Mutex
+	// Per-window toolbar data (keyed by PawScript instance or window)
+	toolbarDataByPS     = make(map[*pawscript.PawScript]*WindowToolbarData)
+	toolbarDataByWindow = make(map[*gtk.ApplicationWindow]*WindowToolbarData)
+	toolbarDataMu       sync.Mutex
 )
 
 // WindowToolbarData holds per-window toolbar state for dummy_button command
 type WindowToolbarData struct {
 	strip          *gtk.Box                // The narrow strip container
+	menuButton     *gtk.Button             // The hamburger menu button
 	registeredBtns []*ToolbarButton        // Additional registered buttons
 	terminal       *purfectermgtk.Terminal // Terminal for Feed() calls
 	updateFunc     func()                  // Function to update the strip's buttons
@@ -633,8 +635,38 @@ func updateToolbarIcons() {
 		}
 	}
 
-	// Update buttons in all script windows
+	// Update buttons in all script windows (keyed by PawScript instance)
+	toolbarDataMu.Lock()
+	defer toolbarDataMu.Unlock()
 	for _, data := range toolbarDataByPS {
+		// Update the hamburger button
+		if data.menuButton != nil {
+			svgData := getSVGIcon(hamburgerIconSVG)
+			if img := createImageFromSVG(svgData, 24); img != nil {
+				data.menuButton.SetImage(img)
+			}
+		}
+		// Update registered buttons
+		for _, btn := range data.registeredBtns {
+			if btn.widget != nil {
+				svgData := getSVGIcon(starIconSVG)
+				if img := createImageFromSVG(svgData, 24); img != nil {
+					btn.widget.SetImage(img)
+				}
+			}
+		}
+	}
+
+	// Update buttons in all windows (keyed by window pointer)
+	for _, data := range toolbarDataByWindow {
+		// Update the hamburger button
+		if data.menuButton != nil {
+			svgData := getSVGIcon(hamburgerIconSVG)
+			if img := createImageFromSVG(svgData, 24); img != nil {
+				data.menuButton.SetImage(img)
+			}
+		}
+		// Update registered buttons
 		for _, btn := range data.registeredBtns {
 			if btn.widget != nil {
 				svgData := getSVGIcon(starIconSVG)
@@ -1068,7 +1100,7 @@ func createBlankConsoleWindow() {
 	}
 
 	// Narrow strip for console window (always starts visible, collapsible)
-	strip, _, _ := createToolbarStripWithContext(consoleMenuCtx)
+	strip, stripMenuBtn, _ := createToolbarStripWithContext(consoleMenuCtx)
 	strip.SetMarginStart(2 + narrowOnlyExtraPadding)
 	strip.SetSizeRequest(minNarrowStripWidth, -1)
 	paned.Pack1(strip, false, true)
@@ -1376,8 +1408,9 @@ func createBlankConsoleWindow() {
 
 		// Register the dummy_button command with the window's REPL
 		winToolbarData := &WindowToolbarData{
-			strip:    strip,
-			terminal: winTerminal,
+			strip:      strip,
+			menuButton: stripMenuBtn,
+			terminal:   winTerminal,
 		}
 		winToolbarData.updateFunc = func() {
 			updateWindowToolbarButtons(winToolbarData.strip, winToolbarData.registeredBtns)
@@ -2614,10 +2647,22 @@ func runScriptInWindow(gtkApp *gtk.Application, scriptContent, scriptFile string
 
 	// Narrow strip for script window (always starts visible, collapsible)
 	// Console windows always show strip-only, so use extra left padding
-	strip, _, _ := createToolbarStripWithContext(menuCtx)
+	strip, stripMenuBtn, _ := createToolbarStripWithContext(menuCtx)
 	strip.SetMarginStart(2 + narrowOnlyExtraPadding)
 	strip.SetSizeRequest(minNarrowStripWidth, -1) // Keep original width, margin adds the extra space
 	paned.Pack1(strip, false, true)
+
+	// Register the toolbar data for theme updates (even without REPL)
+	toolbarDataMu.Lock()
+	runScriptToolbarData := &WindowToolbarData{
+		strip:      strip,
+		menuButton: stripMenuBtn,
+		terminal:   winTerminal,
+	}
+	// Use a unique key (nil is fine since there's no PawScript instance)
+	// Use the window pointer as a unique identifier
+	toolbarDataByWindow[win] = runScriptToolbarData
+	toolbarDataMu.Unlock()
 
 	// Terminal on the right
 	termWidget := winTerminal.Widget()
@@ -2858,6 +2903,10 @@ func runScriptInWindow(gtkApp *gtk.Application, scriptContent, scriptFile string
 
 	// Handle window close
 	win.Connect("destroy", func() {
+		// Clean up toolbar data
+		toolbarDataMu.Lock()
+		delete(toolbarDataByWindow, win)
+		toolbarDataMu.Unlock()
 		winStdinWriter.Close()
 		gtkApp.Quit()
 	})
@@ -3997,7 +4046,7 @@ func createConsoleWindow(filePath string) {
 
 	// Narrow strip for script window (always starts visible, collapsible)
 	// Console windows always show strip-only, so use extra left padding
-	strip, _, _ := createToolbarStripWithContext(consoleMenuCtx)
+	strip, stripMenuBtn, _ := createToolbarStripWithContext(consoleMenuCtx)
 	strip.SetMarginStart(2 + narrowOnlyExtraPadding)
 	strip.SetSizeRequest(minNarrowStripWidth, -1) // Keep original width, margin adds the extra space
 	paned.Pack1(strip, false, true)
@@ -4386,8 +4435,9 @@ func createConsoleWindow(filePath string) {
 		// Register the dummy_button command with the window's REPL
 		// Create window-specific toolbar data
 		winToolbarData := &WindowToolbarData{
-			strip:    strip,
-			terminal: winTerminal,
+			strip:      strip,
+			menuButton: stripMenuBtn,
+			terminal:   winTerminal,
 		}
 		winToolbarData.updateFunc = func() {
 			updateWindowToolbarButtons(winToolbarData.strip, winToolbarData.registeredBtns)

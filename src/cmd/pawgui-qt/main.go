@@ -85,14 +85,16 @@ type QtToolbarButton struct {
 // QtWindowToolbarData holds per-window toolbar state for dummy_button command
 type QtWindowToolbarData struct {
 	strip          *qt.QWidget            // The narrow strip container
+	menuButton     *IconButton            // The hamburger menu button
 	registeredBtns []*QtToolbarButton     // Additional registered buttons
 	terminal       *purfectermqt.Terminal // Terminal for Feed() calls
 	updateFunc     func()                 // Function to update the strip's buttons
 }
 
-// Per-window toolbar data (keyed by PawScript instance)
+// Per-window toolbar data (keyed by PawScript instance or window)
 var (
 	qtToolbarDataByPS     = make(map[*pawscript.PawScript]*QtWindowToolbarData)
+	qtToolbarDataByWindow = make(map[*qt.QMainWindow]*QtWindowToolbarData)
 	qtToolbarDataMu       sync.Mutex
 	launcherToolbarData   *QtWindowToolbarData   // Toolbar data for the launcher window
 	pendingWindowUpdates  []*QtWindowToolbarData // Windows that need toolbar updates
@@ -1187,6 +1189,16 @@ func createBlankConsoleWindow() {
 	winNarrowStrip.Show()
 	winStripMenuBtn.Show()
 
+	// Register the toolbar data for theme updates (even without REPL initially)
+	qtToolbarDataMu.Lock()
+	blankConsoleToolbarData := &QtWindowToolbarData{
+		strip:      winNarrowStrip,
+		menuButton: winStripMenuBtn,
+		terminal:   winTerminal,
+	}
+	qtToolbarDataByWindow[win] = blankConsoleToolbarData
+	qtToolbarDataMu.Unlock()
+
 	winSplitter.AddWidget(winNarrowStrip)
 	winSplitter.AddWidget(winTerminal.Widget())
 
@@ -1349,6 +1361,10 @@ func createBlankConsoleWindow() {
 
 	// Clean up on window close
 	win.OnDestroyed(func() {
+		// Clean up toolbar data
+		qtToolbarDataMu.Lock()
+		delete(qtToolbarDataByWindow, win)
+		qtToolbarDataMu.Unlock()
 		winStdinWriter.Close()
 		winStdinReader.Close()
 		close(winOutputQueue)
@@ -2022,9 +2038,28 @@ func updateToolbarIcons() {
 		}
 	}
 
-	// Update buttons in all script windows
+	// Update buttons in all script windows (keyed by PawScript instance)
 	qtToolbarDataMu.Lock()
 	for _, data := range qtToolbarDataByPS {
+		// Update the hamburger button
+		if data.menuButton != nil {
+			data.menuButton.UpdateIcon(getSVGIcon(hamburgerIconSVG), toolbarIconSize)
+		}
+		// Update registered buttons
+		for _, btn := range data.registeredBtns {
+			if btn.widget != nil {
+				btn.widget.UpdateIcon(getSVGIcon(starIconSVG), toolbarIconSize)
+			}
+		}
+	}
+
+	// Update buttons in all windows (keyed by window pointer)
+	for _, data := range qtToolbarDataByWindow {
+		// Update the hamburger button
+		if data.menuButton != nil {
+			data.menuButton.UpdateIcon(getSVGIcon(hamburgerIconSVG), toolbarIconSize)
+		}
+		// Update registered buttons
 		for _, btn := range data.registeredBtns {
 			if btn.widget != nil {
 				btn.widget.UpdateIcon(getSVGIcon(starIconSVG), toolbarIconSize)
@@ -2696,6 +2731,16 @@ func runScriptInWindow(scriptContent, scriptFile string, scriptArgs []string,
 	winNarrowStrip.Show()
 	winStripMenuBtn.Show()
 
+	// Register the toolbar data for theme updates (even without REPL)
+	qtToolbarDataMu.Lock()
+	runScriptToolbarData := &QtWindowToolbarData{
+		strip:      winNarrowStrip,
+		menuButton: winStripMenuBtn,
+		terminal:   winTerminal,
+	}
+	qtToolbarDataByWindow[win] = runScriptToolbarData
+	qtToolbarDataMu.Unlock()
+
 	winSplitter.AddWidget(winNarrowStrip)
 	winSplitter.AddWidget(winTerminal.Widget())
 
@@ -2845,6 +2890,15 @@ func runScriptInWindow(scriptContent, scriptFile string, scriptArgs []string,
 	// Wire keyboard input
 	winTerminal.SetInputCallback(func(data []byte) {
 		winStdinWriter.Write(data)
+	})
+
+	// Clean up on window close
+	win.OnDestroyed(func() {
+		// Clean up toolbar data
+		qtToolbarDataMu.Lock()
+		delete(qtToolbarDataByWindow, win)
+		qtToolbarDataMu.Unlock()
+		winStdinWriter.Close()
 	})
 
 	win.Show()
@@ -3953,8 +4007,9 @@ func createConsoleWindow(filePath string) {
 		// Register the dummy_button command with the window's REPL
 		// Create window-specific toolbar data
 		winToolbarData := &QtWindowToolbarData{
-			strip:    winNarrowStrip,
-			terminal: winTerminal,
+			strip:      winNarrowStrip,
+			menuButton: winStripMenuBtn,
+			terminal:   winTerminal,
 		}
 		winToolbarData.updateFunc = func() {
 			updateWindowToolbarButtons(winToolbarData.strip, winToolbarData.registeredBtns)
