@@ -2059,7 +2059,8 @@ func applyMenuCSS(isDark bool) {
 				background-color: transparent;
 			}
 			menuitem:hover {
-				background-color: #505a6a;
+				background-color: #4a4a4a;
+				box-shadow: inset 0 0 0 1px #888888;
 			}
 		`
 	} else {
@@ -2085,7 +2086,8 @@ func applyMenuCSS(isDark bool) {
 				background-color: transparent;
 			}
 			menuitem:hover {
-				background-color: #cce8ff;
+				background-color: #e5f3ff;
+				box-shadow: inset 0 0 0 1px #6699cc;
 			}
 		`
 	}
