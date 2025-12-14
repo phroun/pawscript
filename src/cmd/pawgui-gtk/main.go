@@ -486,7 +486,10 @@ func showSettingsDialog(parent gtk.IWindow) {
 		windowThemeSelected = 0 // Auto
 	}
 
-	windowThemeCombo := createSettingsComboMenu([]string{"Auto", "Light", "Dark"}, windowThemeSelected, func(idx int) {
+	// Declare both combos so they can reference each other for icon refresh
+	var windowThemeCombo, consoleThemeCombo *SettingsComboMenu
+
+	windowThemeCombo = createSettingsComboMenu([]string{"Auto", "Light", "Dark"}, windowThemeSelected, func(idx int) {
 		switch idx {
 		case 1:
 			appConfig.Set("theme", "light")
@@ -497,6 +500,11 @@ func showSettingsDialog(parent gtk.IWindow) {
 		}
 		configHelper = pawgui.NewConfigHelper(appConfig)
 		applyWindowTheme()
+		// Refresh icons in both combos to match new theme
+		windowThemeCombo.RefreshIcons()
+		if consoleThemeCombo != nil {
+			consoleThemeCombo.RefreshIcons()
+		}
 	})
 	windowThemeRow.PackStart(windowThemeCombo.Button, true, true, 0)
 	appearanceBox.PackStart(windowThemeRow, false, false, 0)
@@ -520,7 +528,7 @@ func showSettingsDialog(parent gtk.IWindow) {
 		consoleThemeSelected = 0 // Auto
 	}
 
-	consoleThemeCombo := createSettingsComboMenu([]string{"Auto", "Light", "Dark"}, consoleThemeSelected, func(idx int) {
+	consoleThemeCombo = createSettingsComboMenu([]string{"Auto", "Light", "Dark"}, consoleThemeSelected, func(idx int) {
 		switch idx {
 		case 1:
 			appConfig.Set("term_theme", "light")
@@ -1880,6 +1888,14 @@ func (c *SettingsComboMenu) GetSelected() int {
 	return c.selected
 }
 
+// RefreshIcons updates all icons in the menu to match the current theme
+func (c *SettingsComboMenu) RefreshIcons() {
+	// Only need to refresh the selected item's icon since unselected items don't have icons
+	if c.selected >= 0 && c.selected < len(c.items) {
+		c.updateMenuItem(c.selected, true)
+	}
+}
+
 // applyToolbarButtonStyle applies CSS to make toolbar buttons square with equal padding
 // forVerticalStrip: true for buttons in the vertical toolbar strip (need more top/bottom)
 //
@@ -2239,6 +2255,14 @@ func applyMenuCSS(isDark bool) {
 				background-color: #4a4a4a;
 				box-shadow: inset 0 0 0 1px #888888;
 			}
+			separator {
+				margin-left: 57px;
+				margin-right: 8px;
+				margin-top: 4px;
+				margin-bottom: 4px;
+				background-color: #555555;
+				min-height: 1px;
+			}
 		`
 	} else {
 		// Light theme: gutter gradient on menu background
@@ -2266,6 +2290,14 @@ func applyMenuCSS(isDark bool) {
 				background-color: #e5f3ff;
 				box-shadow: inset 0 0 0 1px #6699cc;
 				color: #000000;
+			}
+			separator {
+				margin-left: 57px;
+				margin-right: 8px;
+				margin-top: 4px;
+				margin-bottom: 4px;
+				background-color: #c0c0c0;
+				min-height: 1px;
 			}
 		`
 	}

@@ -651,7 +651,7 @@ type QtSettingsComboMenu struct {
 	onChange func(int)
 }
 
-// createQtSettingsComboMenu creates a styled combo menu with checkmark for selected item
+// createQtSettingsComboMenu creates a styled combo menu with check icon for selected item
 func createQtSettingsComboMenu(options []string, selected int, onChange func(int)) *QtSettingsComboMenu {
 	combo := &QtSettingsComboMenu{
 		options:  options,
@@ -666,14 +666,16 @@ func createQtSettingsComboMenu(options []string, selected int, onChange func(int
 	// Create menu for dropdown
 	combo.Menu = qt.NewQMenu2()
 
-	// Create checkable actions for each option
+	// Create actions with icon for selected item
 	combo.actions = make([]*qt.QAction, len(options))
 	for i, option := range options {
 		idx := i // Capture for closure
 		action := combo.Menu.AddAction(option)
-		action.SetCheckable(true)
+		// Set check icon only on the selected item
 		if i == selected {
-			action.SetChecked(true)
+			if icon := createIconFromSVG(checkedIconSVG, 16); icon != nil {
+				action.SetIcon(icon)
+			}
 		}
 		action.OnTriggered(func() {
 			combo.SetSelected(idx)
@@ -698,9 +700,9 @@ func (c *QtSettingsComboMenu) SetSelected(idx int) {
 		return
 	}
 
-	// Uncheck old selection
+	// Remove icon from old selection
 	if c.selected >= 0 && c.selected < len(c.actions) {
-		c.actions[c.selected].SetChecked(false)
+		c.actions[c.selected].SetIcon(qt.NewQIcon())
 	}
 
 	c.selected = idx
@@ -708,13 +710,24 @@ func (c *QtSettingsComboMenu) SetSelected(idx int) {
 	// Update button text
 	c.Button.SetText(c.options[idx])
 
-	// Check new selection
-	c.actions[idx].SetChecked(true)
+	// Set check icon on new selection
+	if icon := createIconFromSVG(checkedIconSVG, 16); icon != nil {
+		c.actions[idx].SetIcon(icon)
+	}
 }
 
 // GetSelected returns the currently selected index
 func (c *QtSettingsComboMenu) GetSelected() int {
 	return c.selected
+}
+
+// RefreshIcons updates the selected item's icon to match the current theme
+func (c *QtSettingsComboMenu) RefreshIcons() {
+	if c.selected >= 0 && c.selected < len(c.actions) {
+		if icon := createIconFromSVG(checkedIconSVG, 16); icon != nil {
+			c.actions[c.selected].SetIcon(icon)
+		}
+	}
 }
 
 // showSettingsDialog displays the Settings dialog with tabbed interface
@@ -757,7 +770,10 @@ func showSettingsDialog(parent *qt.QWidget) {
 		windowThemeSelected = 0 // Auto
 	}
 
-	windowThemeCombo := createQtSettingsComboMenu([]string{"Auto", "Light", "Dark"}, windowThemeSelected, func(idx int) {
+	// Declare both combos so they can reference each other for icon refresh
+	var windowThemeCombo, consoleThemeCombo *QtSettingsComboMenu
+
+	windowThemeCombo = createQtSettingsComboMenu([]string{"Auto", "Light", "Dark"}, windowThemeSelected, func(idx int) {
 		switch idx {
 		case 1:
 			appConfig.Set("theme", "light")
@@ -768,6 +784,11 @@ func showSettingsDialog(parent *qt.QWidget) {
 		}
 		configHelper = pawgui.NewConfigHelper(appConfig)
 		applyTheme(configHelper.GetTheme())
+		// Refresh icons in both combos to match new theme
+		windowThemeCombo.RefreshIcons()
+		if consoleThemeCombo != nil {
+			consoleThemeCombo.RefreshIcons()
+		}
 	})
 	appearanceLayout.AddRow3("Window Theme:", windowThemeCombo.Button.QWidget)
 
@@ -783,7 +804,7 @@ func showSettingsDialog(parent *qt.QWidget) {
 		consoleThemeSelected = 0 // Auto
 	}
 
-	consoleThemeCombo := createQtSettingsComboMenu([]string{"Auto", "Light", "Dark"}, consoleThemeSelected, func(idx int) {
+	consoleThemeCombo = createQtSettingsComboMenu([]string{"Auto", "Light", "Dark"}, consoleThemeSelected, func(idx int) {
 		switch idx {
 		case 1:
 			appConfig.Set("term_theme", "light")
