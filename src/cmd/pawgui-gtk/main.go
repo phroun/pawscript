@@ -2510,6 +2510,11 @@ func activate(application *gtk.Application) {
 	rightPanel.SetMarginStart(8) // 8 pixel spacer from divider
 	launcherPaned.Pack2(rightPanel, true, false)
 
+	// Update launcher menu context with the terminal (needed for Save Scrollback/Restore Buffer)
+	if launcherMenuCtx != nil {
+		launcherMenuCtx.Terminal = terminal
+	}
+
 	// Save launcher width when user adjusts the splitter
 	// Implement multi-stage collapse:
 	// - Wide + narrow mode: when pos >= minWidePanelWidth + minNarrowStripWidth
