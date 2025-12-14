@@ -237,6 +237,57 @@ func saveLauncherWidth(width int) {
 	saveConfig(appConfig)
 }
 
+// getLauncherPosition returns the saved launcher window position (x, y)
+func getLauncherPosition() (int, int) {
+	if v, ok := appConfig["launcher_position"]; ok {
+		if list, ok := v.([]interface{}); ok && len(list) >= 2 {
+			x := toInt(list[0])
+			y := toInt(list[1])
+			return x, y
+		}
+	}
+	return -1, -1 // -1 means not set (let window manager decide)
+}
+
+// saveLauncherPosition saves the launcher window position to config
+func saveLauncherPosition(x, y int) {
+	appConfig.Set("launcher_position", []interface{}{x, y})
+	saveConfig(appConfig)
+}
+
+// getLauncherSize returns the saved launcher window size (width, height)
+func getLauncherSize() (int, int) {
+	if v, ok := appConfig["launcher_size"]; ok {
+		if list, ok := v.([]interface{}); ok && len(list) >= 2 {
+			w := toInt(list[0])
+			h := toInt(list[1])
+			if w > 0 && h > 0 {
+				return w, h
+			}
+		}
+	}
+	return 1100, 700 // Default size
+}
+
+// saveLauncherSize saves the launcher window size to config
+func saveLauncherSize(width, height int) {
+	appConfig.Set("launcher_size", []interface{}{width, height})
+	saveConfig(appConfig)
+}
+
+// toInt converts an interface{} to int
+func toInt(v interface{}) int {
+	switch n := v.(type) {
+	case int:
+		return n
+	case int64:
+		return int(n)
+	case float64:
+		return int(n)
+	}
+	return 0
+}
+
 // getHomeDir returns the user's home directory
 func getHomeDir() string {
 	if home, err := os.UserHomeDir(); err == nil {
@@ -564,6 +615,20 @@ func applyWindowTheme() {
 		// Auto: use system preference (reset to default)
 		// GTK will follow system preference when not explicitly set
 		settings.SetProperty("gtk-application-prefer-dark-theme", false)
+	}
+
+	// Update toolbar icons to match new theme colors
+	updateToolbarIcons()
+}
+
+// updateToolbarIcons regenerates all toolbar icons with the current theme's colors
+func updateToolbarIcons() {
+	// Update launcher hamburger button
+	if launcherStripMenuBtn != nil {
+		svgData := getSVGIcon(hamburgerIconSVG)
+		if img := createImageFromSVG(svgData, 24); img != nil {
+			launcherStripMenuBtn.SetImage(img)
+		}
 	}
 }
 
@@ -2594,7 +2659,67 @@ func activate(application *gtk.Application) {
 		return
 	}
 	mainWindow.SetTitle(appName)
-	mainWindow.SetDefaultSize(1100, 700)
+
+	// Get screen dimensions for bounds checking
+	display, _ := gdk.DisplayGetDefault()
+	monitor := display.GetPrimaryMonitor()
+	geometry := monitor.GetGeometry()
+	screenWidth := geometry.GetWidth()
+	screenHeight := geometry.GetHeight()
+
+	// Load saved size, validate against screen bounds
+	savedWidth, savedHeight := getLauncherSize()
+	if savedWidth > screenWidth {
+		savedWidth = screenWidth
+	}
+	if savedHeight > screenHeight {
+		savedHeight = screenHeight
+	}
+	if savedWidth < 400 {
+		savedWidth = 400
+	}
+	if savedHeight < 300 {
+		savedHeight = 300
+	}
+	mainWindow.SetDefaultSize(savedWidth, savedHeight)
+
+	// Load saved position, validate to ensure window is on screen
+	savedX, savedY := getLauncherPosition()
+	if savedX >= 0 && savedY >= 0 {
+		// Ensure at least 100px of window is visible on screen
+		if savedX > screenWidth-100 {
+			savedX = screenWidth - 100
+		}
+		if savedY > screenHeight-100 {
+			savedY = screenHeight - 100
+		}
+		if savedX < 0 {
+			savedX = 0
+		}
+		if savedY < 0 {
+			savedY = 0
+		}
+		mainWindow.Move(savedX, savedY)
+	}
+
+	// Track window position and size changes
+	var lastX, lastY, lastWidth, lastHeight int
+	mainWindow.Connect("configure-event", func(win *gtk.ApplicationWindow, event *gdk.Event) bool {
+		// Get current position and size
+		x, y := win.GetPosition()
+		w, h := win.GetSize()
+
+		// Save if changed (debounce by checking for actual changes)
+		if x != lastX || y != lastY {
+			lastX, lastY = x, y
+			saveLauncherPosition(x, y)
+		}
+		if w != lastWidth || h != lastHeight {
+			lastWidth, lastHeight = w, h
+			saveLauncherSize(w, h)
+		}
+		return false // Continue event propagation
+	})
 
 	// Apply CSS for UI scaling (base size 10px, scaled by ui_scale config)
 	// GTK uses 0.8x the config scale to match visual appearance with Qt

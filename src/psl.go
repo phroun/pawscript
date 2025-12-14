@@ -3,6 +3,19 @@ package pawscript
 // PSL (PawScript Serialized List) format helpers
 // These functions use the existing PawScript parser and serialization,
 // providing a simple interface without needing a full PawScript environment.
+//
+// ============================================================================
+// WARNING: DO NOT MODIFY THIS FILE OR ADD NEW METHODS
+// ============================================================================
+// The PSL format is an established serialization format. The API defined here
+// is stable and intentionally minimal. Do not add new methods to PSLConfig or
+// modify the serialization/parsing behavior.
+//
+// If you need custom parsing logic (e.g., reading lists of integers), implement
+// that logic locally in your own code by accessing the map directly and type
+// asserting the values. PSL already supports nested lists with positional and
+// named items - use the existing capabilities rather than extending the API.
+// ============================================================================
 
 import (
 	"fmt"
@@ -12,6 +25,7 @@ import (
 
 // PSLConfig holds a key-value map for configuration data
 // Keys are strings, values can be strings, ints, floats, bools, nil, or nested structures
+// DO NOT ADD NEW METHODS - see warning at top of file
 type PSLConfig map[string]interface{}
 
 // PSLList holds an ordered list of items
