@@ -1714,6 +1714,17 @@ const checkedIconSVG = `<svg width="48" height="48" viewBox="0 0 12.7 12.7" xmln
   <path style="fill:none;stroke:{{FILL}};stroke-width:2.25;stroke-linecap:round;stroke-linejoin:round" d="M 3.3162955,7.1623081 5.7369373,9.2379784 10.237921,3.5516806"/>
 </svg>`
 
+const folderUpIconSVG = `<svg width="48" height="48" viewBox="0 0 12.7 12.7" xmlns="http://www.w3.org/2000/svg">
+  <path style="fill:{{FILL}};stroke-linecap:round;stroke-linejoin:round" d="M 1.9065339,1.7962728 C 1.5842088,1.7963101 1.2979459,2.0022696 1.1954661,2.3078695 L 0.5663737,3.8958863 c -0.0256507,0.07611 -0.038911,0.1558459 -0.0392741,0.2361613 v 6.7556604 c -1.4756e-4,0.414463 0.33587832,0.750489 0.75034179,0.750342 h 8.8397706 c 0.337275,-3.16e-4 0.632863,-0.225708 0.722436,-0.550871 l 1.588017,-5.7557214 c 0.02486,-0.092219 0.03187,-0.1883361 0.02067,-0.2831869 -0.01456,0.00205 -0.02923,0.00326 -0.04392,0.00362 H 4.0664185 L 2.4861532,10.456009 C 2.4269087,10.657739 2.2159526,10.773834 2.0138306,10.715942 1.8099565,10.657629 1.6924277,10.444594 1.7518311,10.241035 L 3.4121948,4.5617955 C 3.459762,4.3986948 3.609202,4.2865095 3.7790975,4.2863601 H 11.39672 V 4.1318476 C 11.396582,3.7175863 11.06064,3.3818756 10.646379,3.3820225 H 6.4021932 L 5.0642904,2.0203486 C 4.9232898,1.87690 4.7305827,1.7960934 4.5294393,1.7962728 Z"/>
+  <path style="fill:{{FILL}};stroke-linecap:round;stroke-linejoin:round" d="m 8.9958333,8.7312494 -2.6458333,-2.91041 -2.6458333,2.91041"/>
+</svg>`
+
+const pawFileIconSVG = `<svg width="48" height="48" viewBox="0 0 12.7 12.7" xmlns="http://www.w3.org/2000/svg">
+  <path style="fill:#fafafa;stroke:#002b36;stroke-width:0.75;stroke-linecap:round;stroke-linejoin:round" d="M 2.6458333,11.906249 V 0.79375 h 5.0270833 l 2.38125,2.38125 v 8.73125 z"/>
+  <path style="fill:none;stroke:#002b36;stroke-width:0.75;stroke-linecap:round;stroke-linejoin:round" d="m 7.6729166,0.79375 v 2.38125 h 2.38125"/>
+  <text style="font-size:7.05556px;fill:#77abbe;stroke:none;font-family:sans-serif;font-weight:bold" x="3.7041667" y="9.5249996">?</text>
+</svg>`
+
 // getIconFillColor returns the appropriate icon fill color based on applied theme
 func getIconFillColor() string {
 	if appliedThemeIsDark {
@@ -4119,17 +4130,18 @@ func createFileRow(name string, isDir bool, isParent bool) *gtk.ListBoxRow {
 	box.SetMarginTop(2)
 	box.SetMarginBottom(2)
 
-	// Use GTK icons from Adwaita theme
-	var iconName string
+	// Use custom SVG icons
+	var svgTemplate string
 	if isParent {
-		iconName = "go-up"
+		svgTemplate = folderUpIconSVG
 	} else if isDir {
-		iconName = "folder"
+		svgTemplate = folderIconSVG
 	} else {
-		iconName = "text-x-generic"
+		svgTemplate = pawFileIconSVG
 	}
-	icon, err := gtk.ImageNewFromIconName(iconName, gtk.ICON_SIZE_LARGE_TOOLBAR)
-	if err == nil {
+	// Get themed SVG (applies {{FILL}} replacement for theme-aware icons)
+	svgData := getSVGIcon(svgTemplate)
+	if icon := createImageFromSVG(svgData, 24); icon != nil {
 		box.PackStart(icon, false, false, 0)
 	}
 
