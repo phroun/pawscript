@@ -2255,7 +2255,7 @@ func applyMenuCSS(isDark bool) {
 				background-color: #4a4a4a;
 				box-shadow: inset 0 0 0 1px #888888;
 			}
-			separator {
+			menu separator {
 				margin-left: 57px;
 				margin-right: 8px;
 				margin-top: 4px;
@@ -2291,7 +2291,7 @@ func applyMenuCSS(isDark bool) {
 				box-shadow: inset 0 0 0 1px #6699cc;
 				color: #000000;
 			}
-			separator {
+			menu separator {
 				margin-left: 57px;
 				margin-right: 8px;
 				margin-top: 4px;
