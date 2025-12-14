@@ -316,11 +316,6 @@ func NewWidget(cols, rows, scrollbackSize int) *Widget {
 		w.SelectAll()
 	})
 
-	clearAction := w.contextMenu.AddAction("Clear")
-	clearAction.OnTriggered(func() {
-		w.Clear()
-	})
-
 	// Enable context menu policy for right-click
 	w.widget.SetContextMenuPolicy(qt.CustomContextMenu)
 	w.widget.OnCustomContextMenuRequested(func(pos *qt.QPoint) {
