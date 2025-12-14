@@ -1634,12 +1634,15 @@ func (w *Widget) paintEvent(event *qt.QPaintEvent) {
 
 				// Create the appropriate font for this character
 				var drawFont *qt.QFont
-				if charFontFamily != fontFamily || cell.Bold {
-					// Need a different font - either fallback or bold
+				if charFontFamily != fontFamily || cell.Bold || cell.Italic {
+					// Need a different font - either fallback, bold, or italic
 					drawFont = qt.NewQFont6(charFontFamily, fontSize)
 					drawFont.SetFixedPitch(charFontFamily == fontFamily) // Only fix pitch for main font
 					if cell.Bold {
 						drawFont.SetBold(true)
+					}
+					if cell.Italic {
+						drawFont.SetItalic(true)
 					}
 					painter.SetFont(drawFont)
 				} else {
@@ -1753,8 +1756,8 @@ func (w *Widget) paintEvent(event *qt.QPaintEvent) {
 					painter.Restore()
 				}
 
-				// Restore main font if we changed it (for bold or fallback)
-				if charFontFamily != fontFamily || cell.Bold {
+				// Restore main font if we changed it (for bold, italic, or fallback)
+				if charFontFamily != fontFamily || cell.Bold || cell.Italic {
 					painter.SetFont(font)
 				}
 			}
