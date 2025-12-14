@@ -1945,19 +1945,82 @@ func (w *Widget) onDraw(da *gtk.DrawingArea, cr *cairo.Context) bool {
 			}
 		afterCharRender:
 
-			// Draw underline if needed
-			if cell.Underline {
-				cr.SetSourceRGB(
-					float64(fg.R)/255.0,
-					float64(fg.G)/255.0,
-					float64(fg.B)/255.0)
-				underlineY := cellY + cellH - 1
-				underlineH := 1.0
-				if lineAttr == purfecterm.LineAttrDoubleTop || lineAttr == purfecterm.LineAttrDoubleBottom {
-					underlineH = 2.0
+			// Draw underline if needed (with style support)
+			if cell.UnderlineStyle != purfecterm.UnderlineNone {
+				// Use underline color if set, otherwise use foreground color
+				ulColor := fg
+				if cell.HasUnderlineColor {
+					ulColor = w.resolveColor(cell.UnderlineColor, scheme)
 				}
-				cr.Rectangle(cellX, underlineY, cellW, underlineH)
-				cr.Fill()
+				cr.SetSourceRGB(
+					float64(ulColor.R)/255.0,
+					float64(ulColor.G)/255.0,
+					float64(ulColor.B)/255.0)
+
+				underlineY := cellY + cellH - 2
+				lineH := 1.0
+				if lineAttr == purfecterm.LineAttrDoubleTop || lineAttr == purfecterm.LineAttrDoubleBottom {
+					lineH = 2.0
+				}
+
+				switch cell.UnderlineStyle {
+				case purfecterm.UnderlineSingle:
+					cr.Rectangle(cellX, underlineY, cellW, lineH)
+					cr.Fill()
+
+				case purfecterm.UnderlineDouble:
+					// Two parallel lines
+					cr.Rectangle(cellX, underlineY-2, cellW, lineH)
+					cr.Fill()
+					cr.Rectangle(cellX, underlineY+1, cellW, lineH)
+					cr.Fill()
+
+				case purfecterm.UnderlineCurly:
+					// Sine wave: 2 cycles per single-width cell, 4 per double-width
+					// CellWidth is the visual width (1.0 for normal, 2.0 for wide)
+					numCycles := 2.0
+					if cell.CellWidth >= 2.0 {
+						numCycles = 4.0
+					}
+					amplitude := 1.5 * lineH
+					cr.SetLineWidth(lineH)
+					cr.MoveTo(cellX, underlineY)
+					steps := int(cellW / 2)
+					if steps < 4 {
+						steps = 4
+					}
+					for s := 0; s <= steps; s++ {
+						t := float64(s) / float64(steps)
+						x := cellX + t*cellW
+						y := underlineY + amplitude*math.Sin(t*numCycles*2*math.Pi)
+						cr.LineTo(x, y)
+					}
+					cr.Stroke()
+
+				case purfecterm.UnderlineDotted:
+					// Dotted line
+					cr.SetLineWidth(lineH)
+					dotSpacing := 3.0 * lineH
+					for x := cellX; x < cellX+cellW; x += dotSpacing {
+						cr.Rectangle(x, underlineY, lineH, lineH)
+					}
+					cr.Fill()
+
+				case purfecterm.UnderlineDashed:
+					// Dashed line
+					dashLen := 4.0 * lineH
+					gapLen := 2.0 * lineH
+					x := cellX
+					for x < cellX+cellW {
+						endX := x + dashLen
+						if endX > cellX+cellW {
+							endX = cellX + cellW
+						}
+						cr.Rectangle(x, underlineY, endX-x, lineH)
+						cr.Fill()
+						x += dashLen + gapLen
+					}
+				}
 			}
 
 			// Draw strikethrough if needed

@@ -1763,14 +1763,75 @@ func (w *Widget) paintEvent(event *qt.QPaintEvent) {
 			}
 		afterCharRenderQt:
 
-			// Draw underline
-			if cell.Underline {
-				fgQColor := qt.NewQColor3(int(fg.R), int(fg.G), int(fg.B))
-				underlineH := 1
-				if lineAttr == purfecterm.LineAttrDoubleTop || lineAttr == purfecterm.LineAttrDoubleBottom {
-					underlineH = 2
+			// Draw underline (with style support)
+			if cell.UnderlineStyle != purfecterm.UnderlineNone {
+				// Use underline color if set, otherwise use foreground color
+				ulColor := fg
+				if cell.HasUnderlineColor {
+					ulColor = w.resolveColor(cell.UnderlineColor, scheme)
 				}
-				painter.FillRect5(cellX, cellY+cellH-1, cellW, underlineH, fgQColor)
+				ulQColor := qt.NewQColor3(int(ulColor.R), int(ulColor.G), int(ulColor.B))
+
+				underlineY := cellY + cellH - 2
+				lineH := 1
+				if lineAttr == purfecterm.LineAttrDoubleTop || lineAttr == purfecterm.LineAttrDoubleBottom {
+					lineH = 2
+				}
+
+				switch cell.UnderlineStyle {
+				case purfecterm.UnderlineSingle:
+					painter.FillRect5(cellX, underlineY, cellW, lineH, ulQColor)
+
+				case purfecterm.UnderlineDouble:
+					// Two parallel lines
+					painter.FillRect5(cellX, underlineY-2, cellW, lineH, ulQColor)
+					painter.FillRect5(cellX, underlineY+1, cellW, lineH, ulQColor)
+
+				case purfecterm.UnderlineCurly:
+					// Sine wave: 2 cycles per single-width cell, 4 per double-width
+					numCycles := 2.0
+					if cell.CellWidth >= 2.0 {
+						numCycles = 4.0
+					}
+					amplitude := 1.5 * float64(lineH)
+					pen := qt.NewQPen3(ulQColor)
+					pen.SetWidth(lineH)
+					painter.SetPenWithPen(pen)
+					path := qt.NewQPainterPath()
+					path.MoveTo2(float64(cellX), float64(underlineY))
+					steps := cellW / 2
+					if steps < 4 {
+						steps = 4
+					}
+					for s := 0; s <= steps; s++ {
+						t := float64(s) / float64(steps)
+						x := float64(cellX) + t*float64(cellW)
+						y := float64(underlineY) + amplitude*math.Sin(t*numCycles*2*math.Pi)
+						path.LineTo2(x, y)
+					}
+					painter.DrawPathWithPath(path)
+
+				case purfecterm.UnderlineDotted:
+					// Dotted line
+					dotSpacing := 3 * lineH
+					for x := cellX; x < cellX+cellW; x += dotSpacing {
+						painter.FillRect5(x, underlineY, lineH, lineH, ulQColor)
+					}
+
+				case purfecterm.UnderlineDashed:
+					// Dashed line
+					dashLen := 4 * lineH
+					gapLen := 2 * lineH
+					x := cellX
+					for x < cellX+cellW {
+						endX := x + dashLen
+						if endX > cellX+cellW {
+							endX = cellX + cellW
+						}
+						painter.FillRect5(x, underlineY, endX-x, lineH, ulQColor)
+						x += dashLen + gapLen
+					}
+				}
 			}
 
 			// Draw strikethrough

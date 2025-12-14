@@ -126,6 +126,9 @@ type Buffer struct {
 	currentBold          bool
 	currentItalic        bool
 	currentUnderline     bool
+	currentUnderlineStyle UnderlineStyle
+	currentUnderlineColor Color
+	currentHasUnderlineColor bool
 	currentReverse       bool
 	currentBlink         bool
 	currentStrikethrough bool
@@ -1280,19 +1283,22 @@ func (b *Buffer) writeCharInternal(ch rune) {
 	}
 
 	cell := Cell{
-		Char:          ch,
-		Foreground:    fg,
-		Background:    bg,
-		Bold:          b.currentBold,
-		Italic:        b.currentItalic,
-		Underline:     b.currentUnderline,
-		Reverse:       b.currentReverse,
-		Blink:         b.currentBlink,
-		Strikethrough: b.currentStrikethrough,
-		FlexWidth:     b.currentFlexWidth,
-		BGP:           b.currentBGP,
-		XFlip:         b.currentXFlip,
-		YFlip:         b.currentYFlip,
+		Char:              ch,
+		Foreground:        fg,
+		Background:        bg,
+		Bold:              b.currentBold,
+		Italic:            b.currentItalic,
+		Underline:         b.currentUnderline,
+		UnderlineStyle:    b.currentUnderlineStyle,
+		UnderlineColor:    b.currentUnderlineColor,
+		HasUnderlineColor: b.currentHasUnderlineColor,
+		Reverse:           b.currentReverse,
+		Blink:             b.currentBlink,
+		Strikethrough:     b.currentStrikethrough,
+		FlexWidth:         b.currentFlexWidth,
+		BGP:               b.currentBGP,
+		XFlip:             b.currentXFlip,
+		YFlip:             b.currentYFlip,
 	}
 
 	// Use the calculated charWidth (already accounts for custom glyphs and ambiguous width mode)
@@ -1650,6 +1656,8 @@ func (b *Buffer) ResetAttributes() {
 	b.currentBold = false
 	b.currentItalic = false
 	b.currentUnderline = false
+	b.currentUnderlineStyle = UnderlineNone
+	b.currentHasUnderlineColor = false
 	b.currentReverse = false
 	b.currentBlink = false
 	b.currentStrikethrough = false
@@ -1683,11 +1691,39 @@ func (b *Buffer) SetItalic(italic bool) {
 	b.currentItalic = italic
 }
 
-// SetUnderline sets underline attribute
+// SetUnderline sets underline attribute (single underline style)
 func (b *Buffer) SetUnderline(underline bool) {
 	b.mu.Lock()
 	defer b.mu.Unlock()
 	b.currentUnderline = underline
+	if underline {
+		b.currentUnderlineStyle = UnderlineSingle
+	} else {
+		b.currentUnderlineStyle = UnderlineNone
+	}
+}
+
+// SetUnderlineStyle sets the underline style (also sets Underline bool for compatibility)
+func (b *Buffer) SetUnderlineStyle(style UnderlineStyle) {
+	b.mu.Lock()
+	defer b.mu.Unlock()
+	b.currentUnderlineStyle = style
+	b.currentUnderline = (style != UnderlineNone)
+}
+
+// SetUnderlineColor sets the underline color
+func (b *Buffer) SetUnderlineColor(color Color) {
+	b.mu.Lock()
+	defer b.mu.Unlock()
+	b.currentUnderlineColor = color
+	b.currentHasUnderlineColor = true
+}
+
+// ResetUnderlineColor resets underline color to use foreground color
+func (b *Buffer) ResetUnderlineColor() {
+	b.mu.Lock()
+	defer b.mu.Unlock()
+	b.currentHasUnderlineColor = false
 }
 
 // SetReverse sets reverse video attribute
