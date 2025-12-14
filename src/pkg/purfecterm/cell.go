@@ -1,22 +1,37 @@
 package purfecterm
 
+// UnderlineStyle represents different underline rendering styles
+type UnderlineStyle int
+
+const (
+	UnderlineNone   UnderlineStyle = iota // No underline
+	UnderlineSingle                       // Single straight underline (default)
+	UnderlineDouble                       // Double underline
+	UnderlineCurly                        // Curly/wavy underline
+	UnderlineDotted                       // Dotted underline
+	UnderlineDashed                       // Dashed underline
+)
+
 // Cell represents a single character cell in the terminal
 type Cell struct {
-	Char          rune    // Base character
-	Combining     string  // Combining marks (vowel points, diacritics, etc.)
-	Foreground    Color
-	Background    Color
-	Bold          bool
-	Italic        bool
-	Underline     bool
-	Reverse       bool
-	Blink         bool    // When true, character animates (bobbing wave instead of traditional blink)
-	Strikethrough bool    // When true, draw a line through the character
-	FlexWidth     bool    // When true, cell uses East Asian Width for variable width rendering
-	CellWidth     float64 // Visual width in cell units (0.5, 1.0, 1.5, 2.0) - only used when FlexWidth is true
-	BGP           int     // Base Glyph Palette index (-1 = use foreground color code as palette)
-	XFlip         bool    // Horizontal flip for custom glyphs
-	YFlip         bool    // Vertical flip for custom glyphs
+	Char           rune           // Base character
+	Combining      string         // Combining marks (vowel points, diacritics, etc.)
+	Foreground     Color
+	Background     Color
+	Bold           bool
+	Italic         bool
+	Underline      bool           // Legacy: true if any underline style is active
+	UnderlineStyle UnderlineStyle // Underline style (None, Single, Double, Curly, Dotted, Dashed)
+	UnderlineColor Color          // Underline color (if set; use HasUnderlineColor to check)
+	HasUnderlineColor bool        // True if UnderlineColor is explicitly set
+	Reverse        bool
+	Blink          bool    // When true, character animates (bobbing wave instead of traditional blink)
+	Strikethrough  bool    // When true, draw a line through the character
+	FlexWidth      bool    // When true, cell uses East Asian Width for variable width rendering
+	CellWidth      float64 // Visual width in cell units (0.5, 1.0, 1.5, 2.0) - only used when FlexWidth is true
+	BGP            int     // Base Glyph Palette index (-1 = use foreground color code as palette)
+	XFlip          bool    // Horizontal flip for custom glyphs
+	YFlip          bool    // Vertical flip for custom glyphs
 }
 
 // String returns the full character including any combining marks

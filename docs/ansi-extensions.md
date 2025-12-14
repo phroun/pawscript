@@ -84,13 +84,21 @@ Control screen cropping and define split regions for multi-region rendering.
 
 Standard SGR (Select Graphic Rendition) via `ESC [ <params> m`:
 
+**Subparameter Syntax:** Parameters can include subparameters separated by colons (`:`) instead of semicolons. For example, `4:3` specifies underline style 3 (curly) as a single parameter, while `4;3` would be two separate parameters. Subparameters are used for extended color and underline specifications.
+
 | Param | Description |
 |-------|-------------|
 | 0 | Reset all attributes |
 | 1 | Bold |
 | 2 | Dim (treated as not bold) |
 | 3 | Italic |
-| 4 | Underline |
+| 4 | Underline (single) |
+| 4:0 | Underline off |
+| 4:1 | Single underline |
+| 4:2 | Double underline |
+| 4:3 | Curly/wavy underline |
+| 4:4 | Dotted underline |
+| 4:5 | Dashed underline |
 | 5 | Blink |
 | 7 | Reverse video |
 | 9 | Strikethrough |
@@ -109,6 +117,9 @@ Standard SGR (Select Graphic Rendition) via `ESC [ <params> m`:
 | 48;5;N | 256-color background |
 | 48;2;R;G;B | 24-bit RGB background |
 | 49 | Default background |
+| 58:5:N | 256-color underline |
+| 58:2::R:G:B | 24-bit RGB underline (note empty colorspace) |
+| 59 | Default underline color (use foreground) |
 | 90-97 | Bright foreground colors |
 | 100-107 | Bright background colors |
 

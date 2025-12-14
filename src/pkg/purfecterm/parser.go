@@ -19,6 +19,13 @@ const (
 	stateDECLineAttr             // After ESC # (waiting for line attribute command)
 )
 
+// SGRParam represents an SGR parameter with optional subparameters
+// For example, "38:2:255:128:0" becomes {Base: 38, Subs: [2, 255, 128, 0]}
+type SGRParam struct {
+	Base int   // Primary parameter value
+	Subs []int // Subparameters (colon-separated values after the base)
+}
+
 // Parser parses ANSI escape sequences and updates a Buffer
 type Parser struct {
 	buffer *Buffer
@@ -26,8 +33,9 @@ type Parser struct {
 
 	// CSI sequence accumulator
 	csiParams       []int
-	csiPrivate      byte // For private sequences like ?25h
-	csiIntermediate byte // For sequences with intermediate bytes like DECSCUSR (SP q)
+	csiRawParams    []string // Raw parameter strings for subparameter parsing
+	csiPrivate      byte     // For private sequences like ?25h
+	csiIntermediate byte     // For sequences with intermediate bytes like DECSCUSR (SP q)
 	csiBuf          strings.Builder
 
 	// OSC accumulator
@@ -165,6 +173,7 @@ func (p *Parser) handleEscape(b byte) {
 	case '[': // CSI - Control Sequence Introducer
 		p.state = stateCSI
 		p.csiParams = p.csiParams[:0]
+		p.csiRawParams = p.csiRawParams[:0]
 		p.csiPrivate = 0
 		p.csiIntermediate = 0
 		p.csiBuf.Reset()
@@ -294,10 +303,38 @@ func (p *Parser) parseCSIParam() {
 	s := p.csiBuf.String()
 	if s == "" {
 		p.csiParams = append(p.csiParams, 0) // Default value
+		p.csiRawParams = append(p.csiRawParams, "")
 	} else {
-		n, _ := strconv.Atoi(s)
+		// Store raw string for subparameter parsing
+		p.csiRawParams = append(p.csiRawParams, s)
+		// For legacy int params, extract base value (before any colon)
+		base := s
+		if colonIdx := strings.IndexByte(s, ':'); colonIdx >= 0 {
+			base = s[:colonIdx]
+		}
+		n, _ := strconv.Atoi(base)
 		p.csiParams = append(p.csiParams, n)
 	}
+}
+
+// parseSGRParam parses a raw parameter string into an SGRParam with subparameters
+func parseSGRParam(raw string) SGRParam {
+	if raw == "" {
+		return SGRParam{Base: 0}
+	}
+	parts := strings.Split(raw, ":")
+	base, _ := strconv.Atoi(parts[0])
+	var subs []int
+	for i := 1; i < len(parts); i++ {
+		if parts[i] == "" {
+			// Empty subparameter (e.g., "58:2::255:0:0" has empty colorspace)
+			subs = append(subs, -1) // Use -1 to indicate empty/default
+		} else {
+			n, _ := strconv.Atoi(parts[i])
+			subs = append(subs, n)
+		}
+	}
+	return SGRParam{Base: base, Subs: subs}
 }
 
 func (p *Parser) getParam(idx, defaultVal int) int {
@@ -523,8 +560,34 @@ func (p *Parser) executeSGR() {
 			p.buffer.SetBold(false)
 		case 3: // Italic
 			p.buffer.SetItalic(true)
-		case 4: // Underline
-			p.buffer.SetUnderline(true)
+		case 4: // Underline (with optional subparameter for style)
+			// Check for subparameters: 4:0=off, 4:1=single, 4:2=double, 4:3=curly, 4:4=dotted, 4:5=dashed
+			if i < len(p.csiRawParams) {
+				sgr := parseSGRParam(p.csiRawParams[i])
+				if len(sgr.Subs) > 0 {
+					switch sgr.Subs[0] {
+					case 0:
+						p.buffer.SetUnderlineStyle(UnderlineNone)
+					case 1:
+						p.buffer.SetUnderlineStyle(UnderlineSingle)
+					case 2:
+						p.buffer.SetUnderlineStyle(UnderlineDouble)
+					case 3:
+						p.buffer.SetUnderlineStyle(UnderlineCurly)
+					case 4:
+						p.buffer.SetUnderlineStyle(UnderlineDotted)
+					case 5:
+						p.buffer.SetUnderlineStyle(UnderlineDashed)
+					default:
+						p.buffer.SetUnderlineStyle(UnderlineSingle)
+					}
+				} else {
+					// Plain SGR 4 = single underline
+					p.buffer.SetUnderlineStyle(UnderlineSingle)
+				}
+			} else {
+				p.buffer.SetUnderlineStyle(UnderlineSingle)
+			}
 		case 5, 6: // Blink (slow=5, rapid=6) - rendered as bobbing wave animation
 			p.buffer.SetBlink(true)
 		case 7: // Reverse video
@@ -538,7 +601,7 @@ func (p *Parser) executeSGR() {
 		case 23: // Italic off
 			p.buffer.SetItalic(false)
 		case 24: // Underline off
-			p.buffer.SetUnderline(false)
+			p.buffer.SetUnderlineStyle(UnderlineNone)
 		case 25: // Blink off
 			p.buffer.SetBlink(false)
 		case 27: // Reverse off
@@ -563,12 +626,42 @@ func (p *Parser) executeSGR() {
 			p.buffer.SetBackground(StandardColor(param - 100 + 8))
 
 		case 38: // Extended foreground color
-			if i+2 < len(p.csiParams) && p.csiParams[i+1] == 5 {
-				// 256-color mode: ESC[38;5;Nm
+			// Check for subparameter format first: 38:5:N or 38:2::R:G:B
+			if i < len(p.csiRawParams) {
+				sgr := parseSGRParam(p.csiRawParams[i])
+				if len(sgr.Subs) >= 2 && sgr.Subs[0] == 5 {
+					// Subparam format: 38:5:N
+					p.buffer.SetForeground(PaletteColor(sgr.Subs[1]))
+				} else if len(sgr.Subs) >= 4 && sgr.Subs[0] == 2 {
+					// Subparam format: 38:2:[colorspace]:R:G:B (colorspace is often empty/-1)
+					// subs[0]=2, subs[1]=colorspace/-1, subs[2]=R, subs[3]=G, subs[4]=B
+					r, g, b := 0, 0, 0
+					if len(sgr.Subs) >= 5 {
+						r, g, b = sgr.Subs[2], sgr.Subs[3], sgr.Subs[4]
+					} else {
+						// No colorspace: 38:2:R:G:B
+						r, g, b = sgr.Subs[1], sgr.Subs[2], sgr.Subs[3]
+					}
+					p.buffer.SetForeground(TrueColor(uint8(r), uint8(g), uint8(b)))
+				} else if i+2 < len(p.csiParams) && p.csiParams[i+1] == 5 {
+					// Semicolon format: 38;5;N
+					p.buffer.SetForeground(PaletteColor(p.csiParams[i+2]))
+					i += 2
+				} else if i+4 < len(p.csiParams) && p.csiParams[i+1] == 2 {
+					// Semicolon format: 38;2;R;G;B
+					p.buffer.SetForeground(TrueColor(
+						uint8(p.csiParams[i+2]),
+						uint8(p.csiParams[i+3]),
+						uint8(p.csiParams[i+4]),
+					))
+					i += 4
+				}
+			} else if i+2 < len(p.csiParams) && p.csiParams[i+1] == 5 {
+				// Fallback semicolon format: 38;5;N
 				p.buffer.SetForeground(PaletteColor(p.csiParams[i+2]))
 				i += 2
 			} else if i+4 < len(p.csiParams) && p.csiParams[i+1] == 2 {
-				// True color mode: ESC[38;2;R;G;Bm
+				// Fallback semicolon format: 38;2;R;G;B
 				p.buffer.SetForeground(TrueColor(
 					uint8(p.csiParams[i+2]),
 					uint8(p.csiParams[i+3]),
@@ -581,12 +674,40 @@ func (p *Parser) executeSGR() {
 			p.buffer.SetForeground(DefaultForeground)
 
 		case 48: // Extended background color
-			if i+2 < len(p.csiParams) && p.csiParams[i+1] == 5 {
-				// 256-color mode: ESC[48;5;Nm
+			// Check for subparameter format first: 48:5:N or 48:2::R:G:B
+			if i < len(p.csiRawParams) {
+				sgr := parseSGRParam(p.csiRawParams[i])
+				if len(sgr.Subs) >= 2 && sgr.Subs[0] == 5 {
+					// Subparam format: 48:5:N
+					p.buffer.SetBackground(PaletteColor(sgr.Subs[1]))
+				} else if len(sgr.Subs) >= 4 && sgr.Subs[0] == 2 {
+					// Subparam format: 48:2:[colorspace]:R:G:B
+					r, g, b := 0, 0, 0
+					if len(sgr.Subs) >= 5 {
+						r, g, b = sgr.Subs[2], sgr.Subs[3], sgr.Subs[4]
+					} else {
+						r, g, b = sgr.Subs[1], sgr.Subs[2], sgr.Subs[3]
+					}
+					p.buffer.SetBackground(TrueColor(uint8(r), uint8(g), uint8(b)))
+				} else if i+2 < len(p.csiParams) && p.csiParams[i+1] == 5 {
+					// Semicolon format: 48;5;N
+					p.buffer.SetBackground(PaletteColor(p.csiParams[i+2]))
+					i += 2
+				} else if i+4 < len(p.csiParams) && p.csiParams[i+1] == 2 {
+					// Semicolon format: 48;2;R;G;B
+					p.buffer.SetBackground(TrueColor(
+						uint8(p.csiParams[i+2]),
+						uint8(p.csiParams[i+3]),
+						uint8(p.csiParams[i+4]),
+					))
+					i += 4
+				}
+			} else if i+2 < len(p.csiParams) && p.csiParams[i+1] == 5 {
+				// Fallback semicolon format: 48;5;N
 				p.buffer.SetBackground(PaletteColor(p.csiParams[i+2]))
 				i += 2
 			} else if i+4 < len(p.csiParams) && p.csiParams[i+1] == 2 {
-				// True color mode: ESC[48;2;R;G;Bm
+				// Fallback semicolon format: 48;2;R;G;B
 				p.buffer.SetBackground(TrueColor(
 					uint8(p.csiParams[i+2]),
 					uint8(p.csiParams[i+3]),
@@ -597,6 +718,28 @@ func (p *Parser) executeSGR() {
 
 		case 49: // Default background
 			p.buffer.SetBackground(DefaultBackground)
+
+		case 58: // Underline color
+			// Check for subparameter format: 58:5:N or 58:2::R:G:B
+			if i < len(p.csiRawParams) {
+				sgr := parseSGRParam(p.csiRawParams[i])
+				if len(sgr.Subs) >= 2 && sgr.Subs[0] == 5 {
+					// Subparam format: 58:5:N (256-color)
+					p.buffer.SetUnderlineColor(PaletteColor(sgr.Subs[1]))
+				} else if len(sgr.Subs) >= 4 && sgr.Subs[0] == 2 {
+					// Subparam format: 58:2:[colorspace]:R:G:B
+					r, g, b := 0, 0, 0
+					if len(sgr.Subs) >= 5 {
+						r, g, b = sgr.Subs[2], sgr.Subs[3], sgr.Subs[4]
+					} else {
+						r, g, b = sgr.Subs[1], sgr.Subs[2], sgr.Subs[3]
+					}
+					p.buffer.SetUnderlineColor(TrueColor(uint8(r), uint8(g), uint8(b)))
+				}
+			}
+
+		case 59: // Reset underline color (use foreground color)
+			p.buffer.ResetUnderlineColor()
 
 		// Custom glyph system - flip attributes
 		case 150: // Reset XFlip
