@@ -780,7 +780,7 @@ func pangoFontMetrics(fontFamily string, fontSize int) (ascent, descent, height 
 
 // pangoTextWidthStandalone returns the pixel width of text using a temporary surface.
 // Use this when no cairo context is available.
-func pangoTextWidthStandalone(text, fontFamily string, fontSize int, bold bool) int {
+func pangoTextWidthStandalone(text, fontFamily string, fontSize int, bold, italic bool) int {
 	cText := C.CString(text)
 	defer C.free(unsafe.Pointer(cText))
 
@@ -791,8 +791,12 @@ func pangoTextWidthStandalone(text, fontFamily string, fontSize int, bold bool) 
 	if bold {
 		boldInt = 1
 	}
+	italicInt := 0
+	if italic {
+		italicInt = 1
+	}
 
-	return int(C.pango_text_width_standalone(cText, cFont, C.int(fontSize), C.int(boldInt)))
+	return int(C.pango_text_width_standalone(cText, cFont, C.int(fontSize), C.int(boldInt), C.int(italicInt)))
 }
 
 // createCustomGlyphSurface renders a custom glyph to a cached Cairo surface.
@@ -1316,7 +1320,7 @@ func (w *Widget) updateFontMetrics() {
 	ascent, descent, height := pangoFontMetrics(w.fontFamily, w.fontSize)
 
 	// Get character width by measuring a typical character
-	charWidth := pangoTextWidthStandalone("M", w.fontFamily, w.fontSize, false)
+	charWidth := pangoTextWidthStandalone("M", w.fontFamily, w.fontSize, false, false)
 
 	w.charWidth = charWidth
 	w.charHeight = height
@@ -1953,6 +1957,22 @@ func (w *Widget) onDraw(da *gtk.DrawingArea, cr *cairo.Context) bool {
 					underlineH = 2.0
 				}
 				cr.Rectangle(cellX, underlineY, cellW, underlineH)
+				cr.Fill()
+			}
+
+			// Draw strikethrough if needed
+			if cell.Strikethrough {
+				cr.SetSourceRGB(
+					float64(fg.R)/255.0,
+					float64(fg.G)/255.0,
+					float64(fg.B)/255.0)
+				// Position at ~40% from top for good uppercase/lowercase compromise
+				strikeY := cellY + cellH*0.4
+				strikeH := 1.0
+				if lineAttr == purfecterm.LineAttrDoubleTop || lineAttr == purfecterm.LineAttrDoubleBottom {
+					strikeH = 2.0
+				}
+				cr.Rectangle(cellX, strikeY, cellW, strikeH)
 				cr.Fill()
 			}
 

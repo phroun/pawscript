@@ -1773,6 +1773,18 @@ func (w *Widget) paintEvent(event *qt.QPaintEvent) {
 				painter.FillRect5(cellX, cellY+cellH-1, cellW, underlineH, fgQColor)
 			}
 
+			// Draw strikethrough
+			if cell.Strikethrough {
+				fgQColor := qt.NewQColor3(int(fg.R), int(fg.G), int(fg.B))
+				strikeH := 1
+				if lineAttr == purfecterm.LineAttrDoubleTop || lineAttr == purfecterm.LineAttrDoubleBottom {
+					strikeH = 2
+				}
+				// Position at ~40% from top for good uppercase/lowercase compromise
+				strikeY := cellY + (cellH * 4 / 10)
+				painter.FillRect5(cellX, strikeY, cellW, strikeH, fgQColor)
+			}
+
 			// Draw cursor
 			if isCursor {
 				cursorQColor := qt.NewQColor3(int(scheme.Cursor.R), int(scheme.Cursor.G), int(scheme.Cursor.B))
