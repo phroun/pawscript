@@ -2102,14 +2102,14 @@ func launchGUIMode() {
 	launcherSplitter.AddWidget(rightPanel)
 
 	// Set initial splitter sizes using saved launcher width
-	// Note: savedWidth represents only the wide panel width (not including strip)
+	// Note: panelWidth represents only the wide panel width (not including strip)
 	// When buttons exist, we add strip width to get actual splitter position
-	savedWidth := getLauncherWidth()
+	panelWidth := getLauncherWidth()
 	hasMultipleButtons := len(launcherRegisteredBtns) > 0
-	initialWidth := savedWidth
-	if hasMultipleButtons && savedWidth > minNarrowStripWidth {
+	initialWidth := panelWidth
+	if hasMultipleButtons && panelWidth > minNarrowStripWidth {
 		// Wide mode with buttons: add strip width
-		initialWidth = savedWidth + minNarrowStripWidth
+		initialWidth = panelWidth + minNarrowStripWidth
 	}
 	launcherSplitter.SetSizes([]int{initialWidth, 900 - initialWidth})
 
