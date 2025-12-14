@@ -1612,11 +1612,30 @@ func registerDummyButtonCommand(ps *pawscript.PawScript, data *QtWindowToolbarDa
 	})
 }
 
+// isSystemDarkMode detects if the OS is currently using dark mode
+// by checking the system palette's window background color luminance
+func isSystemDarkMode() bool {
+	palette := qt.QGuiApplication_Palette()
+	windowColor := palette.ColorWithCr(qt.QPalette__Window)
+	// Calculate luminance using standard formula
+	luminance := 0.299*float64(windowColor.Red()) + 0.587*float64(windowColor.Green()) + 0.114*float64(windowColor.Blue())
+	return luminance < 128
+}
+
 // applyTheme sets the Qt application palette based on the configuration.
-// "auto" = let Qt/OS decide, "dark" = force dark palette, "light" = force light palette
+// "auto" = detect OS preference, "dark" = force dark palette, "light" = force light palette
 func applyTheme(theme pawgui.ThemeMode) {
 	if qtApp == nil {
 		return
+	}
+
+	// For Auto mode, detect OS preference and apply appropriate theme
+	if theme == pawgui.ThemeAuto {
+		if isSystemDarkMode() {
+			theme = pawgui.ThemeDark
+		} else {
+			theme = pawgui.ThemeLight
+		}
 	}
 
 	switch theme {
@@ -1842,10 +1861,6 @@ func applyTheme(theme pawgui.ThemeMode) {
 				margin: 4px 8px;
 			}
 		`)
-
-	case pawgui.ThemeAuto:
-		// Let Qt use the system default - clear any explicit stylesheet
-		qtApp.SetStyleSheet("")
 	}
 
 	// Re-apply UI scaling after theme change (theme replaces stylesheet)
