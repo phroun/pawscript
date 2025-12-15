@@ -142,7 +142,7 @@ const (
 
 // Scaled icon size helpers - these return values adjusted for current UI scale
 func scaledFileListIconSize() int {
-	return int(float64(scaledFileListIconSize()) * getUIScale())
+	return int(float64(gtkFileListIconSize) * getUIScale())
 }
 
 func scaledToolbarIconSize() int {
