@@ -203,14 +203,26 @@ func createDarkIconFromSVG(svgTemplate string, size int) *qt.QIcon {
 	return nil
 }
 
-// resizeSVG modifies the width and height attributes in an SVG string
+// resizeSVG modifies the width and height attributes in the root <svg> tag only
 // This allows Qt to render the vector directly at the target size
 func resizeSVG(svgData string, size int) string {
 	sizeStr := fmt.Sprintf("%d", size)
-	// Replace width="..." and height="..." attributes
-	result := regexp.MustCompile(`width="[^"]*"`).ReplaceAllString(svgData, `width="`+sizeStr+`"`)
-	result = regexp.MustCompile(`height="[^"]*"`).ReplaceAllString(result, `height="`+sizeStr+`"`)
-	return result
+
+	// Find the end of the opening <svg ...> tag
+	endIdx := strings.Index(svgData, ">")
+	if endIdx == -1 {
+		return svgData
+	}
+
+	// Split into svg tag and rest of content
+	svgTag := svgData[:endIdx+1]
+	rest := svgData[endIdx+1:]
+
+	// Replace width and height only in the opening svg tag
+	svgTag = regexp.MustCompile(`width="[^"]*"`).ReplaceAllString(svgTag, `width="`+sizeStr+`"`)
+	svgTag = regexp.MustCompile(`height="[^"]*"`).ReplaceAllString(svgTag, `height="`+sizeStr+`"`)
+
+	return svgTag + rest
 }
 
 // createPixmapFromSVG creates a QPixmap from SVG data at the specified size
