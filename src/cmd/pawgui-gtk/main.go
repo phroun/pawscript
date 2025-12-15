@@ -828,13 +828,13 @@ func applyUIScale() {
 
 	// Force menus to recalculate their size
 	if launcherMenu != nil {
-		launcherMenu.QueueResize()
+		launcherMenu.Container.Widget.QueueResize()
 	}
 	if pathMenu != nil {
-		pathMenu.QueueResize()
+		pathMenu.Container.Widget.QueueResize()
 	}
 	if contextMenu != nil {
-		contextMenu.QueueResize()
+		contextMenu.Container.Widget.QueueResize()
 	}
 }
 
