@@ -919,11 +919,11 @@ func (s *QtColorSwatch) applyColor() {
 	s.Button.SetStyleSheet(css)
 }
 
-// showColorPickerDialog shows a simple hex color input dialog
+// showColorPickerDialog shows a color picker dialog with editable hex and RGB fields
 func showColorPickerDialog(currentHex string) string {
 	dialog := qt.NewQDialog2()
 	dialog.SetWindowTitle("Choose Color")
-	dialog.SetMinimumSize2(300, 200)
+	dialog.SetMinimumSize2(320, 220)
 	dialog.SetModal(true)
 
 	mainLayout := qt.NewQVBoxLayout2()
@@ -956,18 +956,23 @@ func showColorPickerDialog(currentHex string) string {
 	// Hex input row
 	hexLayout := qt.NewQHBoxLayout2()
 	hexLabel := qt.NewQLabel3("Hex:")
+	hexLabel.SetFixedWidth(30)
 	hexLayout.AddWidget(hexLabel.QWidget)
 
-	// Create hex input button (shows current value, click to edit)
-	hexValue := currentHex
-	hexButton := qt.NewQPushButton3(hexValue)
-	hexButton.SetMinimumWidth(120)
-	hexLayout.AddWidget(hexButton.QWidget)
+	hexEdit := qt.NewQLineEdit2()
+	hexEdit.SetText(currentHex)
+	hexEdit.SetMaxLength(7)
+	hexEdit.SetFixedWidth(80)
+	hexLayout.AddWidget(hexEdit.QWidget)
+	hexLayout.AddStretch()
 	mainLayout.AddLayout(hexLayout.QLayout)
 
-	// RGB sliders
+	// Current hex value
+	hexValue := currentHex
+
+	// RGB sliders and editable fields
 	var rSlider, gSlider, bSlider *qt.QSlider
-	var rLabel, gLabel, bLabel *qt.QLabel
+	var rEdit, gEdit, bEdit *qt.QLineEdit
 
 	// Parse current color
 	r, g, b := 128, 128, 128
@@ -978,18 +983,89 @@ func showColorPickerDialog(currentHex string) string {
 		r, g, b = int(r64), int(g64), int(b64)
 	}
 
-	// Callback to update everything when sliders change
+	// Flag to prevent update loops
+	updating := false
+
+	// Update all fields from current slider values
 	updateFromSliders := func() {
+		if updating {
+			return
+		}
+		updating = true
 		hexValue = fmt.Sprintf("#%02X%02X%02X", rSlider.Value(), gSlider.Value(), bSlider.Value())
-		hexButton.SetText(hexValue)
-		rLabel.SetText(fmt.Sprintf("%d", rSlider.Value()))
-		gLabel.SetText(fmt.Sprintf("%d", gSlider.Value()))
-		bLabel.SetText(fmt.Sprintf("%d", bSlider.Value()))
+		hexEdit.SetText(hexValue)
+		rEdit.SetText(fmt.Sprintf("%d", rSlider.Value()))
+		gEdit.SetText(fmt.Sprintf("%d", gSlider.Value()))
+		bEdit.SetText(fmt.Sprintf("%d", bSlider.Value()))
 		updatePreview(hexValue)
+		updating = false
 	}
 
-	// Create RGB slider rows
-	createSliderRow := func(name string, initial int, onChanged func(int)) (*qt.QSlider, *qt.QLabel) {
+	// Update sliders from hex value
+	updateFromHex := func(hex string) {
+		if updating {
+			return
+		}
+		if len(hex) != 7 || hex[0] != '#' {
+			return
+		}
+		r64, err1 := strconv.ParseInt(hex[1:3], 16, 64)
+		g64, err2 := strconv.ParseInt(hex[3:5], 16, 64)
+		b64, err3 := strconv.ParseInt(hex[5:7], 16, 64)
+		if err1 != nil || err2 != nil || err3 != nil {
+			return
+		}
+		updating = true
+		hexValue = hex
+		rSlider.SetValue(int(r64))
+		gSlider.SetValue(int(g64))
+		bSlider.SetValue(int(b64))
+		rEdit.SetText(fmt.Sprintf("%d", r64))
+		gEdit.SetText(fmt.Sprintf("%d", g64))
+		bEdit.SetText(fmt.Sprintf("%d", b64))
+		updatePreview(hexValue)
+		updating = false
+	}
+
+	// Update from RGB edit field
+	updateFromRGBEdit := func() {
+		if updating {
+			return
+		}
+		rVal, err1 := strconv.Atoi(rEdit.Text())
+		gVal, err2 := strconv.Atoi(gEdit.Text())
+		bVal, err3 := strconv.Atoi(bEdit.Text())
+		if err1 != nil || err2 != nil || err3 != nil {
+			return
+		}
+		// Clamp to 0-255
+		if rVal < 0 {
+			rVal = 0
+		} else if rVal > 255 {
+			rVal = 255
+		}
+		if gVal < 0 {
+			gVal = 0
+		} else if gVal > 255 {
+			gVal = 255
+		}
+		if bVal < 0 {
+			bVal = 0
+		} else if bVal > 255 {
+			bVal = 255
+		}
+		updating = true
+		hexValue = fmt.Sprintf("#%02X%02X%02X", rVal, gVal, bVal)
+		hexEdit.SetText(hexValue)
+		rSlider.SetValue(rVal)
+		gSlider.SetValue(gVal)
+		bSlider.SetValue(bVal)
+		updatePreview(hexValue)
+		updating = false
+	}
+
+	// Create RGB slider rows with editable value fields
+	createSliderRow := func(name string, initial int, onSliderChanged func(int)) (*qt.QSlider, *qt.QLineEdit) {
 		rowLayout := qt.NewQHBoxLayout2()
 		label := qt.NewQLabel3(name)
 		label.SetFixedWidth(20)
@@ -999,27 +1075,30 @@ func showColorPickerDialog(currentHex string) string {
 		slider.SetOrientation(qt.Horizontal)
 		slider.SetRange(0, 255)
 		slider.SetValue(initial)
-		slider.OnValueChanged(onChanged)
+		slider.OnValueChanged(onSliderChanged)
 		rowLayout.AddWidget(slider.QWidget)
 
-		valueLabel := qt.NewQLabel3(fmt.Sprintf("%d", initial))
-		valueLabel.SetFixedWidth(30)
-		rowLayout.AddWidget(valueLabel.QWidget)
+		valueEdit := qt.NewQLineEdit2()
+		valueEdit.SetText(fmt.Sprintf("%d", initial))
+		valueEdit.SetFixedWidth(40)
+		valueEdit.SetMaxLength(3)
+		rowLayout.AddWidget(valueEdit.QWidget)
 
 		mainLayout.AddLayout(rowLayout.QLayout)
-		return slider, valueLabel
+		return slider, valueEdit
 	}
 
-	rSlider, rLabel = createSliderRow("R:", r, func(v int) { updateFromSliders() })
-	gSlider, gLabel = createSliderRow("G:", g, func(v int) { updateFromSliders() })
-	bSlider, bLabel = createSliderRow("B:", b, func(v int) { updateFromSliders() })
+	rSlider, rEdit = createSliderRow("R:", r, func(v int) { updateFromSliders() })
+	gSlider, gEdit = createSliderRow("G:", g, func(v int) { updateFromSliders() })
+	bSlider, bEdit = createSliderRow("B:", b, func(v int) { updateFromSliders() })
 
-	// Hex button click - show input dialog
-	hexButton.OnClicked(func() {
-		// Simple prompt using Qt message box with line edit isn't available,
-		// so we cycle through some preset colors for now or just use sliders
-		// For now, the sliders are the main way to change colors
+	// Wire up edit field callbacks
+	hexEdit.OnEditingFinished(func() {
+		updateFromHex(hexEdit.Text())
 	})
+	rEdit.OnEditingFinished(updateFromRGBEdit)
+	gEdit.OnEditingFinished(updateFromRGBEdit)
+	bEdit.OnEditingFinished(updateFromRGBEdit)
 
 	// Button row
 	buttonLayout := qt.NewQHBoxLayout2()
