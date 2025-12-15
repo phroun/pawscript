@@ -4771,7 +4771,7 @@ func activate(application *gtk.Application) {
 			// Narrow mode -> wide mode
 			savedWidth := getLauncherWidth()
 			if savedWidth <= narrowOnlyWidth {
-				savedWidth = 280 // Default wide width
+				savedWidth = int(250 * getUIScale()) // Default wide width
 			}
 			if hasMultipleButtons {
 				paned.SetPosition(savedWidth + narrowWidth)

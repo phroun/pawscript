@@ -1279,6 +1279,7 @@ func showSettingsDialog(parent *qt.QWidget) {
 	windowScaleSlider.SetValue(int(currentScale * 10))
 	windowScaleSlider.SetTickPosition(qt.QSlider__TicksBelow)
 	windowScaleSlider.SetTickInterval(5) // Tick every 0.5
+	windowScaleSlider.SetMinimumWidth(int(200 * getUIScale()))
 
 	// Label to show current value
 	scaleValueLabel := qt.NewQLabel3(fmt.Sprintf("%.1f", currentScale))
@@ -1502,7 +1503,7 @@ func showSettingsDialog(parent *qt.QWidget) {
 	uiScale := getUIScale()
 	swatchSize := int(24 * uiScale)
 	labelWidth := int(130 * uiScale)
-	checkboxWidth := int(4 * uiScale) // Checkbox spacer for bg/fg rows (smaller to align with actual checkbox)
+	checkboxWidth := int(6 * uiScale) // Checkbox spacer for bg/fg rows (sized to align with actual checkbox)
 	rowSpacing := int(6 * uiScale)
 
 	// --- Background row (always present, no checkboxes) ---
