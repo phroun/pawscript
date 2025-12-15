@@ -2232,8 +2232,8 @@ func applyTheme(theme pawgui.ThemeMode) {
 				padding: 6px 20px 6px 8px;
 			}
 			QMenu::item:selected {
-				background-color: #4a4a4a;
-				border: 1px solid #888888;
+				background-color: #3a4a3a;
+				border: 1px solid #6a9a6a;
 				margin-left: 0px;
 				padding-left: 48px;
 			}
