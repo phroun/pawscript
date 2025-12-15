@@ -579,9 +579,13 @@ func findScriptFile(requestedFile string) string {
 	return ""
 }
 
-// getLauncherWidth returns the saved launcher panel width, defaulting to 280
+// getLauncherWidth returns the saved launcher panel width, defaulting to 250 * uiScale
 func getLauncherWidth() int {
-	return appConfig.GetInt("launcher_width", 280)
+	saved := appConfig.GetInt("launcher_width", -1)
+	if saved >= 0 {
+		return saved
+	}
+	return int(250 * getUIScale())
 }
 
 // saveLauncherWidth saves the launcher panel width to config
@@ -2043,10 +2047,7 @@ func toggleFileList() {
 		saveLauncherWidth(narrowWidth)
 	} else {
 		// Currently narrow or collapsed - expand to wide
-		savedWidth := 300 // Default
-		if appConfig != nil {
-			savedWidth = appConfig.GetInt("launcher_width", 300)
-		}
+		savedWidth := getLauncherWidth()
 		// Show wide panel before resizing
 		launcherWidePanel.Show()
 		narrowWidth := scaledMinNarrowStripWidth()

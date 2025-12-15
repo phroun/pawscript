@@ -13,7 +13,7 @@ import (
 )
 
 // Default font settings
-const DefaultFontSize = 22
+const DefaultFontSize = 18
 
 // ThemeMode represents the GUI theme setting
 type ThemeMode string
