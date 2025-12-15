@@ -836,12 +836,13 @@ func (c *QtSettingsComboMenu) RefreshIcons() {
 
 // QtColorSwatch represents a clickable color swatch button for palette editing
 type QtColorSwatch struct {
-	Button       *qt.QPushButton
-	colorHex     string
-	onChange     func(string)
-	isEnabled    bool
-	textLabel    string
-	textColorHex string
+	Button            *qt.QPushButton
+	colorHex          string
+	inheritedColorHex string // Color to show when disabled (inherited from basic)
+	onChange          func(string)
+	isEnabled         bool
+	textLabel         string
+	textColorHex      string
 }
 
 // createQtColorSwatch creates a color swatch button that opens a color picker when clicked
@@ -896,12 +897,22 @@ func (s *QtColorSwatch) SetEnabled(enabled bool) {
 // applyColor applies the current color as button background via stylesheet
 func (s *QtColorSwatch) applyColor() {
 	bgColor := s.colorHex
-	if bgColor == "" || !s.isEnabled {
-		bgColor = "#808080" // Gray for empty/disabled
+	if bgColor == "" {
+		bgColor = "#808080" // Gray for empty
 	}
 
-	// Calculate contrasting border color
+	// When disabled, show inherited color with hash lines
+	showHashLines := false
+	if !s.isEnabled {
+		if s.inheritedColorHex != "" {
+			bgColor = s.inheritedColorHex
+		}
+		showHashLines = true
+	}
+
+	// Calculate contrasting border and hash line color
 	borderColor := "#000000"
+	hashColor := "rgba(0, 0, 0, 0.4)"
 	if bgColor != "" && len(bgColor) == 7 {
 		r, _ := strconv.ParseInt(bgColor[1:3], 16, 64)
 		g, _ := strconv.ParseInt(bgColor[3:5], 16, 64)
@@ -909,12 +920,8 @@ func (s *QtColorSwatch) applyColor() {
 		luminance := (r*299 + g*587 + b*114) / 1000
 		if luminance < 128 {
 			borderColor = "#FFFFFF"
+			hashColor = "rgba(255, 255, 255, 0.4)"
 		}
-	}
-
-	opacity := "1.0"
-	if !s.isEnabled {
-		opacity = "0.5"
 	}
 
 	// Include text color if set
@@ -923,22 +930,51 @@ func (s *QtColorSwatch) applyColor() {
 		textColorCSS = fmt.Sprintf("color: %s;", s.textColorHex)
 	}
 
-	css := fmt.Sprintf(`
-		QPushButton {
-			background-color: %s;
-			border: 1px solid %s;
-			border-radius: 3px;
-			opacity: %s;
-			padding: -2px;
-			margin: 0px;
-			%s
-		}
-		QPushButton:hover {
-			border: 2px solid %s;
-		}
-	`, bgColor, borderColor, opacity, textColorCSS, borderColor)
+	var css string
+	if showHashLines {
+		// Diagonal hash lines pattern using repeating-linear-gradient
+		css = fmt.Sprintf(`
+			QPushButton {
+				background-color: %s;
+				background-image: repeating-linear-gradient(
+					45deg,
+					%s,
+					%s 2px,
+					transparent 2px,
+					transparent 6px
+				);
+				border: 1px solid %s;
+				border-radius: 3px;
+				padding: -2px;
+				margin: 0px;
+				%s
+			}
+		`, bgColor, hashColor, hashColor, borderColor, textColorCSS)
+	} else {
+		css = fmt.Sprintf(`
+			QPushButton {
+				background-color: %s;
+				border: 1px solid %s;
+				border-radius: 3px;
+				padding: -2px;
+				margin: 0px;
+				%s
+			}
+			QPushButton:hover {
+				border: 2px solid %s;
+			}
+		`, bgColor, borderColor, textColorCSS, borderColor)
+	}
 
 	s.Button.SetStyleSheet(css)
+}
+
+// SetInheritedColor sets the color to display when the swatch is disabled (inherited)
+func (s *QtColorSwatch) SetInheritedColor(hex string) {
+	s.inheritedColorHex = hex
+	if !s.isEnabled {
+		s.applyColor()
+	}
 }
 
 // SetText sets a text label and its color on the swatch
@@ -1659,16 +1695,13 @@ func showSettingsDialog(parent *qt.QWidget) {
 		label.SetFixedWidth(labelWidth)
 		rowLayout.AddWidget(label.QWidget)
 
-		// Basic swatch (from term_colors)
+		// Basic swatch (from term_colors) - onChange set after light/dark swatches created
 		basicHex := getColorFromSection("term_colors", colorConfigNames[i])
 		if basicHex == "" {
 			basicHex = defaultPaletteHex[i]
 		}
 		localColorName := colorConfigNames[i] // Capture for closure
-		colorRow.BasicSwatch = createQtColorSwatch(basicHex, swatchSize, func(hex string) {
-			setColorInSection("term_colors", localColorName, hex)
-			applyPaletteChanges()
-		})
+		colorRow.BasicSwatch = createQtColorSwatch(basicHex, swatchSize, nil)
 		rowLayout.AddWidget(colorRow.BasicSwatch.Button.QWidget)
 
 		// Light theme checkbox
@@ -1686,6 +1719,7 @@ func showSettingsDialog(parent *qt.QWidget) {
 			setColorInSection("term_colors_light", localColorName, hex)
 			applyPaletteChanges()
 		})
+		colorRow.LightSwatch.SetInheritedColor(basicHex) // Show basic color when disabled
 		colorRow.LightSwatch.SetEnabled(colorRow.LightCheckbox.IsChecked())
 		rowLayout.AddWidget(colorRow.LightSwatch.Button.QWidget)
 
@@ -1704,6 +1738,7 @@ func showSettingsDialog(parent *qt.QWidget) {
 			setColorInSection("term_colors_dark", localColorName, hex)
 			applyPaletteChanges()
 		})
+		colorRow.DarkSwatch.SetInheritedColor(basicHex) // Show basic color when disabled
 		colorRow.DarkSwatch.SetEnabled(colorRow.DarkCheckbox.IsChecked())
 		rowLayout.AddWidget(colorRow.DarkSwatch.Button.QWidget)
 		rowLayout.AddStretch()
@@ -1732,6 +1767,15 @@ func showSettingsDialog(parent *qt.QWidget) {
 			}
 			applyPaletteChanges()
 		})
+
+		// Wire up Basic swatch onChange (updates inherited color on light/dark swatches)
+		colorRow.BasicSwatch.onChange = func(hex string) {
+			setColorInSection("term_colors", localRow.ColorName, hex)
+			// Update inherited color on light/dark swatches
+			localRow.LightSwatch.SetInheritedColor(hex)
+			localRow.DarkSwatch.SetInheritedColor(hex)
+			applyPaletteChanges()
+		}
 
 		// Add to appropriate column
 		if i < 8 {

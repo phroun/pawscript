@@ -1010,15 +1010,12 @@ func showSettingsDialog(parent gtk.IWindow) {
 		label.SetSizeRequest(labelWidth, -1)
 		row.PackStart(label, false, false, 0)
 
-		// Basic swatch (from term_colors)
+		// Basic swatch (from term_colors) - onChange set after light/dark swatches created
 		basicHex := getColorFromSection("term_colors", colorConfigNames[i])
 		if basicHex == "" {
 			basicHex = defaultPaletteHex[i]
 		}
-		colorRow.BasicSwatch = createColorSwatch(basicHex, swatchSize, func(hex string) {
-			setColorInSection("term_colors", colorRow.ColorName, hex)
-			applyPaletteChanges()
-		})
+		colorRow.BasicSwatch = createColorSwatch(basicHex, swatchSize, nil)
 		row.PackStart(colorRow.BasicSwatch.Button, false, false, 0)
 
 		// Light checkbox
@@ -1035,6 +1032,7 @@ func showSettingsDialog(parent gtk.IWindow) {
 			setColorInSection("term_colors_light", colorRow.ColorName, hex)
 			applyPaletteChanges()
 		})
+		colorRow.LightSwatch.SetInheritedColor(basicHex) // Show basic color when disabled
 		colorRow.LightSwatch.SetEnabled(colorRow.LightCheckbox.GetActive())
 		row.PackStart(colorRow.LightSwatch.Button, false, false, 0)
 
@@ -1052,6 +1050,7 @@ func showSettingsDialog(parent gtk.IWindow) {
 			setColorInSection("term_colors_dark", colorRow.ColorName, hex)
 			applyPaletteChanges()
 		})
+		colorRow.DarkSwatch.SetInheritedColor(basicHex) // Show basic color when disabled
 		colorRow.DarkSwatch.SetEnabled(colorRow.DarkCheckbox.GetActive())
 		row.PackStart(colorRow.DarkSwatch.Button, false, false, 0)
 
@@ -1079,6 +1078,15 @@ func showSettingsDialog(parent gtk.IWindow) {
 			}
 			applyPaletteChanges()
 		})
+
+		// Wire up Basic swatch onChange (updates inherited color on light/dark swatches)
+		colorRow.BasicSwatch.onChange = func(hex string) {
+			setColorInSection("term_colors", localRow.ColorName, hex)
+			// Update inherited color on light/dark swatches
+			localRow.LightSwatch.SetInheritedColor(hex)
+			localRow.DarkSwatch.SetInheritedColor(hex)
+			applyPaletteChanges()
+		}
 
 		// Add to appropriate column
 		if i < 8 {
@@ -3014,12 +3022,13 @@ func (c *SettingsComboMenu) RefreshIcons() {
 
 // ColorSwatch represents a clickable color swatch button for palette editing
 type ColorSwatch struct {
-	Button       *gtk.Button
-	colorHex     string
-	onChange     func(string)
-	isEnabled    bool
-	textLabel    string
-	textColorHex string
+	Button            *gtk.Button
+	colorHex          string
+	inheritedColorHex string // Color to show when disabled (inherited from basic)
+	onChange          func(string)
+	isEnabled         bool
+	textLabel         string
+	textColorHex      string
 }
 
 // createColorSwatch creates a color swatch button that opens a color picker when clicked
@@ -3096,12 +3105,22 @@ func (s *ColorSwatch) applyColor() {
 	}
 
 	bgColor := s.colorHex
-	if bgColor == "" || !s.isEnabled {
-		bgColor = "#808080" // Gray for empty/disabled
+	if bgColor == "" {
+		bgColor = "#808080" // Gray for empty
 	}
 
-	// Calculate contrasting border color
+	// When disabled, show inherited color with hash lines
+	showHashLines := false
+	if !s.isEnabled {
+		if s.inheritedColorHex != "" {
+			bgColor = s.inheritedColorHex
+		}
+		showHashLines = true
+	}
+
+	// Calculate contrasting border and hash line color
 	borderColor := "#000000"
+	hashColor := "rgba(0, 0, 0, 0.4)"
 	if bgColor != "" && len(bgColor) == 7 {
 		r, _ := strconv.ParseInt(bgColor[1:3], 16, 64)
 		g, _ := strconv.ParseInt(bgColor[3:5], 16, 64)
@@ -3109,12 +3128,8 @@ func (s *ColorSwatch) applyColor() {
 		luminance := (r*299 + g*587 + b*114) / 1000
 		if luminance < 128 {
 			borderColor = "#FFFFFF"
+			hashColor = "rgba(255, 255, 255, 0.4)"
 		}
-	}
-
-	opacity := "1.0"
-	if !s.isEnabled {
-		opacity = "0.5"
 	}
 
 	// Include text color if set
@@ -3125,24 +3140,47 @@ func (s *ColorSwatch) applyColor() {
 		labelColorCSS = fmt.Sprintf("button label { color: %s; }", s.textColorHex)
 	}
 
-	css := fmt.Sprintf(`
-		button {
-			background-color: %s;
-			background-image: none;
-			border: 1px solid %s;
-			border-radius: 3px;
-			padding: 0;
-			min-width: 0;
-			min-height: 0;
-			opacity: %s;
+	var css string
+	if showHashLines {
+		// Diagonal hash lines pattern using repeating-linear-gradient
+		css = fmt.Sprintf(`
+			button {
+				background-color: %s;
+				background-image: repeating-linear-gradient(
+					45deg,
+					%s,
+					%s 2px,
+					transparent 2px,
+					transparent 6px
+				);
+				border: 1px solid %s;
+				border-radius: 3px;
+				padding: 0;
+				min-width: 0;
+				min-height: 0;
+				%s
+			}
 			%s
-		}
-		button:hover {
-			background-color: %s;
-			border: 2px solid %s;
-		}
-		%s
-	`, bgColor, borderColor, opacity, textColorCSS, bgColor, borderColor, labelColorCSS)
+		`, bgColor, hashColor, hashColor, borderColor, textColorCSS, labelColorCSS)
+	} else {
+		css = fmt.Sprintf(`
+			button {
+				background-color: %s;
+				background-image: none;
+				border: 1px solid %s;
+				border-radius: 3px;
+				padding: 0;
+				min-width: 0;
+				min-height: 0;
+				%s
+			}
+			button:hover {
+				background-color: %s;
+				border: 2px solid %s;
+			}
+			%s
+		`, bgColor, borderColor, textColorCSS, bgColor, borderColor, labelColorCSS)
+	}
 
 	cssProvider.LoadFromData(css)
 	styleCtx, err := s.Button.GetStyleContext()
@@ -3150,6 +3188,14 @@ func (s *ColorSwatch) applyColor() {
 		return
 	}
 	styleCtx.AddProvider(cssProvider, gtk.STYLE_PROVIDER_PRIORITY_USER)
+}
+
+// SetInheritedColor sets the color to display when the swatch is disabled (inherited)
+func (s *ColorSwatch) SetInheritedColor(hex string) {
+	s.inheritedColorHex = hex
+	if !s.isEnabled {
+		s.applyColor()
+	}
 }
 
 // SetText sets a text label and its color on the swatch
