@@ -8,6 +8,7 @@ import (
 	"io"
 	"os"
 	"path/filepath"
+	"regexp"
 	"runtime"
 	"strconv"
 	"strings"
@@ -1854,8 +1855,33 @@ func getDarkSVGIcon(svgTemplate string) string {
 	return strings.Replace(svgTemplate, "{{FILL}}", "#ffffff", -1)
 }
 
-// createImageFromSVG creates a GtkImage from SVG data
+// resizeSVG modifies the width and height attributes in the root <svg> tag only
+// This allows the renderer to rasterize the vector directly at the target size
+func resizeSVG(svgData string, size int) string {
+	sizeStr := fmt.Sprintf("%d", size)
+
+	// Find the end of the opening <svg ...> tag
+	endIdx := strings.Index(svgData, ">")
+	if endIdx == -1 {
+		return svgData
+	}
+
+	// Split into svg tag and rest of content
+	svgTag := svgData[:endIdx+1]
+	rest := svgData[endIdx+1:]
+
+	// Replace width and height only in the opening svg tag
+	svgTag = regexp.MustCompile(`width="[^"]*"`).ReplaceAllString(svgTag, `width="`+sizeStr+`"`)
+	svgTag = regexp.MustCompile(`height="[^"]*"`).ReplaceAllString(svgTag, `height="`+sizeStr+`"`)
+
+	return svgTag + rest
+}
+
 func createImageFromSVG(svgData string, size int) *gtk.Image {
+	// Resize SVG to target size before loading - this lets the vector renderer
+	// rasterize directly at the correct size, avoiding bitmap scaling artifacts
+	resizedSVG := resizeSVG(svgData, size)
+
 	// Create a PixbufLoader for SVG
 	loader, err := gdk.PixbufLoaderNew()
 	if err != nil {
@@ -1863,7 +1889,7 @@ func createImageFromSVG(svgData string, size int) *gtk.Image {
 	}
 
 	// Write SVG data to loader
-	_, err = loader.Write([]byte(svgData))
+	_, err = loader.Write([]byte(resizedSVG))
 	if err != nil {
 		loader.Close()
 		return nil
@@ -1874,20 +1900,14 @@ func createImageFromSVG(svgData string, size int) *gtk.Image {
 		return nil
 	}
 
-	// Get the pixbuf
+	// Get the pixbuf (already at target size)
 	pixbuf, err := loader.GetPixbuf()
 	if err != nil || pixbuf == nil {
 		return nil
 	}
 
-	// Scale to desired size
-	scaled, err := pixbuf.ScaleSimple(size, size, gdk.INTERP_BILINEAR)
-	if err != nil || scaled == nil {
-		return nil
-	}
-
 	// Create image from pixbuf
-	img, err := gtk.ImageNewFromPixbuf(scaled)
+	img, err := gtk.ImageNewFromPixbuf(pixbuf)
 	if err != nil {
 		return nil
 	}
@@ -1897,12 +1917,15 @@ func createImageFromSVG(svgData string, size int) *gtk.Image {
 
 // createPixbufFromSVG creates a GdkPixbuf from SVG data (for updating existing images)
 func createPixbufFromSVG(svgData string, size int) *gdk.Pixbuf {
+	// Resize SVG to target size before loading
+	resizedSVG := resizeSVG(svgData, size)
+
 	loader, err := gdk.PixbufLoaderNew()
 	if err != nil {
 		return nil
 	}
 
-	_, err = loader.Write([]byte(svgData))
+	_, err = loader.Write([]byte(resizedSVG))
 	if err != nil {
 		loader.Close()
 		return nil
@@ -1913,17 +1936,13 @@ func createPixbufFromSVG(svgData string, size int) *gdk.Pixbuf {
 		return nil
 	}
 
+	// Pixbuf is already at target size
 	pixbuf, err := loader.GetPixbuf()
 	if err != nil || pixbuf == nil {
 		return nil
 	}
 
-	scaled, err := pixbuf.ScaleSimple(size, size, gdk.INTERP_BILINEAR)
-	if err != nil || scaled == nil {
-		return nil
-	}
-
-	return scaled
+	return pixbuf
 }
 
 // updateRowIcon updates the icon in a file list row
