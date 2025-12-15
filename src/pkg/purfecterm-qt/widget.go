@@ -1649,8 +1649,9 @@ func (w *Widget) paintEvent(event *qt.QPaintEvent) {
 				if charFontFamily != fontFamily || cell.Bold || cell.Italic {
 					// Need a different font - either fallback, bold, or italic
 					if cell.Bold {
-						// Create font with weight in constructor (Qt6: 400=normal, 700=bold)
-						drawFont = qt.NewQFont5(charFontFamily, fontSize, 700)
+						// NewQFont7(family, pointSize, weight) - Qt5: 75=Bold, Qt6: 700=Bold
+						// miqt uses Qt5 scale where Bold = 75
+						drawFont = qt.NewQFont7(charFontFamily, fontSize, 75)
 					} else {
 						drawFont = qt.NewQFont6(charFontFamily, fontSize)
 					}
