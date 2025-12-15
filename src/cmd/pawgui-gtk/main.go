@@ -414,8 +414,6 @@ func showAboutDialog(parent gtk.IWindow) {
 	aboutText := fmt.Sprintf(`<b>PawScript</b>
 Version: %s
 
-<i>A scripting language for creative coding</i>
-
 Copyright © 2025 Jeffrey R. Day
 License: MIT`, version)
 

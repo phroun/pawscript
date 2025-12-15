@@ -720,7 +720,6 @@ func clearRecentPaths() {
 func showAboutDialog(parent *qt.QWidget) {
 	aboutText := fmt.Sprintf(`<h2>PawScript</h2>
 <p>Version: %s</p>
-<p><i>A scripting language for creative coding</i></p>
 <p>Copyright © 2025 Jeffrey R. Day<br>
 License: MIT</p>`, version)
 
