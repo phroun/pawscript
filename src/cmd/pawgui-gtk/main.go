@@ -301,9 +301,13 @@ func getColorSchemeForTheme(isDark bool) purfecterm.ColorScheme {
 	return configHelper.GetColorSchemeForTheme(isDark)
 }
 
-// getLauncherWidth returns the saved launcher panel width, defaulting to 280
+// getLauncherWidth returns the saved launcher panel width, defaulting to 250 * uiScale
 func getLauncherWidth() int {
-	return appConfig.GetInt("launcher_width", 280)
+	saved := appConfig.GetInt("launcher_width", -1)
+	if saved >= 0 {
+		return saved
+	}
+	return int(250 * getUIScale())
 }
 
 // saveLauncherWidth saves the launcher panel width to config
@@ -4479,10 +4483,7 @@ func activate(application *gtk.Application) {
 				saveLauncherWidth(narrowOnlyWidth)
 			} else {
 				// Currently narrow or collapsed, expand to wide
-				savedWidth := 300 // Default width
-				if appConfig != nil {
-					savedWidth = appConfig.GetInt("launcher_width", 300)
-				}
+				savedWidth := getLauncherWidth()
 				// Show wide panel BEFORE setting position
 				launcherWidePanel.Show()
 				launcherNarrowStrip.SetMarginStart(2) // Normal padding in wide mode
