@@ -169,15 +169,18 @@ func safeRemoveChildren(container interface {
 		return
 	}
 
-	var toRemove []gtk.IWidget
+	var toRemove []*gtk.Widget
 	children.Foreach(func(item interface{}) {
 		if widget, ok := item.(gtk.IWidget); ok {
-			toRemove = append(toRemove, widget)
+			toRemove = append(toRemove, widget.ToWidget())
 		}
 	})
 
 	for _, widget := range toRemove {
 		container.Remove(widget)
+		// Destroy the widget to ensure GTK properly releases it
+		// This prevents orphaned wrappers with active finalizers
+		widget.Destroy()
 	}
 
 	// Clear references and force GC to run finalizers now
@@ -898,6 +901,11 @@ func applyUIScale() {
 
 	// Rebuild menus with new scaled icon sizes
 	rebuildMenus()
+
+	// Final GC pass to clean up any remaining orphaned wrappers
+	// This ensures finalizers run now while we're in a safe state,
+	// not later during unrelated GTK operations like splitter dragging
+	runtime.GC()
 }
 
 // createLauncherContextMenu creates the right-click context menu for the launcher terminal
@@ -931,20 +939,41 @@ func createLauncherContextMenu() *gtk.Menu {
 
 // rebuildMenus recreates all menus with current UI scale
 func rebuildMenus() {
+	// Destroy old menus before creating new ones to prevent GC finalizer issues
+	// The old menu wrappers have finalizers that can crash if they run during
+	// unrelated GTK operations. Explicitly destroying them ensures GTK releases
+	// them properly before we lose the Go reference.
+
 	// Rebuild launcher hamburger menu
 	if launcherMenuCtx != nil {
+		oldMenu := launcherMenu
 		launcherMenu = createHamburgerMenu(launcherMenuCtx)
+		if oldMenu != nil {
+			oldMenu.Destroy()
+		}
 	}
 
 	// Rebuild path menu
 	if pathButton != nil {
+		oldPathMenu := pathMenu
 		pathMenu, _ = gtk.MenuNew()
 		pathButton.SetPopup(pathMenu)
 		updatePathMenu()
+		if oldPathMenu != nil {
+			oldPathMenu.Destroy()
+		}
 	}
 
 	// Rebuild launcher context menu
+	oldContextMenu := contextMenu
 	contextMenu = createLauncherContextMenu()
+	if oldContextMenu != nil {
+		oldContextMenu.Destroy()
+	}
+
+	// Force GC to clean up the destroyed menu wrappers now while it's safe,
+	// rather than letting finalizers run during other GTK operations
+	runtime.GC()
 }
 
 // updateToolbarIcons regenerates all toolbar icons with the current theme's colors
