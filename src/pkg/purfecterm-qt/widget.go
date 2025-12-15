@@ -1670,10 +1670,13 @@ func (w *Widget) paintEvent(event *qt.QPaintEvent) {
 					}
 					painter.SetFont(drawFont)
 
-					// Check if bold was actually applied by comparing weights
-					// If requested bold but font weight didn't change, use faux bold
-					if cell.Bold && drawFont.Weight() < 63 {
-						useFauxBold = true
+					// Check if bold was actually applied using QFontInfo
+					// QFontInfo queries the actual resolved font, not the requested one
+					if cell.Bold {
+						fontInfo := qt.NewQFontInfo(drawFont)
+						if !fontInfo.Bold() {
+							useFauxBold = true
+						}
 					}
 				} else {
 					drawFont = font
