@@ -1488,7 +1488,7 @@ func showSettingsDialog(parent *qt.QWidget) {
 
 		// Label on the left
 		label := qt.NewQLabel3(colorDisplayNames[i])
-		label.SetFixedWidth(110)
+		label.SetFixedWidth(130)
 		rowLayout.AddWidget(label.QWidget)
 
 		// Basic swatch (from term_colors)
