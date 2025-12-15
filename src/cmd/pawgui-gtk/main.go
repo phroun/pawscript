@@ -3337,6 +3337,46 @@ func registerDummyButtonCommand(ps *pawscript.PawScript, data *WindowToolbarData
 	})
 }
 
+// detectSystemDarkMode checks if the system is using a dark theme by examining
+// the background color luminosity of the default GTK theme
+func detectSystemDarkMode() bool {
+	// Create a temporary window to get theme colors
+	tempWin, err := gtk.WindowNew(gtk.WINDOW_TOPLEVEL)
+	if err != nil {
+		return false // Default to light
+	}
+	defer tempWin.Destroy()
+
+	styleCtx, err := tempWin.GetStyleContext()
+	if err != nil {
+		return false
+	}
+
+	// Try to lookup the theme background color
+	// "theme_bg_color" is a standard named color in GTK themes
+	if bgColor, ok := styleCtx.LookupColor("theme_bg_color"); ok {
+		// Calculate luminosity using the standard formula
+		// luminosity = 0.299*R + 0.587*G + 0.114*B
+		r := bgColor.GetRed()
+		g := bgColor.GetGreen()
+		b := bgColor.GetBlue()
+		luminosity := 0.299*r + 0.587*g + 0.114*b
+
+		// If luminosity < 0.5 (50%), it's a dark theme
+		return luminosity < 0.5
+	}
+
+	// Fallback: check the foreground color - if it's light, background is probably dark
+	fgColor := styleCtx.GetColor(gtk.STATE_FLAG_NORMAL)
+	r := fgColor.GetRed()
+	g := fgColor.GetGreen()
+	b := fgColor.GetBlue()
+	fgLuminosity := 0.299*r + 0.587*g + 0.114*b
+
+	// If foreground is bright (> 0.5), it's likely a dark theme
+	return fgLuminosity > 0.5
+}
+
 // applyTheme sets the GTK theme based on the configuration.
 // "auto" = detect OS preference, "dark" = force dark, "light" = force light
 func applyTheme(theme pawgui.ThemeMode) {
@@ -3345,24 +3385,10 @@ func applyTheme(theme pawgui.ThemeMode) {
 		return
 	}
 
-	// For Auto mode, detect the system preference
+	// For Auto mode, detect the system preference using background luminosity
 	if theme == pawgui.ThemeAuto {
-		// Check if GTK is already preferring dark theme or theme name contains "dark"
-		if darkPref, err := settings.GetProperty("gtk-application-prefer-dark-theme"); err == nil {
-			if isDark, ok := darkPref.(bool); ok && isDark {
-				theme = pawgui.ThemeDark
-			} else {
-				// Also check theme name for "dark" suffix
-				if themeName, err := settings.GetProperty("gtk-theme-name"); err == nil {
-					if name, ok := themeName.(string); ok && strings.Contains(strings.ToLower(name), "dark") {
-						theme = pawgui.ThemeDark
-					} else {
-						theme = pawgui.ThemeLight
-					}
-				} else {
-					theme = pawgui.ThemeLight
-				}
-			}
+		if detectSystemDarkMode() {
+			theme = pawgui.ThemeDark
 		} else {
 			theme = pawgui.ThemeLight
 		}
