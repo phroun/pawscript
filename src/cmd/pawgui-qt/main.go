@@ -912,7 +912,7 @@ func (s *QtColorSwatch) applyColor() {
 
 	// Calculate contrasting border and hash line color
 	borderColor := "#000000"
-	hashColor := "rgba(0, 0, 0, 0.4)"
+	hashColorLight := false
 	if bgColor != "" && len(bgColor) == 7 {
 		r, _ := strconv.ParseInt(bgColor[1:3], 16, 64)
 		g, _ := strconv.ParseInt(bgColor[3:5], 16, 64)
@@ -920,7 +920,7 @@ func (s *QtColorSwatch) applyColor() {
 		luminance := (r*299 + g*587 + b*114) / 1000
 		if luminance < 128 {
 			borderColor = "#FFFFFF"
-			hashColor = "rgba(255, 255, 255, 0.4)"
+			hashColorLight = true
 		}
 	}
 
@@ -930,28 +930,58 @@ func (s *QtColorSwatch) applyColor() {
 		textColorCSS = fmt.Sprintf("color: %s;", s.textColorHex)
 	}
 
-	var css string
 	if showHashLines {
-		// Diagonal hash lines pattern using repeating-linear-gradient
-		css = fmt.Sprintf(`
+		// Create a pixmap with the hash pattern for Qt
+		// Qt stylesheets don't support CSS gradients, so we paint the pattern
+		size := s.Button.Width()
+		if size <= 0 {
+			size = 24 // Default size
+		}
+		pixmap := qt.NewQPixmap3(size, size)
+
+		// Fill with background color
+		qBgColor := qt.NewQColor6(bgColor)
+		pixmap.Fill(qBgColor)
+
+		// Draw diagonal hash lines
+		painter := qt.NewQPainter2(pixmap.QPaintDevice)
+		var hashColor *qt.QColor
+		if hashColorLight {
+			hashColor = qt.NewQColor3(255, 255, 255, 100) // Semi-transparent white
+		} else {
+			hashColor = qt.NewQColor3(0, 0, 0, 100) // Semi-transparent black
+		}
+		pen := qt.NewQPen5(hashColor)
+		pen.SetWidth(2)
+		painter.SetPen(pen)
+
+		// Draw diagonal lines from bottom-left to top-right
+		spacing := 6
+		for i := -size; i < size*2; i += spacing {
+			painter.DrawLine(i, size, i+size, 0)
+		}
+		painter.End()
+
+		// Set the pixmap as button icon (covers the whole button)
+		icon := qt.NewQIcon2(pixmap)
+		s.Button.SetIcon(icon)
+		s.Button.SetIconSize(pixmap.Size())
+
+		css := fmt.Sprintf(`
 			QPushButton {
-				background-color: %s;
-				background-image: repeating-linear-gradient(
-					45deg,
-					%s,
-					%s 2px,
-					transparent 2px,
-					transparent 6px
-				);
 				border: 1px solid %s;
 				border-radius: 3px;
-				padding: -2px;
+				padding: 0px;
 				margin: 0px;
 				%s
 			}
-		`, bgColor, hashColor, hashColor, borderColor, textColorCSS)
+		`, borderColor, textColorCSS)
+		s.Button.SetStyleSheet(css)
 	} else {
-		css = fmt.Sprintf(`
+		// Clear any icon
+		s.Button.SetIcon(qt.NewQIcon())
+
+		css := fmt.Sprintf(`
 			QPushButton {
 				background-color: %s;
 				border: 1px solid %s;
@@ -964,9 +994,8 @@ func (s *QtColorSwatch) applyColor() {
 				border: 2px solid %s;
 			}
 		`, bgColor, borderColor, textColorCSS, borderColor)
+		s.Button.SetStyleSheet(css)
 	}
-
-	s.Button.SetStyleSheet(css)
 }
 
 // SetInheritedColor sets the color to display when the swatch is disabled (inherited)
