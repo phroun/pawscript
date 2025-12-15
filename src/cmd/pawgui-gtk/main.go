@@ -825,6 +825,17 @@ func applyUIScale() {
 
 	// Refresh all toolbar icons with new scale
 	updateToolbarIcons()
+
+	// Force menus to recalculate their size
+	if launcherMenu != nil {
+		launcherMenu.QueueResize()
+	}
+	if pathMenu != nil {
+		pathMenu.QueueResize()
+	}
+	if contextMenu != nil {
+		contextMenu.QueueResize()
+	}
 }
 
 // updateToolbarIcons regenerates all toolbar icons with the current theme's colors

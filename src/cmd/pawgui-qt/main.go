@@ -2547,6 +2547,26 @@ func applyUIScale(scale float64) {
 
 	// Refresh all icons with new scale
 	updateToolbarIcons()
+
+	// Update narrow strip widths
+	narrowWidth := scaledMinNarrowStripWidth()
+	if launcherNarrowStrip != nil {
+		launcherNarrowStrip.SetFixedWidth(narrowWidth)
+	}
+
+	// Update strip widths in all script windows
+	qtToolbarDataMu.Lock()
+	for _, data := range qtToolbarDataByPS {
+		if data.strip != nil {
+			data.strip.SetFixedWidth(narrowWidth)
+		}
+	}
+	for _, data := range qtToolbarDataByWindow {
+		if data.strip != nil {
+			data.strip.SetFixedWidth(narrowWidth)
+		}
+	}
+	qtToolbarDataMu.Unlock()
 }
 
 func main() {
