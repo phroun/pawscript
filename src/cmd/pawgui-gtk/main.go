@@ -1783,7 +1783,8 @@ func createBlankConsoleWindow() {
 
 // createHamburgerButton creates a hamburger menu button with SVG icon
 // forVerticalStrip: true for vertical toolbar strip, false for horizontal rows (file selector)
-func createHamburgerButton(menu *gtk.Menu, forVerticalStrip bool) *gtk.Button {
+// menuGetter: function that returns the menu to show (allows menu to be rebuilt dynamically)
+func createHamburgerButton(menuGetter func() *gtk.Menu, forVerticalStrip bool) *gtk.Button {
 	btn, _ := gtk.ButtonNew()
 	btn.SetSizeRequest(32, 32)
 	btn.SetTooltipText("Menu")
@@ -1799,9 +1800,12 @@ func createHamburgerButton(menu *gtk.Menu, forVerticalStrip bool) *gtk.Button {
 		btn.SetLabel("☰")
 	}
 
-	// Pop up the menu on click
+	// Pop up the menu on click - calls menuGetter each time to get current menu
 	btn.Connect("clicked", func() {
-		menu.PopupAtWidget(btn, gdk.GDK_GRAVITY_SOUTH_WEST, gdk.GDK_GRAVITY_NORTH_WEST, nil)
+		menu := menuGetter()
+		if menu != nil {
+			menu.PopupAtWidget(btn, gdk.GDK_GRAVITY_SOUTH_WEST, gdk.GDK_GRAVITY_NORTH_WEST, nil)
+		}
 	})
 
 	return btn
@@ -1828,7 +1832,24 @@ func createToolbarStripWithMenu(ctx *MenuContext, existingMenu *gtk.Menu) (*gtk.
 	if menu == nil {
 		menu = createHamburgerMenu(ctx)
 	}
-	menuBtn := createHamburgerButton(menu, true) // true = vertical strip
+	// Capture menu in closure for this window's button
+	menuBtn := createHamburgerButton(func() *gtk.Menu { return menu }, true) // true = vertical strip
+
+	strip.PackStart(menuBtn, false, false, 0)
+
+	return strip, menuBtn, ctx
+}
+
+// createToolbarStripWithMenuGetter creates a vertical strip with a dynamic menu getter
+// Used when the menu may be rebuilt (e.g., launcher menu on UI scale change)
+func createToolbarStripWithMenuGetter(ctx *MenuContext, menuGetter func() *gtk.Menu) (*gtk.Box, *gtk.Button, *MenuContext) {
+	strip, _ := gtk.BoxNew(gtk.ORIENTATION_VERTICAL, 4) // 4px spacing between buttons
+	strip.SetMarginStart(2)
+	strip.SetMarginEnd(2)
+	strip.SetMarginTop(5)
+	strip.SetMarginBottom(5)
+
+	menuBtn := createHamburgerButton(menuGetter, true) // true = vertical strip
 
 	strip.PackStart(menuBtn, false, false, 0)
 
@@ -3852,8 +3873,8 @@ func activate(application *gtk.Application) {
 	leftContainer.PackStart(widePanel, true, true, 0)
 
 	// Narrow strip: toolbar buttons (created but hidden initially - only 1 button)
-	// Uses the same shared launcherMenu as the wide panel button
-	launcherNarrowStrip, launcherStripMenuBtn, _ = createToolbarStripWithMenu(launcherMenuCtx, launcherMenu)
+	// Uses getter to always get current launcherMenu (allows menu to be rebuilt on UI scale change)
+	launcherNarrowStrip, launcherStripMenuBtn, _ = createToolbarStripWithMenuGetter(launcherMenuCtx, func() *gtk.Menu { return launcherMenu })
 	launcherNarrowStrip.SetNoShowAll(true)                            // Don't show when ShowAll is called
 	launcherNarrowStrip.SetSizeRequest(scaledMinNarrowStripWidth(), -1) // Fixed width
 	leftContainer.PackStart(launcherNarrowStrip, false, false, 0)
@@ -4167,8 +4188,8 @@ func createFileBrowser() *gtk.Box {
 	topRow.PackStart(pathButton, true, true, 0)
 
 	// Hamburger menu button (shown when narrow strip is hidden)
-	// Uses the shared launcherMenu which is initialized before createFileBrowser is called
-	launcherMenuButton = createHamburgerButton(launcherMenu, false) // false = horizontal row
+	// Uses getter to always get current launcherMenu (allows menu to be rebuilt on UI scale change)
+	launcherMenuButton = createHamburgerButton(func() *gtk.Menu { return launcherMenu }, false) // false = horizontal row
 	topRow.PackStart(launcherMenuButton, false, false, 0)
 
 	box.PackStart(topRow, false, true, 0)
