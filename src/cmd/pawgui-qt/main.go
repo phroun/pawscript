@@ -959,7 +959,7 @@ func (s *QtColorSwatch) applyColor() {
 		painter.SetPenWithPen(pen)
 
 		// Draw diagonal lines from bottom-left to top-right
-		spacing := 6
+		spacing := 12
 		for i := -size; i < size*2; i += spacing {
 			painter.DrawLine3(qt.NewQPoint2(i, size), qt.NewQPoint2(i+size, 0))
 		}
