@@ -1826,6 +1826,24 @@ func applyConsoleTheme() {
 		terminal.Buffer().SetDarkTheme(isDark)
 		terminal.SetColorScheme(scheme)
 	}
+
+	// Apply to all script window terminals
+	qtToolbarDataMu.Lock()
+	for _, data := range qtToolbarDataByWindow {
+		if data.terminal != nil {
+			data.terminal.Buffer().SetPreferredDarkTheme(isDark)
+			data.terminal.Buffer().SetDarkTheme(isDark)
+			data.terminal.SetColorScheme(scheme)
+		}
+	}
+	for _, data := range qtToolbarDataByPS {
+		if data.terminal != nil {
+			data.terminal.Buffer().SetPreferredDarkTheme(isDark)
+			data.terminal.Buffer().SetDarkTheme(isDark)
+			data.terminal.SetColorScheme(scheme)
+		}
+	}
+	qtToolbarDataMu.Unlock()
 }
 
 // applyFontSettings applies font settings to all open terminals

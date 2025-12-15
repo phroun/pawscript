@@ -1500,6 +1500,23 @@ func applyConsoleTheme() {
 		terminal.SetColorScheme(scheme)
 	}
 
+	// Apply to all script window terminals
+	toolbarDataMu.Lock()
+	for _, data := range toolbarDataByWindow {
+		if data.terminal != nil {
+			data.terminal.Buffer().SetPreferredDarkTheme(isDark)
+			data.terminal.Buffer().SetDarkTheme(isDark)
+			data.terminal.SetColorScheme(scheme)
+		}
+	}
+	for _, data := range toolbarDataByPS {
+		if data.terminal != nil {
+			data.terminal.Buffer().SetPreferredDarkTheme(isDark)
+			data.terminal.Buffer().SetDarkTheme(isDark)
+			data.terminal.SetColorScheme(scheme)
+		}
+	}
+	toolbarDataMu.Unlock()
 }
 
 // MenuContext holds callbacks and state for hamburger menu items
