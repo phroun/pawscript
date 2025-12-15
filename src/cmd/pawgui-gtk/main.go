@@ -826,16 +826,62 @@ func applyUIScale() {
 	// Refresh all toolbar icons with new scale
 	updateToolbarIcons()
 
-	// Force menus to recalculate their size by re-showing all children
-	if launcherMenu != nil {
-		launcherMenu.ShowAll()
+	// Rebuild menus with new scaled icon sizes
+	rebuildMenus()
+}
+
+// createLauncherContextMenu creates the right-click context menu for the launcher terminal
+func createLauncherContextMenu() *gtk.Menu {
+	menu, _ := gtk.MenuNew()
+
+	copyItem := createMenuItemWithGutter("Copy", func() {
+		if terminal != nil {
+			terminal.CopySelection()
+		}
+	})
+	menu.Append(copyItem)
+
+	pasteItem := createMenuItemWithGutter("Paste", func() {
+		if terminal != nil {
+			terminal.PasteClipboard()
+		}
+	})
+	menu.Append(pasteItem)
+
+	selectAllItem := createMenuItemWithGutter("Select All", func() {
+		if terminal != nil {
+			terminal.SelectAll()
+		}
+	})
+	menu.Append(selectAllItem)
+
+	clearItem := createMenuItemWithGutter("Clear", func() {
+		if terminal != nil {
+			terminal.Clear()
+		}
+	})
+	menu.Append(clearItem)
+
+	menu.ShowAll()
+	return menu
+}
+
+// rebuildMenus recreates all menus with current UI scale
+func rebuildMenus() {
+	// Rebuild launcher hamburger menu
+	if launcherMenuCtx != nil {
+		launcherMenu = createHamburgerMenu(launcherMenuCtx)
 	}
-	if pathMenu != nil {
-		pathMenu.ShowAll()
+
+	// Rebuild path menu
+	if pathButton != nil {
+		pathMenu, _ = gtk.MenuNew()
+		pathButton.SetPopup(pathMenu)
+		updatePathMenu()
 	}
-	if contextMenu != nil {
-		contextMenu.ShowAll()
-	}
+
+	// Rebuild launcher context menu
+	contextMenu = createLauncherContextMenu()
 }
 
 // updateToolbarIcons regenerates all toolbar icons with the current theme's colors
@@ -3712,37 +3758,7 @@ func activate(application *gtk.Application) {
 	setupQuitShortcut()
 
 	// Create context menu for terminal (right-click)
-	contextMenu, _ = gtk.MenuNew()
-
-	copyItem := createMenuItemWithGutter("Copy", func() {
-		if terminal != nil {
-			terminal.CopySelection()
-		}
-	})
-	contextMenu.Append(copyItem)
-
-	pasteItem := createMenuItemWithGutter("Paste", func() {
-		if terminal != nil {
-			terminal.PasteClipboard()
-		}
-	})
-	contextMenu.Append(pasteItem)
-
-	selectAllItem := createMenuItemWithGutter("Select All", func() {
-		if terminal != nil {
-			terminal.SelectAll()
-		}
-	})
-	contextMenu.Append(selectAllItem)
-
-	clearItem := createMenuItemWithGutter("Clear", func() {
-		if terminal != nil {
-			terminal.Clear()
-		}
-	})
-	contextMenu.Append(clearItem)
-
-	contextMenu.ShowAll()
+	contextMenu = createLauncherContextMenu()
 
 	// Create main vertical box for content (no menu bar)
 	mainBox, _ := gtk.BoxNew(gtk.ORIENTATION_VERTICAL, 0)
