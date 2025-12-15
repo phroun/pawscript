@@ -3689,7 +3689,11 @@ func applyMenuCSS(isDark bool) {
 }
 
 // parseShortcutGTK parses a shortcut string like "Cmd+Shift+Q" into GDK key and modifiers
+// Returns ok=false for empty strings (disabled shortcut)
 func parseShortcutGTK(shortcut string) (targetKey uint, targetMod gdk.ModifierType, ok bool) {
+	if shortcut == "" {
+		return 0, 0, false // Empty string = disabled
+	}
 	parts := strings.Split(shortcut, "+")
 	if len(parts) == 0 {
 		return 0, 0, false
