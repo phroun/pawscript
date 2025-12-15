@@ -2919,8 +2919,8 @@ func applyMenuCSS(isDark bool) {
 				background-color: transparent;
 			}
 			menuitem:hover {
-				background-color: #4a4a4a;
-				box-shadow: inset 0 0 0 1px #888888;
+				background-color: #3a4a3a;
+				box-shadow: inset 0 0 0 1px #6a9a6a;
 			}
 			menu separator {
 				margin-left: 57px;

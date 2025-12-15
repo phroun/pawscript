@@ -144,6 +144,57 @@ func applyUIScale() {
 }
 ```
 
+### 7. REQUIRED: Destroy Old Objects and Force GC When Replacing
+
+**This is critical.** When replacing GTK objects (menus, widgets, etc.), you MUST:
+1. Save a reference to the old object
+2. Create the new object
+3. Call `Destroy()` on the old object
+4. Call `runtime.GC()` to run finalizers immediately
+
+If you skip this, the old objects' Go wrappers will have active finalizers that run at unpredictable times (often during unrelated GTK operations like splitter dragging), causing crashes.
+
+```go
+// BAD - orphaned menu wrapper will crash later
+func rebuildMenu() {
+    myMenu = createNewMenu()  // Old menu orphaned with active finalizer!
+}
+
+// GOOD - explicitly destroy old object and force GC
+func rebuildMenu() {
+    oldMenu := myMenu
+    myMenu = createNewMenu()
+    if oldMenu != nil {
+        oldMenu.Destroy()
+    }
+    runtime.GC()  // Run finalizers NOW while in safe state
+}
+```
+
+When removing children from containers, also destroy them:
+
+```go
+func safeRemoveChildren(container *gtk.Box) {
+    children := container.GetChildren()
+    var toRemove []*gtk.Widget
+    children.Foreach(func(item interface{}) {
+        if widget, ok := item.(gtk.IWidget); ok {
+            toRemove = append(toRemove, widget.ToWidget())
+        }
+    })
+
+    for _, widget := range toRemove {
+        container.Remove(widget)
+        widget.Destroy()  // REQUIRED: prevent orphaned finalizers
+    }
+
+    toRemove = nil
+    runtime.GC()  // Clean up wrappers immediately
+}
+```
+
+After any operation that replaces multiple objects (like `applyUIScale()`), add a final `runtime.GC()` call to ensure all orphaned wrappers are cleaned up before control returns to the user.
+
 ## Specific Problem Areas
 
 ### Paned (Splitter) Widgets
@@ -180,7 +231,24 @@ paned.Connect("notify::position", func() {
 
 ### Menu Rebuilding
 
-When UI scale changes, menus need to be rebuilt with new icon sizes. Store menu getter functions rather than menu pointers to ensure you always get the current menu.
+When UI scale changes, menus need to be rebuilt with new icon sizes. **You MUST follow Strategy #7** - destroy old menus before creating new ones and force GC:
+
+```go
+func rebuildMenus() {
+    // Destroy old menu BEFORE creating new one
+    oldMenu := hamburgerMenu
+    hamburgerMenu = createHamburgerMenu(ctx)
+    if oldMenu != nil {
+        oldMenu.Destroy()
+    }
+
+    // ... repeat for other menus ...
+
+    runtime.GC()  // Force cleanup at end
+}
+```
+
+Also consider using menu getter functions rather than storing menu pointers to ensure you always get the current menu.
 
 ### Settings Dialog
 
