@@ -495,6 +495,20 @@ License: MIT`, version)
 }
 
 // showSettingsDialog displays the Settings dialog with tabbed interface
+// copyPSLConfig creates a deep copy of a PSLConfig section
+func copyPSLConfig(src interface{}) pawscript.PSLConfig {
+	result := pawscript.PSLConfig{}
+	if src == nil {
+		return result
+	}
+	if srcConfig, ok := src.(pawscript.PSLConfig); ok {
+		for k, v := range srcConfig {
+			result[k] = v
+		}
+	}
+	return result
+}
+
 func showSettingsDialog(parent gtk.IWindow) {
 	// Use mainWindow as fallback if parent is nil
 	if parent == nil && mainWindow != nil {
@@ -508,6 +522,11 @@ func showSettingsDialog(parent gtk.IWindow) {
 	origFontFamily := appConfig.GetString("font_family", "")
 	origFontSize := appConfig.GetInt("font_size", pawgui.DefaultFontSize)
 	origFontFamilyUnicode := appConfig.GetString("font_family_unicode", "")
+
+	// Save original palette sections for reverting on Cancel
+	origTermColors := copyPSLConfig(appConfig["term_colors"])
+	origTermColorsDark := copyPSLConfig(appConfig["term_colors_dark"])
+	origTermColorsLight := copyPSLConfig(appConfig["term_colors_light"])
 
 	// Save original splitter position for scaling during UI scale changes
 	var origSplitterPos int
@@ -821,23 +840,16 @@ func showSettingsDialog(parent gtk.IWindow) {
 	rightColumn, _ := gtk.BoxNew(gtk.ORIENTATION_VERTICAL, 4)
 	columnsBox.PackStart(rightColumn, true, true, 0)
 
-	// Column headers
-	leftHeader, _ := gtk.LabelNew("Background / Dark")
-	leftHeader.SetXAlign(0)
-	leftColumn.PackStart(leftHeader, false, false, 0)
-
-	rightHeader, _ := gtk.LabelNew("Foreground / Bright")
-	rightHeader.SetXAlign(0)
-	rightColumn.PackStart(rightHeader, false, false, 0)
-
 	// Swatch size
 	swatchSize := 24
 
-	// --- Background row (theme only) ---
+	// --- Background row (always present, no checkbox) ---
 	bgRow, _ := gtk.BoxNew(gtk.ORIENTATION_HORIZONTAL, 6)
+
+	// Label on the left
 	bgLabel, _ := gtk.LabelNew("Background")
-	bgLabel.SetWidthChars(12)
 	bgLabel.SetXAlign(0)
+	bgLabel.SetSizeRequest(110, -1) // Fixed width for alignment
 	bgRow.PackStart(bgLabel, false, false, 0)
 
 	// Spacer for where basic swatch would be
@@ -845,13 +857,13 @@ func showSettingsDialog(parent gtk.IWindow) {
 	bgSpacer.SetSizeRequest(swatchSize, swatchSize)
 	bgRow.PackStart(bgSpacer, false, false, 0)
 
-	// Background theme checkbox
-	bgThemeCheck, _ := gtk.CheckButtonNew()
-	bgThemeHex := getColorFromSection(getCurrentThemeSection(), "0_background")
-	bgThemeCheck.SetActive(bgThemeHex != "")
-	bgRow.PackStart(bgThemeCheck, false, false, 0)
+	// Another spacer for where checkbox would be
+	bgCheckSpacer, _ := gtk.BoxNew(gtk.ORIENTATION_HORIZONTAL, 0)
+	bgCheckSpacer.SetSizeRequest(20, swatchSize)
+	bgRow.PackStart(bgCheckSpacer, false, false, 0)
 
-	// Background theme swatch
+	// Background swatch (always enabled)
+	bgThemeHex := getColorFromSection(getCurrentThemeSection(), "0_background")
 	if bgThemeHex == "" {
 		bgThemeHex = "#1E1E1E" // Default dark background
 		if !isTermThemeDark() {
@@ -862,27 +874,17 @@ func showSettingsDialog(parent gtk.IWindow) {
 		setColorInSection(getCurrentThemeSection(), "0_background", hex)
 		applyPaletteChanges()
 	})
-	bgThemeSwatch.SetEnabled(bgThemeCheck.GetActive())
 	bgRow.PackStart(bgThemeSwatch.Button, false, false, 0)
-
-	bgThemeCheck.Connect("toggled", func() {
-		enabled := bgThemeCheck.GetActive()
-		bgThemeSwatch.SetEnabled(enabled)
-		if enabled {
-			setColorInSection(getCurrentThemeSection(), "0_background", bgThemeSwatch.GetColor())
-		} else {
-			setColorInSection(getCurrentThemeSection(), "0_background", "")
-		}
-		applyPaletteChanges()
-	})
 
 	leftColumn.PackStart(bgRow, false, false, 0)
 
-	// --- Foreground row (theme only) ---
+	// --- Foreground row (always present, no checkbox) ---
 	fgRow, _ := gtk.BoxNew(gtk.ORIENTATION_HORIZONTAL, 6)
+
+	// Label on the left
 	fgLabel, _ := gtk.LabelNew("Foreground")
-	fgLabel.SetWidthChars(12)
 	fgLabel.SetXAlign(0)
+	fgLabel.SetSizeRequest(110, -1) // Fixed width for alignment
 	fgRow.PackStart(fgLabel, false, false, 0)
 
 	// Spacer for where basic swatch would be
@@ -890,13 +892,13 @@ func showSettingsDialog(parent gtk.IWindow) {
 	fgSpacer.SetSizeRequest(swatchSize, swatchSize)
 	fgRow.PackStart(fgSpacer, false, false, 0)
 
-	// Foreground theme checkbox
-	fgThemeCheck, _ := gtk.CheckButtonNew()
-	fgThemeHex := getColorFromSection(getCurrentThemeSection(), "9_foreground")
-	fgThemeCheck.SetActive(fgThemeHex != "")
-	fgRow.PackStart(fgThemeCheck, false, false, 0)
+	// Another spacer for where checkbox would be
+	fgCheckSpacer, _ := gtk.BoxNew(gtk.ORIENTATION_HORIZONTAL, 0)
+	fgCheckSpacer.SetSizeRequest(20, swatchSize)
+	fgRow.PackStart(fgCheckSpacer, false, false, 0)
 
-	// Foreground theme swatch
+	// Foreground swatch (always enabled)
+	fgThemeHex := getColorFromSection(getCurrentThemeSection(), "9_foreground")
 	if fgThemeHex == "" {
 		fgThemeHex = "#D4D4D4" // Default dark foreground
 		if !isTermThemeDark() {
@@ -907,19 +909,7 @@ func showSettingsDialog(parent gtk.IWindow) {
 		setColorInSection(getCurrentThemeSection(), "9_foreground", hex)
 		applyPaletteChanges()
 	})
-	fgThemeSwatch.SetEnabled(fgThemeCheck.GetActive())
 	fgRow.PackStart(fgThemeSwatch.Button, false, false, 0)
-
-	fgThemeCheck.Connect("toggled", func() {
-		enabled := fgThemeCheck.GetActive()
-		fgThemeSwatch.SetEnabled(enabled)
-		if enabled {
-			setColorInSection(getCurrentThemeSection(), "9_foreground", fgThemeSwatch.GetColor())
-		} else {
-			setColorInSection(getCurrentThemeSection(), "9_foreground", "")
-		}
-		applyPaletteChanges()
-	})
 
 	rightColumn.PackStart(fgRow, false, false, 0)
 
@@ -941,9 +931,16 @@ func showSettingsDialog(parent gtk.IWindow) {
 		}
 
 		row, _ := gtk.BoxNew(gtk.ORIENTATION_HORIZONTAL, 6)
+
+		// Label on the left
 		label, _ := gtk.LabelNew(colorDisplayNames[i])
-		label.SetWidthChars(12)
 		label.SetXAlign(0)
+		// Left column (00-07) uses "Background" width, right column (08-15) uses "Bright Green" width
+		if i < 8 {
+			label.SetSizeRequest(110, -1)
+		} else {
+			label.SetSizeRequest(110, -1)
+		}
 		row.PackStart(label, false, false, 0)
 
 		// Basic swatch (from term_colors)
@@ -1001,9 +998,8 @@ func showSettingsDialog(parent gtk.IWindow) {
 	refreshPaletteTab := func() {
 		themeSection := getCurrentThemeSection()
 
-		// Refresh background
+		// Refresh background (always enabled)
 		bgHex := getColorFromSection(themeSection, "0_background")
-		bgThemeCheck.SetActive(bgHex != "")
 		if bgHex == "" {
 			if isTermThemeDark() {
 				bgHex = "#1E1E1E"
@@ -1012,11 +1008,9 @@ func showSettingsDialog(parent gtk.IWindow) {
 			}
 		}
 		bgThemeSwatch.SetColor(bgHex)
-		bgThemeSwatch.SetEnabled(bgThemeCheck.GetActive())
 
-		// Refresh foreground
+		// Refresh foreground (always enabled)
 		fgHex := getColorFromSection(themeSection, "9_foreground")
-		fgThemeCheck.SetActive(fgHex != "")
 		if fgHex == "" {
 			if isTermThemeDark() {
 				fgHex = "#D4D4D4"
@@ -1025,7 +1019,6 @@ func showSettingsDialog(parent gtk.IWindow) {
 			}
 		}
 		fgThemeSwatch.SetColor(fgHex)
-		fgThemeSwatch.SetEnabled(fgThemeCheck.GetActive())
 
 		// Refresh palette colors
 		for _, row := range paletteRows {
@@ -1110,6 +1103,22 @@ func showSettingsDialog(parent gtk.IWindow) {
 		appConfig.Set("font_size", origFontSize)
 		if origFontFamilyUnicode != "" {
 			appConfig.Set("font_family_unicode", origFontFamilyUnicode)
+		}
+		// Revert palette sections
+		if len(origTermColors) > 0 {
+			appConfig.Set("term_colors", origTermColors)
+		} else {
+			delete(appConfig, "term_colors")
+		}
+		if len(origTermColorsDark) > 0 {
+			appConfig.Set("term_colors_dark", origTermColorsDark)
+		} else {
+			delete(appConfig, "term_colors_dark")
+		}
+		if len(origTermColorsLight) > 0 {
+			appConfig.Set("term_colors_light", origTermColorsLight)
+		} else {
+			delete(appConfig, "term_colors_light")
 		}
 		configHelper = pawgui.NewConfigHelper(appConfig)
 		applyWindowTheme()
