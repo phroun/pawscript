@@ -849,24 +849,26 @@ func showSettingsDialog(parent gtk.IWindow) {
 		applyConsoleTheme()
 	}
 
-	// Create two-column layout
-	columnsBox, _ := gtk.BoxNew(gtk.ORIENTATION_HORIZONTAL, 24)
-	paletteBox.PackStart(columnsBox, true, true, 0)
-
-	// Left column: Background + Dark colors (00-07)
-	leftColumn, _ := gtk.BoxNew(gtk.ORIENTATION_VERTICAL, 4)
-	columnsBox.PackStart(leftColumn, true, true, 0)
-
-	// Right column: Foreground + Bright colors (08-15)
-	rightColumn, _ := gtk.BoxNew(gtk.ORIENTATION_VERTICAL, 4)
-	columnsBox.PackStart(rightColumn, true, true, 0)
-
-	// Swatch size and label width scaled by UI scale
+	// UI scale for all sizes
 	uiScale := getUIScale()
+	columnSpacing := int(24 * uiScale)
+	rowVerticalSpacing := int(4 * uiScale)
 	swatchSize := int(24 * uiScale)
 	labelWidth := int(115 * uiScale)
 	checkboxWidth := int(16 * uiScale) // Checkbox spacer for bg/fg rows
 	rowSpacing := int(6 * uiScale)
+
+	// Create two-column layout
+	columnsBox, _ := gtk.BoxNew(gtk.ORIENTATION_HORIZONTAL, columnSpacing)
+	paletteBox.PackStart(columnsBox, true, true, 0)
+
+	// Left column: Background + Dark colors (00-07)
+	leftColumn, _ := gtk.BoxNew(gtk.ORIENTATION_VERTICAL, rowVerticalSpacing)
+	columnsBox.PackStart(leftColumn, true, true, 0)
+
+	// Right column: Foreground + Bright colors (08-15)
+	rightColumn, _ := gtk.BoxNew(gtk.ORIENTATION_VERTICAL, rowVerticalSpacing)
+	columnsBox.PackStart(rightColumn, true, true, 0)
 
 	// --- Background row (always present, no checkbox) ---
 	bgRow, _ := gtk.BoxNew(gtk.ORIENTATION_HORIZONTAL, rowSpacing)

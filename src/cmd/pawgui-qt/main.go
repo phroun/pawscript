@@ -1486,7 +1486,7 @@ func showSettingsDialog(parent *qt.QWidget) {
 	uiScale := getUIScale()
 	swatchSize := int(24 * uiScale)
 	labelWidth := int(130 * uiScale)
-	checkboxWidth := int(24 * uiScale) // Checkbox spacer for bg/fg rows
+	checkboxWidth := int(4 * uiScale) // Checkbox spacer for bg/fg rows (smaller to align with actual checkbox)
 	rowSpacing := int(6 * uiScale)
 
 	// --- Background row (always present, no checkbox) ---
