@@ -396,6 +396,13 @@ func (btn *IconButton) UpdateIcon(svgData string, iconSize int) {
 	btn.QWidget.Update()
 }
 
+func (btn *IconButton) UpdateSize(buttonSize, iconSize int, svgData string) {
+	btn.QWidget.SetMinimumSize2(buttonSize, buttonSize)
+	btn.QWidget.SetMaximumSize2(buttonSize, buttonSize)
+	btn.pixmap = createPixmapFromSVG(svgData, iconSize)
+	btn.QWidget.Update()
+}
+
 // Random icons for dummy buttons
 var dummyIcons = []string{"★", "♦", "♠", "♣", "♥", "●", "■", "▲", "◆", "⬟", "⬢", "✦", "✧", "⚡", "☀", "☁", "☂", "☃", "✿", "❀"}
 
@@ -2398,16 +2405,16 @@ func applyTheme(theme pawgui.ThemeMode) {
 func updateToolbarIcons() {
 	// Update both launcher hamburger buttons (path selector and narrow strip)
 	if launcherMenuButton != nil {
-		launcherMenuButton.UpdateIcon(getSVGIcon(hamburgerIconSVG), scaledToolbarIconSize())
+		launcherMenuButton.UpdateSize(scaledToolbarButtonSize(), scaledToolbarIconSize(), getSVGIcon(hamburgerIconSVG))
 	}
 	if launcherStripMenuBtn != nil {
-		launcherStripMenuBtn.UpdateIcon(getSVGIcon(hamburgerIconSVG), scaledToolbarIconSize())
+		launcherStripMenuBtn.UpdateSize(scaledToolbarButtonSize(), scaledToolbarIconSize(), getSVGIcon(hamburgerIconSVG))
 	}
 
 	// Update all registered buttons in launcher toolbar
 	for _, btn := range launcherRegisteredBtns {
 		if btn.widget != nil {
-			btn.widget.UpdateIcon(getSVGIcon(starIconSVG), scaledToolbarIconSize())
+			btn.widget.UpdateSize(scaledToolbarButtonSize(), scaledToolbarIconSize(), getSVGIcon(starIconSVG))
 		}
 	}
 
@@ -2416,12 +2423,12 @@ func updateToolbarIcons() {
 	for _, data := range qtToolbarDataByPS {
 		// Update the hamburger button
 		if data.menuButton != nil {
-			data.menuButton.UpdateIcon(getSVGIcon(hamburgerIconSVG), scaledToolbarIconSize())
+			data.menuButton.UpdateSize(scaledToolbarButtonSize(), scaledToolbarIconSize(), getSVGIcon(hamburgerIconSVG))
 		}
 		// Update registered buttons
 		for _, btn := range data.registeredBtns {
 			if btn.widget != nil {
-				btn.widget.UpdateIcon(getSVGIcon(starIconSVG), scaledToolbarIconSize())
+				btn.widget.UpdateSize(scaledToolbarButtonSize(), scaledToolbarIconSize(), getSVGIcon(starIconSVG))
 			}
 		}
 	}
@@ -2430,12 +2437,12 @@ func updateToolbarIcons() {
 	for _, data := range qtToolbarDataByWindow {
 		// Update the hamburger button
 		if data.menuButton != nil {
-			data.menuButton.UpdateIcon(getSVGIcon(hamburgerIconSVG), scaledToolbarIconSize())
+			data.menuButton.UpdateSize(scaledToolbarButtonSize(), scaledToolbarIconSize(), getSVGIcon(hamburgerIconSVG))
 		}
 		// Update registered buttons
 		for _, btn := range data.registeredBtns {
 			if btn.widget != nil {
-				btn.widget.UpdateIcon(getSVGIcon(starIconSVG), scaledToolbarIconSize())
+				btn.widget.UpdateSize(scaledToolbarButtonSize(), scaledToolbarIconSize(), getSVGIcon(starIconSVG))
 			}
 		}
 	}
