@@ -414,8 +414,6 @@ func showAboutDialog(parent gtk.IWindow) {
 	aboutText := fmt.Sprintf(`<b>PawScript</b>
 Version: %s
 
-<i>A scripting language for creative coding</i>
-
 Copyright © 2025 Jeffrey R. Day
 License: MIT`, version)
 
@@ -1386,7 +1384,7 @@ func createBlankConsoleWindow() {
 	// Narrow strip for console window (always starts visible, collapsible)
 	strip, stripMenuBtn, _ := createToolbarStripWithContext(consoleMenuCtx)
 	strip.SetMarginStart(2 + narrowOnlyExtraPadding)
-	strip.SetSizeRequest(minNarrowStripWidth, -1)
+	strip.SetSizeRequest(scaledMinNarrowStripWidth(), -1)
 	paned.Pack1(strip, false, true)
 
 	// Terminal on the right
@@ -1397,7 +1395,7 @@ func createBlankConsoleWindow() {
 	paned.Pack2(termWidget, true, false)
 
 	// Set initial strip width and collapse behavior
-	consoleStripWidth := minNarrowStripWidth + 4 + narrowOnlyExtraPadding
+	consoleStripWidth := scaledMinNarrowStripWidth() + 4 + narrowOnlyExtraPadding
 	paned.SetPosition(consoleStripWidth)
 
 	// Track position changes for drag detection
@@ -1768,12 +1766,29 @@ func createToolbarStrip(parent gtk.IWindow, isScriptWindow bool, term *purfecter
 	return createToolbarStripWithContext(ctx)
 }
 
-// Minimum widths for panel collapse behavior
+// Minimum widths for panel collapse behavior (base values at 1.0 scale)
 const (
 	minWidePanelWidth      = 196 // Minimum width before wide panel collapses
 	minNarrowStripWidth    = 40  // Minimum width before narrow strip collapses
 	narrowOnlyExtraPadding = 6   // Extra left padding when in narrow-only mode
 )
+
+// Scaled threshold helpers - these return values adjusted for current UI scale
+func scaledMinWidePanelWidth() int {
+	return int(float64(minWidePanelWidth) * getUIScale())
+}
+
+func scaledMinNarrowStripWidth() int {
+	return int(float64(minNarrowStripWidth) * getUIScale())
+}
+
+func scaledBothThreshold() int {
+	return (scaledMinWidePanelWidth() / 2) + scaledMinNarrowStripWidth()
+}
+
+func scaledNarrowSnapPoint() int {
+	return scaledMinNarrowStripWidth() / 2
+}
 
 // Embedded SVG icons (fill color is replaced at runtime based on theme)
 const hamburgerIconSVG = `<svg width="48" height="48" viewBox="0 0 12.7 12.7" xmlns="http://www.w3.org/2000/svg">
@@ -2403,12 +2418,13 @@ func updateLauncherToolbarButtons() {
 	// Only adjust if we're in wide mode (position > narrow-only threshold)
 	if launcherPaned != nil && launcherWidePanel != nil && launcherWidePanel.GetVisible() {
 		pos := launcherPaned.GetPosition()
+		narrowWidth := scaledMinNarrowStripWidth()
 		if hadButtons && !hasMultipleButtons {
 			// Transitioning from both mode to wide-only: subtract strip width
-			launcherPaned.SetPosition(pos - minNarrowStripWidth)
+			launcherPaned.SetPosition(pos - narrowWidth)
 		} else if !hadButtons && hasMultipleButtons {
 			// Transitioning from wide-only to both mode: add strip width
-			launcherPaned.SetPosition(pos + minNarrowStripWidth)
+			launcherPaned.SetPosition(pos + narrowWidth)
 		}
 	}
 
@@ -3265,7 +3281,7 @@ func runScriptInWindow(gtkApp *gtk.Application, scriptContent, scriptFile string
 	// Console windows always show strip-only, so use extra left padding
 	strip, stripMenuBtn, _ := createToolbarStripWithContext(menuCtx)
 	strip.SetMarginStart(2 + narrowOnlyExtraPadding)
-	strip.SetSizeRequest(minNarrowStripWidth, -1) // Keep original width, margin adds the extra space
+	strip.SetSizeRequest(scaledMinNarrowStripWidth(), -1) // Keep original width, margin adds the extra space
 	paned.Pack1(strip, false, true)
 
 	// Register the toolbar data for theme updates (even without REPL)
@@ -3289,7 +3305,7 @@ func runScriptInWindow(gtkApp *gtk.Application, scriptContent, scriptFile string
 
 	// Set initial strip width and collapse behavior
 	// Script windows only have two positions: 0 (collapsed) or visible (with extra padding)
-	consoleStripWidth := minNarrowStripWidth + narrowOnlyExtraPadding
+	consoleStripWidth := scaledMinNarrowStripWidth() + narrowOnlyExtraPadding
 	paned.SetPosition(consoleStripWidth)
 
 	// Track position changes for drag detection
@@ -3729,13 +3745,13 @@ func activate(application *gtk.Application) {
 		},
 		IsFileListWide: func() bool {
 			// Wide if position >= bothThreshold (file list panel visible)
-			bothThreshold := (minWidePanelWidth / 2) + minNarrowStripWidth
-			return launcherPaned.GetPosition() >= bothThreshold
+			return launcherPaned.GetPosition() >= scaledBothThreshold()
 		},
 		ToggleFileList: func() {
 			pos := launcherPaned.GetPosition()
-			bothThreshold := (minWidePanelWidth / 2) + minNarrowStripWidth
-			narrowOnlyWidth := minNarrowStripWidth + narrowOnlyExtraPadding
+			bothThreshold := scaledBothThreshold()
+			narrowWidth := scaledMinNarrowStripWidth()
+			narrowOnlyWidth := narrowWidth + narrowOnlyExtraPadding
 			hasMultipleButtons := len(launcherRegisteredBtns) > 0
 			if pos >= bothThreshold {
 				// Currently wide, collapse to narrow-only strip
@@ -3756,18 +3772,19 @@ func activate(application *gtk.Application) {
 				// Show wide panel BEFORE setting position
 				launcherWidePanel.Show()
 				launcherNarrowStrip.SetMarginStart(2) // Normal padding in wide mode
+				wideThreshold := scaledMinWidePanelWidth()
 				if hasMultipleButtons {
 					launcherNarrowStrip.Show()
 					launcherMenuButton.Hide()
 					launcherStripMenuBtn.Show()
 					// Enforce minimum threshold like the drag handler does
-					launcherPaned.SetPosition(max(savedWidth+minNarrowStripWidth, minWidePanelWidth+minNarrowStripWidth))
+					launcherPaned.SetPosition(max(savedWidth+narrowWidth, wideThreshold+narrowWidth))
 					saveLauncherWidth(savedWidth)
 				} else {
 					launcherNarrowStrip.Hide()
 					launcherMenuButton.Show()
 					// Enforce minimum threshold like the drag handler does
-					launcherPaned.SetPosition(max(savedWidth, minWidePanelWidth))
+					launcherPaned.SetPosition(max(savedWidth, wideThreshold))
 					saveLauncherWidth(savedWidth)
 				}
 			}
@@ -3787,8 +3804,8 @@ func activate(application *gtk.Application) {
 	// Narrow strip: toolbar buttons (created but hidden initially - only 1 button)
 	// Uses the same shared launcherMenu as the wide panel button
 	launcherNarrowStrip, launcherStripMenuBtn, _ = createToolbarStripWithMenu(launcherMenuCtx, launcherMenu)
-	launcherNarrowStrip.SetNoShowAll(true)                      // Don't show when ShowAll is called
-	launcherNarrowStrip.SetSizeRequest(minNarrowStripWidth, -1) // Fixed width
+	launcherNarrowStrip.SetNoShowAll(true)                            // Don't show when ShowAll is called
+	launcherNarrowStrip.SetSizeRequest(scaledMinNarrowStripWidth(), -1) // Fixed width
 	leftContainer.PackStart(launcherNarrowStrip, false, false, 0)
 
 	// Initially: hamburger button visible in path selector, narrow strip hidden
@@ -3814,15 +3831,16 @@ func activate(application *gtk.Application) {
 	// - Wide + narrow mode: when pos >= minWidePanelWidth + minNarrowStripWidth
 	// - Narrow only mode: when pos >= minNarrowStripWidth but < threshold for wide panel
 	// - Collapsed: when pos < halfway point of narrow strip
-	narrowOnlyWidth := minNarrowStripWidth + narrowOnlyExtraPadding
 	launcherPaned.Connect("notify::position", func() {
 		pos := launcherPaned.GetPosition()
 		hasMultipleButtons := len(launcherRegisteredBtns) > 0
 
-		// Calculate threshold for showing both panels (wide panel needs its min width plus narrow strip width)
-		bothThreshold := (minWidePanelWidth / 2) + minNarrowStripWidth
-		// Halfway point for collapsing narrow strip
-		narrowSnapPoint := minNarrowStripWidth / 2
+		// Calculate scaled thresholds
+		narrowWidth := scaledMinNarrowStripWidth()
+		wideThreshold := scaledMinWidePanelWidth()
+		bothThreshold := scaledBothThreshold()
+		narrowSnapPoint := scaledNarrowSnapPoint()
+		narrowOnlyWidth := narrowWidth + narrowOnlyExtraPadding
 
 		if pos == 0 {
 			// Fully collapsed - hide all left panels, show hamburger in path selector
@@ -3850,9 +3868,9 @@ func activate(application *gtk.Application) {
 			// Wide enough for full panel
 			launcherWidePanel.Show()
 			if hasMultipleButtons {
-				launcherPaned.SetPosition(max(pos, minWidePanelWidth+minNarrowStripWidth))
+				launcherPaned.SetPosition(max(pos, wideThreshold+narrowWidth))
 			} else {
-				launcherPaned.SetPosition(max(pos, minWidePanelWidth))
+				launcherPaned.SetPosition(max(pos, wideThreshold))
 			}
 			launcherNarrowStrip.SetMarginStart(2) // Normal padding in wide mode
 			if hasMultipleButtons {
@@ -3861,7 +3879,7 @@ func activate(application *gtk.Application) {
 				launcherMenuButton.Hide()
 				launcherStripMenuBtn.Show()
 				// Save only the wide panel width (subtract strip width)
-				saveLauncherWidth(launcherPaned.GetPosition() - minNarrowStripWidth)
+				saveLauncherWidth(launcherPaned.GetPosition() - narrowWidth)
 			} else {
 				// Single button: hide narrow strip, show menu button in path row
 				launcherNarrowStrip.Hide()
@@ -3953,6 +3971,8 @@ func activate(application *gtk.Application) {
 
 		pos := paned.GetPosition()
 		hasMultipleButtons := len(launcherRegisteredBtns) > 0
+		narrowWidth := scaledMinNarrowStripWidth()
+		narrowOnlyWidth := narrowWidth + narrowOnlyExtraPadding
 
 		// Single click behavior based on current state
 		if pos == 0 {
@@ -3965,7 +3985,7 @@ func activate(application *gtk.Application) {
 				savedWidth = 280 // Default wide width
 			}
 			if hasMultipleButtons {
-				paned.SetPosition(savedWidth + minNarrowStripWidth)
+				paned.SetPosition(savedWidth + narrowWidth)
 			} else {
 				paned.SetPosition(savedWidth)
 			}
@@ -4001,6 +4021,8 @@ func activate(application *gtk.Application) {
 	// When in both mode with buttons, we add strip width to get actual position
 	savedPos := getLauncherWidth()
 	hasMultipleButtons := len(launcherRegisteredBtns) > 0
+	narrowWidth := scaledMinNarrowStripWidth()
+	narrowOnlyWidth := narrowWidth + narrowOnlyExtraPadding
 
 	if savedPos == 0 {
 		// Fully collapsed
@@ -4017,7 +4039,7 @@ func activate(application *gtk.Application) {
 		// Wide mode - add strip width if buttons exist
 		actualPos := savedPos
 		if hasMultipleButtons {
-			actualPos = savedPos + minNarrowStripWidth
+			actualPos = savedPos + narrowWidth
 		}
 		launcherPaned.SetPosition(actualPos)
 		launcherWidePanel.Show()
@@ -4690,7 +4712,7 @@ func createConsoleWindow(filePath string) {
 	// Console windows always show strip-only, so use extra left padding
 	strip, stripMenuBtn, _ := createToolbarStripWithContext(consoleMenuCtx)
 	strip.SetMarginStart(2 + narrowOnlyExtraPadding)
-	strip.SetSizeRequest(minNarrowStripWidth, -1) // Keep original width, margin adds the extra space
+	strip.SetSizeRequest(scaledMinNarrowStripWidth(), -1) // Keep original width, margin adds the extra space
 	paned.Pack1(strip, false, true)
 
 	// Terminal on the right
@@ -4702,7 +4724,7 @@ func createConsoleWindow(filePath string) {
 
 	// Set initial strip width and collapse behavior
 	// Script windows only have two positions: 0 (collapsed) or visible (with extra padding)
-	consoleStripWidth := minNarrowStripWidth + 4 + narrowOnlyExtraPadding
+	consoleStripWidth := scaledMinNarrowStripWidth() + 4 + narrowOnlyExtraPadding
 	paned.SetPosition(consoleStripWidth)
 
 	// Track position changes for drag detection
