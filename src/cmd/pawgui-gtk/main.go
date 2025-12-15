@@ -820,7 +820,10 @@ func applyUIScale() {
 	// Re-apply the CSS with new scale
 	applyMainCSS()
 
-	// Refresh all icons with new scale
+	// Refresh file list icons with new scale
+	refreshFileListIcons()
+
+	// Refresh all toolbar icons with new scale
 	updateToolbarIcons()
 }
 
