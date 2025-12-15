@@ -133,6 +133,9 @@ const (
 	gtkIconTypePawFile
 )
 
+// File list icon size (slightly larger than default for better visibility)
+const gtkFileListIconSize = 26
+
 // WindowToolbarData holds per-window toolbar state for dummy_button command
 type WindowToolbarData struct {
 	strip          *gtk.Box                // The narrow strip container
@@ -922,7 +925,7 @@ func refreshFileListIcons() {
 		}
 
 		// Update the existing image with new pixbuf
-		if pixbuf := createPixbufFromSVG(svgData, 24); pixbuf != nil {
+		if pixbuf := createPixbufFromSVG(svgData, gtkFileListIconSize); pixbuf != nil {
 			img.SetFromPixbuf(pixbuf)
 		}
 	}
@@ -1932,7 +1935,7 @@ func updateRowIcon(row *gtk.ListBoxRow, useDarkIcon bool) {
 	}
 
 	// Update the existing image with new pixbuf
-	if pixbuf := createPixbufFromSVG(svgData, 24); pixbuf != nil {
+	if pixbuf := createPixbufFromSVG(svgData, gtkFileListIconSize); pixbuf != nil {
 		img.SetFromPixbuf(pixbuf)
 	}
 }
@@ -4312,7 +4315,7 @@ func createFileRow(name string, isDir bool, isParent bool) *gtk.ListBoxRow {
 
 	// Get themed SVG (applies {{FILL}} replacement for theme-aware icons)
 	svgData := getSVGIcon(svgTemplate)
-	if icon := createImageFromSVG(svgData, 24); icon != nil {
+	if icon := createImageFromSVG(svgData, gtkFileListIconSize); icon != nil {
 		box.PackStart(icon, false, false, 0)
 		rowImageMap[row] = icon // Store image reference for later updates
 	}
