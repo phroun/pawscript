@@ -102,11 +102,28 @@ var (
 	pendingWindowUpdateMu sync.Mutex
 )
 
-// Minimum widths for panel collapse behavior
+// Minimum widths for panel collapse behavior (base values at 1.0 scale)
 const (
 	minWidePanelWidth   = 196 // Minimum width before wide panel collapses
 	minNarrowStripWidth = 48  // Minimum width to fit 40px toolbar buttons
 )
+
+// Scaled threshold helpers - these return values adjusted for current UI scale
+func scaledMinWidePanelWidth() int {
+	return int(float64(minWidePanelWidth) * getUIScale())
+}
+
+func scaledMinNarrowStripWidth() int {
+	return int(float64(minNarrowStripWidth) * getUIScale())
+}
+
+func scaledBothThreshold() int {
+	return (scaledMinWidePanelWidth() / 2) + scaledMinNarrowStripWidth()
+}
+
+func scaledNarrowSnapPoint() int {
+	return scaledMinNarrowStripWidth() / 2
+}
 
 // Embedded SVG icons (fill color is replaced at runtime based on theme)
 const hamburgerIconSVG = `<svg width="48" height="48" viewBox="0 0 12.7 12.7" xmlns="http://www.w3.org/2000/svg">
@@ -1265,8 +1282,7 @@ func isWideMode() bool {
 	sizes := launcherSplitter.Sizes()
 	if len(sizes) >= 2 {
 		// Wide mode when position >= bothThreshold (file list panel visible)
-		bothThreshold := (minWidePanelWidth / 2) + minNarrowStripWidth
-		return sizes[0] >= bothThreshold
+		return sizes[0] >= scaledBothThreshold()
 	}
 	return true
 }
@@ -1284,17 +1300,18 @@ func toggleFileList() {
 	hasMultipleButtons := len(launcherRegisteredBtns) > 0
 
 	// Use same threshold as isWideMode() for consistency
-	bothThreshold := (minWidePanelWidth / 2) + minNarrowStripWidth
+	bothThreshold := scaledBothThreshold()
 
 	if sizes[0] >= bothThreshold {
 		// Currently wide - collapse to narrow-only strip
 		// Must hide wide panel BEFORE setting sizes, otherwise it fights for space
+		narrowWidth := scaledMinNarrowStripWidth()
 		launcherWidePanel.Hide()
 		launcherNarrowStrip.Show()
 		launcherMenuButton.Hide()
 		launcherStripMenuBtn.Show()
-		launcherSplitter.SetSizes([]int{minNarrowStripWidth, totalWidth - minNarrowStripWidth})
-		saveLauncherWidth(minNarrowStripWidth)
+		launcherSplitter.SetSizes([]int{narrowWidth, totalWidth - narrowWidth})
+		saveLauncherWidth(narrowWidth)
 	} else {
 		// Currently narrow or collapsed - expand to wide
 		savedWidth := 300 // Default
@@ -1303,11 +1320,12 @@ func toggleFileList() {
 		}
 		// Show wide panel before resizing
 		launcherWidePanel.Show()
+		narrowWidth := scaledMinNarrowStripWidth()
 		if hasMultipleButtons {
 			launcherNarrowStrip.Show()
 			launcherMenuButton.Hide()
 			launcherStripMenuBtn.Show()
-			launcherSplitter.SetSizes([]int{savedWidth + minNarrowStripWidth, totalWidth - savedWidth - minNarrowStripWidth})
+			launcherSplitter.SetSizes([]int{savedWidth + narrowWidth, totalWidth - savedWidth - narrowWidth})
 			saveLauncherWidth(savedWidth)
 		} else {
 			launcherNarrowStrip.Hide()
@@ -1514,7 +1532,8 @@ func createBlankConsoleWindow() {
 	}, func() {
 		win.Close()
 	})
-	winNarrowStrip.SetFixedWidth(minNarrowStripWidth)
+	narrowWidth := scaledMinNarrowStripWidth()
+	winNarrowStrip.SetFixedWidth(narrowWidth)
 	winNarrowStrip.Show()
 	winStripMenuBtn.Show()
 
@@ -1533,18 +1552,20 @@ func createBlankConsoleWindow() {
 
 	winSplitter.SetStretchFactor(0, 0)
 	winSplitter.SetStretchFactor(1, 1)
-	winSplitter.SetSizes([]int{minNarrowStripWidth, 900 - minNarrowStripWidth})
+	winSplitter.SetSizes([]int{narrowWidth, 900 - narrowWidth})
 
 	winSplitter.OnSplitterMoved(func(pos int, index int) {
 		if index != 1 {
 			return
 		}
+		snapPoint := scaledNarrowSnapPoint()
+		stripWidth := scaledMinNarrowStripWidth()
 		if pos == 0 {
 			// Already collapsed
-		} else if pos < minNarrowStripWidth/2 {
+		} else if pos < snapPoint {
 			winSplitter.SetSizes([]int{0, winSplitter.Width()})
-		} else if pos != minNarrowStripWidth {
-			winSplitter.SetSizes([]int{minNarrowStripWidth, winSplitter.Width() - minNarrowStripWidth})
+		} else if pos != stripWidth {
+			winSplitter.SetSizes([]int{stripWidth, winSplitter.Width() - stripWidth})
 		}
 	})
 
@@ -1835,19 +1856,20 @@ func updateLauncherToolbarButtons() {
 			pos := sizes[0]
 			totalWidth := sizes[0] + sizes[1]
 			// Use same threshold as isWideMode() for consistency
-			bothThreshold := (minWidePanelWidth / 2) + minNarrowStripWidth
+			bothThreshold := scaledBothThreshold()
+			narrowWidth := scaledMinNarrowStripWidth()
 
 			if pos >= bothThreshold {
 				// Wide mode (both panels visible)
 				if hadButtons && !hasMultipleButtons {
 					// Transitioning from both mode to wide-only: subtract strip width
-					newPos := pos - minNarrowStripWidth
+					newPos := pos - narrowWidth
 					splitterAdjusting = true
 					launcherSplitter.SetSizes([]int{newPos, totalWidth - newPos})
 					splitterAdjusting = false
 				} else if !hadButtons && hasMultipleButtons {
 					// Transitioning from wide-only to both mode: add strip width
-					newPos := pos + minNarrowStripWidth
+					newPos := pos + narrowWidth
 					splitterAdjusting = true
 					launcherSplitter.SetSizes([]int{newPos, totalWidth - newPos})
 					splitterAdjusting = false
@@ -2738,8 +2760,8 @@ func launchGUIMode() {
 	// Narrow strip: toolbar buttons (created but hidden initially - only 1 button)
 	// Uses the same shared launcherMenu as the wide panel button
 	launcherNarrowStrip, launcherStripMenuBtn, _ = createToolbarStripWithMenu(launcherMenu)
-	launcherNarrowStrip.SetFixedWidth(minNarrowStripWidth) // Fixed width
-	launcherNarrowStrip.Hide()                             // Hidden initially since we only have 1 button
+	launcherNarrowStrip.SetFixedWidth(scaledMinNarrowStripWidth()) // Fixed width
+	launcherNarrowStrip.Hide()                                     // Hidden initially since we only have 1 button
 	leftLayout.AddWidget(launcherNarrowStrip)
 
 	// Initially: hamburger button visible in path selector, narrow strip hidden
@@ -2756,10 +2778,11 @@ func launchGUIMode() {
 	// When buttons exist, we add strip width to get actual splitter position
 	panelWidth := getLauncherWidth()
 	hasMultipleButtons := len(launcherRegisteredBtns) > 0
+	narrowWidth := scaledMinNarrowStripWidth()
 	initialWidth := panelWidth
-	if hasMultipleButtons && panelWidth > minNarrowStripWidth {
+	if hasMultipleButtons && panelWidth > narrowWidth {
 		// Wide mode with buttons: add strip width
-		initialWidth = panelWidth + minNarrowStripWidth
+		initialWidth = panelWidth + narrowWidth
 	}
 	launcherSplitter.SetSizes([]int{initialWidth, 900 - initialWidth})
 
@@ -2785,10 +2808,11 @@ func launchGUIMode() {
 		hasMultipleButtons := len(launcherRegisteredBtns) > 0
 
 		// Calculate threshold for showing both panels (use halfway point for easier expansion)
-		bothThreshold := (minWidePanelWidth / 2) + minNarrowStripWidth
+		bothThreshold := scaledBothThreshold()
+		narrowWidth := scaledMinNarrowStripWidth()
 
 		// Use halfway points for snapping decisions
-		narrowSnapPoint := minNarrowStripWidth / 2 // 20 - below this, collapse fully
+		narrowSnapPoint := scaledNarrowSnapPoint()
 
 		if pos < narrowSnapPoint {
 			// Too narrow even for strip - collapse fully
@@ -2808,12 +2832,12 @@ func launchGUIMode() {
 			launcherMenuButton.Hide()
 			launcherStripMenuBtn.Show()
 			// Snap to just the narrow strip width
-			if pos != minNarrowStripWidth {
+			if pos != narrowWidth {
 				splitterAdjusting = true
-				launcherSplitter.SetSizes([]int{minNarrowStripWidth, launcherSplitter.Width() - minNarrowStripWidth})
+				launcherSplitter.SetSizes([]int{narrowWidth, launcherSplitter.Width() - narrowWidth})
 				splitterAdjusting = false
 			}
-			saveLauncherWidth(minNarrowStripWidth)
+			saveLauncherWidth(narrowWidth)
 		} else {
 			// Wide enough for full panel
 			launcherWidePanel.Show()
@@ -2822,7 +2846,7 @@ func launchGUIMode() {
 				launcherMenuButton.Hide()
 				launcherStripMenuBtn.Show()
 				// Save only the wide panel width (subtract strip width)
-				saveLauncherWidth(pos - minNarrowStripWidth)
+				saveLauncherWidth(pos - narrowWidth)
 			} else {
 				launcherNarrowStrip.Hide()
 				launcherMenuButton.Show()
@@ -3114,7 +3138,8 @@ func runScriptInWindow(scriptContent, scriptFile string, scriptArgs []string,
 	}, func() {
 		win.Close()
 	})
-	winNarrowStrip.SetFixedWidth(minNarrowStripWidth)
+	narrowWidth := scaledMinNarrowStripWidth()
+	winNarrowStrip.SetFixedWidth(narrowWidth)
 	// Start visible with hamburger menu
 	winNarrowStrip.Show()
 	winStripMenuBtn.Show()
@@ -3137,21 +3162,23 @@ func runScriptInWindow(scriptContent, scriptFile string, scriptArgs []string,
 	winSplitter.SetStretchFactor(1, 1)
 
 	// Set initial sizes
-	winSplitter.SetSizes([]int{minNarrowStripWidth, 900 - minNarrowStripWidth})
+	winSplitter.SetSizes([]int{narrowWidth, 900 - narrowWidth})
 
-	// Script windows only have two positions: 0 (collapsed) or minNarrowStripWidth (visible)
+	// Script windows only have two positions: 0 (collapsed) or narrowWidth (visible)
 	winSplitter.OnSplitterMoved(func(pos int, index int) {
 		if index != 1 {
 			return
 		}
+		snapPoint := scaledNarrowSnapPoint()
+		stripWidth := scaledMinNarrowStripWidth()
 		if pos == 0 {
 			// Already collapsed, do nothing
-		} else if pos < minNarrowStripWidth/2 {
+		} else if pos < snapPoint {
 			// Less than half - snap to collapsed
 			winSplitter.SetSizes([]int{0, winSplitter.Width()})
-		} else if pos != minNarrowStripWidth {
+		} else if pos != stripWidth {
 			// More than half but not at fixed width - snap to visible
-			winSplitter.SetSizes([]int{minNarrowStripWidth, winSplitter.Width() - minNarrowStripWidth})
+			winSplitter.SetSizes([]int{stripWidth, winSplitter.Width() - stripWidth})
 		}
 	})
 
@@ -4176,7 +4203,8 @@ func createConsoleWindow(filePath string) {
 	}, func() {
 		win.Close()
 	})
-	winNarrowStrip.SetFixedWidth(minNarrowStripWidth)
+	narrowWidth := scaledMinNarrowStripWidth()
+	winNarrowStrip.SetFixedWidth(narrowWidth)
 	// Always show the strip (has hamburger menu)
 	winNarrowStrip.Show()
 	winStripMenuBtn.Show()
@@ -4189,21 +4217,23 @@ func createConsoleWindow(filePath string) {
 	winSplitter.SetStretchFactor(1, 1)
 
 	// Set initial sizes - always show narrow strip
-	winSplitter.SetSizes([]int{minNarrowStripWidth, 900 - minNarrowStripWidth})
+	winSplitter.SetSizes([]int{narrowWidth, 900 - narrowWidth})
 
-	// Script windows only have two positions: 0 (collapsed) or minNarrowStripWidth (visible)
+	// Script windows only have two positions: 0 (collapsed) or narrowWidth (visible)
 	winSplitter.OnSplitterMoved(func(pos int, index int) {
 		if index != 1 {
 			return
 		}
+		snapPoint := scaledNarrowSnapPoint()
+		stripWidth := scaledMinNarrowStripWidth()
 		if pos == 0 {
 			// Already collapsed, do nothing
-		} else if pos < minNarrowStripWidth/2 {
+		} else if pos < snapPoint {
 			// Less than half - snap to collapsed
 			winSplitter.SetSizes([]int{0, winSplitter.Width()})
-		} else if pos != minNarrowStripWidth {
+		} else if pos != stripWidth {
 			// More than half but not at fixed width - snap to visible
-			winSplitter.SetSizes([]int{minNarrowStripWidth, winSplitter.Width() - minNarrowStripWidth})
+			winSplitter.SetSizes([]int{stripWidth, winSplitter.Width() - stripWidth})
 		}
 	})
 
