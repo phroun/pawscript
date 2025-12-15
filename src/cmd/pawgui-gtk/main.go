@@ -3791,6 +3791,8 @@ func setupShortcutsForWindow(win *gtk.ApplicationWindow) {
 	// Connect to key-press-event on the window
 	win.Connect("key-press-event", func(w *gtk.ApplicationWindow, event *gdk.Event) bool {
 		keyEvent := gdk.EventKeyNewFromEvent(event)
+		defer runtime.KeepAlive(keyEvent) // Prevent GC during handler
+
 		keyval := keyEvent.KeyVal()
 		state := gdk.ModifierType(keyEvent.State())
 
@@ -4711,18 +4713,8 @@ func activate(application *gtk.Application) {
 	// Create main vertical box for content (no menu bar)
 	mainBox, _ := gtk.BoxNew(gtk.ORIENTATION_VERTICAL, 0)
 
-	// Handle Alt+F4 on Windows/Linux (usually handled by window manager, but add for safety)
-	mainWindow.Connect("key-press-event", func(win *gtk.ApplicationWindow, ev *gdk.Event) bool {
-		keyEvent := gdk.EventKeyNewFromEvent(ev)
-		keyval := keyEvent.KeyVal()
-		state := keyEvent.State()
-		// Alt+F4 to quit
-		if keyval == gdk.KEY_F4 && state&gdk.MOD1_MASK != 0 {
-			mainWindow.Close()
-			return true
-		}
-		return false
-	})
+	// Note: Alt+F4 and other quit/close shortcuts are now handled by setupShortcutsForWindow
+	// which is called via setupQuitShortcut() below
 
 	// Create main horizontal paned (split view)
 	launcherPaned, _ = gtk.PanedNew(gtk.ORIENTATION_HORIZONTAL)
