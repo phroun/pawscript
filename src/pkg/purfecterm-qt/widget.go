@@ -1646,41 +1646,26 @@ func (w *Widget) paintEvent(event *qt.QPaintEvent) {
 
 				// Create the appropriate font for this character
 				var drawFont *qt.QFont
+				useFauxBold := false
 				if charFontFamily != fontFamily || cell.Bold || cell.Italic {
 					// Need a different font - either fallback, bold, or italic
-					// Determine the actual font family to use
-					actualFamily := charFontFamily
-					weight := 50 // Normal weight
-
-					if cell.Bold {
-						// Some fonts (like Menlo on macOS) register bold as a separate family
-						// Try "Family Bold" as the family name first
-						fontDb := qt.NewQFontDatabase()
-						boldFamilyName := charFontFamily + " Bold"
-						if cell.Italic {
-							boldItalicName := charFontFamily + " Bold Italic"
-							if fontDb.HasFamily(boldItalicName) {
-								actualFamily = boldItalicName
-							} else if fontDb.HasFamily(boldFamilyName) {
-								actualFamily = boldFamilyName
-							} else {
-								weight = 75 // Fall back to weight-based bold
-							}
-						} else {
-							if fontDb.HasFamily(boldFamilyName) {
-								actualFamily = boldFamilyName
-							} else {
-								weight = 75 // Fall back to weight-based bold
-							}
-						}
-					}
-
-					drawFont = qt.NewQFont8(actualFamily, fontSize, weight, cell.Italic && actualFamily == charFontFamily)
-					// Only set fixed pitch for fallback fonts
+					drawFont = qt.NewQFont6(charFontFamily, fontSize)
 					if charFontFamily != fontFamily {
 						drawFont.SetFixedPitch(false)
 					}
+					if cell.Bold {
+						drawFont.SetBold(true)
+					}
+					if cell.Italic {
+						drawFont.SetItalic(true)
+					}
 					painter.SetFont(drawFont)
+
+					// Check if bold was actually applied by comparing weights
+					// If requested bold but font weight didn't change, use faux bold
+					if cell.Bold && drawFont.Weight() < 63 {
+						useFauxBold = true
+					}
 				} else {
 					drawFont = font
 				}
@@ -1732,6 +1717,11 @@ func (w *Widget) paintEvent(event *qt.QPaintEvent) {
 					painter.Translate2(float64(cellX)+xOffset, float64(cellY)+float64(baseCharAscent)*vertScale+yOffset)
 					painter.Scale(textScaleX, vertScale)
 					painter.DrawText3(0, 0, charStr)
+					if useFauxBold {
+						// Faux bold: draw again with slight horizontal offset
+						fauxOffset := math.Ceil(float64(fontSize)/20.0) / textScaleX
+						painter.DrawText3(fauxOffset, 0, charStr)
+					}
 					painter.Restore()
 				case purfecterm.LineAttrDoubleWidth:
 					// Double-width line: 2x horizontal scale on top of global scaling
@@ -1751,6 +1741,10 @@ func (w *Widget) paintEvent(event *qt.QPaintEvent) {
 					painter.Translate2(float64(cellX)+xOffset, float64(cellY)+float64(baseCharAscent)*vertScale+yOffset)
 					painter.Scale(textScaleX, vertScale)
 					painter.DrawText3(0, 0, charStr)
+					if useFauxBold {
+						fauxOffset := math.Ceil(float64(fontSize)/20.0) / textScaleX
+						painter.DrawText3(fauxOffset, 0, charStr)
+					}
 					painter.Restore()
 				case purfecterm.LineAttrDoubleTop:
 					// Double-height top half: 2x both directions, show top half only
@@ -1770,6 +1764,10 @@ func (w *Widget) paintEvent(event *qt.QPaintEvent) {
 					painter.Translate2(float64(cellX)+xOffset, float64(cellY)+float64(baseCharAscent)*vertScale*2.0+yOffset*2)
 					painter.Scale(textScaleX, textScaleY)
 					painter.DrawText3(0, 0, charStr)
+					if useFauxBold {
+						fauxOffset := math.Ceil(float64(fontSize)/20.0) / textScaleX
+						painter.DrawText3(fauxOffset, 0, charStr)
+					}
 					painter.Restore()
 				case purfecterm.LineAttrDoubleBottom:
 					// Double-height bottom half: 2x both directions, show bottom half only
@@ -1789,6 +1787,10 @@ func (w *Widget) paintEvent(event *qt.QPaintEvent) {
 					painter.Translate2(float64(cellX)+xOffset, float64(cellY)+float64(baseCharAscent)*vertScale*2.0-float64(charHeight)+yOffset*2)
 					painter.Scale(textScaleX, textScaleY)
 					painter.DrawText3(0, 0, charStr)
+					if useFauxBold {
+						fauxOffset := math.Ceil(float64(fontSize)/20.0) / textScaleX
+						painter.DrawText3(fauxOffset, 0, charStr)
+					}
 					painter.Restore()
 				}
 
