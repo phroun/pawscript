@@ -845,9 +845,10 @@ func showSettingsDialog(parent gtk.IWindow) {
 	swatchSize := int(24 * uiScale)
 	labelWidth := int(115 * uiScale)
 	checkboxWidth := int(16 * uiScale) // Checkbox spacer for bg/fg rows
+	rowSpacing := int(6 * uiScale)
 
 	// --- Background row (always present, no checkbox) ---
-	bgRow, _ := gtk.BoxNew(gtk.ORIENTATION_HORIZONTAL, 6)
+	bgRow, _ := gtk.BoxNew(gtk.ORIENTATION_HORIZONTAL, rowSpacing)
 
 	// Label on the left
 	bgLabel, _ := gtk.LabelNew("Background")
@@ -882,7 +883,7 @@ func showSettingsDialog(parent gtk.IWindow) {
 	leftColumn.PackStart(bgRow, false, false, 0)
 
 	// --- Foreground row (always present, no checkbox) ---
-	fgRow, _ := gtk.BoxNew(gtk.ORIENTATION_HORIZONTAL, 6)
+	fgRow, _ := gtk.BoxNew(gtk.ORIENTATION_HORIZONTAL, rowSpacing)
 
 	// Label on the left
 	fgLabel, _ := gtk.LabelNew("Foreground")
@@ -933,7 +934,7 @@ func showSettingsDialog(parent gtk.IWindow) {
 			ColorIndex: i,
 		}
 
-		row, _ := gtk.BoxNew(gtk.ORIENTATION_HORIZONTAL, 6)
+		row, _ := gtk.BoxNew(gtk.ORIENTATION_HORIZONTAL, rowSpacing)
 
 		// Label on the left
 		label, _ := gtk.LabelNew(colorDisplayNames[i])
