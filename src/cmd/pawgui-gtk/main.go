@@ -2965,8 +2965,10 @@ func (s *ColorSwatch) applyColor() {
 
 	// Include text color if set
 	textColorCSS := ""
+	labelColorCSS := ""
 	if s.textColorHex != "" {
 		textColorCSS = fmt.Sprintf("color: %s;", s.textColorHex)
+		labelColorCSS = fmt.Sprintf("button label { color: %s; }", s.textColorHex)
 	}
 
 	css := fmt.Sprintf(`
@@ -2985,7 +2987,8 @@ func (s *ColorSwatch) applyColor() {
 			background-color: %s;
 			border: 2px solid %s;
 		}
-	`, bgColor, borderColor, opacity, textColorCSS, bgColor, borderColor)
+		%s
+	`, bgColor, borderColor, opacity, textColorCSS, bgColor, borderColor, labelColorCSS)
 
 	cssProvider.LoadFromData(css)
 	styleCtx, err := s.Button.GetStyleContext()
