@@ -1651,7 +1651,8 @@ func (w *Widget) paintEvent(event *qt.QPaintEvent) {
 					drawFont = qt.NewQFont6(charFontFamily, fontSize)
 					drawFont.SetFixedPitch(charFontFamily == fontFamily) // Only fix pitch for main font
 					if cell.Bold {
-						drawFont.SetBold(true)
+						// Use SetWeight with Bold weight (75 in Qt5, but SetBold should work too)
+						drawFont.SetWeight(qt.QFont__Bold)
 					}
 					if cell.Italic {
 						drawFont.SetItalic(true)

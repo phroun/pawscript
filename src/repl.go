@@ -1259,6 +1259,8 @@ func (r *REPL) processInput(input string) {
 	if trimmed != "" {
 		if len(r.history) == 0 || r.history[len(r.history)-1] != trimmed {
 			r.history = append(r.history, trimmed)
+			// Auto-save history after each new command (for GUI mode where SaveHistory isn't called on exit)
+			go saveReplHistory(r.history)
 		}
 		r.historyPos = len(r.history)
 	}
