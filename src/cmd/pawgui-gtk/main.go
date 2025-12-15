@@ -826,15 +826,15 @@ func applyUIScale() {
 	// Refresh all toolbar icons with new scale
 	updateToolbarIcons()
 
-	// Force menus to recalculate their size
+	// Force menus to recalculate their size by re-showing all children
 	if launcherMenu != nil {
-		launcherMenu.Container.Widget.QueueResize()
+		launcherMenu.ShowAll()
 	}
 	if pathMenu != nil {
-		pathMenu.Container.Widget.QueueResize()
+		pathMenu.ShowAll()
 	}
 	if contextMenu != nil {
-		contextMenu.Container.Widget.QueueResize()
+		contextMenu.ShowAll()
 	}
 }
 
