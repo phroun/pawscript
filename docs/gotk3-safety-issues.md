@@ -148,9 +148,35 @@ func applyUIScale() {
 
 ### Paned (Splitter) Widgets
 
-The splitter's button-press and button-release handlers create temporary `EventButton` and `Window` objects. These are particularly prone to GC issues during rapid dragging. Always use `runtime.KeepAlive` for:
+The splitter's signal handlers are particularly prone to GC issues during rapid dragging:
+
+**button-press-event and button-release-event handlers** create temporary `EventButton` and `Window` objects. Always use `runtime.KeepAlive` for:
 - `gdk.EventButtonNewFromEvent()` results
 - `paned.GetHandleWindow()` results
+
+**notify::position handlers** fire very rapidly during dragging. Always:
+- Use `defer runtime.KeepAlive(paned)` at the start
+- Add `runtime.KeepAlive` for any widgets being manipulated (Show/Hide calls)
+- Consider deduplication to skip processing when position hasn't changed:
+
+```go
+var lastPos int = -1
+paned.Connect("notify::position", func() {
+    pos := paned.GetPosition()
+    if pos == lastPos {
+        return  // Skip if unchanged, reduces GC pressure
+    }
+    lastPos = pos
+
+    defer func() {
+        runtime.KeepAlive(paned)
+        runtime.KeepAlive(widgetA)
+        runtime.KeepAlive(widgetB)
+    }()
+
+    // ... show/hide logic
+})
+```
 
 ### Menu Rebuilding
 
