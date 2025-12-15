@@ -324,7 +324,7 @@ func getLauncherPosition() (int, int) {
 
 // saveLauncherPosition saves the launcher window position to config
 func saveLauncherPosition(x, y int) {
-	appConfig.Set("launcher_position", []interface{}{x, y})
+	appConfig.Set("launcher_position", pawscript.PSLList{x, y})
 	saveConfig(appConfig)
 }
 
@@ -342,7 +342,7 @@ func getLauncherSize() (int, int) {
 
 // saveLauncherSize saves the launcher window size to config
 func saveLauncherSize(width, height int) {
-	appConfig.Set("launcher_size", []interface{}{width, height})
+	appConfig.Set("launcher_size", pawscript.PSLList{width, height})
 	saveConfig(appConfig)
 }
 
@@ -810,8 +810,29 @@ func showSettingsDialog(parent gtk.IWindow) {
 
 	// Helper to set a color in a config section
 	setColorInSection := func(sectionName, colorName, hex string) {
-		section, ok := appConfig[sectionName].(pawscript.PSLConfig)
-		if !ok {
+		var section pawscript.PSLConfig
+		if existing, ok := appConfig[sectionName]; ok {
+			// Convert existing section to PSLConfig, preserving values
+			switch v := existing.(type) {
+			case pawscript.PSLConfig:
+				section = v
+			case pawscript.StoredList:
+				// Copy named args from StoredList to new PSLConfig
+				section = pawscript.PSLConfig{}
+				if args := v.NamedArgs(); args != nil {
+					for k, val := range args {
+						section.Set(k, val)
+					}
+				}
+			case map[string]interface{}:
+				section = pawscript.PSLConfig{}
+				for k, val := range v {
+					section.Set(k, val)
+				}
+			default:
+				section = pawscript.PSLConfig{}
+			}
+		} else {
 			section = pawscript.PSLConfig{}
 		}
 		if hex == "" {
