@@ -192,7 +192,12 @@ func createDarkIconFromSVG(svgTemplate string, size int) *qt.QIcon {
 	svgData := getDarkSVGIcon(svgTemplate)
 	pixmap := createPixmapFromSVG(svgData, size)
 	if pixmap != nil {
-		return qt.NewQIcon2(pixmap)
+		icon := qt.NewQIcon()
+		// Add pixmap for all modes to prevent Qt from auto-generating modified versions
+		icon.AddPixmap2(pixmap, qt.QIcon__Normal)
+		icon.AddPixmap2(pixmap, qt.QIcon__Selected)
+		icon.AddPixmap2(pixmap, qt.QIcon__Active)
+		return icon
 	}
 	return nil
 }
@@ -213,7 +218,12 @@ func createIconFromSVG(svgTemplate string, size int) *qt.QIcon {
 	svgData := getSVGIcon(svgTemplate)
 	pixmap := createPixmapFromSVG(svgData, size)
 	if pixmap != nil {
-		return qt.NewQIcon2(pixmap)
+		icon := qt.NewQIcon()
+		// Add pixmap for all modes to prevent Qt from auto-generating modified versions
+		icon.AddPixmap2(pixmap, qt.QIcon__Normal)
+		icon.AddPixmap2(pixmap, qt.QIcon__Selected)
+		icon.AddPixmap2(pixmap, qt.QIcon__Active)
+		return icon
 	}
 	return nil
 }
