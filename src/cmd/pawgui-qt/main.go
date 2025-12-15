@@ -2015,11 +2015,10 @@ func createHamburgerMenu(parent *qt.QWidget, isScriptWindow bool, term *purfecte
 	menu.AddSeparator()
 
 	// Close (both) - show shortcut if configured
-	closeLabel := "Close"
+	closeAction := menu.AddAction("Close")
 	if shortcut := getCloseShortcut(); shortcut != "" {
-		closeLabel = fmt.Sprintf("Close\t%s", formatShortcutForDisplay(shortcut))
+		closeAction.SetShortcut(qt.NewQKeySequence2(convertShortcutForQt(shortcut)))
 	}
-	closeAction := menu.AddAction(closeLabel)
 	closeAction.OnTriggered(func() {
 		if closeWindowFunc != nil {
 			closeWindowFunc()
@@ -2029,11 +2028,10 @@ func createHamburgerMenu(parent *qt.QWidget, isScriptWindow bool, term *purfecte
 	})
 
 	// Quit PawScript (both) - show shortcut if configured
-	quitLabel := "Quit PawScript"
+	quitAction := menu.AddAction("Quit PawScript")
 	if shortcut := getQuitShortcut(); shortcut != "" {
-		quitLabel = fmt.Sprintf("Quit PawScript\t%s", formatShortcutForDisplay(shortcut))
+		quitAction.SetShortcut(qt.NewQKeySequence2(convertShortcutForQt(shortcut)))
 	}
-	quitAction := menu.AddAction(quitLabel)
 	quitAction.OnTriggered(func() {
 		quitApplication(parent)
 	})
