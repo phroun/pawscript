@@ -2853,7 +2853,7 @@ func createColorSwatch(initialColor string, size int, onChange func(string)) *Co
 		}
 
 		response := colorDialog.Run()
-		if response == int(gtk.RESPONSE_OK) {
+		if response == gtk.RESPONSE_OK {
 			rgba := colorDialog.GetRGBA()
 			// Convert to hex
 			r := int(rgba.GetRed() * 255)
