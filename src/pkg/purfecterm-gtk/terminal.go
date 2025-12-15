@@ -64,7 +64,7 @@ func New(opts Options) (*Terminal, error) {
 	if opts.WorkingDir == "" {
 		opts.WorkingDir, _ = os.Getwd()
 	}
-	if opts.Scheme.Foreground == (purfecterm.Color{}) {
+	if opts.Scheme.DarkForeground == (purfecterm.Color{}) {
 		opts.Scheme = purfecterm.DefaultColorScheme()
 	}
 
