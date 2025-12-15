@@ -786,17 +786,8 @@ func showSettingsDialog(parent gtk.IWindow) {
 	paletteBox.SetMarginTop(12)
 	paletteBox.SetMarginBottom(12)
 
-	// Track palette rows for theme refresh
+	// Track palette rows
 	var paletteRows []*PaletteColorRow
-	var bgThemeSwatch, fgThemeSwatch *ColorSwatch
-
-	// Helper to get the current theme section name
-	getCurrentThemeSection := func() string {
-		if isTermThemeDark() {
-			return "term_colors_dark"
-		}
-		return "term_colors_light"
-	}
 
 	// Helper to get a color from a config section
 	getColorFromSection := func(sectionName, colorName string) string {
@@ -871,72 +862,98 @@ func showSettingsDialog(parent gtk.IWindow) {
 	columnsBox.PackStart(rightColumn, true, true, 0)
 
 	// --- Background row (always present, no checkbox) ---
+	// Layout: Label | Space | Space | LightSwatch | Space | DarkSwatch
 	bgRow, _ := gtk.BoxNew(gtk.ORIENTATION_HORIZONTAL, rowSpacing)
 
-	// Label on the left
 	bgLabel, _ := gtk.LabelNew("Background")
 	bgLabel.SetXAlign(0)
-	bgLabel.SetSizeRequest(labelWidth, -1) // Fixed width for alignment
+	bgLabel.SetSizeRequest(labelWidth, -1)
 	bgRow.PackStart(bgLabel, false, false, 0)
 
-	// Spacer for where basic swatch would be
-	bgSpacer, _ := gtk.BoxNew(gtk.ORIENTATION_HORIZONTAL, 0)
-	bgSpacer.SetSizeRequest(swatchSize, swatchSize)
-	bgRow.PackStart(bgSpacer, false, false, 0)
+	// Spacer for basic swatch
+	bgBasicSpacer, _ := gtk.BoxNew(gtk.ORIENTATION_HORIZONTAL, 0)
+	bgBasicSpacer.SetSizeRequest(swatchSize, swatchSize)
+	bgRow.PackStart(bgBasicSpacer, false, false, 0)
 
-	// Another spacer for where checkbox would be
-	bgCheckSpacer, _ := gtk.BoxNew(gtk.ORIENTATION_HORIZONTAL, 0)
-	bgCheckSpacer.SetSizeRequest(checkboxWidth, swatchSize)
-	bgRow.PackStart(bgCheckSpacer, false, false, 0)
+	// Spacer for light checkbox
+	bgLightCheckSpacer, _ := gtk.BoxNew(gtk.ORIENTATION_HORIZONTAL, 0)
+	bgLightCheckSpacer.SetSizeRequest(checkboxWidth, swatchSize)
+	bgRow.PackStart(bgLightCheckSpacer, false, false, 0)
 
-	// Background swatch (always enabled)
-	bgThemeHex := getColorFromSection(getCurrentThemeSection(), "0_background")
-	if bgThemeHex == "" {
-		bgThemeHex = "#1E1E1E" // Default dark background
-		if !isTermThemeDark() {
-			bgThemeHex = "#FFFFFF"
-		}
+	// Light background swatch
+	bgLightHex := getColorFromSection("term_colors_light", "0_background")
+	if bgLightHex == "" {
+		bgLightHex = "#FFFFFF"
 	}
-	bgThemeSwatch = createColorSwatch(bgThemeHex, swatchSize, func(hex string) {
-		setColorInSection(getCurrentThemeSection(), "0_background", hex)
+	bgLightSwatch := createColorSwatch(bgLightHex, swatchSize, func(hex string) {
+		setColorInSection("term_colors_light", "0_background", hex)
 		applyPaletteChanges()
 	})
-	bgRow.PackStart(bgThemeSwatch.Button, false, false, 0)
+	bgRow.PackStart(bgLightSwatch.Button, false, false, 0)
+
+	// Spacer for dark checkbox
+	bgDarkCheckSpacer, _ := gtk.BoxNew(gtk.ORIENTATION_HORIZONTAL, 0)
+	bgDarkCheckSpacer.SetSizeRequest(checkboxWidth, swatchSize)
+	bgRow.PackStart(bgDarkCheckSpacer, false, false, 0)
+
+	// Dark background swatch
+	bgDarkHex := getColorFromSection("term_colors_dark", "0_background")
+	if bgDarkHex == "" {
+		bgDarkHex = "#1E1E1E"
+	}
+	bgDarkSwatch := createColorSwatch(bgDarkHex, swatchSize, func(hex string) {
+		setColorInSection("term_colors_dark", "0_background", hex)
+		applyPaletteChanges()
+	})
+	bgRow.PackStart(bgDarkSwatch.Button, false, false, 0)
 
 	leftColumn.PackStart(bgRow, false, false, 0)
 
 	// --- Foreground row (always present, no checkbox) ---
+	// Layout: Label | Space | Space | LightSwatch | Space | DarkSwatch
 	fgRow, _ := gtk.BoxNew(gtk.ORIENTATION_HORIZONTAL, rowSpacing)
 
-	// Label on the left
 	fgLabel, _ := gtk.LabelNew("Foreground")
 	fgLabel.SetXAlign(0)
-	fgLabel.SetSizeRequest(labelWidth, -1) // Fixed width for alignment
+	fgLabel.SetSizeRequest(labelWidth, -1)
 	fgRow.PackStart(fgLabel, false, false, 0)
 
-	// Spacer for where basic swatch would be
-	fgSpacer, _ := gtk.BoxNew(gtk.ORIENTATION_HORIZONTAL, 0)
-	fgSpacer.SetSizeRequest(swatchSize, swatchSize)
-	fgRow.PackStart(fgSpacer, false, false, 0)
+	// Spacer for basic swatch
+	fgBasicSpacer, _ := gtk.BoxNew(gtk.ORIENTATION_HORIZONTAL, 0)
+	fgBasicSpacer.SetSizeRequest(swatchSize, swatchSize)
+	fgRow.PackStart(fgBasicSpacer, false, false, 0)
 
-	// Another spacer for where checkbox would be
-	fgCheckSpacer, _ := gtk.BoxNew(gtk.ORIENTATION_HORIZONTAL, 0)
-	fgCheckSpacer.SetSizeRequest(checkboxWidth, swatchSize)
-	fgRow.PackStart(fgCheckSpacer, false, false, 0)
+	// Spacer for light checkbox
+	fgLightCheckSpacer, _ := gtk.BoxNew(gtk.ORIENTATION_HORIZONTAL, 0)
+	fgLightCheckSpacer.SetSizeRequest(checkboxWidth, swatchSize)
+	fgRow.PackStart(fgLightCheckSpacer, false, false, 0)
 
-	// Foreground swatch (always enabled)
-	fgThemeHex := getColorFromSection(getCurrentThemeSection(), "9_foreground")
-	if fgThemeHex == "" {
-		fgThemeHex = "#D4D4D4" // Default dark foreground
-		if !isTermThemeDark() {
-			fgThemeHex = "#1E1E1E"
-		}
+	// Light foreground swatch
+	fgLightHex := getColorFromSection("term_colors_light", "9_foreground")
+	if fgLightHex == "" {
+		fgLightHex = "#1E1E1E"
 	}
-	fgThemeSwatch = createColorSwatch(fgThemeHex, swatchSize, func(hex string) {
-		setColorInSection(getCurrentThemeSection(), "9_foreground", hex)
+	fgLightSwatch := createColorSwatch(fgLightHex, swatchSize, func(hex string) {
+		setColorInSection("term_colors_light", "9_foreground", hex)
 		applyPaletteChanges()
 	})
-	fgRow.PackStart(fgThemeSwatch.Button, false, false, 0)
+	fgRow.PackStart(fgLightSwatch.Button, false, false, 0)
+
+	// Spacer for dark checkbox
+	fgDarkCheckSpacer, _ := gtk.BoxNew(gtk.ORIENTATION_HORIZONTAL, 0)
+	fgDarkCheckSpacer.SetSizeRequest(checkboxWidth, swatchSize)
+	fgRow.PackStart(fgDarkCheckSpacer, false, false, 0)
+
+	// Dark foreground swatch
+	fgDarkHex := getColorFromSection("term_colors_dark", "9_foreground")
+	if fgDarkHex == "" {
+		fgDarkHex = "#D4D4D4"
+	}
+	fgDarkSwatch := createColorSwatch(fgDarkHex, swatchSize, func(hex string) {
+		setColorInSection("term_colors_dark", "9_foreground", hex)
+		applyPaletteChanges()
+	})
+	fgRow.PackStart(fgDarkSwatch.Button, false, false, 0)
 
 	rightColumn.PackStart(fgRow, false, false, 0)
 
@@ -951,6 +968,7 @@ func showSettingsDialog(parent gtk.IWindow) {
 	defaultPaletteHex := purfecterm.DefaultPaletteHex()
 
 	// Create palette color rows (00-07 on left, 08-15 on right)
+	// Layout: Label | Basic | ☐Light | LightSwatch | ☐Dark | DarkSwatch
 	for i := 0; i < 16; i++ {
 		colorRow := &PaletteColorRow{
 			ColorName:  colorConfigNames[i],
@@ -959,7 +977,7 @@ func showSettingsDialog(parent gtk.IWindow) {
 
 		row, _ := gtk.BoxNew(gtk.ORIENTATION_HORIZONTAL, rowSpacing)
 
-		// Label on the left
+		// Label
 		label, _ := gtk.LabelNew(colorDisplayNames[i])
 		label.SetXAlign(0)
 		label.SetSizeRequest(labelWidth, -1)
@@ -976,32 +994,61 @@ func showSettingsDialog(parent gtk.IWindow) {
 		})
 		row.PackStart(colorRow.BasicSwatch.Button, false, false, 0)
 
-		// Theme checkbox
-		colorRow.ThemeCheckbox, _ = gtk.CheckButtonNew()
-		themeHex := getColorFromSection(getCurrentThemeSection(), colorConfigNames[i])
-		colorRow.ThemeCheckbox.SetActive(themeHex != "")
-		row.PackStart(colorRow.ThemeCheckbox, false, false, 0)
+		// Light checkbox
+		colorRow.LightCheckbox, _ = gtk.CheckButtonNew()
+		lightHex := getColorFromSection("term_colors_light", colorConfigNames[i])
+		colorRow.LightCheckbox.SetActive(lightHex != "")
+		row.PackStart(colorRow.LightCheckbox, false, false, 0)
 
-		// Theme swatch
-		if themeHex == "" {
-			themeHex = basicHex // Use basic as default display
+		// Light swatch
+		if lightHex == "" {
+			lightHex = basicHex
 		}
-		colorRow.ThemeSwatch = createColorSwatch(themeHex, swatchSize, func(hex string) {
-			setColorInSection(getCurrentThemeSection(), colorRow.ColorName, hex)
+		colorRow.LightSwatch = createColorSwatch(lightHex, swatchSize, func(hex string) {
+			setColorInSection("term_colors_light", colorRow.ColorName, hex)
 			applyPaletteChanges()
 		})
-		colorRow.ThemeSwatch.SetEnabled(colorRow.ThemeCheckbox.GetActive())
-		row.PackStart(colorRow.ThemeSwatch.Button, false, false, 0)
+		colorRow.LightSwatch.SetEnabled(colorRow.LightCheckbox.GetActive())
+		row.PackStart(colorRow.LightSwatch.Button, false, false, 0)
 
-		// Wire up checkbox
-		localRow := colorRow // Capture for closure
-		colorRow.ThemeCheckbox.Connect("toggled", func() {
-			enabled := localRow.ThemeCheckbox.GetActive()
-			localRow.ThemeSwatch.SetEnabled(enabled)
+		// Dark checkbox
+		colorRow.DarkCheckbox, _ = gtk.CheckButtonNew()
+		darkHex := getColorFromSection("term_colors_dark", colorConfigNames[i])
+		colorRow.DarkCheckbox.SetActive(darkHex != "")
+		row.PackStart(colorRow.DarkCheckbox, false, false, 0)
+
+		// Dark swatch
+		if darkHex == "" {
+			darkHex = basicHex
+		}
+		colorRow.DarkSwatch = createColorSwatch(darkHex, swatchSize, func(hex string) {
+			setColorInSection("term_colors_dark", colorRow.ColorName, hex)
+			applyPaletteChanges()
+		})
+		colorRow.DarkSwatch.SetEnabled(colorRow.DarkCheckbox.GetActive())
+		row.PackStart(colorRow.DarkSwatch.Button, false, false, 0)
+
+		// Wire up light checkbox
+		localRow := colorRow
+		colorRow.LightCheckbox.Connect("toggled", func() {
+			enabled := localRow.LightCheckbox.GetActive()
+			localRow.LightSwatch.SetEnabled(enabled)
 			if enabled {
-				setColorInSection(getCurrentThemeSection(), localRow.ColorName, localRow.ThemeSwatch.GetColor())
+				setColorInSection("term_colors_light", localRow.ColorName, localRow.LightSwatch.GetColor())
 			} else {
-				setColorInSection(getCurrentThemeSection(), localRow.ColorName, "")
+				setColorInSection("term_colors_light", localRow.ColorName, "")
+			}
+			applyPaletteChanges()
+		})
+
+		// Wire up dark checkbox
+		colorRow.DarkCheckbox.Connect("toggled", func() {
+			enabled := localRow.DarkCheckbox.GetActive()
+			localRow.DarkSwatch.SetEnabled(enabled)
+			if enabled {
+				setColorInSection("term_colors_dark", localRow.ColorName, localRow.DarkSwatch.GetColor())
+			} else {
+				setColorInSection("term_colors_dark", localRow.ColorName, "")
 			}
 			applyPaletteChanges()
 		})
@@ -1016,53 +1063,12 @@ func showSettingsDialog(parent gtk.IWindow) {
 		paletteRows = append(paletteRows, colorRow)
 	}
 
-	// Function to refresh palette tab when theme changes
-	refreshPaletteTab := func() {
-		themeSection := getCurrentThemeSection()
-
-		// Refresh background (always enabled)
-		bgHex := getColorFromSection(themeSection, "0_background")
-		if bgHex == "" {
-			if isTermThemeDark() {
-				bgHex = "#1E1E1E"
-			} else {
-				bgHex = "#FFFFFF"
-			}
-		}
-		bgThemeSwatch.SetColor(bgHex)
-
-		// Refresh foreground (always enabled)
-		fgHex := getColorFromSection(themeSection, "9_foreground")
-		if fgHex == "" {
-			if isTermThemeDark() {
-				fgHex = "#D4D4D4"
-			} else {
-				fgHex = "#1E1E1E"
-			}
-		}
-		fgThemeSwatch.SetColor(fgHex)
-
-		// Refresh palette colors
-		for _, row := range paletteRows {
-			themeHex := getColorFromSection(themeSection, row.ColorName)
-			row.ThemeCheckbox.SetActive(themeHex != "")
-			if themeHex == "" {
-				themeHex = row.BasicSwatch.GetColor()
-			}
-			row.ThemeSwatch.SetColor(themeHex)
-			row.ThemeSwatch.SetEnabled(row.ThemeCheckbox.GetActive())
-		}
-	}
-
-	// Store refreshPaletteTab for use by Console Theme combo
-	// We need to update the Console Theme combo's onChange to call this
-	origConsoleThemeOnChange := consoleThemeCombo.onChange
-	consoleThemeCombo.onChange = func(idx int) {
-		if origConsoleThemeOnChange != nil {
-			origConsoleThemeOnChange(idx)
-		}
-		refreshPaletteTab()
-	}
+	// Suppress unused variable warnings
+	_ = paletteRows
+	_ = bgLightSwatch
+	_ = bgDarkSwatch
+	_ = fgLightSwatch
+	_ = fgDarkSwatch
 
 	// Add palette tab to notebook
 	paletteLabel, _ := gtk.LabelNew("Palette")
@@ -2976,11 +2982,13 @@ func (s *ColorSwatch) applyColor() {
 
 // PaletteColorRow holds the widgets for a single palette color entry
 type PaletteColorRow struct {
-	BasicSwatch   *ColorSwatch
-	ThemeSwatch   *ColorSwatch
-	ThemeCheckbox *gtk.CheckButton
-	ColorName     string
-	ColorIndex    int
+	BasicSwatch    *ColorSwatch
+	LightSwatch    *ColorSwatch
+	LightCheckbox  *gtk.CheckButton
+	DarkSwatch     *ColorSwatch
+	DarkCheckbox   *gtk.CheckButton
+	ColorName      string
+	ColorIndex     int
 }
 
 // applyToolbarButtonStyle applies CSS to make toolbar buttons square with equal padding
