@@ -2267,14 +2267,7 @@ func createBlankConsoleWindow() {
 		ScrollbackSize: 10000,
 		FontFamily:     getFontFamily(),
 		FontSize:       getFontSize(),
-		Scheme: purfecterm.ColorScheme{
-			Foreground: getTerminalForeground(),
-			Background: getTerminalBackground(),
-			Cursor:     purfecterm.TrueColor(255, 255, 255),
-			Selection:  purfecterm.TrueColor(68, 68, 68),
-			Palette:    getColorPalette(),
-			BlinkMode:  getBlinkMode(),
-		},
+		Scheme:         getDualColorScheme(),
 	})
 	if err != nil {
 		win.Close()
@@ -3928,14 +3921,7 @@ func runScriptInWindow(scriptContent, scriptFile string, scriptArgs []string,
 		ScrollbackSize: 10000,
 		FontFamily:     getFontFamily(),
 		FontSize:       getFontSize(),
-		Scheme: purfecterm.ColorScheme{
-			Foreground: getTerminalForeground(),
-			Background: getTerminalBackground(),
-			Cursor:     purfecterm.TrueColor(255, 255, 255),
-			Selection:  purfecterm.TrueColor(68, 68, 68),
-			Palette:    getColorPalette(),
-			BlinkMode:  getBlinkMode(),
-		},
+		Scheme:         getDualColorScheme(),
 	})
 	if err != nil {
 		fmt.Fprintf(os.Stderr, "Failed to create terminal: %v\n", err)
@@ -4397,14 +4383,7 @@ func createTerminalPanel() *qt.QWidget {
 		ScrollbackSize: 10000,
 		FontFamily:     getFontFamily(),
 		FontSize:       getFontSize(),
-		Scheme: purfecterm.ColorScheme{
-			Foreground: getTerminalForeground(),
-			Background: getTerminalBackground(),
-			Cursor:     purfecterm.TrueColor(255, 255, 255),
-			Selection:  purfecterm.TrueColor(68, 68, 68),
-			Palette:    getColorPalette(),
-			BlinkMode:  getBlinkMode(),
-		},
+		Scheme:         getDualColorScheme(),
 	})
 	if err != nil {
 		fmt.Fprintf(os.Stderr, "Failed to create terminal: %v\n", err)
@@ -5084,14 +5063,7 @@ func createConsoleWindow(filePath string) {
 		ScrollbackSize: 10000,
 		FontFamily:     getFontFamily(),
 		FontSize:       getFontSize(),
-		Scheme: purfecterm.ColorScheme{
-			Foreground: getTerminalForeground(),
-			Background: getTerminalBackground(),
-			Cursor:     purfecterm.TrueColor(255, 255, 255),
-			Selection:  purfecterm.TrueColor(68, 68, 68),
-			Palette:    getColorPalette(),
-			BlinkMode:  getBlinkMode(),
-		},
+		Scheme:         getDualColorScheme(),
 	})
 	if err != nil {
 		terminal.Feed(fmt.Sprintf("\r\nFailed to create console window: %v\r\n", err))
