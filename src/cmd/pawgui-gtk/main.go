@@ -119,6 +119,10 @@ var (
 	toolbarDataByWindow = make(map[*gtk.ApplicationWindow]*WindowToolbarData)
 	toolbarDataMu       sync.Mutex
 
+	// UI scale operation guard - prevents re-entrant/concurrent scale operations
+	uiScaleMu        sync.Mutex
+	uiScaleInProgress bool
+
 	// File list icon tracking
 	rowIconTypeMap      = make(map[*gtk.ListBoxRow]gtkIconType)
 	previousSelectedRow *gtk.ListBoxRow
@@ -151,6 +155,34 @@ func scaledToolbarIconSize() int {
 
 func scaledMenuIconSize() int {
 	return int(float64(gtkMenuIconSize) * getUIScale())
+}
+
+// safeRemoveChildren removes all children from a container safely
+// This collects widgets first, removes them, clears Go references,
+// and forces a GC to run finalizers in a controlled state
+func safeRemoveChildren(container interface {
+	GetChildren() *glib.List
+	Remove(gtk.IWidget)
+}) {
+	children := container.GetChildren()
+	if children == nil {
+		return
+	}
+
+	var toRemove []gtk.IWidget
+	children.Foreach(func(item interface{}) {
+		if widget, ok := item.(gtk.IWidget); ok {
+			toRemove = append(toRemove, widget)
+		}
+	})
+
+	for _, widget := range toRemove {
+		container.Remove(widget)
+	}
+
+	// Clear references and force GC to run finalizers now
+	toRemove = nil
+	runtime.GC()
 }
 
 // WindowToolbarData holds per-window toolbar state for dummy_button command
@@ -839,6 +871,22 @@ func applyFontSettings() {
 
 // applyUIScale applies UI scale to all windows (requires restart for full effect)
 func applyUIScale() {
+	// Guard against re-entrant/concurrent calls
+	uiScaleMu.Lock()
+	if uiScaleInProgress {
+		uiScaleMu.Unlock()
+		return
+	}
+	uiScaleInProgress = true
+	uiScaleMu.Unlock()
+
+	// Ensure we clear the flag when done
+	defer func() {
+		uiScaleMu.Lock()
+		uiScaleInProgress = false
+		uiScaleMu.Unlock()
+	}()
+
 	// Re-apply the CSS with new scale
 	applyMainCSS()
 
@@ -2252,6 +2300,9 @@ func updateFileListMenuIcon(item *gtk.MenuItem, isChecked bool) {
 		box.Remove(widget)
 		widget.ToWidget().Destroy()
 	}
+	// Clear references and force GC
+	toRemove = nil
+	runtime.GC()
 
 	// Recreate the icon
 	svgData := getSVGIcon(iconSVG)
@@ -2382,13 +2433,22 @@ func (c *SettingsComboMenu) updateMenuItem(idx int, isSelected bool) {
 		return
 	}
 
-	// Remove all children from the box
+	// Remove all children from the box safely
+	var toRemove []gtk.IWidget
 	children := box.GetChildren()
-	children.Foreach(func(item interface{}) {
-		if widget, ok := item.(gtk.IWidget); ok {
-			box.Remove(widget)
-		}
-	})
+	if children != nil {
+		children.Foreach(func(item interface{}) {
+			if widget, ok := item.(gtk.IWidget); ok {
+				toRemove = append(toRemove, widget)
+			}
+		})
+	}
+	for _, widget := range toRemove {
+		box.Remove(widget)
+	}
+	// Clear references and force GC
+	toRemove = nil
+	runtime.GC()
 
 	optText := c.options[idx]
 
@@ -2500,6 +2560,9 @@ func updateLauncherToolbarButtons() {
 	for _, widget := range toRemove {
 		launcherNarrowStrip.Remove(widget)
 	}
+	// Clear references and force GC to prevent finalizer crash
+	toRemove = nil
+	runtime.GC()
 
 	// Add new dummy buttons
 	for _, btn := range launcherRegisteredBtns {
@@ -2582,6 +2645,9 @@ func updateWindowToolbarButtons(strip *gtk.Box, buttons []*ToolbarButton) {
 	for _, widget := range toRemove {
 		strip.Remove(widget)
 	}
+	// Clear references and force GC to prevent finalizer crash
+	toRemove = nil
+	runtime.GC()
 
 	// Add new dummy buttons
 	for _, btn := range buttons {
@@ -4316,12 +4382,8 @@ func updatePathMenu() {
 	// Update the label to show current path
 	pathLabel.SetText(currentDir)
 
-	// Clear existing menu items
-	pathMenu.GetChildren().Foreach(func(item interface{}) {
-		if widget, ok := item.(gtk.IWidget); ok {
-			pathMenu.Remove(widget)
-		}
-	})
+	// Clear existing menu items safely
+	safeRemoveChildren(pathMenu)
 
 	// Helper to add a menu item with callback
 	addMenuItem := func(label string, callback func()) {
@@ -4399,17 +4461,16 @@ func updatePathMenu() {
 }
 
 func refreshFileList() {
+	if fileList == nil {
+		return
+	}
+
 	// Clear icon type map and reset previous selected row
 	rowIconTypeMap = make(map[*gtk.ListBoxRow]gtkIconType)
 	previousSelectedRow = nil
 
-	// Clear existing items
-	children := fileList.GetChildren()
-	children.Foreach(func(item interface{}) {
-		if widget, ok := item.(*gtk.Widget); ok {
-			fileList.Remove(widget)
-		}
-	})
+	// Safely remove all existing items
+	safeRemoveChildren(fileList)
 
 	// Read directory
 	entries, err := os.ReadDir(currentDir)
