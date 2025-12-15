@@ -1552,9 +1552,12 @@ func createBlankConsoleWindow() {
 
 	paned.Connect("button-press-event", func(p *gtk.Paned, ev *gdk.Event) bool {
 		btnEvent := gdk.EventButtonNewFromEvent(ev)
+		var handleWindow *gdk.Window
 		if btnEvent.Button() == 1 {
 			consolePanedOnHandle = false
-			if handleWindow, err := p.GetHandleWindow(); err == nil && handleWindow != nil {
+			var err error
+			handleWindow, err = p.GetHandleWindow()
+			if err == nil && handleWindow != nil {
 				hx, hy := handleWindow.GetRootOrigin()
 				hw := handleWindow.WindowGetWidth()
 				hh := handleWindow.WindowGetHeight()
@@ -1562,16 +1565,22 @@ func createBlankConsoleWindow() {
 				consolePanedOnHandle = clickX >= hx && clickX < hx+hw && clickY >= hy && clickY < hy+hh
 			}
 			if !consolePanedOnHandle {
+				runtime.KeepAlive(btnEvent)
+				runtime.KeepAlive(handleWindow)
 				return false
 			}
 			consolePanedPressPos = p.GetPosition()
 			consolePanedDragged = false
 		}
+		runtime.KeepAlive(btnEvent)
+		runtime.KeepAlive(handleWindow)
 		return false
 	})
 
 	paned.Connect("button-release-event", func(p *gtk.Paned, ev *gdk.Event) bool {
 		btnEvent := gdk.EventButtonNewFromEvent(ev)
+		defer runtime.KeepAlive(btnEvent)
+
 		if btnEvent.Button() != 1 || !consolePanedOnHandle || consolePanedDragged || consolePanedPressPos < 0 {
 			consolePanedPressPos = -1
 			consolePanedOnHandle = false
@@ -3506,10 +3515,13 @@ func runScriptInWindow(gtkApp *gtk.Application, scriptContent, scriptFile string
 	// Handle click events on the console splitter handle only
 	paned.Connect("button-press-event", func(p *gtk.Paned, ev *gdk.Event) bool {
 		btnEvent := gdk.EventButtonNewFromEvent(ev)
+		var handleWindow *gdk.Window
 		if btnEvent.Button() == 1 {
 			// Check if click is on the handle using handle window geometry
 			consolePanedOnHandle = false
-			if handleWindow, err := p.GetHandleWindow(); err == nil && handleWindow != nil {
+			var err error
+			handleWindow, err = p.GetHandleWindow()
+			if err == nil && handleWindow != nil {
 				hx, hy := handleWindow.GetRootOrigin()
 				hw := handleWindow.WindowGetWidth()
 				hh := handleWindow.WindowGetHeight()
@@ -3517,16 +3529,22 @@ func runScriptInWindow(gtkApp *gtk.Application, scriptContent, scriptFile string
 				consolePanedOnHandle = clickX >= hx && clickX < hx+hw && clickY >= hy && clickY < hy+hh
 			}
 			if !consolePanedOnHandle {
+				runtime.KeepAlive(btnEvent)
+				runtime.KeepAlive(handleWindow)
 				return false
 			}
 			consolePanedPressPos = p.GetPosition()
 			consolePanedDragged = false
 		}
+		runtime.KeepAlive(btnEvent)
+		runtime.KeepAlive(handleWindow)
 		return false
 	})
 
 	paned.Connect("button-release-event", func(p *gtk.Paned, ev *gdk.Event) bool {
 		btnEvent := gdk.EventButtonNewFromEvent(ev)
+		defer runtime.KeepAlive(btnEvent)
+
 		if btnEvent.Button() != 1 || !consolePanedOnHandle || consolePanedDragged || consolePanedPressPos < 0 {
 			consolePanedPressPos = -1
 			consolePanedOnHandle = false
@@ -4040,10 +4058,13 @@ func activate(application *gtk.Application) {
 
 	launcherPaned.Connect("button-press-event", func(paned *gtk.Paned, ev *gdk.Event) bool {
 		btnEvent := gdk.EventButtonNewFromEvent(ev)
+		var handleWindow *gdk.Window
 		if btnEvent.Button() == 1 { // Left mouse button
 			// Check if click is on the handle using handle window geometry
 			launcherPanedOnHandle = false
-			if handleWindow, err := paned.GetHandleWindow(); err == nil && handleWindow != nil {
+			var err error
+			handleWindow, err = paned.GetHandleWindow()
+			if err == nil && handleWindow != nil {
 				hx, hy := handleWindow.GetRootOrigin()
 				hw := handleWindow.WindowGetWidth()
 				hh := handleWindow.WindowGetHeight()
@@ -4052,6 +4073,8 @@ func activate(application *gtk.Application) {
 			}
 
 			if !launcherPanedOnHandle {
+				runtime.KeepAlive(btnEvent)
+				runtime.KeepAlive(handleWindow)
 				return false // Not on handle, let event propagate normally
 			}
 
@@ -4060,12 +4083,16 @@ func activate(application *gtk.Application) {
 				launcherPanedDoubleClick = true
 				// Double-click: collapse completely
 				paned.SetPosition(0)
+				runtime.KeepAlive(btnEvent)
+				runtime.KeepAlive(handleWindow)
 				return true
 			}
 			launcherPanedPressPos = paned.GetPosition()
 			launcherPanedDragged = false
 			launcherPanedDoubleClick = false
 		}
+		runtime.KeepAlive(btnEvent)
+		runtime.KeepAlive(handleWindow)
 		return false // Let GTK handle the event too
 	})
 
@@ -4081,6 +4108,8 @@ func activate(application *gtk.Application) {
 
 	launcherPaned.Connect("button-release-event", func(paned *gtk.Paned, ev *gdk.Event) bool {
 		btnEvent := gdk.EventButtonNewFromEvent(ev)
+		defer runtime.KeepAlive(btnEvent)
+
 		if btnEvent.Button() != 1 { // Only handle left mouse button
 			return false
 		}
@@ -4890,10 +4919,13 @@ func createConsoleWindow(filePath string) {
 	// Handle click events on the console splitter handle only
 	paned.Connect("button-press-event", func(p *gtk.Paned, ev *gdk.Event) bool {
 		btnEvent := gdk.EventButtonNewFromEvent(ev)
+		var handleWindow *gdk.Window
 		if btnEvent.Button() == 1 {
 			// Check if click is on the handle using handle window geometry
 			consolePanedOnHandle = false
-			if handleWindow, err := p.GetHandleWindow(); err == nil && handleWindow != nil {
+			var err error
+			handleWindow, err = p.GetHandleWindow()
+			if err == nil && handleWindow != nil {
 				hx, hy := handleWindow.GetRootOrigin()
 				hw := handleWindow.WindowGetWidth()
 				hh := handleWindow.WindowGetHeight()
@@ -4901,16 +4933,22 @@ func createConsoleWindow(filePath string) {
 				consolePanedOnHandle = clickX >= hx && clickX < hx+hw && clickY >= hy && clickY < hy+hh
 			}
 			if !consolePanedOnHandle {
+				runtime.KeepAlive(btnEvent)
+				runtime.KeepAlive(handleWindow)
 				return false
 			}
 			consolePanedPressPos = p.GetPosition()
 			consolePanedDragged = false
 		}
+		runtime.KeepAlive(btnEvent)
+		runtime.KeepAlive(handleWindow)
 		return false
 	})
 
 	paned.Connect("button-release-event", func(p *gtk.Paned, ev *gdk.Event) bool {
 		btnEvent := gdk.EventButtonNewFromEvent(ev)
+		defer runtime.KeepAlive(btnEvent)
+
 		if btnEvent.Button() != 1 || !consolePanedOnHandle || consolePanedDragged || consolePanedPressPos < 0 {
 			consolePanedPressPos = -1
 			consolePanedOnHandle = false
