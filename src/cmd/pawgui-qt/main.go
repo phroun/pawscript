@@ -3371,7 +3371,7 @@ func createFilePanel() *qt.QWidget {
 
 	// File list
 	fileList = qt.NewQListWidget2()
-	fileList.SetIconSize(*qt.NewQSize2(fileListIconSize, fileListIconSize))
+	fileList.SetIconSize(qt.NewQSize2(fileListIconSize, fileListIconSize))
 	fileList.OnItemDoubleClicked(func(item *qt.QListWidgetItem) {
 		handleFileActivated(item)
 	})
