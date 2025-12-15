@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"io"
 	"os"
+	"os/exec"
 	"path/filepath"
 	"regexp"
 	"runtime"
@@ -3343,9 +3344,21 @@ func registerDummyButtonCommand(ps *pawscript.PawScript, data *WindowToolbarData
 	})
 }
 
-// detectSystemDarkMode checks if the system is using a dark theme by examining
-// the background color luminosity of the default GTK theme
+// detectSystemDarkMode checks if the system is using a dark theme
+// Uses platform-specific detection methods for reliability
 func detectSystemDarkMode() bool {
+	// macOS: Use defaults command to read AppleInterfaceStyle
+	if runtime.GOOS == "darwin" {
+		cmd := exec.Command("defaults", "read", "-g", "AppleInterfaceStyle")
+		output, err := cmd.Output()
+		if err == nil && strings.TrimSpace(string(output)) == "Dark" {
+			return true
+		}
+		// If command fails or returns non-"Dark", it's light mode
+		return false
+	}
+
+	// Linux/Windows: Use GTK theme detection
 	// Create a temporary window to get theme colors
 	tempWin, err := gtk.WindowNew(gtk.WINDOW_TOPLEVEL)
 	if err != nil {
