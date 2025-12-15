@@ -101,6 +101,11 @@ func (t *Terminal) Widget() *gtk.Box {
 	return t.widget.Box()
 }
 
+// UpdateScrollbars updates both vertical and horizontal scrollbars
+func (t *Terminal) UpdateScrollbars() {
+	t.widget.UpdateScrollbars()
+}
+
 // Feed writes data directly to the terminal display
 func (t *Terminal) Feed(data string) {
 	t.widget.FeedString(data)

@@ -1290,18 +1290,18 @@ func updateAllTerminalScrollbars() {
 	}
 
 	// Update all script window terminals
-	gtkToolbarDataMu.Lock()
-	for _, data := range gtkToolbarDataByWindow {
+	toolbarDataMu.Lock()
+	for _, data := range toolbarDataByWindow {
 		if data.terminal != nil {
 			data.terminal.UpdateScrollbars()
 		}
 	}
-	for _, data := range gtkToolbarDataByPS {
+	for _, data := range toolbarDataByPS {
 		if data.terminal != nil {
 			data.terminal.UpdateScrollbars()
 		}
 	}
-	gtkToolbarDataMu.Unlock()
+	toolbarDataMu.Unlock()
 }
 
 // createLauncherContextMenu creates the right-click context menu for the launcher terminal
