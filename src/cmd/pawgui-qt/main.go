@@ -1057,6 +1057,20 @@ type QtPaletteColorRow struct {
 	ColorIndex    int
 }
 
+// copyPSLConfig creates a deep copy of a PSLConfig section
+func copyPSLConfig(src interface{}) pawscript.PSLConfig {
+	result := pawscript.PSLConfig{}
+	if src == nil {
+		return result
+	}
+	if srcConfig, ok := src.(pawscript.PSLConfig); ok {
+		for k, v := range srcConfig {
+			result[k] = v
+		}
+	}
+	return result
+}
+
 // showSettingsDialog displays the Settings dialog with tabbed interface
 func showSettingsDialog(parent *qt.QWidget) {
 	// Save original values for reverting on Cancel
@@ -1066,6 +1080,11 @@ func showSettingsDialog(parent *qt.QWidget) {
 	origFontFamily := appConfig.GetString("font_family", "")
 	origFontSize := appConfig.GetInt("font_size", pawgui.DefaultFontSize)
 	origFontFamilyUnicode := appConfig.GetString("font_family_unicode", "")
+
+	// Save original palette sections for reverting on Cancel
+	origTermColors := copyPSLConfig(appConfig["term_colors"])
+	origTermColorsDark := copyPSLConfig(appConfig["term_colors_dark"])
+	origTermColorsLight := copyPSLConfig(appConfig["term_colors_light"])
 
 	// Save original splitter position for scaling during UI scale changes
 	var origSplitterPos int
@@ -1303,7 +1322,6 @@ func showSettingsDialog(parent *qt.QWidget) {
 	// Track palette rows for theme refresh
 	var paletteRows []*QtPaletteColorRow
 	var bgThemeSwatch, fgThemeSwatch *QtColorSwatch
-	var bgThemeCheck, fgThemeCheck *qt.QCheckBox
 
 	// Helper to get the current theme section name
 	getCurrentThemeSection := func() string {
@@ -1364,25 +1382,19 @@ func showSettingsDialog(parent *qt.QWidget) {
 	rightColumnWidget.SetLayout(rightColumnLayout.QLayout)
 	columnsLayout.AddWidget(rightColumnWidget)
 
-	// Column headers
-	leftHeader := qt.NewQLabel3("Background / Dark")
-	leftColumnLayout.AddWidget(leftHeader.QWidget)
-
-	rightHeader := qt.NewQLabel3("Foreground / Bright")
-	rightColumnLayout.AddWidget(rightHeader.QWidget)
-
 	// Swatch size
 	swatchSize := 24
 
-	// --- Background row (theme only) ---
+	// --- Background row (always present, no checkbox) ---
 	bgRowWidget := qt.NewQWidget2()
 	bgRowLayout := qt.NewQHBoxLayout2()
 	bgRowLayout.SetContentsMargins(0, 0, 0, 0)
 	bgRowLayout.SetSpacing(6)
 	bgRowWidget.SetLayout(bgRowLayout.QLayout)
 
+	// Label on the left
 	bgLabel := qt.NewQLabel3("Background")
-	bgLabel.SetMinimumWidth(90)
+	bgLabel.SetFixedWidth(110)
 	bgRowLayout.AddWidget(bgLabel.QWidget)
 
 	// Spacer for where basic swatch would be
@@ -1390,13 +1402,13 @@ func showSettingsDialog(parent *qt.QWidget) {
 	bgSpacer.SetFixedSize2(swatchSize, swatchSize)
 	bgRowLayout.AddWidget(bgSpacer)
 
-	// Background theme checkbox
-	bgThemeCheck = qt.NewQCheckBox2()
-	bgThemeHex := getColorFromSection(getCurrentThemeSection(), "0_background")
-	bgThemeCheck.SetChecked(bgThemeHex != "")
-	bgRowLayout.AddWidget(bgThemeCheck.QWidget)
+	// Another spacer for where checkbox would be
+	bgCheckSpacer := qt.NewQWidget2()
+	bgCheckSpacer.SetFixedSize2(20, swatchSize)
+	bgRowLayout.AddWidget(bgCheckSpacer)
 
-	// Background theme swatch
+	// Background swatch (always enabled)
+	bgThemeHex := getColorFromSection(getCurrentThemeSection(), "0_background")
 	if bgThemeHex == "" {
 		bgThemeHex = "#1E1E1E" // Default dark background
 		if !isTermThemeDark() {
@@ -1407,32 +1419,21 @@ func showSettingsDialog(parent *qt.QWidget) {
 		setColorInSection(getCurrentThemeSection(), "0_background", hex)
 		applyPaletteChanges()
 	})
-	bgThemeSwatch.SetEnabled(bgThemeCheck.IsChecked())
 	bgRowLayout.AddWidget(bgThemeSwatch.Button.QWidget)
 	bgRowLayout.AddStretch()
 
-	bgThemeCheck.OnStateChanged(func(state int) {
-		enabled := state != 0
-		bgThemeSwatch.SetEnabled(enabled)
-		if enabled {
-			setColorInSection(getCurrentThemeSection(), "0_background", bgThemeSwatch.GetColor())
-		} else {
-			setColorInSection(getCurrentThemeSection(), "0_background", "")
-		}
-		applyPaletteChanges()
-	})
-
 	leftColumnLayout.AddWidget(bgRowWidget)
 
-	// --- Foreground row (theme only) ---
+	// --- Foreground row (always present, no checkbox) ---
 	fgRowWidget := qt.NewQWidget2()
 	fgRowLayout := qt.NewQHBoxLayout2()
 	fgRowLayout.SetContentsMargins(0, 0, 0, 0)
 	fgRowLayout.SetSpacing(6)
 	fgRowWidget.SetLayout(fgRowLayout.QLayout)
 
+	// Label on the left
 	fgLabel := qt.NewQLabel3("Foreground")
-	fgLabel.SetMinimumWidth(90)
+	fgLabel.SetFixedWidth(110)
 	fgRowLayout.AddWidget(fgLabel.QWidget)
 
 	// Spacer for where basic swatch would be
@@ -1440,13 +1441,13 @@ func showSettingsDialog(parent *qt.QWidget) {
 	fgSpacer.SetFixedSize2(swatchSize, swatchSize)
 	fgRowLayout.AddWidget(fgSpacer)
 
-	// Foreground theme checkbox
-	fgThemeCheck = qt.NewQCheckBox2()
-	fgThemeHex := getColorFromSection(getCurrentThemeSection(), "9_foreground")
-	fgThemeCheck.SetChecked(fgThemeHex != "")
-	fgRowLayout.AddWidget(fgThemeCheck.QWidget)
+	// Another spacer for where checkbox would be
+	fgCheckSpacer := qt.NewQWidget2()
+	fgCheckSpacer.SetFixedSize2(20, swatchSize)
+	fgRowLayout.AddWidget(fgCheckSpacer)
 
-	// Foreground theme swatch
+	// Foreground swatch (always enabled)
+	fgThemeHex := getColorFromSection(getCurrentThemeSection(), "9_foreground")
 	if fgThemeHex == "" {
 		fgThemeHex = "#D4D4D4" // Default dark foreground
 		if !isTermThemeDark() {
@@ -1457,20 +1458,8 @@ func showSettingsDialog(parent *qt.QWidget) {
 		setColorInSection(getCurrentThemeSection(), "9_foreground", hex)
 		applyPaletteChanges()
 	})
-	fgThemeSwatch.SetEnabled(fgThemeCheck.IsChecked())
 	fgRowLayout.AddWidget(fgThemeSwatch.Button.QWidget)
 	fgRowLayout.AddStretch()
-
-	fgThemeCheck.OnStateChanged(func(state int) {
-		enabled := state != 0
-		fgThemeSwatch.SetEnabled(enabled)
-		if enabled {
-			setColorInSection(getCurrentThemeSection(), "9_foreground", fgThemeSwatch.GetColor())
-		} else {
-			setColorInSection(getCurrentThemeSection(), "9_foreground", "")
-		}
-		applyPaletteChanges()
-	})
 
 	rightColumnLayout.AddWidget(fgRowWidget)
 
@@ -1497,8 +1486,9 @@ func showSettingsDialog(parent *qt.QWidget) {
 		rowLayout.SetSpacing(6)
 		rowWidget.SetLayout(rowLayout.QLayout)
 
+		// Label on the left
 		label := qt.NewQLabel3(colorDisplayNames[i])
-		label.SetMinimumWidth(90)
+		label.SetFixedWidth(110)
 		rowLayout.AddWidget(label.QWidget)
 
 		// Basic swatch (from term_colors)
@@ -1562,9 +1552,8 @@ func showSettingsDialog(parent *qt.QWidget) {
 	refreshPaletteTab := func() {
 		themeSection := getCurrentThemeSection()
 
-		// Refresh background
+		// Refresh background (always enabled)
 		bgHex := getColorFromSection(themeSection, "0_background")
-		bgThemeCheck.SetChecked(bgHex != "")
 		if bgHex == "" {
 			if isTermThemeDark() {
 				bgHex = "#1E1E1E"
@@ -1573,11 +1562,9 @@ func showSettingsDialog(parent *qt.QWidget) {
 			}
 		}
 		bgThemeSwatch.SetColor(bgHex)
-		bgThemeSwatch.SetEnabled(bgThemeCheck.IsChecked())
 
-		// Refresh foreground
+		// Refresh foreground (always enabled)
 		fgHex := getColorFromSection(themeSection, "9_foreground")
-		fgThemeCheck.SetChecked(fgHex != "")
 		if fgHex == "" {
 			if isTermThemeDark() {
 				fgHex = "#D4D4D4"
@@ -1586,7 +1573,6 @@ func showSettingsDialog(parent *qt.QWidget) {
 			}
 		}
 		fgThemeSwatch.SetColor(fgHex)
-		fgThemeSwatch.SetEnabled(fgThemeCheck.IsChecked())
 
 		// Refresh palette colors
 		for _, row := range paletteRows {
@@ -1647,6 +1633,22 @@ func showSettingsDialog(parent *qt.QWidget) {
 		appConfig.Set("font_size", origFontSize)
 		if origFontFamilyUnicode != "" {
 			appConfig.Set("font_family_unicode", origFontFamilyUnicode)
+		}
+		// Revert palette sections
+		if len(origTermColors) > 0 {
+			appConfig.Set("term_colors", origTermColors)
+		} else {
+			delete(appConfig, "term_colors")
+		}
+		if len(origTermColorsDark) > 0 {
+			appConfig.Set("term_colors_dark", origTermColorsDark)
+		} else {
+			delete(appConfig, "term_colors_dark")
+		}
+		if len(origTermColorsLight) > 0 {
+			appConfig.Set("term_colors_light", origTermColorsLight)
+		} else {
+			delete(appConfig, "term_colors_light")
 		}
 		configHelper = pawgui.NewConfigHelper(appConfig)
 		applyTheme(configHelper.GetTheme())
