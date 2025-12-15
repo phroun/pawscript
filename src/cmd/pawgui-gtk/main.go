@@ -968,11 +968,9 @@ func showSettingsDialog(parent gtk.IWindow) {
 		applyPaletteChanges()
 	}
 
-	// Add text labels to bg/fg swatches: "Lt"/"Dk" in the opposite color
+	// Add text labels to background swatches only (fg swatches stay plain)
 	bgLightSwatch.SetText("Lt", fgLightHex)
 	bgDarkSwatch.SetText("Dk", fgDarkHex)
-	fgLightSwatch.SetText("Lt", bgLightHex)
-	fgDarkSwatch.SetText("Dk", bgDarkHex)
 
 	// Color names for display (VGA order)
 	colorDisplayNames := []string{
