@@ -758,7 +758,7 @@ func createQtSettingsComboMenu(options []string, selected int, onChange func(int
 		action := combo.Menu.AddAction(option)
 		// Set check icon only on the selected item
 		if i == selected {
-			if icon := createIconFromSVG(checkedIconSVG, 16); icon != nil {
+			if icon := createIconFromSVG(checkedIconSVG, scaledMenuIconSize()); icon != nil {
 				action.SetIcon(icon)
 			}
 		}
@@ -796,7 +796,7 @@ func (c *QtSettingsComboMenu) SetSelected(idx int) {
 	c.Button.SetText(c.options[idx])
 
 	// Set check icon on new selection
-	if icon := createIconFromSVG(checkedIconSVG, 16); icon != nil {
+	if icon := createIconFromSVG(checkedIconSVG, scaledMenuIconSize()); icon != nil {
 		c.actions[idx].SetIcon(icon)
 	}
 }
@@ -809,7 +809,7 @@ func (c *QtSettingsComboMenu) GetSelected() int {
 // RefreshIcons updates the selected item's icon to match the current theme
 func (c *QtSettingsComboMenu) RefreshIcons() {
 	if c.selected >= 0 && c.selected < len(c.actions) {
-		if icon := createIconFromSVG(checkedIconSVG, 16); icon != nil {
+		if icon := createIconFromSVG(checkedIconSVG, scaledMenuIconSize()); icon != nil {
 			c.actions[c.selected].SetIcon(icon)
 		}
 	}
@@ -1163,11 +1163,11 @@ func createHamburgerMenu(parent *qt.QWidget, isScriptWindow bool, term *purfecte
 		fileListAction = menu.AddAction("File List")
 		// Set initial icon based on current state
 		if isWideMode() {
-			if icon := createIconFromSVG(checkedIconSVG, 16); icon != nil {
+			if icon := createIconFromSVG(checkedIconSVG, scaledMenuIconSize()); icon != nil {
 				fileListAction.SetIcon(icon)
 			}
 		} else {
-			if icon := createIconFromSVG(uncheckedIconSVG, 16); icon != nil {
+			if icon := createIconFromSVG(uncheckedIconSVG, scaledMenuIconSize()); icon != nil {
 				fileListAction.SetIcon(icon)
 			}
 		}
@@ -1209,11 +1209,11 @@ func createHamburgerMenu(parent *qt.QWidget, isScriptWindow bool, term *purfecte
 		// Update File List icon to match current state
 		if fileListAction != nil {
 			if isWideMode() {
-				if icon := createIconFromSVG(checkedIconSVG, 16); icon != nil {
+				if icon := createIconFromSVG(checkedIconSVG, scaledMenuIconSize()); icon != nil {
 					fileListAction.SetIcon(icon)
 				}
 			} else {
-				if icon := createIconFromSVG(uncheckedIconSVG, 16); icon != nil {
+				if icon := createIconFromSVG(uncheckedIconSVG, scaledMenuIconSize()); icon != nil {
 					fileListAction.SetIcon(icon)
 				}
 			}
@@ -1768,17 +1768,37 @@ func createToolbarStripWithMenu(menu *qt.QMenu) (*qt.QWidget, *IconButton, *qt.Q
 	return strip, menuBtn, menu
 }
 
-// Toolbar button size constant for consistent square buttons
+// Toolbar button size constant for consistent square buttons (base values at 1.0 scale)
 const toolbarButtonSize = 40
 const toolbarIconSize = 24 // Icon is smaller than button, creating visible padding
 
 // File list icon size (1.35x taller items than default)
 const fileListIconSize = 32
 
+// Menu icon size for checkmarks and path menu icons
+const menuIconSize = 16
+
+// Scaled icon size helpers - these return values adjusted for current UI scale
+func scaledToolbarButtonSize() int {
+	return int(float64(toolbarButtonSize) * getUIScale())
+}
+
+func scaledToolbarIconSize() int {
+	return int(float64(scaledToolbarIconSize()) * getUIScale())
+}
+
+func scaledFileListIconSize() int {
+	return int(float64(scaledFileListIconSize()) * getUIScale())
+}
+
+func scaledMenuIconSize() int {
+	return int(float64(menuIconSize) * getUIScale())
+}
+
 // createHamburgerButton creates a hamburger menu button with custom icon widget
 func createHamburgerButton(menu *qt.QMenu) *IconButton {
 	svgData := getSVGIcon(hamburgerIconSVG)
-	btn := NewIconButton(toolbarButtonSize, toolbarIconSize, svgData)
+	btn := NewIconButton(scaledToolbarButtonSize(), scaledToolbarIconSize(), svgData)
 	btn.SetToolTip("Menu")
 
 	// Show menu at the button's position when clicked
@@ -1833,7 +1853,7 @@ func updateLauncherToolbarButtons() {
 	// Add new dummy buttons (insert after hamburger button, before stretch)
 	for _, btn := range launcherRegisteredBtns {
 		svgData := getSVGIcon(starIconSVG)
-		button := NewIconButton(toolbarButtonSize, toolbarIconSize, svgData)
+		button := NewIconButton(scaledToolbarButtonSize(), scaledToolbarIconSize(), svgData)
 		button.SetToolTip(btn.Tooltip)
 		if btn.OnClick != nil {
 			callback := btn.OnClick // Capture for closure
@@ -1926,7 +1946,7 @@ func updateWindowToolbarButtons(strip *qt.QWidget, buttons []*QtToolbarButton) {
 	// Add new dummy buttons (insert after hamburger button, before stretch)
 	for _, btn := range buttons {
 		svgData := getSVGIcon(starIconSVG)
-		button := NewIconButton(toolbarButtonSize, toolbarIconSize, svgData)
+		button := NewIconButton(scaledToolbarButtonSize(), scaledToolbarIconSize(), svgData)
 		button.SetToolTip(btn.Tooltip)
 		if btn.OnClick != nil {
 			callback := btn.OnClick // Capture for closure
@@ -2378,16 +2398,16 @@ func applyTheme(theme pawgui.ThemeMode) {
 func updateToolbarIcons() {
 	// Update both launcher hamburger buttons (path selector and narrow strip)
 	if launcherMenuButton != nil {
-		launcherMenuButton.UpdateIcon(getSVGIcon(hamburgerIconSVG), toolbarIconSize)
+		launcherMenuButton.UpdateIcon(getSVGIcon(hamburgerIconSVG), scaledToolbarIconSize())
 	}
 	if launcherStripMenuBtn != nil {
-		launcherStripMenuBtn.UpdateIcon(getSVGIcon(hamburgerIconSVG), toolbarIconSize)
+		launcherStripMenuBtn.UpdateIcon(getSVGIcon(hamburgerIconSVG), scaledToolbarIconSize())
 	}
 
 	// Update all registered buttons in launcher toolbar
 	for _, btn := range launcherRegisteredBtns {
 		if btn.widget != nil {
-			btn.widget.UpdateIcon(getSVGIcon(starIconSVG), toolbarIconSize)
+			btn.widget.UpdateIcon(getSVGIcon(starIconSVG), scaledToolbarIconSize())
 		}
 	}
 
@@ -2396,12 +2416,12 @@ func updateToolbarIcons() {
 	for _, data := range qtToolbarDataByPS {
 		// Update the hamburger button
 		if data.menuButton != nil {
-			data.menuButton.UpdateIcon(getSVGIcon(hamburgerIconSVG), toolbarIconSize)
+			data.menuButton.UpdateIcon(getSVGIcon(hamburgerIconSVG), scaledToolbarIconSize())
 		}
 		// Update registered buttons
 		for _, btn := range data.registeredBtns {
 			if btn.widget != nil {
-				btn.widget.UpdateIcon(getSVGIcon(starIconSVG), toolbarIconSize)
+				btn.widget.UpdateIcon(getSVGIcon(starIconSVG), scaledToolbarIconSize())
 			}
 		}
 	}
@@ -2410,12 +2430,12 @@ func updateToolbarIcons() {
 	for _, data := range qtToolbarDataByWindow {
 		// Update the hamburger button
 		if data.menuButton != nil {
-			data.menuButton.UpdateIcon(getSVGIcon(hamburgerIconSVG), toolbarIconSize)
+			data.menuButton.UpdateIcon(getSVGIcon(hamburgerIconSVG), scaledToolbarIconSize())
 		}
 		// Update registered buttons
 		for _, btn := range data.registeredBtns {
 			if btn.widget != nil {
-				btn.widget.UpdateIcon(getSVGIcon(starIconSVG), toolbarIconSize)
+				btn.widget.UpdateIcon(getSVGIcon(starIconSVG), scaledToolbarIconSize())
 			}
 		}
 	}
@@ -2457,19 +2477,19 @@ func refreshFileListIcons() {
 		switch data.iconType {
 		case iconTypeFolderUp:
 			if isSelected {
-				icon = createDarkIconFromSVG(folderUpIconSVG, fileListIconSize)
+				icon = createDarkIconFromSVG(folderUpIconSVG, scaledFileListIconSize())
 			} else {
-				icon = createIconFromSVG(folderUpIconSVG, fileListIconSize)
+				icon = createIconFromSVG(folderUpIconSVG, scaledFileListIconSize())
 			}
 		case iconTypeFolder:
 			if isSelected {
-				icon = createDarkIconFromSVG(folderIconSVG, fileListIconSize)
+				icon = createDarkIconFromSVG(folderIconSVG, scaledFileListIconSize())
 			} else {
-				icon = createIconFromSVG(folderIconSVG, fileListIconSize)
+				icon = createIconFromSVG(folderIconSVG, scaledFileListIconSize())
 			}
 		case iconTypePawFile:
 			// pawFile icon doesn't change with theme, but we still update it
-			icon = createIconFromSVG(pawFileIconSVG, fileListIconSize)
+			icon = createIconFromSVG(pawFileIconSVG, scaledFileListIconSize())
 		}
 
 		if icon != nil {
@@ -2511,6 +2531,14 @@ func applyUIScale(scale float64) {
 	`, baseFontSize, buttonPadding, buttonPaddingH, baseFontSize, baseFontSize, baseFontSize)
 
 	qtApp.SetStyleSheet(existing + scaled)
+
+	// Update file list icon size
+	if fileList != nil {
+		fileList.SetIconSize(qt.NewQSize2(scaledFileListIconSize(), scaledFileListIconSize()))
+	}
+
+	// Refresh all icons with new scale
+	updateToolbarIcons()
 }
 
 func main() {
@@ -3435,7 +3463,7 @@ func createFilePanel() *qt.QWidget {
 
 	// File list
 	fileList = qt.NewQListWidget2()
-	fileList.SetIconSize(qt.NewQSize2(fileListIconSize, fileListIconSize))
+	fileList.SetIconSize(qt.NewQSize2(scaledFileListIconSize(), scaledFileListIconSize()))
 	fileList.OnItemDoubleClicked(func(item *qt.QListWidgetItem) {
 		handleFileActivated(item)
 	})
@@ -3766,7 +3794,7 @@ func updatePathMenu() {
 	// Add Home directory
 	if home := getHomeDir(); home != "" {
 		homeAction := pathMenu.AddAction("Home")
-		if icon := createIconFromSVG(homeIconSVG, 16); icon != nil {
+		if icon := createIconFromSVG(homeIconSVG, scaledMenuIconSize()); icon != nil {
 			homeAction.SetIcon(icon)
 		}
 		homeAction.OnTriggered(func() {
@@ -3779,7 +3807,7 @@ func updatePathMenu() {
 	// Add Examples directory
 	if examples := getExamplesDir(); examples != "" {
 		examplesAction := pathMenu.AddAction("Examples")
-		if icon := createIconFromSVG(folderIconSVG, 16); icon != nil {
+		if icon := createIconFromSVG(folderIconSVG, scaledMenuIconSize()); icon != nil {
 			examplesAction.SetIcon(icon)
 		}
 		examplesAction.OnTriggered(func() {
@@ -3808,7 +3836,7 @@ func updatePathMenu() {
 	if len(recentPaths) > 0 {
 		pathMenu.AddSeparator()
 		clearAction := pathMenu.AddAction("Clear Recent Paths")
-		if icon := createIconFromSVG(trashIconSVG, 16); icon != nil {
+		if icon := createIconFromSVG(trashIconSVG, scaledMenuIconSize()); icon != nil {
 			clearAction.SetIcon(icon)
 		}
 		clearAction.OnTriggered(func() {
@@ -3836,9 +3864,9 @@ func loadDirectory(dir string) {
 	}
 
 	// Create custom SVG icons for file list
-	upIcon := createIconFromSVG(folderUpIconSVG, fileListIconSize)
-	folderIcon := createIconFromSVG(folderIconSVG, fileListIconSize)
-	fileIcon := createIconFromSVG(pawFileIconSVG, fileListIconSize)
+	upIcon := createIconFromSVG(folderUpIconSVG, scaledFileListIconSize())
+	folderIcon := createIconFromSVG(folderIconSVG, scaledFileListIconSize())
+	fileIcon := createIconFromSVG(pawFileIconSVG, scaledFileListIconSize())
 
 	// Reset previous selected item when directory changes
 	previousSelectedItem = nil
@@ -3930,11 +3958,11 @@ func onSelectionChanged(current *qt.QListWidgetItem, previous *qt.QListWidgetIte
 			var icon *qt.QIcon
 			switch prevData.iconType {
 			case iconTypeFolderUp:
-				icon = createIconFromSVG(folderUpIconSVG, fileListIconSize)
+				icon = createIconFromSVG(folderUpIconSVG, scaledFileListIconSize())
 			case iconTypeFolder:
-				icon = createIconFromSVG(folderIconSVG, fileListIconSize)
+				icon = createIconFromSVG(folderIconSVG, scaledFileListIconSize())
 			case iconTypePawFile:
-				icon = createIconFromSVG(pawFileIconSVG, fileListIconSize)
+				icon = createIconFromSVG(pawFileIconSVG, scaledFileListIconSize())
 			}
 			if icon != nil {
 				previous.SetIcon(icon)
@@ -3959,11 +3987,11 @@ func onSelectionChanged(current *qt.QListWidgetItem, previous *qt.QListWidgetIte
 	var darkIcon *qt.QIcon
 	switch data.iconType {
 	case iconTypeFolderUp:
-		darkIcon = createDarkIconFromSVG(folderUpIconSVG, fileListIconSize)
+		darkIcon = createDarkIconFromSVG(folderUpIconSVG, scaledFileListIconSize())
 	case iconTypeFolder:
-		darkIcon = createDarkIconFromSVG(folderIconSVG, fileListIconSize)
+		darkIcon = createDarkIconFromSVG(folderIconSVG, scaledFileListIconSize())
 	case iconTypePawFile:
-		darkIcon = createDarkIconFromSVG(pawFileIconSVG, fileListIconSize)
+		darkIcon = createDarkIconFromSVG(pawFileIconSVG, scaledFileListIconSize())
 	}
 	if darkIcon != nil {
 		current.SetIcon(darkIcon)
