@@ -2023,14 +2023,28 @@ func createHamburgerMenu(parent *qt.QWidget, isScriptWindow bool, term *purfecte
 	})
 
 	// Quit PawScript (both) - show shortcut if configured
-	quitLabel := "Quit PawScript"
+	// Use QWidgetAction for styled shortcut display
+	quitWidgetAction := qt.NewQWidgetAction(menu.QObject)
+	quitWidget := qt.NewQWidget2()
+	quitLayout := qt.NewQHBoxLayout2()
+	quitLayout.SetContentsMargins(int(28*getUIScale()), 4, 8, 4) // Match menu item padding
+	quitWidget.SetLayout(quitLayout.QLayout)
+
+	quitLabel := qt.NewQLabel3("Quit PawScript")
+	quitLayout.AddWidget(quitLabel.QWidget)
+	quitLayout.AddStretch()
+
 	if shortcut := getQuitShortcut(); shortcut != "" {
-		quitLabel = fmt.Sprintf("Quit PawScript\t%s", shortcut)
+		shortcutLabel := qt.NewQLabel3(formatShortcutForDisplay(shortcut))
+		shortcutLabel.SetStyleSheet("color: rgba(128, 128, 128, 0.8);") // Grayed out
+		quitLayout.AddWidget(shortcutLabel.QWidget)
 	}
-	quitAction := menu.AddAction(quitLabel)
-	quitAction.OnTriggered(func() {
+
+	quitWidgetAction.SetDefaultWidget(quitWidget)
+	quitWidgetAction.OnTriggered(func() {
 		quitApplication(parent)
 	})
+	menu.AddAction(quitWidgetAction.QAction)
 
 	return menu
 }
@@ -4175,6 +4189,59 @@ func runScriptInWindow(scriptContent, scriptFile string, scriptArgs []string,
 	qt.QApplication_Exec()
 }
 
+// formatShortcutForDisplay converts a shortcut string to display format
+// On macOS, uses symbols: Cmd->⌘, Ctrl->⌃, Alt/Opt->⌥, Shift->⇧
+// On other platforms, keeps text format
+func formatShortcutForDisplay(shortcut string) string {
+	if shortcut == "" {
+		return ""
+	}
+
+	parts := strings.Split(shortcut, "+")
+	result := make([]string, 0, len(parts))
+
+	for _, part := range parts {
+		trimmed := strings.TrimSpace(part)
+		lower := strings.ToLower(trimmed)
+
+		if runtime.GOOS == "darwin" {
+			// Use macOS symbols
+			switch lower {
+			case "cmd", "meta", "super":
+				result = append(result, "⌘")
+			case "ctrl", "control":
+				result = append(result, "⌃")
+			case "alt", "opt", "option":
+				result = append(result, "⌥")
+			case "shift":
+				result = append(result, "⇧")
+			default:
+				result = append(result, strings.ToUpper(trimmed))
+			}
+		} else {
+			// Keep text format for other platforms
+			switch lower {
+			case "cmd", "meta", "super":
+				result = append(result, "Meta")
+			case "ctrl", "control":
+				result = append(result, "Ctrl")
+			case "alt", "opt", "option":
+				result = append(result, "Alt")
+			case "shift":
+				result = append(result, "Shift")
+			default:
+				result = append(result, strings.ToUpper(trimmed))
+			}
+		}
+	}
+
+	// On macOS, join without separator for compact look
+	if runtime.GOOS == "darwin" {
+		return strings.Join(result, "")
+	}
+	return strings.Join(result, "+")
+}
+
 // convertShortcutForQt converts a shortcut string for Qt, handling macOS Ctrl/Meta swap
 // On macOS, Qt swaps Ctrl and Meta keys:
 //   - "Cmd" in config -> Qt "Ctrl" on macOS, Qt "Meta" on other platforms
@@ -4195,6 +4262,8 @@ func convertShortcutForQt(shortcut string) string {
 				result[i] = "Ctrl" // Physical Cmd key on macOS
 			case "ctrl", "control":
 				result[i] = "Meta" // Physical Ctrl key on macOS
+			case "alt", "opt", "option":
+				result[i] = "Alt"
 			default:
 				result[i] = trimmed
 			}
@@ -4207,6 +4276,8 @@ func convertShortcutForQt(shortcut string) string {
 				result[i] = "Meta"
 			case "ctrl", "control":
 				result[i] = "Ctrl"
+			case "alt", "opt", "option":
+				result[i] = "Alt"
 			default:
 				result[i] = trimmed
 			}

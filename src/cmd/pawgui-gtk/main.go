@@ -1671,11 +1671,7 @@ func createHamburgerMenu(ctx *MenuContext) *gtk.Menu {
 	menu.Append(closeItem)
 
 	// Quit PawScript (both) - show shortcut if configured
-	quitLabel := "Quit PawScript"
-	if shortcut := getQuitShortcut(); shortcut != "" {
-		quitLabel = fmt.Sprintf("Quit PawScript\t%s", shortcut)
-	}
-	quitItem := createMenuItemWithGutter(quitLabel, func() {
+	quitItem := createMenuItemWithShortcut("Quit PawScript", getQuitShortcut(), func() {
 		quitApplication(ctx.Parent)
 	})
 	menu.Append(quitItem)
@@ -2629,6 +2625,59 @@ func createMenuItemWithIcon(svgTemplate string, labelText string, callback func(
 	return item
 }
 
+// formatShortcutForDisplay converts a shortcut string to display format
+// On macOS, uses symbols: Cmd->⌘, Ctrl->⌃, Alt->⌥, Shift->⇧
+// On other platforms, keeps text format
+func formatShortcutForDisplay(shortcut string) string {
+	if shortcut == "" {
+		return ""
+	}
+
+	parts := strings.Split(shortcut, "+")
+	result := make([]string, 0, len(parts))
+
+	for _, part := range parts {
+		trimmed := strings.TrimSpace(part)
+		lower := strings.ToLower(trimmed)
+
+		if runtime.GOOS == "darwin" {
+			// Use macOS symbols
+			switch lower {
+			case "cmd", "meta", "super":
+				result = append(result, "⌘")
+			case "ctrl", "control":
+				result = append(result, "⌃")
+			case "alt", "opt", "option":
+				result = append(result, "⌥")
+			case "shift":
+				result = append(result, "⇧")
+			default:
+				result = append(result, strings.ToUpper(trimmed))
+			}
+		} else {
+			// Keep text format for other platforms
+			switch lower {
+			case "cmd", "meta", "super":
+				result = append(result, "Meta")
+			case "ctrl", "control":
+				result = append(result, "Ctrl")
+			case "alt", "opt", "option":
+				result = append(result, "Alt")
+			case "shift":
+				result = append(result, "Shift")
+			default:
+				result = append(result, strings.ToUpper(trimmed))
+			}
+		}
+	}
+
+	// On macOS, join without separator for compact look
+	if runtime.GOOS == "darwin" {
+		return strings.Join(result, "")
+	}
+	return strings.Join(result, "+")
+}
+
 // createMenuItemWithGutter creates a GTK menu item with gutter but no icon
 // Uses a GtkBox with Label for consistent gutter appearance
 func createMenuItemWithGutter(labelText string, callback func()) *gtk.MenuItem {
@@ -2658,6 +2707,65 @@ func createMenuItemWithGutter(labelText string, callback func()) *gtk.MenuItem {
 		label.SetVAlign(gtk.ALIGN_CENTER)
 		label.SetMarginStart(42) // Gutter (34) + spacing (8)
 		hbox.PackStart(label, true, true, 0)
+	}
+
+	// Add the box to the menu item
+	item.Add(hbox)
+
+	if callback != nil {
+		item.Connect("activate", callback)
+	}
+
+	return item
+}
+
+// createMenuItemWithShortcut creates a GTK menu item with a grayed shortcut on the right
+func createMenuItemWithShortcut(labelText, shortcut string, callback func()) *gtk.MenuItem {
+	// Create a plain menu item (no built-in label)
+	item, err := gtk.MenuItemNew()
+	if err != nil {
+		return nil
+	}
+
+	// Add CSS class for styling
+	styleCtx, _ := item.GetStyleContext()
+	if styleCtx != nil {
+		styleCtx.AddClass("has-gutter")
+	}
+
+	// Create horizontal box
+	hbox, err := gtk.BoxNew(gtk.ORIENTATION_HORIZONTAL, 0)
+	if err != nil {
+		return nil
+	}
+	hbox.SetVExpand(true)
+
+	// Create main label with left margin
+	label, err := gtk.LabelNew(labelText)
+	if err == nil {
+		label.SetXAlign(0)
+		label.SetVAlign(gtk.ALIGN_CENTER)
+		label.SetMarginStart(42) // Gutter (34) + spacing (8)
+		hbox.PackStart(label, true, true, 0)
+	}
+
+	// Create shortcut label (grayed, right-aligned)
+	if shortcut != "" {
+		displayShortcut := formatShortcutForDisplay(shortcut)
+		shortcutLabel, err := gtk.LabelNew(displayShortcut)
+		if err == nil {
+			shortcutLabel.SetXAlign(1)
+			shortcutLabel.SetVAlign(gtk.ALIGN_CENTER)
+			shortcutLabel.SetMarginEnd(8)
+			// Apply gray color via CSS
+			shortcutStyleCtx, _ := shortcutLabel.GetStyleContext()
+			if shortcutStyleCtx != nil {
+				cssProvider, _ := gtk.CssProviderNew()
+				cssProvider.LoadFromData("label { color: alpha(currentColor, 0.55); }")
+				shortcutStyleCtx.AddProvider(cssProvider, gtk.STYLE_PROVIDER_PRIORITY_APPLICATION)
+			}
+			hbox.PackEnd(shortcutLabel, false, false, 0)
+		}
 	}
 
 	// Add the box to the menu item
@@ -3596,7 +3704,7 @@ func parseShortcutGTK(shortcut string) (targetKey uint, targetMod gdk.ModifierTy
 			targetMod |= gdk.META_MASK
 		case "ctrl", "control":
 			targetMod |= gdk.CONTROL_MASK
-		case "alt":
+		case "alt", "opt", "option":
 			targetMod |= gdk.MOD1_MASK
 		case "shift":
 			targetMod |= gdk.SHIFT_MASK
