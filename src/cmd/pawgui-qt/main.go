@@ -1523,15 +1523,12 @@ func showSettingsDialog(parent *qt.QWidget) {
 	bgLightCheckSpacer.SetFixedSize2(checkboxWidth, swatchSize)
 	bgRowLayout.AddWidget(bgLightCheckSpacer)
 
-	// Light background swatch
+	// Light background swatch (onChange set later)
 	bgLightHex := getColorFromSection("term_colors_light", "0_background")
 	if bgLightHex == "" {
 		bgLightHex = "#FFFFFF"
 	}
-	bgLightSwatch := createQtColorSwatch(bgLightHex, swatchSize, func(hex string) {
-		setColorInSection("term_colors_light", "0_background", hex)
-		applyPaletteChanges()
-	})
+	bgLightSwatch := createQtColorSwatch(bgLightHex, swatchSize, nil)
 	bgRowLayout.AddWidget(bgLightSwatch.Button.QWidget)
 
 	// Spacer for where dark checkbox would be
@@ -1539,15 +1536,12 @@ func showSettingsDialog(parent *qt.QWidget) {
 	bgDarkCheckSpacer.SetFixedSize2(checkboxWidth, swatchSize)
 	bgRowLayout.AddWidget(bgDarkCheckSpacer)
 
-	// Dark background swatch
+	// Dark background swatch (onChange set later)
 	bgDarkHex := getColorFromSection("term_colors_dark", "0_background")
 	if bgDarkHex == "" {
 		bgDarkHex = "#1E1E1E"
 	}
-	bgDarkSwatch := createQtColorSwatch(bgDarkHex, swatchSize, func(hex string) {
-		setColorInSection("term_colors_dark", "0_background", hex)
-		applyPaletteChanges()
-	})
+	bgDarkSwatch := createQtColorSwatch(bgDarkHex, swatchSize, nil)
 	bgRowLayout.AddWidget(bgDarkSwatch.Button.QWidget)
 	bgRowLayout.AddStretch()
 
@@ -1575,15 +1569,12 @@ func showSettingsDialog(parent *qt.QWidget) {
 	fgLightCheckSpacer.SetFixedSize2(checkboxWidth, swatchSize)
 	fgRowLayout.AddWidget(fgLightCheckSpacer)
 
-	// Light foreground swatch
+	// Light foreground swatch (onChange set later)
 	fgLightHex := getColorFromSection("term_colors_light", "9_foreground")
 	if fgLightHex == "" {
 		fgLightHex = "#1E1E1E"
 	}
-	fgLightSwatch := createQtColorSwatch(fgLightHex, swatchSize, func(hex string) {
-		setColorInSection("term_colors_light", "9_foreground", hex)
-		applyPaletteChanges()
-	})
+	fgLightSwatch := createQtColorSwatch(fgLightHex, swatchSize, nil)
 	fgRowLayout.AddWidget(fgLightSwatch.Button.QWidget)
 
 	// Spacer for where dark checkbox would be
@@ -1591,19 +1582,38 @@ func showSettingsDialog(parent *qt.QWidget) {
 	fgDarkCheckSpacer.SetFixedSize2(checkboxWidth, swatchSize)
 	fgRowLayout.AddWidget(fgDarkCheckSpacer)
 
-	// Dark foreground swatch
+	// Dark foreground swatch (onChange set later)
 	fgDarkHex := getColorFromSection("term_colors_dark", "9_foreground")
 	if fgDarkHex == "" {
 		fgDarkHex = "#D4D4D4"
 	}
-	fgDarkSwatch := createQtColorSwatch(fgDarkHex, swatchSize, func(hex string) {
-		setColorInSection("term_colors_dark", "9_foreground", hex)
-		applyPaletteChanges()
-	})
+	fgDarkSwatch := createQtColorSwatch(fgDarkHex, swatchSize, nil)
 	fgRowLayout.AddWidget(fgDarkSwatch.Button.QWidget)
 	fgRowLayout.AddStretch()
 
 	rightColumnLayout.AddWidget(fgRowWidget)
+
+	// Set up onChange callbacks that cross-update text colors
+	bgLightSwatch.onChange = func(hex string) {
+		setColorInSection("term_colors_light", "0_background", hex)
+		fgLightSwatch.SetText("Lt", hex) // Update fg text color to new bg
+		applyPaletteChanges()
+	}
+	bgDarkSwatch.onChange = func(hex string) {
+		setColorInSection("term_colors_dark", "0_background", hex)
+		fgDarkSwatch.SetText("Dk", hex) // Update fg text color to new bg
+		applyPaletteChanges()
+	}
+	fgLightSwatch.onChange = func(hex string) {
+		setColorInSection("term_colors_light", "9_foreground", hex)
+		bgLightSwatch.SetText("Lt", hex) // Update bg text color to new fg
+		applyPaletteChanges()
+	}
+	fgDarkSwatch.onChange = func(hex string) {
+		setColorInSection("term_colors_dark", "9_foreground", hex)
+		bgDarkSwatch.SetText("Dk", hex) // Update bg text color to new fg
+		applyPaletteChanges()
+	}
 
 	// Add text labels to bg/fg swatches: "Lt"/"Dk" in the opposite color
 	bgLightSwatch.SetText("Lt", fgLightHex)
