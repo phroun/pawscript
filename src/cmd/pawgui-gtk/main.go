@@ -1537,6 +1537,7 @@ func createBlankConsoleWindow() {
 	var consolePanedOnHandle bool
 
 	paned.Connect("notify::position", func() {
+		defer runtime.KeepAlive(paned)
 		pos := paned.GetPosition()
 		if consolePanedPressPos >= 0 && consolePanedOnHandle && pos != consolePanedPressPos {
 			consolePanedDragged = true
@@ -3495,6 +3496,7 @@ func runScriptInWindow(gtkApp *gtk.Application, scriptContent, scriptFile string
 	var consolePanedOnHandle bool
 
 	paned.Connect("notify::position", func() {
+		defer runtime.KeepAlive(paned)
 		pos := paned.GetPosition()
 		// Track dragging
 		if consolePanedPressPos >= 0 && consolePanedOnHandle && pos != consolePanedPressPos {
@@ -3991,8 +3993,16 @@ func activate(application *gtk.Application) {
 	// - Wide + narrow mode: when pos >= minWidePanelWidth + minNarrowStripWidth
 	// - Narrow only mode: when pos >= minNarrowStripWidth but < threshold for wide panel
 	// - Collapsed: when pos < halfway point of narrow strip
+	var lastPanedPos int = -1
 	launcherPaned.Connect("notify::position", func() {
 		pos := launcherPaned.GetPosition()
+
+		// Skip if position hasn't actually changed (reduces GC pressure during rapid events)
+		if pos == lastPanedPos {
+			return
+		}
+		lastPanedPos = pos
+
 		hasMultipleButtons := len(launcherRegisteredBtns) > 0
 
 		// Calculate scaled thresholds
@@ -4001,6 +4011,15 @@ func activate(application *gtk.Application) {
 		bothThreshold := scaledBothThreshold()
 		narrowSnapPoint := scaledNarrowSnapPoint()
 		narrowOnlyWidth := narrowWidth + narrowOnlyExtraPadding
+
+		// Keep widget references alive during this handler to prevent GC issues
+		defer func() {
+			runtime.KeepAlive(launcherWidePanel)
+			runtime.KeepAlive(launcherNarrowStrip)
+			runtime.KeepAlive(launcherMenuButton)
+			runtime.KeepAlive(launcherStripMenuBtn)
+			runtime.KeepAlive(launcherPaned)
+		}()
 
 		if pos == 0 {
 			// Fully collapsed - hide all left panels, show hamburger in path selector
@@ -4098,6 +4117,7 @@ func activate(application *gtk.Application) {
 
 	// Track position changes during drag (additional handler)
 	launcherPaned.Connect("notify::position", func() {
+		defer runtime.KeepAlive(launcherPaned)
 		if launcherPanedPressPos >= 0 && launcherPanedOnHandle {
 			currentPos := launcherPaned.GetPosition()
 			if currentPos != launcherPanedPressPos {
@@ -4899,6 +4919,7 @@ func createConsoleWindow(filePath string) {
 	var consolePanedOnHandle bool
 
 	paned.Connect("notify::position", func() {
+		defer runtime.KeepAlive(paned)
 		pos := paned.GetPosition()
 		// Track dragging
 		if consolePanedPressPos >= 0 && consolePanedOnHandle && pos != consolePanedPressPos {
