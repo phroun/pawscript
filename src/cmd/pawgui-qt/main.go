@@ -1130,8 +1130,10 @@ func showColorPickerDialog(currentHex string) string {
 // QtPaletteColorRow holds the widgets for a single palette color entry
 type QtPaletteColorRow struct {
 	BasicSwatch   *QtColorSwatch
-	ThemeSwatch   *QtColorSwatch
-	ThemeCheckbox *qt.QCheckBox
+	LightSwatch   *QtColorSwatch
+	LightCheckbox *qt.QCheckBox
+	DarkSwatch    *QtColorSwatch
+	DarkCheckbox  *qt.QCheckBox
 	ColorName     string
 	ColorIndex    int
 }
@@ -1398,17 +1400,8 @@ func showSettingsDialog(parent *qt.QWidget) {
 	paletteLayout.SetSpacing(8)
 	paletteWidget.SetLayout(paletteLayout.QLayout)
 
-	// Track palette rows for theme refresh
+	// Track palette rows
 	var paletteRows []*QtPaletteColorRow
-	var bgThemeSwatch, fgThemeSwatch *QtColorSwatch
-
-	// Helper to get the current theme section name
-	getCurrentThemeSection := func() string {
-		if isTermThemeDark() {
-			return "term_colors_dark"
-		}
-		return "term_colors_light"
-	}
 
 	// Helper to get a color from a config section
 	getColorFromSection := func(sectionName, colorName string) string {
@@ -1489,7 +1482,7 @@ func showSettingsDialog(parent *qt.QWidget) {
 	checkboxWidth := int(4 * uiScale) // Checkbox spacer for bg/fg rows (smaller to align with actual checkbox)
 	rowSpacing := int(6 * uiScale)
 
-	// --- Background row (always present, no checkbox) ---
+	// --- Background row (always present, no checkboxes) ---
 	bgRowWidget := qt.NewQWidget2()
 	bgRowLayout := qt.NewQHBoxLayout2()
 	bgRowLayout.SetContentsMargins(0, 0, 0, 0)
@@ -1506,29 +1499,44 @@ func showSettingsDialog(parent *qt.QWidget) {
 	bgSpacer.SetFixedSize2(swatchSize, swatchSize)
 	bgRowLayout.AddWidget(bgSpacer)
 
-	// Another spacer for where checkbox would be
-	bgCheckSpacer := qt.NewQWidget2()
-	bgCheckSpacer.SetFixedSize2(checkboxWidth, swatchSize)
-	bgRowLayout.AddWidget(bgCheckSpacer)
+	// Spacer for where light checkbox would be
+	bgLightCheckSpacer := qt.NewQWidget2()
+	bgLightCheckSpacer.SetFixedSize2(checkboxWidth, swatchSize)
+	bgRowLayout.AddWidget(bgLightCheckSpacer)
 
-	// Background swatch (always enabled)
-	bgThemeHex := getColorFromSection(getCurrentThemeSection(), "0_background")
-	if bgThemeHex == "" {
-		bgThemeHex = "#1E1E1E" // Default dark background
-		if !isTermThemeDark() {
-			bgThemeHex = "#FFFFFF"
-		}
+	// Light background swatch
+	bgLightHex := getColorFromSection("term_colors_light", "0_background")
+	if bgLightHex == "" {
+		bgLightHex = "#FFFFFF"
 	}
-	bgThemeSwatch = createQtColorSwatch(bgThemeHex, swatchSize, func(hex string) {
-		setColorInSection(getCurrentThemeSection(), "0_background", hex)
+	bgLightSwatch := createQtColorSwatch(bgLightHex, swatchSize, func(hex string) {
+		setColorInSection("term_colors_light", "0_background", hex)
 		applyPaletteChanges()
 	})
-	bgRowLayout.AddWidget(bgThemeSwatch.Button.QWidget)
+	bgRowLayout.AddWidget(bgLightSwatch.Button.QWidget)
+
+	// Spacer for where dark checkbox would be
+	bgDarkCheckSpacer := qt.NewQWidget2()
+	bgDarkCheckSpacer.SetFixedSize2(checkboxWidth, swatchSize)
+	bgRowLayout.AddWidget(bgDarkCheckSpacer)
+
+	// Dark background swatch
+	bgDarkHex := getColorFromSection("term_colors_dark", "0_background")
+	if bgDarkHex == "" {
+		bgDarkHex = "#1E1E1E"
+	}
+	bgDarkSwatch := createQtColorSwatch(bgDarkHex, swatchSize, func(hex string) {
+		setColorInSection("term_colors_dark", "0_background", hex)
+		applyPaletteChanges()
+	})
+	bgRowLayout.AddWidget(bgDarkSwatch.Button.QWidget)
 	bgRowLayout.AddStretch()
 
 	leftColumnLayout.AddWidget(bgRowWidget)
+	_ = bgLightSwatch // Suppress unused warning
+	_ = bgDarkSwatch
 
-	// --- Foreground row (always present, no checkbox) ---
+	// --- Foreground row (always present, no checkboxes) ---
 	fgRowWidget := qt.NewQWidget2()
 	fgRowLayout := qt.NewQHBoxLayout2()
 	fgRowLayout.SetContentsMargins(0, 0, 0, 0)
@@ -1545,27 +1553,42 @@ func showSettingsDialog(parent *qt.QWidget) {
 	fgSpacer.SetFixedSize2(swatchSize, swatchSize)
 	fgRowLayout.AddWidget(fgSpacer)
 
-	// Another spacer for where checkbox would be
-	fgCheckSpacer := qt.NewQWidget2()
-	fgCheckSpacer.SetFixedSize2(checkboxWidth, swatchSize)
-	fgRowLayout.AddWidget(fgCheckSpacer)
+	// Spacer for where light checkbox would be
+	fgLightCheckSpacer := qt.NewQWidget2()
+	fgLightCheckSpacer.SetFixedSize2(checkboxWidth, swatchSize)
+	fgRowLayout.AddWidget(fgLightCheckSpacer)
 
-	// Foreground swatch (always enabled)
-	fgThemeHex := getColorFromSection(getCurrentThemeSection(), "9_foreground")
-	if fgThemeHex == "" {
-		fgThemeHex = "#D4D4D4" // Default dark foreground
-		if !isTermThemeDark() {
-			fgThemeHex = "#1E1E1E"
-		}
+	// Light foreground swatch
+	fgLightHex := getColorFromSection("term_colors_light", "9_foreground")
+	if fgLightHex == "" {
+		fgLightHex = "#1E1E1E"
 	}
-	fgThemeSwatch = createQtColorSwatch(fgThemeHex, swatchSize, func(hex string) {
-		setColorInSection(getCurrentThemeSection(), "9_foreground", hex)
+	fgLightSwatch := createQtColorSwatch(fgLightHex, swatchSize, func(hex string) {
+		setColorInSection("term_colors_light", "9_foreground", hex)
 		applyPaletteChanges()
 	})
-	fgRowLayout.AddWidget(fgThemeSwatch.Button.QWidget)
+	fgRowLayout.AddWidget(fgLightSwatch.Button.QWidget)
+
+	// Spacer for where dark checkbox would be
+	fgDarkCheckSpacer := qt.NewQWidget2()
+	fgDarkCheckSpacer.SetFixedSize2(checkboxWidth, swatchSize)
+	fgRowLayout.AddWidget(fgDarkCheckSpacer)
+
+	// Dark foreground swatch
+	fgDarkHex := getColorFromSection("term_colors_dark", "9_foreground")
+	if fgDarkHex == "" {
+		fgDarkHex = "#D4D4D4"
+	}
+	fgDarkSwatch := createQtColorSwatch(fgDarkHex, swatchSize, func(hex string) {
+		setColorInSection("term_colors_dark", "9_foreground", hex)
+		applyPaletteChanges()
+	})
+	fgRowLayout.AddWidget(fgDarkSwatch.Button.QWidget)
 	fgRowLayout.AddStretch()
 
 	rightColumnLayout.AddWidget(fgRowWidget)
+	_ = fgLightSwatch // Suppress unused warning
+	_ = fgDarkSwatch
 
 	// Color names for display (VGA order)
 	colorDisplayNames := []string{
@@ -1607,33 +1630,64 @@ func showSettingsDialog(parent *qt.QWidget) {
 		})
 		rowLayout.AddWidget(colorRow.BasicSwatch.Button.QWidget)
 
-		// Theme checkbox
-		colorRow.ThemeCheckbox = qt.NewQCheckBox2()
-		themeHex := getColorFromSection(getCurrentThemeSection(), colorConfigNames[i])
-		colorRow.ThemeCheckbox.SetChecked(themeHex != "")
-		rowLayout.AddWidget(colorRow.ThemeCheckbox.QWidget)
+		// Light theme checkbox
+		colorRow.LightCheckbox = qt.NewQCheckBox2()
+		lightHex := getColorFromSection("term_colors_light", colorConfigNames[i])
+		colorRow.LightCheckbox.SetChecked(lightHex != "")
+		rowLayout.AddWidget(colorRow.LightCheckbox.QWidget)
 
-		// Theme swatch
-		if themeHex == "" {
-			themeHex = basicHex // Use basic as default display
+		// Light theme swatch
+		lightDisplayHex := lightHex
+		if lightDisplayHex == "" {
+			lightDisplayHex = basicHex // Use basic as default display
 		}
-		colorRow.ThemeSwatch = createQtColorSwatch(themeHex, swatchSize, func(hex string) {
-			setColorInSection(getCurrentThemeSection(), localColorName, hex)
+		colorRow.LightSwatch = createQtColorSwatch(lightDisplayHex, swatchSize, func(hex string) {
+			setColorInSection("term_colors_light", localColorName, hex)
 			applyPaletteChanges()
 		})
-		colorRow.ThemeSwatch.SetEnabled(colorRow.ThemeCheckbox.IsChecked())
-		rowLayout.AddWidget(colorRow.ThemeSwatch.Button.QWidget)
+		colorRow.LightSwatch.SetEnabled(colorRow.LightCheckbox.IsChecked())
+		rowLayout.AddWidget(colorRow.LightSwatch.Button.QWidget)
+
+		// Dark theme checkbox
+		colorRow.DarkCheckbox = qt.NewQCheckBox2()
+		darkHex := getColorFromSection("term_colors_dark", colorConfigNames[i])
+		colorRow.DarkCheckbox.SetChecked(darkHex != "")
+		rowLayout.AddWidget(colorRow.DarkCheckbox.QWidget)
+
+		// Dark theme swatch
+		darkDisplayHex := darkHex
+		if darkDisplayHex == "" {
+			darkDisplayHex = basicHex // Use basic as default display
+		}
+		colorRow.DarkSwatch = createQtColorSwatch(darkDisplayHex, swatchSize, func(hex string) {
+			setColorInSection("term_colors_dark", localColorName, hex)
+			applyPaletteChanges()
+		})
+		colorRow.DarkSwatch.SetEnabled(colorRow.DarkCheckbox.IsChecked())
+		rowLayout.AddWidget(colorRow.DarkSwatch.Button.QWidget)
 		rowLayout.AddStretch()
 
-		// Wire up checkbox
+		// Wire up Light checkbox
 		localRow := colorRow // Capture for closure
-		colorRow.ThemeCheckbox.OnStateChanged(func(state int) {
+		colorRow.LightCheckbox.OnStateChanged(func(state int) {
 			enabled := state != 0
-			localRow.ThemeSwatch.SetEnabled(enabled)
+			localRow.LightSwatch.SetEnabled(enabled)
 			if enabled {
-				setColorInSection(getCurrentThemeSection(), localRow.ColorName, localRow.ThemeSwatch.GetColor())
+				setColorInSection("term_colors_light", localRow.ColorName, localRow.LightSwatch.GetColor())
 			} else {
-				setColorInSection(getCurrentThemeSection(), localRow.ColorName, "")
+				setColorInSection("term_colors_light", localRow.ColorName, "")
+			}
+			applyPaletteChanges()
+		})
+
+		// Wire up Dark checkbox
+		colorRow.DarkCheckbox.OnStateChanged(func(state int) {
+			enabled := state != 0
+			localRow.DarkSwatch.SetEnabled(enabled)
+			if enabled {
+				setColorInSection("term_colors_dark", localRow.ColorName, localRow.DarkSwatch.GetColor())
+			} else {
+				setColorInSection("term_colors_dark", localRow.ColorName, "")
 			}
 			applyPaletteChanges()
 		})
@@ -1647,58 +1701,11 @@ func showSettingsDialog(parent *qt.QWidget) {
 
 		paletteRows = append(paletteRows, colorRow)
 	}
+	_ = paletteRows // Suppress unused warning
 
 	// Add stretch at bottom of columns
 	leftColumnLayout.AddStretch()
 	rightColumnLayout.AddStretch()
-
-	// Function to refresh palette tab when theme changes
-	refreshPaletteTab := func() {
-		themeSection := getCurrentThemeSection()
-
-		// Refresh background (always enabled)
-		bgHex := getColorFromSection(themeSection, "0_background")
-		if bgHex == "" {
-			if isTermThemeDark() {
-				bgHex = "#1E1E1E"
-			} else {
-				bgHex = "#FFFFFF"
-			}
-		}
-		bgThemeSwatch.SetColor(bgHex)
-
-		// Refresh foreground (always enabled)
-		fgHex := getColorFromSection(themeSection, "9_foreground")
-		if fgHex == "" {
-			if isTermThemeDark() {
-				fgHex = "#D4D4D4"
-			} else {
-				fgHex = "#1E1E1E"
-			}
-		}
-		fgThemeSwatch.SetColor(fgHex)
-
-		// Refresh palette colors
-		for _, row := range paletteRows {
-			themeHex := getColorFromSection(themeSection, row.ColorName)
-			row.ThemeCheckbox.SetChecked(themeHex != "")
-			if themeHex == "" {
-				themeHex = row.BasicSwatch.GetColor()
-			}
-			row.ThemeSwatch.SetColor(themeHex)
-			row.ThemeSwatch.SetEnabled(row.ThemeCheckbox.IsChecked())
-		}
-	}
-
-	// Store refreshPaletteTab for use by Console Theme combo
-	// We need to update the Console Theme combo's onChange to call this
-	origConsoleThemeOnChange := consoleThemeCombo.onChange
-	consoleThemeCombo.onChange = func(idx int) {
-		if origConsoleThemeOnChange != nil {
-			origConsoleThemeOnChange(idx)
-		}
-		refreshPaletteTab()
-	}
 
 	tabWidget.AddTab(paletteWidget, "Palette")
 
