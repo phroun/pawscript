@@ -957,6 +957,12 @@ func showSettingsDialog(parent gtk.IWindow) {
 
 	rightColumn.PackStart(fgRow, false, false, 0)
 
+	// Add text labels to bg/fg swatches: "Lt"/"Dk" in the opposite color
+	bgLightSwatch.SetText("Lt", fgLightHex)
+	bgDarkSwatch.SetText("Dk", fgDarkHex)
+	fgLightSwatch.SetText("Lt", bgLightHex)
+	fgDarkSwatch.SetText("Dk", bgDarkHex)
+
 	// Color names for display (VGA order)
 	colorDisplayNames := []string{
 		"00 Black", "01 Blue", "02 Green", "03 Cyan",
@@ -2854,10 +2860,12 @@ func (c *SettingsComboMenu) RefreshIcons() {
 
 // ColorSwatch represents a clickable color swatch button for palette editing
 type ColorSwatch struct {
-	Button    *gtk.Button
-	colorHex  string
-	onChange  func(string)
-	isEnabled bool
+	Button       *gtk.Button
+	colorHex     string
+	onChange     func(string)
+	isEnabled    bool
+	textLabel    string
+	textColorHex string
 }
 
 // createColorSwatch creates a color swatch button that opens a color picker when clicked
@@ -2955,6 +2963,12 @@ func (s *ColorSwatch) applyColor() {
 		opacity = "0.5"
 	}
 
+	// Include text color if set
+	textColorCSS := ""
+	if s.textColorHex != "" {
+		textColorCSS = fmt.Sprintf("color: %s;", s.textColorHex)
+	}
+
 	css := fmt.Sprintf(`
 		button {
 			background-color: %s;
@@ -2965,12 +2979,13 @@ func (s *ColorSwatch) applyColor() {
 			min-width: 0;
 			min-height: 0;
 			opacity: %s;
+			%s
 		}
 		button:hover {
 			background-color: %s;
 			border: 2px solid %s;
 		}
-	`, bgColor, borderColor, opacity, bgColor, borderColor)
+	`, bgColor, borderColor, opacity, textColorCSS, bgColor, borderColor)
 
 	cssProvider.LoadFromData(css)
 	styleCtx, err := s.Button.GetStyleContext()
@@ -2978,6 +2993,14 @@ func (s *ColorSwatch) applyColor() {
 		return
 	}
 	styleCtx.AddProvider(cssProvider, gtk.STYLE_PROVIDER_PRIORITY_USER)
+}
+
+// SetText sets a text label and its color on the swatch
+func (s *ColorSwatch) SetText(label, colorHex string) {
+	s.textLabel = label
+	s.textColorHex = colorHex
+	s.Button.SetLabel(label)
+	s.applyColor()
 }
 
 // PaletteColorRow holds the widgets for a single palette color entry

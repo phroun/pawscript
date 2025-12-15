@@ -825,10 +825,12 @@ func (c *QtSettingsComboMenu) RefreshIcons() {
 
 // QtColorSwatch represents a clickable color swatch button for palette editing
 type QtColorSwatch struct {
-	Button    *qt.QPushButton
-	colorHex  string
-	onChange  func(string)
-	isEnabled bool
+	Button       *qt.QPushButton
+	colorHex     string
+	onChange     func(string)
+	isEnabled    bool
+	textLabel    string
+	textColorHex string
 }
 
 // createQtColorSwatch creates a color swatch button that opens a color picker when clicked
@@ -904,19 +906,34 @@ func (s *QtColorSwatch) applyColor() {
 		opacity = "0.5"
 	}
 
+	// Include text color if set
+	textColorCSS := ""
+	if s.textColorHex != "" {
+		textColorCSS = fmt.Sprintf("color: %s;", s.textColorHex)
+	}
+
 	css := fmt.Sprintf(`
 		QPushButton {
 			background-color: %s;
 			border: 1px solid %s;
 			border-radius: 3px;
 			opacity: %s;
+			%s
 		}
 		QPushButton:hover {
 			border: 2px solid %s;
 		}
-	`, bgColor, borderColor, opacity, borderColor)
+	`, bgColor, borderColor, opacity, textColorCSS, borderColor)
 
 	s.Button.SetStyleSheet(css)
+}
+
+// SetText sets a text label and its color on the swatch
+func (s *QtColorSwatch) SetText(label, colorHex string) {
+	s.textLabel = label
+	s.textColorHex = colorHex
+	s.Button.SetText(label)
+	s.applyColor()
 }
 
 // showColorPickerDialog shows a color picker dialog with editable hex and RGB fields
@@ -1533,8 +1550,6 @@ func showSettingsDialog(parent *qt.QWidget) {
 	bgRowLayout.AddStretch()
 
 	leftColumnLayout.AddWidget(bgRowWidget)
-	_ = bgLightSwatch // Suppress unused warning
-	_ = bgDarkSwatch
 
 	// --- Foreground row (always present, no checkboxes) ---
 	fgRowWidget := qt.NewQWidget2()
@@ -1587,8 +1602,12 @@ func showSettingsDialog(parent *qt.QWidget) {
 	fgRowLayout.AddStretch()
 
 	rightColumnLayout.AddWidget(fgRowWidget)
-	_ = fgLightSwatch // Suppress unused warning
-	_ = fgDarkSwatch
+
+	// Add text labels to bg/fg swatches: "Lt"/"Dk" in the opposite color
+	bgLightSwatch.SetText("Lt", fgLightHex)
+	bgDarkSwatch.SetText("Dk", fgDarkHex)
+	fgLightSwatch.SetText("Lt", bgLightHex)
+	fgDarkSwatch.SetText("Dk", bgDarkHex)
 
 	// Color names for display (VGA order)
 	colorDisplayNames := []string{
