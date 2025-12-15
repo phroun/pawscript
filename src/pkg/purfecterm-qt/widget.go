@@ -1648,12 +1648,13 @@ func (w *Widget) paintEvent(event *qt.QPaintEvent) {
 				var drawFont *qt.QFont
 				if charFontFamily != fontFamily || cell.Bold || cell.Italic {
 					// Need a different font - either fallback, bold, or italic
-					drawFont = qt.NewQFont6(charFontFamily, fontSize)
-					drawFont.SetFixedPitch(charFontFamily == fontFamily) // Only fix pitch for main font
 					if cell.Bold {
-						// Use SetWeight with Bold weight (700 in Qt6 scale of 0-1000)
-						drawFont.SetWeight(700)
+						// Create font with weight in constructor (Qt6: 400=normal, 700=bold)
+						drawFont = qt.NewQFont5(charFontFamily, fontSize, 700)
+					} else {
+						drawFont = qt.NewQFont6(charFontFamily, fontSize)
 					}
+					drawFont.SetFixedPitch(charFontFamily == fontFamily) // Only fix pitch for main font
 					if cell.Italic {
 						drawFont.SetItalic(true)
 					}
