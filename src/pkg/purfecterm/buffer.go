@@ -372,6 +372,17 @@ func (b *Buffer) GetPreferredDarkTheme() bool {
 	return b.preferredDarkTheme
 }
 
+// UpdatePreferredDarkTheme updates the user's preferred theme from config
+// without changing the current DECSCNM state. Use this when updating
+// settings while preserving any \e[?5h/\e[?5l state the program has set.
+func (b *Buffer) UpdatePreferredDarkTheme(dark bool) {
+	b.mu.Lock()
+	defer b.mu.Unlock()
+	b.preferredDarkTheme = dark
+	// Note: Unlike SetPreferredDarkTheme, we do NOT change b.darkTheme here
+	// to preserve any DECSCNM state the running program has set
+}
+
 func (b *Buffer) initScreen() {
 	effectiveRows := b.EffectiveRows()
 	b.screen = make([][]Cell, effectiveRows)

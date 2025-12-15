@@ -1818,14 +1818,16 @@ func showSettingsDialog(parent *qt.QWidget) {
 }
 
 // applyConsoleTheme applies the console theme to all terminals
+// This updates the preferred theme and color scheme without resetting
+// any DECSCNM (\e[?5h/\e[?5l) state that running programs have set.
 func applyConsoleTheme() {
 	isDark := isTermThemeDark()
 	scheme := getColorSchemeForTheme(isDark)
 
 	// Apply to launcher terminal
 	if terminal != nil {
-		terminal.Buffer().SetPreferredDarkTheme(isDark)
-		terminal.Buffer().SetDarkTheme(isDark)
+		// Only update the preferred theme (for reset), not the current DECSCNM state
+		terminal.Buffer().UpdatePreferredDarkTheme(isDark)
 		terminal.SetColorScheme(scheme)
 	}
 
@@ -1833,15 +1835,13 @@ func applyConsoleTheme() {
 	qtToolbarDataMu.Lock()
 	for _, data := range qtToolbarDataByWindow {
 		if data.terminal != nil {
-			data.terminal.Buffer().SetPreferredDarkTheme(isDark)
-			data.terminal.Buffer().SetDarkTheme(isDark)
+			data.terminal.Buffer().UpdatePreferredDarkTheme(isDark)
 			data.terminal.SetColorScheme(scheme)
 		}
 	}
 	for _, data := range qtToolbarDataByPS {
 		if data.terminal != nil {
-			data.terminal.Buffer().SetPreferredDarkTheme(isDark)
-			data.terminal.Buffer().SetDarkTheme(isDark)
+			data.terminal.Buffer().UpdatePreferredDarkTheme(isDark)
 			data.terminal.SetColorScheme(scheme)
 		}
 	}
@@ -1884,6 +1884,41 @@ func applyFontSettings() {
 // applyUIScaleFromConfig applies the current UI scale from config
 func applyUIScaleFromConfig() {
 	applyUIScale(getUIScale())
+}
+
+// createHamburgerMenu creates the hamburger dropdown menu
+// createMenuActionWithShortcut creates a menu action with a grayed shortcut displayed on the right
+func createMenuActionWithShortcut(menu *qt.QMenu, label, shortcut string) *qt.QAction {
+	// Create widget action for custom layout
+	widgetAction := qt.NewQWidgetAction(menu.QObject)
+
+	// Create container widget with horizontal layout
+	widget := qt.NewQWidget2()
+	layout := qt.NewQHBoxLayout2()
+	layout.SetContentsMargins(int(24*getUIScale()), 4, 8, 4)
+	layout.SetSpacing(16)
+	widget.SetLayout(layout.QLayout)
+
+	// Main label
+	mainLabel := qt.NewQLabel3(label)
+	layout.AddWidget(mainLabel.QWidget)
+
+	// Stretch to push shortcut to the right
+	layout.AddStretch()
+
+	// Shortcut label (grayed)
+	if shortcut != "" {
+		shortcutLabel := qt.NewQLabel3(formatShortcutForDisplay(shortcut))
+		shortcutLabel.SetStyleSheet("QLabel { color: gray; }")
+		layout.AddWidget(shortcutLabel.QWidget)
+	}
+
+	widgetAction.SetDefaultWidget(widget)
+
+	// Add to menu using QWidget's AddAction method
+	menu.QWidget.AddAction(widgetAction.QAction)
+
+	return widgetAction.QAction
 }
 
 // createHamburgerMenu creates the hamburger dropdown menu
@@ -2015,10 +2050,7 @@ func createHamburgerMenu(parent *qt.QWidget, isScriptWindow bool, term *purfecte
 	menu.AddSeparator()
 
 	// Close (both) - show shortcut if configured
-	closeAction := menu.AddAction("Close")
-	if shortcut := getCloseShortcut(); shortcut != "" {
-		closeAction.SetShortcut(qt.NewQKeySequence2(convertShortcutForQt(shortcut)))
-	}
+	closeAction := createMenuActionWithShortcut(menu, "Close", getCloseShortcut())
 	closeAction.OnTriggered(func() {
 		if closeWindowFunc != nil {
 			closeWindowFunc()
@@ -2028,10 +2060,7 @@ func createHamburgerMenu(parent *qt.QWidget, isScriptWindow bool, term *purfecte
 	})
 
 	// Quit PawScript (both) - show shortcut if configured
-	quitAction := menu.AddAction("Quit PawScript")
-	if shortcut := getQuitShortcut(); shortcut != "" {
-		quitAction.SetShortcut(qt.NewQKeySequence2(convertShortcutForQt(shortcut)))
-	}
+	quitAction := createMenuActionWithShortcut(menu, "Quit PawScript", getQuitShortcut())
 	quitAction.OnTriggered(func() {
 		quitApplication(parent)
 	})

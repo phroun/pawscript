@@ -1491,14 +1491,16 @@ func refreshFileListIcons() {
 }
 
 // applyConsoleTheme applies the console theme to all terminals
+// This updates the preferred theme and color scheme without resetting
+// any DECSCNM (\e[?5h/\e[?5l) state that running programs have set.
 func applyConsoleTheme() {
 	isDark := isTermThemeDark()
 	scheme := getColorSchemeForTheme(isDark)
 
 	// Apply to launcher terminal
 	if terminal != nil {
-		terminal.Buffer().SetPreferredDarkTheme(isDark)
-		terminal.Buffer().SetDarkTheme(isDark)
+		// Only update the preferred theme (for reset), not the current DECSCNM state
+		terminal.Buffer().UpdatePreferredDarkTheme(isDark)
 		terminal.SetColorScheme(scheme)
 	}
 
@@ -1506,15 +1508,13 @@ func applyConsoleTheme() {
 	toolbarDataMu.Lock()
 	for _, data := range toolbarDataByWindow {
 		if data.terminal != nil {
-			data.terminal.Buffer().SetPreferredDarkTheme(isDark)
-			data.terminal.Buffer().SetDarkTheme(isDark)
+			data.terminal.Buffer().UpdatePreferredDarkTheme(isDark)
 			data.terminal.SetColorScheme(scheme)
 		}
 	}
 	for _, data := range toolbarDataByPS {
 		if data.terminal != nil {
-			data.terminal.Buffer().SetPreferredDarkTheme(isDark)
-			data.terminal.Buffer().SetDarkTheme(isDark)
+			data.terminal.Buffer().UpdatePreferredDarkTheme(isDark)
 			data.terminal.SetColorScheme(scheme)
 		}
 	}
