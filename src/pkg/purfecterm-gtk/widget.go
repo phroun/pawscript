@@ -606,6 +606,8 @@ func (w *Widget) SetFont(family string, size int) {
 	w.fontSize = size
 	w.mu.Unlock()
 	w.updateFontMetrics()
+	w.updateScrollbar()
+	w.updateHorizScrollbar()
 	w.drawingArea.QueueDraw()
 }
 

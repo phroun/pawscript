@@ -612,6 +612,8 @@ func (w *Widget) SetFont(family string, size int) {
 	w.fontSize = size
 	w.mu.Unlock()
 	w.updateFontMetrics()
+	w.updateScrollbar()
+	w.updateHorizScrollbar()
 	w.widget.Update()
 }
 
@@ -1720,7 +1722,7 @@ func (w *Widget) paintEvent(event *qt.QPaintEvent) {
 					if useFauxBold {
 						// Faux bold: draw again with slight horizontal offset
 						fauxOffset := math.Ceil(float64(fontSize)/20.0) / textScaleX
-						painter.DrawText3(fauxOffset, 0, charStr)
+						painter.DrawText3(int(math.Round(fauxOffset)), 0, charStr)
 					}
 					painter.Restore()
 				case purfecterm.LineAttrDoubleWidth:
@@ -1743,7 +1745,7 @@ func (w *Widget) paintEvent(event *qt.QPaintEvent) {
 					painter.DrawText3(0, 0, charStr)
 					if useFauxBold {
 						fauxOffset := math.Ceil(float64(fontSize)/20.0) / textScaleX
-						painter.DrawText3(fauxOffset, 0, charStr)
+						painter.DrawText3(int(math.Round(fauxOffset)), 0, charStr)
 					}
 					painter.Restore()
 				case purfecterm.LineAttrDoubleTop:
@@ -1766,7 +1768,7 @@ func (w *Widget) paintEvent(event *qt.QPaintEvent) {
 					painter.DrawText3(0, 0, charStr)
 					if useFauxBold {
 						fauxOffset := math.Ceil(float64(fontSize)/20.0) / textScaleX
-						painter.DrawText3(fauxOffset, 0, charStr)
+						painter.DrawText3(int(math.Round(fauxOffset)), 0, charStr)
 					}
 					painter.Restore()
 				case purfecterm.LineAttrDoubleBottom:
@@ -1789,7 +1791,7 @@ func (w *Widget) paintEvent(event *qt.QPaintEvent) {
 					painter.DrawText3(0, 0, charStr)
 					if useFauxBold {
 						fauxOffset := math.Ceil(float64(fontSize)/20.0) / textScaleX
-						painter.DrawText3(fauxOffset, 0, charStr)
+						painter.DrawText3(int(math.Round(fauxOffset)), 0, charStr)
 					}
 					painter.Restore()
 				}
