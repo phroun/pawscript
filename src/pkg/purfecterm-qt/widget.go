@@ -1648,14 +1648,13 @@ func (w *Widget) paintEvent(event *qt.QPaintEvent) {
 				var drawFont *qt.QFont
 				if charFontFamily != fontFamily || cell.Bold || cell.Italic {
 					// Need a different font - either fallback, bold, or italic
-					if cell.Bold {
-						// NewQFont7(family, pointSize, weight) - Qt5: 75=Bold, Qt6: 700=Bold
-						// miqt uses Qt5 scale where Bold = 75
-						drawFont = qt.NewQFont7(charFontFamily, fontSize, 75)
-					} else {
-						drawFont = qt.NewQFont6(charFontFamily, fontSize)
-					}
+					drawFont = qt.NewQFont6(charFontFamily, fontSize)
 					drawFont.SetFixedPitch(charFontFamily == fontFamily) // Only fix pitch for main font
+					// Use PreferMatch strategy to help Qt find the right font variant
+					drawFont.SetStyleStrategy(qt.QFont__PreferMatch)
+					if cell.Bold {
+						drawFont.SetWeight(75) // Qt5 Bold weight
+					}
 					if cell.Italic {
 						drawFont.SetItalic(true)
 					}
