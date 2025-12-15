@@ -1886,39 +1886,15 @@ func applyUIScaleFromConfig() {
 	applyUIScale(getUIScale())
 }
 
-// createHamburgerMenu creates the hamburger dropdown menu
-// createMenuActionWithShortcut creates a menu action with a grayed shortcut displayed on the right
+// createMenuActionWithShortcut creates a menu action with a shortcut displayed on the right
+// Uses Qt's native tab-separated shortcut display for consistent menu styling
 func createMenuActionWithShortcut(menu *qt.QMenu, label, shortcut string) *qt.QAction {
-	// Create widget action for custom layout
-	widgetAction := qt.NewQWidgetAction(menu.QObject)
-
-	// Create container widget with horizontal layout
-	widget := qt.NewQWidget2()
-	layout := qt.NewQHBoxLayout2()
-	layout.SetContentsMargins(int(24*getUIScale()), 4, 8, 4)
-	layout.SetSpacing(16)
-	widget.SetLayout(layout.QLayout)
-
-	// Main label
-	mainLabel := qt.NewQLabel3(label)
-	layout.AddWidget(mainLabel.QWidget)
-
-	// Stretch to push shortcut to the right
-	layout.AddStretch()
-
-	// Shortcut label (grayed)
+	// Qt menus display text after \t as right-aligned shortcut
+	text := label
 	if shortcut != "" {
-		shortcutLabel := qt.NewQLabel3(formatShortcutForDisplay(shortcut))
-		shortcutLabel.SetStyleSheet("QLabel { color: gray; }")
-		layout.AddWidget(shortcutLabel.QWidget)
+		text = label + "\t" + formatShortcutForDisplay(shortcut)
 	}
-
-	widgetAction.SetDefaultWidget(widget)
-
-	// Add to menu using QWidget's AddAction method
-	menu.QWidget.AddAction(widgetAction.QAction)
-
-	return widgetAction.QAction
+	return menu.AddAction(text)
 }
 
 // createHamburgerMenu creates the hamburger dropdown menu
