@@ -849,7 +849,7 @@ func showSettingsDialog(parent gtk.IWindow) {
 	// Label on the left
 	bgLabel, _ := gtk.LabelNew("Background")
 	bgLabel.SetXAlign(0)
-	bgLabel.SetSizeRequest(110, -1) // Fixed width for alignment
+	bgLabel.SetSizeRequest(115, -1) // Fixed width for alignment
 	bgRow.PackStart(bgLabel, false, false, 0)
 
 	// Spacer for where basic swatch would be
@@ -884,7 +884,7 @@ func showSettingsDialog(parent gtk.IWindow) {
 	// Label on the left
 	fgLabel, _ := gtk.LabelNew("Foreground")
 	fgLabel.SetXAlign(0)
-	fgLabel.SetSizeRequest(110, -1) // Fixed width for alignment
+	fgLabel.SetSizeRequest(115, -1) // Fixed width for alignment
 	fgRow.PackStart(fgLabel, false, false, 0)
 
 	// Spacer for where basic swatch would be
@@ -937,9 +937,9 @@ func showSettingsDialog(parent gtk.IWindow) {
 		label.SetXAlign(0)
 		// Left column (00-07) uses "Background" width, right column (08-15) uses "Bright Green" width
 		if i < 8 {
-			label.SetSizeRequest(110, -1)
+			label.SetSizeRequest(115, -1)
 		} else {
-			label.SetSizeRequest(110, -1)
+			label.SetSizeRequest(115, -1)
 		}
 		row.PackStart(label, false, false, 0)
 
