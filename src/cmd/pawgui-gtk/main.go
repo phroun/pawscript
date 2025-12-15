@@ -3003,6 +3003,25 @@ func (s *ColorSwatch) SetText(label, colorHex string) {
 	s.textLabel = label
 	s.textColorHex = colorHex
 	s.Button.SetLabel(label)
+
+	// Apply color directly to the label child widget
+	if colorHex != "" {
+		child, err := s.Button.GetChild()
+		if err == nil && child != nil {
+			if lbl, ok := child.(*gtk.Label); ok {
+				cssProvider, err := gtk.CssProviderNew()
+				if err == nil {
+					css := fmt.Sprintf(`label { color: %s; }`, colorHex)
+					cssProvider.LoadFromData(css)
+					styleCtx, err := lbl.GetStyleContext()
+					if err == nil {
+						styleCtx.AddProvider(cssProvider, gtk.STYLE_PROVIDER_PRIORITY_USER)
+					}
+				}
+			}
+		}
+	}
+
 	s.applyColor()
 }
 
