@@ -1784,11 +1784,11 @@ func scaledToolbarButtonSize() int {
 }
 
 func scaledToolbarIconSize() int {
-	return int(float64(scaledToolbarIconSize()) * getUIScale())
+	return int(float64(toolbarIconSize) * getUIScale())
 }
 
 func scaledFileListIconSize() int {
-	return int(float64(scaledFileListIconSize()) * getUIScale())
+	return int(float64(fileListIconSize) * getUIScale())
 }
 
 func scaledMenuIconSize() int {
