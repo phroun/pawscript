@@ -4175,6 +4175,47 @@ func runScriptInWindow(scriptContent, scriptFile string, scriptArgs []string,
 	qt.QApplication_Exec()
 }
 
+// convertShortcutForQt converts a shortcut string for Qt, handling macOS Ctrl/Meta swap
+// On macOS, Qt swaps Ctrl and Meta keys:
+//   - "Cmd" in config -> Qt "Ctrl" on macOS, Qt "Meta" on other platforms
+//   - "Ctrl" in config -> Qt "Meta" on macOS, Qt "Ctrl" on other platforms
+func convertShortcutForQt(shortcut string) string {
+	// Split by + to process each part
+	parts := strings.Split(shortcut, "+")
+	result := make([]string, len(parts))
+
+	for i, part := range parts {
+		trimmed := strings.TrimSpace(part)
+		lower := strings.ToLower(trimmed)
+
+		if runtime.GOOS == "darwin" {
+			// On macOS, Qt swaps Ctrl and Meta
+			switch lower {
+			case "cmd", "meta", "super":
+				result[i] = "Ctrl" // Physical Cmd key on macOS
+			case "ctrl", "control":
+				result[i] = "Meta" // Physical Ctrl key on macOS
+			default:
+				result[i] = trimmed
+			}
+		} else {
+			// On other platforms, map Cmd to Meta
+			switch lower {
+			case "cmd", "super":
+				result[i] = "Meta"
+			case "meta":
+				result[i] = "Meta"
+			case "ctrl", "control":
+				result[i] = "Ctrl"
+			default:
+				result[i] = trimmed
+			}
+		}
+	}
+
+	return strings.Join(result, "+")
+}
+
 // setupQuitShortcutForWindow configures the keyboard shortcut to close a window
 func setupQuitShortcutForWindow(win *qt.QMainWindow) {
 	quitShortcut := getQuitShortcut()
@@ -4182,30 +4223,7 @@ func setupQuitShortcutForWindow(win *qt.QMainWindow) {
 		return // Disabled
 	}
 
-	var keySequence string
-	switch quitShortcut {
-	case "Cmd+Q":
-		// On macOS, Qt swaps Ctrl/Meta, so "Ctrl+Q" responds to physical Cmd key
-		// On other platforms, use Meta+Q
-		if runtime.GOOS == "darwin" {
-			keySequence = "Ctrl+Q" // Physical Cmd+Q on macOS
-		} else {
-			keySequence = "Meta+Q"
-		}
-	case "Ctrl+Q":
-		// Note: Ctrl+Q should generally not be used (conflicts with terminal)
-		// On macOS, Qt's "Meta+Q" responds to physical Ctrl key
-		if runtime.GOOS == "darwin" {
-			keySequence = "Meta+Q" // Physical Ctrl+Q on macOS
-		} else {
-			keySequence = "Ctrl+Q"
-		}
-	case "Alt+F4":
-		keySequence = "Alt+F4"
-	default:
-		return
-	}
-
+	keySequence := convertShortcutForQt(quitShortcut)
 	shortcut := qt.NewQShortcut2(qt.NewQKeySequence2(keySequence), win.QWidget)
 	shortcut.OnActivated(func() {
 		win.Close()

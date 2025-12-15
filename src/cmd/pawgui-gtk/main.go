@@ -3578,6 +3578,92 @@ func applyMenuCSS(isDark bool) {
 	}
 }
 
+// parseShortcutGTK parses a shortcut string like "Cmd+Shift+Q" into GDK key and modifiers
+func parseShortcutGTK(shortcut string) (targetKey uint, targetMod gdk.ModifierType, ok bool) {
+	parts := strings.Split(shortcut, "+")
+	if len(parts) == 0 {
+		return 0, 0, false
+	}
+
+	// Last part is the key, everything before is modifiers
+	keyPart := parts[len(parts)-1]
+	modParts := parts[:len(parts)-1]
+
+	// Parse modifiers
+	for _, mod := range modParts {
+		switch strings.ToLower(strings.TrimSpace(mod)) {
+		case "cmd", "meta", "super":
+			targetMod |= gdk.META_MASK
+		case "ctrl", "control":
+			targetMod |= gdk.CONTROL_MASK
+		case "alt":
+			targetMod |= gdk.MOD1_MASK
+		case "shift":
+			targetMod |= gdk.SHIFT_MASK
+		}
+	}
+
+	// Parse key
+	keyPart = strings.TrimSpace(keyPart)
+	switch strings.ToUpper(keyPart) {
+	case "F1":
+		targetKey = gdk.KEY_F1
+	case "F2":
+		targetKey = gdk.KEY_F2
+	case "F3":
+		targetKey = gdk.KEY_F3
+	case "F4":
+		targetKey = gdk.KEY_F4
+	case "F5":
+		targetKey = gdk.KEY_F5
+	case "F6":
+		targetKey = gdk.KEY_F6
+	case "F7":
+		targetKey = gdk.KEY_F7
+	case "F8":
+		targetKey = gdk.KEY_F8
+	case "F9":
+		targetKey = gdk.KEY_F9
+	case "F10":
+		targetKey = gdk.KEY_F10
+	case "F11":
+		targetKey = gdk.KEY_F11
+	case "F12":
+		targetKey = gdk.KEY_F12
+	case "ESCAPE", "ESC":
+		targetKey = gdk.KEY_Escape
+	case "TAB":
+		targetKey = gdk.KEY_Tab
+	case "RETURN", "ENTER":
+		targetKey = gdk.KEY_Return
+	case "SPACE":
+		targetKey = gdk.KEY_space
+	case "BACKSPACE":
+		targetKey = gdk.KEY_BackSpace
+	case "DELETE", "DEL":
+		targetKey = gdk.KEY_Delete
+	case "INSERT", "INS":
+		targetKey = gdk.KEY_Insert
+	case "HOME":
+		targetKey = gdk.KEY_Home
+	case "END":
+		targetKey = gdk.KEY_End
+	case "PAGEUP", "PGUP":
+		targetKey = gdk.KEY_Page_Up
+	case "PAGEDOWN", "PGDN":
+		targetKey = gdk.KEY_Page_Down
+	default:
+		// Single character key
+		if len(keyPart) == 1 {
+			targetKey = uint(gdk.KEY_a) + uint(strings.ToLower(keyPart)[0]-'a')
+		} else {
+			return 0, 0, false
+		}
+	}
+
+	return targetKey, targetMod, true
+}
+
 // setupQuitShortcutForWindow configures the keyboard shortcut to close a window
 func setupQuitShortcutForWindow(win *gtk.ApplicationWindow) {
 	quitShortcut := getQuitShortcut()
@@ -3585,19 +3671,8 @@ func setupQuitShortcutForWindow(win *gtk.ApplicationWindow) {
 		return // Disabled
 	}
 
-	var targetKey uint
-	var targetMod gdk.ModifierType
-	switch quitShortcut {
-	case "Cmd+Q":
-		targetKey = gdk.KEY_q
-		targetMod = gdk.META_MASK
-	case "Ctrl+Q":
-		targetKey = gdk.KEY_q
-		targetMod = gdk.CONTROL_MASK
-	case "Alt+F4":
-		targetKey = gdk.KEY_F4
-		targetMod = gdk.MOD1_MASK
-	default:
+	targetKey, targetMod, ok := parseShortcutGTK(quitShortcut)
+	if !ok {
 		return
 	}
 
@@ -3610,9 +3685,10 @@ func setupQuitShortcutForWindow(win *gtk.ApplicationWindow) {
 		// Mask out non-modifier bits (like num lock, caps lock)
 		state = state & (gdk.CONTROL_MASK | gdk.SHIFT_MASK | gdk.MOD1_MASK | gdk.META_MASK)
 
-		// Check for lowercase or uppercase 'q'
-		if targetKey == gdk.KEY_q {
-			if (keyval == gdk.KEY_q || keyval == gdk.KEY_Q) && state == targetMod {
+		// For letter keys, check both lowercase and uppercase
+		if targetKey >= uint(gdk.KEY_a) && targetKey <= uint(gdk.KEY_z) {
+			upperKey := targetKey - uint(gdk.KEY_a) + uint(gdk.KEY_A)
+			if (keyval == targetKey || keyval == upperKey) && state == targetMod {
 				win.Close()
 				return true
 			}
