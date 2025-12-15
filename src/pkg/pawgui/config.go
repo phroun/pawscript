@@ -236,7 +236,7 @@ func (h *ConfigHelper) GetTerminalBackgroundForTheme(isDark bool) purfecterm.Col
 		themeSection = "term_colors_light"
 	}
 	if themeConfig, ok := h.Config[themeSection]; ok {
-		if hex := getConfigSectionString(themeConfig, "0_background"); hex != "" {
+		if hex := GetConfigSectionString(themeConfig, "0_background"); hex != "" {
 			if c, ok := purfecterm.ParseHexColor(hex); ok {
 				return c
 			}
@@ -245,7 +245,7 @@ func (h *ConfigHelper) GetTerminalBackgroundForTheme(isDark bool) purfecterm.Col
 
 	// Fall back to base term_colors section
 	if termConfig, ok := h.Config["term_colors"]; ok {
-		if hex := getConfigSectionString(termConfig, "0_background"); hex != "" {
+		if hex := GetConfigSectionString(termConfig, "0_background"); hex != "" {
 			if c, ok := purfecterm.ParseHexColor(hex); ok {
 				return c
 			}
@@ -279,7 +279,7 @@ func (h *ConfigHelper) GetTerminalForegroundForTheme(isDark bool) purfecterm.Col
 		themeSection = "term_colors_light"
 	}
 	if themeConfig, ok := h.Config[themeSection]; ok {
-		if hex := getConfigSectionString(themeConfig, "9_foreground"); hex != "" {
+		if hex := GetConfigSectionString(themeConfig, "9_foreground"); hex != "" {
 			if c, ok := purfecterm.ParseHexColor(hex); ok {
 				return c
 			}
@@ -288,7 +288,7 @@ func (h *ConfigHelper) GetTerminalForegroundForTheme(isDark bool) purfecterm.Col
 
 	// Fall back to base term_colors section
 	if termConfig, ok := h.Config["term_colors"]; ok {
-		if hex := getConfigSectionString(termConfig, "9_foreground"); hex != "" {
+		if hex := GetConfigSectionString(termConfig, "9_foreground"); hex != "" {
 			if c, ok := purfecterm.ParseHexColor(hex); ok {
 				return c
 			}
@@ -324,7 +324,7 @@ func (h *ConfigHelper) GetColorPaletteForTheme(isDark bool) []purfecterm.Color {
 	// First apply base term_colors
 	if termConfig, ok := h.Config["term_colors"]; ok {
 		for vgaIdx, name := range names {
-			if hex := getConfigSectionString(termConfig, name); hex != "" {
+			if hex := GetConfigSectionString(termConfig, name); hex != "" {
 				if c, ok := purfecterm.ParseHexColor(hex); ok {
 					ansiIdx := purfecterm.VGAToANSI[vgaIdx]
 					palette[ansiIdx] = c
@@ -340,7 +340,7 @@ func (h *ConfigHelper) GetColorPaletteForTheme(isDark bool) []purfecterm.Color {
 	}
 	if themeConfig, ok := h.Config[themeSection]; ok {
 		for vgaIdx, name := range names {
-			if hex := getConfigSectionString(themeConfig, name); hex != "" {
+			if hex := GetConfigSectionString(themeConfig, name); hex != "" {
 				if c, ok := purfecterm.ParseHexColor(hex); ok {
 					ansiIdx := purfecterm.VGAToANSI[vgaIdx]
 					palette[ansiIdx] = c
