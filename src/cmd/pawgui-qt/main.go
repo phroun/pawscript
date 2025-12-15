@@ -161,9 +161,9 @@ const unknownFileIconSVG = `<svg width="48" height="48" viewBox="0 0 12.7 12.7" 
 </svg>`
 
 const pawFileIconSVG = `<svg width="48" height="48" viewBox="0 0 12.7 12.7" xmlns="http://www.w3.org/2000/svg">
-  <path style="fill:#ffffff;stroke:#002b36;stroke-width:0.75;stroke-linecap:round;stroke-linejoin:round" d="M 2.6458333,11.906249 V 0.79375 h 5.0270833 l 2.38125,2.38125 v 8.73125 z"/>
-  <path style="fill:#ffffff;stroke:#002b36;stroke-width:0.75;stroke-linecap:round;stroke-linejoin:round" d="m 7.6729166,0.79375 v 2.38125 h 2.38125"/>
-  <text style="font-size:7.05556px;fill:#d33682;stroke:none;font-family:sans-serif;font-weight:bold" x="3.7041667" y="9.5249996">🐾</text>
+  <path style="fill:#ffffff;stroke:#002b36;stroke-width:0.75;stroke-linecap:round;stroke-linejoin:round" d="M 2.6910152,0.29628909 H 8.126 L 10.008985,2.1987376 V 10.631732 H 2.6910152 Z"/>
+  <path style="fill:#ffffff;stroke:#002b36;stroke-width:0.5;stroke-linecap:butt;stroke-linejoin:miter" d="M 7.848,0.48201035 V 2.6120103 h 1.973"/>
+  <path style="fill:#77abbe" d="M 6.9204412,7.8593841 H 5.7128834 V 6.6592346 q 0.1333499,0.037042 0.2518832,0.037042 0.4519082,0 0.696383,-0.2444748 0.1703916,-0.1703916 0.1703916,-0.4074582 0,-0.2222499 -0.1259416,-0.3481915 Q 6.579658,5.5553934 6.3499998,5.5553934 q -0.2074333,0 -0.3185582,0.1259416 -0.1333499,0.13335 -0.1333499,0.3704165 H 4.5942256 Q 4.6238589,5.4146352 5.0387254,4.9997687 5.5202668,4.5182272 6.3277748,4.5182272 q 0.8000996,0 1.3112744,0.4815415 0.4667248,0.4370915 0.4667248,1.0593912 0,0.5333997 -0.3555999,0.9334495 Q 7.4242076,7.3556176 6.9204412,7.4667426 Z M 6.8908079,9.452175 q -0.2296583,0.2296582 -0.5408081,0.2296582 -0.3111499,0 -0.5408081,-0.2296582 -0.2296582,-0.2296582 -0.2296582,-0.5408081 0,-0.3111499 0.2296582,-0.5408081 0.2296582,-0.2296582 0.5333998,-0.2296582 0.3185581,0 0.5556247,0.2370666 0.2148416,0.2148415 0.2148416,0.5333997 0,0.3185582 -0.2222499,0.5408081 z"/>
 </svg>`
 
 // getIconFillColor returns the appropriate icon fill color based on applied theme
