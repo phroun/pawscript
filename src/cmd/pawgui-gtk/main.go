@@ -301,7 +301,12 @@ func getPSLColors() pawscript.DisplayColorConfig { return configHelper.GetPSLCol
 func isTermThemeDark() bool                      { return configHelper.IsTermThemeDark() }
 
 func getColorSchemeForTheme(isDark bool) purfecterm.ColorScheme {
-	return configHelper.GetColorSchemeForTheme(isDark)
+	// Returns a dual-palette ColorScheme (isDark is now ignored)
+	return configHelper.GetDualColorScheme()
+}
+
+func getDualColorScheme() purfecterm.ColorScheme {
+	return configHelper.GetDualColorScheme()
 }
 
 // getLauncherWidth returns the saved launcher panel width, defaulting to 250 * uiScale
@@ -1490,16 +1495,18 @@ func refreshFileListIcons() {
 	}
 }
 
-// applyConsoleTheme applies the console theme to all terminals
-// This updates the preferred theme and color scheme without resetting
-// any DECSCNM (\e[?5h/\e[?5l) state that running programs have set.
+// applyConsoleTheme applies the console theme to all terminals.
+// The ColorScheme contains both dark and light palettes, so the terminal
+// can switch between them via DECSCNM (\e[?5h/\e[?5l) without needing
+// to reload colors. The preferred theme (from config) determines the
+// default mode used after terminal reset.
 func applyConsoleTheme() {
 	isDark := isTermThemeDark()
-	scheme := getColorSchemeForTheme(isDark)
+	scheme := getDualColorScheme()
 
 	// Apply to launcher terminal
 	if terminal != nil {
-		// Only update the preferred theme (for reset), not the current DECSCNM state
+		// Update the preferred theme (for reset) - doesn't change current DECSCNM state
 		terminal.Buffer().UpdatePreferredDarkTheme(isDark)
 		terminal.SetColorScheme(scheme)
 	}

@@ -984,7 +984,7 @@ func spriteCoordToPixels(coordinate float64, unitsPerCell int, cellSize int) flo
 }
 
 // renderSprites renders a list of sprites at their positions
-func (w *Widget) renderSprites(cr *cairo.Context, sprites []*purfecterm.Sprite, charWidth, charHeight int, scheme purfecterm.ColorScheme, scrollOffsetY, horizOffsetX int) {
+func (w *Widget) renderSprites(cr *cairo.Context, sprites []*purfecterm.Sprite, charWidth, charHeight int, scheme purfecterm.ColorScheme, isDark bool, scrollOffsetY, horizOffsetX int) {
 	if len(sprites) == 0 {
 		return
 	}
@@ -992,13 +992,13 @@ func (w *Widget) renderSprites(cr *cairo.Context, sprites []*purfecterm.Sprite, 
 	unitX, unitY := w.buffer.GetSpriteUnits()
 
 	for _, sprite := range sprites {
-		w.renderSprite(cr, sprite, unitX, unitY, charWidth, charHeight, scheme, scrollOffsetY, horizOffsetX)
+		w.renderSprite(cr, sprite, unitX, unitY, charWidth, charHeight, scheme, isDark, scrollOffsetY, horizOffsetX)
 	}
 }
 
 // renderSprite renders a single sprite
 // unitX, unitY are subdivisions per cell (e.g., 8 means 8 subdivisions per character cell)
-func (w *Widget) renderSprite(cr *cairo.Context, sprite *purfecterm.Sprite, unitX, unitY int, charWidth, charHeight int, scheme purfecterm.ColorScheme, scrollOffsetY, horizOffsetX int) {
+func (w *Widget) renderSprite(cr *cairo.Context, sprite *purfecterm.Sprite, unitX, unitY int, charWidth, charHeight int, scheme purfecterm.ColorScheme, isDark bool, scrollOffsetY, horizOffsetX int) {
 	if sprite == nil || len(sprite.Runes) == 0 {
 		return
 	}
@@ -1083,14 +1083,14 @@ func (w *Widget) renderSprite(cr *cairo.Context, sprite *purfecterm.Sprite, unit
 			}
 
 			// Render the glyph at this position
-			w.renderSpriteGlyph(cr, glyph, sprite, pixelX, pixelY, tileW, tileH, scheme, cropRect, unitX, unitY, charWidth, charHeight, scrollPixelX, scrollPixelY)
+			w.renderSpriteGlyph(cr, glyph, sprite, pixelX, pixelY, tileW, tileH, scheme, isDark, cropRect, unitX, unitY, charWidth, charHeight, scrollPixelX, scrollPixelY)
 		}
 	}
 }
 
 // renderSpriteGlyph renders a single glyph within a sprite tile
 func (w *Widget) renderSpriteGlyph(cr *cairo.Context, glyph *purfecterm.CustomGlyph, sprite *purfecterm.Sprite,
-	tileX, tileY, tileW, tileH float64, scheme purfecterm.ColorScheme,
+	tileX, tileY, tileW, tileH float64, scheme purfecterm.ColorScheme, isDark bool,
 	cropRect *purfecterm.CropRectangle, unitX, unitY int, charWidth, charHeight int, scrollPixelX, scrollPixelY float64) {
 
 	glyphW := glyph.Width
@@ -1114,8 +1114,8 @@ func (w *Widget) renderSpriteGlyph(cr *cairo.Context, glyph *purfecterm.CustomGl
 	}
 
 	// Determine default foreground color for this sprite
-	defaultFg := scheme.Foreground
-	defaultBg := scheme.Background
+	defaultFg := scheme.Foreground(isDark)
+	defaultBg := scheme.Background(isDark)
 
 	// Render each pixel of the glyph
 	for gy := 0; gy < glyphH; gy++ {
@@ -1183,8 +1183,10 @@ func (w *Widget) SetColorScheme(scheme purfecterm.ColorScheme) {
 // applyScrollbarCSS applies macOS-style CSS to the scrollbar with the current scheme's background
 func (w *Widget) applyScrollbarCSS() {
 	w.mu.Lock()
-	bg := w.scheme.Background
+	scheme := w.scheme
 	w.mu.Unlock()
+	isDark := w.buffer.IsDarkTheme()
+	bg := scheme.Background(isDark)
 
 	cssProvider, err := gtk.CssProviderNew()
 	if err != nil {
@@ -1230,13 +1232,15 @@ func (w *Widget) onCornerDraw(da *gtk.DrawingArea, cr *cairo.Context) bool {
 	w.mu.Lock()
 	scheme := w.scheme
 	w.mu.Unlock()
+	isDark := w.buffer.IsDarkTheme()
+	bg := scheme.Background(isDark)
 
 	// Fill with terminal background color
 	alloc := da.GetAllocation()
 	cr.SetSourceRGB(
-		float64(scheme.Background.R)/255.0,
-		float64(scheme.Background.G)/255.0,
-		float64(scheme.Background.B)/255.0)
+		float64(bg.R)/255.0,
+		float64(bg.G)/255.0,
+		float64(bg.B)/255.0)
 	cr.Rectangle(0, 0, float64(alloc.GetWidth()), float64(alloc.GetHeight()))
 	cr.Fill()
 
@@ -1349,7 +1353,7 @@ func (w *Widget) updateFontMetrics() {
 // The first logical scanline (0) begins after the scrollback area.
 func (w *Widget) renderScreenSplits(cr *cairo.Context, splits []*purfecterm.ScreenSplit,
 	cols, rows, charWidth, charHeight, unitX, unitY int,
-	fontFamily string, fontSize int, scheme purfecterm.ColorScheme, blinkPhase float64,
+	fontFamily string, fontSize int, scheme purfecterm.ColorScheme, isDark bool, blinkPhase float64,
 	cursorVisible bool, cursorVisibleX, cursorVisibleY int, cursorShape int,
 	horizScale, vertScale float64, scrollOffset, horizOffset int) int {
 
@@ -1459,10 +1463,11 @@ func (w *Widget) renderScreenSplits(cr *cairo.Context, splits []*purfecterm.Scre
 			cr.Save()
 			cr.Rectangle(0, startPixelY, float64(cols*charWidth+terminalLeftPadding), endPixelY-startPixelY)
 			cr.Clip()
+			splitBg := scheme.Background(isDark)
 			cr.SetSourceRGB(
-				float64(scheme.Background.R)/255.0,
-				float64(scheme.Background.G)/255.0,
-				float64(scheme.Background.B)/255.0)
+				float64(splitBg.R)/255.0,
+				float64(splitBg.G)/255.0,
+				float64(splitBg.B)/255.0)
 			cr.Rectangle(0, startPixelY, float64(cols*charWidth+terminalLeftPadding), endPixelY-startPixelY)
 			cr.Fill()
 			cr.Restore()
@@ -1557,11 +1562,11 @@ func (w *Widget) renderScreenSplits(cr *cairo.Context, splits []*purfecterm.Scre
 				continue
 			}
 
-			fg := scheme.ResolveColor(cell.Foreground, true)
-			bg := scheme.ResolveColor(cell.Background, false)
+			fg := scheme.ResolveColor(cell.Foreground, true, isDark)
+			bg := scheme.ResolveColor(cell.Background, false, isDark)
 
 			// Draw cell background if different from terminal background
-			if bg != scheme.Background {
+			if bg != scheme.Background(isDark) {
 				cr.SetSourceRGB(
 					float64(bg.R)/255.0,
 					float64(bg.G)/255.0,
@@ -1610,6 +1615,9 @@ func (w *Widget) onDraw(da *gtk.DrawingArea, cr *cairo.Context) bool {
 	blinkPhase := w.blinkPhase
 	w.mu.Unlock()
 
+	// Get current theme mode (dark/light) from buffer's DECSCNM state
+	isDark := w.buffer.IsDarkTheme()
+
 	cols, rows := w.buffer.GetSize()
 	cursorVisible := w.buffer.IsCursorVisible()
 	cursorShape, _ := w.buffer.GetCursorStyle() // 0=block, 1=underline, 2=bar
@@ -1643,10 +1651,11 @@ func (w *Widget) onDraw(da *gtk.DrawingArea, cr *cairo.Context) bool {
 	// Draw background - fill entire widget area (not just cell area)
 	// This ensures any extra space at edges is filled with terminal background
 	alloc := da.GetAllocation()
+	schemeBg := scheme.Background(isDark)
 	cr.SetSourceRGB(
-		float64(scheme.Background.R)/255.0,
-		float64(scheme.Background.G)/255.0,
-		float64(scheme.Background.B)/255.0)
+		float64(schemeBg.R)/255.0,
+		float64(schemeBg.G)/255.0,
+		float64(schemeBg.B)/255.0)
 	cr.Rectangle(0, 0, float64(alloc.GetWidth()), float64(alloc.GetHeight()))
 	cr.Fill()
 
@@ -1678,7 +1687,7 @@ func (w *Widget) onDraw(da *gtk.DrawingArea, cr *cairo.Context) bool {
 	behindSprites, frontSprites := w.buffer.GetSpritesForRendering()
 
 	// Render behind sprites (visible where text has default background)
-	w.renderSprites(cr, behindSprites, charWidth, charHeight, scheme, scrollOffset, horizOffset)
+	w.renderSprites(cr, behindSprites, charWidth, charHeight, scheme, isDark, scrollOffset, horizOffset)
 
 	// Set up font
 	cr.SelectFontFace(fontFamily, cairo.FONT_SLANT_NORMAL, cairo.FONT_WEIGHT_NORMAL)
@@ -1725,22 +1734,23 @@ func (w *Widget) onDraw(da *gtk.DrawingArea, cr *cairo.Context) bool {
 			}
 
 			// Determine colors
-			fg := scheme.ResolveColor(cell.Foreground, true)
-			bg := scheme.ResolveColor(cell.Background, false)
+			fg := scheme.ResolveColor(cell.Foreground, true, isDark)
+			bg := scheme.ResolveColor(cell.Background, false, isDark)
 
 			// Handle blink attribute based on mode
 			blinkVisible := true // For traditional blink mode
 			if cell.Blink {
+				palette := scheme.Palette(isDark)
 				switch scheme.BlinkMode {
 				case purfecterm.BlinkModeBright:
 					// Interpret blink as bright background (VGA style)
 					// Find if bg matches a dark color (0-7) and use bright version (8-15)
 					for i := 0; i < 8; i++ {
-						if len(scheme.Palette) > i+8 &&
-							bg.R == scheme.Palette[i].R &&
-							bg.G == scheme.Palette[i].G &&
-							bg.B == scheme.Palette[i].B {
-							bg = scheme.Palette[i+8]
+						if len(palette) > i+8 &&
+							bg.R == palette[i].R &&
+							bg.G == palette[i].G &&
+							bg.B == palette[i].B {
+							bg = palette[i+8]
 							break
 						}
 					}
@@ -1791,7 +1801,7 @@ func (w *Widget) onDraw(da *gtk.DrawingArea, cr *cairo.Context) bool {
 			visibleAccumulatedWidth += cellVisualWidth
 
 			// Draw cell background if different from terminal background
-			if bg != scheme.Background {
+			if bg != scheme.Background(isDark) {
 				cr.SetSourceRGB(
 					float64(bg.R)/255.0,
 					float64(bg.G)/255.0,
@@ -1950,7 +1960,7 @@ func (w *Widget) onDraw(da *gtk.DrawingArea, cr *cairo.Context) bool {
 				// Use underline color if set, otherwise use foreground color
 				ulColor := fg
 				if cell.HasUnderlineColor {
-					ulColor = scheme.ResolveColor(cell.UnderlineColor, true)
+					ulColor = scheme.ResolveColor(cell.UnderlineColor, true, isDark)
 				}
 				cr.SetSourceRGB(
 					float64(ulColor.R)/255.0,
@@ -2119,7 +2129,7 @@ func (w *Widget) onDraw(da *gtk.DrawingArea, cr *cairo.Context) bool {
 	}
 
 	// Render front sprites (overlay on top of text)
-	w.renderSprites(cr, frontSprites, charWidth, charHeight, scheme, scrollOffset, horizOffset)
+	w.renderSprites(cr, frontSprites, charWidth, charHeight, scheme, isDark, scrollOffset, horizOffset)
 
 	// Render screen splits if any are defined
 	// Splits overlay specific screen regions with different buffer positions
@@ -2127,7 +2137,7 @@ func (w *Widget) onDraw(da *gtk.DrawingArea, cr *cairo.Context) bool {
 	splits := w.buffer.GetScreenSplitsSorted()
 	if len(splits) > 0 {
 		splitContentWidth := w.renderScreenSplits(cr, splits, cols, rows, charWidth, charHeight, unitX, unitY,
-			fontFamily, fontSize, scheme, blinkPhase, cursorVisible, cursorVisibleX, cursorVisibleY,
+			fontFamily, fontSize, scheme, isDark, blinkPhase, cursorVisible, cursorVisibleX, cursorVisibleY,
 			cursorShape, horizScale, vertScale, scrollOffset, horizOffset)
 		// Store split content width for horizontal scrollbar calculation
 		w.buffer.SetSplitContentWidth(splitContentWidth)

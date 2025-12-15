@@ -1032,7 +1032,7 @@ func spriteCoordToPixelsQt(coordinate float64, unitsPerCell int, cellSize int) f
 }
 
 // renderSprites renders a list of sprites at their positions
-func (w *Widget) renderSprites(painter *qt.QPainter, sprites []*purfecterm.Sprite, charWidth, charHeight int, scheme purfecterm.ColorScheme, scrollOffsetY, horizOffsetX int) {
+func (w *Widget) renderSprites(painter *qt.QPainter, sprites []*purfecterm.Sprite, charWidth, charHeight int, scheme purfecterm.ColorScheme, isDark bool, scrollOffsetY, horizOffsetX int) {
 	if len(sprites) == 0 {
 		return
 	}
@@ -1040,13 +1040,13 @@ func (w *Widget) renderSprites(painter *qt.QPainter, sprites []*purfecterm.Sprit
 	unitX, unitY := w.buffer.GetSpriteUnits()
 
 	for _, sprite := range sprites {
-		w.renderSprite(painter, sprite, unitX, unitY, charWidth, charHeight, scheme, scrollOffsetY, horizOffsetX)
+		w.renderSprite(painter, sprite, unitX, unitY, charWidth, charHeight, scheme, isDark, scrollOffsetY, horizOffsetX)
 	}
 }
 
 // renderSprite renders a single sprite
 // unitX, unitY are subdivisions per cell (e.g., 8 means 8 subdivisions per character cell)
-func (w *Widget) renderSprite(painter *qt.QPainter, sprite *purfecterm.Sprite, unitX, unitY int, charWidth, charHeight int, scheme purfecterm.ColorScheme, scrollOffsetY, horizOffsetX int) {
+func (w *Widget) renderSprite(painter *qt.QPainter, sprite *purfecterm.Sprite, unitX, unitY int, charWidth, charHeight int, scheme purfecterm.ColorScheme, isDark bool, scrollOffsetY, horizOffsetX int) {
 	if sprite == nil || len(sprite.Runes) == 0 {
 		return
 	}
@@ -1126,14 +1126,14 @@ func (w *Widget) renderSprite(painter *qt.QPainter, sprite *purfecterm.Sprite, u
 			}
 
 			// Render the glyph at this position
-			w.renderSpriteGlyph(painter, glyph, sprite, pixelX, pixelY, tileW, tileH, scheme, cropRect, unitX, unitY, charWidth, charHeight, scrollPixelX, scrollPixelY)
+			w.renderSpriteGlyph(painter, glyph, sprite, pixelX, pixelY, tileW, tileH, scheme, isDark, cropRect, unitX, unitY, charWidth, charHeight, scrollPixelX, scrollPixelY)
 		}
 	}
 }
 
 // renderSpriteGlyph renders a single glyph within a sprite tile
 func (w *Widget) renderSpriteGlyph(painter *qt.QPainter, glyph *purfecterm.CustomGlyph, sprite *purfecterm.Sprite,
-	tileX, tileY, tileW, tileH float64, scheme purfecterm.ColorScheme,
+	tileX, tileY, tileW, tileH float64, scheme purfecterm.ColorScheme, isDark bool,
 	cropRect *purfecterm.CropRectangle, unitX, unitY int, charWidth, charHeight int, scrollPixelX, scrollPixelY float64) {
 
 	glyphW := glyph.Width
@@ -1157,8 +1157,8 @@ func (w *Widget) renderSpriteGlyph(painter *qt.QPainter, glyph *purfecterm.Custo
 	}
 
 	// Determine default foreground color for this sprite
-	defaultFg := scheme.Foreground
-	defaultBg := scheme.Background
+	defaultFg := scheme.Foreground(isDark)
+	defaultBg := scheme.Background(isDark)
 
 	// Render each pixel of the glyph
 	for gy := 0; gy < glyphH; gy++ {
@@ -1211,7 +1211,7 @@ func (w *Widget) renderSpriteGlyph(painter *qt.QPainter, glyph *purfecterm.Custo
 // The first logical scanline (0) begins after the scrollback area.
 func (w *Widget) renderScreenSplits(painter *qt.QPainter, splits []*purfecterm.ScreenSplit,
 	cols, rows, charWidth, charHeight, unitX, unitY int,
-	fontFamily string, fontSize int, scheme purfecterm.ColorScheme, blinkPhase float64,
+	fontFamily string, fontSize int, scheme purfecterm.ColorScheme, isDark bool, blinkPhase float64,
 	cursorVisible bool, cursorVisibleX, cursorVisibleY int, cursorShape int,
 	horizScale, vertScale float64, scrollOffset, horizOffset int) int {
 
@@ -1320,7 +1320,8 @@ func (w *Widget) renderScreenSplits(painter *qt.QPainter, splits []*purfecterm.S
 
 			painter.Save()
 			painter.SetClipRect2(0, startPixelY, cols*charWidth+terminalLeftPadding, endPixelY-startPixelY)
-			bgColor := qt.NewQColor3(int(scheme.Background.R), int(scheme.Background.G), int(scheme.Background.B))
+			schemeBgSplit := scheme.Background(isDark)
+			bgColor := qt.NewQColor3(int(schemeBgSplit.R), int(schemeBgSplit.G), int(schemeBgSplit.B))
 			painter.FillRect5(0, startPixelY, cols*charWidth+terminalLeftPadding, endPixelY-startPixelY, bgColor)
 			painter.Restore()
 		}
@@ -1411,11 +1412,11 @@ func (w *Widget) renderScreenSplits(painter *qt.QPainter, splits []*purfecterm.S
 				continue
 			}
 
-			fg := scheme.ResolveColor(cell.Foreground, true)
-			bg := scheme.ResolveColor(cell.Background, false)
+			fg := scheme.ResolveColor(cell.Foreground, true, isDark)
+			bg := scheme.ResolveColor(cell.Background, false, isDark)
 
 			// Draw cell background if different from terminal background
-			if bg != scheme.Background {
+			if bg != scheme.Background(isDark) {
 				bgQColor := qt.NewQColor3(int(bg.R), int(bg.G), int(bg.B))
 				painter.FillRect5(cellX, rowPixelY, cellW, cellH, bgQColor)
 			}
@@ -1452,6 +1453,9 @@ func (w *Widget) paintEvent(event *qt.QPaintEvent) {
 	blinkPhase := w.blinkPhase
 	w.mu.Unlock()
 
+	// Get current theme mode (dark/light) from buffer's DECSCNM state
+	isDark := w.buffer.IsDarkTheme()
+
 	cols, rows := w.buffer.GetSize()
 	cursorVisible := w.buffer.IsCursorVisible()
 	cursorShape, _ := w.buffer.GetCursorStyle()
@@ -1486,8 +1490,9 @@ func (w *Widget) paintEvent(event *qt.QPaintEvent) {
 	painter := qt.NewQPainter2(w.widget.QPaintDevice)
 	defer painter.End()
 
-	// Fill background
-	bgColor := qt.NewQColor3(int(scheme.Background.R), int(scheme.Background.G), int(scheme.Background.B))
+	// Fill background with theme-appropriate color
+	schemeBg := scheme.Background(isDark)
+	bgColor := qt.NewQColor3(int(schemeBg.R), int(schemeBg.G), int(schemeBg.B))
 	painter.FillRect5(0, 0, w.widget.Width(), w.widget.Height(), bgColor)
 
 	// Apply screen crop clipping if set (crop values are in sprite coordinate units)
@@ -1511,7 +1516,7 @@ func (w *Widget) paintEvent(event *qt.QPaintEvent) {
 	behindSprites, frontSprites := w.buffer.GetSpritesForRendering()
 
 	// Render behind sprites (visible where text has default background)
-	w.renderSprites(painter, behindSprites, charWidth, charHeight, scheme, scrollOffset, horizOffset)
+	w.renderSprites(painter, behindSprites, charWidth, charHeight, scheme, isDark, scrollOffset, horizOffset)
 
 	// Set up font
 	font := qt.NewQFont6(fontFamily, fontSize)
@@ -1558,20 +1563,21 @@ func (w *Widget) paintEvent(event *qt.QPaintEvent) {
 				cellVisualWidth = cell.CellWidth
 			}
 
-			fg := scheme.ResolveColor(cell.Foreground, true)
-			bg := scheme.ResolveColor(cell.Background, false)
+			fg := scheme.ResolveColor(cell.Foreground, true, isDark)
+			bg := scheme.ResolveColor(cell.Background, false, isDark)
 
 			// Handle blink
 			blinkVisible := true
 			if cell.Blink {
+				palette := scheme.Palette(isDark)
 				switch scheme.BlinkMode {
 				case purfecterm.BlinkModeBright:
 					for i := 0; i < 8; i++ {
-						if len(scheme.Palette) > i+8 &&
-							bg.R == scheme.Palette[i].R &&
-							bg.G == scheme.Palette[i].G &&
-							bg.B == scheme.Palette[i].B {
-							bg = scheme.Palette[i+8]
+						if len(palette) > i+8 &&
+							bg.R == palette[i].R &&
+							bg.G == palette[i].G &&
+							bg.B == palette[i].B {
+							bg = palette[i+8]
 							break
 						}
 					}
@@ -1619,7 +1625,7 @@ func (w *Widget) paintEvent(event *qt.QPaintEvent) {
 			visibleAccumulatedWidth += cellVisualWidth
 
 			// Draw background if different from terminal background
-			if bg != scheme.Background {
+			if bg != scheme.Background(isDark) {
 				bgQColor := qt.NewQColor3(int(bg.R), int(bg.G), int(bg.B))
 				painter.FillRect5(cellX, cellY, cellW, cellH, bgQColor)
 			}
@@ -1774,7 +1780,7 @@ func (w *Widget) paintEvent(event *qt.QPaintEvent) {
 				// Use underline color if set, otherwise use foreground color
 				ulColor := fg
 				if cell.HasUnderlineColor {
-					ulColor = scheme.ResolveColor(cell.UnderlineColor, true)
+					ulColor = scheme.ResolveColor(cell.UnderlineColor, true, isDark)
 				}
 				ulQColor := qt.NewQColor3(int(ulColor.R), int(ulColor.G), int(ulColor.B))
 
@@ -1923,14 +1929,14 @@ func (w *Widget) paintEvent(event *qt.QPaintEvent) {
 	}
 
 	// Render front sprites (overlay on top of text)
-	w.renderSprites(painter, frontSprites, charWidth, charHeight, scheme, scrollOffset, horizOffset)
+	w.renderSprites(painter, frontSprites, charWidth, charHeight, scheme, isDark, scrollOffset, horizOffset)
 
 	// Render screen splits if any are defined
 	// Splits use logical scanline numbers relative to the scroll boundary
 	splits := w.buffer.GetScreenSplitsSorted()
 	if len(splits) > 0 {
 		splitContentWidth := w.renderScreenSplits(painter, splits, cols, rows, charWidth, charHeight, unitX, unitY,
-			fontFamily, fontSize, scheme, blinkPhase, cursorVisible, cursorVisibleX, cursorVisibleY,
+			fontFamily, fontSize, scheme, isDark, blinkPhase, cursorVisible, cursorVisibleX, cursorVisibleY,
 			cursorShape, horizScale, vertScale, scrollOffset, horizOffset)
 		// Store split content width for horizontal scrollbar calculation
 		w.buffer.SetSplitContentWidth(splitContentWidth)

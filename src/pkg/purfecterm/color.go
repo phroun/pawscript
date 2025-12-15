@@ -258,31 +258,66 @@ var ColorNames = map[string]int{
 	"12_bright_red": 12, "13_pink": 13, "14_yellow": 14, "15_white": 15,
 }
 
-// ColorScheme defines the colors used by the terminal
+// ColorScheme defines the colors used by the terminal for both dark and light modes.
+// The terminal switches between modes via DECSCNM (\e[?5h / \e[?5l).
 type ColorScheme struct {
-	Foreground Color
-	Background Color
-	Cursor     Color
-	Selection  Color
-	Palette    []Color
-	BlinkMode  BlinkMode
+	// Dark mode colors (DECSCNM off / \e[?5l)
+	DarkForeground Color
+	DarkBackground Color
+	DarkPalette    []Color // 16 ANSI colors for dark mode
+
+	// Light mode colors (DECSCNM on / \e[?5h)
+	LightForeground Color
+	LightBackground Color
+	LightPalette    []Color // 16 ANSI colors for light mode
+
+	// Shared settings
+	Cursor    Color
+	Selection Color
+	BlinkMode BlinkMode
 }
 
-// ResolveColor resolves a color using this scheme's palette.
-// For ColorTypeStandard (0-15), looks up the color in the scheme's Palette.
+// Foreground returns the foreground color for the specified mode
+func (s ColorScheme) Foreground(isDark bool) Color {
+	if isDark {
+		return s.DarkForeground
+	}
+	return s.LightForeground
+}
+
+// Background returns the background color for the specified mode
+func (s ColorScheme) Background(isDark bool) Color {
+	if isDark {
+		return s.DarkBackground
+	}
+	return s.LightBackground
+}
+
+// Palette returns the 16-color palette for the specified mode
+func (s ColorScheme) Palette(isDark bool) []Color {
+	if isDark {
+		return s.DarkPalette
+	}
+	return s.LightPalette
+}
+
+// ResolveColor resolves a color using the appropriate palette based on mode.
+// For ColorTypeStandard (0-15), looks up the color in the scheme's palette.
 // For ColorTypeDefault, returns the scheme's foreground (if isFg) or background.
 // For other types, returns the color unchanged.
-func (s ColorScheme) ResolveColor(c Color, isFg bool) Color {
+func (s ColorScheme) ResolveColor(c Color, isFg bool, isDark bool) Color {
+	palette := s.Palette(isDark)
+
 	switch c.Type {
 	case ColorTypeDefault:
 		if isFg {
-			return s.Foreground
+			return s.Foreground(isDark)
 		}
-		return s.Background
+		return s.Background(isDark)
 	case ColorTypeStandard:
 		idx := int(c.Index)
-		if idx >= 0 && idx < len(s.Palette) {
-			return s.Palette[idx]
+		if idx >= 0 && idx < len(palette) {
+			return palette[idx]
 		}
 		// Fall back to default palette if scheme palette is empty/short
 		if idx >= 0 && idx < len(ANSIColors) {
@@ -291,8 +326,8 @@ func (s ColorScheme) ResolveColor(c Color, isFg bool) Color {
 	case ColorTypePalette:
 		// For 256-color palette, indices 0-15 use scheme palette
 		idx := int(c.Index)
-		if idx < 16 && idx < len(s.Palette) {
-			return s.Palette[idx]
+		if idx < 16 && idx < len(palette) {
+			return palette[idx]
 		}
 		// Indices 16-255 use the fixed 256-color values (already baked in)
 	}
@@ -330,13 +365,21 @@ func PaletteColorNames() []string {
 	}
 }
 
-// DefaultColorScheme returns a dark color scheme similar to VS Code
+// DefaultColorScheme returns a color scheme with both dark and light mode colors
 func DefaultColorScheme() ColorScheme {
 	return ColorScheme{
-		Foreground: TrueColor(212, 212, 212),
-		Background: TrueColor(30, 30, 30),
-		Cursor:     TrueColor(255, 255, 255),
-		Selection:  TrueColor(68, 68, 68),
-		Palette:    ANSIColors,
+		// Dark mode defaults
+		DarkForeground: TrueColor(212, 212, 212),
+		DarkBackground: TrueColor(30, 30, 30),
+		DarkPalette:    ANSIColors,
+
+		// Light mode defaults
+		LightForeground: TrueColor(30, 30, 30),
+		LightBackground: TrueColor(255, 255, 255),
+		LightPalette:    ANSIColors,
+
+		// Shared
+		Cursor:    TrueColor(255, 255, 255),
+		Selection: TrueColor(68, 68, 68),
 	}
 }

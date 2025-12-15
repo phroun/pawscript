@@ -437,21 +437,39 @@ func (h *ConfigHelper) IsTermThemeDark() bool {
 	return h.GetTermTheme() == "dark"
 }
 
-// GetColorScheme returns a complete ColorScheme from config for the current theme.
+// GetColorScheme returns a complete dual-palette ColorScheme from config.
+// The returned ColorScheme contains both dark and light mode colors.
 func (h *ConfigHelper) GetColorScheme() purfecterm.ColorScheme {
-	return h.GetColorSchemeForTheme(h.IsTermThemeDark())
+	return h.GetDualColorScheme()
 }
 
-// GetColorSchemeForTheme returns a complete ColorScheme for the specified theme.
-func (h *ConfigHelper) GetColorSchemeForTheme(isDark bool) purfecterm.ColorScheme {
+// GetDualColorScheme returns a complete ColorScheme with both dark and light palettes.
+// This allows the terminal to switch between modes via DECSCNM without needing
+// to reload colors from config.
+func (h *ConfigHelper) GetDualColorScheme() purfecterm.ColorScheme {
 	return purfecterm.ColorScheme{
-		Foreground: h.GetTerminalForegroundForTheme(isDark),
-		Background: h.GetTerminalBackgroundForTheme(isDark),
-		Cursor:     purfecterm.TrueColor(255, 255, 255),
-		Selection:  purfecterm.TrueColor(68, 68, 68),
-		Palette:    h.GetColorPaletteForTheme(isDark),
-		BlinkMode:  h.GetBlinkMode(),
+		// Dark mode colors
+		DarkForeground: h.GetTerminalForegroundForTheme(true),
+		DarkBackground: h.GetTerminalBackgroundForTheme(true),
+		DarkPalette:    h.GetColorPaletteForTheme(true),
+
+		// Light mode colors
+		LightForeground: h.GetTerminalForegroundForTheme(false),
+		LightBackground: h.GetTerminalBackgroundForTheme(false),
+		LightPalette:    h.GetColorPaletteForTheme(false),
+
+		// Shared settings
+		Cursor:    purfecterm.TrueColor(255, 255, 255),
+		Selection: purfecterm.TrueColor(68, 68, 68),
+		BlinkMode: h.GetBlinkMode(),
 	}
+}
+
+// GetColorSchemeForTheme returns a complete dual-palette ColorScheme.
+// Deprecated: Use GetDualColorScheme() instead. The isDark parameter is ignored
+// as the returned ColorScheme contains both dark and light palettes.
+func (h *ConfigHelper) GetColorSchemeForTheme(isDark bool) purfecterm.ColorScheme {
+	return h.GetDualColorScheme()
 }
 
 // GetPSLColors returns the PSL result display color configuration for the current theme.
