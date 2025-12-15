@@ -11,6 +11,7 @@ import (
 	"path/filepath"
 	"regexp"
 	"runtime"
+	"strconv"
 	"strings"
 	"sync"
 	"time"
@@ -822,6 +823,240 @@ func (c *QtSettingsComboMenu) RefreshIcons() {
 	}
 }
 
+// QtColorSwatch represents a clickable color swatch button for palette editing
+type QtColorSwatch struct {
+	Button    *qt.QPushButton
+	colorHex  string
+	onChange  func(string)
+	isEnabled bool
+}
+
+// createQtColorSwatch creates a color swatch button that opens a color picker when clicked
+func createQtColorSwatch(initialColor string, size int, onChange func(string)) *QtColorSwatch {
+	swatch := &QtColorSwatch{
+		colorHex:  initialColor,
+		onChange:  onChange,
+		isEnabled: true,
+	}
+
+	swatch.Button = qt.NewQPushButton2()
+	swatch.Button.SetFixedSize2(size, size)
+
+	// Apply the color as background via stylesheet
+	swatch.applyColor()
+
+	swatch.Button.OnClicked(func() {
+		if !swatch.isEnabled {
+			return
+		}
+		// Show color picker dialog
+		newHex := showColorPickerDialog(swatch.colorHex)
+		if newHex != "" && newHex != swatch.colorHex {
+			swatch.SetColor(newHex)
+			if swatch.onChange != nil {
+				swatch.onChange(newHex)
+			}
+		}
+	})
+
+	return swatch
+}
+
+// SetColor updates the swatch color
+func (s *QtColorSwatch) SetColor(hex string) {
+	s.colorHex = hex
+	s.applyColor()
+}
+
+// GetColor returns the current color hex value
+func (s *QtColorSwatch) GetColor() string {
+	return s.colorHex
+}
+
+// SetEnabled enables or disables the swatch
+func (s *QtColorSwatch) SetEnabled(enabled bool) {
+	s.isEnabled = enabled
+	s.Button.SetEnabled(enabled)
+	s.applyColor()
+}
+
+// applyColor applies the current color as button background via stylesheet
+func (s *QtColorSwatch) applyColor() {
+	bgColor := s.colorHex
+	if bgColor == "" || !s.isEnabled {
+		bgColor = "#808080" // Gray for empty/disabled
+	}
+
+	// Calculate contrasting border color
+	borderColor := "#000000"
+	if bgColor != "" && len(bgColor) == 7 {
+		r, _ := strconv.ParseInt(bgColor[1:3], 16, 64)
+		g, _ := strconv.ParseInt(bgColor[3:5], 16, 64)
+		b, _ := strconv.ParseInt(bgColor[5:7], 16, 64)
+		luminance := (r*299 + g*587 + b*114) / 1000
+		if luminance < 128 {
+			borderColor = "#FFFFFF"
+		}
+	}
+
+	opacity := "1.0"
+	if !s.isEnabled {
+		opacity = "0.5"
+	}
+
+	css := fmt.Sprintf(`
+		QPushButton {
+			background-color: %s;
+			border: 1px solid %s;
+			border-radius: 3px;
+			opacity: %s;
+		}
+		QPushButton:hover {
+			border: 2px solid %s;
+		}
+	`, bgColor, borderColor, opacity, borderColor)
+
+	s.Button.SetStyleSheet(css)
+}
+
+// showColorPickerDialog shows a simple hex color input dialog
+func showColorPickerDialog(currentHex string) string {
+	dialog := qt.NewQDialog2()
+	dialog.SetWindowTitle("Choose Color")
+	dialog.SetMinimumSize2(300, 200)
+	dialog.SetModal(true)
+
+	mainLayout := qt.NewQVBoxLayout2()
+	mainLayout.SetContentsMargins(12, 12, 12, 12)
+	mainLayout.SetSpacing(12)
+	dialog.SetLayout(mainLayout.QLayout)
+
+	// Color preview
+	previewLabel := qt.NewQLabel2()
+	previewLabel.SetFixedSize2(100, 50)
+	previewLabel.SetAlignment(qt.AlignCenter)
+	updatePreview := func(hex string) {
+		previewLabel.SetStyleSheet(fmt.Sprintf(`
+			QLabel {
+				background-color: %s;
+				border: 1px solid #000000;
+				border-radius: 3px;
+			}
+		`, hex))
+	}
+	updatePreview(currentHex)
+
+	// Center the preview
+	previewLayout := qt.NewQHBoxLayout2()
+	previewLayout.AddStretch()
+	previewLayout.AddWidget(previewLabel.QWidget)
+	previewLayout.AddStretch()
+	mainLayout.AddLayout(previewLayout.QLayout)
+
+	// Hex input row
+	hexLayout := qt.NewQHBoxLayout2()
+	hexLabel := qt.NewQLabel3("Hex:")
+	hexLayout.AddWidget(hexLabel.QWidget)
+
+	// Create hex input button (shows current value, click to edit)
+	hexValue := currentHex
+	hexButton := qt.NewQPushButton3(hexValue)
+	hexButton.SetMinimumWidth(120)
+	hexLayout.AddWidget(hexButton.QWidget)
+	mainLayout.AddLayout(hexLayout.QLayout)
+
+	// RGB sliders
+	var rSlider, gSlider, bSlider *qt.QSlider
+	var rLabel, gLabel, bLabel *qt.QLabel
+
+	// Parse current color
+	r, g, b := 128, 128, 128
+	if len(currentHex) == 7 {
+		r64, _ := strconv.ParseInt(currentHex[1:3], 16, 64)
+		g64, _ := strconv.ParseInt(currentHex[3:5], 16, 64)
+		b64, _ := strconv.ParseInt(currentHex[5:7], 16, 64)
+		r, g, b = int(r64), int(g64), int(b64)
+	}
+
+	// Callback to update everything when sliders change
+	updateFromSliders := func() {
+		hexValue = fmt.Sprintf("#%02X%02X%02X", rSlider.Value(), gSlider.Value(), bSlider.Value())
+		hexButton.SetText(hexValue)
+		rLabel.SetText(fmt.Sprintf("%d", rSlider.Value()))
+		gLabel.SetText(fmt.Sprintf("%d", gSlider.Value()))
+		bLabel.SetText(fmt.Sprintf("%d", bSlider.Value()))
+		updatePreview(hexValue)
+	}
+
+	// Create RGB slider rows
+	createSliderRow := func(name string, initial int, onChanged func(int)) (*qt.QSlider, *qt.QLabel) {
+		rowLayout := qt.NewQHBoxLayout2()
+		label := qt.NewQLabel3(name)
+		label.SetFixedWidth(20)
+		rowLayout.AddWidget(label.QWidget)
+
+		slider := qt.NewQSlider2()
+		slider.SetOrientation(qt.Horizontal)
+		slider.SetRange(0, 255)
+		slider.SetValue(initial)
+		slider.OnValueChanged(onChanged)
+		rowLayout.AddWidget(slider.QWidget)
+
+		valueLabel := qt.NewQLabel3(fmt.Sprintf("%d", initial))
+		valueLabel.SetFixedWidth(30)
+		rowLayout.AddWidget(valueLabel.QWidget)
+
+		mainLayout.AddLayout(rowLayout.QLayout)
+		return slider, valueLabel
+	}
+
+	rSlider, rLabel = createSliderRow("R:", r, func(v int) { updateFromSliders() })
+	gSlider, gLabel = createSliderRow("G:", g, func(v int) { updateFromSliders() })
+	bSlider, bLabel = createSliderRow("B:", b, func(v int) { updateFromSliders() })
+
+	// Hex button click - show input dialog
+	hexButton.OnClicked(func() {
+		// Simple prompt using Qt message box with line edit isn't available,
+		// so we cycle through some preset colors for now or just use sliders
+		// For now, the sliders are the main way to change colors
+	})
+
+	// Button row
+	buttonLayout := qt.NewQHBoxLayout2()
+	buttonLayout.AddStretch()
+
+	cancelBtn := qt.NewQPushButton3("Cancel")
+	cancelBtn.OnClicked(func() {
+		dialog.Reject()
+	})
+	buttonLayout.AddWidget(cancelBtn.QWidget)
+
+	okBtn := qt.NewQPushButton3("OK")
+	okBtn.SetDefault(true)
+	okBtn.OnClicked(func() {
+		dialog.Accept()
+	})
+	buttonLayout.AddWidget(okBtn.QWidget)
+
+	mainLayout.AddLayout(buttonLayout.QLayout)
+
+	if dialog.Exec() == 1 { // Accepted
+		dialog.DeleteLater()
+		return hexValue
+	}
+	dialog.DeleteLater()
+	return ""
+}
+
+// QtPaletteColorRow holds the widgets for a single palette color entry
+type QtPaletteColorRow struct {
+	BasicSwatch   *QtColorSwatch
+	ThemeSwatch   *QtColorSwatch
+	ThemeCheckbox *qt.QCheckBox
+	ColorName     string
+	ColorIndex    int
+}
+
 // showSettingsDialog displays the Settings dialog with tabbed interface
 func showSettingsDialog(parent *qt.QWidget) {
 	// Save original values for reverting on Cancel
@@ -1057,6 +1292,325 @@ func showSettingsDialog(parent *qt.QWidget) {
 	appearanceLayout.AddRow3("CJK Font:", cjkFontButton.QWidget)
 
 	tabWidget.AddTab(appearanceWidget, "Appearance")
+
+	// --- Palette Tab ---
+	paletteWidget := qt.NewQWidget2()
+	paletteLayout := qt.NewQVBoxLayout2()
+	paletteLayout.SetContentsMargins(12, 12, 12, 12)
+	paletteLayout.SetSpacing(8)
+	paletteWidget.SetLayout(paletteLayout.QLayout)
+
+	// Track palette rows for theme refresh
+	var paletteRows []*QtPaletteColorRow
+	var bgThemeSwatch, fgThemeSwatch *QtColorSwatch
+	var bgThemeCheck, fgThemeCheck *qt.QCheckBox
+
+	// Helper to get the current theme section name
+	getCurrentThemeSection := func() string {
+		if isTermThemeDark() {
+			return "term_colors_dark"
+		}
+		return "term_colors_light"
+	}
+
+	// Helper to get a color from a config section
+	getColorFromSection := func(sectionName, colorName string) string {
+		if section, ok := appConfig[sectionName]; ok {
+			if hex := pawgui.GetConfigSectionString(section, colorName); hex != "" {
+				return hex
+			}
+		}
+		return ""
+	}
+
+	// Helper to set a color in a config section
+	setColorInSection := func(sectionName, colorName, hex string) {
+		section, ok := appConfig[sectionName].(pawscript.PSLConfig)
+		if !ok {
+			section = pawscript.PSLConfig{}
+		}
+		if hex == "" {
+			delete(section, colorName)
+		} else {
+			section.Set(colorName, hex)
+		}
+		appConfig.Set(sectionName, section)
+	}
+
+	// Helper to apply palette changes to terminal
+	applyPaletteChanges := func() {
+		configHelper = pawgui.NewConfigHelper(appConfig)
+		applyConsoleTheme()
+	}
+
+	// Create two-column layout
+	columnsLayout := qt.NewQHBoxLayout2()
+	columnsLayout.SetSpacing(24)
+	paletteLayout.AddLayout(columnsLayout.QLayout)
+
+	// Left column: Background + Dark colors (00-07)
+	leftColumnWidget := qt.NewQWidget2()
+	leftColumnLayout := qt.NewQVBoxLayout2()
+	leftColumnLayout.SetContentsMargins(0, 0, 0, 0)
+	leftColumnLayout.SetSpacing(4)
+	leftColumnWidget.SetLayout(leftColumnLayout.QLayout)
+	columnsLayout.AddWidget(leftColumnWidget)
+
+	// Right column: Foreground + Bright colors (08-15)
+	rightColumnWidget := qt.NewQWidget2()
+	rightColumnLayout := qt.NewQVBoxLayout2()
+	rightColumnLayout.SetContentsMargins(0, 0, 0, 0)
+	rightColumnLayout.SetSpacing(4)
+	rightColumnWidget.SetLayout(rightColumnLayout.QLayout)
+	columnsLayout.AddWidget(rightColumnWidget)
+
+	// Column headers
+	leftHeader := qt.NewQLabel3("Background / Dark")
+	leftColumnLayout.AddWidget(leftHeader.QWidget)
+
+	rightHeader := qt.NewQLabel3("Foreground / Bright")
+	rightColumnLayout.AddWidget(rightHeader.QWidget)
+
+	// Swatch size
+	swatchSize := 24
+
+	// --- Background row (theme only) ---
+	bgRowWidget := qt.NewQWidget2()
+	bgRowLayout := qt.NewQHBoxLayout2()
+	bgRowLayout.SetContentsMargins(0, 0, 0, 0)
+	bgRowLayout.SetSpacing(6)
+	bgRowWidget.SetLayout(bgRowLayout.QLayout)
+
+	bgLabel := qt.NewQLabel3("Background")
+	bgLabel.SetMinimumWidth(90)
+	bgRowLayout.AddWidget(bgLabel.QWidget)
+
+	// Spacer for where basic swatch would be
+	bgSpacer := qt.NewQWidget2()
+	bgSpacer.SetFixedSize2(swatchSize, swatchSize)
+	bgRowLayout.AddWidget(bgSpacer)
+
+	// Background theme checkbox
+	bgThemeCheck = qt.NewQCheckBox2()
+	bgThemeHex := getColorFromSection(getCurrentThemeSection(), "0_background")
+	bgThemeCheck.SetChecked(bgThemeHex != "")
+	bgRowLayout.AddWidget(bgThemeCheck.QWidget)
+
+	// Background theme swatch
+	if bgThemeHex == "" {
+		bgThemeHex = "#1E1E1E" // Default dark background
+		if !isTermThemeDark() {
+			bgThemeHex = "#FFFFFF"
+		}
+	}
+	bgThemeSwatch = createQtColorSwatch(bgThemeHex, swatchSize, func(hex string) {
+		setColorInSection(getCurrentThemeSection(), "0_background", hex)
+		applyPaletteChanges()
+	})
+	bgThemeSwatch.SetEnabled(bgThemeCheck.IsChecked())
+	bgRowLayout.AddWidget(bgThemeSwatch.Button.QWidget)
+	bgRowLayout.AddStretch()
+
+	bgThemeCheck.OnStateChanged(func(state int) {
+		enabled := state != 0
+		bgThemeSwatch.SetEnabled(enabled)
+		if enabled {
+			setColorInSection(getCurrentThemeSection(), "0_background", bgThemeSwatch.GetColor())
+		} else {
+			setColorInSection(getCurrentThemeSection(), "0_background", "")
+		}
+		applyPaletteChanges()
+	})
+
+	leftColumnLayout.AddWidget(bgRowWidget)
+
+	// --- Foreground row (theme only) ---
+	fgRowWidget := qt.NewQWidget2()
+	fgRowLayout := qt.NewQHBoxLayout2()
+	fgRowLayout.SetContentsMargins(0, 0, 0, 0)
+	fgRowLayout.SetSpacing(6)
+	fgRowWidget.SetLayout(fgRowLayout.QLayout)
+
+	fgLabel := qt.NewQLabel3("Foreground")
+	fgLabel.SetMinimumWidth(90)
+	fgRowLayout.AddWidget(fgLabel.QWidget)
+
+	// Spacer for where basic swatch would be
+	fgSpacer := qt.NewQWidget2()
+	fgSpacer.SetFixedSize2(swatchSize, swatchSize)
+	fgRowLayout.AddWidget(fgSpacer)
+
+	// Foreground theme checkbox
+	fgThemeCheck = qt.NewQCheckBox2()
+	fgThemeHex := getColorFromSection(getCurrentThemeSection(), "9_foreground")
+	fgThemeCheck.SetChecked(fgThemeHex != "")
+	fgRowLayout.AddWidget(fgThemeCheck.QWidget)
+
+	// Foreground theme swatch
+	if fgThemeHex == "" {
+		fgThemeHex = "#D4D4D4" // Default dark foreground
+		if !isTermThemeDark() {
+			fgThemeHex = "#1E1E1E"
+		}
+	}
+	fgThemeSwatch = createQtColorSwatch(fgThemeHex, swatchSize, func(hex string) {
+		setColorInSection(getCurrentThemeSection(), "9_foreground", hex)
+		applyPaletteChanges()
+	})
+	fgThemeSwatch.SetEnabled(fgThemeCheck.IsChecked())
+	fgRowLayout.AddWidget(fgThemeSwatch.Button.QWidget)
+	fgRowLayout.AddStretch()
+
+	fgThemeCheck.OnStateChanged(func(state int) {
+		enabled := state != 0
+		fgThemeSwatch.SetEnabled(enabled)
+		if enabled {
+			setColorInSection(getCurrentThemeSection(), "9_foreground", fgThemeSwatch.GetColor())
+		} else {
+			setColorInSection(getCurrentThemeSection(), "9_foreground", "")
+		}
+		applyPaletteChanges()
+	})
+
+	rightColumnLayout.AddWidget(fgRowWidget)
+
+	// Color names for display (VGA order)
+	colorDisplayNames := []string{
+		"00 Black", "01 Blue", "02 Green", "03 Cyan",
+		"04 Red", "05 Purple", "06 Brown", "07 Silver",
+		"08 Gray", "09 Bright Blue", "10 Bright Green", "11 Bright Cyan",
+		"12 Bright Red", "13 Pink", "14 Yellow", "15 White",
+	}
+	colorConfigNames := purfecterm.PaletteColorNames()
+	defaultPaletteHex := purfecterm.DefaultPaletteHex()
+
+	// Create palette color rows (00-07 on left, 08-15 on right)
+	for i := 0; i < 16; i++ {
+		colorRow := &QtPaletteColorRow{
+			ColorName:  colorConfigNames[i],
+			ColorIndex: i,
+		}
+
+		rowWidget := qt.NewQWidget2()
+		rowLayout := qt.NewQHBoxLayout2()
+		rowLayout.SetContentsMargins(0, 0, 0, 0)
+		rowLayout.SetSpacing(6)
+		rowWidget.SetLayout(rowLayout.QLayout)
+
+		label := qt.NewQLabel3(colorDisplayNames[i])
+		label.SetMinimumWidth(90)
+		rowLayout.AddWidget(label.QWidget)
+
+		// Basic swatch (from term_colors)
+		basicHex := getColorFromSection("term_colors", colorConfigNames[i])
+		if basicHex == "" {
+			basicHex = defaultPaletteHex[i]
+		}
+		localColorName := colorConfigNames[i] // Capture for closure
+		colorRow.BasicSwatch = createQtColorSwatch(basicHex, swatchSize, func(hex string) {
+			setColorInSection("term_colors", localColorName, hex)
+			applyPaletteChanges()
+		})
+		rowLayout.AddWidget(colorRow.BasicSwatch.Button.QWidget)
+
+		// Theme checkbox
+		colorRow.ThemeCheckbox = qt.NewQCheckBox2()
+		themeHex := getColorFromSection(getCurrentThemeSection(), colorConfigNames[i])
+		colorRow.ThemeCheckbox.SetChecked(themeHex != "")
+		rowLayout.AddWidget(colorRow.ThemeCheckbox.QWidget)
+
+		// Theme swatch
+		if themeHex == "" {
+			themeHex = basicHex // Use basic as default display
+		}
+		colorRow.ThemeSwatch = createQtColorSwatch(themeHex, swatchSize, func(hex string) {
+			setColorInSection(getCurrentThemeSection(), localColorName, hex)
+			applyPaletteChanges()
+		})
+		colorRow.ThemeSwatch.SetEnabled(colorRow.ThemeCheckbox.IsChecked())
+		rowLayout.AddWidget(colorRow.ThemeSwatch.Button.QWidget)
+		rowLayout.AddStretch()
+
+		// Wire up checkbox
+		localRow := colorRow // Capture for closure
+		colorRow.ThemeCheckbox.OnStateChanged(func(state int) {
+			enabled := state != 0
+			localRow.ThemeSwatch.SetEnabled(enabled)
+			if enabled {
+				setColorInSection(getCurrentThemeSection(), localRow.ColorName, localRow.ThemeSwatch.GetColor())
+			} else {
+				setColorInSection(getCurrentThemeSection(), localRow.ColorName, "")
+			}
+			applyPaletteChanges()
+		})
+
+		// Add to appropriate column
+		if i < 8 {
+			leftColumnLayout.AddWidget(rowWidget)
+		} else {
+			rightColumnLayout.AddWidget(rowWidget)
+		}
+
+		paletteRows = append(paletteRows, colorRow)
+	}
+
+	// Add stretch at bottom of columns
+	leftColumnLayout.AddStretch()
+	rightColumnLayout.AddStretch()
+
+	// Function to refresh palette tab when theme changes
+	refreshPaletteTab := func() {
+		themeSection := getCurrentThemeSection()
+
+		// Refresh background
+		bgHex := getColorFromSection(themeSection, "0_background")
+		bgThemeCheck.SetChecked(bgHex != "")
+		if bgHex == "" {
+			if isTermThemeDark() {
+				bgHex = "#1E1E1E"
+			} else {
+				bgHex = "#FFFFFF"
+			}
+		}
+		bgThemeSwatch.SetColor(bgHex)
+		bgThemeSwatch.SetEnabled(bgThemeCheck.IsChecked())
+
+		// Refresh foreground
+		fgHex := getColorFromSection(themeSection, "9_foreground")
+		fgThemeCheck.SetChecked(fgHex != "")
+		if fgHex == "" {
+			if isTermThemeDark() {
+				fgHex = "#D4D4D4"
+			} else {
+				fgHex = "#1E1E1E"
+			}
+		}
+		fgThemeSwatch.SetColor(fgHex)
+		fgThemeSwatch.SetEnabled(fgThemeCheck.IsChecked())
+
+		// Refresh palette colors
+		for _, row := range paletteRows {
+			themeHex := getColorFromSection(themeSection, row.ColorName)
+			row.ThemeCheckbox.SetChecked(themeHex != "")
+			if themeHex == "" {
+				themeHex = row.BasicSwatch.GetColor()
+			}
+			row.ThemeSwatch.SetColor(themeHex)
+			row.ThemeSwatch.SetEnabled(row.ThemeCheckbox.IsChecked())
+		}
+	}
+
+	// Store refreshPaletteTab for use by Console Theme combo
+	// We need to update the Console Theme combo's onChange to call this
+	origConsoleThemeOnChange := consoleThemeCombo.onChange
+	consoleThemeCombo.onChange = func(idx int) {
+		if origConsoleThemeOnChange != nil {
+			origConsoleThemeOnChange(idx)
+		}
+		refreshPaletteTab()
+	}
+
+	tabWidget.AddTab(paletteWidget, "Palette")
 
 	// --- Button Box ---
 	buttonLayout := qt.NewQHBoxLayout2()
