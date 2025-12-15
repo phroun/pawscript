@@ -1670,8 +1670,12 @@ func createHamburgerMenu(ctx *MenuContext) *gtk.Menu {
 	})
 	menu.Append(closeItem)
 
-	// Quit PawScript (both)
-	quitItem := createMenuItemWithGutter("Quit PawScript", func() {
+	// Quit PawScript (both) - show shortcut if configured
+	quitLabel := "Quit PawScript"
+	if shortcut := getQuitShortcut(); shortcut != "" {
+		quitLabel = fmt.Sprintf("Quit PawScript\t%s", shortcut)
+	}
+	quitItem := createMenuItemWithGutter(quitLabel, func() {
 		quitApplication(ctx.Parent)
 	})
 	menu.Append(quitItem)
@@ -1857,6 +1861,9 @@ func createBlankConsoleWindow() {
 	}
 	win.SetTitle("PawScript - Console")
 	win.SetDefaultSize(900, 600)
+
+	// Set up quit shortcut for this window
+	setupQuitShortcutForWindow(win)
 
 	// Create terminal for this window
 	winTerminal, err := purfectermgtk.New(purfectermgtk.Options{
@@ -3571,8 +3578,8 @@ func applyMenuCSS(isDark bool) {
 	}
 }
 
-// setupQuitShortcut configures the keyboard shortcut to quit the application
-func setupQuitShortcut() {
+// setupQuitShortcutForWindow configures the keyboard shortcut to close a window
+func setupQuitShortcutForWindow(win *gtk.ApplicationWindow) {
 	quitShortcut := getQuitShortcut()
 	if quitShortcut == "" {
 		return // Disabled
@@ -3594,8 +3601,8 @@ func setupQuitShortcut() {
 		return
 	}
 
-	// Connect to key-press-event on the main window
-	mainWindow.Connect("key-press-event", func(win *gtk.ApplicationWindow, event *gdk.Event) bool {
+	// Connect to key-press-event on the window
+	win.Connect("key-press-event", func(w *gtk.ApplicationWindow, event *gdk.Event) bool {
 		keyEvent := gdk.EventKeyNewFromEvent(event)
 		keyval := keyEvent.KeyVal()
 		state := gdk.ModifierType(keyEvent.State())
@@ -3606,15 +3613,20 @@ func setupQuitShortcut() {
 		// Check for lowercase or uppercase 'q'
 		if targetKey == gdk.KEY_q {
 			if (keyval == gdk.KEY_q || keyval == gdk.KEY_Q) && state == targetMod {
-				mainWindow.Close()
+				win.Close()
 				return true
 			}
 		} else if keyval == targetKey && state == targetMod {
-			mainWindow.Close()
+			win.Close()
 			return true
 		}
 		return false
 	})
+}
+
+// setupQuitShortcut configures the keyboard shortcut for the main window
+func setupQuitShortcut() {
+	setupQuitShortcutForWindow(mainWindow)
 }
 
 func showCopyright() {
@@ -4026,6 +4038,9 @@ func runScriptInWindow(gtkApp *gtk.Application, scriptContent, scriptFile string
 	}
 	win.SetTitle(title)
 	win.SetDefaultSize(900, 600)
+
+	// Set up quit shortcut for this window
+	setupQuitShortcutForWindow(win)
 
 	// Create terminal
 	winTerminal, err := purfectermgtk.New(purfectermgtk.Options{
@@ -5449,6 +5464,9 @@ func createConsoleWindow(filePath string) {
 	}
 	win.SetTitle(fmt.Sprintf("PawScript - %s", filepath.Base(filePath)))
 	win.SetDefaultSize(900, 600)
+
+	// Set up quit shortcut for this window
+	setupQuitShortcutForWindow(win)
 
 	// Create terminal for this window
 	winTerminal, err := purfectermgtk.New(purfectermgtk.Options{

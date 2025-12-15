@@ -2022,8 +2022,12 @@ func createHamburgerMenu(parent *qt.QWidget, isScriptWindow bool, term *purfecte
 		}
 	})
 
-	// Quit PawScript (both)
-	quitAction := menu.AddAction("Quit PawScript")
+	// Quit PawScript (both) - show shortcut if configured
+	quitLabel := "Quit PawScript"
+	if shortcut := getQuitShortcut(); shortcut != "" {
+		quitLabel = fmt.Sprintf("Quit PawScript\t%s", shortcut)
+	}
+	quitAction := menu.AddAction(quitLabel)
 	quitAction.OnTriggered(func() {
 		quitApplication(parent)
 	})
@@ -2236,6 +2240,9 @@ func createBlankConsoleWindow() {
 	win := qt.NewQMainWindow2()
 	win.SetWindowTitle("PawScript - Console")
 	win.SetMinimumSize2(900, 600)
+
+	// Set up quit shortcut for this window
+	setupQuitShortcutForWindow(win)
 
 	// Create terminal for this window with color scheme from config
 	winTerminal, err := purfectermqt.New(purfectermqt.Options{
@@ -3895,6 +3902,9 @@ func runScriptInWindow(scriptContent, scriptFile string, scriptArgs []string,
 	win.SetWindowTitle(title)
 	win.Resize(900, 600)
 
+	// Set up quit shortcut for this window
+	setupQuitShortcutForWindow(win)
+
 	// Create terminal
 	winTerminal, err := purfectermqt.New(purfectermqt.Options{
 		Cols:           100,
@@ -4165,8 +4175,8 @@ func runScriptInWindow(scriptContent, scriptFile string, scriptArgs []string,
 	qt.QApplication_Exec()
 }
 
-// setupQuitShortcut configures the keyboard shortcut to quit the application
-func setupQuitShortcut() {
+// setupQuitShortcutForWindow configures the keyboard shortcut to close a window
+func setupQuitShortcutForWindow(win *qt.QMainWindow) {
 	quitShortcut := getQuitShortcut()
 	if quitShortcut == "" {
 		return // Disabled
@@ -4196,10 +4206,15 @@ func setupQuitShortcut() {
 		return
 	}
 
-	shortcut := qt.NewQShortcut2(qt.NewQKeySequence2(keySequence), mainWindow.QWidget)
+	shortcut := qt.NewQShortcut2(qt.NewQKeySequence2(keySequence), win.QWidget)
 	shortcut.OnActivated(func() {
-		mainWindow.Close()
+		win.Close()
 	})
+}
+
+// setupQuitShortcut configures the keyboard shortcut for the main window
+func setupQuitShortcut() {
+	setupQuitShortcutForWindow(mainWindow)
 }
 
 func createFilePanel() *qt.QWidget {
@@ -4955,6 +4970,9 @@ func createConsoleWindow(filePath string) {
 	win := qt.NewQMainWindow2()
 	win.SetWindowTitle(fmt.Sprintf("PawScript - %s", filepath.Base(filePath)))
 	win.SetMinimumSize2(900, 600)
+
+	// Set up quit shortcut for this window
+	setupQuitShortcutForWindow(win)
 
 	// Create terminal for this window with color scheme from config
 	winTerminal, err := purfectermqt.New(purfectermqt.Options{
