@@ -937,28 +937,31 @@ func (s *QtColorSwatch) applyColor() {
 		if size <= 0 {
 			size = 24 // Default size
 		}
-		pixmap := qt.NewQPixmap3(size, size)
+		pixmap := qt.NewQPixmap2(size, size)
 
 		// Fill with background color
-		qBgColor := qt.NewQColor6(bgColor)
-		pixmap.Fill(qBgColor)
+		bgR, _ := strconv.ParseInt(bgColor[1:3], 16, 64)
+		bgG, _ := strconv.ParseInt(bgColor[3:5], 16, 64)
+		bgB, _ := strconv.ParseInt(bgColor[5:7], 16, 64)
+		qBgColor := qt.NewQColor3(int(bgR), int(bgG), int(bgB))
+		pixmap.FillWithFillColor(qBgColor)
 
 		// Draw diagonal hash lines
 		painter := qt.NewQPainter2(pixmap.QPaintDevice)
 		var hashColor *qt.QColor
 		if hashColorLight {
-			hashColor = qt.NewQColor3(255, 255, 255, 100) // Semi-transparent white
+			hashColor = qt.NewQColor3(200, 200, 200) // Light gray for dark backgrounds
 		} else {
-			hashColor = qt.NewQColor3(0, 0, 0, 100) // Semi-transparent black
+			hashColor = qt.NewQColor3(80, 80, 80) // Dark gray for light backgrounds
 		}
-		pen := qt.NewQPen5(hashColor)
+		pen := qt.NewQPen3(hashColor)
 		pen.SetWidth(2)
-		painter.SetPen(pen)
+		painter.SetPenWithPen(pen)
 
 		// Draw diagonal lines from bottom-left to top-right
 		spacing := 6
 		for i := -size; i < size*2; i += spacing {
-			painter.DrawLine(i, size, i+size, 0)
+			painter.DrawLine3(qt.NewQPoint2(i, size), qt.NewQPoint2(i+size, 0))
 		}
 		painter.End()
 
