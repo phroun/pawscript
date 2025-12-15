@@ -1648,12 +1648,34 @@ func (w *Widget) paintEvent(event *qt.QPaintEvent) {
 				var drawFont *qt.QFont
 				if charFontFamily != fontFamily || cell.Bold || cell.Italic {
 					// Need a different font - either fallback, bold, or italic
-					// Use NewQFont8 to specify all style attributes in constructor
+					// Determine the actual font family to use
+					actualFamily := charFontFamily
 					weight := 50 // Normal weight
+
 					if cell.Bold {
-						weight = 75 // Bold weight in Qt5
+						// Some fonts (like Menlo on macOS) register bold as a separate family
+						// Try "Family Bold" as the family name first
+						fontDb := qt.NewQFontDatabase()
+						boldFamilyName := charFontFamily + " Bold"
+						if cell.Italic {
+							boldItalicName := charFontFamily + " Bold Italic"
+							if fontDb.HasFamily(boldItalicName) {
+								actualFamily = boldItalicName
+							} else if fontDb.HasFamily(boldFamilyName) {
+								actualFamily = boldFamilyName
+							} else {
+								weight = 75 // Fall back to weight-based bold
+							}
+						} else {
+							if fontDb.HasFamily(boldFamilyName) {
+								actualFamily = boldFamilyName
+							} else {
+								weight = 75 // Fall back to weight-based bold
+							}
+						}
 					}
-					drawFont = qt.NewQFont8(charFontFamily, fontSize, weight, cell.Italic)
+
+					drawFont = qt.NewQFont8(actualFamily, fontSize, weight, cell.Italic && actualFamily == charFontFamily)
 					// Only set fixed pitch for fallback fonts
 					if charFontFamily != fontFamily {
 						drawFont.SetFixedPitch(false)
