@@ -73,6 +73,15 @@ func GetDefaultQuitShortcut() string {
 	return "Alt+F4"
 }
 
+// GetDefaultCloseShortcut returns the platform-appropriate default close window shortcut.
+func GetDefaultCloseShortcut() string {
+	if runtime.GOOS == "darwin" {
+		return "Cmd+W"
+	}
+	// On Windows and Linux, use Ctrl+F4
+	return "Ctrl+F4"
+}
+
 // ConfigHelper provides common configuration access methods.
 type ConfigHelper struct {
 	Config pawscript.PSLConfig
@@ -380,6 +389,22 @@ func (h *ConfigHelper) GetQuitShortcut() string {
 	return GetDefaultQuitShortcut()
 }
 
+// GetCloseShortcut returns the configured close window shortcut.
+// Valid values: any shortcut string like "Cmd+W", "Ctrl+F4", or "" (disabled)
+func (h *ConfigHelper) GetCloseShortcut() string {
+	if h.Config != nil {
+		if val, exists := h.Config["close_shortcut"]; exists {
+			if val == nil {
+				return "" // nil means disabled
+			}
+			if s, ok := val.(string); ok {
+				return s
+			}
+		}
+	}
+	return GetDefaultCloseShortcut()
+}
+
 // GetTheme returns the configured GUI theme mode.
 // Valid values: "auto", "dark", "light"
 func (h *ConfigHelper) GetTheme() ThemeMode {
@@ -577,6 +602,10 @@ func (h *ConfigHelper) PopulateDefaults() bool {
 	}
 	if _, exists := h.Config["quit_shortcut"]; !exists {
 		h.Config.Set("quit_shortcut", GetDefaultQuitShortcut())
+		modified = true
+	}
+	if _, exists := h.Config["close_shortcut"]; !exists {
+		h.Config.Set("close_shortcut", GetDefaultCloseShortcut())
 		modified = true
 	}
 	if _, exists := h.Config["theme"]; !exists {

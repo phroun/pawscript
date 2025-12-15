@@ -295,6 +295,8 @@ func getColorPalette() []purfecterm.Color        { return configHelper.GetColorP
 func getBlinkMode() purfecterm.BlinkMode         { return configHelper.GetBlinkMode() }
 func getQuitShortcut() string                    { return configHelper.GetQuitShortcut() }
 func getDefaultQuitShortcut() string             { return pawgui.GetDefaultQuitShortcut() }
+func getCloseShortcut() string                   { return configHelper.GetCloseShortcut() }
+func getDefaultCloseShortcut() string            { return pawgui.GetDefaultCloseShortcut() }
 func getPSLColors() pawscript.DisplayColorConfig { return configHelper.GetPSLColors() }
 func isTermThemeDark() bool                      { return configHelper.IsTermThemeDark() }
 
@@ -1662,8 +1664,8 @@ func createHamburgerMenu(ctx *MenuContext) *gtk.Menu {
 	sep3, _ := gtk.SeparatorMenuItemNew()
 	menu.Append(sep3)
 
-	// Close (both)
-	closeItem := createMenuItemWithGutter("Close", func() {
+	// Close (both) - show shortcut if configured
+	closeItem := createMenuItemWithShortcut("Close", getCloseShortcut(), func() {
 		if ctx.CloseWindow != nil {
 			ctx.CloseWindow()
 		}
@@ -3772,16 +3774,14 @@ func parseShortcutGTK(shortcut string) (targetKey uint, targetMod gdk.ModifierTy
 	return targetKey, targetMod, true
 }
 
-// setupQuitShortcutForWindow configures the keyboard shortcut to close a window
-func setupQuitShortcutForWindow(win *gtk.ApplicationWindow) {
-	quitShortcut := getQuitShortcut()
-	if quitShortcut == "" {
-		return // Disabled
-	}
+// setupShortcutsForWindow configures keyboard shortcuts (quit and close) for a window
+func setupShortcutsForWindow(win *gtk.ApplicationWindow) {
+	// Parse shortcuts
+	quitKey, quitMod, quitOk := parseShortcutGTK(getQuitShortcut())
+	closeKey, closeMod, closeOk := parseShortcutGTK(getCloseShortcut())
 
-	targetKey, targetMod, ok := parseShortcutGTK(quitShortcut)
-	if !ok {
-		return
+	if !quitOk && !closeOk {
+		return // No shortcuts configured
 	}
 
 	// Connect to key-press-event on the window
@@ -3793,24 +3793,39 @@ func setupQuitShortcutForWindow(win *gtk.ApplicationWindow) {
 		// Mask out non-modifier bits (like num lock, caps lock)
 		state = state & (gdk.CONTROL_MASK | gdk.SHIFT_MASK | gdk.MOD1_MASK | gdk.META_MASK)
 
-		// For letter keys, check both lowercase and uppercase
-		if targetKey >= uint(gdk.KEY_a) && targetKey <= uint(gdk.KEY_z) {
-			upperKey := targetKey - uint(gdk.KEY_a) + uint(gdk.KEY_A)
-			if (keyval == targetKey || keyval == upperKey) && state == targetMod {
-				win.Close()
-				return true
+		// Helper to check if a shortcut matches
+		matchesShortcut := func(targetKey uint, targetMod gdk.ModifierType) bool {
+			if targetKey >= uint(gdk.KEY_a) && targetKey <= uint(gdk.KEY_z) {
+				upperKey := targetKey - uint(gdk.KEY_a) + uint(gdk.KEY_A)
+				return (keyval == targetKey || keyval == upperKey) && state == targetMod
 			}
-		} else if keyval == targetKey && state == targetMod {
+			return keyval == targetKey && state == targetMod
+		}
+
+		// Check quit shortcut
+		if quitOk && matchesShortcut(quitKey, quitMod) {
 			win.Close()
 			return true
 		}
+
+		// Check close shortcut
+		if closeOk && matchesShortcut(closeKey, closeMod) {
+			win.Close()
+			return true
+		}
+
 		return false
 	})
 }
 
-// setupQuitShortcut configures the keyboard shortcut for the main window
+// setupQuitShortcutForWindow is an alias for setupShortcutsForWindow for compatibility
+func setupQuitShortcutForWindow(win *gtk.ApplicationWindow) {
+	setupShortcutsForWindow(win)
+}
+
+// setupQuitShortcut configures keyboard shortcuts for the main window
 func setupQuitShortcut() {
-	setupQuitShortcutForWindow(mainWindow)
+	setupShortcutsForWindow(mainWindow)
 }
 
 func showCopyright() {

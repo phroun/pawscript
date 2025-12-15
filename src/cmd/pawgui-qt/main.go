@@ -477,6 +477,8 @@ func getColorPalette() []purfecterm.Color        { return configHelper.GetColorP
 func getBlinkMode() purfecterm.BlinkMode         { return configHelper.GetBlinkMode() }
 func getQuitShortcut() string                    { return configHelper.GetQuitShortcut() }
 func getDefaultQuitShortcut() string             { return pawgui.GetDefaultQuitShortcut() }
+func getCloseShortcut() string                   { return configHelper.GetCloseShortcut() }
+func getDefaultCloseShortcut() string            { return pawgui.GetDefaultCloseShortcut() }
 func getPSLColors() pawscript.DisplayColorConfig { return configHelper.GetPSLColors() }
 func isTermThemeDark() bool                      { return configHelper.IsTermThemeDark() }
 
@@ -2012,8 +2014,12 @@ func createHamburgerMenu(parent *qt.QWidget, isScriptWindow bool, term *purfecte
 
 	menu.AddSeparator()
 
-	// Close (both)
-	closeAction := menu.AddAction("Close")
+	// Close (both) - show shortcut if configured
+	closeLabel := "Close"
+	if shortcut := getCloseShortcut(); shortcut != "" {
+		closeLabel = fmt.Sprintf("Close\t%s", formatShortcutForDisplay(shortcut))
+	}
+	closeAction := menu.AddAction(closeLabel)
 	closeAction.OnTriggered(func() {
 		if closeWindowFunc != nil {
 			closeWindowFunc()
@@ -2023,28 +2029,14 @@ func createHamburgerMenu(parent *qt.QWidget, isScriptWindow bool, term *purfecte
 	})
 
 	// Quit PawScript (both) - show shortcut if configured
-	// Use QWidgetAction for styled shortcut display
-	quitWidgetAction := qt.NewQWidgetAction(menu.QObject)
-	quitWidget := qt.NewQWidget2()
-	quitLayout := qt.NewQHBoxLayout2()
-	quitLayout.SetContentsMargins(int(28*getUIScale()), 4, 8, 4) // Match menu item padding
-	quitWidget.SetLayout(quitLayout.QLayout)
-
-	quitLabel := qt.NewQLabel3("Quit PawScript")
-	quitLayout.AddWidget(quitLabel.QWidget)
-	quitLayout.AddStretch()
-
+	quitLabel := "Quit PawScript"
 	if shortcut := getQuitShortcut(); shortcut != "" {
-		shortcutLabel := qt.NewQLabel3(formatShortcutForDisplay(shortcut))
-		shortcutLabel.SetStyleSheet("color: rgba(128, 128, 128, 0.8);") // Grayed out
-		quitLayout.AddWidget(shortcutLabel.QWidget)
+		quitLabel = fmt.Sprintf("Quit PawScript\t%s", formatShortcutForDisplay(shortcut))
 	}
-
-	quitWidgetAction.SetDefaultWidget(quitWidget)
-	quitWidgetAction.OnTriggered(func() {
+	quitAction := menu.AddAction(quitLabel)
+	quitAction.OnTriggered(func() {
 		quitApplication(parent)
 	})
-	menu.AddAction(quitWidgetAction.QAction)
 
 	return menu
 }
@@ -4287,23 +4279,35 @@ func convertShortcutForQt(shortcut string) string {
 	return strings.Join(result, "+")
 }
 
-// setupQuitShortcutForWindow configures the keyboard shortcut to close a window
-func setupQuitShortcutForWindow(win *qt.QMainWindow) {
-	quitShortcut := getQuitShortcut()
-	if quitShortcut == "" {
-		return // Disabled
+// setupShortcutsForWindow configures keyboard shortcuts (quit and close) for a window
+func setupShortcutsForWindow(win *qt.QMainWindow) {
+	// Setup quit shortcut
+	if quitShortcut := getQuitShortcut(); quitShortcut != "" {
+		keySequence := convertShortcutForQt(quitShortcut)
+		shortcut := qt.NewQShortcut2(qt.NewQKeySequence2(keySequence), win.QWidget)
+		shortcut.OnActivated(func() {
+			win.Close()
+		})
 	}
 
-	keySequence := convertShortcutForQt(quitShortcut)
-	shortcut := qt.NewQShortcut2(qt.NewQKeySequence2(keySequence), win.QWidget)
-	shortcut.OnActivated(func() {
-		win.Close()
-	})
+	// Setup close shortcut
+	if closeShortcut := getCloseShortcut(); closeShortcut != "" {
+		keySequence := convertShortcutForQt(closeShortcut)
+		shortcut := qt.NewQShortcut2(qt.NewQKeySequence2(keySequence), win.QWidget)
+		shortcut.OnActivated(func() {
+			win.Close()
+		})
+	}
 }
 
-// setupQuitShortcut configures the keyboard shortcut for the main window
+// setupQuitShortcutForWindow is an alias for setupShortcutsForWindow for compatibility
+func setupQuitShortcutForWindow(win *qt.QMainWindow) {
+	setupShortcutsForWindow(win)
+}
+
+// setupQuitShortcut configures keyboard shortcuts for the main window
 func setupQuitShortcut() {
-	setupQuitShortcutForWindow(mainWindow)
+	setupShortcutsForWindow(mainWindow)
 }
 
 func createFilePanel() *qt.QWidget {
