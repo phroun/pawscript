@@ -840,8 +840,11 @@ func showSettingsDialog(parent gtk.IWindow) {
 	rightColumn, _ := gtk.BoxNew(gtk.ORIENTATION_VERTICAL, 4)
 	columnsBox.PackStart(rightColumn, true, true, 0)
 
-	// Swatch size
-	swatchSize := 24
+	// Swatch size and label width scaled by UI scale
+	uiScale := getUIScale()
+	swatchSize := int(24 * uiScale)
+	labelWidth := int(115 * uiScale)
+	checkboxWidth := int(16 * uiScale) // Checkbox spacer for bg/fg rows
 
 	// --- Background row (always present, no checkbox) ---
 	bgRow, _ := gtk.BoxNew(gtk.ORIENTATION_HORIZONTAL, 6)
@@ -849,7 +852,7 @@ func showSettingsDialog(parent gtk.IWindow) {
 	// Label on the left
 	bgLabel, _ := gtk.LabelNew("Background")
 	bgLabel.SetXAlign(0)
-	bgLabel.SetSizeRequest(115, -1) // Fixed width for alignment
+	bgLabel.SetSizeRequest(labelWidth, -1) // Fixed width for alignment
 	bgRow.PackStart(bgLabel, false, false, 0)
 
 	// Spacer for where basic swatch would be
@@ -859,7 +862,7 @@ func showSettingsDialog(parent gtk.IWindow) {
 
 	// Another spacer for where checkbox would be
 	bgCheckSpacer, _ := gtk.BoxNew(gtk.ORIENTATION_HORIZONTAL, 0)
-	bgCheckSpacer.SetSizeRequest(20, swatchSize)
+	bgCheckSpacer.SetSizeRequest(checkboxWidth, swatchSize)
 	bgRow.PackStart(bgCheckSpacer, false, false, 0)
 
 	// Background swatch (always enabled)
@@ -884,7 +887,7 @@ func showSettingsDialog(parent gtk.IWindow) {
 	// Label on the left
 	fgLabel, _ := gtk.LabelNew("Foreground")
 	fgLabel.SetXAlign(0)
-	fgLabel.SetSizeRequest(115, -1) // Fixed width for alignment
+	fgLabel.SetSizeRequest(labelWidth, -1) // Fixed width for alignment
 	fgRow.PackStart(fgLabel, false, false, 0)
 
 	// Spacer for where basic swatch would be
@@ -894,7 +897,7 @@ func showSettingsDialog(parent gtk.IWindow) {
 
 	// Another spacer for where checkbox would be
 	fgCheckSpacer, _ := gtk.BoxNew(gtk.ORIENTATION_HORIZONTAL, 0)
-	fgCheckSpacer.SetSizeRequest(20, swatchSize)
+	fgCheckSpacer.SetSizeRequest(checkboxWidth, swatchSize)
 	fgRow.PackStart(fgCheckSpacer, false, false, 0)
 
 	// Foreground swatch (always enabled)
@@ -935,12 +938,7 @@ func showSettingsDialog(parent gtk.IWindow) {
 		// Label on the left
 		label, _ := gtk.LabelNew(colorDisplayNames[i])
 		label.SetXAlign(0)
-		// Left column (00-07) uses "Background" width, right column (08-15) uses "Bright Green" width
-		if i < 8 {
-			label.SetSizeRequest(115, -1)
-		} else {
-			label.SetSizeRequest(115, -1)
-		}
+		label.SetSizeRequest(labelWidth, -1)
 		row.PackStart(label, false, false, 0)
 
 		// Basic swatch (from term_colors)
