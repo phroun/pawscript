@@ -1816,17 +1816,17 @@ const folderUpIconSVG = `<svg width="48" height="48" viewBox="0 0 12.7 12.7" xml
 </svg>`
 
 const unknownFileIconSVG = `<svg width="48" height="48" viewBox="0 0 12.7 12.7" xmlns="http://www.w3.org/2000/svg">
-  <path style="fill:#fafafa;stroke:#002b36;stroke-width:0.75;stroke-linecap:round;stroke-linejoin:round" d="M 2.6458333,11.906249 V 0.79375 h 5.0270833 l 2.38125,2.38125 v 8.73125 z"/>
-  <path style="fill:none;stroke:#002b36;stroke-width:0.75;stroke-linecap:round;stroke-linejoin:round" d="m 7.6729166,0.79375 v 2.38125 h 2.38125"/>
+  <path style="fill:#ffffff;stroke:#002b36;stroke-width:0.75;stroke-linecap:round;stroke-linejoin:round" d="M 2.6458333,11.906249 V 0.79375 h 5.0270833 l 2.38125,2.38125 v 8.73125 z"/>
+  <path style="fill:#ffffff;stroke:#002b36;stroke-width:0.75;stroke-linecap:round;stroke-linejoin:round" d="m 7.6729166,0.79375 v 2.38125 h 2.38125"/>
   <text style="font-size:7.05556px;fill:#77abbe;stroke:none;font-family:sans-serif;font-weight:bold" x="3.7041667" y="9.5249996">?</text>
 </svg>`
 
 const pawFileIconSVG = `<svg width="48" height="48" viewBox="0 0 12.7 12.7" xmlns="http://www.w3.org/2000/svg">
+  <path style="fill:#ffffff;stroke:#002b36;stroke-width:0.75;stroke-linecap:round;stroke-linejoin:round" d="M 2.691,1.182 H 8.126 L 10.009,3.085 V 11.518 H 2.691 Z"/>
+  <path style="fill:#ffffff;stroke:#002b36;stroke-width:0.5;stroke-linecap:butt;stroke-linejoin:miter" d="M 7.848,1.368 V 3.498 h 1.973"/>
   <rect style="fill:#268bd2;stroke:none" width="2.878" height="0.731" x="4.085" y="3.834"/>
   <rect style="fill:#268bd2;stroke:none" width="2.927" height="0.731" x="2.840" y="2.625"/>
   <rect style="fill:#268bd2;stroke:none" width="1.822" height="0.731" x="2.840" y="5.042"/>
-  <path style="fill:#ffffff;stroke:#002b36;stroke-width:0.5;stroke-linecap:butt;stroke-linejoin:miter" d="M 7.848,1.368 V 3.498 h 1.973"/>
-  <path style="fill:none;stroke:#002b36;stroke-width:0.75;stroke-linecap:round;stroke-linejoin:round" d="M 2.691,1.182 H 8.126 L 10.009,3.085 V 11.518 H 2.691 Z"/>
   <path style="fill:#000000" d="M 6.501,6.542 A 0.401,0.313 0 0 0 6.101,6.854 0.401,0.313 0 0 0 6.501,7.167 0.401,0.313 0 0 0 6.902,6.854 0.401,0.313 0 0 0 6.501,6.542 Z M 5.679,7.399 A 0.495,0.445 0 0 0 5.184,7.843 0.495,0.445 0 0 0 5.679,8.288 0.495,0.445 0 0 0 6.174,7.843 0.495,0.445 0 0 0 5.679,7.399 Z m 1.644,0 A 0.495,0.445 0 0 0 6.828,7.843 0.495,0.445 0 0 0 7.323,8.288 0.495,0.445 0 0 0 7.818,7.843 0.495,0.445 0 0 0 7.323,7.399 Z"/>
   <path style="fill:#d33682" d="M 6.501,5.958 C 6.267,5.959 6.041,6.024 5.859,6.174 5.536,6.440 5.742,6.691 5.420,6.833 5.015,6.979 4.600,7.310 4.600,7.845 4.600,8.442 5.121,8.872 5.678,8.872 6.198,8.888 6.291,8.400 6.540,8.416 6.841,8.430 6.844,8.872 7.324,8.872 7.881,8.872 8.402,8.442 8.402,7.845 8.402,7.310 8.137,6.952 7.648,6.875 7.259,6.729 7.486,6.432 7.143,6.174 6.954,6.033 6.735,5.959 6.501,5.958 Z"/>
   <ellipse style="fill:#d33682" cx="5.869" cy="5.006" rx="0.528" ry="0.904" transform="rotate(10.3)"/>
