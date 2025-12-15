@@ -1722,6 +1722,9 @@ func createToolbarStripWithMenu(menu *qt.QMenu) (*qt.QWidget, *IconButton, *qt.Q
 const toolbarButtonSize = 40
 const toolbarIconSize = 24 // Icon is smaller than button, creating visible padding
 
+// File list icon size (1.35x taller items than default)
+const fileListIconSize = 32
+
 // createHamburgerButton creates a hamburger menu button with custom icon widget
 func createHamburgerButton(menu *qt.QMenu) *IconButton {
 	svgData := getSVGIcon(hamburgerIconSVG)
@@ -2403,19 +2406,19 @@ func refreshFileListIcons() {
 		switch data.iconType {
 		case iconTypeFolderUp:
 			if isSelected {
-				icon = createDarkIconFromSVG(folderUpIconSVG, 24)
+				icon = createDarkIconFromSVG(folderUpIconSVG, fileListIconSize)
 			} else {
-				icon = createIconFromSVG(folderUpIconSVG, 24)
+				icon = createIconFromSVG(folderUpIconSVG, fileListIconSize)
 			}
 		case iconTypeFolder:
 			if isSelected {
-				icon = createDarkIconFromSVG(folderIconSVG, 24)
+				icon = createDarkIconFromSVG(folderIconSVG, fileListIconSize)
 			} else {
-				icon = createIconFromSVG(folderIconSVG, 24)
+				icon = createIconFromSVG(folderIconSVG, fileListIconSize)
 			}
 		case iconTypePawFile:
 			// pawFile icon doesn't change with theme, but we still update it
-			icon = createIconFromSVG(pawFileIconSVG, 24)
+			icon = createIconFromSVG(pawFileIconSVG, fileListIconSize)
 		}
 
 		if icon != nil {
@@ -3376,6 +3379,7 @@ func createFilePanel() *qt.QWidget {
 
 	// File list
 	fileList = qt.NewQListWidget2()
+	fileList.SetIconSize(*qt.NewQSize2(fileListIconSize, fileListIconSize))
 	fileList.OnItemDoubleClicked(func(item *qt.QListWidgetItem) {
 		handleFileActivated(item)
 	})
@@ -3776,9 +3780,9 @@ func loadDirectory(dir string) {
 	}
 
 	// Create custom SVG icons for file list
-	upIcon := createIconFromSVG(folderUpIconSVG, 24)
-	folderIcon := createIconFromSVG(folderIconSVG, 24)
-	fileIcon := createIconFromSVG(pawFileIconSVG, 24)
+	upIcon := createIconFromSVG(folderUpIconSVG, fileListIconSize)
+	folderIcon := createIconFromSVG(folderIconSVG, fileListIconSize)
+	fileIcon := createIconFromSVG(pawFileIconSVG, fileListIconSize)
 
 	// Reset previous selected item when directory changes
 	previousSelectedItem = nil
@@ -3870,11 +3874,11 @@ func onSelectionChanged(current *qt.QListWidgetItem, previous *qt.QListWidgetIte
 			var icon *qt.QIcon
 			switch prevData.iconType {
 			case iconTypeFolderUp:
-				icon = createIconFromSVG(folderUpIconSVG, 24)
+				icon = createIconFromSVG(folderUpIconSVG, fileListIconSize)
 			case iconTypeFolder:
-				icon = createIconFromSVG(folderIconSVG, 24)
+				icon = createIconFromSVG(folderIconSVG, fileListIconSize)
 			case iconTypePawFile:
-				icon = createIconFromSVG(pawFileIconSVG, 24)
+				icon = createIconFromSVG(pawFileIconSVG, fileListIconSize)
 			}
 			if icon != nil {
 				previous.SetIcon(icon)
@@ -3899,11 +3903,11 @@ func onSelectionChanged(current *qt.QListWidgetItem, previous *qt.QListWidgetIte
 	var darkIcon *qt.QIcon
 	switch data.iconType {
 	case iconTypeFolderUp:
-		darkIcon = createDarkIconFromSVG(folderUpIconSVG, 24)
+		darkIcon = createDarkIconFromSVG(folderUpIconSVG, fileListIconSize)
 	case iconTypeFolder:
-		darkIcon = createDarkIconFromSVG(folderIconSVG, 24)
+		darkIcon = createDarkIconFromSVG(folderIconSVG, fileListIconSize)
 	case iconTypePawFile:
-		darkIcon = createDarkIconFromSVG(pawFileIconSVG, 24)
+		darkIcon = createDarkIconFromSVG(pawFileIconSVG, fileListIconSize)
 	}
 	if darkIcon != nil {
 		current.SetIcon(darkIcon)
