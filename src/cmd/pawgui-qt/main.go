@@ -2532,9 +2532,10 @@ func applyUIScale(scale float64) {
 
 	qtApp.SetStyleSheet(existing + scaled)
 
-	// Update file list icon size
+	// Update file list icon size and regenerate icons
 	if fileList != nil {
 		fileList.SetIconSize(qt.NewQSize2(scaledFileListIconSize(), scaledFileListIconSize()))
+		refreshFileListIcons()
 	}
 
 	// Refresh all icons with new scale
