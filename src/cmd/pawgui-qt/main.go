@@ -1382,19 +1382,23 @@ func showSettingsDialog(parent *qt.QWidget) {
 	rightColumnWidget.SetLayout(rightColumnLayout.QLayout)
 	columnsLayout.AddWidget(rightColumnWidget)
 
-	// Swatch size
-	swatchSize := 24
+	// Swatch size and label width scaled by UI scale
+	uiScale := getUIScale()
+	swatchSize := int(24 * uiScale)
+	labelWidth := int(130 * uiScale)
+	checkboxWidth := int(24 * uiScale) // Checkbox spacer for bg/fg rows
+	rowSpacing := int(6 * uiScale)
 
 	// --- Background row (always present, no checkbox) ---
 	bgRowWidget := qt.NewQWidget2()
 	bgRowLayout := qt.NewQHBoxLayout2()
 	bgRowLayout.SetContentsMargins(0, 0, 0, 0)
-	bgRowLayout.SetSpacing(6)
+	bgRowLayout.SetSpacing(rowSpacing)
 	bgRowWidget.SetLayout(bgRowLayout.QLayout)
 
 	// Label on the left
 	bgLabel := qt.NewQLabel3("Background")
-	bgLabel.SetFixedWidth(110)
+	bgLabel.SetFixedWidth(labelWidth)
 	bgRowLayout.AddWidget(bgLabel.QWidget)
 
 	// Spacer for where basic swatch would be
@@ -1404,7 +1408,7 @@ func showSettingsDialog(parent *qt.QWidget) {
 
 	// Another spacer for where checkbox would be
 	bgCheckSpacer := qt.NewQWidget2()
-	bgCheckSpacer.SetFixedSize2(20, swatchSize)
+	bgCheckSpacer.SetFixedSize2(checkboxWidth, swatchSize)
 	bgRowLayout.AddWidget(bgCheckSpacer)
 
 	// Background swatch (always enabled)
@@ -1428,12 +1432,12 @@ func showSettingsDialog(parent *qt.QWidget) {
 	fgRowWidget := qt.NewQWidget2()
 	fgRowLayout := qt.NewQHBoxLayout2()
 	fgRowLayout.SetContentsMargins(0, 0, 0, 0)
-	fgRowLayout.SetSpacing(6)
+	fgRowLayout.SetSpacing(rowSpacing)
 	fgRowWidget.SetLayout(fgRowLayout.QLayout)
 
 	// Label on the left
 	fgLabel := qt.NewQLabel3("Foreground")
-	fgLabel.SetFixedWidth(110)
+	fgLabel.SetFixedWidth(labelWidth)
 	fgRowLayout.AddWidget(fgLabel.QWidget)
 
 	// Spacer for where basic swatch would be
@@ -1443,7 +1447,7 @@ func showSettingsDialog(parent *qt.QWidget) {
 
 	// Another spacer for where checkbox would be
 	fgCheckSpacer := qt.NewQWidget2()
-	fgCheckSpacer.SetFixedSize2(20, swatchSize)
+	fgCheckSpacer.SetFixedSize2(checkboxWidth, swatchSize)
 	fgRowLayout.AddWidget(fgCheckSpacer)
 
 	// Foreground swatch (always enabled)
@@ -1483,12 +1487,12 @@ func showSettingsDialog(parent *qt.QWidget) {
 		rowWidget := qt.NewQWidget2()
 		rowLayout := qt.NewQHBoxLayout2()
 		rowLayout.SetContentsMargins(0, 0, 0, 0)
-		rowLayout.SetSpacing(6)
+		rowLayout.SetSpacing(rowSpacing)
 		rowWidget.SetLayout(rowLayout.QLayout)
 
 		// Label on the left
 		label := qt.NewQLabel3(colorDisplayNames[i])
-		label.SetFixedWidth(130)
+		label.SetFixedWidth(labelWidth)
 		rowLayout.AddWidget(label.QWidget)
 
 		// Basic swatch (from term_colors)
