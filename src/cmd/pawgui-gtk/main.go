@@ -885,20 +885,10 @@ func refreshFileListIcons() {
 
 	selectedRow := fileList.GetSelectedRow()
 
-	children := fileList.GetChildren()
-	if children == nil {
-		return
-	}
-
-	children.Foreach(func(item interface{}) {
-		row, ok := item.(*gtk.ListBoxRow)
-		if !ok || row == nil {
-			return
-		}
-
-		iconType, hasType := rowIconTypeMap[row]
-		if !hasType {
-			return
+	// Iterate over our tracked rows directly
+	for row, iconType := range rowIconTypeMap {
+		if row == nil {
+			continue
 		}
 
 		// Determine if this row is selected
@@ -914,7 +904,7 @@ func refreshFileListIcons() {
 		case gtkIconTypePawFile:
 			svgTemplate = pawFileIconSVG
 		default:
-			return
+			continue
 		}
 
 		var svgData string
@@ -927,17 +917,17 @@ func refreshFileListIcons() {
 		// Update the icon in the row
 		child, err := row.GetChild()
 		if err != nil || child == nil {
-			return
+			continue
 		}
 		box, ok := child.(*gtk.Box)
 		if !ok {
-			return
+			continue
 		}
 
 		// Get box children and find the image (first child)
 		boxChildren := box.GetChildren()
 		if boxChildren == nil || boxChildren.Length() == 0 {
-			return
+			continue
 		}
 
 		// Remove the old image (first child)
@@ -952,7 +942,7 @@ func refreshFileListIcons() {
 			box.ReorderChild(newImg, 0)
 			newImg.Show()
 		}
-	})
+	}
 }
 
 // applyConsoleTheme applies the console theme to all terminals
