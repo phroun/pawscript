@@ -133,8 +133,25 @@ const (
 	gtkIconTypePawFile
 )
 
-// File list icon size (slightly larger than default for better visibility)
-const gtkFileListIconSize = 26
+// Icon size constants (base values at 1.0 scale)
+const (
+	gtkFileListIconSize = 26 // File list icons
+	gtkToolbarIconSize  = 24 // Toolbar/hamburger button icons
+	gtkMenuIconSize     = 16 // Menu checkmark and path menu icons
+)
+
+// Scaled icon size helpers - these return values adjusted for current UI scale
+func scaledFileListIconSize() int {
+	return int(float64(scaledFileListIconSize()) * getUIScale())
+}
+
+func scaledToolbarIconSize() int {
+	return int(float64(gtkToolbarIconSize) * getUIScale())
+}
+
+func scaledMenuIconSize() int {
+	return int(float64(gtkMenuIconSize) * getUIScale())
+}
 
 // WindowToolbarData holds per-window toolbar state for dummy_button command
 type WindowToolbarData struct {
@@ -802,6 +819,9 @@ func applyFontSettings() {
 func applyUIScale() {
 	// Re-apply the CSS with new scale
 	applyMainCSS()
+
+	// Refresh all icons with new scale
+	updateToolbarIcons()
 }
 
 // updateToolbarIcons regenerates all toolbar icons with the current theme's colors
@@ -809,13 +829,13 @@ func updateToolbarIcons() {
 	// Update both launcher hamburger buttons (path selector and narrow strip)
 	if launcherMenuButton != nil {
 		svgData := getSVGIcon(hamburgerIconSVG)
-		if img := createImageFromSVG(svgData, 24); img != nil {
+		if img := createImageFromSVG(svgData, scaledToolbarIconSize()); img != nil {
 			launcherMenuButton.SetImage(img)
 		}
 	}
 	if launcherStripMenuBtn != nil {
 		svgData := getSVGIcon(hamburgerIconSVG)
-		if img := createImageFromSVG(svgData, 24); img != nil {
+		if img := createImageFromSVG(svgData, scaledToolbarIconSize()); img != nil {
 			launcherStripMenuBtn.SetImage(img)
 		}
 	}
@@ -824,7 +844,7 @@ func updateToolbarIcons() {
 	for _, btn := range launcherRegisteredBtns {
 		if btn.widget != nil {
 			svgData := getSVGIcon(starIconSVG)
-			if img := createImageFromSVG(svgData, 24); img != nil {
+			if img := createImageFromSVG(svgData, scaledToolbarIconSize()); img != nil {
 				btn.widget.SetImage(img)
 			}
 		}
@@ -837,7 +857,7 @@ func updateToolbarIcons() {
 		// Update the hamburger button
 		if data.menuButton != nil {
 			svgData := getSVGIcon(hamburgerIconSVG)
-			if img := createImageFromSVG(svgData, 24); img != nil {
+			if img := createImageFromSVG(svgData, scaledToolbarIconSize()); img != nil {
 				data.menuButton.SetImage(img)
 			}
 		}
@@ -845,7 +865,7 @@ func updateToolbarIcons() {
 		for _, btn := range data.registeredBtns {
 			if btn.widget != nil {
 				svgData := getSVGIcon(starIconSVG)
-				if img := createImageFromSVG(svgData, 24); img != nil {
+				if img := createImageFromSVG(svgData, scaledToolbarIconSize()); img != nil {
 					btn.widget.SetImage(img)
 				}
 			}
@@ -857,7 +877,7 @@ func updateToolbarIcons() {
 		// Update the hamburger button
 		if data.menuButton != nil {
 			svgData := getSVGIcon(hamburgerIconSVG)
-			if img := createImageFromSVG(svgData, 24); img != nil {
+			if img := createImageFromSVG(svgData, scaledToolbarIconSize()); img != nil {
 				data.menuButton.SetImage(img)
 			}
 		}
@@ -865,7 +885,7 @@ func updateToolbarIcons() {
 		for _, btn := range data.registeredBtns {
 			if btn.widget != nil {
 				svgData := getSVGIcon(starIconSVG)
-				if img := createImageFromSVG(svgData, 24); img != nil {
+				if img := createImageFromSVG(svgData, scaledToolbarIconSize()); img != nil {
 					btn.widget.SetImage(img)
 				}
 			}
@@ -954,7 +974,7 @@ func refreshFileListIcons() {
 		}
 
 		// Update the existing image with new pixbuf
-		if pixbuf := createPixbufFromSVG(svgData, gtkFileListIconSize); pixbuf != nil {
+		if pixbuf := createPixbufFromSVG(svgData, scaledFileListIconSize()); pixbuf != nil {
 			img.SetFromPixbuf(pixbuf)
 		}
 	}
@@ -1711,7 +1731,7 @@ func createHamburgerButton(menu *gtk.Menu, forVerticalStrip bool) *gtk.Button {
 
 	// Set SVG icon with appropriate color for current theme
 	svgData := getSVGIcon(hamburgerIconSVG)
-	if img := createImageFromSVG(svgData, 24); img != nil {
+	if img := createImageFromSVG(svgData, scaledToolbarIconSize()); img != nil {
 		btn.SetImage(img)
 		btn.SetAlwaysShowImage(true)
 	} else {
@@ -1999,7 +2019,7 @@ func updateRowIcon(row *gtk.ListBoxRow, useDarkIcon bool) {
 	}
 
 	// Update the existing image with new pixbuf
-	if pixbuf := createPixbufFromSVG(svgData, gtkFileListIconSize); pixbuf != nil {
+	if pixbuf := createPixbufFromSVG(svgData, scaledFileListIconSize()); pixbuf != nil {
 		img.SetFromPixbuf(pixbuf)
 	}
 }
@@ -2028,7 +2048,7 @@ func createMenuItemWithIcon(svgTemplate string, labelText string, callback func(
 
 	// Create the icon image (16x16)
 	svgData := getSVGIcon(svgTemplate)
-	img := createImageFromSVG(svgData, 16)
+	img := createImageFromSVG(svgData, scaledMenuIconSize())
 	if img != nil {
 		// Position icon as far left as possible
 		img.SetMarginStart(0)
@@ -2139,7 +2159,7 @@ func updateFileListMenuIcon(item *gtk.MenuItem, isChecked bool) {
 
 	// Recreate the icon
 	svgData := getSVGIcon(iconSVG)
-	newImg := createImageFromSVG(svgData, 16)
+	newImg := createImageFromSVG(svgData, scaledMenuIconSize())
 	if newImg != nil {
 		newImg.SetMarginStart(0)
 		newImg.SetMarginEnd(18)
@@ -2279,7 +2299,7 @@ func (c *SettingsComboMenu) updateMenuItem(idx int, isSelected bool) {
 	if isSelected {
 		// Add check icon
 		svgData := getSVGIcon(checkedIconSVG)
-		img := createImageFromSVG(svgData, 16)
+		img := createImageFromSVG(svgData, scaledMenuIconSize())
 		if img != nil {
 			img.SetMarginStart(0)
 			img.SetMarginEnd(18)
@@ -2393,7 +2413,7 @@ func updateLauncherToolbarButtons() {
 		applyToolbarButtonStyle(button, true) // true = vertical strip
 		// Set SVG icon with appropriate color for current theme
 		svgData := getSVGIcon(starIconSVG)
-		if img := createImageFromSVG(svgData, 24); img != nil {
+		if img := createImageFromSVG(svgData, scaledToolbarIconSize()); img != nil {
 			button.SetImage(img)
 			button.SetAlwaysShowImage(true)
 		} else {
@@ -2475,7 +2495,7 @@ func updateWindowToolbarButtons(strip *gtk.Box, buttons []*ToolbarButton) {
 		applyToolbarButtonStyle(button, true) // true = vertical strip
 		// Set SVG icon with appropriate color for current theme
 		svgData := getSVGIcon(starIconSVG)
-		if img := createImageFromSVG(svgData, 24); img != nil {
+		if img := createImageFromSVG(svgData, scaledToolbarIconSize()); img != nil {
 			button.SetImage(img)
 			button.SetAlwaysShowImage(true)
 		} else {
@@ -4385,7 +4405,7 @@ func createFileRow(name string, isDir bool, isParent bool) *gtk.ListBoxRow {
 
 	// Get themed SVG (applies {{FILL}} replacement for theme-aware icons)
 	svgData := getSVGIcon(svgTemplate)
-	if icon := createImageFromSVG(svgData, gtkFileListIconSize); icon != nil {
+	if icon := createImageFromSVG(svgData, scaledFileListIconSize()); icon != nil {
 		box.PackStart(icon, false, false, 0)
 	}
 
