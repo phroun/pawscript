@@ -760,6 +760,299 @@ func showSettingsDialog(parent gtk.IWindow) {
 	appearanceLabel, _ := gtk.LabelNew("Appearance")
 	notebook.AppendPage(appearanceBox, appearanceLabel)
 
+	// --- Palette Tab ---
+	paletteBox, _ := gtk.BoxNew(gtk.ORIENTATION_VERTICAL, 8)
+	paletteBox.SetMarginStart(12)
+	paletteBox.SetMarginEnd(12)
+	paletteBox.SetMarginTop(12)
+	paletteBox.SetMarginBottom(12)
+
+	// Track palette rows for theme refresh
+	var paletteRows []*PaletteColorRow
+	var bgThemeSwatch, fgThemeSwatch *ColorSwatch
+
+	// Helper to get the current theme section name
+	getCurrentThemeSection := func() string {
+		if isTermThemeDark() {
+			return "term_colors_dark"
+		}
+		return "term_colors_light"
+	}
+
+	// Helper to get a color from a config section
+	getColorFromSection := func(sectionName, colorName string) string {
+		if section, ok := appConfig[sectionName]; ok {
+			if hex := pawgui.GetConfigSectionString(section, colorName); hex != "" {
+				return hex
+			}
+		}
+		return ""
+	}
+
+	// Helper to set a color in a config section
+	setColorInSection := func(sectionName, colorName, hex string) {
+		section, ok := appConfig[sectionName].(pawscript.PSLConfig)
+		if !ok {
+			section = pawscript.PSLConfig{}
+		}
+		if hex == "" {
+			delete(section, colorName)
+		} else {
+			section.Set(colorName, hex)
+		}
+		appConfig.Set(sectionName, section)
+	}
+
+	// Helper to apply palette changes to terminal
+	applyPaletteChanges := func() {
+		configHelper = pawgui.NewConfigHelper(appConfig)
+		applyConsoleTheme()
+	}
+
+	// Create two-column layout
+	columnsBox, _ := gtk.BoxNew(gtk.ORIENTATION_HORIZONTAL, 24)
+	paletteBox.PackStart(columnsBox, true, true, 0)
+
+	// Left column: Background + Dark colors (00-07)
+	leftColumn, _ := gtk.BoxNew(gtk.ORIENTATION_VERTICAL, 4)
+	columnsBox.PackStart(leftColumn, true, true, 0)
+
+	// Right column: Foreground + Bright colors (08-15)
+	rightColumn, _ := gtk.BoxNew(gtk.ORIENTATION_VERTICAL, 4)
+	columnsBox.PackStart(rightColumn, true, true, 0)
+
+	// Column headers
+	leftHeader, _ := gtk.LabelNew("Background / Dark")
+	leftHeader.SetXAlign(0)
+	leftColumn.PackStart(leftHeader, false, false, 0)
+
+	rightHeader, _ := gtk.LabelNew("Foreground / Bright")
+	rightHeader.SetXAlign(0)
+	rightColumn.PackStart(rightHeader, false, false, 0)
+
+	// Swatch size
+	swatchSize := 24
+
+	// --- Background row (theme only) ---
+	bgRow, _ := gtk.BoxNew(gtk.ORIENTATION_HORIZONTAL, 6)
+	bgLabel, _ := gtk.LabelNew("Background")
+	bgLabel.SetWidthChars(12)
+	bgLabel.SetXAlign(0)
+	bgRow.PackStart(bgLabel, false, false, 0)
+
+	// Spacer for where basic swatch would be
+	bgSpacer, _ := gtk.BoxNew(gtk.ORIENTATION_HORIZONTAL, 0)
+	bgSpacer.SetSizeRequest(swatchSize, swatchSize)
+	bgRow.PackStart(bgSpacer, false, false, 0)
+
+	// Background theme checkbox
+	bgThemeCheck, _ := gtk.CheckButtonNew()
+	bgThemeHex := getColorFromSection(getCurrentThemeSection(), "0_background")
+	bgThemeCheck.SetActive(bgThemeHex != "")
+	bgRow.PackStart(bgThemeCheck, false, false, 0)
+
+	// Background theme swatch
+	if bgThemeHex == "" {
+		bgThemeHex = "#1E1E1E" // Default dark background
+		if !isTermThemeDark() {
+			bgThemeHex = "#FFFFFF"
+		}
+	}
+	bgThemeSwatch = createColorSwatch(bgThemeHex, swatchSize, func(hex string) {
+		setColorInSection(getCurrentThemeSection(), "0_background", hex)
+		applyPaletteChanges()
+	})
+	bgThemeSwatch.SetEnabled(bgThemeCheck.GetActive())
+	bgRow.PackStart(bgThemeSwatch.Button, false, false, 0)
+
+	bgThemeCheck.Connect("toggled", func() {
+		enabled := bgThemeCheck.GetActive()
+		bgThemeSwatch.SetEnabled(enabled)
+		if enabled {
+			setColorInSection(getCurrentThemeSection(), "0_background", bgThemeSwatch.GetColor())
+		} else {
+			setColorInSection(getCurrentThemeSection(), "0_background", "")
+		}
+		applyPaletteChanges()
+	})
+
+	leftColumn.PackStart(bgRow, false, false, 0)
+
+	// --- Foreground row (theme only) ---
+	fgRow, _ := gtk.BoxNew(gtk.ORIENTATION_HORIZONTAL, 6)
+	fgLabel, _ := gtk.LabelNew("Foreground")
+	fgLabel.SetWidthChars(12)
+	fgLabel.SetXAlign(0)
+	fgRow.PackStart(fgLabel, false, false, 0)
+
+	// Spacer for where basic swatch would be
+	fgSpacer, _ := gtk.BoxNew(gtk.ORIENTATION_HORIZONTAL, 0)
+	fgSpacer.SetSizeRequest(swatchSize, swatchSize)
+	fgRow.PackStart(fgSpacer, false, false, 0)
+
+	// Foreground theme checkbox
+	fgThemeCheck, _ := gtk.CheckButtonNew()
+	fgThemeHex := getColorFromSection(getCurrentThemeSection(), "9_foreground")
+	fgThemeCheck.SetActive(fgThemeHex != "")
+	fgRow.PackStart(fgThemeCheck, false, false, 0)
+
+	// Foreground theme swatch
+	if fgThemeHex == "" {
+		fgThemeHex = "#D4D4D4" // Default dark foreground
+		if !isTermThemeDark() {
+			fgThemeHex = "#1E1E1E"
+		}
+	}
+	fgThemeSwatch = createColorSwatch(fgThemeHex, swatchSize, func(hex string) {
+		setColorInSection(getCurrentThemeSection(), "9_foreground", hex)
+		applyPaletteChanges()
+	})
+	fgThemeSwatch.SetEnabled(fgThemeCheck.GetActive())
+	fgRow.PackStart(fgThemeSwatch.Button, false, false, 0)
+
+	fgThemeCheck.Connect("toggled", func() {
+		enabled := fgThemeCheck.GetActive()
+		fgThemeSwatch.SetEnabled(enabled)
+		if enabled {
+			setColorInSection(getCurrentThemeSection(), "9_foreground", fgThemeSwatch.GetColor())
+		} else {
+			setColorInSection(getCurrentThemeSection(), "9_foreground", "")
+		}
+		applyPaletteChanges()
+	})
+
+	rightColumn.PackStart(fgRow, false, false, 0)
+
+	// Color names for display (VGA order)
+	colorDisplayNames := []string{
+		"00 Black", "01 Blue", "02 Green", "03 Cyan",
+		"04 Red", "05 Purple", "06 Brown", "07 Silver",
+		"08 Gray", "09 Bright Blue", "10 Bright Green", "11 Bright Cyan",
+		"12 Bright Red", "13 Pink", "14 Yellow", "15 White",
+	}
+	colorConfigNames := purfecterm.PaletteColorNames()
+	defaultPaletteHex := purfecterm.DefaultPaletteHex()
+
+	// Create palette color rows (00-07 on left, 08-15 on right)
+	for i := 0; i < 16; i++ {
+		colorRow := &PaletteColorRow{
+			ColorName:  colorConfigNames[i],
+			ColorIndex: i,
+		}
+
+		row, _ := gtk.BoxNew(gtk.ORIENTATION_HORIZONTAL, 6)
+		label, _ := gtk.LabelNew(colorDisplayNames[i])
+		label.SetWidthChars(12)
+		label.SetXAlign(0)
+		row.PackStart(label, false, false, 0)
+
+		// Basic swatch (from term_colors)
+		basicHex := getColorFromSection("term_colors", colorConfigNames[i])
+		if basicHex == "" {
+			basicHex = defaultPaletteHex[i]
+		}
+		colorRow.BasicSwatch = createColorSwatch(basicHex, swatchSize, func(hex string) {
+			setColorInSection("term_colors", colorRow.ColorName, hex)
+			applyPaletteChanges()
+		})
+		row.PackStart(colorRow.BasicSwatch.Button, false, false, 0)
+
+		// Theme checkbox
+		colorRow.ThemeCheckbox, _ = gtk.CheckButtonNew()
+		themeHex := getColorFromSection(getCurrentThemeSection(), colorConfigNames[i])
+		colorRow.ThemeCheckbox.SetActive(themeHex != "")
+		row.PackStart(colorRow.ThemeCheckbox, false, false, 0)
+
+		// Theme swatch
+		if themeHex == "" {
+			themeHex = basicHex // Use basic as default display
+		}
+		colorRow.ThemeSwatch = createColorSwatch(themeHex, swatchSize, func(hex string) {
+			setColorInSection(getCurrentThemeSection(), colorRow.ColorName, hex)
+			applyPaletteChanges()
+		})
+		colorRow.ThemeSwatch.SetEnabled(colorRow.ThemeCheckbox.GetActive())
+		row.PackStart(colorRow.ThemeSwatch.Button, false, false, 0)
+
+		// Wire up checkbox
+		localRow := colorRow // Capture for closure
+		colorRow.ThemeCheckbox.Connect("toggled", func() {
+			enabled := localRow.ThemeCheckbox.GetActive()
+			localRow.ThemeSwatch.SetEnabled(enabled)
+			if enabled {
+				setColorInSection(getCurrentThemeSection(), localRow.ColorName, localRow.ThemeSwatch.GetColor())
+			} else {
+				setColorInSection(getCurrentThemeSection(), localRow.ColorName, "")
+			}
+			applyPaletteChanges()
+		})
+
+		// Add to appropriate column
+		if i < 8 {
+			leftColumn.PackStart(row, false, false, 0)
+		} else {
+			rightColumn.PackStart(row, false, false, 0)
+		}
+
+		paletteRows = append(paletteRows, colorRow)
+	}
+
+	// Function to refresh palette tab when theme changes
+	refreshPaletteTab := func() {
+		themeSection := getCurrentThemeSection()
+
+		// Refresh background
+		bgHex := getColorFromSection(themeSection, "0_background")
+		bgThemeCheck.SetActive(bgHex != "")
+		if bgHex == "" {
+			if isTermThemeDark() {
+				bgHex = "#1E1E1E"
+			} else {
+				bgHex = "#FFFFFF"
+			}
+		}
+		bgThemeSwatch.SetColor(bgHex)
+		bgThemeSwatch.SetEnabled(bgThemeCheck.GetActive())
+
+		// Refresh foreground
+		fgHex := getColorFromSection(themeSection, "9_foreground")
+		fgThemeCheck.SetActive(fgHex != "")
+		if fgHex == "" {
+			if isTermThemeDark() {
+				fgHex = "#D4D4D4"
+			} else {
+				fgHex = "#1E1E1E"
+			}
+		}
+		fgThemeSwatch.SetColor(fgHex)
+		fgThemeSwatch.SetEnabled(fgThemeCheck.GetActive())
+
+		// Refresh palette colors
+		for _, row := range paletteRows {
+			themeHex := getColorFromSection(themeSection, row.ColorName)
+			row.ThemeCheckbox.SetActive(themeHex != "")
+			if themeHex == "" {
+				themeHex = row.BasicSwatch.GetColor()
+			}
+			row.ThemeSwatch.SetColor(themeHex)
+			row.ThemeSwatch.SetEnabled(row.ThemeCheckbox.GetActive())
+		}
+	}
+
+	// Store refreshPaletteTab for use by Console Theme combo
+	// We need to update the Console Theme combo's onChange to call this
+	origConsoleThemeOnChange := consoleThemeCombo.onChange
+	consoleThemeCombo.onChange = func(idx int) {
+		if origConsoleThemeOnChange != nil {
+			origConsoleThemeOnChange(idx)
+		}
+		refreshPaletteTab()
+	}
+
+	// Add palette tab to notebook
+	paletteLabel, _ := gtk.LabelNew("Palette")
+	notebook.AppendPage(paletteBox, paletteLabel)
+
 	// --- Button Box ---
 	buttonBox, _ := gtk.BoxNew(gtk.ORIENTATION_HORIZONTAL, 8)
 	buttonBox.SetHAlign(gtk.ALIGN_END)
@@ -2520,6 +2813,143 @@ func (c *SettingsComboMenu) RefreshIcons() {
 	if c.selected >= 0 && c.selected < len(c.items) {
 		c.updateMenuItem(c.selected, true)
 	}
+}
+
+// ColorSwatch represents a clickable color swatch button for palette editing
+type ColorSwatch struct {
+	Button    *gtk.Button
+	colorHex  string
+	onChange  func(string)
+	isEnabled bool
+}
+
+// createColorSwatch creates a color swatch button that opens a color picker when clicked
+func createColorSwatch(initialColor string, size int, onChange func(string)) *ColorSwatch {
+	swatch := &ColorSwatch{
+		colorHex:  initialColor,
+		onChange:  onChange,
+		isEnabled: true,
+	}
+
+	swatch.Button, _ = gtk.ButtonNew()
+	swatch.Button.SetSizeRequest(size, size)
+
+	// Apply the color as background via CSS
+	swatch.applyColor()
+
+	swatch.Button.Connect("clicked", func() {
+		if !swatch.isEnabled {
+			return
+		}
+		// Open color chooser dialog
+		colorDialog, _ := gtk.ColorChooserDialogNew("Choose Color", nil)
+
+		// Set current color
+		if swatch.colorHex != "" {
+			rgba := gdk.NewRGBA(0, 0, 0, 1)
+			if rgba.Parse(swatch.colorHex) {
+				colorDialog.SetRGBA(rgba)
+			}
+		}
+
+		response := colorDialog.Run()
+		if response == int(gtk.RESPONSE_OK) {
+			rgba := colorDialog.GetRGBA()
+			// Convert to hex
+			r := int(rgba.GetRed() * 255)
+			g := int(rgba.GetGreen() * 255)
+			b := int(rgba.GetBlue() * 255)
+			newHex := fmt.Sprintf("#%02X%02X%02X", r, g, b)
+			swatch.SetColor(newHex)
+			if swatch.onChange != nil {
+				swatch.onChange(newHex)
+			}
+		}
+		colorDialog.Destroy()
+	})
+
+	return swatch
+}
+
+// SetColor updates the swatch color
+func (s *ColorSwatch) SetColor(hex string) {
+	s.colorHex = hex
+	s.applyColor()
+}
+
+// GetColor returns the current color hex value
+func (s *ColorSwatch) GetColor() string {
+	return s.colorHex
+}
+
+// SetEnabled enables or disables the swatch
+func (s *ColorSwatch) SetEnabled(enabled bool) {
+	s.isEnabled = enabled
+	s.Button.SetSensitive(enabled)
+	s.applyColor()
+}
+
+// applyColor applies the current color as button background via CSS
+func (s *ColorSwatch) applyColor() {
+	cssProvider, err := gtk.CssProviderNew()
+	if err != nil {
+		return
+	}
+
+	bgColor := s.colorHex
+	if bgColor == "" || !s.isEnabled {
+		bgColor = "#808080" // Gray for empty/disabled
+	}
+
+	// Calculate contrasting border color
+	borderColor := "#000000"
+	if bgColor != "" && len(bgColor) == 7 {
+		r, _ := strconv.ParseInt(bgColor[1:3], 16, 64)
+		g, _ := strconv.ParseInt(bgColor[3:5], 16, 64)
+		b, _ := strconv.ParseInt(bgColor[5:7], 16, 64)
+		luminance := (r*299 + g*587 + b*114) / 1000
+		if luminance < 128 {
+			borderColor = "#FFFFFF"
+		}
+	}
+
+	opacity := "1.0"
+	if !s.isEnabled {
+		opacity = "0.5"
+	}
+
+	css := fmt.Sprintf(`
+		button {
+			background-color: %s;
+			background-image: none;
+			border: 1px solid %s;
+			border-radius: 3px;
+			padding: 0;
+			min-width: 0;
+			min-height: 0;
+			opacity: %s;
+		}
+		button:hover {
+			background-color: %s;
+			border: 2px solid %s;
+		}
+	`, bgColor, borderColor, opacity, bgColor, borderColor)
+
+	cssProvider.LoadFromData(css)
+	styleCtx, err := s.Button.GetStyleContext()
+	if err != nil {
+		return
+	}
+	styleCtx.AddProvider(cssProvider, gtk.STYLE_PROVIDER_PRIORITY_USER)
+}
+
+// PaletteColorRow holds the widgets for a single palette color entry
+type PaletteColorRow struct {
+	BasicSwatch   *ColorSwatch
+	ThemeSwatch   *ColorSwatch
+	ThemeCheckbox *gtk.CheckButton
+	ColorName     string
+	ColorIndex    int
 }
 
 // applyToolbarButtonStyle applies CSS to make toolbar buttons square with equal padding

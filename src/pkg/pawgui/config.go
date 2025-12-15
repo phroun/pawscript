@@ -143,9 +143,9 @@ func (h *ConfigHelper) GetOptimizationLevel() int {
 	return 1
 }
 
-// getConfigSectionString extracts a string value from a config section.
+// GetConfigSectionString extracts a string value from a config section.
 // Handles PSLConfig, StoredList, and map[string]interface{} types.
-func getConfigSectionString(config interface{}, key string) string {
+func GetConfigSectionString(config interface{}, key string) string {
 	// Helper to extract string from various value types
 	toString := func(v interface{}) string {
 		if v == nil {
