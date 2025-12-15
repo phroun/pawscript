@@ -1115,16 +1115,6 @@ func applyConsoleTheme() {
 		terminal.SetColorScheme(scheme)
 	}
 
-	// Apply to all console windows
-	if app != nil {
-		windows := app.GetWindows()
-		for l := windows; l != nil; l = l.Next() {
-			if win, ok := l.Data().(*gtk.ApplicationWindow); ok {
-				// Find terminal in window (this is a simplification)
-				_ = win // Each console window manages its own terminal
-			}
-		}
-	}
 }
 
 // MenuContext holds callbacks and state for hamburger menu items
