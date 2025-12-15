@@ -1886,42 +1886,15 @@ func applyUIScaleFromConfig() {
 	applyUIScale(getUIScale())
 }
 
-// createMenuActionWithShortcut creates a menu action with a grayed shortcut on the right
-// Uses QWidgetAction to allow different styling for label vs shortcut while matching
-// native menu item appearance (gutter alignment, hover effects handled by menu)
+// createMenuActionWithShortcut creates a menu action with shortcut displayed on the right
+// Uses Qt's native tab-separated format for proper menu styling (gradient, hover, indentation)
+// Note: Qt doesn't support styling the shortcut portion differently from the label
 func createMenuActionWithShortcut(menu *qt.QMenu, label, shortcut string) *qt.QAction {
-	widgetAction := qt.NewQWidgetAction(menu.QObject)
-
-	// Create container widget with transparent background (menu handles hover highlight)
-	widget := qt.NewQWidget2()
-	widget.SetAttribute(qt.WA_TranslucentBackground)
-
-	layout := qt.NewQHBoxLayout2()
-	// Left margin: icon gutter (16px icon + 4px padding each side = 24px) + 8px spacing
-	// This aligns text with other menu items that have icons
-	gutterWidth := scaledMenuIconSize() + int(12*getUIScale())
-	layout.SetContentsMargins(gutterWidth, 4, 12, 4)
-	layout.SetSpacing(int(16 * getUIScale()))
-	widget.SetLayout(layout.QLayout)
-
-	// Main label - inherits menu text color
-	mainLabel := qt.NewQLabel3(label)
-	layout.AddWidget(mainLabel.QWidget)
-
-	// Stretch to push shortcut to the right
-	layout.AddStretch()
-
-	// Shortcut label (grayed)
+	text := label
 	if shortcut != "" {
-		shortcutLabel := qt.NewQLabel3(formatShortcutForDisplay(shortcut))
-		shortcutLabel.SetStyleSheet("QLabel { color: #808080; }")
-		layout.AddWidget(shortcutLabel.QWidget)
+		text = label + "\t" + formatShortcutForDisplay(shortcut)
 	}
-
-	widgetAction.SetDefaultWidget(widget)
-	menu.QWidget.AddAction(widgetAction.QAction)
-
-	return widgetAction.QAction
+	return menu.AddAction(text)
 }
 
 // createHamburgerMenu creates the hamburger dropdown menu
