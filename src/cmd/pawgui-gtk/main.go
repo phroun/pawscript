@@ -119,9 +119,8 @@ var (
 	toolbarDataMu       sync.Mutex
 
 	// File list icon tracking
-	rowIconTypeMap       = make(map[*gtk.ListBoxRow]gtkIconType)
-	rowImageMap          = make(map[*gtk.ListBoxRow]*gtk.Image)
-	previousSelectedRow  *gtk.ListBoxRow
+	rowIconTypeMap      = make(map[*gtk.ListBoxRow]gtkIconType)
+	previousSelectedRow *gtk.ListBoxRow
 )
 
 // gtkIconType represents the type of icon for a file list row
@@ -881,6 +880,37 @@ func updateToolbarIcons() {
 	refreshFileListIcons()
 }
 
+// findRowImage finds the image widget in a file list row's box
+// Returns nil if not found
+func findRowImage(row *gtk.ListBoxRow) *gtk.Image {
+	if row == nil {
+		return nil
+	}
+	child, err := row.GetChild()
+	if err != nil || child == nil {
+		return nil
+	}
+	box, ok := child.(*gtk.Box)
+	if !ok {
+		return nil
+	}
+
+	// Find image by iterating through children with Foreach
+	var foundImage *gtk.Image
+	children := box.GetChildren()
+	if children != nil {
+		children.Foreach(func(item interface{}) {
+			if foundImage != nil {
+				return // Already found
+			}
+			if img, ok := item.(*gtk.Image); ok {
+				foundImage = img
+			}
+		})
+	}
+	return foundImage
+}
+
 // refreshFileListIcons updates all file list icons to match current theme
 func refreshFileListIcons() {
 	if fileList == nil {
@@ -895,9 +925,9 @@ func refreshFileListIcons() {
 			continue
 		}
 
-		// Get the stored image for this row
-		img, hasImg := rowImageMap[row]
-		if !hasImg || img == nil {
+		// Find the image in this row
+		img := findRowImage(row)
+		if img == nil {
 			continue
 		}
 
@@ -1907,9 +1937,9 @@ func updateRowIcon(row *gtk.ListBoxRow, useDarkIcon bool) {
 		return
 	}
 
-	// Get the stored image for this row
-	img, hasImg := rowImageMap[row]
-	if !hasImg || img == nil {
+	// Find the image in this row
+	img := findRowImage(row)
+	if img == nil {
 		return
 	}
 
@@ -4244,7 +4274,6 @@ func updatePathMenu() {
 func refreshFileList() {
 	// Clear icon type map and reset previous selected row
 	rowIconTypeMap = make(map[*gtk.ListBoxRow]gtkIconType)
-	rowImageMap = make(map[*gtk.ListBoxRow]*gtk.Image)
 	previousSelectedRow = nil
 
 	// Clear existing items
@@ -4317,7 +4346,6 @@ func createFileRow(name string, isDir bool, isParent bool) *gtk.ListBoxRow {
 	svgData := getSVGIcon(svgTemplate)
 	if icon := createImageFromSVG(svgData, gtkFileListIconSize); icon != nil {
 		box.PackStart(icon, false, false, 0)
-		rowImageMap[row] = icon // Store image reference for later updates
 	}
 
 	// Name label

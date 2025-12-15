@@ -9,6 +9,7 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"regexp"
 	"runtime"
 	"strings"
 	"sync"
@@ -202,13 +203,25 @@ func createDarkIconFromSVG(svgTemplate string, size int) *qt.QIcon {
 	return nil
 }
 
+// resizeSVG modifies the width and height attributes in an SVG string
+// This allows Qt to render the vector directly at the target size
+func resizeSVG(svgData string, size int) string {
+	sizeStr := fmt.Sprintf("%d", size)
+	// Replace width="..." and height="..." attributes
+	result := regexp.MustCompile(`width="[^"]*"`).ReplaceAllString(svgData, `width="`+sizeStr+`"`)
+	result = regexp.MustCompile(`height="[^"]*"`).ReplaceAllString(result, `height="`+sizeStr+`"`)
+	return result
+}
+
 // createPixmapFromSVG creates a QPixmap from SVG data at the specified size
 func createPixmapFromSVG(svgData string, size int) *qt.QPixmap {
+	// Resize SVG to target size before loading - this lets the vector renderer
+	// rasterize directly at the correct size, avoiding bitmap scaling artifacts
+	resizedSVG := resizeSVG(svgData, size)
 	pixmap := qt.NewQPixmap()
-	data := []byte(svgData)
+	data := []byte(resizedSVG)
 	if pixmap.LoadFromData(unsafe.SliceData(data), uint(len(data))) {
-		scaled := pixmap.Scaled2(size, size, qt.KeepAspectRatio)
-		return scaled
+		return pixmap
 	}
 	return nil
 }
