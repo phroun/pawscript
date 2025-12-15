@@ -772,6 +772,7 @@ func showSettingsDialog(parent gtk.IWindow) {
 		saveConfig(appConfig)
 	} else {
 		// Revert to original values on Cancel
+		currentUIScale := getUIScale() // Get current scale before reverting
 		appConfig.Set("theme", origWindowTheme)
 		appConfig.Set("term_theme", origTermTheme)
 		appConfig.Set("ui_scale", origUIScale)
@@ -785,7 +786,10 @@ func showSettingsDialog(parent gtk.IWindow) {
 		configHelper = pawgui.NewConfigHelper(appConfig)
 		applyWindowTheme()
 		applyConsoleTheme()
-		applyUIScale()
+		// Only apply UI scale if it actually changed (avoids unnecessary file list rebuild)
+		if currentUIScale != origUIScale {
+			applyUIScale()
+		}
 		applyFontSettings()
 		// Revert splitter position
 		if launcherPaned != nil && origSplitterPos > 0 {

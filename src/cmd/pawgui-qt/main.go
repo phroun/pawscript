@@ -1083,6 +1083,7 @@ func showSettingsDialog(parent *qt.QWidget) {
 		saveConfig(appConfig)
 	} else {
 		// Revert to original values on Cancel
+		currentUIScale := getUIScale() // Get current scale before reverting
 		appConfig.Set("theme", origWindowTheme)
 		appConfig.Set("term_theme", origTermTheme)
 		appConfig.Set("ui_scale", origUIScale)
@@ -1096,7 +1097,10 @@ func showSettingsDialog(parent *qt.QWidget) {
 		configHelper = pawgui.NewConfigHelper(appConfig)
 		applyTheme(configHelper.GetTheme())
 		applyConsoleTheme()
-		applyUIScaleFromConfig()
+		// Only apply UI scale if it actually changed (avoids unnecessary refresh)
+		if currentUIScale != origUIScale {
+			applyUIScaleFromConfig()
+		}
 		applyFontSettings()
 		// Revert splitter position
 		if launcherSplitter != nil && origSplitterPos > 0 {
