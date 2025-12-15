@@ -1810,6 +1810,8 @@ func showSettingsDialog(parent *qt.QWidget) {
 	}
 
 	dialog.DeleteLater()
+	// Force GC to clean up any orphaned Qt wrappers from font/theme changes
+	runtime.GC()
 }
 
 // applyConsoleTheme applies the console theme to all terminals
@@ -1853,6 +1855,9 @@ func applyFontSettings() {
 		}
 	}
 	qtToolbarDataMu.Unlock()
+
+	// Force GC to clean up any orphaned font objects from font changes
+	runtime.GC()
 }
 
 // applyUIScaleFromConfig applies the current UI scale from config

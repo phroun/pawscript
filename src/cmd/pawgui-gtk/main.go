@@ -1181,6 +1181,9 @@ func showSettingsDialog(parent gtk.IWindow) {
 		}
 	}
 	dlg.Destroy()
+	// Force GC to clean up orphaned GTK wrappers from font/theme changes
+	// This prevents crashes from finalizers running during unrelated operations
+	runtime.GC()
 }
 
 // applyWindowTheme applies the window theme setting
@@ -1219,6 +1222,9 @@ func applyFontSettings() {
 		}
 	}
 	toolbarDataMu.Unlock()
+
+	// Force GC to clean up any orphaned Pango/GTK objects from font changes
+	runtime.GC()
 }
 
 // applyUIScale applies UI scale to all windows (requires restart for full effect)
