@@ -846,7 +846,8 @@ func showSettingsDialog(parent gtk.IWindow) {
 	rowVerticalSpacing := int(4 * uiScale)
 	swatchSize := int(24 * uiScale)
 	labelWidth := int(115 * uiScale)
-	checkboxWidth := int(16 * uiScale) // Checkbox spacer for bg/fg rows
+	checkboxWidth := int(16 * uiScale)     // Checkbox spacer for bg/fg rows
+	darkCheckboxWidth := int(14 * uiScale) // Slightly smaller for dark checkbox spacer alignment
 	rowSpacing := int(6 * uiScale)
 
 	// Create two-column layout
@@ -880,31 +881,25 @@ func showSettingsDialog(parent gtk.IWindow) {
 	bgLightCheckSpacer.SetSizeRequest(checkboxWidth, swatchSize)
 	bgRow.PackStart(bgLightCheckSpacer, false, false, 0)
 
-	// Light background swatch
+	// Light background swatch (onChange set later)
 	bgLightHex := getColorFromSection("term_colors_light", "0_background")
 	if bgLightHex == "" {
 		bgLightHex = "#FFFFFF"
 	}
-	bgLightSwatch := createColorSwatch(bgLightHex, swatchSize, func(hex string) {
-		setColorInSection("term_colors_light", "0_background", hex)
-		applyPaletteChanges()
-	})
+	bgLightSwatch := createColorSwatch(bgLightHex, swatchSize, nil)
 	bgRow.PackStart(bgLightSwatch.Button, false, false, 0)
 
 	// Spacer for dark checkbox
 	bgDarkCheckSpacer, _ := gtk.BoxNew(gtk.ORIENTATION_HORIZONTAL, 0)
-	bgDarkCheckSpacer.SetSizeRequest(checkboxWidth, swatchSize)
+	bgDarkCheckSpacer.SetSizeRequest(darkCheckboxWidth, swatchSize)
 	bgRow.PackStart(bgDarkCheckSpacer, false, false, 0)
 
-	// Dark background swatch
+	// Dark background swatch (onChange set later)
 	bgDarkHex := getColorFromSection("term_colors_dark", "0_background")
 	if bgDarkHex == "" {
 		bgDarkHex = "#1E1E1E"
 	}
-	bgDarkSwatch := createColorSwatch(bgDarkHex, swatchSize, func(hex string) {
-		setColorInSection("term_colors_dark", "0_background", hex)
-		applyPaletteChanges()
-	})
+	bgDarkSwatch := createColorSwatch(bgDarkHex, swatchSize, nil)
 	bgRow.PackStart(bgDarkSwatch.Button, false, false, 0)
 
 	leftColumn.PackStart(bgRow, false, false, 0)
@@ -928,34 +923,50 @@ func showSettingsDialog(parent gtk.IWindow) {
 	fgLightCheckSpacer.SetSizeRequest(checkboxWidth, swatchSize)
 	fgRow.PackStart(fgLightCheckSpacer, false, false, 0)
 
-	// Light foreground swatch
+	// Light foreground swatch (onChange set later)
 	fgLightHex := getColorFromSection("term_colors_light", "9_foreground")
 	if fgLightHex == "" {
 		fgLightHex = "#1E1E1E"
 	}
-	fgLightSwatch := createColorSwatch(fgLightHex, swatchSize, func(hex string) {
-		setColorInSection("term_colors_light", "9_foreground", hex)
-		applyPaletteChanges()
-	})
+	fgLightSwatch := createColorSwatch(fgLightHex, swatchSize, nil)
 	fgRow.PackStart(fgLightSwatch.Button, false, false, 0)
 
 	// Spacer for dark checkbox
 	fgDarkCheckSpacer, _ := gtk.BoxNew(gtk.ORIENTATION_HORIZONTAL, 0)
-	fgDarkCheckSpacer.SetSizeRequest(checkboxWidth, swatchSize)
+	fgDarkCheckSpacer.SetSizeRequest(darkCheckboxWidth, swatchSize)
 	fgRow.PackStart(fgDarkCheckSpacer, false, false, 0)
 
-	// Dark foreground swatch
+	// Dark foreground swatch (onChange set later)
 	fgDarkHex := getColorFromSection("term_colors_dark", "9_foreground")
 	if fgDarkHex == "" {
 		fgDarkHex = "#D4D4D4"
 	}
-	fgDarkSwatch := createColorSwatch(fgDarkHex, swatchSize, func(hex string) {
-		setColorInSection("term_colors_dark", "9_foreground", hex)
-		applyPaletteChanges()
-	})
+	fgDarkSwatch := createColorSwatch(fgDarkHex, swatchSize, nil)
 	fgRow.PackStart(fgDarkSwatch.Button, false, false, 0)
 
 	rightColumn.PackStart(fgRow, false, false, 0)
+
+	// Set up onChange callbacks that cross-update text colors
+	bgLightSwatch.onChange = func(hex string) {
+		setColorInSection("term_colors_light", "0_background", hex)
+		fgLightSwatch.SetText("Lt", hex) // Update fg text color to new bg
+		applyPaletteChanges()
+	}
+	bgDarkSwatch.onChange = func(hex string) {
+		setColorInSection("term_colors_dark", "0_background", hex)
+		fgDarkSwatch.SetText("Dk", hex) // Update fg text color to new bg
+		applyPaletteChanges()
+	}
+	fgLightSwatch.onChange = func(hex string) {
+		setColorInSection("term_colors_light", "9_foreground", hex)
+		bgLightSwatch.SetText("Lt", hex) // Update bg text color to new fg
+		applyPaletteChanges()
+	}
+	fgDarkSwatch.onChange = func(hex string) {
+		setColorInSection("term_colors_dark", "9_foreground", hex)
+		bgDarkSwatch.SetText("Dk", hex) // Update bg text color to new fg
+		applyPaletteChanges()
+	}
 
 	// Add text labels to bg/fg swatches: "Lt"/"Dk" in the opposite color
 	bgLightSwatch.SetText("Lt", fgLightHex)
