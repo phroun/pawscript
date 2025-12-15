@@ -1648,18 +1648,18 @@ func (w *Widget) paintEvent(event *qt.QPaintEvent) {
 				var drawFont *qt.QFont
 				if charFontFamily != fontFamily || cell.Bold || cell.Italic {
 					// Need a different font - either fallback, bold, or italic
-					// Use QFontDatabase to directly request the style variant
-					fontDb := qt.NewQFontDatabase()
-					styleName := "Regular"
-					if cell.Bold && cell.Italic {
-						styleName = "Bold Italic"
-					} else if cell.Bold {
-						styleName = "Bold"
-					} else if cell.Italic {
-						styleName = "Italic"
+					drawFont = qt.NewQFont6(charFontFamily, fontSize)
+					// Only set fixed pitch for fallback fonts, not for bold/italic
+					// as it may interfere with Qt's font variant lookup
+					if charFontFamily != fontFamily {
+						drawFont.SetFixedPitch(false)
 					}
-					drawFont = fontDb.Font(charFontFamily, styleName, fontSize)
-					drawFont.SetFixedPitch(charFontFamily == fontFamily) // Only fix pitch for main font
+					if cell.Bold {
+						drawFont.SetBold(true)
+					}
+					if cell.Italic {
+						drawFont.SetItalic(true)
+					}
 					painter.SetFont(drawFont)
 				} else {
 					drawFont = font
