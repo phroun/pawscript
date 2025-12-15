@@ -174,6 +174,21 @@ func getSVGIcon(svgTemplate string) string {
 	return strings.Replace(svgTemplate, "{{FILL}}", getIconFillColor(), -1)
 }
 
+// getDarkSVGIcon returns SVG data with the dark mode fill color (white) for selected rows
+func getDarkSVGIcon(svgTemplate string) string {
+	return strings.Replace(svgTemplate, "{{FILL}}", "#ffffff", -1)
+}
+
+// createDarkIconFromSVG creates a QIcon with dark mode fill color at the specified size
+func createDarkIconFromSVG(svgTemplate string, size int) *qt.QIcon {
+	svgData := getDarkSVGIcon(svgTemplate)
+	pixmap := createPixmapFromSVG(svgData, size)
+	if pixmap != nil {
+		return qt.NewQIcon2(pixmap)
+	}
+	return nil
+}
+
 // createPixmapFromSVG creates a QPixmap from SVG data at the specified size
 func createPixmapFromSVG(svgData string, size int) *qt.QPixmap {
 	pixmap := qt.NewQPixmap()
@@ -3296,7 +3311,7 @@ func createFilePanel() *qt.QWidget {
 		handleFileActivated(item)
 	})
 	fileList.OnCurrentItemChanged(func(current *qt.QListWidgetItem, previous *qt.QListWidgetItem) {
-		onSelectionChanged(current)
+		onSelectionChanged(current, previous)
 	})
 	layout.AddWidget2(fileList.QWidget, 1)
 
@@ -3566,14 +3581,25 @@ func startREPL() {
 	registerDummyButtonCommand(consoleREPL.GetPawScript(), launcherToolbarData)
 }
 
+// iconType represents the type of icon for a file list item
+type iconType int
+
+const (
+	iconTypeFolder iconType = iota
+	iconTypeFolderUp
+	iconTypePawFile
+)
+
 // fileItemData stores path and isDir for list items
 type fileItemData struct {
-	path  string
-	isDir bool
+	path     string
+	isDir    bool
+	iconType iconType
 }
 
 var fileItemDataMap = make(map[unsafe.Pointer]fileItemData)
 var fileItemDataMu sync.Mutex
+var previousSelectedItem *qt.QListWidgetItem
 
 // updatePathButtonText updates the button text with elision based on current width
 func updatePathButtonText() {
@@ -3685,6 +3711,9 @@ func loadDirectory(dir string) {
 	folderIcon := createIconFromSVG(folderIconSVG, 24)
 	fileIcon := createIconFromSVG(pawFileIconSVG, 24)
 
+	// Reset previous selected item when directory changes
+	previousSelectedItem = nil
+
 	// Add parent directory entry (except at root)
 	if dir != "/" && filepath.Dir(dir) != dir {
 		item := qt.NewQListWidgetItem7("..", fileList)
@@ -3693,8 +3722,9 @@ func loadDirectory(dir string) {
 		}
 		fileItemDataMu.Lock()
 		fileItemDataMap[item.UnsafePointer()] = fileItemData{
-			path:  filepath.Dir(dir),
-			isDir: true,
+			path:     filepath.Dir(dir),
+			isDir:    true,
+			iconType: iconTypeFolderUp,
 		}
 		fileItemDataMu.Unlock()
 	}
@@ -3709,8 +3739,9 @@ func loadDirectory(dir string) {
 			// Store data using pointer map
 			fileItemDataMu.Lock()
 			fileItemDataMap[item.UnsafePointer()] = fileItemData{
-				path:  filepath.Join(dir, entry.Name()),
-				isDir: true,
+				path:     filepath.Join(dir, entry.Name()),
+				isDir:    true,
+				iconType: iconTypeFolder,
 			}
 			fileItemDataMu.Unlock()
 		}
@@ -3726,8 +3757,9 @@ func loadDirectory(dir string) {
 			// Store data using pointer map
 			fileItemDataMu.Lock()
 			fileItemDataMap[item.UnsafePointer()] = fileItemData{
-				path:  filepath.Join(dir, entry.Name()),
-				isDir: false,
+				path:     filepath.Join(dir, entry.Name()),
+				isDir:    false,
+				iconType: iconTypePawFile,
 			}
 			fileItemDataMu.Unlock()
 		}
@@ -3759,18 +3791,53 @@ func navigateUp() {
 	}
 }
 
-func onSelectionChanged(item *qt.QListWidgetItem) {
-	if item == nil || runButton == nil {
+func onSelectionChanged(current *qt.QListWidgetItem, previous *qt.QListWidgetItem) {
+	// Restore previous item's icon to normal theme
+	if previous != nil {
+		fileItemDataMu.Lock()
+		prevData, prevOk := fileItemDataMap[previous.UnsafePointer()]
+		fileItemDataMu.Unlock()
+		if prevOk {
+			var icon *qt.QIcon
+			switch prevData.iconType {
+			case iconTypeFolderUp:
+				icon = createIconFromSVG(folderUpIconSVG, 24)
+			case iconTypeFolder:
+				icon = createIconFromSVG(folderIconSVG, 24)
+			case iconTypePawFile:
+				icon = createIconFromSVG(pawFileIconSVG, 24)
+			}
+			if icon != nil {
+				previous.SetIcon(icon)
+			}
+		}
+	}
+
+	if current == nil || runButton == nil {
 		return
 	}
 
 	fileItemDataMu.Lock()
-	data, ok := fileItemDataMap[item.UnsafePointer()]
+	data, ok := fileItemDataMap[current.UnsafePointer()]
 	fileItemDataMu.Unlock()
 
 	if !ok {
 		runButton.SetText("Run")
 		return
+	}
+
+	// Set current item's icon to dark mode (white fill for selected row)
+	var darkIcon *qt.QIcon
+	switch data.iconType {
+	case iconTypeFolderUp:
+		darkIcon = createDarkIconFromSVG(folderUpIconSVG, 24)
+	case iconTypeFolder:
+		darkIcon = createDarkIconFromSVG(folderIconSVG, 24)
+	case iconTypePawFile:
+		darkIcon = createDarkIconFromSVG(pawFileIconSVG, 24)
+	}
+	if darkIcon != nil {
+		current.SetIcon(darkIcon)
 	}
 
 	if data.isDir {

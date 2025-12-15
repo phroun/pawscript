@@ -117,6 +117,19 @@ var (
 	toolbarDataByPS     = make(map[*pawscript.PawScript]*WindowToolbarData)
 	toolbarDataByWindow = make(map[*gtk.ApplicationWindow]*WindowToolbarData)
 	toolbarDataMu       sync.Mutex
+
+	// File list icon tracking
+	rowIconTypeMap       = make(map[*gtk.ListBoxRow]gtkIconType)
+	previousSelectedRow  *gtk.ListBoxRow
+)
+
+// gtkIconType represents the type of icon for a file list row
+type gtkIconType int
+
+const (
+	gtkIconTypeFolder gtkIconType = iota
+	gtkIconTypeFolderUp
+	gtkIconTypePawFile
 )
 
 // WindowToolbarData holds per-window toolbar state for dummy_button command
@@ -1738,6 +1751,11 @@ func getSVGIcon(svgTemplate string) string {
 	return strings.Replace(svgTemplate, "{{FILL}}", getIconFillColor(), -1)
 }
 
+// getDarkSVGIcon returns SVG data with the dark mode fill color (white) for selected rows
+func getDarkSVGIcon(svgTemplate string) string {
+	return strings.Replace(svgTemplate, "{{FILL}}", "#ffffff", -1)
+}
+
 // createImageFromSVG creates a GtkImage from SVG data
 func createImageFromSVG(svgData string, size int) *gtk.Image {
 	// Create a PixbufLoader for SVG
@@ -1777,6 +1795,68 @@ func createImageFromSVG(svgData string, size int) *gtk.Image {
 	}
 
 	return img
+}
+
+// updateRowIcon updates the icon in a file list row
+func updateRowIcon(row *gtk.ListBoxRow, useDarkIcon bool) {
+	if row == nil {
+		return
+	}
+
+	iconType, ok := rowIconTypeMap[row]
+	if !ok {
+		return
+	}
+
+	// Get the SVG template based on icon type
+	var svgTemplate string
+	switch iconType {
+	case gtkIconTypeFolderUp:
+		svgTemplate = folderUpIconSVG
+	case gtkIconTypeFolder:
+		svgTemplate = folderIconSVG
+	case gtkIconTypePawFile:
+		svgTemplate = pawFileIconSVG
+	default:
+		return
+	}
+
+	// Get SVG data with appropriate fill color
+	var svgData string
+	if useDarkIcon {
+		svgData = getDarkSVGIcon(svgTemplate)
+	} else {
+		svgData = getSVGIcon(svgTemplate)
+	}
+
+	// Get the box from the row
+	child, err := row.GetChild()
+	if err != nil || child == nil {
+		return
+	}
+	box, ok := child.(*gtk.Box)
+	if !ok {
+		return
+	}
+
+	// Get box children and find the image (first child)
+	children := box.GetChildren()
+	if children == nil || children.Length() == 0 {
+		return
+	}
+
+	// Remove the old image (first child)
+	first := children.NthData(0)
+	if oldImg, ok := first.(*gtk.Image); ok {
+		box.Remove(oldImg)
+	}
+
+	// Create new image and pack it at the start
+	if newImg := createImageFromSVG(svgData, 24); newImg != nil {
+		box.PackStart(newImg, false, false, 0)
+		box.ReorderChild(newImg, 0) // Ensure it's the first child
+		newImg.Show()
+	}
 }
 
 // createMenuItemWithIcon creates a GTK menu item with an SVG icon and label
@@ -4081,6 +4161,10 @@ func updatePathMenu() {
 }
 
 func refreshFileList() {
+	// Clear icon type map and reset previous selected row
+	rowIconTypeMap = make(map[*gtk.ListBoxRow]gtkIconType)
+	previousSelectedRow = nil
+
 	// Clear existing items
 	children := fileList.GetChildren()
 	children.Foreach(func(item interface{}) {
@@ -4130,15 +4214,23 @@ func createFileRow(name string, isDir bool, isParent bool) *gtk.ListBoxRow {
 	box.SetMarginTop(2)
 	box.SetMarginBottom(2)
 
-	// Use custom SVG icons
+	// Determine icon type and SVG template
 	var svgTemplate string
+	var iconType gtkIconType
 	if isParent {
 		svgTemplate = folderUpIconSVG
+		iconType = gtkIconTypeFolderUp
 	} else if isDir {
 		svgTemplate = folderIconSVG
+		iconType = gtkIconTypeFolder
 	} else {
 		svgTemplate = pawFileIconSVG
+		iconType = gtkIconTypePawFile
 	}
+
+	// Store icon type for later icon updates
+	rowIconTypeMap[row] = iconType
+
 	// Get themed SVG (applies {{FILL}} replacement for theme-aware icons)
 	svgData := getSVGIcon(svgTemplate)
 	if icon := createImageFromSVG(svgData, 24); icon != nil {
@@ -4163,6 +4255,19 @@ func onFileActivated(listbox *gtk.ListBox, row *gtk.ListBoxRow) {
 }
 
 func onRowSelected(listbox *gtk.ListBox, row *gtk.ListBoxRow) {
+	// Restore previous row's icon to normal theme
+	if previousSelectedRow != nil {
+		updateRowIcon(previousSelectedRow, false)
+	}
+
+	// Update current row's icon to dark mode (white fill for selected row)
+	if row != nil {
+		updateRowIcon(row, true)
+		previousSelectedRow = row
+	} else {
+		previousSelectedRow = nil
+	}
+
 	if row == nil || runButton == nil {
 		return
 	}
