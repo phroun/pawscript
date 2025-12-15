@@ -14,6 +14,10 @@ import (
 // Left padding for terminal content (pixels)
 const terminalLeftPadding = 8
 
+// Qt font size scale factor to match GTK/Pango font rendering
+// Qt interprets font sizes differently than Pango, so we multiply by this factor
+const qtFontSizeScale = 1.333
+
 // glyphCacheEntry stores a cached rendered glyph pixmap
 type glyphCacheEntry struct {
 	pixmap     *qt.QPixmap
@@ -611,6 +615,12 @@ func (w *Widget) SetFont(family string, size int) {
 	w.widget.Update()
 }
 
+// effectiveFontSize returns the font size scaled for Qt rendering.
+// Qt interprets font sizes differently than GTK/Pango, so we apply a scale factor.
+func (w *Widget) effectiveFontSize() int {
+	return int(float64(w.fontSize) * qtFontSizeScale)
+}
+
 // SetColorScheme sets the color scheme
 func (w *Widget) SetColorScheme(scheme purfecterm.ColorScheme) {
 	w.mu.Lock()
@@ -823,17 +833,18 @@ func (w *Widget) Buffer() *purfecterm.Buffer {
 }
 
 func (w *Widget) updateFontMetrics() {
-	font := qt.NewQFont6(w.fontFamily, w.fontSize)
+	effectiveSize := w.effectiveFontSize()
+	font := qt.NewQFont6(w.fontFamily, effectiveSize)
 	font.SetFixedPitch(true)
 	metrics := qt.NewQFontMetrics(font)
 	w.charWidth = metrics.AverageCharWidth()
 	w.charHeight = metrics.Height()
 	w.charAscent = metrics.Ascent()
 	if w.charWidth < 1 {
-		w.charWidth = w.fontSize * 6 / 10
+		w.charWidth = effectiveSize * 6 / 10
 	}
 	if w.charHeight < 1 {
-		w.charHeight = w.fontSize * 12 / 10
+		w.charHeight = effectiveSize * 12 / 10
 	}
 }
 
@@ -1434,7 +1445,7 @@ func (w *Widget) paintEvent(event *qt.QPaintEvent) {
 	w.mu.Lock()
 	scheme := w.scheme
 	fontFamily := w.fontFamily
-	fontSize := w.fontSize
+	fontSize := w.effectiveFontSize()
 	baseCharWidth := w.charWidth
 	baseCharHeight := w.charHeight
 	baseCharAscent := w.charAscent
