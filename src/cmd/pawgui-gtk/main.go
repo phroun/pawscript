@@ -324,7 +324,7 @@ func getLauncherPosition() (int, int) {
 
 // saveLauncherPosition saves the launcher window position to config
 func saveLauncherPosition(x, y int) {
-	appConfig.Set("launcher_position", []interface{}{x, y})
+	appConfig.Set("launcher_position", pawscript.PSLList{x, y})
 	saveConfig(appConfig)
 }
 
@@ -342,7 +342,7 @@ func getLauncherSize() (int, int) {
 
 // saveLauncherSize saves the launcher window size to config
 func saveLauncherSize(width, height int) {
-	appConfig.Set("launcher_size", []interface{}{width, height})
+	appConfig.Set("launcher_size", pawscript.PSLList{width, height})
 	saveConfig(appConfig)
 }
 
@@ -810,8 +810,29 @@ func showSettingsDialog(parent gtk.IWindow) {
 
 	// Helper to set a color in a config section
 	setColorInSection := func(sectionName, colorName, hex string) {
-		section, ok := appConfig[sectionName].(pawscript.PSLConfig)
-		if !ok {
+		var section pawscript.PSLConfig
+		if existing, ok := appConfig[sectionName]; ok {
+			// Convert existing section to PSLConfig, preserving values
+			switch v := existing.(type) {
+			case pawscript.PSLConfig:
+				section = v
+			case pawscript.StoredList:
+				// Copy named args from StoredList to new PSLConfig
+				section = pawscript.PSLConfig{}
+				if args := v.NamedArgs(); args != nil {
+					for k, val := range args {
+						section.Set(k, val)
+					}
+				}
+			case map[string]interface{}:
+				section = pawscript.PSLConfig{}
+				for k, val := range v {
+					section.Set(k, val)
+				}
+			default:
+				section = pawscript.PSLConfig{}
+			}
+		} else {
 			section = pawscript.PSLConfig{}
 		}
 		if hex == "" {
@@ -840,16 +861,20 @@ func showSettingsDialog(parent gtk.IWindow) {
 	rightColumn, _ := gtk.BoxNew(gtk.ORIENTATION_VERTICAL, 4)
 	columnsBox.PackStart(rightColumn, true, true, 0)
 
-	// Swatch size
-	swatchSize := 24
+	// Swatch size and label width scaled by UI scale
+	uiScale := getUIScale()
+	swatchSize := int(24 * uiScale)
+	labelWidth := int(115 * uiScale)
+	checkboxWidth := int(16 * uiScale) // Checkbox spacer for bg/fg rows
+	rowSpacing := int(6 * uiScale)
 
 	// --- Background row (always present, no checkbox) ---
-	bgRow, _ := gtk.BoxNew(gtk.ORIENTATION_HORIZONTAL, 6)
+	bgRow, _ := gtk.BoxNew(gtk.ORIENTATION_HORIZONTAL, rowSpacing)
 
 	// Label on the left
 	bgLabel, _ := gtk.LabelNew("Background")
 	bgLabel.SetXAlign(0)
-	bgLabel.SetSizeRequest(115, -1) // Fixed width for alignment
+	bgLabel.SetSizeRequest(labelWidth, -1) // Fixed width for alignment
 	bgRow.PackStart(bgLabel, false, false, 0)
 
 	// Spacer for where basic swatch would be
@@ -859,7 +884,7 @@ func showSettingsDialog(parent gtk.IWindow) {
 
 	// Another spacer for where checkbox would be
 	bgCheckSpacer, _ := gtk.BoxNew(gtk.ORIENTATION_HORIZONTAL, 0)
-	bgCheckSpacer.SetSizeRequest(20, swatchSize)
+	bgCheckSpacer.SetSizeRequest(checkboxWidth, swatchSize)
 	bgRow.PackStart(bgCheckSpacer, false, false, 0)
 
 	// Background swatch (always enabled)
@@ -879,12 +904,12 @@ func showSettingsDialog(parent gtk.IWindow) {
 	leftColumn.PackStart(bgRow, false, false, 0)
 
 	// --- Foreground row (always present, no checkbox) ---
-	fgRow, _ := gtk.BoxNew(gtk.ORIENTATION_HORIZONTAL, 6)
+	fgRow, _ := gtk.BoxNew(gtk.ORIENTATION_HORIZONTAL, rowSpacing)
 
 	// Label on the left
 	fgLabel, _ := gtk.LabelNew("Foreground")
 	fgLabel.SetXAlign(0)
-	fgLabel.SetSizeRequest(115, -1) // Fixed width for alignment
+	fgLabel.SetSizeRequest(labelWidth, -1) // Fixed width for alignment
 	fgRow.PackStart(fgLabel, false, false, 0)
 
 	// Spacer for where basic swatch would be
@@ -894,7 +919,7 @@ func showSettingsDialog(parent gtk.IWindow) {
 
 	// Another spacer for where checkbox would be
 	fgCheckSpacer, _ := gtk.BoxNew(gtk.ORIENTATION_HORIZONTAL, 0)
-	fgCheckSpacer.SetSizeRequest(20, swatchSize)
+	fgCheckSpacer.SetSizeRequest(checkboxWidth, swatchSize)
 	fgRow.PackStart(fgCheckSpacer, false, false, 0)
 
 	// Foreground swatch (always enabled)
@@ -930,17 +955,12 @@ func showSettingsDialog(parent gtk.IWindow) {
 			ColorIndex: i,
 		}
 
-		row, _ := gtk.BoxNew(gtk.ORIENTATION_HORIZONTAL, 6)
+		row, _ := gtk.BoxNew(gtk.ORIENTATION_HORIZONTAL, rowSpacing)
 
 		// Label on the left
 		label, _ := gtk.LabelNew(colorDisplayNames[i])
 		label.SetXAlign(0)
-		// Left column (00-07) uses "Background" width, right column (08-15) uses "Bright Green" width
-		if i < 8 {
-			label.SetSizeRequest(115, -1)
-		} else {
-			label.SetSizeRequest(115, -1)
-		}
+		label.SetSizeRequest(labelWidth, -1)
 		row.PackStart(label, false, false, 0)
 
 		// Basic swatch (from term_colors)
