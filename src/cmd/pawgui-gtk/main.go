@@ -855,13 +855,6 @@ func createLauncherContextMenu() *gtk.Menu {
 	})
 	menu.Append(selectAllItem)
 
-	clearItem := createMenuItemWithGutter("Clear", func() {
-		if terminal != nil {
-			terminal.Clear()
-		}
-	})
-	menu.Append(clearItem)
-
 	menu.ShowAll()
 	return menu
 }
