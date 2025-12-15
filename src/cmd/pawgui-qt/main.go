@@ -1967,6 +1967,29 @@ func applyFontSettings() {
 // applyUIScaleFromConfig applies the current UI scale from config
 func applyUIScaleFromConfig() {
 	applyUIScale(getUIScale())
+	updateAllTerminalScrollbars()
+}
+
+// updateAllTerminalScrollbars updates scrollbars on all terminal instances
+func updateAllTerminalScrollbars() {
+	// Update main launcher terminal
+	if terminal != nil {
+		terminal.UpdateScrollbars()
+	}
+
+	// Update all script window terminals
+	qtToolbarDataMu.Lock()
+	for _, data := range qtToolbarDataByWindow {
+		if data.terminal != nil {
+			data.terminal.UpdateScrollbars()
+		}
+	}
+	for _, data := range qtToolbarDataByPS {
+		if data.terminal != nil {
+			data.terminal.UpdateScrollbars()
+		}
+	}
+	qtToolbarDataMu.Unlock()
 }
 
 // createMenuActionWithShortcut creates a menu action with shortcut displayed on the right

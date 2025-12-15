@@ -521,6 +521,13 @@ func (w *Widget) QWidget() *qt.QWidget {
 	return w.widget
 }
 
+// UpdateScrollbars updates both vertical and horizontal scrollbars.
+// Call this after font or UI scale changes to recalculate scrollbar visibility.
+func (w *Widget) UpdateScrollbars() {
+	w.updateScrollbar()
+	w.updateHorizScrollbar()
+}
+
 // updateScrollbar updates the scrollbar to match the buffer state
 func (w *Widget) updateScrollbar() {
 	if w.scrollbar == nil {

@@ -1273,10 +1273,35 @@ func applyUIScale() {
 	// Rebuild menus with new scaled icon sizes
 	rebuildMenus()
 
+	// Update scrollbars on all terminal instances
+	updateAllTerminalScrollbars()
+
 	// Final GC pass to clean up any remaining orphaned wrappers
 	// This ensures finalizers run now while we're in a safe state,
 	// not later during unrelated GTK operations like splitter dragging
 	runtime.GC()
+}
+
+// updateAllTerminalScrollbars updates scrollbars on all terminal instances
+func updateAllTerminalScrollbars() {
+	// Update main launcher terminal
+	if terminal != nil {
+		terminal.UpdateScrollbars()
+	}
+
+	// Update all script window terminals
+	gtkToolbarDataMu.Lock()
+	for _, data := range gtkToolbarDataByWindow {
+		if data.terminal != nil {
+			data.terminal.UpdateScrollbars()
+		}
+	}
+	for _, data := range gtkToolbarDataByPS {
+		if data.terminal != nil {
+			data.terminal.UpdateScrollbars()
+		}
+	}
+	gtkToolbarDataMu.Unlock()
 }
 
 // createLauncherContextMenu creates the right-click context menu for the launcher terminal

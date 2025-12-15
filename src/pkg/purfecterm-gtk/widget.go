@@ -3165,6 +3165,13 @@ func (w *Widget) onHorizScrollbarChanged(sb *gtk.Scrollbar) {
 	w.buffer.SetHorizOffset(val)
 }
 
+// UpdateScrollbars updates both vertical and horizontal scrollbars.
+// Call this after font or UI scale changes to recalculate scrollbar visibility.
+func (w *Widget) UpdateScrollbars() {
+	w.updateScrollbar()
+	w.updateHorizScrollbar()
+}
+
 func (w *Widget) updateScrollbar() {
 	maxOffset := w.buffer.GetMaxScrollOffset()
 	offset := w.buffer.GetScrollOffset()
