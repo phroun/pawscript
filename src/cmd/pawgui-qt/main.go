@@ -918,10 +918,8 @@ func (s *QtColorSwatch) applyColor() {
 			border: 1px solid %s;
 			border-radius: 3px;
 			opacity: %s;
-			padding: 0px;
+			padding: -2px;
 			margin: 0px;
-			min-width: 0px;
-			min-height: 0px;
 			%s
 		}
 		QPushButton:hover {
