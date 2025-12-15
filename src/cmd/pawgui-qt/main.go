@@ -1894,7 +1894,7 @@ func createMenuActionWithShortcut(menu *qt.QMenu, label, shortcut string) *qt.QA
 
 	// Create container widget with transparent background (menu handles hover highlight)
 	widget := qt.NewQWidget2()
-	widget.SetAttribute(qt.WA_TranslucentBackground, true)
+	widget.SetAttribute(qt.WA_TranslucentBackground)
 
 	layout := qt.NewQHBoxLayout2()
 	// Left margin: icon gutter (16px icon + 4px padding each side = 24px) + 8px spacing
