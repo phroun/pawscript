@@ -832,6 +832,15 @@ func showSettingsDialog(parent *qt.QWidget) {
 	origFontSize := appConfig.GetInt("font_size", pawgui.DefaultFontSize)
 	origFontFamilyUnicode := appConfig.GetString("font_family_unicode", "")
 
+	// Save original splitter position for scaling during UI scale changes
+	var origSplitterPos int
+	if launcherSplitter != nil {
+		sizes := launcherSplitter.Sizes()
+		if len(sizes) > 0 {
+			origSplitterPos = sizes[0]
+		}
+	}
+
 	// Create dialog
 	dialog := qt.NewQDialog2()
 	dialog.SetWindowTitle("Settings")
@@ -927,6 +936,15 @@ func showSettingsDialog(parent *qt.QWidget) {
 	// Apply visual changes only when slider is released
 	windowScaleSlider.OnSliderReleased(func() {
 		applyUIScaleFromConfig()
+		// Scale splitter position relative to original position and scale
+		if launcherSplitter != nil && origSplitterPos > 0 && origUIScale > 0 {
+			newScale := getUIScale()
+			scaledPos := int(float64(origSplitterPos) * newScale / origUIScale)
+			totalWidth := launcherSplitter.Width()
+			if scaledPos > 0 && scaledPos < totalWidth {
+				launcherSplitter.SetSizes([]int{scaledPos, totalWidth - scaledPos})
+			}
+		}
 	})
 
 	scaleLayout.AddWidget(windowScaleSlider.QWidget)
@@ -1080,6 +1098,11 @@ func showSettingsDialog(parent *qt.QWidget) {
 		applyConsoleTheme()
 		applyUIScaleFromConfig()
 		applyFontSettings()
+		// Revert splitter position
+		if launcherSplitter != nil && origSplitterPos > 0 {
+			totalWidth := launcherSplitter.Width()
+			launcherSplitter.SetSizes([]int{origSplitterPos, totalWidth - origSplitterPos})
+		}
 	}
 
 	dialog.DeleteLater()

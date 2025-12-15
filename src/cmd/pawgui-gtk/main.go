@@ -474,6 +474,12 @@ func showSettingsDialog(parent gtk.IWindow) {
 	origFontSize := appConfig.GetInt("font_size", pawgui.DefaultFontSize)
 	origFontFamilyUnicode := appConfig.GetString("font_family_unicode", "")
 
+	// Save original splitter position for scaling during UI scale changes
+	var origSplitterPos int
+	if launcherPaned != nil {
+		origSplitterPos = launcherPaned.GetPosition()
+	}
+
 	// Create dialog
 	dlg, _ := gtk.DialogNew()
 	dlg.SetTitle("Settings")
@@ -578,6 +584,14 @@ func showSettingsDialog(parent gtk.IWindow) {
 	// Apply visual changes only when mouse button is released
 	windowScaleSlider.Connect("button-release-event", func() {
 		applyUIScale()
+		// Scale splitter position relative to original position and scale
+		if launcherPaned != nil && origSplitterPos > 0 && origUIScale > 0 {
+			newScale := getUIScale()
+			scaledPos := int(float64(origSplitterPos) * newScale / origUIScale)
+			if scaledPos > 0 {
+				launcherPaned.SetPosition(scaledPos)
+			}
+		}
 	})
 	windowScaleRow.PackStart(windowScaleSlider, true, true, 0)
 	appearanceBox.PackStart(windowScaleRow, false, false, 0)
@@ -773,6 +787,10 @@ func showSettingsDialog(parent gtk.IWindow) {
 		applyConsoleTheme()
 		applyUIScale()
 		applyFontSettings()
+		// Revert splitter position
+		if launcherPaned != nil && origSplitterPos > 0 {
+			launcherPaned.SetPosition(origSplitterPos)
+		}
 	}
 	dlg.Destroy()
 }
