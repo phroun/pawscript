@@ -250,7 +250,9 @@ func createPixmapFromSVG(svgData string, size int) *qt.QPixmap {
 	resizedSVG := resizeSVG(svgData, size)
 	pixmap := qt.NewQPixmap()
 	data := []byte(resizedSVG)
-	if pixmap.LoadFromData(unsafe.SliceData(data), uint(len(data))) {
+	// Use LoadFromData4 with explicit "SVG" format to ensure Qt uses the SVG plugin
+	// rather than relying on auto-detection which can fail on some platforms
+	if pixmap.LoadFromData4(data, "SVG") {
 		return pixmap
 	}
 	return nil
@@ -660,9 +662,15 @@ func getHomeDir() string {
 func getExamplesDir() string {
 	if exe, err := os.Executable(); err == nil {
 		exeDir := filepath.Dir(exe)
+		// Check for examples next to executable (Windows, Linux, dev)
 		examples := filepath.Join(exeDir, "examples")
 		if info, err := os.Stat(examples); err == nil && info.IsDir() {
 			return examples
+		}
+		// Check for macOS .app bundle: Contents/MacOS/../Resources/examples
+		bundleExamples := filepath.Join(exeDir, "..", "Resources", "examples")
+		if info, err := os.Stat(bundleExamples); err == nil && info.IsDir() {
+			return bundleExamples
 		}
 	}
 	return ""
