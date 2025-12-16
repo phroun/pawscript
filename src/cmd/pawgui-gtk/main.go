@@ -718,10 +718,6 @@ func showSettingsDialog(parent gtk.IWindow) {
 	consoleFontButton.SetUseFont(true)
 	consoleFontButton.SetUseSize(true)
 	consoleFontButton.Connect("font-set", func() {
-		// Per CRITICAL-gotk3-safety-issues.md Strategy #1: keep FontButton alive
-		// until handler completes to prevent GC of internal font chooser wrappers
-		defer runtime.KeepAlive(consoleFontButton)
-
 		fontName := consoleFontButton.GetFont()
 		// Parse font name - GTK format is "Family Name Size" or "Family Name Style Size"
 		// We need to extract family and size
@@ -744,10 +740,6 @@ func showSettingsDialog(parent gtk.IWindow) {
 				applyFontSettings()
 			}
 		}
-		// Schedule GC for next idle period to clean up font chooser wrappers safely
-		glib.IdleAdd(func() {
-			runtime.GC()
-		})
 	})
 	consoleFontRow.PackStart(consoleFontButton, true, true, 0)
 	appearanceBox.PackStart(consoleFontRow, false, false, 0)
@@ -775,9 +767,6 @@ func showSettingsDialog(parent gtk.IWindow) {
 	cjkFontButton.SetUseFont(true)
 	cjkFontButton.SetUseSize(false) // Don't show size since we ignore it
 	cjkFontButton.Connect("font-set", func() {
-		// Per CRITICAL-gotk3-safety-issues.md Strategy #1: keep FontButton alive
-		defer runtime.KeepAlive(cjkFontButton)
-
 		fontName := cjkFontButton.GetFont()
 		// Parse font name - extract just the family, ignore size
 		parts := strings.Split(fontName, " ")
@@ -794,10 +783,6 @@ func showSettingsDialog(parent gtk.IWindow) {
 			configHelper = pawgui.NewConfigHelper(appConfig)
 			applyFontSettings()
 		}
-		// Schedule GC for next idle period to clean up font chooser wrappers safely
-		glib.IdleAdd(func() {
-			runtime.GC()
-		})
 	})
 	cjkFontRow.PackStart(cjkFontButton, true, true, 0)
 	appearanceBox.PackStart(cjkFontRow, false, false, 0)
