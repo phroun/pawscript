@@ -1,0 +1,100 @@
+# Test fizz and burst commands for bubble iteration
+
+echo "=== Fizz and Burst Tests ==="
+
+# Test 1: Basic fizz iteration
+echo "Test 1: Basic fizz"
+bubble error, "first error"
+bubble error, "second error"
+bubble warning, "first warning"
+
+fizz error, content, (
+    echo "  Error:", ~content
+)
+
+# Test 2: Fizz with multiple flavors
+echo "Test 2: Multiple flavors"
+fizz (error, warning), content, (
+    echo "  Item:", ~content
+)
+
+# Test 3: Fizz with meta variable (add one with memo)
+echo "Test 3: With metadata"
+bubble error, "third error", true, "my memo"
+fizz error, content, meta, (
+    echo "  Content:", ~content, "Memo:", ~meta.memo
+)
+
+# Test 4: Fizz with wildcard (all flavors)
+echo "Test 4: Wildcard *"
+bubble info, "info message"
+fizz *, content, (
+    echo "  All:", ~content
+)
+
+# Test 5: Burst command - remove all errors
+echo "Test 5: Burst errors"
+fizz error, content, (
+    echo "  Removing:", ~content
+    burst
+)
+
+# Verify errors are gone
+echo "After burst - error count:"
+fizz error, content, (
+    echo "  Still have:", ~content
+)
+echo "(should be empty)"
+
+# Test 6: Wildcard prefix match
+echo "Test 6: Wildcard error_*"
+bubble error_db, "database error"
+bubble error_net, "network error"
+bubble other, "not an error"
+
+fizz error_*, content, (
+    echo "  Error_*:", ~content
+)
+
+# Test 7: Wildcard suffix match
+echo "Test 7: Wildcard *_async"
+bubble task_async, "async task 1"
+bubble job_async, "async job"
+bubble sync_work, "not async"
+
+fizz *_async, content, (
+    echo "  *_async:", ~content
+)
+
+# Test 8: Break inside fizz
+echo "Test 8: Break"
+bubble test_break, "one"
+bubble test_break, "two"
+bubble test_break, "three"
+
+fizz test_break, content, (
+    echo "  Break test:", ~content
+    if {eq ~content, "two"} then (
+        break
+    )
+)
+
+# Test 9: Continue inside fizz
+echo "Test 9: Continue"
+bubble test_cont, "A"
+bubble test_cont, "B"
+bubble test_cont, "C"
+
+fizz test_cont, content, (
+    if {eq ~content, "B"} then (
+        continue
+    )
+    echo "  Continue test:", ~content
+)
+
+# Clean up all remaining bubbles
+fizz *, x, (
+    burst
+)
+
+echo "=== Tests Complete ==="

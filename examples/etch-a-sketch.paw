@@ -1,0 +1,192 @@
+#!/usr/bin/env paw
+# Etch-A-Sketch Demo
+# Use WASD to move the @ symbol around the screen
+# Press SPACE to change the trail color
+# An enemy (X) wanders around erasing your work!
+# Press Q to quit
+
+# Helper macro to draw at position: drawAt x, y, char, color
+macro drawAt (
+    cursor $1, $2
+    color $4
+    write "$3"
+    color reset: true
+)
+
+# Helper macro to clear status line
+macro clearStatusLine (
+    cursor 1, 1
+    clear line
+)
+
+# Helper to clamp position: clamp val, min, max
+macro clamp (
+    result: $1
+    lt ~result, $2 & (result: $2)
+    gt ~result, $3 & (result: $3)
+    ret ~result
+)
+
+# Initialize keyboard input
+channels: {readkey_init ~#in, echo: ~#out}
+linesCh: {argv ~channels, 1}
+keysCh: {argv ~channels, 2}
+
+# Get screen dimensions
+info: {cursor}
+screenRows: 25  # {ret ~info.screen_rows}
+screenCols: 80  # {ret ~info.screen_cols}
+
+# Calculate playable area (leave room for status line at top)
+playTop: 2
+playBottom: {sub ~screenRows, 1}
+playLeft: 1
+playRight: {sub ~screenCols, 1}
+
+# Player position (start in center)
+playerX: {idiv ~screenCols, 2}
+playerY: {idiv ~screenRows, 2}
+
+# Enemy position (start in corner)
+enemyX: 5
+enemyY: 5
+
+# Current trail color
+trailColor: "green"
+
+# Track if in color input mode
+inColorMode: false
+
+# Tick counter for enemy movement
+tickCount: 0
+
+# Clear screen and draw initial state
+write "\e[8;25;80t"
+clear screen
+cursor visible: false
+
+# Draw status line
+cursor 1, 1
+color cyan
+write "WASD=move SPACE=color Q=quit - Trail: ~trailColor"
+color reset: true
+
+# Draw player
+drawAt ~playerX, ~playerY, "@", white
+
+# Draw enemy
+drawAt ~enemyX, ~enemyY, "X", red
+
+# Main game loop
+while true, (
+    # Check for key input (non-blocking by checking length first)
+    hasKey: {gt {len ~keysCh}, 0}
+
+    if ~hasKey then (
+        key: {readkey}
+
+        # Store old position to draw trail
+        oldX: ~playerX
+        oldY: ~playerY
+
+        # Handle movement
+        eq ~key, "w" & (playerY: {sub ~playerY, 1})
+        eq ~key, "W" & (playerY: {sub ~playerY, 1})
+        eq ~key, "s" & (playerY: {add ~playerY, 1})
+        eq ~key, "S" & (playerY: {add ~playerY, 1})
+        eq ~key, "a" & (playerX: {sub ~playerX, 1})
+        eq ~key, "A" & (playerX: {sub ~playerX, 1})
+        eq ~key, "d" & (playerX: {add ~playerX, 1})
+        eq ~key, "D" & (playerX: {add ~playerX, 1})
+
+        # Handle quit
+        eq ~key, "q" & break
+        eq ~key, "Q" & break
+
+        # Handle color change
+        if {eq ~key, " "} then (
+            inColorMode: true
+
+            # Show color prompt on status line
+            clearStatusLine
+            color yellow
+            write "Enter color name: "
+            color reset: true
+
+            # Read a line of input (blocking, with fallback to "" on error)
+            newColor: {read ~linesCh | ret ""}
+
+            # Update color if not empty
+            gt {len ~newColor}, 0 & (trailColor: ~newColor)
+
+            # Restore status line
+            clearStatusLine
+            color cyan
+            write "WASD=move SPACE=color Q=quit - Trail: ~trailColor"
+            color reset: true
+
+            inColorMode: false
+        )
+
+        # Clamp player position
+        playerX: {clamp ~playerX, ~playLeft, ~playRight}
+        playerY: {clamp ~playerY, ~playTop, ~playBottom}
+
+        # Draw trail at old position (if moved)
+        moved: false
+        neq ~oldX, ~playerX & (moved: true)
+        neq ~oldY, ~playerY & (moved: true)
+
+        if ~moved then (drawAt ~oldX, ~oldY, "#", ~trailColor)
+
+        # Draw player at new position
+        drawAt ~playerX, ~playerY, "@", white
+    )
+
+    # Enemy movement (only if not in color mode)
+    neq ~inColorMode, true & (
+        tickCount: {add ~tickCount, 1}
+
+        # Move enemy every 50 ticks (500ms at 10ms per tick)
+        gte ~tickCount, 50 & (
+            tickCount: 0
+
+            # Save old enemy position
+            oldEnemyX: ~enemyX
+            oldEnemyY: ~enemyY
+
+            # Random movement (0-3: up, down, left, right)
+            direction: {random 0, 3}
+
+            eq ~direction, 0 & (enemyY: {sub ~enemyY, 1})
+            eq ~direction, 1 & (enemyY: {add ~enemyY, 1})
+            eq ~direction, 2 & (enemyX: {sub ~enemyX, 1})
+            eq ~direction, 3 & (enemyX: {add ~enemyX, 1})
+
+            # Clamp enemy position
+            enemyX: {clamp ~enemyX, ~playLeft, ~playRight}
+            enemyY: {clamp ~enemyY, ~playTop, ~playBottom}
+
+            # Erase old enemy position (erasing trail too!)
+            drawAt ~oldEnemyX, ~oldEnemyY, " ", white
+
+            # Draw enemy at new position
+            drawAt ~enemyX, ~enemyY, "X", red
+
+            # Redraw player in case enemy walked over them
+            drawAt ~playerX, ~playerY, "@", white
+        )
+    )
+
+    # Sleep to prevent CPU starvation and set game speed
+    msleep 10
+)
+
+# Cleanup
+cursor visible: true
+cursor 1, ~screenRows
+color reset: true
+print ""
+print "Thanks for playing!"
+
+readkey_stop

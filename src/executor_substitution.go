@@ -7,37 +7,102 @@ import (
 	"unicode"
 )
 
+// protectEscapeSequences replaces escape sequences with placeholders.
+// - \$ is ALWAYS protected (everywhere) to enable nested macro $N substitution
+// - \~ and \? are ONLY protected outside parentheses (parenDepth == 0)
+//   so they're preserved inside macro bodies for execution-time processing
+func protectEscapeSequences(str, dollarPlaceholder, tildePlaceholder, qmarkPlaceholder string) string {
+	runes := []rune(str)
+	var result []rune
+	parenDepth := 0
+	inDoubleQuote := false
+
+	for i := 0; i < len(runes); i++ {
+		char := runes[i]
+
+		// Track parenthesis depth (outside quotes)
+		if !inDoubleQuote {
+			if char == '(' {
+				parenDepth++
+				result = append(result, char)
+				continue
+			} else if char == ')' {
+				parenDepth--
+				result = append(result, char)
+				continue
+			}
+		}
+
+		// Track double quote state (only at top level)
+		if char == '"' && parenDepth == 0 {
+			inDoubleQuote = !inDoubleQuote
+			result = append(result, char)
+			continue
+		}
+
+		// Handle escape sequences
+		if char == '\\' && i+1 < len(runes) {
+			nextChar := runes[i+1]
+			switch nextChar {
+			case '$':
+				// \$ is ALWAYS protected - enables nested macro substitution
+				result = append(result, []rune(dollarPlaceholder)...)
+				i++ // Skip the escaped char
+				continue
+			case '~':
+				// \~ is only protected at top level
+				if parenDepth == 0 {
+					result = append(result, []rune(tildePlaceholder)...)
+					i++ // Skip the escaped char
+					continue
+				}
+			case '?':
+				// \? is only protected at top level
+				if parenDepth == 0 {
+					result = append(result, []rune(qmarkPlaceholder)...)
+					i++ // Skip the escaped char
+					continue
+				}
+			}
+			// Inside parentheses or other escape: keep as-is
+			result = append(result, char)
+			continue
+		}
+
+		result = append(result, char)
+	}
+
+	return string(result)
+}
+
 // applySubstitution applies macro argument substitution
-func (e *Executor) applySubstitution(str string, ctx *SubstitutionContext) string {
-	// fmt.Fprintf(os.Stderr, "[DEBUG applySubstitution] Input: %q\n", str)
+func (e *Executor) applySubstitution(str string, ctx *SubstitutionContext) SubstitutionResult {
 	// Note: ctx should never be nil - caller should create a minimal context if needed
 	if ctx == nil {
-		return str
+		return SubstitutionResult{Value: str}
 	}
 
 	result := str
 
-	// First, protect escaped dollar signs and tildes by replacing with placeholders
+	// First, protect escaped dollar signs, tildes, and question marks by replacing with placeholders
+	// IMPORTANT: Only protect escapes OUTSIDE parentheses (parenDepth == 0)
+	// Content inside parentheses (macro bodies) must preserve escape sequences for later execution
 	const escapedDollarPlaceholder = "\x00SUB\x00"
 	const escapedTildePlaceholder = "\x00TILDE\x00"
-	result = strings.ReplaceAll(result, `\$`, escapedDollarPlaceholder)
-	result = strings.ReplaceAll(result, `\~`, escapedTildePlaceholder)
+	const escapedQmarkPlaceholder = "\x00QMARK\x00"
+	result = protectEscapeSequences(result, escapedDollarPlaceholder, escapedTildePlaceholder, escapedQmarkPlaceholder)
 
 	// Apply brace expression substitution first
-	result = e.substituteBraceExpressions(result, ctx)
+	braceResult := e.substituteBraceExpressions(result, ctx)
 
-	// Check if brace substitution failed
-	if result == "\x00PAWS_FAILED\x00" {
-		// Error already logged by ExecuteWithState, just propagate the failure
-		return result
+	// Check if brace substitution failed or is async
+	if braceResult.Failed || braceResult.IsAsync() {
+		// Propagate the failure or async result
+		return braceResult
 	}
 
-	// Check if brace substitution returned an async marker
-	if strings.HasPrefix(result, "\x00PAWS:") && strings.HasSuffix(result, "\x00") {
-		// Extract the token and return it as-is
-		// The caller (executeSingleCommand) will handle this
-		return result
-	}
+	// Use the substituted value
+	result = braceResult.Value
 
 	// CRITICAL: Only apply $*, $#, and $N substitutions when we're in a macro execution context
 	// This prevents premature substitution when defining nested macros
@@ -46,7 +111,7 @@ func (e *Executor) applySubstitution(str string, ctx *SubstitutionContext) strin
 		if len(ctx.Args) > 0 {
 			allArgs := make([]string, len(ctx.Args))
 			for i, arg := range ctx.Args {
-				allArgs[i] = e.formatArgumentForList(arg)
+				allArgs[i] = e.encodeArgumentForList(arg)
 			}
 			result = strings.ReplaceAll(result, "$*", strings.Join(allArgs, ", "))
 		} else {
@@ -57,8 +122,13 @@ func (e *Executor) applySubstitution(str string, ctx *SubstitutionContext) strin
 		// This preserves the LIST object through substitution
 		if ctx.ExecutionState != nil {
 			if argsVar, exists := ctx.ExecutionState.GetVariable("$@"); exists {
-				// The variable contains the \x00LIST:id\x00 marker
-				argsMarker := fmt.Sprintf("%v", argsVar)
+				// Handle both ObjectRef and Symbol(marker) formats
+				var argsMarker string
+				if ref, ok := argsVar.(ObjectRef); ok {
+					argsMarker = ref.ToMarker()
+				} else {
+					argsMarker = fmt.Sprintf("%v", argsVar)
+				}
 				result = strings.ReplaceAll(result, "$@", argsMarker)
 			} else {
 				// No $@ variable - empty list
@@ -71,14 +141,20 @@ func (e *Executor) applySubstitution(str string, ctx *SubstitutionContext) strin
 		// Apply $# (arg count) - use argc on $@ list
 		if ctx.ExecutionState != nil {
 			if argsVar, exists := ctx.ExecutionState.GetVariable("$@"); exists {
-				// Get the LIST object
-				if sym, ok := argsVar.(Symbol); ok {
+				// Handle both ObjectRef and Symbol(marker) formats
+				var listID int = -1
+				if ref, ok := argsVar.(ObjectRef); ok && ref.Type == ObjList {
+					listID = ref.ID
+				} else if sym, ok := argsVar.(Symbol); ok {
 					marker := string(sym)
 					if objType, id := parseObjectMarker(marker); objType == "list" && id >= 0 {
-						if listObj, exists := e.getObject(id); exists {
-							if storedList, ok := listObj.(StoredList); ok {
-								result = strings.ReplaceAll(result, "$#", fmt.Sprintf("%d", storedList.Len()))
-							}
+						listID = id
+					}
+				}
+				if listID >= 0 {
+					if listObj, exists := e.getObject(listID); exists {
+						if storedList, ok := listObj.(StoredList); ok {
+							result = strings.ReplaceAll(result, "$#", fmt.Sprintf("%d", storedList.Len()))
 						}
 					}
 				}
@@ -106,20 +182,23 @@ func (e *Executor) applySubstitution(str string, ctx *SubstitutionContext) strin
 	}
 	result = e.substituteTildeExpressions(result, ctx.ExecutionState, position)
 
-	// Restore escaped tildes
+	// Restore escaped tildes and question marks to literal characters
+	// The placeholder prevented ~varname and ?varname from being interpreted during substitution
+	// Now that substitution is complete, convert back to literal ~ and ? for the output
 	result = strings.ReplaceAll(result, escapedTildePlaceholder, "~")
+	result = strings.ReplaceAll(result, escapedQmarkPlaceholder, "?")
 
-	return result
+	return SubstitutionResult{Value: result}
 }
 
 // substituteBraceExpressions substitutes brace expressions {command}
 // This version supports parallel async evaluation of all braces at the same nesting level
-func (e *Executor) substituteBraceExpressions(str string, ctx *SubstitutionContext) string {
+func (e *Executor) substituteBraceExpressions(str string, ctx *SubstitutionContext) SubstitutionResult {
 	// Find all top-level braces in this string
 	braces := e.findAllTopLevelBraces(str, ctx)
 
 	if len(braces) == 0 {
-		return str // No braces to process
+		return SubstitutionResult{Value: str} // No braces to process
 	}
 
 	e.logger.DebugCat(CatCommand,"Found %d top-level braces to evaluate", len(braces))
@@ -137,7 +216,7 @@ func (e *Executor) substituteBraceExpressions(str string, ctx *SubstitutionConte
 
 		if ctx == nil {
 			// Handle the nil case - either return an error or use a default
-			return str // nil, fmt.Errorf("context cannot be nil")
+			return SubstitutionResult{Value: str}
 		}
 		braceState := NewExecutionStateFromSharedVars(ctx.ExecutionState)
 		// Mark this state as being inside a brace expression
@@ -169,24 +248,45 @@ func (e *Executor) substituteBraceExpressions(str string, ctx *SubstitutionConte
 
 		// Create substitution context using the child state
 		braceSubstitutionCtx := &SubstitutionContext{
-			Args:                ctx.Args,
-			ExecutionState:      braceState,
-			ParentContext:       ctx,
-			MacroContext:        ctx.MacroContext,
-			CurrentLineOffset:   newLineOffset,
+			Args:              ctx.Args,
+			ExecutionState:    braceState,
+			MacroContext:      ctx.MacroContext,
+			CurrentLineOffset: newLineOffset,
 			CurrentColumnOffset: newColumnOffset,
-			Filename:            ctx.Filename,
+			Filename:          ctx.Filename,
+			CapturedModuleEnv: ctx.CapturedModuleEnv, // Inherit for handler caching
 		}
 
 		// Execute the brace content with the child state (isolated result storage, shared variables)
-		executeResult := e.ExecuteWithState(
-			brace.Content,
-			braceState,
-			braceSubstitutionCtx,
-			ctx.Filename, // Pass filename for error reporting
-			newLineOffset,
-			newColumnOffset,
-		)
+		var executeResult Result
+
+		// Check for cached parsed commands for this brace content
+		var cachedCmds []*ParsedCommand
+		if ctx.CurrentParsedCommand != nil && ctx.CurrentParsedCommand.CachedBraces != nil {
+			cachedCmds = ctx.CurrentParsedCommand.CachedBraces[brace.Content]
+		}
+
+		if cachedCmds != nil {
+			// Use cached parsed commands
+			e.logger.DebugCat(CatCommand, "Using cached brace: {%s}", brace.Content)
+			executeResult = e.ExecuteParsedCommands(
+				cachedCmds,
+				braceState,
+				braceSubstitutionCtx,
+				newLineOffset,
+				newColumnOffset,
+			)
+		} else {
+			// Parse and execute fresh
+			executeResult = e.ExecuteWithState(
+				brace.Content,
+				braceState,
+				braceSubstitutionCtx,
+				ctx.Filename,
+				newLineOffset,
+				newColumnOffset,
+			)
+		}
 
 		// Track that a brace was evaluated (for get_substatus)
 		ctx.BracesEvaluated++
@@ -227,20 +327,23 @@ func (e *Executor) substituteBraceExpressions(str string, ctx *SubstitutionConte
 			// Use the formal result from the EarlyReturn
 			evaluations[i].Completed = true
 
-			// Check the status to determine success/failure
-			if !bool(earlyReturn.Status) {
-				evaluations[i].Failed = true
-				e.logger.DebugCat(CatCommand,"Brace %d completed with early return (failure)", i)
-			} else {
-				e.logger.DebugCat(CatCommand,"Brace %d completed with early return (success)", i)
-			}
-
 			// Use the result from EarlyReturn if present
 			if earlyReturn.HasResult {
 				evaluations[i].Result = earlyReturn.Result
 				e.logger.DebugCat(CatCommand,"Early return has result: %v", earlyReturn.Result)
 			} else if hasCapturedResult {
 				evaluations[i].Result = capturedResult
+			}
+
+			// Only mark as failed if ret has no result AND status is false
+			// When ret provides a value (like `ret ""`), the brace succeeds with that value
+			// regardless of the previous command's status
+			hasReturnValue := earlyReturn.HasResult || hasCapturedResult
+			if !hasReturnValue && !bool(earlyReturn.Status) {
+				evaluations[i].Failed = true
+				e.logger.DebugCat(CatCommand,"Brace %d completed with early return (failure, no result)", i)
+			} else {
+				e.logger.DebugCat(CatCommand,"Brace %d completed with early return (success)", i)
 			}
 
 			// Handle ownership for result references
@@ -299,36 +402,38 @@ func (e *Executor) substituteBraceExpressions(str string, ctx *SubstitutionConte
 			}
 			// end part that used to be in an else
 
-			// Handle ownership for result references
-			// Two cases:
-			// 1. Pass-through of shared variable: parent already owns it, child's claim is temporary
-			// 2. New object creation: parent doesn't own it yet, needs to take ownership
-			if hasCapturedResult {
-				resultRefs := braceState.ExtractObjectReferences(capturedResult)
-				for _, refID := range resultRefs {
-					braceState.mu.Lock()
-					childCount := braceState.ownedObjects[refID]
-					braceState.mu.Unlock()
+			// Handle ownership for ALL references owned by the brace state
+			// Since the brace shares variables with the parent, any objects stored in
+			// those variables need to be owned by the parent before we release the brace's claims.
+			// This includes:
+			// 1. Objects returned as results (e.g., from gui_console)
+			// 2. Objects stored in variables during the brace (e.g., #out from destructuring)
+			braceState.mu.Lock()
+			ownedByBrace := make(map[int]int)
+			for refID, count := range braceState.ownedObjects {
+				ownedByBrace[refID] = count
+			}
+			braceState.mu.Unlock()
 
-					if childCount > 0 {
-						// Check if parent already owns this object
-						ctx.ExecutionState.mu.Lock()
-						parentOwns := ctx.ExecutionState.ownedObjects[refID] > 0
-						ctx.ExecutionState.mu.Unlock()
+			for refID, childCount := range ownedByBrace {
+				if childCount > 0 {
+					// Check if parent already owns this object
+					ctx.ExecutionState.mu.Lock()
+					parentOwns := ctx.ExecutionState.ownedObjects[refID] > 0
+					ctx.ExecutionState.mu.Unlock()
 
-						if !parentOwns {
-							// New object - parent needs to claim it
-							// Claim for parent (increments global refcount)
-							ctx.ExecutionState.ClaimObjectReference(refID)
-						}
-						// If parent already owns it, don't add extra ownership
-						// The child's claim will be released below
+					if !parentOwns {
+						// Parent doesn't own it yet - transfer ownership
+						// Claim for parent (increments global refcount)
+						ctx.ExecutionState.ClaimObjectReference(refID)
 					}
+					// If parent already owns it, the child's claim will be released below
 				}
 			}
 
 			// Clean up brace state references
 			braceState.ReleaseAllReferences()
+			braceState.Recycle(false, false) // Doesn't own variables or bubbleMap (shared with parent)
 		}
 	}
 
@@ -353,9 +458,9 @@ func (e *Executor) substituteBraceExpressions(str string, ctx *SubstitutionConte
 			nil,
 		)
 
-		// Return a special marker that includes the coordinator token
+		// Return async result with the coordinator token
 		// The executeSingleCommand will need to detect this and return the token
-		return fmt.Sprintf("\x00PAWS:%s\x00", coordinatorToken)
+		return SubstitutionResult{AsyncToken: coordinatorToken}
 	}
 
 	// All synchronous - check for any failures
@@ -378,8 +483,8 @@ func (e *Executor) substituteBraceExpressions(str string, ctx *SubstitutionConte
 
 			e.logger.WarnCat(CatCommand,errorMsg, eval.Position, sourceContext)
 			e.logger.DebugCat(CatCommand,"Synchronous brace evaluation %d failed, aborting command", i)
-			// Return special marker to indicate brace failure
-			return "\x00PAWS_FAILED\x00"
+			// Return failure result
+			return SubstitutionResult{Failed: true}
 		}
 	}
 
@@ -387,15 +492,16 @@ func (e *Executor) substituteBraceExpressions(str string, ctx *SubstitutionConte
 	result := e.substituteAllBraces(str, evaluations, ctx.ExecutionState)
 	e.logger.DebugCat(CatCommand,"All braces synchronous, substituted result: %s", result)
 
-	return result
+	return SubstitutionResult{Value: result}
 }
 
 // substituteTildeExpressions substitutes ~varname and ?varname patterns in strings
 // ~varname substitutes with the variable value
 // ?varname substitutes with "true" if variable exists, "false" otherwise
 func (e *Executor) substituteTildeExpressions(str string, state *ExecutionState, position *SourcePosition) string {
-	// Placeholder for escaped tildes - must match the one used in applySubstitution
+	// Placeholders for escaped tildes and question marks - must match the ones used in applySubstitution
 	const escapedTildePlaceholder = "\x00TILDE\x00"
+	const escapedQmarkPlaceholder = "\x00QMARK\x00"
 
 	if state == nil {
 		return str
@@ -432,8 +538,10 @@ func (e *Executor) substituteTildeExpressions(str string, state *ExecutionState,
 			// ? expression - substitute "true" or "false" based on existence
 			// Also check if value is undefined
 			if exists {
-				if sym, ok := value.(Symbol); ok {
-					if string(sym) == UndefinedMarker || string(sym) == "undefined" {
+				if _, ok := value.(ActualUndefined); ok {
+					exists = false
+				} else if sym, ok := value.(Symbol); ok {
+					if string(sym) == "undefined" {
 						exists = false
 					}
 				}
@@ -451,7 +559,7 @@ func (e *Executor) substituteTildeExpressions(str string, state *ExecutionState,
 				var valueStr string
 				// Handle StoredList and StoredBytes specially to format contents
 				if list, ok := resolved.(StoredList); ok {
-					valueStr = formatListForDisplay(list)
+					valueStr = formatListForDisplay(list, e)
 				} else if bytes, ok := resolved.(StoredBytes); ok {
 					valueStr = bytes.String()
 				} else {
@@ -460,14 +568,15 @@ func (e *Executor) substituteTildeExpressions(str string, state *ExecutionState,
 				// Since tildes are only found inside double-quoted strings,
 				// we need to escape backslashes and quotes in the substituted value
 				// to prevent breaking the quote structure.
-				// IMPORTANT: These must come BEFORE tilde escaping, otherwise the
+				// IMPORTANT: These must come BEFORE tilde/qmark escaping, otherwise the
 				// placeholder's \x00 bytes would get double-escaped to \\x00
 				valueStr = strings.ReplaceAll(valueStr, `\`, `\\`)
 				valueStr = strings.ReplaceAll(valueStr, `"`, `\"`)
-				// Escape tildes in the resolved value to prevent tilde injection
-				// This ensures user input containing tildes doesn't get interpreted
-				// as variable references when the result string is re-parsed
+				// Escape tildes and question marks in the resolved value to prevent injection
+				// This ensures user input containing tildes or question marks doesn't get interpreted
+				// as variable references or existence checks when the result string is re-parsed
 				valueStr = strings.ReplaceAll(valueStr, "~", escapedTildePlaceholder)
+				valueStr = strings.ReplaceAll(valueStr, "?", escapedQmarkPlaceholder)
 				result = append(result, []rune(valueStr)...)
 			} else {
 				// Variable not found - log error and leave empty
@@ -737,16 +846,56 @@ func (e *Executor) substituteAllBraces(originalString string, evaluations []*Bra
 		// Format the result based on type
 		var resultValue string
 		if eval.Location.IsUnescape {
-			// ${...} - no escaping, direct insertion
+			// ${...} - unwrap outer parens (splat), but still escape quotes when inside quotes
+			insideQuotes := e.isInsideQuotes(originalString, eval.Location.StartPos)
+
 			// For StoredList, unwrap outer parens (just like ParenGroup)
 			if list, ok := rawValue.(StoredList); ok {
-				resultValue = e.formatListItems(list)
+				resultValue = e.encodeListItems(list)
+			} else if sym, ok := rawValue.(Symbol); ok {
+				// Check if it's an object marker
+				if objType, objID := parseObjectMarker(string(sym)); objID >= 0 {
+					// Resolve and display the object
+					if actualValue, exists := e.getObject(objID); exists {
+						switch objType {
+						case "list":
+							if list, ok := actualValue.(StoredList); ok {
+								resultValue = e.encodeListItems(list)
+							} else {
+								resultValue = fmt.Sprintf("<%s %d>", objType, objID)
+							}
+						case "block":
+							if storedBlock, ok := actualValue.(StoredBlock); ok {
+								resultValue = string(storedBlock)
+							} else {
+								resultValue = fmt.Sprintf("<%s %d>", objType, objID)
+							}
+						case "str":
+							if storedStr, ok := actualValue.(StoredString); ok {
+								resultValue = string(storedStr)
+							} else {
+								resultValue = fmt.Sprintf("<%s %d>", objType, objID)
+							}
+						default:
+							resultValue = fmt.Sprintf("<%s %d>", objType, objID)
+						}
+					} else {
+						resultValue = fmt.Sprintf("<invalid-%s-ref:%d>", objType, objID)
+					}
+				} else {
+					resultValue = string(sym)
+				}
 			} else {
 				resultValue = fmt.Sprintf("%v", rawValue)
 			}
+
+			// If inside quotes, escape quotes and backslashes in the result
+			if insideQuotes {
+				resultValue = e.escapeQuotesAndBackslashes(resultValue)
+			}
 		} else {
 			// {...} - preserve types properly, considering quote context
-			resultValue = e.formatBraceResult(rawValue, originalString, eval.Location.StartPos, state)
+			resultValue = e.encodeBraceResult(rawValue, originalString, eval.Location.StartPos, state)
 		}
 
 		// Substitute: replace from StartPos to EndPos+1 with resultValue
@@ -759,9 +908,9 @@ func (e *Executor) substituteAllBraces(originalString string, evaluations []*Bra
 	return result
 }
 
-// formatBraceResult formats a brace evaluation result for substitution
+// encodeBraceResult encodes a brace evaluation result for substitution
 // Takes the original string and brace position to detect quote context
-// formatBraceResult formats a brace evaluation result for substitution
+// encodeBraceResult encodes a brace evaluation result for substitution
 // Takes the original string and brace position to detect quote context
 //
 // CRITICAL: Object markers (like \x00LIST:7\x00) are handled based on context:
@@ -772,9 +921,10 @@ func (e *Executor) substituteAllBraces(originalString string, evaluations []*Bra
 //
 // This ensures nested structures maintain shared storage via reference passing
 // while still supporting human-readable display in string contexts.
-func (e *Executor) formatBraceResult(value interface{}, originalString string, bracePos int, state *ExecutionState) string {
-	// Placeholder for escaped tildes - must match the one used in applySubstitution
+func (e *Executor) encodeBraceResult(value interface{}, originalString string, bracePos int, state *ExecutionState) string {
+	// Placeholders for escaped tildes and question marks - must match the ones used in applySubstitution
 	const escapedTildePlaceholder = "\x00TILDE\x00"
+	const escapedQmarkPlaceholder = "\x00QMARK\x00"
 
 	// Handle nil specially - output as bare word "nil"
 	if value == nil {
@@ -784,15 +934,16 @@ func (e *Executor) formatBraceResult(value interface{}, originalString string, b
 	// Check if we're inside a quoted string context
 	insideQuotes := e.isInsideQuotes(originalString, bracePos)
 
+	// Handle ActualUndefined type
+	if _, ok := value.(ActualUndefined); ok {
+		if insideQuotes {
+			return "<undefined>"
+		}
+		return "undefined"
+	}
+
 	// If it's a Symbol that might be a marker, return it unchanged to preserve the reference
 	if sym, ok := value.(Symbol); ok {
-		// Handle undefined marker specially
-		if string(sym) == UndefinedMarker {
-			if insideQuotes {
-				return "<undefined>"
-			}
-			return "undefined"
-		}
 		if objType, objID := parseObjectMarker(string(sym)); objID >= 0 {
 			// It's an object marker - pass it through unchanged
 			// Don't resolve and re-store, that would create duplicate storage entries!
@@ -803,7 +954,7 @@ func (e *Executor) formatBraceResult(value interface{}, originalString string, b
 					switch objType {
 					case "list":
 						if list, ok := actualValue.(StoredList); ok {
-							return formatListForDisplay(list)
+							return formatListForDisplay(list, e)
 						}
 					case "str":
 						// Resolve and display string content
@@ -838,29 +989,29 @@ func (e *Executor) formatBraceResult(value interface{}, originalString string, b
 		}
 		return "false"
 	case ParenGroup:
+		// ParenGroup contains CODE that will be executed later, not data.
+		// Do NOT escape tildes or question marks - they need to be resolved when executed.
 		if insideQuotes {
 			// Inside quotes: unwrap and escape only quotes/backslashes
-			// Also escape tildes to prevent tilde injection
 			result := e.escapeQuotesAndBackslashes(string(v))
-			result = strings.ReplaceAll(result, "~", escapedTildePlaceholder)
 			return result
 		}
 		// Outside quotes: preserve as parentheses
-		// Also escape tildes to prevent tilde injection
-		content := strings.ReplaceAll(string(v), "~", escapedTildePlaceholder)
-		return "(" + content + ")"
+		return "(" + string(v) + ")"
 	case QuotedString:
 		if insideQuotes {
 			// Inside quotes: unwrap and escape only quotes/backslashes
-			// Also escape tildes to prevent tilde injection
+			// Also escape tildes and question marks to prevent injection
 			result := e.escapeQuotesAndBackslashes(string(v))
 			result = strings.ReplaceAll(result, "~", escapedTildePlaceholder)
+			result = strings.ReplaceAll(result, "?", escapedQmarkPlaceholder)
 			return result
 		}
 		// Outside quotes: preserve as quoted string, escaping internal quotes
-		// Also escape tildes to prevent tilde injection
+		// Also escape tildes and question marks to prevent injection
 		escaped := e.escapeQuotesAndBackslashes(string(v))
 		escaped = strings.ReplaceAll(escaped, "~", escapedTildePlaceholder)
+		escaped = strings.ReplaceAll(escaped, "?", escapedQmarkPlaceholder)
 		return "\"" + escaped + "\""
 	case Symbol:
 		// If it's a Symbol that might be a marker, resolve it first for proper formatting
@@ -889,30 +1040,32 @@ func (e *Executor) formatBraceResult(value interface{}, originalString string, b
 	case string:
 		if insideQuotes {
 			// Inside quotes: escape only quotes/backslashes
-			// Also escape tildes to prevent tilde injection
+			// Also escape tildes and question marks to prevent injection
 			result := e.escapeQuotesAndBackslashes(v)
 			result = strings.ReplaceAll(result, "~", escapedTildePlaceholder)
+			result = strings.ReplaceAll(result, "?", escapedQmarkPlaceholder)
 			return result
 		}
 		// Outside quotes: wrap in quotes to preserve the string value
 		// (don't escape spaces/special chars - that's for bare words only)
-		// Also escape tildes to prevent tilde injection
+		// Also escape tildes and question marks to prevent injection
 		escaped := e.escapeQuotesAndBackslashes(v)
 		escaped = strings.ReplaceAll(escaped, "~", escapedTildePlaceholder)
+		escaped = strings.ReplaceAll(escaped, "?", escapedQmarkPlaceholder)
 		return "\"" + escaped + "\""
 	case StoredList:
 		if insideQuotes {
 			// Inside quotes: format as readable list display
-			return formatListForDisplay(v)
+			return formatListForDisplay(v, e)
 		}
 		// Outside quotes: use a special marker that preserves the object
 		// Format: \x00LIST:index\x00 where index is stored in the execution state
-		id := e.storeObject(value, "list")
+		ref := e.RegisterObject(value, ObjList)
 		// The creating context claims the first reference
 		if state != nil {
-			state.ClaimObjectReference(id)
+			state.ClaimObjectReference(ref.ID)
 		}
-		return fmt.Sprintf("\x00LIST:%d\x00", id)
+		return ref.ToMarker()
 	case StoredBytes:
 		if insideQuotes {
 			// Inside quotes: format as hex display
@@ -920,12 +1073,12 @@ func (e *Executor) formatBraceResult(value interface{}, originalString string, b
 		}
 		// Outside quotes: use a special marker that preserves the object
 		// Format: \x00BYTES:index\x00 where index is stored in the execution state
-		id := e.storeObject(value, "bytes")
+		ref := e.RegisterObject(value, ObjBytes)
 		// The creating context claims the first reference
 		if state != nil {
-			state.ClaimObjectReference(id)
+			state.ClaimObjectReference(ref.ID)
 		}
-		return fmt.Sprintf("\x00BYTES:%d\x00", id)
+		return ref.ToMarker()
 	case *StoredFile:
 		if insideQuotes {
 			// Inside quotes: show file path
@@ -933,12 +1086,12 @@ func (e *Executor) formatBraceResult(value interface{}, originalString string, b
 		}
 		// Outside quotes: use a special marker that preserves the object
 		// Format: \x00FILE:index\x00 where index is stored in the execution state
-		id := e.storeObject(value, "file")
+		ref := e.RegisterObject(value, ObjFile)
 		// The creating context claims the first reference
 		if state != nil {
-			state.ClaimObjectReference(id)
+			state.ClaimObjectReference(ref.ID)
 		}
-		return fmt.Sprintf("\x00FILE:%d\x00", id)
+		return ref.ToMarker()
 	case StoredStruct:
 		if insideQuotes {
 			// Inside quotes: format as display string
@@ -946,12 +1099,40 @@ func (e *Executor) formatBraceResult(value interface{}, originalString string, b
 		}
 		// Outside quotes: use a special marker that preserves the object
 		// Format: \x00STRUCT:index\x00 where index is stored in the execution state
-		id := e.storeObject(value, "struct")
+		ref := e.RegisterObject(value, ObjStruct)
 		// The creating context claims the first reference
 		if state != nil {
-			state.ClaimObjectReference(id)
+			state.ClaimObjectReference(ref.ID)
 		}
-		return fmt.Sprintf("\x00STRUCT:%d\x00", id)
+		return ref.ToMarker()
+	case ObjectRef:
+		// ObjectRef is an internal reference to a stored object
+		// The object already exists in storage, so just return the marker
+		if !v.IsValid() {
+			return "nil"
+		}
+		if insideQuotes {
+			// Inside quotes: resolve and format for display
+			if actualValue, exists := e.getObject(v.ID); exists {
+				switch resolved := actualValue.(type) {
+				case StoredList:
+					return formatListForDisplay(resolved, e)
+				case StoredBytes:
+					return resolved.String()
+				case StoredStruct:
+					return resolved.String()
+				case StoredString:
+					return e.escapeQuotesAndBackslashes(string(resolved))
+				case StoredBlock:
+					return e.escapeQuotesAndBackslashes(string(resolved))
+				default:
+					return fmt.Sprintf("%v", resolved)
+				}
+			}
+			return "<invalid-ref>"
+		}
+		// Outside quotes: return the marker to preserve the reference
+		return v.ToMarker()
 	// Note: StructDef is now a StoredList, handled above
 	case int64, float64:
 		// Numbers as-is
@@ -962,12 +1143,14 @@ func (e *Executor) formatBraceResult(value interface{}, originalString string, b
 		if insideQuotes {
 			result := e.escapeQuotesAndBackslashes(str)
 			result = strings.ReplaceAll(result, "~", escapedTildePlaceholder)
+			result = strings.ReplaceAll(result, "?", escapedQmarkPlaceholder)
 			return result
 		}
 		// Wrap in quotes to preserve value
-		// Also escape tildes to prevent tilde injection
+		// Also escape tildes and question marks to prevent injection
 		escaped := e.escapeQuotesAndBackslashes(str)
 		escaped = strings.ReplaceAll(escaped, "~", escapedTildePlaceholder)
+		escaped = strings.ReplaceAll(escaped, "?", escapedQmarkPlaceholder)
 		return "\"" + escaped + "\""
 	}
 }
@@ -1103,17 +1286,24 @@ func (e *Executor) substituteDollarArgs(str string, ctx *SubstitutionContext) st
 			// Try to get from $@ list first
 			if ctx.ExecutionState != nil {
 				if argsVar, exists := ctx.ExecutionState.GetVariable("$@"); exists {
-					if sym, ok := argsVar.(Symbol); ok {
+					// Handle both ObjectRef and Symbol(marker) formats
+					var listID int = -1
+					if ref, ok := argsVar.(ObjectRef); ok && ref.Type == ObjList {
+						listID = ref.ID
+					} else if sym, ok := argsVar.(Symbol); ok {
 						marker := string(sym)
 						if objType, objID := parseObjectMarker(marker); objType == "list" && objID >= 0 {
-							if listObj, exists := e.getObject(objID); exists {
-								if storedList, ok := listObj.(StoredList); ok {
-									// index is 1-based, convert to 0-based
-									item := storedList.Get(index - 1)
-									if item != nil {
-										argValue = item
-										found = true
-									}
+							listID = objID
+						}
+					}
+					if listID >= 0 {
+						if listObj, exists := e.getObject(listID); exists {
+							if storedList, ok := listObj.(StoredList); ok {
+								// index is 1-based, convert to 0-based
+								item := storedList.Get(index - 1)
+								if item != nil {
+									argValue = item
+									found = true
 								}
 							}
 						}
@@ -1135,10 +1325,10 @@ func (e *Executor) substituteDollarArgs(str string, ctx *SubstitutionContext) st
 				var substitution string
 				if inQuote {
 					// Inside quotes: just insert content, no extra quotes
-					substitution = e.formatArgumentForQuotedContext(argValue)
+					substitution = e.encodeArgumentForQuotedContext(argValue)
 				} else {
 					// Outside quotes: may need to add quotes to preserve token boundaries
-					substitution = e.formatArgumentForSubstitution(argValue)
+					substitution = e.encodeArgumentForSubstitution(argValue)
 				}
 				result.WriteString(substitution)
 			} else {
@@ -1156,4 +1346,1108 @@ func (e *Executor) substituteDollarArgs(str string, ctx *SubstitutionContext) st
 	}
 
 	return result.String()
+}
+
+// ParseSubstitutionTemplate parses a string into a SubstitutionTemplate for efficient runtime substitution
+// This pre-computes all substitution points so runtime only needs to iterate and fill in values
+func (e *Executor) ParseSubstitutionTemplate(str string, filename string) *SubstitutionTemplate {
+	template := &SubstitutionTemplate{
+		Segments: make([]TemplateSegment, 0, 4), // Pre-allocate for typical case
+	}
+
+	runes := []rune(str)
+	if len(runes) == 0 {
+		return template
+	}
+
+	var literalStart int
+	inQuote := false
+	var quoteChar rune
+	braceDepth := 0
+	parenDepth := 0
+	i := 0
+
+	// Helper to flush accumulated literal text
+	flushLiteral := func(end int) {
+		if end > literalStart {
+			template.Segments = append(template.Segments, TemplateSegment{
+				Type:    SegmentLiteral,
+				Literal: string(runes[literalStart:end]),
+			})
+		}
+	}
+
+	for i < len(runes) {
+		char := runes[i]
+
+		// Handle escape sequences - include in literal and skip interpretation
+		// The escaped sequence stays in the literal for later processing
+		if char == '\\' && i+1 < len(runes) {
+			nextChar := runes[i+1]
+			// For \$, \~, \?, skip past both to avoid treating as substitution
+			// They'll remain in the literal as \$, \~, or \? for later processing
+			if nextChar == '$' || nextChar == '~' || nextChar == '?' || nextChar == '\\' || nextChar == '{' {
+				i += 2
+				continue
+			}
+			// For other escapes, just move past the backslash
+			i++
+			continue
+		}
+
+		// Track quote state (only at top level - not inside braces/parens)
+		if braceDepth == 0 && parenDepth == 0 {
+			if !inQuote && (char == '"' || char == '\'') {
+				inQuote = true
+				quoteChar = char
+				i++
+				continue
+			}
+			if inQuote && char == quoteChar {
+				inQuote = false
+				quoteChar = 0
+				i++
+				continue
+			}
+		}
+
+		// Track parentheses (only when not in quotes)
+		if !inQuote && braceDepth == 0 {
+			if char == '(' {
+				parenDepth++
+				i++
+				continue
+			} else if char == ')' {
+				parenDepth--
+				i++
+				continue
+			}
+		}
+
+		// Check for brace expressions at top level (outside parens)
+		if parenDepth == 0 && char == '{' {
+			// Check if this is ${...} unescape mode
+			isUnescape := i > 0 && runes[i-1] == '$'
+			braceStart := i
+			if isUnescape {
+				braceStart = i - 1
+			}
+
+			// Find matching closing brace
+			braceDepth = 1
+			contentStart := i + 1
+			j := i + 1
+			for j < len(runes) && braceDepth > 0 {
+				if runes[j] == '\\' && j+1 < len(runes) {
+					j += 2
+					continue
+				}
+				if runes[j] == '{' {
+					braceDepth++
+				} else if runes[j] == '}' {
+					braceDepth--
+				}
+				j++
+			}
+
+			if braceDepth == 0 {
+				// Found complete brace expression
+				braceContent := string(runes[contentStart : j-1])
+
+				// Flush any literal before this brace
+				flushLiteral(braceStart)
+
+				// Parse the brace content into AST
+				parser := NewParser(braceContent, filename)
+				cleanedBody := parser.RemoveComments(braceContent)
+				normalizedBody := parser.NormalizeKeywords(cleanedBody)
+				cmds, err := parser.ParseCommandSequence(normalizedBody)
+				if err == nil {
+					// Recursively pre-cache templates in nested commands
+					for _, cmd := range cmds {
+						e.PreCacheCommandTemplates(cmd, filename)
+					}
+				}
+
+				template.Segments = append(template.Segments, TemplateSegment{
+					Type:       SegmentBrace,
+					BraceAST:   cmds,
+					BraceRaw:   braceContent,
+					IsUnescape: isUnescape,
+					InQuote:    inQuote && quoteChar == '"',
+				})
+				template.HasBraceSub = true
+
+				literalStart = j
+				i = j
+				braceDepth = 0
+				continue
+			}
+			braceDepth = 0 // Reset if unmatched
+		}
+
+		// Check for dollar substitutions (only when we might be in macro context)
+		if char == '$' && i+1 < len(runes) {
+			nextChar := runes[i+1]
+
+			// $* - all args comma-separated
+			if nextChar == '*' {
+				flushLiteral(i)
+				template.Segments = append(template.Segments, TemplateSegment{
+					Type: SegmentDollarStar,
+				})
+				template.HasDollarSub = true
+				literalStart = i + 2
+				i += 2
+				continue
+			}
+
+			// $@ - all args as list
+			if nextChar == '@' {
+				flushLiteral(i)
+				template.Segments = append(template.Segments, TemplateSegment{
+					Type: SegmentDollarAt,
+				})
+				template.HasDollarSub = true
+				literalStart = i + 2
+				i += 2
+				continue
+			}
+
+			// $# - arg count
+			if nextChar == '#' {
+				flushLiteral(i)
+				template.Segments = append(template.Segments, TemplateSegment{
+					Type: SegmentDollarHash,
+				})
+				template.HasDollarSub = true
+				literalStart = i + 2
+				i += 2
+				continue
+			}
+
+			// $N - numbered arg
+			if nextChar >= '0' && nextChar <= '9' {
+				numStart := i + 1
+				numEnd := numStart
+				for numEnd < len(runes) && runes[numEnd] >= '0' && runes[numEnd] <= '9' {
+					numEnd++
+				}
+				argNum, err := strconv.Atoi(string(runes[numStart:numEnd]))
+				if err == nil {
+					flushLiteral(i)
+					template.Segments = append(template.Segments, TemplateSegment{
+						Type:    SegmentDollarArg,
+						ArgNum:  argNum,
+						InQuote: inQuote && quoteChar == '"',
+					})
+					template.HasDollarSub = true
+					literalStart = numEnd
+					i = numEnd
+					continue
+				}
+			}
+		}
+
+		// Check for tilde/question substitutions inside double quotes
+		if (char == '~' || char == '?') && inQuote && quoteChar == '"' && parenDepth == 0 && i+1 < len(runes) {
+			isQuestion := char == '?'
+			varStart := i + 1
+
+			// Collect variable name
+			j := varStart
+			isFirst := true
+			for j < len(runes) {
+				c := runes[j]
+				if isFirst && c == '#' {
+					j++
+					isFirst = false
+					continue
+				}
+				if c == '_' || (c >= 'a' && c <= 'z') || (c >= 'A' && c <= 'Z') || (c >= '0' && c <= '9') {
+					j++
+					isFirst = false
+				} else {
+					break
+				}
+			}
+
+			if j > varStart {
+				varName := string(runes[varStart:j])
+				endPos := j
+
+				// Check for semicolon terminator
+				if j < len(runes) && runes[j] == ';' {
+					endPos = j + 1
+				}
+
+				flushLiteral(i)
+				template.Segments = append(template.Segments, TemplateSegment{
+					Type:       SegmentTildeVar,
+					VarName:    varName,
+					IsQuestion: isQuestion,
+				})
+				template.HasTildeSub = true
+				literalStart = endPos
+				i = endPos
+				continue
+			}
+		}
+
+		i++
+	}
+
+	// Flush remaining literal
+	flushLiteral(len(runes))
+
+	// Check if this is a single expression (can be evaluated to typed value directly)
+	// A single expression is: exactly one non-literal segment with no surrounding text
+	// Examples: ~var, {block}, $1
+	// Non-examples: "hello ~name", ~a ~b, prefix~var
+	if len(template.Segments) == 1 {
+		seg := template.Segments[0]
+		template.IsSingleExpr = seg.Type == SegmentTildeVar ||
+			seg.Type == SegmentBrace ||
+			seg.Type == SegmentDollarArg ||
+			seg.Type == SegmentDollarAt ||
+			seg.Type == SegmentDollarStar
+	}
+
+	return template
+}
+
+// PreCacheCommandTemplates pre-parses substitution templates for a command's arguments
+func (e *Executor) PreCacheCommandTemplates(cmd *ParsedCommand, filename string) {
+	if cmd == nil {
+		return
+	}
+
+	// Check if command name needs templating
+	if containsSubstitution(cmd.Command) {
+		cmd.CommandTemplate = e.ParseSubstitutionTemplate(cmd.Command, filename)
+	}
+
+	// Pre-parse templates for string arguments
+	if len(cmd.Arguments) > 0 {
+		cmd.ArgTemplates = make([]*SubstitutionTemplate, len(cmd.Arguments))
+		for i, arg := range cmd.Arguments {
+			switch v := arg.(type) {
+			case string:
+				if containsSubstitution(v) {
+					cmd.ArgTemplates[i] = e.ParseSubstitutionTemplate(v, filename)
+				}
+			case QuotedString:
+				if containsSubstitution(string(v)) {
+					cmd.ArgTemplates[i] = e.ParseSubstitutionTemplate(string(v), filename)
+				}
+			case ParenGroup:
+				if containsSubstitution(string(v)) {
+					cmd.ArgTemplates[i] = e.ParseSubstitutionTemplate(string(v), filename)
+				}
+			}
+		}
+	}
+
+	// Pre-parse templates for named arguments
+	for _, namedArg := range cmd.NamedArgs {
+		switch v := namedArg.(type) {
+		case string:
+			if containsSubstitution(v) {
+				// Named args don't have a separate template storage yet
+				// Could add later if needed
+			}
+		case QuotedString:
+			if containsSubstitution(string(v)) {
+				// Named args don't have a separate template storage yet
+			}
+		}
+	}
+}
+
+// containsSubstitution checks if a string might contain substitution markers
+// This is a quick check to avoid parsing strings that don't need it
+// Returns false if the string contains escape sequences that would complicate templating
+func containsSubstitution(s string) bool {
+	hasSubstitution := false
+	for i := 0; i < len(s); i++ {
+		c := s[i]
+		// If there are escape sequences, don't use templating - too complex
+		// Escape sequences need runtime processing
+		if c == '\\' && i+1 < len(s) {
+			next := s[i+1]
+			if next == '$' || next == '~' || next == '?' || next == '\\' || next == '{' {
+				return false // Fall back to original substitution
+			}
+		}
+		if c == '$' || c == '~' || c == '?' || c == '{' {
+			hasSubstitution = true
+		}
+	}
+	return hasSubstitution
+}
+
+// ApplyTemplate executes a pre-parsed substitution template with the given context
+// Returns the substituted string and a flag indicating if async processing is needed
+func (e *Executor) ApplyTemplate(template *SubstitutionTemplate, ctx *SubstitutionContext) (string, bool) {
+	if template == nil || len(template.Segments) == 0 {
+		return "", false
+	}
+
+	// Fast path: single literal segment
+	if len(template.Segments) == 1 && template.Segments[0].Type == SegmentLiteral {
+		return template.Segments[0].Literal, false
+	}
+
+	var result strings.Builder
+	result.Grow(128) // Pre-allocate for typical result
+
+	for _, seg := range template.Segments {
+		switch seg.Type {
+		case SegmentLiteral:
+			result.WriteString(seg.Literal)
+
+		case SegmentTildeVar:
+			value := e.lookupTildeVar(seg.VarName, seg.IsQuestion, ctx)
+			result.WriteString(value)
+
+		case SegmentDollarArg:
+			if ctx.MacroContext != nil {
+				value := e.lookupDollarArgWithContext(seg.ArgNum, seg.InQuote, ctx)
+				result.WriteString(value)
+			} else {
+				// Not in macro context, output as-is
+				result.WriteString(fmt.Sprintf("$%d", seg.ArgNum))
+			}
+
+		case SegmentDollarStar:
+			if ctx.MacroContext != nil {
+				value := e.formatAllArgsComma(ctx)
+				result.WriteString(value)
+			} else {
+				result.WriteString("$*")
+			}
+
+		case SegmentDollarAt:
+			if ctx.MacroContext != nil {
+				value := e.formatArgsAsList(ctx)
+				result.WriteString(value)
+			} else {
+				result.WriteString("$@")
+			}
+
+		case SegmentDollarHash:
+			if ctx.MacroContext != nil {
+				value := e.formatArgCount(ctx)
+				result.WriteString(value)
+			} else {
+				result.WriteString("$#")
+			}
+
+		case SegmentBrace:
+			// Execute the pre-parsed brace AST
+			braceResult, isAsync := e.executeBraceFromTemplate(seg, ctx)
+			if isAsync {
+				// Return partial result with async marker
+				// The caller will handle coordination
+				result.WriteString(braceResult)
+				return result.String(), true
+			}
+			result.WriteString(braceResult)
+		}
+	}
+
+	return result.String(), false
+}
+
+// ApplyTemplateTyped evaluates a single-expression template and returns the typed value directly.
+// This avoids the round-trip through string markers for brace expressions, tilde variables, and dollar args.
+// Returns (value, isTyped, isAsync):
+//   - isTyped=true means value is the typed result (use directly)
+//   - isTyped=false means fall back to string-based ApplyTemplate
+//   - isAsync=true means async coordination is needed
+func (e *Executor) ApplyTemplateTyped(template *SubstitutionTemplate, ctx *SubstitutionContext) (interface{}, bool, bool) {
+	// Only handle single-expression templates
+	if template == nil || !template.IsSingleExpr || len(template.Segments) != 1 {
+		return nil, false, false
+	}
+
+	seg := template.Segments[0]
+
+	switch seg.Type {
+	case SegmentTildeVar:
+		// ~varname - return the typed value directly
+		value, isTyped := e.lookupTildeVarTyped(seg.VarName, seg.IsQuestion, ctx)
+		return value, isTyped, false
+
+	case SegmentBrace:
+		// {block} - evaluate and return typed result
+		value, isAsync := e.executeBraceTyped(seg, ctx)
+		if isAsync {
+			return nil, false, true
+		}
+		return value, true, false
+
+	case SegmentDollarArg:
+		// $1, $2, etc - return the typed value directly
+		if ctx.MacroContext == nil {
+			return nil, false, false
+		}
+		value, found := e.lookupDollarArgTyped(seg.ArgNum, ctx)
+		return value, found, false
+
+	case SegmentDollarAt:
+		// $@ - return the args list directly
+		if ctx.MacroContext == nil {
+			return nil, false, false
+		}
+		if ctx.ExecutionState != nil {
+			if argsVar, exists := ctx.ExecutionState.GetVariable("$@"); exists {
+				return argsVar, true, false
+			}
+		}
+		// Return empty list
+		return NewStoredListWithoutRefs(nil), true, false
+
+	case SegmentDollarStar:
+		// $* - can't return typed (it's a comma-separated string format)
+		return nil, false, false
+
+	default:
+		return nil, false, false
+	}
+}
+
+// lookupTildeVarTyped looks up a tilde variable and returns the typed value
+func (e *Executor) lookupTildeVarTyped(varName string, isQuestion bool, ctx *SubstitutionContext) (interface{}, bool) {
+	if ctx.ExecutionState == nil {
+		if isQuestion {
+			return false, true
+		}
+		return nil, false
+	}
+
+	// Look up variable
+	value, exists := ctx.ExecutionState.GetVariable(varName)
+	if !exists && ctx.ExecutionState.moduleEnv != nil {
+		ctx.ExecutionState.moduleEnv.mu.RLock()
+		if obj, found := ctx.ExecutionState.moduleEnv.ObjectsModule[varName]; found {
+			value = obj
+			exists = true
+		}
+		ctx.ExecutionState.moduleEnv.mu.RUnlock()
+	}
+
+	if isQuestion {
+		// ? expression - return boolean for existence
+		if exists {
+			if _, ok := value.(ActualUndefined); ok {
+				return false, true
+			}
+			if sym, ok := value.(Symbol); ok {
+				if string(sym) == "undefined" {
+					return false, true
+				}
+			}
+			return true, true
+		}
+		return false, true
+	}
+
+	// ~ expression - return typed value
+	if !exists {
+		return nil, false
+	}
+
+	// Return the value directly without stringification
+	// For markers, resolve to actual objects
+	return e.resolveValue(value), true
+}
+
+// lookupDollarArgTyped looks up a numbered argument and returns the typed value
+func (e *Executor) lookupDollarArgTyped(argNum int, ctx *SubstitutionContext) (interface{}, bool) {
+	// Try to get from $@ list first
+	if ctx.ExecutionState != nil {
+		if argsVar, exists := ctx.ExecutionState.GetVariable("$@"); exists {
+			var listID int = -1
+			if ref, ok := argsVar.(ObjectRef); ok && ref.Type == ObjList {
+				listID = ref.ID
+			} else if sym, ok := argsVar.(Symbol); ok {
+				marker := string(sym)
+				if objType, objID := parseObjectMarker(marker); objType == "list" && objID >= 0 {
+					listID = objID
+				}
+			}
+			if listID >= 0 {
+				if listObj, exists := e.getObject(listID); exists {
+					if storedList, ok := listObj.(StoredList); ok {
+						item := storedList.Get(argNum - 1)
+						if item != nil {
+							return item, true
+						}
+					}
+				}
+			}
+		}
+	}
+
+	// Fallback to ctx.Args
+	idx := argNum - 1
+	if idx >= 0 && idx < len(ctx.Args) {
+		return ctx.Args[idx], true
+	}
+
+	return nil, false
+}
+
+// executeBraceTyped executes a brace segment and returns the typed result
+func (e *Executor) executeBraceTyped(seg TemplateSegment, ctx *SubstitutionContext) (interface{}, bool) {
+	if seg.BraceAST == nil {
+		return nil, false
+	}
+
+	// Create child state for brace execution
+	braceState := NewExecutionStateFromSharedVars(ctx.ExecutionState)
+	braceState.InBraceExpression = true
+
+	// Create substitution context for the brace
+	braceSubCtx := &SubstitutionContext{
+		Args:                ctx.Args,
+		ExecutionState:      braceState,
+		MacroContext:        ctx.MacroContext,
+		CurrentLineOffset:   ctx.CurrentLineOffset,
+		CurrentColumnOffset: ctx.CurrentColumnOffset,
+		Filename:            ctx.Filename,
+		CapturedModuleEnv:   ctx.CapturedModuleEnv,
+	}
+
+	// Execute the pre-parsed commands
+	executeResult := e.ExecuteParsedCommands(
+		seg.BraceAST,
+		braceState,
+		braceSubCtx,
+		ctx.CurrentLineOffset,
+		ctx.CurrentColumnOffset,
+	)
+
+	// Track brace evaluation
+	ctx.BracesEvaluated++
+
+	// Capture result
+	var capturedResult interface{}
+	var hasCapturedResult bool
+	if braceState.HasResult() {
+		capturedResult = braceState.GetResult()
+		hasCapturedResult = true
+	}
+
+	// Check for async
+	if _, ok := executeResult.(TokenResult); ok {
+		return nil, true // isAsync = true
+	}
+
+	// Handle early return
+	if earlyReturn, ok := executeResult.(EarlyReturn); ok {
+		if !bool(earlyReturn.Status) {
+			ctx.BraceFailureCount++
+		}
+		if earlyReturn.HasResult {
+			capturedResult = earlyReturn.Result
+			hasCapturedResult = true
+		}
+	}
+
+	// Handle synchronous completion
+	if boolStatus, ok := executeResult.(BoolStatus); ok && !bool(boolStatus) {
+		ctx.BraceFailureCount++
+	}
+
+	// Transfer object ownership from brace state to parent
+	braceState.mu.Lock()
+	ownedByBrace := make(map[int]int)
+	for refID, count := range braceState.ownedObjects {
+		ownedByBrace[refID] = count
+	}
+	braceState.mu.Unlock()
+
+	for refID, childCount := range ownedByBrace {
+		if childCount > 0 {
+			ctx.ExecutionState.mu.Lock()
+			parentOwns := ctx.ExecutionState.ownedObjects[refID] > 0
+			ctx.ExecutionState.mu.Unlock()
+			if !parentOwns {
+				ctx.ExecutionState.ClaimObjectReference(refID)
+			}
+		}
+	}
+
+	// Clean up brace state
+	braceState.ReleaseAllReferences()
+	braceState.Recycle(false, false)
+
+	// Return the typed result directly
+	if hasCapturedResult {
+		return capturedResult, false
+	}
+
+	// If no explicit result, return the boolean status
+	if boolStatus, ok := executeResult.(BoolStatus); ok {
+		return bool(boolStatus), false
+	}
+
+	return nil, false
+}
+
+// lookupTildeVar looks up a tilde variable and formats the result
+func (e *Executor) lookupTildeVar(varName string, isQuestion bool, ctx *SubstitutionContext) string {
+	if ctx.ExecutionState == nil {
+		if isQuestion {
+			return "false"
+		}
+		return ""
+	}
+
+	// Look up variable
+	value, exists := ctx.ExecutionState.GetVariable(varName)
+	if !exists && ctx.ExecutionState.moduleEnv != nil {
+		ctx.ExecutionState.moduleEnv.mu.RLock()
+		if obj, found := ctx.ExecutionState.moduleEnv.ObjectsModule[varName]; found {
+			value = obj
+			exists = true
+		}
+		ctx.ExecutionState.moduleEnv.mu.RUnlock()
+	}
+
+	if isQuestion {
+		// ? expression - return "true" or "false"
+		if exists {
+			if _, ok := value.(ActualUndefined); ok {
+				return "false"
+			}
+			if sym, ok := value.(Symbol); ok {
+				if string(sym) == "undefined" {
+					return "false"
+				}
+			}
+			return "true"
+		}
+		return "false"
+	}
+
+	// ~ expression - return value
+	if !exists {
+		return ""
+	}
+
+	// Resolve and format value
+	resolved := e.resolveValue(value)
+	var valueStr string
+	if list, ok := resolved.(StoredList); ok {
+		valueStr = formatListForDisplay(list, e)
+	} else if bytes, ok := resolved.(StoredBytes); ok {
+		valueStr = bytes.String()
+	} else {
+		valueStr = fmt.Sprintf("%v", resolved)
+	}
+
+	// Escape for safety
+	valueStr = strings.ReplaceAll(valueStr, `\`, `\\`)
+	valueStr = strings.ReplaceAll(valueStr, `"`, `\"`)
+	valueStr = strings.ReplaceAll(valueStr, "~", "\x00TILDE\x00")
+	valueStr = strings.ReplaceAll(valueStr, "?", "\x00QMARK\x00")
+
+	return valueStr
+}
+
+// lookupDollarArgWithContext looks up a numbered argument and formats it based on quote context
+func (e *Executor) lookupDollarArgWithContext(argNum int, inQuote bool, ctx *SubstitutionContext) string {
+	var argValue interface{}
+	found := false
+
+	// Try to get from $@ list first
+	if ctx.ExecutionState != nil {
+		if argsVar, exists := ctx.ExecutionState.GetVariable("$@"); exists {
+			// Handle both ObjectRef and Symbol(marker) formats
+			var listID int = -1
+			if ref, ok := argsVar.(ObjectRef); ok && ref.Type == ObjList {
+				listID = ref.ID
+			} else if sym, ok := argsVar.(Symbol); ok {
+				marker := string(sym)
+				if objType, objID := parseObjectMarker(marker); objType == "list" && objID >= 0 {
+					listID = objID
+				}
+			}
+			if listID >= 0 {
+				if listObj, exists := e.getObject(listID); exists {
+					if storedList, ok := listObj.(StoredList); ok {
+						item := storedList.Get(argNum - 1)
+						if item != nil {
+							argValue = item
+							found = true
+						}
+					}
+				}
+			}
+		}
+	}
+
+	// Fallback to ctx.Args
+	if !found {
+		idx := argNum - 1
+		if idx >= 0 && idx < len(ctx.Args) {
+			argValue = ctx.Args[idx]
+			found = true
+		}
+	}
+
+	if !found {
+		return fmt.Sprintf("$%d", argNum)
+	}
+
+	// Format based on quote context
+	if inQuote {
+		return e.encodeArgumentForQuotedContext(argValue)
+	}
+	return e.encodeArgumentForSubstitution(argValue)
+}
+
+// lookupDollarArg looks up a numbered argument and formats it (outside quote context)
+func (e *Executor) lookupDollarArg(argNum int, ctx *SubstitutionContext) string {
+	var argValue interface{}
+	found := false
+
+	// Try to get from $@ list first
+	if ctx.ExecutionState != nil {
+		if argsVar, exists := ctx.ExecutionState.GetVariable("$@"); exists {
+			// Handle both ObjectRef and Symbol(marker) formats
+			var listID int = -1
+			if ref, ok := argsVar.(ObjectRef); ok && ref.Type == ObjList {
+				listID = ref.ID
+			} else if sym, ok := argsVar.(Symbol); ok {
+				marker := string(sym)
+				if objType, objID := parseObjectMarker(marker); objType == "list" && objID >= 0 {
+					listID = objID
+				}
+			}
+			if listID >= 0 {
+				if listObj, exists := e.getObject(listID); exists {
+					if storedList, ok := listObj.(StoredList); ok {
+						item := storedList.Get(argNum - 1)
+						if item != nil {
+							argValue = item
+							found = true
+						}
+					}
+				}
+			}
+		}
+	}
+
+	// Fallback to ctx.Args
+	if !found {
+		idx := argNum - 1
+		if idx >= 0 && idx < len(ctx.Args) {
+			argValue = ctx.Args[idx]
+			found = true
+		}
+	}
+
+	if !found {
+		return fmt.Sprintf("$%d", argNum)
+	}
+
+	// Format the argument
+	return e.encodeArgumentForSubstitution(argValue)
+}
+
+// formatAllArgsComma formats all args as comma-separated list
+func (e *Executor) formatAllArgsComma(ctx *SubstitutionContext) string {
+	if len(ctx.Args) == 0 {
+		return ""
+	}
+	allArgs := make([]string, len(ctx.Args))
+	for i, arg := range ctx.Args {
+		allArgs[i] = e.encodeArgumentForList(arg)
+	}
+	return strings.Join(allArgs, ", ")
+}
+
+// formatArgsAsList formats args as a list marker
+func (e *Executor) formatArgsAsList(ctx *SubstitutionContext) string {
+	if ctx.ExecutionState != nil {
+		if argsVar, exists := ctx.ExecutionState.GetVariable("$@"); exists {
+			// Handle ObjectRef by converting to marker
+			if ref, ok := argsVar.(ObjectRef); ok {
+				return ref.ToMarker()
+			}
+			return fmt.Sprintf("%v", argsVar)
+		}
+	}
+	return "()"
+}
+
+// formatArgCount formats the argument count
+func (e *Executor) formatArgCount(ctx *SubstitutionContext) string {
+	if ctx.ExecutionState != nil {
+		if argsVar, exists := ctx.ExecutionState.GetVariable("$@"); exists {
+			// Handle both ObjectRef and Symbol(marker) formats
+			var listID int = -1
+			if ref, ok := argsVar.(ObjectRef); ok && ref.Type == ObjList {
+				listID = ref.ID
+			} else if sym, ok := argsVar.(Symbol); ok {
+				marker := string(sym)
+				if objType, id := parseObjectMarker(marker); objType == "list" && id >= 0 {
+					listID = id
+				}
+			}
+			if listID >= 0 {
+				if listObj, exists := e.getObject(listID); exists {
+					if storedList, ok := listObj.(StoredList); ok {
+						return fmt.Sprintf("%d", storedList.Len())
+					}
+				}
+			}
+		}
+	}
+	return fmt.Sprintf("%d", len(ctx.Args))
+}
+
+// executeBraceFromTemplate executes a brace segment from a template
+func (e *Executor) executeBraceFromTemplate(seg TemplateSegment, ctx *SubstitutionContext) (string, bool) {
+	if seg.BraceAST == nil {
+		return "", false
+	}
+
+	// Create child state for brace execution
+	braceState := NewExecutionStateFromSharedVars(ctx.ExecutionState)
+	braceState.InBraceExpression = true
+
+	// Create substitution context for the brace
+	braceSubCtx := &SubstitutionContext{
+		Args:              ctx.Args,
+		ExecutionState:    braceState,
+		MacroContext:      ctx.MacroContext,
+		CurrentLineOffset: ctx.CurrentLineOffset,
+		CurrentColumnOffset: ctx.CurrentColumnOffset,
+		Filename:          ctx.Filename,
+		CapturedModuleEnv: ctx.CapturedModuleEnv, // Inherit for handler caching
+	}
+
+	// Execute the pre-parsed commands
+	executeResult := e.ExecuteParsedCommands(
+		seg.BraceAST,
+		braceState,
+		braceSubCtx,
+		ctx.CurrentLineOffset,
+		ctx.CurrentColumnOffset,
+	)
+
+	// Track brace evaluation
+	ctx.BracesEvaluated++
+
+	// Capture result
+	var capturedResult interface{}
+	var hasCapturedResult bool
+	if braceState.HasResult() {
+		capturedResult = braceState.GetResult()
+		hasCapturedResult = true
+	}
+
+	// Check for async
+	if tokenResult, ok := executeResult.(TokenResult); ok {
+		// Return async marker - caller will coordinate
+		return fmt.Sprintf("\x00PAWS:%s\x00", string(tokenResult)), true
+	}
+
+	// Handle early return
+	if earlyReturn, ok := executeResult.(EarlyReturn); ok {
+		if !bool(earlyReturn.Status) {
+			ctx.BraceFailureCount++
+		}
+		if earlyReturn.HasResult {
+			capturedResult = earlyReturn.Result
+			hasCapturedResult = true
+		}
+	}
+
+	// Handle synchronous completion
+	if boolStatus, ok := executeResult.(BoolStatus); ok && !bool(boolStatus) {
+		ctx.BraceFailureCount++
+	}
+
+	// Format result
+	var resultValue string
+	if hasCapturedResult {
+		resultValue = e.encodeBraceResultFromTemplate(capturedResult, seg.IsUnescape, seg.InQuote, ctx)
+	} else if boolStatus, ok := executeResult.(BoolStatus); ok {
+		resultValue = fmt.Sprintf("%v", bool(boolStatus))
+	}
+
+	// Transfer object ownership from brace state to parent
+	braceState.mu.Lock()
+	ownedByBrace := make(map[int]int)
+	for refID, count := range braceState.ownedObjects {
+		ownedByBrace[refID] = count
+	}
+	braceState.mu.Unlock()
+
+	for refID, childCount := range ownedByBrace {
+		if childCount > 0 {
+			ctx.ExecutionState.mu.Lock()
+			parentOwns := ctx.ExecutionState.ownedObjects[refID] > 0
+			ctx.ExecutionState.mu.Unlock()
+			if !parentOwns {
+				ctx.ExecutionState.ClaimObjectReference(refID)
+			}
+		}
+	}
+
+	// Clean up brace state
+	braceState.ReleaseAllReferences()
+	braceState.Recycle(false, false)
+
+	return resultValue, false
+}
+
+// encodeBraceResultFromTemplate encodes a brace result for template substitution
+func (e *Executor) encodeBraceResultFromTemplate(value interface{}, isUnescape bool, inQuote bool, ctx *SubstitutionContext) string {
+	if value == nil {
+		return "nil"
+	}
+
+	// Handle ActualUndefined type
+	if _, ok := value.(ActualUndefined); ok {
+		if inQuote {
+			return "<undefined>"
+		}
+		return "undefined"
+	}
+
+	// Handle symbol/marker
+	if sym, ok := value.(Symbol); ok {
+		if objType, objID := parseObjectMarker(string(sym)); objID >= 0 {
+			if isUnescape {
+				// ${...} - resolve and splat
+				if actualValue, exists := e.getObject(objID); exists {
+					switch objType {
+					case "list":
+						if list, ok := actualValue.(StoredList); ok {
+							return e.encodeListItems(list)
+						}
+					case "str":
+						if storedStr, ok := actualValue.(StoredString); ok {
+							return string(storedStr)
+						}
+					case "block":
+						if storedBlock, ok := actualValue.(StoredBlock); ok {
+							return string(storedBlock)
+						}
+					}
+				}
+			}
+			// Inside quotes, display object contents
+			if inQuote {
+				if actualValue, exists := e.getObject(objID); exists {
+					switch objType {
+					case "list":
+						if list, ok := actualValue.(StoredList); ok {
+							return formatListForDisplay(list, e)
+						}
+					case "str":
+						if storedStr, ok := actualValue.(StoredString); ok {
+							return string(storedStr)
+						}
+					case "block":
+						if storedBlock, ok := actualValue.(StoredBlock); ok {
+							return string(storedBlock)
+						}
+					}
+				}
+			}
+			// Return marker as-is for reference passing
+			return string(sym)
+		}
+		return string(sym)
+	}
+
+	// Handle ObjectRef directly (new preferred way)
+	if ref, ok := value.(ObjectRef); ok {
+		if !ref.IsValid() {
+			return "nil"
+		}
+		if isUnescape {
+			// ${...} - resolve and splat
+			if actualValue, exists := e.getObject(ref.ID); exists {
+				switch ref.Type {
+				case ObjList:
+					if list, ok := actualValue.(StoredList); ok {
+						return e.encodeListItems(list)
+					}
+				case ObjString:
+					if storedStr, ok := actualValue.(StoredString); ok {
+						return string(storedStr)
+					}
+				case ObjBlock:
+					if storedBlock, ok := actualValue.(StoredBlock); ok {
+						return string(storedBlock)
+					}
+				}
+			}
+		}
+		// Inside quotes, display object contents
+		if inQuote {
+			if actualValue, exists := e.getObject(ref.ID); exists {
+				switch ref.Type {
+				case ObjList:
+					if list, ok := actualValue.(StoredList); ok {
+						return formatListForDisplay(list, e)
+					}
+				case ObjString:
+					if storedStr, ok := actualValue.(StoredString); ok {
+						return string(storedStr)
+					}
+				case ObjBlock:
+					if storedBlock, ok := actualValue.(StoredBlock); ok {
+						return string(storedBlock)
+					}
+				}
+			}
+		}
+		// Return marker for reference passing
+		return ref.ToMarker()
+	}
+
+	// Format based on type
+	switch v := value.(type) {
+	case bool:
+		if v {
+			return "true"
+		}
+		return "false"
+	case StoredList:
+		if isUnescape {
+			return e.encodeListItems(v)
+		}
+		// Store and return marker
+		ref := e.RegisterObject(value, ObjList)
+		if ctx.ExecutionState != nil {
+			ctx.ExecutionState.ClaimObjectReference(ref.ID)
+		}
+		return ref.ToMarker()
+	case int64, float64:
+		return fmt.Sprintf("%v", v)
+	case string:
+		if inQuote {
+			return v
+		}
+		// Outside quotes: wrap in quotes to preserve as string
+		return "\"" + e.escapeQuotesAndBackslashes(v) + "\""
+	case QuotedString:
+		if inQuote {
+			return string(v)
+		}
+		// Outside quotes: wrap in quotes to preserve as string
+		return "\"" + e.escapeQuotesAndBackslashes(string(v)) + "\""
+	default:
+		return fmt.Sprintf("%v", v)
+	}
 }

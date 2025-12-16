@@ -43,4 +43,10 @@ item.missing exists: false
 undefined var exists: false
 (Expected: false)
 
+=== Test9: Test escaping of operator ===
+?bad
+?bad
+?bad
+?bad
+(Expected ?bad ?bad ?bad ?bad)
 === All ? operator tests complete ===

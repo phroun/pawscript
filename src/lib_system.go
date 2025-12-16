@@ -4,23 +4,77 @@ import (
 	"bufio"
 	"bytes"
 	"fmt"
+	"io"
 	"os"
 	"os/exec"
 	"path/filepath"
+	"runtime"
 	"sort"
 	"strconv"
 	"strings"
 	"time"
 )
 
+// channelReader wraps a StoredChannel as an io.Reader
+// Reads bytes from the channel's NativeRecv function
+type channelReader struct {
+	ch     *StoredChannel
+	buffer []byte
+}
+
+func (r *channelReader) Read(p []byte) (n int, err error) {
+	// If buffer is empty, get more data from channel
+	if len(r.buffer) == 0 {
+		data, err := r.ch.NativeRecv()
+		if err != nil {
+			return 0, err
+		}
+		// Handle different types from NativeRecv
+		switch v := data.(type) {
+		case []byte:
+			r.buffer = v
+		case string:
+			r.buffer = []byte(v)
+		default:
+			r.buffer = []byte(fmt.Sprintf("%v", v))
+		}
+	}
+	// Copy from buffer to output
+	n = copy(p, r.buffer)
+	r.buffer = r.buffer[n:]
+	return n, nil
+}
+
+// channelWriter wraps a StoredChannel as an io.Writer
+type channelWriter struct {
+	ch *StoredChannel
+}
+
+func (w *channelWriter) Write(p []byte) (n int, err error) {
+	if w.ch.NativeSend != nil {
+		err = w.ch.NativeSend(p)
+		if err != nil {
+			return 0, err
+		}
+		return len(p), nil
+	}
+	// Fall back to ChannelSend with string
+	err = ChannelSend(w.ch, string(p))
+	if err != nil {
+		return 0, err
+	}
+	return len(p), nil
+}
+
 // RegisterSystemLib registers OS, IO, and system commands
 // Modules: os, io, sys
 func (ps *PawScript) RegisterSystemLib(scriptArgs []string) {
 	// Helper function to set a StoredList as result with proper reference counting
+	// Note: RegisterObject now handles nested ref claiming for lists
 	setListResult := func(ctx *Context, list StoredList) {
-		id := ctx.executor.storeObject(list, "list")
-		marker := fmt.Sprintf("\x00LIST:%d\x00", id)
-		ctx.state.SetResultWithoutClaim(Symbol(marker))
+		// RegisterObject claims refs for all nested items automatically
+		ref := ctx.executor.RegisterObject(list, ObjList)
+		ctx.state.SetResultWithoutClaim(ref)
 	}
 
 	// Helper to resolve a value to a StoredList (handles markers, direct objects, ParenGroups)
@@ -31,10 +85,10 @@ func (ps *PawScript) RegisterSystemLib(scriptArgs []string) {
 			return v, true
 		case ParenGroup:
 			items, _ := parseArguments(string(v))
-			return NewStoredList(items), true
+			return NewStoredListWithoutRefs(items), true
 		case StoredBlock:
 			items, _ := parseArguments(string(v))
-			return NewStoredList(items), true
+			return NewStoredListWithoutRefs(items), true
 		case Symbol:
 			markerType, objectID := parseObjectMarker(string(v))
 			if markerType == "list" && objectID >= 0 {
@@ -128,6 +182,21 @@ func (ps *PawScript) RegisterSystemLib(scriptArgs []string) {
 			return v
 		}
 		return nil
+	}
+
+	// Helper to convert channel value (which may be []byte or StoredBytes) to string
+	// Used by 'read' command to convert raw bytes from I/O channels to unicode strings
+	bytesToString := func(val interface{}) string {
+		switch v := val.(type) {
+		case []byte:
+			return string(v)
+		case StoredBytes:
+			return string(v.Data())
+		case string:
+			return v
+		default:
+			return fmt.Sprintf("%v", v)
+		}
 	}
 
 	// Helper to resolve a file name (like "#myfile") to a file
@@ -245,12 +314,13 @@ func (ps *PawScript) RegisterSystemLib(scriptArgs []string) {
 	}
 
 	getInputChannel := func(ctx *Context, defaultName string) (*StoredChannel, bool) {
-		// Check if first arg is already a channel (from tilde resolution)
+		// Check if first arg is already a channel (from tilde resolution or channel marker)
 		if len(ctx.Args) > 0 {
-			if ch, ok := ctx.Args[0].(*StoredChannel); ok {
+			// Try valueToChannel which handles direct channels, markers, and symbols
+			if ch := valueToChannel(ctx, ctx.Args[0]); ch != nil {
 				return ch, true
 			}
-			// Or if first arg is a symbol starting with #
+			// Or if first arg is a symbol starting with # (like #in)
 			if sym, ok := ctx.Args[0].(Symbol); ok {
 				symStr := string(sym)
 				if strings.HasPrefix(symStr, "#") {
@@ -402,7 +472,7 @@ func (ps *PawScript) RegisterSystemLib(scriptArgs []string) {
 					setListResult(ctx, storedListSource)
 				} else {
 					// Convert raw slice to StoredList before setting as result
-					setListResult(ctx, NewStoredList(sourceList))
+					setListResult(ctx, NewStoredListWithoutRefs(sourceList))
 				}
 				return BoolStatus(true)
 			}
@@ -756,60 +826,54 @@ func (ps *PawScript) RegisterSystemLib(scriptArgs []string) {
 					return BoolStatus(false)
 				}
 				ctx.LogError(CatIO, fmt.Sprintf("read: %v", err))
+				ctx.SetResult("")  // Set empty result on error to avoid stale values
 				return BoolStatus(false)
 			}
 			ctx.SetResult(content)
 			return BoolStatus(true)
 		}
 
-		// Check if first arg is provided
+		// Check if first arg is a file (special case)
 		if len(ctx.Args) > 0 {
 			// Direct file handle
 			if f, ok := ctx.Args[0].(*StoredFile); ok {
 				return readFromFile(f)
 			}
-
-			// Check for channel
-			if ch, ok := ctx.Args[0].(*StoredChannel); ok {
-				_, value, err := ChannelRecv(ch)
-				if err != nil {
-					ctx.LogError(CatIO, fmt.Sprintf("read: %v", err))
-					return BoolStatus(false)
-				}
-				ctx.SetResult(value)
-				return BoolStatus(true)
-			}
-
-			// Check for #-prefixed symbol that might be a file or channel
+			// Check for #-prefixed symbol that might be a file
 			if sym, ok := ctx.Args[0].(Symbol); ok {
 				symStr := string(sym)
 				if strings.HasPrefix(symStr, "#") {
-					// Try to resolve as file
+					// Try to resolve as file first
 					if f := resolveFile(ctx, symStr); f != nil {
 						return readFromFile(f)
 					}
-					// Try to resolve as channel (check if it's #in or similar)
-					if symStr == "#in" {
-						ch, found := getInputChannel(ctx, "#in")
-						if found {
-							_, value, err := ChannelRecv(ch)
-							if err != nil {
-								ctx.LogError(CatIO, fmt.Sprintf("read: %v", err))
-								return BoolStatus(false)
-							}
-							ctx.SetResult(value)
-							return BoolStatus(true)
-						}
-					}
 				}
 			}
-
-			// Argument provided but not a valid file or channel - error out
-			ctx.LogError(CatIO, "read: invalid argument - expected file handle or channel")
-			return BoolStatus(false)
 		}
 
-		// No arguments - fall back to channel handling or stdin
+		// If KeyInputManager is running and no explicit channel given, use its lines channel
+		// This ensures read works correctly when readkey_init has taken over stdin in raw mode
+		if len(ctx.Args) == 0 {
+			ctx.executor.mu.Lock()
+			manager := ctx.executor.keyInputManager
+			ctx.executor.mu.Unlock()
+
+			if manager != nil {
+				linesCh := manager.GetLinesChannel()
+				if linesCh != nil && linesCh.NativeRecv != nil {
+					_, value, err := ChannelRecv(linesCh)
+					if err != nil {
+						ctx.LogError(CatIO, fmt.Sprintf("Failed to read: %v", err))
+						ctx.SetResult("")
+						return BoolStatus(false)
+					}
+					ctx.SetResult(bytesToString(value))
+					return BoolStatus(true)
+				}
+			}
+		}
+
+		// Try to get input channel (handles direct channels, markers, #symbols, defaults to #in)
 		ch, found := getInputChannel(ctx, "#in")
 		if !found {
 			token := ctx.RequestToken(nil)
@@ -830,12 +894,249 @@ func (ps *PawScript) RegisterSystemLib(scriptArgs []string) {
 			return TokenResult(token)
 		}
 
+		// Check if channel is in raw byte mode (LineMode: false in terminal caps)
+		// If so, we need to accumulate bytes until newline
+		rawByteMode := false
+		if ch.Terminal != nil && !ch.Terminal.LineMode {
+			rawByteMode = true
+		}
+
+		if rawByteMode && ch.NativeRecv != nil {
+			// Raw byte mode: accumulate bytes until newline
+			// Also handle echo to output channel if available
+			// Supports bracketed paste mode (ESC[200~ ... ESC[201~)
+			outCh, _, _ := getOutputChannel(ctx, "#out")
+
+			// Clear PasteNotified flag - read clears it so readkey can return "Paste" again
+			ch.mu.Lock()
+			ch.PasteNotified = false
+
+			// Check if there are buffered complete lines from a previous paste
+			if len(ch.PasteBuffer) > 0 {
+				// Return the first buffered line
+				line := ch.PasteBuffer[0]
+				ch.PasteBuffer = ch.PasteBuffer[1:]
+				ch.mu.Unlock()
+				// Echo the line
+				if outCh != nil {
+					_ = ChannelSend(outCh, line+"\r\n")
+				}
+				ctx.SetResult(line)
+				return BoolStatus(true)
+			}
+
+			// Check for partial paste content - becomes start of line buffer
+			var lineBuffer []byte
+			if ch.PartialPaste != "" {
+				lineBuffer = []byte(ch.PartialPaste)
+				// Echo the partial content
+				if outCh != nil {
+					_ = ChannelSend(outCh, ch.PartialPaste)
+				}
+				ch.PartialPaste = ""
+			}
+			ch.mu.Unlock()
+
+			// Bracketed paste tracking
+			pasteMode := false
+			var pasteBuffer []byte   // accumulates content during paste
+			var escBuffer []byte     // buffer for detecting escape sequences
+
+			// Helper to check if buffer matches a bracketed paste sequence
+			checkBracketedPaste := func() (start bool, end bool, complete bool) {
+				if len(escBuffer) < 6 {
+					return false, false, false
+				}
+				seq := string(escBuffer)
+				if seq == "\x1b[200~" {
+					return true, false, true
+				}
+				if seq == "\x1b[201~" {
+					return false, true, true
+				}
+				return false, false, false
+			}
+
+			// Helper to check if buffer could still become a valid sequence
+			couldBeSequence := func() bool {
+				seq := string(escBuffer)
+				return strings.HasPrefix("\x1b[200~", seq) || strings.HasPrefix("\x1b[201~", seq)
+			}
+
+			// Helper to process completed paste - splits into lines and buffers extras
+			// Returns true if we should return immediately (have complete lines)
+			processPaste := func() bool {
+				if len(pasteBuffer) == 0 {
+					return false
+				}
+				pastedStr := string(pasteBuffer)
+				pasteBuffer = nil
+
+				// Check if paste ended with a newline
+				endsWithNewline := strings.HasSuffix(pastedStr, "\n") || strings.HasSuffix(pastedStr, "\r")
+
+				// Split pasted content by newlines
+				lines := strings.Split(pastedStr, "\n")
+				// Handle \r\n by trimming \r from each line
+				var cleanLines []string
+				for _, line := range lines {
+					cleanLines = append(cleanLines, strings.TrimSuffix(line, "\r"))
+				}
+
+				if len(cleanLines) == 0 {
+					return false
+				}
+
+				// First line gets appended to current lineBuffer
+				lineBuffer = append(lineBuffer, []byte(cleanLines[0])...)
+
+				if len(cleanLines) == 1 {
+					// Single line paste
+					if endsWithNewline {
+						// Complete line - return immediately
+						return true
+					}
+					// Partial line - user needs to press Enter or continue typing
+					return false
+				}
+
+				// Multiple lines
+				ch.mu.Lock()
+				if endsWithNewline {
+					// All lines are complete - buffer lines 1 to end
+					ch.PasteBuffer = append(ch.PasteBuffer, cleanLines[1:]...)
+				} else {
+					// Last line is partial - buffer complete lines, save partial
+					if len(cleanLines) > 2 {
+						ch.PasteBuffer = append(ch.PasteBuffer, cleanLines[1:len(cleanLines)-1]...)
+					}
+					ch.PartialPaste = cleanLines[len(cleanLines)-1]
+				}
+				ch.mu.Unlock()
+
+				// Return first line immediately (auto-enter for multi-line paste)
+				return true
+			}
+
+			for {
+				_, value, err := ChannelRecv(ch)
+				if err != nil {
+					ctx.LogError(CatIO, fmt.Sprintf("Failed to read: %v", err))
+					ctx.SetResult("")
+					return BoolStatus(false)
+				}
+
+				// Get the byte(s)
+				var bytes []byte
+				switch v := value.(type) {
+				case []byte:
+					bytes = v
+				case string:
+					bytes = []byte(v)
+				default:
+					bytes = []byte(fmt.Sprintf("%v", v))
+				}
+
+				for _, b := range bytes {
+					// If we're building an escape sequence, add to buffer
+					if len(escBuffer) > 0 || b == 0x1b {
+						escBuffer = append(escBuffer, b)
+
+						// Check if we've completed a bracketed paste sequence
+						isStart, isEnd, complete := checkBracketedPaste()
+						if complete {
+							if isStart {
+								pasteMode = true
+								pasteBuffer = nil
+							} else if isEnd {
+								pasteMode = false
+								if processPaste() {
+									// Multi-line paste or paste ending with newline
+									// Return first line immediately (echo + newline)
+									if outCh != nil {
+										_ = ChannelSend(outCh, "\r\n")
+									}
+									ctx.SetResult(string(lineBuffer))
+									return BoolStatus(true)
+								}
+								// Single line paste without trailing newline
+								// Echo what was pasted and continue waiting for input
+								if outCh != nil && len(lineBuffer) > 0 {
+									_ = ChannelSend(outCh, string(lineBuffer))
+								}
+							}
+							escBuffer = nil
+							continue
+						}
+
+						// Check if this could still become a valid sequence
+						if couldBeSequence() {
+							continue // keep buffering
+						}
+
+						// Not a valid sequence prefix - flush buffer
+						if pasteMode {
+							// In paste mode, add literally to paste buffer
+							pasteBuffer = append(pasteBuffer, escBuffer...)
+						} else {
+							// In normal mode, process each byte
+							for _, eb := range escBuffer {
+								if eb >= 32 {
+									lineBuffer = append(lineBuffer, eb)
+									if outCh != nil {
+										_ = ChannelSend(outCh, string([]byte{eb}))
+									}
+								}
+							}
+						}
+						escBuffer = nil
+						continue
+					}
+
+					// In paste mode, accept all characters literally (except ESC which starts sequence detection)
+					if pasteMode {
+						pasteBuffer = append(pasteBuffer, b)
+						continue
+					}
+
+					// Normal character processing
+					if b == '\n' || b == '\r' {
+						// End of line - echo newline and return
+						if outCh != nil {
+							_ = ChannelSend(outCh, "\r\n")
+						}
+						ctx.SetResult(string(lineBuffer))
+						return BoolStatus(true)
+					} else if b == 127 || b == 8 { // Backspace or DEL
+						if len(lineBuffer) > 0 {
+							lineBuffer = lineBuffer[:len(lineBuffer)-1]
+							// Echo backspace sequence
+							if outCh != nil {
+								_ = ChannelSend(outCh, "\b \b")
+							}
+						}
+					} else if b == 3 { // Ctrl+C
+						ctx.SetResult("")
+						return BoolStatus(false)
+					} else if b >= 32 { // Printable characters
+						lineBuffer = append(lineBuffer, b)
+						// Echo the character
+						if outCh != nil {
+							_ = ChannelSend(outCh, string([]byte{b}))
+						}
+					}
+				}
+			}
+		}
+
 		_, value, err := ChannelRecv(ch)
 		if err != nil {
 			ctx.LogError(CatIO, fmt.Sprintf("Failed to read: %v", err))
+			ctx.SetResult("")  // Set empty result on error to avoid stale values
 			return BoolStatus(false)
 		}
-		ctx.SetResult(value)
+		// Convert raw bytes from I/O channels to unicode string
+		ctx.SetResult(bytesToString(value))
 		return BoolStatus(true)
 	})
 
@@ -885,9 +1186,8 @@ func (ps *PawScript) RegisterSystemLib(scriptArgs []string) {
 			if err.Error() == "EOF" || strings.Contains(err.Error(), "EOF") {
 				// Return empty bytes on EOF
 				result := NewStoredBytes(nil)
-				id := ctx.executor.storeObject(result, "bytes")
-				marker := fmt.Sprintf("\x00BYTES:%d\x00", id)
-				ctx.state.SetResultWithoutClaim(Symbol(marker))
+				ref := ctx.executor.RegisterObject(result, ObjBytes)
+				ctx.state.SetResultWithoutClaim(ref)
 				return BoolStatus(false)
 			}
 			ctx.LogError(CatIO, fmt.Sprintf("read_bytes: %v", err))
@@ -896,10 +1196,229 @@ func (ps *PawScript) RegisterSystemLib(scriptArgs []string) {
 
 		// Create StoredBytes result
 		result := NewStoredBytes(data)
-		id := ctx.executor.storeObject(result, "bytes")
-		marker := fmt.Sprintf("\x00BYTES:%d\x00", id)
-		ctx.state.SetResultWithoutClaim(Symbol(marker))
+		ref := ctx.executor.RegisterObject(result, ObjBytes)
+		ctx.state.SetResultWithoutClaim(ref)
 		return BoolStatus(true)
+	})
+
+	// readkey_init - initialize key input manager for raw keyboard handling
+	// Usage: readkey_init [input_channel] [echo: true|false|channel]
+	// Returns a list containing [lines_channel, keys_channel]
+	// If input_channel is provided, reads bytes from that channel.
+	// Otherwise defaults to #in (the root input channel).
+	// Sends "raw" mode instruction to the input channel to enable raw mode.
+	// By default, echo is disabled (for games/TUI). Use echo: true to enable.
+	ps.RegisterCommandInModule("io", "readkey_init", func(ctx *Context) Result {
+		var inputCh *StoredChannel
+		var echoWriter io.Writer = nil // Default: no echo
+
+		// Get input channel - explicit arg or default to #in
+		if len(ctx.Args) > 0 {
+			inputCh = valueToChannel(ctx, ctx.Args[0])
+		}
+		if inputCh == nil {
+			// Default to #in channel
+			inputCh = resolveChannel(ctx, "#in")
+		}
+
+		// Stop any existing key input manager on the SAME input channel to prevent doubled input
+		// This allows multiple handlers on different input streams
+		ctx.executor.mu.Lock()
+		oldManager := ctx.executor.keyInputManager
+		oldInputCh := ctx.executor.keyInputChannel
+		if oldManager != nil && oldInputCh == inputCh {
+			ctx.executor.keyInputManager = nil
+			ctx.executor.keyInputChannel = nil
+			ctx.executor.mu.Unlock()
+			// Stop the old manager
+			oldManager.Stop()
+			// Restore old channel to line mode
+			if oldInputCh != nil && oldInputCh.NativeSend != nil {
+				oldInputCh.NativeSend("line")
+			}
+		} else {
+			ctx.executor.mu.Unlock()
+		}
+
+		if inputCh == nil || inputCh.NativeRecv == nil {
+			ctx.LogError(CatIO, "readkey_init: no valid input channel (need #in or explicit channel with NativeRecv)")
+			return BoolStatus(false)
+		}
+
+		// Send "raw" mode instruction to the input channel
+		if inputCh.NativeSend != nil {
+			if err := inputCh.NativeSend("raw"); err != nil {
+				// Channel doesn't support raw mode - might be okay for GUI channels
+				ps.logger.DebugCat(CatIO, "readkey_init: channel raw mode instruction: %v", err)
+			}
+		}
+
+		// Check for echo: named argument - can be true/false or a channel
+		if echoArg, hasEcho := ctx.NamedArgs["echo"]; hasEcho {
+			// First check if it's a channel
+			if ch := valueToChannel(ctx, echoArg); ch != nil {
+				echoWriter = &channelWriter{ch: ch}
+			} else if echoBool, ok := echoArg.(bool); ok && echoBool {
+				// Get #out channel for echo
+				if outCh := resolveChannel(ctx, "#out"); outCh != nil {
+					echoWriter = &channelWriter{ch: outCh}
+				}
+			} else if echoStr, ok := echoArg.(string); ok && (echoStr == "true" || echoStr == "yes") {
+				if outCh := resolveChannel(ctx, "#out"); outCh != nil {
+					echoWriter = &channelWriter{ch: outCh}
+				}
+			}
+		}
+
+		// Create the key input manager using the channel as input source
+		// The channel handles raw mode, so KeyInputManager doesn't need to manage terminal
+		inputReader := &channelReader{ch: inputCh}
+		manager := NewKeyInputManager(inputReader, echoWriter, nil)
+
+		// If input channel is terminal-backed, set up line echo writer for {read} operations
+		// and mark the manager as terminal-backed so REPLs know to delegate input
+		if inputCh.Terminal != nil && inputCh.Terminal.IsTerminal {
+			manager.SetTerminalBacked(true)
+			if outCh := resolveChannel(ctx, "#out"); outCh != nil {
+				manager.SetLineEchoWriter(&channelWriter{ch: outCh})
+			}
+		}
+
+		// Start the manager (won't touch terminal since input is a channel, not os.Stdin directly)
+		if err := manager.Start(); err != nil {
+			// Restore line mode on failure
+			if inputCh.NativeSend != nil {
+				_ = inputCh.NativeSend("line")
+			}
+			ctx.LogError(CatIO, fmt.Sprintf("readkey_init: %v", err))
+			return BoolStatus(false)
+		}
+
+		// Store the manager and input channel in executor
+		ctx.executor.mu.Lock()
+		ctx.executor.keyInputManager = manager
+		ctx.executor.keyInputChannel = inputCh // Store for readkey_stop to restore mode
+		ctx.executor.mu.Unlock()
+
+		// Return the two channels as a list
+		linesCh := manager.GetLinesChannel()
+		keysCh := manager.GetKeysChannel()
+
+		// Store channels and create list with proper refs
+		linesRef := ctx.executor.RegisterObject(linesCh, ObjChannel)
+		keysRef := ctx.executor.RegisterObject(keysCh, ObjChannel)
+
+		// Use NewStoredListWithRefs to properly claim references to the channels
+		resultList := NewStoredListWithRefs([]interface{}{linesRef, keysRef}, nil, ctx.executor)
+		listRef := ctx.executor.RegisterObject(resultList, ObjList)
+		ctx.state.SetResultWithoutClaim(listRef)
+
+		return BoolStatus(true)
+	})
+
+	// readkey_stop - stop key input manager and restore channel to line mode
+	ps.RegisterCommandInModule("io", "readkey_stop", func(ctx *Context) Result {
+		ctx.executor.mu.Lock()
+		manager := ctx.executor.keyInputManager
+		inputCh := ctx.executor.keyInputChannel
+		ctx.executor.keyInputManager = nil
+		ctx.executor.keyInputChannel = nil
+		ctx.executor.mu.Unlock()
+
+		if manager == nil {
+			ctx.LogError(CatIO, "readkey_stop: no key input manager running")
+			return BoolStatus(false)
+		}
+
+		// Stop the manager first
+		if err := manager.Stop(); err != nil {
+			ctx.LogError(CatIO, fmt.Sprintf("readkey_stop: %v", err))
+			// Still try to restore channel mode
+		}
+
+		// Restore channel to line mode
+		if inputCh != nil && inputCh.NativeSend != nil {
+			if err := inputCh.NativeSend("line"); err != nil {
+				ps.logger.DebugCat(CatIO, "readkey_stop: channel line mode instruction: %v", err)
+			}
+		}
+
+		return BoolStatus(true)
+	})
+
+	// readkey - read a single key event from key input manager
+	// Usage: readkey or readkey #keyin_channel
+	// Returns the key as a string ("a", "M-a", "F1", "^C", etc.)
+	// Returns "Paste" if there is buffered paste content waiting to be read
+	ps.RegisterCommandInModule("io", "readkey", func(ctx *Context) Result {
+		var keysCh *StoredChannel
+
+		// Check for explicit channel argument - use valueToChannel to handle markers
+		if len(ctx.Args) > 0 {
+			keysCh = valueToChannel(ctx, ctx.Args[0])
+		}
+
+		// If no channel specified or couldn't resolve, use the manager's keys channel
+		if keysCh == nil {
+			ctx.executor.mu.Lock()
+			manager := ctx.executor.keyInputManager
+			ctx.executor.mu.Unlock()
+
+			if manager == nil {
+				ctx.LogError(CatIO, "readkey: no key input manager running (call readkey_init first)")
+				return BoolStatus(false)
+			}
+			keysCh = manager.GetKeysChannel()
+		}
+
+		// Check if there's paste content waiting and we haven't notified yet
+		// Use the #in channel for paste buffer since that's where read uses it
+		inCh, hasInCh := getInputChannel(ctx, "#in")
+		if hasInCh {
+			inCh.mu.Lock()
+			hasPaste := len(inCh.PasteBuffer) > 0 || inCh.PartialPaste != ""
+			notified := inCh.PasteNotified
+			if hasPaste && !notified {
+				inCh.PasteNotified = true
+				inCh.mu.Unlock()
+				ctx.SetResult(QuotedString("Paste"))
+				return BoolStatus(true)
+			}
+			inCh.mu.Unlock()
+		}
+
+		// KeyInputManager now handles escape sequence processing and sends complete
+		// key names like "Up", "F1", "Enter", etc. We just need to return them directly.
+		// Bracketed paste is also handled by KeyInputManager which emits individual
+		// characters in key-by-key mode.
+		for {
+			_, value, err := ChannelRecv(keysCh)
+			if err != nil {
+				ctx.LogError(CatIO, fmt.Sprintf("readkey: %v", err))
+				ctx.SetResult("")
+				return BoolStatus(false)
+			}
+
+			// Convert to string
+			var keyStr string
+			switch v := value.(type) {
+			case string:
+				keyStr = v
+			case []byte:
+				keyStr = string(v)
+			case QuotedString:
+				keyStr = string(v)
+			case Symbol:
+				keyStr = string(v)
+			default:
+				keyStr = fmt.Sprintf("%v", v)
+			}
+
+			// Return the key directly - KeyInputManager has already processed
+			// escape sequences into key names
+			ctx.SetResult(QuotedString(keyStr))
+			return BoolStatus(true)
+		}
 	})
 
 	// write_bytes - write binary data to a file
@@ -1158,9 +1677,8 @@ func (ps *PawScript) RegisterSystemLib(scriptArgs []string) {
 				int64(-1), // bg (default)
 			}, resultNamedArgs)
 
-			id := ctx.executor.storeObject(result, "list")
-			marker := fmt.Sprintf("\x00LIST:%d\x00", id)
-			ctx.state.SetResultWithoutClaim(Symbol(marker))
+			ref := ctx.executor.RegisterObject(result, ObjList)
+			ctx.state.SetResultWithoutClaim(ref)
 			return BoolStatus(true)
 		}
 
@@ -1299,9 +1817,8 @@ func (ps *PawScript) RegisterSystemLib(scriptArgs []string) {
 			int64(ts.CurrentBG),
 		}, resultNamedArgs)
 
-		id := ctx.executor.storeObject(result, "list")
-		marker := fmt.Sprintf("\x00LIST:%d\x00", id)
-		ctx.state.SetResultWithoutClaim(Symbol(marker))
+		ref := ctx.executor.RegisterObject(result, ObjList)
+		ctx.state.SetResultWithoutClaim(ref)
 
 		return BoolStatus(true)
 	})
@@ -1315,6 +1832,18 @@ func (ps *PawScript) RegisterSystemLib(scriptArgs []string) {
 		ts := ps.terminalState
 		ts.mu.Lock()
 		defer ts.mu.Unlock()
+
+		// Get output channel - use it for ANSI output
+		outCh, _, found := getOutputChannel(ctx, "#out")
+
+		// Helper to send output to the resolved channel or system stdout
+		sendOutput := func(text string) {
+			if found && outCh != nil {
+				_ = ChannelSend(outCh, text)
+			} else {
+				fmt.Print(text)
+			}
+		}
 
 		// Handle reset FIRST, before any other processing
 		// This resets terminal to initial state (like tput reset)
@@ -1374,18 +1903,25 @@ func (ps *PawScript) RegisterSystemLib(scriptArgs []string) {
 		if visible, ok := ctx.NamedArgs["visible"]; ok {
 			ts.Visible = isTruthy(visible)
 			if ts.Visible {
-				fmt.Print(ANSIShowCursor())
+				sendOutput(ANSIShowCursor())
 			} else {
-				fmt.Print(ANSIHideCursor())
+				sendOutput(ANSIHideCursor())
 			}
 		}
 		if shape, ok := ctx.NamedArgs["shape"]; ok {
 			ts.Shape = fmt.Sprintf("%v", shape)
-			fmt.Print(ANSISetCursorShape(ts.Shape, ts.Blink))
+			sendOutput(ANSISetCursorShape(ts.Shape, ts.Blink))
 		}
 		if blink, ok := ctx.NamedArgs["blink"]; ok {
 			ts.Blink = fmt.Sprintf("%v", blink)
-			fmt.Print(ANSISetCursorShape(ts.Shape, ts.Blink))
+			sendOutput(ANSISetCursorShape(ts.Shape, ts.Blink))
+			// Emit fast/slow blink rate control sequence
+			blinkLower := strings.ToLower(ts.Blink)
+			if blinkLower == "fast" {
+				sendOutput("\x1b[?12h") // Fast blink rate
+			} else if blinkLower == "true" {
+				sendOutput("\x1b[?12l") // Slow blink rate (default)
+			}
 		}
 		if color, ok := ctx.NamedArgs["color"]; ok {
 			if v, ok := toInt64(color); ok {
@@ -1458,7 +1994,7 @@ func (ps *PawScript) RegisterSystemLib(scriptArgs []string) {
 			// Move cursor - emit ANSI codes
 			physX := ts.GetPhysicalX()
 			physY := ts.GetPhysicalY()
-			fmt.Print(ANSIMoveCursor(physY, physX))
+			sendOutput(ANSIMoveCursor(physY, physX))
 		}
 
 		// Cursor output marks position tracking as stale
@@ -1494,9 +2030,8 @@ func (ps *PawScript) RegisterSystemLib(scriptArgs []string) {
 		}, resultNamedArgs)
 
 		// Store and return the list
-		id := ctx.executor.storeObject(result, "list")
-		marker := fmt.Sprintf("\x00LIST:%d\x00", id)
-		ctx.state.SetResultWithoutClaim(Symbol(marker))
+		ref := ctx.executor.RegisterObject(result, ObjList)
+		ctx.state.SetResultWithoutClaim(ref)
 
 		return BoolStatus(true)
 	})
@@ -1543,6 +2078,47 @@ func (ps *PawScript) RegisterSystemLib(scriptArgs []string) {
 		}()
 
 		return TokenResult(token)
+	})
+
+	// pause - synchronous yield to other goroutines and the system
+	// Unlike msleep (which uses async tokens), pause is synchronous and safe in tight loops
+	// Usage: pause [milliseconds] - default is 1ms
+	// Note: Renamed from "yield" to avoid collision with coroutines::yield (generator yield)
+	ps.RegisterCommandInModule("time", "pause", func(ctx *Context) Result {
+		ms := int64(1) // Default to 1ms
+
+		if len(ctx.Args) >= 1 {
+			switch v := ctx.Args[0].(type) {
+			case int:
+				ms = int64(v)
+			case int64:
+				ms = v
+			case float64:
+				ms = int64(v)
+			case string:
+				parsed, err := strconv.ParseInt(v, 10, 64)
+				if err == nil {
+					ms = parsed
+				}
+			}
+		}
+
+		if ms < 0 {
+			ms = 0
+		}
+		if ms > 1000 {
+			ms = 1000 // Cap at 1 second for safety
+		}
+
+		// Yield to scheduler first
+		runtime.Gosched()
+
+		// Then sleep for the specified time (blocking, not async)
+		if ms > 0 {
+			time.Sleep(time.Duration(ms) * time.Millisecond)
+		}
+
+		return BoolStatus(true)
 	})
 
 	// log_print - output log messages from scripts
@@ -1680,14 +2256,22 @@ func (ps *PawScript) RegisterSystemLib(scriptArgs []string) {
 	// Named args: default, floor, force (log levels), plus per-category levels
 	// Returns: current configuration as StoredList with named args
 	ps.RegisterCommandInModule("debug", "error_logging", func(ctx *Context) Result {
-		return configureLogFilter(ctx, ps, true)
+		return configureLogFilter(ctx, ps, "error")
 	})
 
 	// debug_logging - configure which log messages go to #out
 	// Named args: default, floor, force (log levels), plus per-category levels
 	// Returns: current configuration as StoredList with named args
 	ps.RegisterCommandInModule("debug", "debug_logging", func(ctx *Context) Result {
-		return configureLogFilter(ctx, ps, false)
+		return configureLogFilter(ctx, ps, "debug")
+	})
+
+	// bubble_logging - configure which log messages get captured as bubbles
+	// Named args: default, floor, force (log levels), plus per-category levels
+	// Bubbles are created with flavor "level_category" (e.g., "error_argument", "warn_io")
+	// Returns: current configuration as StoredList with named args
+	ps.RegisterCommandInModule("debug", "bubble_logging", func(ctx *Context) Result {
+		return configureLogFilter(ctx, ps, "bubble")
 	})
 
 	// datetime - format and convert date/time values
@@ -1892,7 +2476,7 @@ func (ps *PawScript) RegisterSystemLib(scriptArgs []string) {
 	ps.RegisterCommandInModule("debug", "mem_stats", func(ctx *Context) Result {
 		type objectInfo struct {
 			ID       int
-			Type     string
+			Type     ObjectType
 			RefCount int
 			Size     int
 		}
@@ -1958,11 +2542,20 @@ func (ps *PawScript) RegisterSystemLib(scriptArgs []string) {
 		}
 
 		// LibraryRestricted (available modules)
-		output.WriteString(fmt.Sprintf("\n--- Library Restricted (%d) ---\n", len(env.LibraryRestricted)))
+		restrictedCmdCount := 0
+		for _, cmds := range env.LibraryRestricted {
+			restrictedCmdCount += len(cmds)
+		}
+		output.WriteString(fmt.Sprintf("\n--- Library Restricted (%d in %d modules) ---\n", restrictedCmdCount, len(env.LibraryRestricted)))
 		writeLibrarySectionWrapped(&output, env.LibraryRestricted)
 
 		// Item metadata (shows import info) - grouped by source module
-		output.WriteString(fmt.Sprintf("\n--- Imported (%d) ---\n", len(env.ItemMetadataModule)))
+		// First, group items by their source module to count modules
+		importedByModule := make(map[string][]string)
+		for name, meta := range env.ItemMetadataModule {
+			importedByModule[meta.ImportedFromModule] = append(importedByModule[meta.ImportedFromModule], name)
+		}
+		output.WriteString(fmt.Sprintf("\n--- Imported (%d in %d modules) ---\n", len(env.ItemMetadataModule), len(importedByModule)))
 		if len(env.ItemMetadataModule) == 0 {
 			output.WriteString("  (none)\n")
 		} else {
@@ -2067,7 +2660,11 @@ func (ps *PawScript) RegisterSystemLib(scriptArgs []string) {
 		defer env.mu.RUnlock()
 
 		output.WriteString("=== Library Inherited ===\n")
-		output.WriteString(fmt.Sprintf("\n--- Modules (%d) ---\n", len(env.LibraryInherited)))
+		inheritedCmdCount := 0
+		for _, cmds := range env.LibraryInherited {
+			inheritedCmdCount += len(cmds)
+		}
+		output.WriteString(fmt.Sprintf("\n--- Modules (%d in %d modules) ---\n", inheritedCmdCount, len(env.LibraryInherited)))
 		writeLibrarySectionWrapped(&output, env.LibraryInherited)
 
 		_ = outCtx.WriteToErr(output.String())
@@ -2075,9 +2672,9 @@ func (ps *PawScript) RegisterSystemLib(scriptArgs []string) {
 	})
 }
 
-// configureLogFilter implements error_logging and debug_logging commands
-// isErrorLog=true for error_logging (#err), false for debug_logging (#out)
-func configureLogFilter(ctx *Context, ps *PawScript, isErrorLog bool) Result {
+// configureLogFilter implements error_logging, debug_logging, and bubble_logging commands
+// filterType: "error" for #err, "debug" for #out, "bubble" for bubble capture
+func configureLogFilter(ctx *Context, ps *PawScript, filterType string) Result {
 	if ctx.state.moduleEnv == nil {
 		ctx.LogError(CatSystem, "no module environment available")
 		return BoolStatus(false)
@@ -2090,17 +2687,23 @@ func configureLogFilter(ctx *Context, ps *PawScript, isErrorLog bool) Result {
 	var filter *LogFilter
 	if hasChanges {
 		logConfig := ctx.state.moduleEnv.GetLogConfigForModification()
-		if isErrorLog {
+		switch filterType {
+		case "error":
 			filter = logConfig.ErrorLog
-		} else {
+		case "debug":
 			filter = logConfig.DebugLog
+		case "bubble":
+			filter = logConfig.BubbleLog
 		}
 	} else {
 		logConfig := ctx.state.moduleEnv.LogConfigModule
-		if isErrorLog {
+		switch filterType {
+		case "error":
 			filter = logConfig.ErrorLog
-		} else {
+		case "debug":
 			filter = logConfig.DebugLog
+		case "bubble":
+			filter = logConfig.BubbleLog
 		}
 	}
 	ctx.state.moduleEnv.mu.Unlock()
@@ -2175,22 +2778,21 @@ func configureLogFilter(ctx *Context, ps *PawScript, isErrorLog bool) Result {
 
 	// Build and return result list with current configuration
 	resultNamedArgs := map[string]interface{}{
-		"default": LogLevelToString(filter.Default),
-		"floor":   LogLevelToString(filter.Floor),
-		"force":   LogLevelToString(filter.Force),
+		"default": QuotedString(LogLevelToString(filter.Default)),
+		"floor":   QuotedString(LogLevelToString(filter.Floor)),
+		"force":   QuotedString(LogLevelToString(filter.Force)),
 	}
 
 	// Add all category settings
 	for _, cat := range AllLogCategories() {
 		if level, exists := filter.Categories[cat]; exists {
-			resultNamedArgs[string(cat)] = LogLevelToString(level)
+			resultNamedArgs[string(cat)] = QuotedString(LogLevelToString(level))
 		}
 	}
 
 	result := NewStoredListWithNamed([]interface{}{}, resultNamedArgs)
-	id := ctx.executor.storeObject(result, "list")
-	marker := fmt.Sprintf("\x00LIST:%d\x00", id)
-	ctx.state.SetResultWithoutClaim(Symbol(marker))
+	ref := ctx.executor.RegisterObject(result, ObjList)
+	ctx.state.SetResultWithoutClaim(ref)
 
 	return BoolStatus(true)
 }

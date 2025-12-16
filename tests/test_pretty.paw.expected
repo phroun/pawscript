@@ -1,0 +1,92 @@
+=== JSON and String Pretty Tests ===
+
+Test 1: Simple nested - pretty JSON
+{
+  "_children": [
+    1,
+    2,
+    {
+      "a": 1,
+      "b": 2
+    }
+  ],
+  "name": "test"
+}
+
+Test 2: Same structure - compact JSON
+{"_children":[1,2,{"a":1,"b":2}],"name":"test"}
+
+Test 3: String command - pretty
+(
+  name: "test",
+  1,
+  2,
+  (a: 1, b: 2)
+)
+
+Test 4: String command - compact
+(name: "test", 1, 2, (a: 1, b: 2))
+
+Test 5: Deep nesting - pretty JSON
+{
+  "children": {
+    "_children": [
+      {
+        "x": 1
+      },
+      {
+        "y": 2
+      }
+    ]
+  },
+  "name": "root",
+  "tags": {
+    "_children": [
+      "a",
+      "b",
+      "c"
+    ]
+  }
+}
+
+Test 6: Deep nesting - compact JSON
+{"children":{"_children":[{"x":1},{"y":2}]},"name":"root","tags":{"_children":["a","b","c"]}}
+
+Test 7: Named-only - pretty JSON
+{
+  "debug": true,
+  "options": {
+    "retries": 3,
+    "timeout": 30
+  },
+  "port": 8080,
+  "server": "localhost"
+}
+
+Test 8: Array-only - pretty JSON
+[
+  1,
+  2,
+  3,
+  [
+    "a",
+    "b",
+    "c"
+  ],
+  []
+]
+
+Test 9: Simple list - string pretty (should be compact)
+(1, 2, 3)
+
+Test 10: Deep nesting - string pretty
+(
+  children: (
+    (x: 1),
+    (y: 2)
+  ),
+  name: "root",
+  tags: (a, b, c)
+)
+
+=== Tests Complete ===

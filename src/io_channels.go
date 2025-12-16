@@ -6,8 +6,51 @@ import (
 	"io"
 	"math/rand"
 	"os"
+	"strings"
+	"sync"
 	"time"
+
+	"golang.org/x/term"
 )
+
+// normalizeNewlines converts bare \n to \r\n for consistent terminal behavior.
+// This ensures output works correctly whether the terminal is in raw mode or not.
+// Existing \r\n sequences are preserved (not doubled).
+func normalizeNewlines(s string) string {
+	// First normalize any existing \r\n to \n, then convert all \n to \r\n
+	s = strings.ReplaceAll(s, "\r\n", "\n")
+	s = strings.ReplaceAll(s, "\n", "\r\n")
+	return s
+}
+
+// Global tracking for terminal state cleanup
+var (
+	globalStdinStateMu sync.Mutex
+	globalStdinState   *stdinChannelState
+)
+
+// CleanupTerminal restores the terminal to its original state.
+// This should be called when the program exits to ensure the terminal
+// is left in a usable state (proper newline handling, echo enabled, etc.)
+func CleanupTerminal() {
+	globalStdinStateMu.Lock()
+	state := globalStdinState
+	globalStdinStateMu.Unlock()
+
+	if state == nil {
+		return
+	}
+
+	state.mu.Lock()
+	defer state.mu.Unlock()
+
+	if state.originalState != nil && state.inRawMode {
+		_ = term.Restore(state.fd, state.originalState)
+		state.originalState = nil
+		state.inRawMode = false
+		state.rawModeRefCount = 0
+	}
+}
 
 // IOChannelConfig allows host applications to provide custom IO channel handlers
 // Any nil channel will use the default OS-backed implementation
@@ -26,6 +69,97 @@ type IOChannelConfig struct {
 	// Additional custom channels - will be registered with their map keys as names
 	// Example: {"#mylog": logChannel} would create io::#mylog
 	CustomChannels map[string]*StoredChannel
+}
+
+// stdinChannelState manages the state of a terminal-backed stdin channel
+// Supports mode switching between line mode and raw mode via NativeSend
+type stdinChannelState struct {
+	mu sync.Mutex
+
+	// Input source
+	file       *os.File      // The underlying file (os.Stdin)
+	lineReader *bufio.Reader // Line-mode reader
+
+	// Terminal state
+	fd              int         // File descriptor
+	isTerminal      bool        // True if fd is a terminal
+	originalState   *term.State // Original terminal state (for restore)
+	inRawMode       bool        // Current mode
+	rawModeRefCount int         // Reference count for nested raw mode requests
+}
+
+// setRawMode puts the terminal in raw mode (reference counted)
+func (s *stdinChannelState) setRawMode() error {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+
+	if !s.isTerminal {
+		return fmt.Errorf("not a terminal")
+	}
+
+	s.rawModeRefCount++
+	if s.inRawMode {
+		return nil // Already in raw mode
+	}
+
+	state, err := term.MakeRaw(s.fd)
+	if err != nil {
+		s.rawModeRefCount--
+		return err
+	}
+	s.originalState = state
+	s.inRawMode = true
+	return nil
+}
+
+// setLineMode restores line mode (reference counted)
+func (s *stdinChannelState) setLineMode() error {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+
+	if !s.isTerminal || !s.inRawMode {
+		return nil
+	}
+
+	s.rawModeRefCount--
+	if s.rawModeRefCount > 0 {
+		return nil // Still have active raw mode users
+	}
+
+	if s.originalState != nil {
+		if err := term.Restore(s.fd, s.originalState); err != nil {
+			return err
+		}
+		s.originalState = nil
+	}
+	s.inRawMode = false
+	return nil
+}
+
+// readByte reads a single byte (for raw mode)
+func (s *stdinChannelState) readByte() (byte, error) {
+	buf := make([]byte, 1)
+	_, err := s.file.Read(buf)
+	if err != nil {
+		return 0, err
+	}
+	return buf[0], nil
+}
+
+// readLine reads a line (for line mode)
+func (s *stdinChannelState) readLine() ([]byte, error) {
+	line, err := s.lineReader.ReadString('\n')
+	if err != nil {
+		return nil, err
+	}
+	// Trim newline
+	if len(line) > 0 && line[len(line)-1] == '\n' {
+		line = line[:len(line)-1]
+	}
+	if len(line) > 0 && line[len(line)-1] == '\r' {
+		line = line[:len(line)-1]
+	}
+	return []byte(line), nil
 }
 
 // PopulateIOModule creates native IO channels and registers them in the io module
@@ -64,8 +198,32 @@ func (env *ModuleEnvironment) PopulateIOModule(config *IOChannelConfig, executor
 	if config != nil && config.Stdin != nil {
 		stdinCh = config.Stdin
 	} else {
-		// Create default stdin channel - read-only
-		stdinReader := bufio.NewReader(defaultStdin)
+		// Create default stdin channel with mode switching support
+		// Check if defaultStdin is os.Stdin and is a terminal
+		var stdinState *stdinChannelState
+		if f, ok := defaultStdin.(*os.File); ok {
+			fd := int(f.Fd())
+			stdinState = &stdinChannelState{
+				file:       f,
+				lineReader: bufio.NewReader(f),
+				fd:         fd,
+				isTerminal: term.IsTerminal(fd),
+			}
+		} else {
+			// Non-file reader - wrap in state with no terminal support
+			stdinState = &stdinChannelState{
+				lineReader: bufio.NewReader(defaultStdin),
+				isTerminal: false,
+			}
+		}
+
+		// Register for global cleanup on program exit
+		if stdinState.isTerminal {
+			globalStdinStateMu.Lock()
+			globalStdinState = stdinState
+			globalStdinStateMu.Unlock()
+		}
+
 		stdinCh = &StoredChannel{
 			BufferSize:       0,
 			Messages:         make([]ChannelMessage, 0),
@@ -74,22 +232,47 @@ func (env *ModuleEnvironment) PopulateIOModule(config *IOChannelConfig, executor
 			IsClosed:         false,
 			Timestamp:        time.Now(),
 			NativeRecv: func() (interface{}, error) {
-				line, err := stdinReader.ReadString('\n')
-				if err != nil {
-					return nil, err
+				stdinState.mu.Lock()
+				inRaw := stdinState.inRawMode
+				stdinState.mu.Unlock()
+
+				if inRaw {
+					// Raw mode: return single bytes
+					b, err := stdinState.readByte()
+					if err != nil {
+						return nil, err
+					}
+					return []byte{b}, nil
 				}
-				// Trim the newline
-				if len(line) > 0 && line[len(line)-1] == '\n' {
-					line = line[:len(line)-1]
-				}
-				if len(line) > 0 && line[len(line)-1] == '\r' {
-					line = line[:len(line)-1]
-				}
-				return line, nil
+				// Line mode: return full lines
+				return stdinState.readLine()
 			},
 			NativeSend: func(v interface{}) error {
-				return fmt.Errorf("cannot send to stdin")
+				// Handle mode instructions sent to the input channel
+				switch cmd := v.(type) {
+				case string:
+					switch cmd {
+					case "raw", "raw_mode":
+						return stdinState.setRawMode()
+					case "line", "line_mode":
+						return stdinState.setLineMode()
+					default:
+						return fmt.Errorf("unknown stdin mode: %s", cmd)
+					}
+				default:
+					return fmt.Errorf("stdin accepts mode commands: 'raw' or 'line'")
+				}
 			},
+		}
+
+		// Set terminal capabilities
+		if stdinState.isTerminal {
+			stdinCh.Terminal = &TerminalCapabilities{
+				IsTerminal:    true,
+				SupportsInput: true,
+				LineMode:      true, // Starts in line mode
+				EchoEnabled:   true,
+			}
 		}
 	}
 
@@ -97,8 +280,13 @@ func (env *ModuleEnvironment) PopulateIOModule(config *IOChannelConfig, executor
 		stdoutCh = config.Stdout
 	} else {
 		// Create default stdout channel - write-only
-		// Note: NativeSend does NOT add newline - callers add it if needed
+		// Normalizes newlines (\n -> \r\n) only when outputting to a terminal
 		stdout := defaultStdout // capture for closure
+		// Check if stdout is a terminal (for newline normalization)
+		stdoutIsTerminal := false
+		if f, ok := stdout.(*os.File); ok {
+			stdoutIsTerminal = term.IsTerminal(int(f.Fd()))
+		}
 		stdoutCh = &StoredChannel{
 			BufferSize:       0,
 			Messages:         make([]ChannelMessage, 0),
@@ -107,7 +295,22 @@ func (env *ModuleEnvironment) PopulateIOModule(config *IOChannelConfig, executor
 			IsClosed:         false,
 			Timestamp:        time.Now(),
 			NativeSend: func(v interface{}) error {
-				_, err := fmt.Fprintf(stdout, "%v", v)
+				// Convert to string
+				var text string
+				switch val := v.(type) {
+				case []byte:
+					text = string(val)
+				case string:
+					text = val
+				default:
+					text = fmt.Sprintf("%v", v)
+				}
+				// Normalize newlines only when outputting to a terminal
+				// (not when redirected to a file)
+				if stdoutIsTerminal {
+					text = normalizeNewlines(text)
+				}
+				_, err := io.WriteString(stdout, text)
 				return err
 			},
 			NativeRecv: func() (interface{}, error) {
@@ -120,8 +323,13 @@ func (env *ModuleEnvironment) PopulateIOModule(config *IOChannelConfig, executor
 		stderrCh = config.Stderr
 	} else {
 		// Create default stderr channel - write-only
-		// Note: NativeSend does NOT add newline - callers add it if needed
+		// Normalizes newlines (\n -> \r\n) only when outputting to a terminal
 		stderr := defaultStderr // capture for closure
+		// Check if stderr is a terminal (for newline normalization)
+		stderrIsTerminal := false
+		if f, ok := stderr.(*os.File); ok {
+			stderrIsTerminal = term.IsTerminal(int(f.Fd()))
+		}
 		stderrCh = &StoredChannel{
 			BufferSize:       0,
 			Messages:         make([]ChannelMessage, 0),
@@ -130,7 +338,22 @@ func (env *ModuleEnvironment) PopulateIOModule(config *IOChannelConfig, executor
 			IsClosed:         false,
 			Timestamp:        time.Now(),
 			NativeSend: func(v interface{}) error {
-				_, err := fmt.Fprintf(stderr, "%v", v)
+				// Convert to string
+				var text string
+				switch val := v.(type) {
+				case []byte:
+					text = string(val)
+				case string:
+					text = val
+				default:
+					text = fmt.Sprintf("%v", v)
+				}
+				// Normalize newlines only when outputting to a terminal
+				// (not when redirected to a file)
+				if stderrIsTerminal {
+					text = normalizeNewlines(text)
+				}
+				_, err := io.WriteString(stderr, text)
 				return err
 			},
 			NativeRecv: func() (interface{}, error) {
@@ -143,9 +366,14 @@ func (env *ModuleEnvironment) PopulateIOModule(config *IOChannelConfig, executor
 		stdioCh = config.Stdio
 	} else {
 		// Create default stdio channel - bidirectional (read from stdin, write to stdout)
-		// Note: NativeSend does NOT add newline - callers add it if needed
+		// Normalizes newlines (\n -> \r\n) only when outputting to a terminal
 		stdioReader := bufio.NewReader(defaultStdin)
 		stdout := defaultStdout // capture for closure
+		// Check if stdout is a terminal (for newline normalization)
+		stdioIsTerminal := false
+		if f, ok := stdout.(*os.File); ok {
+			stdioIsTerminal = term.IsTerminal(int(f.Fd()))
+		}
 		stdioCh = &StoredChannel{
 			BufferSize:       0,
 			Messages:         make([]ChannelMessage, 0),
@@ -154,7 +382,22 @@ func (env *ModuleEnvironment) PopulateIOModule(config *IOChannelConfig, executor
 			IsClosed:         false,
 			Timestamp:        time.Now(),
 			NativeSend: func(v interface{}) error {
-				_, err := fmt.Fprintf(stdout, "%v", v)
+				// Convert to string
+				var text string
+				switch val := v.(type) {
+				case []byte:
+					text = string(val)
+				case string:
+					text = val
+				default:
+					text = fmt.Sprintf("%v", v)
+				}
+				// Normalize newlines only when outputting to a terminal
+				// (not when redirected to a file)
+				if stdioIsTerminal {
+					text = normalizeNewlines(text)
+				}
+				_, err := io.WriteString(stdout, text)
 				return err
 			},
 			NativeRecv: func() (interface{}, error) {
@@ -162,14 +405,14 @@ func (env *ModuleEnvironment) PopulateIOModule(config *IOChannelConfig, executor
 				if err != nil {
 					return nil, err
 				}
-				// Trim the newline
+				// Trim the newline and return as raw bytes
 				if len(line) > 0 && line[len(line)-1] == '\n' {
 					line = line[:len(line)-1]
 				}
 				if len(line) > 0 && line[len(line)-1] == '\r' {
 					line = line[:len(line)-1]
 				}
-				return line, nil
+				return []byte(line), nil
 			},
 		}
 	}
@@ -221,8 +464,14 @@ func (env *ModuleEnvironment) PopulateIOModule(config *IOChannelConfig, executor
 			}
 		}
 		executor.mu.Unlock()
-		tokenMarker := fmt.Sprintf("\x00TOKEN:%s\x00", tokenID)
-		ioModule["#random"] = &ModuleItem{Type: "object", Value: Symbol(tokenMarker)}
+		// Get ObjectRef for the token
+		executor.mu.Lock()
+		objectID, exists := executor.tokenStringToID[tokenID]
+		executor.mu.Unlock()
+		if exists {
+			tokenRef := ObjectRef{Type: ObjToken, ID: objectID}
+			ioModule["#random"] = &ModuleItem{Type: "object", Value: tokenRef}
+		}
 	}
 
 	// Register any custom channels from config
@@ -270,7 +519,7 @@ func (env *ModuleEnvironment) PopulateIOModule(config *IOChannelConfig, executor
 		storedChannels := make(map[*StoredChannel]bool)
 		for _, ch := range []*StoredChannel{stdinCh, stdoutCh, stderrCh, stdioCh} {
 			if ch != nil && !storedChannels[ch] {
-				executor.storeObject(ch, "channel")
+				executor.RegisterObject(ch, ObjChannel)
 				storedChannels[ch] = true
 			}
 		}
@@ -278,7 +527,7 @@ func (env *ModuleEnvironment) PopulateIOModule(config *IOChannelConfig, executor
 		if config != nil && config.CustomChannels != nil {
 			for _, ch := range config.CustomChannels {
 				if ch != nil && !storedChannels[ch] {
-					executor.storeObject(ch, "channel")
+					executor.RegisterObject(ch, ObjChannel)
 					storedChannels[ch] = true
 				}
 			}
@@ -302,8 +551,8 @@ func (env *ModuleEnvironment) PopulateIOModule(config *IOChannelConfig, executor
 
 	// Add #random token to ObjectsInherited if it exists
 	if ioModule["#random"] != nil {
-		if item, ok := ioModule["#random"].Value.(Symbol); ok {
-			env.ObjectsInherited["#random"] = item
+		if ref, ok := ioModule["#random"].Value.(ObjectRef); ok {
+			env.ObjectsInherited["#random"] = ref
 		}
 	}
 

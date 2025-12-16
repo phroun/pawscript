@@ -1,87 +1,372 @@
 package pawscript
 
-import (
-	"fmt"
-)
-
 // maybeStoreValue checks if a value should be stored as an object and returns the appropriate representation
 // Note: Does NOT claim references - the caller must claim the returned object ID
 func (e *Executor) maybeStoreValue(value interface{}, state *ExecutionState) interface{} {
 	switch v := value.(type) {
 	case string:
 		if len(v) > StringStorageThreshold {
-			id := e.storeObject(StoredString(v), "string")
-			return Symbol(fmt.Sprintf("\x00STR:%d\x00", id))
+			ref := e.RegisterObject(StoredString(v), ObjString)
+			return ref // Return ObjectRef directly instead of marker
 		}
 		return v
 	case QuotedString:
 		if len(v) > StringStorageThreshold {
-			id := e.storeObject(StoredString(v), "string")
-			return Symbol(fmt.Sprintf("\x00STR:%d\x00", id))
+			ref := e.RegisterObject(StoredString(v), ObjString)
+			return ref // Return ObjectRef directly instead of marker
 		}
 		return v
 	case ParenGroup:
 		if len(v) > BlockStorageThreshold {
-			id := e.storeObject(StoredBlock(v), "block")
-			return Symbol(fmt.Sprintf("\x00BLOCK:%d\x00", id))
+			ref := e.RegisterObject(StoredBlock(v), ObjBlock)
+			return ref // Return ObjectRef directly instead of marker
 		}
 		return v
 	case StoredList:
-		// StoredList objects come from processArguments resolving markers
-		// Convert back to marker to maintain pass-by-reference semantics
+		// LEGACY: Raw StoredList objects should be ObjectRef by now
+		// This path exists for backwards compatibility during migration
+		e.logger.DebugCat(CatMemory, "WARNING: maybeStoreValue received raw StoredList instead of ObjectRef")
 		if id := e.findStoredListID(v); id >= 0 {
-			// The list already exists in storage
-			// Don't claim here - we're just converting from StoredList to Symbol
-			// The state will claim it through normal SetVariable/SetResult flow
-			return Symbol(fmt.Sprintf("\x00LIST:%d\x00", id))
+			return ObjectRef{Type: ObjList, ID: id}
 		}
-		// List not found in store - this shouldn't happen normally
-		// Store it as a new object
-		id := e.storeObject(v, "list")
-		return Symbol(fmt.Sprintf("\x00LIST:%d\x00", id))
+		// List not found in store - store as new object
+		ref := e.RegisterObject(v, ObjList)
+		return ref
 	case StoredBytes:
-		// StoredBytes objects - convert to marker
+		// LEGACY: Raw StoredBytes objects should be ObjectRef by now
+		e.logger.DebugCat(CatMemory, "WARNING: maybeStoreValue received raw StoredBytes instead of ObjectRef")
 		if id := e.findStoredBytesID(v); id >= 0 {
-			return Symbol(fmt.Sprintf("\x00BYTES:%d\x00", id))
+			return ObjectRef{Type: ObjBytes, ID: id}
 		}
 		// Not found, store as new object
-		id := e.storeObject(v, "bytes")
-		return Symbol(fmt.Sprintf("\x00BYTES:%d\x00", id))
+		ref := e.RegisterObject(v, ObjBytes)
+		return ref
 	case StoredStruct:
-		// StoredStruct objects - convert to marker
+		// LEGACY: Raw StoredStruct objects should be ObjectRef by now
+		e.logger.DebugCat(CatMemory, "WARNING: maybeStoreValue received raw StoredStruct instead of ObjectRef")
 		if id := e.findStoredStructID(v); id >= 0 {
-			return Symbol(fmt.Sprintf("\x00STRUCT:%d\x00", id))
+			return ObjectRef{Type: ObjStruct, ID: id}
 		}
 		// Not found, store as new object
-		id := e.storeObject(v, "struct")
-		return Symbol(fmt.Sprintf("\x00STRUCT:%d\x00", id))
+		ref := e.RegisterObject(v, ObjStruct)
+		return ref
 	// Note: StructDef is now a StoredList, no special handling needed
 	default:
 		return value
 	}
 }
 
-// storeObject stores an object in the global store with an initial refcount of 0
-// Returns the object ID
-func (e *Executor) storeObject(value interface{}, typeName string) int {
-	e.mu.Lock()
-	defer e.mu.Unlock()
-
-	id := e.nextObjectID
-	e.nextObjectID++
+// registerObjectLocked stores a new object and returns its integer ID
+// MUST be called with e.mu already locked
+// The object is stored with refcount=0 - caller must claim ownership
+// NOTE: Does NOT handle nested reference claiming for lists - caller is responsible
+func (e *Executor) registerObjectLocked(value interface{}, objType ObjectType) int {
+	// Try to reuse a freed ID first
+	var id int
+	if len(e.freeIDs) > 0 {
+		id = e.freeIDs[len(e.freeIDs)-1]
+		e.freeIDs = e.freeIDs[:len(e.freeIDs)-1]
+	} else {
+		id = e.nextObjectID
+		e.nextObjectID++
+	}
 
 	e.storedObjects[id] = &StoredObject{
 		Value:    value,
-		Type:     typeName,
+		Type:     objType,
 		RefCount: 0, // Start at 0 - creator must claim ownership
+		Hash:     0, // Will be set by caller if deduplication is used
+		Deleted:  false,
 	}
 
-	e.logger.DebugCat(CatMemory,"Stored object %d (type: %s, refcount: 0)", id, typeName)
-
+	e.logger.DebugCat(CatMemory, "Stored object %d (type: %s, refcount: 0)", id, objType.String())
 	return id
 }
 
+// RegisterObject stores a new object and returns its ObjectRef
+// The object is stored with refcount=0 - caller must claim ownership
+// For lists: automatically claims refs to all nested items (ensures proper cleanup on free)
+func (e *Executor) RegisterObject(value interface{}, objType ObjectType) ObjectRef {
+	e.mu.Lock()
+
+	id := e.registerObjectLocked(value, objType)
+
+	// For lists, claim refs to all nested items so they're released when this list is freed
+	// This ensures sliced/derived lists properly own their shared items
+	if objType == ObjList {
+		if list, ok := value.(StoredList); ok {
+			// Release lock before claiming refs (they acquire locks too)
+			e.mu.Unlock()
+			for _, item := range list.Items() {
+				claimNestedReferences(item, e)
+			}
+			for _, val := range list.NamedArgs() {
+				claimNestedReferences(val, e)
+			}
+			return ObjectRef{Type: objType, ID: id}
+		}
+	}
+
+	e.mu.Unlock()
+	return ObjectRef{Type: objType, ID: id}
+}
+
+// RefClaim increments the reference count for an object.
+// Safe to call with zero-value ObjectRef (no-op).
+// This is the ONLY function that should be used to claim object references.
+func (e *Executor) RefClaim(ref ObjectRef) {
+	if !ref.IsValid() {
+		return
+	}
+
+	e.mu.Lock()
+	defer e.mu.Unlock()
+
+	if obj, exists := e.storedObjects[ref.ID]; exists {
+		if obj.Deleted {
+			e.logger.WarnCat(CatMemory, "Attempted to claim deleted object %d", ref.ID)
+			return
+		}
+		obj.RefCount++
+		e.logger.DebugCat(CatMemory, "Object %d refcount incremented to %d (type: %s)", ref.ID, obj.RefCount, ref.Type.String())
+	} else {
+		e.logger.WarnCat(CatMemory, "Attempted to claim non-existent object %d", ref.ID)
+	}
+}
+
+// RefRelease decrements the reference count for an object.
+// When refcount reaches 0, releases nested refs and marks for ID reuse.
+// Safe to call with zero-value ObjectRef (no-op).
+// This is the ONLY function that should be used to release object references.
+func (e *Executor) RefRelease(ref ObjectRef) {
+	if !ref.IsValid() {
+		return
+	}
+
+	e.mu.Lock()
+
+	obj, exists := e.storedObjects[ref.ID]
+	if !exists {
+		e.mu.Unlock()
+		e.logger.WarnCat(CatMemory, "Attempted to release non-existent object %d", ref.ID)
+		return
+	}
+
+	if obj.Deleted {
+		e.mu.Unlock()
+		e.logger.WarnCat(CatMemory, "Attempted to release already deleted object %d", ref.ID)
+		return
+	}
+
+	obj.RefCount--
+	e.logger.DebugCat(CatMemory, "Object %d refcount decremented to %d (type: %s)", ref.ID, obj.RefCount, ref.Type.String())
+
+	if obj.RefCount <= 0 {
+		// Mark as deleted and add ID to free list
+		obj.Deleted = true
+		e.freeIDs = append(e.freeIDs, ref.ID)
+
+		// Remove from content hash if present
+		if obj.Hash != 0 {
+			delete(e.contentHash, obj.Hash)
+		}
+
+		// Collect nested refs to release (we'll release them after unlocking)
+		var nestedRefs []ObjectRef
+
+		switch ref.Type {
+		case ObjList:
+			if storedList, ok := obj.Value.(StoredList); ok {
+				// Collect refs from positional items
+				for _, item := range storedList.Items() {
+					if itemRef, ok := item.(ObjectRef); ok {
+						nestedRefs = append(nestedRefs, itemRef)
+					}
+				}
+				// Collect refs from named arguments
+				for _, val := range storedList.NamedArgs() {
+					if valRef, ok := val.(ObjectRef); ok {
+						nestedRefs = append(nestedRefs, valRef)
+					}
+				}
+			}
+
+		case ObjFiber:
+			// Transfer bubbles to orphaned if present
+			if fiberHandle, ok := obj.Value.(*FiberHandle); ok {
+				fiberHandle.mu.Lock()
+				hasBubbles := len(fiberHandle.FinalBubbleMap) > 0 || len(fiberHandle.BubbleUpMap) > 0
+				if hasBubbles {
+					combined := make(map[string][]*BubbleEntry)
+					for flavor, entries := range fiberHandle.FinalBubbleMap {
+						combined[flavor] = append(combined[flavor], entries...)
+					}
+					for flavor, entries := range fiberHandle.BubbleUpMap {
+						combined[flavor] = append(combined[flavor], entries...)
+					}
+					fiberHandle.FinalBubbleMap = nil
+					fiberHandle.BubbleUpMap = nil
+					fiberHandle.mu.Unlock()
+					e.mu.Unlock()
+					e.AddOrphanedBubbles(combined)
+					e.mu.Lock()
+				} else {
+					fiberHandle.mu.Unlock()
+				}
+			}
+
+		case ObjFile:
+			// Auto-close file handles
+			if storedFile, ok := obj.Value.(*StoredFile); ok {
+				e.logger.DebugCat(CatMemory, "Auto-closing file handle %s (refcount reached 0)", storedFile.Path)
+				storedFile.Close()
+			}
+
+		case ObjBlock:
+			// Clean up cached parsed form
+			delete(e.blockCache, ref.ID)
+			e.logger.DebugCat(CatMemory, "Removed block %d from parse cache", ref.ID)
+
+		case ObjChannel:
+			// TODO: Handle channel cleanup if needed
+			_ = obj.Value // Silence unused warning
+		}
+
+		// Clear the value to help GC
+		obj.Value = nil
+
+		e.logger.DebugCat(CatMemory, "Object %d marked for reuse (type: %s)", ref.ID, ref.Type.String())
+
+		// Release lock before releasing nested refs
+		e.mu.Unlock()
+
+		// Release nested refs outside the lock
+		for _, nestedRef := range nestedRefs {
+			e.RefRelease(nestedRef)
+		}
+		return
+	}
+
+	e.mu.Unlock()
+}
+
+// ============================================================================
+// Object Constructors
+// ============================================================================
+// Each constructor creates an object, registers it, claims nested refs,
+// and returns an ObjectRef with refcount=0. Caller must claim via SetVar/SetResult.
+
+// NewList creates a new stored list and returns its ObjectRef.
+// Claims nested refs for any ObjectRefs in items or namedArgs.
+// Returns ObjectRef with refcount=0 - caller must claim ownership.
+func (e *Executor) NewList(items []interface{}, namedArgs map[string]interface{}) ObjectRef {
+	// Compute type info with executor for full marker resolution
+	arrInfo := computeTypeInfoForSlice(items, e)
+	mapInfo := computeTypeInfoForMap(namedArgs, e)
+
+	list := StoredList{
+		items:           items,
+		namedArgs:       namedArgs,
+		arrType:         arrInfo.Type,
+		arrSolid:        arrInfo.Solid,
+		arrSerializable: arrInfo.Serializable,
+		mapType:         mapInfo.Type,
+		mapSolid:        mapInfo.Solid,
+		mapSerializable: mapInfo.Serializable,
+	}
+
+	ref := e.RegisterObject(list, ObjList)
+
+	// Claim refs for any ObjectRefs in contents
+	for _, item := range items {
+		if objRef, ok := item.(ObjectRef); ok {
+			e.RefClaim(objRef)
+		}
+	}
+	for _, val := range namedArgs {
+		if objRef, ok := val.(ObjectRef); ok {
+			e.RefClaim(objRef)
+		}
+	}
+
+	return ref
+}
+
+// NewString creates a new stored string and returns its ObjectRef.
+// Returns ObjectRef with refcount=0 - caller must claim ownership.
+func (e *Executor) NewString(s string) ObjectRef {
+	return e.RegisterObject(StoredString(s), ObjString)
+}
+
+// NewBlock creates a new stored block and returns its ObjectRef.
+// Returns ObjectRef with refcount=0 - caller must claim ownership.
+func (e *Executor) NewBlock(s string) ObjectRef {
+	return e.RegisterObject(StoredBlock(s), ObjBlock)
+}
+
+// NewBytes creates a new stored bytes object and returns its ObjectRef.
+// Returns ObjectRef with refcount=0 - caller must claim ownership.
+func (e *Executor) NewBytes(data []byte) ObjectRef {
+	return e.RegisterObject(StoredBytes{data: data}, ObjBytes)
+}
+
+// NewChannel creates a new stored channel and returns its ObjectRef.
+// Returns ObjectRef with refcount=0 - caller must claim ownership.
+func (e *Executor) NewChannel(bufferSize int) ObjectRef {
+	ch := NewStoredChannel(bufferSize)
+	return e.RegisterObject(ch, ObjChannel)
+}
+
+// NewMacro creates a new stored macro and returns its ObjectRef.
+// Returns ObjectRef with refcount=0 - caller must claim ownership.
+func (e *Executor) NewMacro(macro StoredMacro) ObjectRef {
+	return e.RegisterObject(macro, ObjMacro)
+}
+
+// NewCommand creates a new stored command and returns its ObjectRef.
+// Returns ObjectRef with refcount=0 - caller must claim ownership.
+func (e *Executor) NewCommand(cmd StoredCommand) ObjectRef {
+	return e.RegisterObject(cmd, ObjCommand)
+}
+
+// NewFile creates a new stored file and returns its ObjectRef.
+// Returns ObjectRef with refcount=0 - caller must claim ownership.
+func (e *Executor) NewFile(file *StoredFile) ObjectRef {
+	return e.RegisterObject(file, ObjFile)
+}
+
+// NewStruct creates a new stored struct and returns its ObjectRef.
+// Returns ObjectRef with refcount=0 - caller must claim ownership.
+func (e *Executor) NewStruct(ss StoredStruct) ObjectRef {
+	return e.RegisterObject(ss, ObjStruct)
+}
+
+// NewStructArray creates a new stored struct array and returns its ObjectRef.
+// Returns ObjectRef with refcount=0 - caller must claim ownership.
+func (e *Executor) NewStructArray(ss StoredStruct) ObjectRef {
+	return e.RegisterObject(ss, ObjStructArray)
+}
+
+// NewFiber creates a new stored fiber and returns its ObjectRef.
+// Returns ObjectRef with refcount=0 - caller must claim ownership.
+func (e *Executor) NewFiber(fh *FiberHandle) ObjectRef {
+	return e.RegisterObject(fh, ObjFiber)
+}
+
+// ============================================================================
+// Compatibility Shims (DEPRECATED)
+// ============================================================================
+
+// storeObject is a compatibility shim during migration.
+// DEPRECATED: Use the typed constructors (NewList, NewString, etc.) instead.
+func (e *Executor) storeObject(value interface{}, typeName string) int {
+	objType := ObjectTypeFromString(typeName)
+	ref := e.RegisterObject(value, objType)
+	return ref.ID
+}
+
 // incrementObjectRefCount increments the reference count for an object
+// DEPRECATED: Use RefClaim instead
 func (e *Executor) incrementObjectRefCount(objectID int) {
 	e.mu.Lock()
 	defer e.mu.Unlock()
@@ -146,6 +431,19 @@ func (e *Executor) decrementObjectRefCount(objectID int) {
 				}
 			}
 
+			// Auto-close file handles when their last reference is released
+			// This allows files to be passed between threads/macros without premature closing
+			if storedFile, ok := obj.Value.(*StoredFile); ok {
+				e.logger.DebugCat(CatMemory, "Auto-closing file handle %s (refcount reached 0)", storedFile.Path)
+				storedFile.Close()
+			}
+
+			// Clean up cached parsed form for blocks
+			if _, ok := obj.Value.(StoredBlock); ok {
+				delete(e.blockCache, objectID)
+				e.logger.DebugCat(CatMemory, "Removed block %d from parse cache", objectID)
+			}
+
 			delete(e.storedObjects, objectID)
 			e.logger.DebugCat(CatMemory,"Object %d freed (refcount reached 0)", objectID)
 		}
@@ -171,6 +469,12 @@ func (e *Executor) findStoredListID(list StoredList) int {
 	e.mu.RLock()
 	defer e.mu.RUnlock()
 
+	// Check if this is a truly empty list (no items AND no namedArgs)
+	// If so, return the canonical empty list ID
+	if len(list.items) == 0 && (list.namedArgs == nil || len(list.namedArgs) == 0) {
+		return e.emptyListID
+	}
+
 	// Get all IDs in sorted order for deterministic iteration
 	ids := make([]int, 0, len(e.storedObjects))
 	for id := range e.storedObjects {
@@ -192,8 +496,9 @@ func (e *Executor) findStoredListID(list StoredList) int {
 			// Two slices share backing array if they have same length and same first element address
 			if len(objList.items) == len(list.items) {
 				if len(objList.items) == 0 {
-					// Both empty - match any empty list for now
-					return id
+					// Empty positional items but has namedArgs - can't match by pointer
+					// since there's no items[0] to compare
+					continue
 				}
 				// Check if they point to the same backing array
 				if &objList.items[0] == &list.items[0] {

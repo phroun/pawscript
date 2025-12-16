@@ -1,5 +1,6 @@
 .DS_Store
 /paw
+/src/paw
 /pawgui
 /token_example
 dist
@@ -10,7 +11,12 @@ node_modules
 /paw-macos-arm64
 /paw-macos-x64
 /paw-x64.exe
+/paw-windows-*.exe
+/pawgui-gtk-*.exe
 /pawscript.wasm
 /releases
 js/pawscript.wasm
 /bin/
+/pawscript
+/pawgui.app
+/paw.exe

@@ -1,0 +1,17 @@
+#!/usr/bin/env paw
+# Simple readkey test - should work in pawgui -window mode
+
+print "readkey test - press any key..."
+
+(linesCh, keysCh): {readkey_init #in, echo: #out}
+
+print "Waiting for a key..."
+
+key: {readkey ~keysCh}
+print "You pressed: [", ~key, "]"
+
+print "Press another key..."
+key2: {readkey ~keysCh}
+print "You pressed: [", ~key2, "]"
+
+print "Test complete!"

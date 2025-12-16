@@ -1,0 +1,202 @@
+#!/usr/bin/env paw
+# sinewave-split-demo.paw - Sine wave effect using horizontal fine scroll splits
+#
+# Creates 100 splits (one per sprite-unit Y position) with horizontal fine scroll
+# offsets that follow a sine wave pattern. The top row starts with TopFineScroll=4
+# (half the row cropped off) to demonstrate fine scroll clipping.
+#
+# Each split at Y position gets a LeftFineScroll value based on sin(Y * frequency)
+# creating a smooth wave distortion effect on the text.
+
+# Define escape sequences
+macro esc (write "\e")
+macro bel (write "\a")
+
+# OSC 7003 command helpers
+macro crop_clear (write "\e]7003;c\a")
+macro split_clear_all (write "\e]7003;sda\a")
+macro split_set (write "\e]7003;ss;$1;$2;$3;$4;$5;$6;$7;$8\a")
+# split_set ID, SCREENY, BUFROW, BUFCOL, TOPFINE, LEFTFINE, CWS, LD
+
+# --- Demo Start ---
+clear screen
+color cyan
+print "=== Sine Wave Split Demo ==="
+color reset: true
+print ""
+print "This demo creates 100 splits (one per sprite-unit Y position)"
+print "with LeftFineScroll values that follow a sine wave pattern."
+print ""
+print "Features demonstrated:"
+print "  - 100 individual splits for fine-grained control"
+print "  - TopFineScroll=4 on first split (top half of row 1 cropped)"
+print "  - Animated horizontal sine wave distortion"
+print ""
+color yellow
+print "Press RETURN to begin..."
+color reset: true
+_: {read}
+
+# --- Fill screen with text pattern ---
+clear screen
+
+# Create a visually interesting pattern
+row: 1
+while (lt ~row, 15), (
+    cursor 1, ~row
+
+    # Alternate row styles
+    if {eq {imodulo ~row, 3}, 0}
+    then (
+        color red
+        write "################  WAVE DEMO  ################"
+    )
+    else (
+        if {eq {imodulo ~row, 3}, 1}
+        then (
+            color green
+            write "============================================="
+        )
+        else (
+            color blue
+            write "~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~"
+        )
+    )
+
+    color reset: true
+    row: {add ~row, 1}
+)
+
+cursor 1, 16
+print ""
+color cyan
+print "Text pattern created. Watch the sine wave effect!"
+color yellow
+print "Press RETURN to start animation..."
+color reset: true
+_: {read}
+
+# Pre-calculate sine table (8 values for one wave cycle)
+# Values range from 0 to 7 for fine scroll
+# sin(0) = 0, sin(45) = 0.7, sin(90) = 1, etc.
+# Scaled to 0-7 range: 4 + 3.5*sin(angle)
+# Approximation: 4, 6, 7, 6, 4, 2, 1, 2
+sine_0: 4
+sine_1: 6
+sine_2: 7
+sine_3: 6
+sine_4: 4
+sine_5: 2
+sine_6: 1
+sine_7: 2
+
+# Helper to get sine value from phase (0-7)
+getSine: {
+    phase: {imodulo $1, 8}
+    if {eq ~phase, 0} then (return ~sine_0)
+    if {eq ~phase, 1} then (return ~sine_1)
+    if {eq ~phase, 2} then (return ~sine_2)
+    if {eq ~phase, 3} then (return ~sine_3)
+    if {eq ~phase, 4} then (return ~sine_4)
+    if {eq ~phase, 5} then (return ~sine_5)
+    if {eq ~phase, 6} then (return ~sine_6)
+    if {eq ~phase, 7} then (return ~sine_7)
+    return ~sine_4
+}
+
+# Animation loop
+animFrame: 0
+animCycles: 0
+maxCycles: 20
+
+while (lt ~animCycles, ~maxCycles), (
+    # Clear all splits first
+    split_clear_all
+
+    # Create 100 splits (Y positions 0-99)
+    # Each split gets a horizontal fine scroll based on sine wave
+    splitY: 0
+    while (lt ~splitY, 100), (
+        # Calculate which buffer row this Y position maps to
+        # With 8 units per row: bufRow = splitY / 8 + 1 (1-indexed)
+        bufRow: {add {idivide ~splitY, 8}, 1}
+
+        # Calculate TopFineScroll for this split
+        # First split (Y=0) starts with TopFineScroll=4 (top half cropped)
+        # Others have TopFineScroll=0 unless they're at a row boundary
+        topFine: 0
+        if {eq ~splitY, 0}
+        then (topFine: 4)
+
+        # Calculate LeftFineScroll based on sine wave
+        # Wave phase = (splitY + animFrame) / wavelength
+        # Using wavelength of ~16 sprite units for visible wave
+        wavePhase: {idivide {add ~splitY, ~animFrame}, 2}
+        leftFine: {call ~getSine, ~wavePhase}
+
+        # Create the split
+        # ID = splitY + 1 (1-indexed)
+        splitID: {add ~splitY, 1}
+        split_set ~splitID, ~splitY, ~bufRow, 1, ~topFine, ~leftFine, 0, 0
+
+        splitY: {add ~splitY, 1}
+    )
+
+    msleep 50
+    animFrame: {add ~animFrame, 1}
+
+    # Wrap animation frame
+    if {gte ~animFrame, 64}
+    then (
+        animFrame: 0
+        animCycles: {add ~animCycles, 1}
+    )
+)
+
+# Clean up
+split_clear_all
+
+cursor 1, 18
+color green
+print "Sine wave animation complete!"
+print ""
+color cyan
+print "This demo created 100 splits:"
+print "  - Each sprite-unit Y position (0-99) had its own split"
+print "  - LeftFineScroll varied by sine wave (amplitude 0-7)"
+print "  - TopFineScroll=4 on split 0 cropped top half of row 1"
+print ""
+color yellow
+print "Press RETURN to see static wave..."
+color reset: true
+_: {read}
+
+# Show static sine wave for inspection
+split_clear_all
+splitY: 0
+while (lt ~splitY, 100), (
+    bufRow: {add {idivide ~splitY, 8}, 1}
+    topFine: 0
+    if {eq ~splitY, 0}
+    then (topFine: 4)
+
+    wavePhase: {idivide ~splitY, 2}
+    leftFine: {call ~getSine, ~wavePhase}
+
+    splitID: {add ~splitY, 1}
+    split_set ~splitID, ~splitY, ~bufRow, 1, ~topFine, ~leftFine, -1, 0
+
+    splitY: {add ~splitY, 1}
+)
+
+cursor 1, 19
+color cyan
+print "Static sine wave displayed. Note:"
+print "  - Top half of row 1 is clipped (TopFineScroll=4)"
+print "  - Horizontal sine wave distortion visible"
+print ""
+color green
+print "Splits left active for REPL exploration!"
+color reset: true
+print "Try typing text or use: split_clear_all to reset"
+print ""

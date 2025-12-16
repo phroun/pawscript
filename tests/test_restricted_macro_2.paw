@@ -1,0 +1,14 @@
+include (dingus, foobar), "test_restricted_macro.paw"
+
+IMPORT dingus
+env_dump
+
+echo "x is: ~x"
+echo "y is: ~y"
+echo "z is: ~z"
+
+IMPORT foobar
+
+echo "x is: ~x"
+echo "y is: ~y"
+echo "z is: ~z"

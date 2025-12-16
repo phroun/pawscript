@@ -2,7 +2,7 @@
 
 print "=== Test 1: Cursor returns list ==="
 info: {cursor}
-type: {type ~info}
+type: {type info}
 print "Cursor returns: ~type"
 print ""
 

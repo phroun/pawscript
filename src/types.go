@@ -35,15 +35,16 @@ type MacroContext struct {
 
 // Context is passed to command handlers
 type Context struct {
-	Args         []interface{}
-	RawArgs      []string               // Original argument strings before resolution (for diagnostics)
-	NamedArgs    map[string]interface{} // Named arguments (key: value)
-	Position     *SourcePosition
-	state        *ExecutionState
-	executor     *Executor
-	logger       *Logger
-	requestToken func(cleanup func(string)) string
-	resumeToken  func(tokenID string, status bool) bool
+	Args          []interface{}
+	RawArgs       []string               // Original argument strings before resolution (for diagnostics)
+	NamedArgs     map[string]interface{} // Named arguments (key: value)
+	Position      *SourcePosition
+	state         *ExecutionState
+	executor      *Executor
+	logger        *Logger
+	requestToken  func(cleanup func(string)) string
+	resumeToken   func(tokenID string, status bool) bool
+	ParsedCommand *ParsedCommand // Source parsed command (for block caching)
 }
 
 // LogError logs a command error with position, routing through execution state channels
@@ -82,6 +83,24 @@ func (c *Context) ClearResult() {
 	c.state.ClearResult()
 }
 
+// GetOrParseBlock returns cached parsed commands for a block argument at the given index,
+// or parses the block string if not cached. Returns nil and error string if parsing fails.
+func (c *Context) GetOrParseBlock(argIndex int, blockStr string) ([]*ParsedCommand, string) {
+	// Try to get cached version
+	if cachedCmds := c.executor.GetOrCacheBlockArg(c.ParsedCommand, argIndex, blockStr, ""); cachedCmds != nil {
+		return cachedCmds, ""
+	}
+	// Parse fresh
+	parser := NewParser(blockStr, "")
+	cleanedBody := parser.RemoveComments(blockStr)
+	normalizedBody := parser.NormalizeKeywords(cleanedBody)
+	cmds, err := parser.ParseCommandSequence(normalizedBody)
+	if err != nil {
+		return nil, err.Error()
+	}
+	return cmds, ""
+}
+
 // RequestToken requests an async completion token
 func (c *Context) RequestToken(cleanup func(string)) string {
 	return c.requestToken(cleanup)
@@ -93,8 +112,11 @@ func (c *Context) ResumeToken(tokenID string, status bool) bool {
 }
 
 // StoreObject stores an object and returns its ID
+// Deprecated: Use RegisterObject instead for new code
 func (c *Context) StoreObject(value interface{}, typeName string) int {
-	return c.executor.storeObject(value, typeName)
+	objType := ObjectTypeFromString(typeName)
+	ref := c.executor.RegisterObject(value, objType)
+	return ref.ID
 }
 
 // ClaimObjectReference claims ownership of an object to prevent garbage collection
@@ -110,6 +132,12 @@ func (c *Context) NewStoredListWithRefs(items []interface{}, namedArgs map[strin
 // GetMacroContext returns the current macro context for stack traces
 func (c *Context) GetMacroContext() *MacroContext {
 	return c.state.macroContext
+}
+
+// GetModuleEnv returns the module environment from the current execution state
+// This can be used to capture the environment for deferred callback execution
+func (c *Context) GetModuleEnv() *ModuleEnvironment {
+	return c.state.moduleEnv
 }
 
 // GetVariable retrieves a variable from the current execution state
@@ -199,6 +227,7 @@ type YieldResult struct {
 	WhileContinuation  *WhileContinuation   // Optional - set when yielding from inside while loop
 	RepeatContinuation *RepeatContinuation  // Optional - set when yielding from inside repeat loop
 	ForContinuation    *ForContinuation     // Optional - set when yielding from inside for loop
+	FizzContinuation   *FizzContinuation    // Optional - set when yielding from inside fizz loop
 }
 
 func (YieldResult) isResult() {}
@@ -209,10 +238,27 @@ type SuspendResult struct{}
 
 func (SuspendResult) isResult() {}
 
+// BreakResult signals that a loop should be exited
+// Levels indicates how many loop levels to break out of (1 = innermost)
+type BreakResult struct {
+	Levels int
+}
+
+func (BreakResult) isResult() {}
+
+// ContinueResult signals that a loop should skip to the next iteration
+// Levels indicates how many loop levels to skip (1 = innermost)
+type ContinueResult struct {
+	Levels int
+}
+
+func (ContinueResult) isResult() {}
+
 // WhileContinuation stores state for resuming a while loop after yield
 type WhileContinuation struct {
 	ConditionBlock      string            // The while condition (re-evaluated each iteration)
 	BodyBlock           string            // The full while body
+	CachedBodyCmds      []*ParsedCommand  // Cached full parsed body for reuse across iterations
 	RemainingBodyCmds   []*ParsedCommand  // Commands remaining in current iteration after yield
 	BodyCmdIndex        int               // Which command in body yielded
 	IterationCount      int               // Current iteration number
@@ -224,6 +270,7 @@ type WhileContinuation struct {
 // RepeatContinuation stores state for resuming a repeat loop after yield
 type RepeatContinuation struct {
 	BodyBlock           string               // The repeat body
+	CachedBodyCmds      []*ParsedCommand     // Cached full parsed body for reuse across iterations
 	RemainingBodyCmds   []*ParsedCommand     // Commands remaining in current iteration after yield
 	BodyCmdIndex        int                  // Which command in body yielded
 	CurrentIteration    int                  // Current iteration number (0-based)
@@ -238,6 +285,7 @@ type RepeatContinuation struct {
 // ForContinuation stores state for resuming a for loop after yield
 type ForContinuation struct {
 	BodyBlock         string              // The for body
+	CachedBodyCmds    []*ParsedCommand    // Cached full parsed body for reuse across iterations
 	RemainingBodyCmds []*ParsedCommand    // Commands remaining in current iteration after yield
 	BodyCmdIndex      int                 // Which command in body yielded
 	IterationNumber   int                 // Current iteration number (1-based for iter:)
@@ -260,6 +308,22 @@ type ForContinuation struct {
 	RangeCurrent      float64             // Current value in numeric range
 }
 
+// FizzContinuation stores state for resuming a fizz loop after yield
+type FizzContinuation struct {
+	BodyBlock           string               // The fizz body
+	CachedBodyCmds      []*ParsedCommand     // Cached full parsed body for reuse across iterations
+	RemainingBodyCmds   []*ParsedCommand     // Commands remaining in current iteration after yield
+	BodyCmdIndex        int                  // Which command in body yielded
+	ContentVarName      string               // Variable name for bubble content
+	MetaVarName         string               // Variable name for bubble metadata (optional)
+	HasMetaVar          bool                 // Whether meta variable is being used
+	Flavors             []string             // Flavors being iterated
+	CurrentBubbleIndex  int                  // Current position in bubble list
+	Bubbles             []*BubbleEntry       // List of bubbles being iterated
+	State               *ExecutionState      // Execution state at time of yield
+	ParentContinuation  *FizzContinuation    // For nested fizz loops
+}
+
 // IteratorState stores state for Go-backed iterators (each, pair, range, rng)
 type IteratorState struct {
 	Type       string        // "each", "pair", "range", or "rng"
@@ -278,13 +342,28 @@ type IteratorState struct {
 
 // ParsedCommand represents a parsed command with metadata
 type ParsedCommand struct {
-	Command      string
-	Arguments    []interface{}
-	NamedArgs    map[string]interface{} // Named arguments (key: value)
-	Position     *SourcePosition
-	OriginalLine string
-	Separator    string // "none", ";", "&", "|"
-	ChainType    string // "none", "chain" (~>), "chain_append" (~~>), "assign" (=>)
+	Command         string
+	Arguments       []interface{}
+	NamedArgs       map[string]interface{} // Named arguments (key: value)
+	Position        *SourcePosition
+	OriginalLine    string
+	Separator       string // "none", ";", "&", "|"
+	ChainType       string // "none", "chain" (~>), "chain_append" (~~>), "assign" (=>)
+	CachedBlockArgs map[int][]*ParsedCommand    // Pre-parsed block arguments (for blocks without $N substitution)
+	CachedBraces    map[string][]*ParsedCommand // Pre-parsed brace expressions by content string
+	ArgTemplates    []*SubstitutionTemplate     // Pre-parsed substitution templates for string arguments
+	CommandTemplate *SubstitutionTemplate       // Pre-parsed template for command name (if it has substitutions)
+
+	// Handler caching: resolved command/macro handlers to avoid map lookups
+	// These are populated on first execution and reused if CachedEnv/CachedGeneration match
+	ResolvedHandler  Handler           // Cached command handler (nil if macro or unresolved)
+	ResolvedMacro    *StoredMacro      // Cached macro (nil if command or unresolved)
+	CachedEnv        *ModuleEnvironment // Environment we resolved against
+	CachedGeneration uint64            // RegistryGeneration when we resolved
+
+	// OriginalCmd points to the original ParsedCommand when this is a position-adjusted copy
+	// Cache operations should target OriginalCmd to persist across copies
+	OriginalCmd *ParsedCommand
 }
 
 // CommandSequence represents suspended command execution
@@ -320,6 +399,42 @@ type TildeLocation struct {
 	IsQuestion   bool   // true if this is a ? (existence check) expression, false for ~ (value)
 }
 
+// SegmentType identifies the kind of segment in a substitution template
+type SegmentType int
+
+const (
+	SegmentLiteral   SegmentType = iota // Plain text, no substitution needed
+	SegmentTildeVar                     // ~varname or ?varname
+	SegmentDollarArg                    // $1, $2, etc.
+	SegmentDollarStar                   // $* (all args as comma-separated)
+	SegmentDollarAt                     // $@ (all args as list)
+	SegmentDollarHash                   // $# (arg count)
+	SegmentBrace                        // {...} expression
+)
+
+// TemplateSegment represents one piece of a pre-parsed substitution template
+type TemplateSegment struct {
+	Type       SegmentType
+	Literal    string           // For SegmentLiteral: the text
+	VarName    string           // For SegmentTildeVar: variable name
+	IsQuestion bool             // For SegmentTildeVar: true if ? (existence check)
+	ArgNum     int              // For SegmentDollarArg: 1-based argument number
+	InQuote    bool             // For SegmentDollarArg: true if inside double quotes
+	BraceAST   []*ParsedCommand // For SegmentBrace: pre-parsed commands
+	BraceRaw   string           // For SegmentBrace: original content (for cache key)
+	IsUnescape bool             // For SegmentBrace: true if ${...} (splat mode)
+}
+
+// SubstitutionTemplate is a pre-parsed template for efficient runtime substitution
+// Instead of scanning strings at runtime, we iterate through pre-computed segments
+type SubstitutionTemplate struct {
+	Segments     []TemplateSegment
+	HasDollarSub bool // true if any $N, $*, $@, $# segments (requires MacroContext)
+	HasTildeSub  bool // true if any ~var segments
+	HasBraceSub  bool // true if any {...} segments
+	IsSingleExpr bool // true if template is a single expression (can be evaluated typed)
+}
+
 // BraceEvaluation tracks the evaluation state of a single brace expression
 type BraceEvaluation struct {
 	Location  *BraceLocation
@@ -346,7 +461,16 @@ type BraceCoordinator struct {
 }
 
 // TokenData stores information about an active token
+// Tokens are now stored as regular objects (ObjToken) with integer IDs, while
+// maintaining a string ID for external communication (host API, serialization).
+// Tokens use reference counting for lifecycle: executor claims a ref on creation,
+// releases it on completion. Scripts can hold additional refs to query status later.
 type TokenData struct {
+	StringID           string             // External string ID for host API (e.g., "fiber-0-token-5")
+	ObjectID           int                // Internal object ID in storedObjects
+	Completed          bool               // True when async operation has finished
+	FinalStatus        bool               // Success/failure status when completed
+	FinalResult        interface{}        // Result value when completed
 	CommandSequence    *CommandSequence
 	ParentToken        string
 	Children           map[string]bool
@@ -362,10 +486,13 @@ type TokenData struct {
 	InvertStatus       bool               // If true, invert the success status when this token completes
 	FiberID            int                // ID of the fiber that created this token
 	WaitChan           chan ResumeData    // For synchronous blocking (e.g., in while loops)
-	SubstitutionCtx    *SubstitutionContext // For generator macro argument substitution
-	WhileContinuation  *WhileContinuation // For resuming while loops after yield
-	ForContinuation    *ForContinuation   // For resuming for loops after yield
-	IteratorState      *IteratorState     // For Go-backed iterators (each, pair)
+	SubstitutionCtx      *SubstitutionContext  // For generator macro argument substitution
+	WhileContinuation    *WhileContinuation    // For resuming while loops after yield
+	ForContinuation      *ForContinuation      // For resuming for loops after yield
+	RepeatContinuation   *RepeatContinuation   // For resuming repeat loops after yield
+	FizzContinuation     *FizzContinuation     // For resuming fizz loops after yield
+	IteratorState        *IteratorState        // For Go-backed iterators (each, pair)
+	ParentState          *ExecutionState       // For macro async: parent state for deferred result transfer
 }
 
 // MacroDefinition stores a macro definition
@@ -380,10 +507,10 @@ type MacroDefinition struct {
 
 // SubstitutionContext provides context for macro argument substitution
 type SubstitutionContext struct {
-	Args                []interface{}
-	ExecutionState      *ExecutionState
-	ParentContext       *SubstitutionContext
-	MacroContext        *MacroContext
+	Args           []interface{}
+	ExecutionState *ExecutionState
+	// ParentContext was assigned but never read - removed to reduce struct size
+	MacroContext *MacroContext
 	CurrentLineOffset   int
 	CurrentColumnOffset int
 	Filename            string // Filename for error reporting
@@ -394,6 +521,11 @@ type SubstitutionContext struct {
 	// BracesEvaluated tracks how many brace expressions were evaluated during substitution
 	// Used to know whether to update lastBraceFailureCount (only if braces were present)
 	BracesEvaluated int
+	// CurrentParsedCommand is the current command being executed (for block caching)
+	CurrentParsedCommand *ParsedCommand
+	// CapturedModuleEnv is the macro's captured environment (for handler caching)
+	// This is the environment commands should be cached against, not the child execution environment
+	CapturedModuleEnv *ModuleEnvironment
 }
 
 // FileAccessConfig controls file system access permissions
@@ -404,6 +536,14 @@ type FileAccessConfig struct {
 }
 
 // Config holds configuration for PawScript
+// OptimizationLevel controls AST caching behavior
+type OptimizationLevel int
+
+const (
+	OptimizeNone  OptimizationLevel = 0 // -O0: No caching, always re-parse
+	OptimizeBasic OptimizationLevel = 1 // -O1: Cache macro bodies and loop bodies (default)
+)
+
 type Config struct {
 	Debug                bool
 	DefaultTokenTimeout  time.Duration
@@ -411,6 +551,7 @@ type Config struct {
 	AllowMacros          bool
 	ShowErrorContext     bool
 	ContextLines         int
+	OptLevel             OptimizationLevel // AST caching level (default: OptimizeBasic)
 	Stdin                io.Reader         // Custom stdin reader (default: os.Stdin)
 	Stdout               io.Writer         // Custom stdout writer (default: os.Stdout)
 	Stderr               io.Writer         // Custom stderr writer (default: os.Stderr)
@@ -427,6 +568,7 @@ func DefaultConfig() *Config {
 		AllowMacros:          true,
 		ShowErrorContext:     true,
 		ContextLines:         2,
+		OptLevel:             OptimizeBasic, // Enable AST caching by default
 		Stdin:                os.Stdin,
 		Stdout:               os.Stdout,
 		Stderr:               os.Stderr,
@@ -474,6 +616,25 @@ type StoredBlock string
 
 func (s StoredBlock) String() string { return string(s) }
 
+// ActualUndefined represents the undefined value as a proper type
+// This replaces the old UndefinedMarker string approach for cleaner type handling
+type ActualUndefined struct{}
+
+func (u ActualUndefined) String() string { return "undefined" }
+
+// SubstitutionResult represents the result of command string substitution
+// This replaces the old PAWS marker strings for cleaner type handling
+type SubstitutionResult struct {
+	Value      string // The substituted string (when not failed/async)
+	Failed     bool   // True if brace evaluation failed
+	AsyncToken string // Non-empty if async coordination is needed
+}
+
+// IsAsync returns true if this result requires async coordination
+func (r SubstitutionResult) IsAsync() bool {
+	return r.AsyncToken != ""
+}
+
 // Storage thresholds - values larger than these are stored as objects
 const (
 	StringStorageThreshold = 200 // characters - strings larger than this become StoredString
@@ -484,11 +645,13 @@ const (
 // This can be either a named macro (registered in the macro system) or anonymous
 type StoredMacro struct {
 	Commands         string
+	CachedCommands   []*ParsedCommand   // Lazily populated parsed form (nil until first use)
 	DefinitionFile   string
 	DefinitionLine   int
 	DefinitionColumn int
 	Timestamp        time.Time
 	ModuleEnv        *ModuleEnvironment // Captured module environment
+	IsForward        bool               // True if this is an unresolved forward declaration
 }
 
 // NewStoredMacro creates a new StoredMacro
@@ -577,10 +740,21 @@ type StoredChannel struct {
 	NativeSend      func(interface{}) error         // Native send handler
 	NativeRecv      func() (interface{}, error)     // Native receive handler
 	NativeClose     func() error                    // Native close handler
+	NativeLen       func() int                      // Native length handler (for Go channel backing)
+	NativeFlush     func() error                    // Native flush handler (waits for pending output)
 	// Terminal capabilities associated with this channel
 	// Allows channels to report their own ANSI/color/size support
 	// If nil, system terminal capabilities are used as fallback
 	Terminal        *TerminalCapabilities
+	// PasteBuffer holds complete lines from bracketed paste that haven't been read yet
+	// When a multi-line paste arrives, complete lines are stored here for subsequent reads
+	PasteBuffer     []string
+	// PartialPaste holds the last segment of a paste that didn't end with a newline
+	// This becomes the starting content for the next read, allowing user to continue typing
+	PartialPaste    string
+	// PasteNotified is set when readkey returns "Paste" to avoid returning it multiple times
+	// Cleared when read is called
+	PasteNotified   bool
 }
 
 // GetTerminalCapabilities returns terminal capabilities for this channel
@@ -619,6 +793,22 @@ func (ch *StoredChannel) SetTerminalCapabilities(caps *TerminalCapabilities) {
 	ch.mu.Lock()
 	defer ch.mu.Unlock()
 	ch.Terminal = caps
+}
+
+// Flush waits for any pending output to be written.
+// If NativeFlush is set, it calls that handler.
+// Returns nil if no flush handler is set.
+func (ch *StoredChannel) Flush() error {
+	if ch == nil {
+		return nil
+	}
+	ch.mu.RLock()
+	flush := ch.NativeFlush
+	ch.mu.RUnlock()
+	if flush != nil {
+		return flush()
+	}
+	return nil
 }
 
 // NewStoredChannel creates a new channel with optional buffer size
@@ -862,41 +1052,354 @@ type FiberHandle struct {
 // All operations return new StoredList instances (copy-on-write)
 // Slicing shares the backing array for memory efficiency
 // Named arguments (key-value pairs) are stored separately from positional items
+//
+// Type tracking fields are maintained for both positional items (arr) and named args (map):
+// - Type: "empty" (nothing added), "nil", a specific type name, or "mixed"
+// - Solid: true if no nil/undefined values have been added
+// - Serializable: true if all values are serializable types
 type StoredList struct {
 	items      []interface{}
 	namedArgs  map[string]interface{} // Named arguments (key: value)
+
+	// Type tracking for positional items
+	arrType         string // "empty", "nil", "undefined", specific type, or "mixed"
+	arrSolid        bool   // true if no nil/undefined values
+	arrSerializable bool   // true if all values are serializable
+
+	// Type tracking for named arguments (map values)
+	mapType         string // "empty", "nil", "undefined", specific type, or "mixed"
+	mapSolid        bool   // true if no nil/undefined values
+	mapSerializable bool   // true if all values are serializable
 }
 
-// NewStoredList creates a new StoredList from a slice of items
-func NewStoredList(items []interface{}) StoredList {
-	return StoredList{items: items, namedArgs: nil}
+// ListTypeInfo holds type tracking information for a collection of values
+type ListTypeInfo struct {
+	Type         string // "empty", "nil", "undefined", specific type, or "mixed"
+	Solid        bool   // true if no nil/undefined values
+	Serializable bool   // true if all values are serializable
+}
+
+// NewEmptyTypeInfo returns initial type info for an empty collection
+func NewEmptyTypeInfo() ListTypeInfo {
+	return ListTypeInfo{
+		Type:         "empty",
+		Solid:        true,
+		Serializable: true,
+	}
+}
+
+// classifyValue returns (typeName, isSerializable, isNilOrUndefined) for a value
+// If the value is a marker, it resolves it first (requires executor)
+// Note: Token type is treated as serializable for now (may revisit later)
+func classifyValue(value interface{}, executor *Executor) (typeName string, isSerializable bool, isNilOrUndefined bool) {
+	// Handle nil
+	if value == nil {
+		return "nil", true, true
+	}
+
+	// Handle ObjectRef - the preferred way to reference stored objects
+	if objRef, ok := value.(ObjectRef); ok {
+		if !objRef.IsValid() {
+			return "undefined", true, true
+		}
+		if executor != nil {
+			if obj, exists := executor.getObject(objRef.ID); exists {
+				switch objRef.Type {
+				case ObjList:
+					if list, ok := obj.(StoredList); ok {
+						return "list", list.arrSerializable && list.mapSerializable, false
+					}
+					return "list", true, false
+				case ObjBytes:
+					return "bytes", true, false
+				case ObjBlock:
+					return "block", true, false
+				case ObjChannel:
+					return "channel", false, false
+				case ObjFiber:
+					return "fiber", false, false
+				case ObjCommand:
+					return "command", false, false
+				case ObjMacro:
+					return "macro", false, false
+				case ObjStruct:
+					if ss, ok := obj.(*StoredStruct); ok && ss.IsArray() {
+						return "structarray", false, false
+					}
+					return "struct", false, false
+				case ObjString:
+					return "string", true, false
+				default:
+					return objRef.Type.String(), false, false
+				}
+			}
+		}
+		return objRef.Type.String(), false, false
+	}
+
+	// Check for ActualUndefined type first
+	if _, ok := value.(ActualUndefined); ok {
+		return "undefined", true, true
+	}
+
+	// Check for markers and resolve them
+	var markerStr string
+	switch v := value.(type) {
+	case Symbol:
+		markerStr = string(v)
+		// Check for undefined symbol
+		if markerStr == "undefined" {
+			return "undefined", true, true
+		}
+	case string:
+		markerStr = v
+	}
+
+	if markerStr != "" {
+		markerType, objectID := parseObjectMarker(markerStr)
+		if objectID >= 0 && executor != nil {
+			// Resolve the marker to get the actual object
+			if obj, exists := executor.getObject(objectID); exists {
+				// Classify based on the resolved object type
+				switch markerType {
+				case "list":
+					if list, ok := obj.(StoredList); ok {
+						// List is serializable only if its contents are serializable
+						return "list", list.arrSerializable && list.mapSerializable, false
+					}
+					return "list", true, false
+				case "bytes":
+					return "bytes", true, false
+				case "block":
+					return "block", true, false
+				case "channel":
+					return "channel", false, false
+				case "fiber":
+					return "fiber", false, false
+				case "command":
+					return "command", false, false
+				case "macro":
+					return "macro", false, false
+				case "struct":
+					// StoredStruct can be a single struct or struct array
+					if ss, ok := obj.(*StoredStruct); ok && ss.IsArray() {
+						return "structarray", false, false
+					}
+					return "struct", false, false
+				case "token":
+					// Token type: treating as serializable for now (may revisit)
+					return "token", true, false
+				case "str":
+					// StoredString - definitely serializable
+					return "string", true, false
+				default:
+					// Unknown marker type, assume not serializable
+					return markerType, false, false
+				}
+			}
+		}
+	}
+
+	// Classify by Go type
+	switch v := value.(type) {
+	case bool:
+		return "bool", true, false
+	case int64:
+		return "int", true, false
+	case float64:
+		return "float", true, false
+	case string:
+		return "string", true, false
+	case QuotedString:
+		return "string", true, false
+	case StoredString:
+		return "string", true, false
+	case Symbol:
+		return "symbol", true, false
+	case StoredList:
+		return "list", v.arrSerializable && v.mapSerializable, false
+	case StoredBytes:
+		return "bytes", true, false
+	case StoredBlock:
+		return "block", true, false
+	case ParenGroup:
+		return "block", true, false
+	case *StoredChannel:
+		return "channel", false, false
+	case *FiberHandle:
+		return "fiber", false, false
+	case *StoredStruct:
+		if v.IsArray() {
+			return "structarray", false, false
+		}
+		return "struct", false, false
+	default:
+		// Unknown type - be conservative
+		return "unknown", false, false
+	}
+}
+
+// mergeTypeInfo updates type info when adding a new value
+// This implements the rules for combining type tracking
+func mergeTypeInfo(info ListTypeInfo, typeName string, isSerializable bool, isNilOrUndefined bool) ListTypeInfo {
+	result := info
+
+	// Handle nil/undefined: they set solid to false
+	if isNilOrUndefined {
+		result.Solid = false
+	}
+
+	// Handle serializable flag
+	if !isSerializable {
+		result.Serializable = false
+	}
+
+	// Handle type tracking
+	switch info.Type {
+	case "empty":
+		// First item determines the type
+		result.Type = typeName
+	case "nil", "undefined":
+		// If only nil/undefined so far, a new type takes over (unless also nil/undefined)
+		if !isNilOrUndefined {
+			result.Type = typeName
+		} else if info.Type != typeName {
+			// nil and undefined are different, so mixed
+			result.Type = "mixed"
+		}
+	case "mixed":
+		// Already mixed, stays mixed
+	default:
+		// We have a specific type
+		if isNilOrUndefined {
+			// nil/undefined doesn't change the type, just solid
+		} else if typeName != info.Type {
+			// Different type, becomes mixed
+			result.Type = "mixed"
+		}
+	}
+
+	return result
+}
+
+// computeTypeInfoForSlice computes type info for a slice of values
+func computeTypeInfoForSlice(items []interface{}, executor *Executor) ListTypeInfo {
+	info := NewEmptyTypeInfo()
+	for _, item := range items {
+		typeName, isSerializable, isNilOrUndefined := classifyValue(item, executor)
+		info = mergeTypeInfo(info, typeName, isSerializable, isNilOrUndefined)
+	}
+	return info
+}
+
+// computeTypeInfoForMap computes type info for a map's values
+func computeTypeInfoForMap(m map[string]interface{}, executor *Executor) ListTypeInfo {
+	info := NewEmptyTypeInfo()
+	for _, value := range m {
+		typeName, isSerializable, isNilOrUndefined := classifyValue(value, executor)
+		info = mergeTypeInfo(info, typeName, isSerializable, isNilOrUndefined)
+	}
+	return info
+}
+
+// mergeTypeInfos combines two TypeInfo structs (used for Concat)
+func mergeTypeInfos(a, b ListTypeInfo) ListTypeInfo {
+	result := a
+
+	// Merge solid flags
+	if !b.Solid {
+		result.Solid = false
+	}
+
+	// Merge serializable flags
+	if !b.Serializable {
+		result.Serializable = false
+	}
+
+	// Merge types
+	if a.Type == "empty" {
+		result.Type = b.Type
+	} else if b.Type == "empty" {
+		// Keep a.Type
+	} else if a.Type == "mixed" || b.Type == "mixed" {
+		result.Type = "mixed"
+	} else if a.Type != b.Type {
+		// Special case: nil/undefined with specific type
+		if (a.Type == "nil" || a.Type == "undefined") && b.Type != "nil" && b.Type != "undefined" {
+			result.Type = b.Type
+		} else if (b.Type == "nil" || b.Type == "undefined") && a.Type != "nil" && a.Type != "undefined" {
+			result.Type = a.Type
+		} else {
+			result.Type = "mixed"
+		}
+	}
+
+	return result
+}
+
+// NewStoredListWithoutRefs creates a new StoredList from a slice of items
+// WARNING: Does NOT claim references to nested object markers - use NewStoredListWithRefs
+// if the list contains channel/list markers that need to stay alive
+func NewStoredListWithoutRefs(items []interface{}) StoredList {
+	arrInfo := computeTypeInfoForSlice(items, nil)
+	mapInfo := NewEmptyTypeInfo()
+	return StoredList{
+		items:           items,
+		namedArgs:       nil,
+		arrType:         arrInfo.Type,
+		arrSolid:        arrInfo.Solid,
+		arrSerializable: arrInfo.Serializable,
+		mapType:         mapInfo.Type,
+		mapSolid:        mapInfo.Solid,
+		mapSerializable: mapInfo.Serializable,
+	}
 }
 
 // NewStoredListWithNamed creates a new StoredList with both positional items and named arguments
+// Type info is computed without executor (markers won't be fully resolved)
 func NewStoredListWithNamed(items []interface{}, namedArgs map[string]interface{}) StoredList {
-	return StoredList{items: items, namedArgs: namedArgs}
+	arrInfo := computeTypeInfoForSlice(items, nil)
+	mapInfo := computeTypeInfoForMap(namedArgs, nil)
+	return StoredList{
+		items:           items,
+		namedArgs:       namedArgs,
+		arrType:         arrInfo.Type,
+		arrSolid:        arrInfo.Solid,
+		arrSerializable: arrInfo.Serializable,
+		mapType:         mapInfo.Type,
+		mapSolid:        mapInfo.Solid,
+		mapSerializable: mapInfo.Serializable,
+	}
 }
 
-// NewStoredListWithRefs creates a new StoredList and claims references to any nested objects
+// NewStoredListWithRefs creates a new StoredList with type info computed via executor
+// NOTE: Does NOT claim refs - that's now done by setListResult when registering
+// This allows sliced/derived lists to share items without double-claiming
 func NewStoredListWithRefs(items []interface{}, namedArgs map[string]interface{}, executor *Executor) StoredList {
-	list := StoredList{items: items, namedArgs: namedArgs}
-	// Claim references to any nested objects in positional items
-	if executor != nil {
-		for _, item := range items {
-			claimNestedReferences(item, executor)
-		}
-		// Claim references to any nested objects in named arguments (both keys and values)
-		for key, value := range namedArgs {
-			claimNestedReferences(key, executor)
-			claimNestedReferences(value, executor)
-		}
+	// Compute type info with executor for full resolution
+	arrInfo := computeTypeInfoForSlice(items, executor)
+	mapInfo := computeTypeInfoForMap(namedArgs, executor)
+
+	return StoredList{
+		items:           items,
+		namedArgs:       namedArgs,
+		arrType:         arrInfo.Type,
+		arrSolid:        arrInfo.Solid,
+		arrSerializable: arrInfo.Serializable,
+		mapType:         mapInfo.Type,
+		mapSolid:        mapInfo.Solid,
+		mapSerializable: mapInfo.Serializable,
 	}
-	return list
 }
 
 // claimNestedReferences recursively claims references to nested objects
 func claimNestedReferences(value interface{}, executor *Executor) {
 	switch v := value.(type) {
+	case ObjectRef:
+		// ObjectRef is the preferred way to reference stored objects
+		if v.IsValid() {
+			executor.incrementObjectRefCount(v.ID)
+		}
 	case Symbol:
 		if _, id := parseObjectMarker(string(v)); id >= 0 {
 			executor.incrementObjectRefCount(id)
@@ -925,6 +1428,11 @@ func claimNestedReferences(value interface{}, executor *Executor) {
 // releaseNestedReferences recursively releases references to nested objects
 func releaseNestedReferences(value interface{}, executor *Executor) {
 	switch v := value.(type) {
+	case ObjectRef:
+		// ObjectRef is the preferred way to reference stored objects
+		if v.IsValid() {
+			executor.decrementObjectRefCount(v.ID)
+		}
 	case Symbol:
 		if _, id := parseObjectMarker(string(v)); id >= 0 {
 			executor.decrementObjectRefCount(id)
@@ -971,7 +1479,8 @@ func (pl StoredList) Get(index int) interface{} {
 
 // Slice returns a new StoredList with items from start to end (end exclusive)
 // Shares the backing array for memory efficiency (O(1) time, O(1) space)
-// Preserves named arguments from the original list
+// Preserves named arguments and type info from the original list
+// (Type info is conservative - slice might be more specific but we preserve parent's info)
 func (pl StoredList) Slice(start, end int) StoredList {
 	if start < 0 {
 		start = 0
@@ -982,34 +1491,84 @@ func (pl StoredList) Slice(start, end int) StoredList {
 	if start > end {
 		start = end
 	}
-	return StoredList{items: pl.items[start:end], namedArgs: pl.namedArgs}
+	return StoredList{
+		items:           pl.items[start:end],
+		namedArgs:       pl.namedArgs,
+		arrType:         pl.arrType,
+		arrSolid:        pl.arrSolid,
+		arrSerializable: pl.arrSerializable,
+		mapType:         pl.mapType,
+		mapSolid:        pl.mapSolid,
+		mapSerializable: pl.mapSerializable,
+	}
 }
 
 // Append returns a new StoredList with the item appended (O(n) copy-on-write)
 // Preserves named arguments from the original list
+// Type info is updated incrementally based on the new item
 func (pl StoredList) Append(item interface{}) StoredList {
 	newItems := make([]interface{}, len(pl.items)+1)
 	copy(newItems, pl.items)
 	newItems[len(pl.items)] = item
-	return StoredList{items: newItems, namedArgs: pl.namedArgs}
+
+	// Update type info for positional items
+	currentInfo := ListTypeInfo{
+		Type:         pl.arrType,
+		Solid:        pl.arrSolid,
+		Serializable: pl.arrSerializable,
+	}
+	typeName, isSerializable, isNilOrUndefined := classifyValue(item, nil)
+	newInfo := mergeTypeInfo(currentInfo, typeName, isSerializable, isNilOrUndefined)
+
+	return StoredList{
+		items:           newItems,
+		namedArgs:       pl.namedArgs,
+		arrType:         newInfo.Type,
+		arrSolid:        newInfo.Solid,
+		arrSerializable: newInfo.Serializable,
+		mapType:         pl.mapType,
+		mapSolid:        pl.mapSolid,
+		mapSerializable: pl.mapSerializable,
+	}
 }
 
 // Prepend returns a new StoredList with the item prepended (O(n) copy-on-write)
 // Preserves named arguments from the original list
+// Type info is updated incrementally based on the new item
 func (pl StoredList) Prepend(item interface{}) StoredList {
 	newItems := make([]interface{}, len(pl.items)+1)
 	newItems[0] = item
 	copy(newItems[1:], pl.items)
-	return StoredList{items: newItems, namedArgs: pl.namedArgs}
+
+	// Update type info for positional items
+	currentInfo := ListTypeInfo{
+		Type:         pl.arrType,
+		Solid:        pl.arrSolid,
+		Serializable: pl.arrSerializable,
+	}
+	typeName, isSerializable, isNilOrUndefined := classifyValue(item, nil)
+	newInfo := mergeTypeInfo(currentInfo, typeName, isSerializable, isNilOrUndefined)
+
+	return StoredList{
+		items:           newItems,
+		namedArgs:       pl.namedArgs,
+		arrType:         newInfo.Type,
+		arrSolid:        newInfo.Solid,
+		arrSerializable: newInfo.Serializable,
+		mapType:         pl.mapType,
+		mapSolid:        pl.mapSolid,
+		mapSerializable: pl.mapSerializable,
+	}
 }
 
 // Concat returns a new StoredList with items from both lists (O(n+m) copy)
 // Named arguments are merged, with keys from 'other' replacing keys from 'pl' when both contain the same key
+// Type info is merged from both lists
 func (pl StoredList) Concat(other StoredList) StoredList {
 	newItems := make([]interface{}, len(pl.items)+len(other.items))
 	copy(newItems, pl.items)
 	copy(newItems[len(pl.items):], other.items)
-	
+
 	// Merge named arguments
 	var newNamedArgs map[string]interface{}
 	if pl.namedArgs != nil || other.namedArgs != nil {
@@ -1023,17 +1582,61 @@ func (pl StoredList) Concat(other StoredList) StoredList {
 			newNamedArgs[k] = v
 		}
 	}
-	
-	return StoredList{items: newItems, namedArgs: newNamedArgs}
+
+	// Merge type info for positional items
+	plArrInfo := ListTypeInfo{
+		Type:         pl.arrType,
+		Solid:        pl.arrSolid,
+		Serializable: pl.arrSerializable,
+	}
+	otherArrInfo := ListTypeInfo{
+		Type:         other.arrType,
+		Solid:        other.arrSolid,
+		Serializable: other.arrSerializable,
+	}
+	newArrInfo := mergeTypeInfos(plArrInfo, otherArrInfo)
+
+	// Merge type info for map (named args)
+	plMapInfo := ListTypeInfo{
+		Type:         pl.mapType,
+		Solid:        pl.mapSolid,
+		Serializable: pl.mapSerializable,
+	}
+	otherMapInfo := ListTypeInfo{
+		Type:         other.mapType,
+		Solid:        other.mapSolid,
+		Serializable: other.mapSerializable,
+	}
+	newMapInfo := mergeTypeInfos(plMapInfo, otherMapInfo)
+
+	return StoredList{
+		items:           newItems,
+		namedArgs:       newNamedArgs,
+		arrType:         newArrInfo.Type,
+		arrSolid:        newArrInfo.Solid,
+		arrSerializable: newArrInfo.Serializable,
+		mapType:         newMapInfo.Type,
+		mapSolid:        newMapInfo.Solid,
+		mapSerializable: newMapInfo.Serializable,
+	}
 }
 
 // Compact returns a new StoredList with a new backing array
 // Use this to free memory if you've sliced a large list
-// Preserves named arguments from the original list
+// Preserves named arguments and type info from the original list
 func (pl StoredList) Compact() StoredList {
 	newItems := make([]interface{}, len(pl.items))
 	copy(newItems, pl.items)
-	return StoredList{items: newItems, namedArgs: pl.namedArgs}
+	return StoredList{
+		items:           newItems,
+		namedArgs:       pl.namedArgs,
+		arrType:         pl.arrType,
+		arrSolid:        pl.arrSolid,
+		arrSerializable: pl.arrSerializable,
+		mapType:         pl.mapType,
+		mapSolid:        pl.mapSolid,
+		mapSerializable: pl.mapSerializable,
+	}
 }
 
 // String returns a string representation for debugging
@@ -1043,6 +1646,58 @@ func (pl StoredList) String() string {
 		return "(list)"
 	}
 	return "(list with named args)"
+}
+
+// ArrType returns the type of positional items: "empty", "nil", "undefined", a specific type, or "mixed"
+func (pl StoredList) ArrType() string {
+	if pl.arrType == "" {
+		return "empty"
+	}
+	return pl.arrType
+}
+
+// MapType returns the type of named arg values: "empty", "nil", "undefined", a specific type, or "mixed"
+func (pl StoredList) MapType() string {
+	if pl.mapType == "" {
+		return "empty"
+	}
+	return pl.mapType
+}
+
+// ArrSolid returns true if no nil/undefined values are in the positional items
+func (pl StoredList) ArrSolid() bool {
+	// Empty lists with uninitialized fields should be solid
+	if pl.arrType == "" {
+		return true
+	}
+	return pl.arrSolid
+}
+
+// MapSolid returns true if no nil/undefined values are in the named args
+func (pl StoredList) MapSolid() bool {
+	// Empty maps with uninitialized fields should be solid
+	if pl.mapType == "" {
+		return true
+	}
+	return pl.mapSolid
+}
+
+// ArrSerializable returns true if all positional items are serializable types
+func (pl StoredList) ArrSerializable() bool {
+	// Empty lists with uninitialized fields should be serializable
+	if pl.arrType == "" {
+		return true
+	}
+	return pl.arrSerializable
+}
+
+// MapSerializable returns true if all named arg values are serializable types
+func (pl StoredList) MapSerializable() bool {
+	// Empty maps with uninitialized fields should be serializable
+	if pl.mapType == "" {
+		return true
+	}
+	return pl.mapSerializable
 }
 
 // StoredBytes represents an immutable byte array

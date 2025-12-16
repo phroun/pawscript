@@ -1,11 +1,35 @@
 package pawscript
 
 import (
-	"fmt"
+	"sort"
 	"strconv"
 	"strings"
 	"sync"
 	"time"
+)
+
+// Object pools for reducing allocation overhead
+var (
+	executionStatePool = sync.Pool{
+		New: func() interface{} {
+			return &ExecutionState{}
+		},
+	}
+	variablesMapPool = sync.Pool{
+		New: func() interface{} {
+			return make(map[string]interface{}, 8) // Pre-size for common case
+		},
+	}
+	ownedObjectsMapPool = sync.Pool{
+		New: func() interface{} {
+			return make(map[int]int, 4)
+		},
+	}
+	bubbleMapPool = sync.Pool{
+		New: func() interface{} {
+			return make(map[string][]*BubbleEntry, 2)
+		},
+	}
 )
 
 // BubbleEntry represents a single bubble in the bubble system
@@ -15,6 +39,7 @@ type BubbleEntry struct {
 	Microtime  int64         // Microseconds since epoch when created
 	Memo       string        // Optional memo string
 	StackTrace []interface{} // Optional stack trace (nil if trace was false)
+	Flavors    []string      // All flavors this bubble belongs to (for cross-referencing)
 }
 
 // ExecutionState manages the result state during command execution
@@ -51,23 +76,34 @@ func NewExecutionState() *ExecutionState {
 }
 
 // NewExecutionStateFrom creates a child state inheriting from parent
-// Used for macro calls - starts with fresh result and fresh bubbleMap
+// Used for macro calls - starts with fresh result and nil bubbleMap (lazy-created if needed)
 func NewExecutionStateFrom(parent *ExecutionState) *ExecutionState {
 	if parent == nil {
 		return NewExecutionState()
 	}
 
-	return &ExecutionState{
-		currentResult: nil,                                         // Fresh result storage for this child
-		hasResult:     false,                                       // Child starts with no result
-		lastStatus:    true,                                        // Child starts with success status
-		variables:     make(map[string]interface{}),                // Create fresh map
-		ownedObjects:  make(map[int]int),                           // Fresh owned objects counter
-		executor:      parent.executor,                             // Share executor reference
-		fiberID:       parent.fiberID,                              // Inherit fiber ID
-		moduleEnv:     NewChildModuleEnvironment(parent.moduleEnv), // Create child module environment
-		bubbleMap:     make(map[string][]*BubbleEntry),             // Fresh bubble map (will merge on return)
-	}
+	// Get state from pool
+	state := executionStatePool.Get().(*ExecutionState)
+
+	// Get maps from pools (bubbleMap is nil - lazy-created only if AddBubble is called)
+	variables := variablesMapPool.Get().(map[string]interface{})
+	ownedObjects := ownedObjectsMapPool.Get().(map[int]int)
+
+	// Initialize state
+	state.currentResult = nil
+	state.hasResult = false
+	state.lastStatus = true
+	state.lastBraceFailureCount = 0
+	state.variables = variables
+	state.ownedObjects = ownedObjects
+	state.executor = parent.executor
+	state.fiberID = parent.fiberID
+	state.moduleEnv = NewChildModuleEnvironment(parent.moduleEnv)
+	state.macroContext = nil
+	state.bubbleMap = nil // Lazy-created on first AddBubble (rare)
+	state.InBraceExpression = false
+
+	return state
 }
 
 // NewExecutionStateFromSharedVars creates a child that shares variables but has its own result storage
@@ -81,19 +117,74 @@ func NewExecutionStateFromSharedVars(parent *ExecutionState) *ExecutionState {
 	parent.mu.RLock()
 	defer parent.mu.RUnlock()
 
-	return &ExecutionState{
-		currentResult:         parent.currentResult,         // Inherit parent's result for get_result
-		hasResult:             parent.hasResult,             // Inherit parent's result state
-		lastStatus:            parent.lastStatus,            // Inherit parent's last status
-		lastBraceFailureCount: parent.lastBraceFailureCount, // Inherit parent's brace failure count for get_substatus
-		variables:             parent.variables,             // Share the variables map with parent
-		ownedObjects:          make(map[int]int),            // Fresh owned objects counter (will clean up separately)
-		executor:              parent.executor,              // Share executor reference
-		fiberID:               parent.fiberID,               // Inherit fiber ID
-		moduleEnv:             parent.moduleEnv,             // Share module environment with parent
-		macroContext:          parent.macroContext,          // Inherit macro context for stack traces
-		bubbleMap:             parent.bubbleMap,             // Share bubble map with parent (bubbles survive into/out of braces)
+	// Get state and ownedObjects map from pools
+	state := executionStatePool.Get().(*ExecutionState)
+	ownedObjects := ownedObjectsMapPool.Get().(map[int]int)
+
+	// Initialize state - shares most things with parent
+	state.currentResult = parent.currentResult
+	state.hasResult = parent.hasResult
+	state.lastStatus = parent.lastStatus
+	state.lastBraceFailureCount = parent.lastBraceFailureCount
+	state.variables = parent.variables // Shared with parent
+	state.ownedObjects = ownedObjects
+	state.executor = parent.executor
+	state.fiberID = parent.fiberID
+	state.moduleEnv = parent.moduleEnv // Shared with parent
+	state.macroContext = parent.macroContext
+	state.bubbleMap = parent.bubbleMap // Shared with parent
+	state.InBraceExpression = true
+
+	return state
+}
+
+// Recycle returns the state and its maps to the object pools for reuse.
+// Call this when the state is no longer needed (e.g., after macro execution).
+// ownsVariables indicates whether this state owns its variables map (true for macro states,
+// false for brace states that share variables with parent).
+// ownsBubbleMap indicates whether this state owns its bubbleMap (true for macro states,
+// false for brace states that share bubbleMap with parent).
+func (s *ExecutionState) Recycle(ownsVariables, ownsBubbleMap bool) {
+	if s == nil {
+		return
 	}
+
+	// Clear and return owned maps to pools
+	if ownsVariables && s.variables != nil {
+		// Clear the map
+		for k := range s.variables {
+			delete(s.variables, k)
+		}
+		variablesMapPool.Put(s.variables)
+	}
+
+	if s.ownedObjects != nil {
+		// Clear the map
+		for k := range s.ownedObjects {
+			delete(s.ownedObjects, k)
+		}
+		ownedObjectsMapPool.Put(s.ownedObjects)
+	}
+
+	if ownsBubbleMap && s.bubbleMap != nil {
+		// Clear the map
+		for k := range s.bubbleMap {
+			delete(s.bubbleMap, k)
+		}
+		bubbleMapPool.Put(s.bubbleMap)
+	}
+
+	// Clear references to help GC
+	s.currentResult = nil
+	s.variables = nil
+	s.ownedObjects = nil
+	s.executor = nil
+	s.moduleEnv = nil
+	s.macroContext = nil
+	s.bubbleMap = nil
+
+	// Return state to pool
+	executionStatePool.Put(s)
 }
 
 // SetResult sets the result value
@@ -118,52 +209,29 @@ func (s *ExecutionState) SetResult(value interface{}) {
 		return
 	}
 
-	// Convert raw objects to markers automatically
-	// This handles cases where commands pass resolved objects through the system
+	// Handle ObjectRef directly - no conversion needed
+	// For raw stored objects (StoredList, StoredBytes, etc.), maybeStoreValue will
+	// convert them to ObjectRef by finding their existing ID or registering them
 	if s.executor != nil {
 		switch v := value.(type) {
-		case StoredList:
-			// Find existing ID or store the list
-			if id := s.executor.findStoredListID(v); id >= 0 {
-				value = Symbol(fmt.Sprintf("\x00LIST:%d\x00", id))
-			} else {
-				// Not found, store it
-				id := s.executor.storeObject(v, "list")
-				value = Symbol(fmt.Sprintf("\x00LIST:%d\x00", id))
-			}
+		case ObjectRef:
+			// Already an ObjectRef - use it directly (this is the correct path)
+			value = v
 		case *StoredChannel:
-			// Find existing channel ID
-			if id := s.executor.findStoredChannelID(v); id >= 0 {
-				value = Symbol(fmt.Sprintf("\x00CHANNEL:%d\x00", id))
-			} else {
-				// Store the channel
-				id := s.executor.storeObject(v, "channel")
-				value = Symbol(fmt.Sprintf("\x00CHANNEL:%d\x00", id))
-			}
+			// Channels need special handling - register if not already stored
+			ref := s.executor.RegisterObject(v, ObjChannel)
+			value = ref
 		case *StoredFile:
-			// Find existing file ID
-			if id := s.executor.findStoredFileID(v); id >= 0 {
-				value = Symbol(fmt.Sprintf("\x00FILE:%d\x00", id))
-			} else {
-				// Store the file
-				id := s.executor.storeObject(v, "file")
-				value = Symbol(fmt.Sprintf("\x00FILE:%d\x00", id))
-			}
-		case StoredBytes:
-			// Find existing bytes ID
-			if id := s.executor.findStoredBytesID(v); id >= 0 {
-				value = Symbol(fmt.Sprintf("\x00BYTES:%d\x00", id))
-			} else {
-				// Store the bytes
-				id := s.executor.storeObject(v, "bytes")
-				value = Symbol(fmt.Sprintf("\x00BYTES:%d\x00", id))
-			}
+			// Files need special handling - register if not already stored
+			ref := s.executor.RegisterObject(v, ObjFile)
+			value = ref
 		case []interface{}:
-			// Convert raw slice to StoredList
-			list := NewStoredList(v)
-			id := s.executor.storeObject(list, "list")
-			value = Symbol(fmt.Sprintf("\x00LIST:%d\x00", id))
+			// Convert raw slice to StoredList (this is OK for new list creation)
+			list := NewStoredListWithoutRefs(v)
+			ref := s.executor.RegisterObject(list, ObjList)
+			value = ref
 		}
+		// Note: StoredList, StoredBytes, StoredStruct are handled by maybeStoreValue below
 	}
 
 	// Check if large strings/blocks should be stored
@@ -228,6 +296,11 @@ func (s *ExecutionState) extractObjectReferencesLocked(value interface{}) []int 
 	var refs []int
 
 	switch v := value.(type) {
+	case ObjectRef:
+		// ObjectRef is the new preferred way to reference stored objects
+		if v.IsValid() {
+			refs = append(refs, v.ID)
+		}
 	case Symbol:
 		if _, id := parseObjectMarker(string(v)); id >= 0 {
 			refs = append(refs, id)
@@ -472,6 +545,11 @@ func (s *ExecutionState) ReleaseAllReferences() {
 			s.executor.decrementObjectRefCount(id)
 		}
 	}
+
+	// Note: keyInputManager cleanup is NOT done here because ExecutionStates are pooled
+	// and pointer comparison is unreliable. Instead, cleanup happens via:
+	// 1. Explicit readkey_stop calls
+	// 2. Channel-based replacement when readkey_init is called on the same channel
 }
 
 // ExtractObjectReferences scans a value for object markers and returns their IDs
@@ -558,15 +636,76 @@ func (s *ExecutionState) AddBubble(flavor string, content interface{}, trace boo
 		Microtime:  time.Now().UnixMicro(),
 		Memo:       memo,
 		StackTrace: stackTrace,
+		Flavors:    []string{flavor}, // Single flavor for this entry
 	}
 
 	s.bubbleMap[flavor] = append(s.bubbleMap[flavor], entry)
+}
+
+// AddBubbleMultiFlavor adds the SAME bubble entry to multiple flavors
+// This allows the same entry to be found under different flavor keys,
+// enabling efficient "burst" operations that can remove from all related flavors
+func (s *ExecutionState) AddBubbleMultiFlavor(flavors []string, content interface{}, trace bool, memo string) {
+	if len(flavors) == 0 {
+		return
+	}
+
+	// For single flavor, delegate to AddBubble
+	if len(flavors) == 1 {
+		s.AddBubble(flavors[0], content, trace, memo)
+		return
+	}
+
+	s.mu.Lock()
+	defer s.mu.Unlock()
+
+	if s.bubbleMap == nil {
+		s.bubbleMap = make(map[string][]*BubbleEntry)
+	}
+
+	// Build stack trace if requested
+	var stackTrace []interface{}
+	if trace && s.macroContext != nil {
+		for mc := s.macroContext; mc != nil; mc = mc.ParentMacro {
+			frame := map[string]interface{}{
+				"macro":    mc.MacroName,
+				"file":     mc.InvocationFile,
+				"line":     int64(mc.InvocationLine),
+				"column":   int64(mc.InvocationColumn),
+				"def_file": mc.DefinitionFile,
+				"def_line": int64(mc.DefinitionLine),
+			}
+			stackTrace = append(stackTrace, frame)
+		}
+	}
+
+	// Create ONE entry and add it to ALL flavors (shared reference)
+	// Copy flavors slice to avoid external modification
+	flavorsCopy := make([]string, len(flavors))
+	copy(flavorsCopy, flavors)
+
+	entry := &BubbleEntry{
+		Content:    content,
+		Microtime:  time.Now().UnixMicro(),
+		Memo:       memo,
+		StackTrace: stackTrace,
+		Flavors:    flavorsCopy, // All flavors this entry belongs to
+	}
+
+	for _, flavor := range flavors {
+		s.bubbleMap[flavor] = append(s.bubbleMap[flavor], entry)
+	}
 }
 
 // MergeBubbles merges bubbles from a child state into this state
 // Called when a macro returns to concatenate child's bubbles onto parent's
 func (s *ExecutionState) MergeBubbles(child *ExecutionState) {
 	if child == nil {
+		return
+	}
+
+	// Fast path: if child's bubbleMap is nil, nothing to merge (no lock needed)
+	if child.bubbleMap == nil {
 		return
 	}
 
@@ -606,4 +745,89 @@ func (s *ExecutionState) GetBubbleMap() map[string][]*BubbleEntry {
 		result[k] = v
 	}
 	return result
+}
+
+// RemoveBubble removes a bubble entry from ALL flavors it belongs to
+// Uses the Flavors field on the entry to find all flavor lists to remove from
+func (s *ExecutionState) RemoveBubble(entry *BubbleEntry) {
+	if entry == nil {
+		return
+	}
+
+	s.mu.Lock()
+	defer s.mu.Unlock()
+
+	if s.bubbleMap == nil {
+		return
+	}
+
+	// Remove from all flavors listed in the entry
+	for _, flavor := range entry.Flavors {
+		entries := s.bubbleMap[flavor]
+		if entries == nil {
+			continue
+		}
+
+		// Find and remove the entry (by pointer equality)
+		newEntries := make([]*BubbleEntry, 0, len(entries))
+		for _, e := range entries {
+			if e != entry {
+				newEntries = append(newEntries, e)
+			}
+		}
+
+		if len(newEntries) == 0 {
+			delete(s.bubbleMap, flavor)
+		} else {
+			s.bubbleMap[flavor] = newEntries
+		}
+	}
+}
+
+// GetBubblesForFlavors returns all unique bubbles from the specified flavors,
+// sorted by microtime (oldest first). Duplicates are removed.
+func (s *ExecutionState) GetBubblesForFlavors(flavors []string) []*BubbleEntry {
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+
+	if s.bubbleMap == nil || len(flavors) == 0 {
+		return nil
+	}
+
+	// Use a map to track seen entries (by pointer) to avoid duplicates
+	seen := make(map[*BubbleEntry]bool)
+	var allEntries []*BubbleEntry
+
+	for _, flavor := range flavors {
+		entries := s.bubbleMap[flavor]
+		for _, entry := range entries {
+			if !seen[entry] {
+				seen[entry] = true
+				allEntries = append(allEntries, entry)
+			}
+		}
+	}
+
+	// Sort by microtime (oldest first)
+	sort.Slice(allEntries, func(i, j int) bool {
+		return allEntries[i].Microtime < allEntries[j].Microtime
+	})
+
+	return allEntries
+}
+
+// GetAllFlavorNames returns all flavor names that currently have bubbles
+func (s *ExecutionState) GetAllFlavorNames() []string {
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+
+	if s.bubbleMap == nil {
+		return nil
+	}
+
+	names := make([]string, 0, len(s.bubbleMap))
+	for name := range s.bubbleMap {
+		names = append(names, name)
+	}
+	return names
 }

@@ -1,0 +1,98 @@
+# Test list serialization with {string ~list} and deserialization with ${ret {block "(~ser)"}}
+#
+# Pattern:
+#   Serialize:   ser: {string ~myList}
+#   Deserialize: restored: ${ret {block "(~ser)"}}
+#
+# Or two-step:
+#   blk: {block "(~ser)"}
+#   restored: ${~blk}
+
+echo "=== List Serialization Tests ==="
+echo ""
+
+# Test 1: Simple list with mixed types (using concise form)
+echo "Test 1: Simple mixed types"
+list1: (1, 2.5, hello, true, nil)
+ser1: {string ~list1}
+echo "Serialized: ~ser1"
+restored1: ${ret {block "(~ser1)"}}
+echo "Argc: {argc ~restored1}"
+echo "Restored: {string ~restored1}"
+echo ""
+
+# Test 2: List with quoted strings
+echo "Test 2: Quoted strings"
+list2: ("Hello World", "foo bar", "test")
+ser2: {string ~list2}
+echo "Serialized: ~ser2"
+restored2: ${ret {block "(~ser2)"}}
+echo "Argc: {argc ~restored2}"
+echo "Restored: {string ~restored2}"
+echo ""
+
+# Test 3: Strings with special characters needing escaping
+echo "Test 3: Strings with escaping"
+list3: ("Hello \"quoted\"", "back\\slash")
+ser3: {string ~list3}
+echo "Serialized: ~ser3"
+restored3: ${ret {block "(~ser3)"}}
+echo "Argc: {argc ~restored3}"
+echo "Restored: {string ~restored3}"
+echo ""
+
+# Test 4: Nested lists (using two-step form for variety)
+echo "Test 4: Nested lists"
+inner1: (a, b, c)
+inner2: (1, 2, 3)
+list4: (~inner1, ~inner2, standalone)
+ser4: {string ~list4}
+echo "Serialized: ~ser4"
+blk4: {block "(~ser4)"}
+restored4: ${~blk4}
+echo "Argc: {argc ~restored4}"
+echo "Item 1 argc: {argc {argv ~restored4, 1}}"
+echo "Restored: {string ~restored4}"
+echo ""
+
+# Test 5: Deeply nested lists
+echo "Test 5: Deeply nested"
+deep: ((a, (b, c)), (d, e))
+serDeep: {string ~deep}
+echo "Serialized: ~serDeep"
+restoredDeep: ${ret {block "(~serDeep)"}}
+echo "Argc: {argc ~restoredDeep}"
+echo "Restored: {string ~restoredDeep}"
+echo ""
+
+# Test 6: Empty list
+echo "Test 6: Empty list"
+empty: ()
+serEmpty: {string ~empty}
+echo "Serialized: '~serEmpty'"
+restoredEmpty: ${ret {block "(~serEmpty)"}}
+echo "Argc: {argc ~restoredEmpty}"
+echo "Restored: {string ~restoredEmpty}"
+echo ""
+
+# Test 7: Single item list
+echo "Test 7: Single item"
+single: (onlyone)
+serSingle: {string ~single}
+echo "Serialized: ~serSingle"
+restoredSingle: ${ret {block "(~serSingle)"}}
+echo "Argc: {argc ~restoredSingle}"
+echo "Restored: {string ~restoredSingle}"
+echo ""
+
+# Test 8: Complex mixed case
+echo "Test 8: Complex mixed"
+complex: ("Hello, World!", (nested, "with quotes"), 42, true, (a, b, c))
+serComplex: {string ~complex}
+echo "Serialized: ~serComplex"
+restoredComplex: ${ret {block "(~serComplex)"}}
+echo "Argc: {argc ~restoredComplex}"
+echo "Restored: {string ~restoredComplex}"
+echo ""
+
+echo "=== Serialization Tests Complete ==="

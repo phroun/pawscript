@@ -13,8 +13,10 @@ type PawScript struct {
 	logger        *Logger
 	executor      *Executor
 	rootModuleEnv *ModuleEnvironment // Root module environment for all execution states
+	rootState     *ExecutionState    // Persistent execution state for host application use
 	startTime     time.Time          // Time when interpreter was initialized
 	terminalState *TerminalState     // Terminal/cursor state for io commands
+	lastResult    interface{}        // Last execution result value (for REPL)
 }
 
 // New creates a new PawScript interpreter
@@ -36,6 +38,9 @@ func New(config *Config) *PawScript {
 
 	logger := NewLoggerWithWriters(config.Debug, config.Stdout, config.Stderr)
 	executor := NewExecutor(logger)
+
+	// Set optimization level from config
+	executor.SetOptimizationLevel(config.OptLevel)
 
 	// Create root module environment for all execution states
 	rootModuleEnv := NewModuleEnvironment()
@@ -60,11 +65,13 @@ func New(config *Config) *PawScript {
 
 			// Look up macro in module environment (COW - only check MacrosModule)
 			var macro *StoredMacro
-			state.moduleEnv.mu.RLock()
-			if m, exists := state.moduleEnv.MacrosModule[cmdName]; exists && m != nil {
-				macro = m
+			if state.moduleEnv != nil {
+				state.moduleEnv.mu.RLock()
+				if m, exists := state.moduleEnv.MacrosModule[cmdName]; exists && m != nil {
+					macro = m
+				}
+				state.moduleEnv.mu.RUnlock()
 			}
-			state.moduleEnv.mu.RUnlock()
 
 			if macro != nil {
 				ps.logger.DebugCat(CatMacro, "Found macro: %s", cmdName)
@@ -97,6 +104,15 @@ func New(config *Config) *PawScript {
 		})
 	}
 
+	// Create persistent root execution state
+	// This state persists across Execute calls for REPL and host application use
+	ps.rootState = NewExecutionState()
+	ps.rootState.moduleEnv = NewChildModuleEnvironment(rootModuleEnv)
+	ps.rootState.executor = executor
+
+	// Set root state on executor for error routing fallback
+	executor.SetRootState(ps.rootState)
+
 	return ps
 }
 
@@ -112,6 +128,7 @@ func (ps *PawScript) RegisterCommand(name string, handler Handler) {
 	ps.executor.RegisterCommand(name, handler)
 	// Also register to root module environment
 	ps.rootModuleEnv.CommandRegistryInherited[name] = handler
+	ps.rootModuleEnv.RegistryGeneration++ // Invalidate handler caches
 }
 
 // RegisterCommandInModule registers a command handler in a specific module within LibraryInherited
@@ -163,7 +180,151 @@ func (ps *PawScript) NewExecutionStateFromRoot() *ExecutionState {
 	return state
 }
 
-// dumpRemainingBubbles dumps any remaining bubbles to stderr before returning control to host.
+// ExecuteFile executes a script file with proper filename tracking.
+// Uses the persistent root state so variables, macros, and objects persist.
+// If the script contains async operations (like msleep), this function waits
+// for the entire script to complete before returning and merging exports.
+func (ps *PawScript) ExecuteFile(commandString, filename string) Result {
+	// Use the persistent root state - variables and objects persist across calls
+	result := ps.executor.ExecuteWithState(commandString, ps.rootState, nil, filename, 0, 0)
+
+	// If the result is an async token, we need to wait for the script to complete
+	// before we can merge exports (MODULE/EXPORT may run after async operations)
+	if tokenResult, ok := result.(TokenResult); ok {
+		tokenID := string(tokenResult)
+		ps.logger.DebugCat(CatAsync, "ExecuteFile('%s'): Script returned async token %s, waiting for completion", filename, tokenID)
+
+		// Create a channel to wait for completion
+		waitChan := make(chan ResumeData, 1)
+		ps.executor.attachWaitChan(tokenID, waitChan)
+
+		// Wait for the script to complete
+		resumeData := <-waitChan
+		ps.logger.DebugCat(CatAsync, "ExecuteFile('%s'): Script completed with status %v", filename, resumeData.Status)
+
+		// Update result based on completion
+		if resumeData.Status {
+			result = BoolStatus(true)
+		} else {
+			result = BoolStatus(false)
+		}
+	}
+
+	// Debug: log what's in ModuleExports before merge
+	ps.rootState.moduleEnv.mu.RLock()
+	numExports := len(ps.rootState.moduleEnv.ModuleExports)
+	ps.logger.DebugCat(CatSystem, "ExecuteFile('%s'): ModuleExports has %d modules", filename, numExports)
+	for modName, section := range ps.rootState.moduleEnv.ModuleExports {
+		ps.logger.DebugCat(CatSystem, "ExecuteFile('%s'): ModuleExports['%s'] has %d items", filename, modName, len(section))
+	}
+	ps.rootState.moduleEnv.mu.RUnlock()
+
+	// Merge any module exports into the root environment for persistence
+	ps.rootState.moduleEnv.MergeExportsInto(ps.rootModuleEnv)
+
+	// Note: We do NOT release references here - the root state persists
+
+	return result
+}
+
+// Execute executes a command string using the persistent root state.
+// Variables, macros, and objects persist across calls for REPL and host application use.
+// Call Cleanup() to explicitly release resources when done with the interpreter.
+//
+// This method blocks until the command completes, including any async operations
+// like msleep. This is the intuitive, default behavior matching script execution.
+// Use ExecuteAsync() if you need to handle async tokens manually.
+func (ps *PawScript) Execute(commandString string, args ...interface{}) Result {
+	result := ps.executeInternal(commandString)
+
+	// If result is an async token, wait for it to complete
+	// This provides blocking semantics by default (most intuitive behavior)
+	if tokenResult, ok := result.(TokenResult); ok {
+		tokenID := string(tokenResult)
+		success := ps.WaitForToken(tokenID)
+		if success {
+			return BoolStatus(true)
+		}
+		return BoolStatus(false)
+	}
+
+	return result
+}
+
+// ExecuteAsync executes a command string without waiting for async operations.
+// If the command initiates async operations (like msleep), this returns a
+// TokenResult immediately. The caller is responsible for handling the token,
+// either by calling WaitForToken() or managing it through their own async flow.
+//
+// Most callers should use Execute() instead for simpler blocking semantics.
+func (ps *PawScript) ExecuteAsync(commandString string) Result {
+	return ps.executeInternal(commandString)
+}
+
+// executeInternal is the core execution logic shared by Execute and ExecuteAsync.
+func (ps *PawScript) executeInternal(commandString string) Result {
+	// Use the persistent root state - variables and objects persist across calls
+	result := ps.executor.ExecuteWithState(commandString, ps.rootState, nil, "", 0, 0)
+
+	// Save the result value for REPL access
+	ps.lastResult = ps.rootState.GetResult()
+
+	// Merge any module exports into the root environment for persistence
+	ps.rootState.moduleEnv.MergeExportsInto(ps.rootModuleEnv)
+
+	// Note: We do NOT release references here - the root state persists
+	// The host application should call Cleanup() when done
+
+	return result
+}
+
+// GetResultValue returns the last execution result value (for REPL)
+func (ps *PawScript) GetResultValue() interface{} {
+	return ps.lastResult
+}
+
+// ResolveValue resolves ObjectRefs and other markers to their actual values.
+// This is useful for displaying values in a human-readable format.
+func (ps *PawScript) ResolveValue(val interface{}) interface{} {
+	if ps.executor == nil {
+		return val
+	}
+	return ps.executor.resolveValue(val)
+}
+
+// FlushIO waits for any pending output on stdout and stderr to be written.
+// This should be called before printing prompts or completion messages to ensure
+// all previous output has been displayed.
+func (ps *PawScript) FlushIO() {
+	if ps.rootModuleEnv == nil {
+		return
+	}
+	ps.rootModuleEnv.mu.RLock()
+	stdout := ps.rootModuleEnv.ObjectsInherited["#stdout"]
+	stderr := ps.rootModuleEnv.ObjectsInherited["#stderr"]
+	ps.rootModuleEnv.mu.RUnlock()
+
+	// Flush stdout
+	if ch, ok := stdout.(*StoredChannel); ok && ch != nil {
+		ch.Flush()
+	}
+	// Flush stderr (if different from stdout)
+	if ch, ok := stderr.(*StoredChannel); ok && ch != nil && stderr != stdout {
+		ch.Flush()
+	}
+}
+
+// WaitForToken waits for an async token to complete and returns the result status.
+// This is used by REPLs to wait for async commands like msleep before returning
+// to the prompt. Returns true if the operation succeeded, false otherwise.
+func (ps *PawScript) WaitForToken(tokenID string) bool {
+	waitChan := make(chan ResumeData, 1)
+	ps.executor.attachWaitChan(tokenID, waitChan)
+	resumeData := <-waitChan
+	return resumeData.Status
+}
+
+// dumpRemainingBubbles dumps any remaining bubbles to stderr during cleanup.
 // This includes orphaned bubbles (from abandoned fibers) and bubbles in the execution state.
 func (ps *PawScript) dumpRemainingBubbles(state *ExecutionState) {
 	// Collect all bubbles: orphaned + state's bubbleMap
@@ -214,66 +375,24 @@ func (ps *PawScript) dumpRemainingBubbles(state *ExecutionState) {
 	}
 }
 
-// ExecuteFile executes a script file with proper filename tracking.
-// If the script contains async operations (like msleep), this function waits
-// for the entire script to complete before returning and merging exports.
-func (ps *PawScript) ExecuteFile(commandString, filename string) Result {
-	state := ps.NewExecutionStateFromRoot()
-	result := ps.executor.ExecuteWithState(commandString, state, nil, filename, 0, 0)
+// Cleanup releases all resources held by the interpreter.
+// Call this when the host application is done with the interpreter.
+// After calling Cleanup, the interpreter should not be used.
+func (ps *PawScript) Cleanup() {
+	if ps.rootState != nil {
+		// Dump any remaining bubbles to stderr before releasing
+		ps.dumpRemainingBubbles(ps.rootState)
 
-	// If the result is an async token, we need to wait for the script to complete
-	// before we can merge exports (MODULE/EXPORT may run after async operations)
-	if tokenResult, ok := result.(TokenResult); ok {
-		tokenID := string(tokenResult)
-		ps.logger.DebugCat(CatAsync, "ExecuteFile('%s'): Script returned async token %s, waiting for completion", filename, tokenID)
-
-		// Create a channel to wait for completion
-		waitChan := make(chan ResumeData, 1)
-		ps.executor.attachWaitChan(tokenID, waitChan)
-
-		// Wait for the script to complete
-		resumeData := <-waitChan
-		ps.logger.DebugCat(CatAsync, "ExecuteFile('%s'): Script completed with status %v", filename, resumeData.Status)
-
-		// Update result based on completion
-		if resumeData.Status {
-			result = BoolStatus(true)
-		} else {
-			result = BoolStatus(false)
-		}
+		ps.rootState.ReleaseAllReferences()
+		ps.rootState = nil
 	}
-
-	// Debug: log what's in ModuleExports before merge
-	state.moduleEnv.mu.RLock()
-	numExports := len(state.moduleEnv.ModuleExports)
-	ps.logger.DebugCat(CatSystem, "ExecuteFile('%s'): ModuleExports has %d modules", filename, numExports)
-	for modName, section := range state.moduleEnv.ModuleExports {
-		ps.logger.DebugCat(CatSystem, "ExecuteFile('%s'): ModuleExports['%s'] has %d items", filename, modName, len(section))
-	}
-	state.moduleEnv.mu.RUnlock()
-
-	// Merge any module exports into the root environment for persistence
-	state.moduleEnv.MergeExportsInto(ps.rootModuleEnv)
-
-	// Dump any remaining bubbles to stderr before returning control to host
-	ps.dumpRemainingBubbles(state)
-
-	return result
+	ps.lastResult = nil
 }
 
-// Execute executes a command string
-func (ps *PawScript) Execute(commandString string, args ...interface{}) Result {
-	state := ps.NewExecutionStateFromRoot()
-	defer state.ReleaseAllReferences()
-	result := ps.executor.ExecuteWithState(commandString, state, nil, "", 0, 0)
-
-	// Merge any module exports into the root environment for persistence
-	state.moduleEnv.MergeExportsInto(ps.rootModuleEnv)
-
-	// Dump any remaining bubbles to stderr before returning control to host
-	ps.dumpRemainingBubbles(state)
-
-	return result
+// GetRootState returns the persistent root execution state.
+// This allows host applications to inspect or manipulate the execution environment.
+func (ps *PawScript) GetRootState() *ExecutionState {
+	return ps.rootState
 }
 
 // HasLibraryModule checks if a module exists in the library.
@@ -325,11 +444,13 @@ func (ps *PawScript) ImportModuleToRoot(moduleName string) bool {
 		case "macro":
 			if macro, ok := item.Value.(*StoredMacro); ok && macro != nil {
 				ps.rootModuleEnv.MacrosModule[itemName] = macro
+				ps.rootModuleEnv.RegistryGeneration++ // Invalidate handler caches
 				ps.logger.DebugCat(CatSystem, "ImportModuleToRoot: Imported macro %s from %s", itemName, moduleName)
 			}
 		case "command":
 			if handler, ok := item.Value.(Handler); ok && handler != nil {
 				ps.rootModuleEnv.CommandRegistryModule[itemName] = handler
+				ps.rootModuleEnv.RegistryGeneration++ // Invalidate handler caches
 				ps.logger.DebugCat(CatSystem, "ImportModuleToRoot: Imported command %s from %s", itemName, moduleName)
 			}
 		case "object":
@@ -363,11 +484,22 @@ func (ps *PawScript) CreateRestrictedSnapshot() *ModuleEnvironment {
 func (ps *PawScript) ExecuteWithEnvironment(commandString string, env *ModuleEnvironment, filename string, lineOffset, columnOffset int) Result {
 	state := NewExecutionState()
 	state.moduleEnv = env
-	defer state.ReleaseAllReferences()
 	result := ps.executor.ExecuteWithState(commandString, state, nil, filename, lineOffset, columnOffset)
 
-	// Dump any remaining bubbles to stderr before returning control to host
-	ps.dumpRemainingBubbles(state)
+	// Only release state if not returning a token (async operation)
+	// The token system will release the state when the async operation completes
+	if _, isToken := result.(TokenResult); !isToken {
+		// Transfer any bubbles to orphanedBubbles before releasing state
+		// so host can still access them via GetOrphanedBubbles()
+		state.mu.Lock()
+		if len(state.bubbleMap) > 0 {
+			ps.executor.AddOrphanedBubbles(state.bubbleMap)
+			state.bubbleMap = nil
+		}
+		state.mu.Unlock()
+
+		state.ReleaseAllReferences()
+	}
 
 	return result
 }
@@ -410,20 +542,20 @@ func (ps *PawScript) DefineMacro(name, commandSequence string) bool {
 	macro := NewStoredMacro(commandSequence, nil)
 	ps.rootModuleEnv.mu.Lock()
 	ps.rootModuleEnv.MacrosModule[name] = &macro
+	ps.rootModuleEnv.RegistryGeneration++ // Invalidate handler caches
 	ps.rootModuleEnv.mu.Unlock()
 
 	ps.logger.DebugCat(CatMacro, "Defined macro \"%s\" in root environment", name)
 	return true
 }
 
-// ExecuteMacro executes a macro by name from the root module environment
+// ExecuteMacro executes a macro by name from the root module environment.
+// Uses the persistent root state so variables and objects persist.
 func (ps *PawScript) ExecuteMacro(name string) Result {
 	if !ps.config.AllowMacros {
 		ps.logger.WarnCat(CatMacro, "Macros are disabled in configuration")
 		return BoolStatus(false)
 	}
-
-	state := ps.NewExecutionStateFromRoot()
 
 	// Look up macro in root module environment (COW - only check MacrosModule)
 	var macro *StoredMacro
@@ -438,6 +570,7 @@ func (ps *PawScript) ExecuteMacro(name string) Result {
 		return BoolStatus(false)
 	}
 
+	// Use the persistent root state
 	return ps.executor.ExecuteStoredMacro(macro, func(commands string, macroState *ExecutionState, ctx *SubstitutionContext) Result {
 		// Use filename from substitution context for proper error reporting
 		filename := ""
@@ -445,7 +578,7 @@ func (ps *PawScript) ExecuteMacro(name string) Result {
 			filename = ctx.Filename
 		}
 		return ps.executor.ExecuteWithState(commands, macroState, ctx, filename, 0, 0)
-	}, []interface{}{}, nil, state, nil, nil) // No parent for top-level call
+	}, []interface{}{}, nil, ps.rootState, nil, nil) // No parent for top-level call
 }
 
 // ListMacros returns a list of all macro names from the root module environment
@@ -542,4 +675,76 @@ func (ps *PawScript) SetContextLines(lines int) {
 		lines = 10
 	}
 	ps.config.ContextLines = lines
+}
+
+// HasActiveKeyInputManager returns true if a KeyInputManager is currently active
+// This is used by REPLs to check if they should read from the manager's channel
+// instead of directly from stdin
+func (ps *PawScript) HasActiveKeyInputManager() bool {
+	if ps.executor == nil {
+		return false
+	}
+	ps.executor.mu.RLock()
+	defer ps.executor.mu.RUnlock()
+	return ps.executor.keyInputManager != nil
+}
+
+// IsKeyInputManagerOnStdin returns true if the active KeyInputManager is
+// reading from stdin (the terminal). This helps REPLs know when to delegate
+// input handling to the manager.
+func (ps *PawScript) IsKeyInputManagerOnStdin() bool {
+	if ps.executor == nil {
+		return false
+	}
+	ps.executor.mu.RLock()
+	manager := ps.executor.keyInputManager
+	ps.executor.mu.RUnlock()
+
+	if manager == nil {
+		return false
+	}
+	return manager.IsManagingStdin()
+}
+
+// GetKeyInputKeysChannel returns the keys channel from the active KeyInputManager,
+// or nil if no manager is active. This allows REPLs to read parsed key events
+// (like "Up", "Enter", "a", "M-x") instead of raw bytes from stdin.
+func (ps *PawScript) GetKeyInputKeysChannel() *StoredChannel {
+	if ps.executor == nil {
+		return nil
+	}
+	ps.executor.mu.RLock()
+	manager := ps.executor.keyInputManager
+	ps.executor.mu.RUnlock()
+
+	if manager == nil {
+		return nil
+	}
+	return manager.GetKeysChannel()
+}
+
+// StopKeyInputManager stops the active KeyInputManager and restores stdin
+// to line mode if it was in raw mode. This should be called when the REPL
+// wants to take back control of stdin.
+func (ps *PawScript) StopKeyInputManager() error {
+	if ps.executor == nil {
+		return nil
+	}
+	ps.executor.mu.Lock()
+	manager := ps.executor.keyInputManager
+	inputCh := ps.executor.keyInputChannel
+	ps.executor.keyInputManager = nil
+	ps.executor.keyInputChannel = nil
+	ps.executor.mu.Unlock()
+
+	if manager == nil {
+		return nil
+	}
+
+	// Restore input channel to line mode
+	if inputCh != nil && inputCh.NativeSend != nil {
+		_ = inputCh.NativeSend("line")
+	}
+
+	return manager.Stop()
 }

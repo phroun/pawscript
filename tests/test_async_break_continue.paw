@@ -1,0 +1,133 @@
+#!/usr/bin/env paw
+# Test break/continue behavior in async loop resumption contexts
+# Tests the fix for break/continue not propagating correctly after yield/resume
+
+echo "=== Test 1: Break in while loop after async operation ==="
+# Generator that yields values
+macro gen_values, (
+    yield 1
+    yield 2
+    yield 3
+    yield 4
+    yield 5
+)
+g1: {generator gen_values}
+count: 0
+while (v: {resume ~g1}), (
+    count: {add ~count, 1}
+    echo "Got value: ~v"
+    if {gte ~v, 3} then (
+        echo "Breaking at v=~v"
+        break
+    )
+)
+echo "After while, count=~count"
+
+echo ""
+echo "=== Test 2: Continue in while loop after async operation ==="
+macro gen_values2, (
+    yield 1
+    yield 2
+    yield 3
+    yield 4
+    yield 5
+)
+g2: {generator gen_values2}
+while (v: {resume ~g2}), (
+    if {eq ~v, 2} then (
+        echo "Skipping v=~v"
+        continue
+    )
+    if {eq ~v, 4} then (
+        echo "Skipping v=~v"
+        continue
+    )
+    echo "Processing v=~v"
+)
+
+echo ""
+echo "=== Test 3: Break from paren group in while after async ==="
+macro gen_values3, (
+    yield 1
+    yield 2
+    yield 3
+)
+g3: {generator gen_values3}
+while (v: {resume ~g3}), (
+    echo "Got ~v"
+    # Break from inside paren group (not if)
+    (
+        {eq ~v, 2} & break
+    )
+)
+echo "Should have stopped at v=2"
+
+echo ""
+echo "=== Test 4: Continue from paren group in while after async ==="
+macro gen_values4, (
+    yield 1
+    yield 2
+    yield 3
+    yield 4
+)
+g4: {generator gen_values4}
+while (v: {resume ~g4}), (
+    # Continue from inside paren group
+    (
+        {eq ~v, 2} & continue
+        {eq ~v, 3} & continue
+    )
+    echo "Processing ~v"
+)
+echo "Should have skipped 2 and 3"
+
+echo ""
+echo "=== Test 5: Break in for loop with nested if ==="
+for 1, 10, n, (
+    echo "Iteration n=~n"
+    if {eq ~n, 3} then (
+        echo "Breaking at n=~n"
+        break
+    )
+    echo "Completed n=~n"
+)
+echo "After for loop"
+
+echo ""
+echo "=== Test 6: Continue in for loop with nested if ==="
+for 1, 6, n, (
+    if {eq ~n, 2} then (
+        echo "Skipping n=~n"
+        continue
+    )
+    if {eq ~n, 4} then (
+        echo "Skipping n=~n"
+        continue
+    )
+    echo "Completed n=~n"
+)
+
+echo ""
+echo "=== Test 7: Break with level from nested async loops ==="
+macro gen_outer, (
+    yield 1
+    yield 2
+    yield 3
+)
+g_outer: {generator gen_outer}
+while (outer: {resume ~g_outer}), (
+    echo "Outer: ~outer"
+    for 1, 3, inner, (
+        echo "  Inner: ~inner"
+        if {eq ~inner, 2} then (
+            if {eq ~outer, 2} then (
+                echo "  Breaking both loops!"
+                break 2
+            )
+        )
+    )
+)
+echo "After nested loops"
+
+echo ""
+echo "=== All async break/continue tests complete ==="

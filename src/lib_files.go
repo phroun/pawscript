@@ -33,10 +33,11 @@ func pathEquals(path1, path2 string) bool {
 // Module: files
 func (ps *PawScript) RegisterFilesLib() {
 	// Helper to set a StoredList as result
+	// Note: RegisterObject now handles nested ref claiming for lists
 	setListResult := func(ctx *Context, list StoredList) {
-		id := ctx.executor.storeObject(list, "list")
-		marker := fmt.Sprintf("\x00LIST:%d\x00", id)
-		ctx.state.SetResultWithoutClaim(Symbol(marker))
+		// RegisterObject claims refs for all nested items automatically
+		ref := ctx.executor.RegisterObject(list, ObjList)
+		ctx.state.SetResultWithoutClaim(ref)
 	}
 
 	// Helper to validate path access against configured roots
@@ -123,7 +124,9 @@ func (ps *PawScript) RegisterFilesLib() {
 
 	// Helper to resolve a file from an argument
 	resolveFile := func(ctx *Context, arg interface{}) *StoredFile {
-		switch v := arg.(type) {
+		// First, resolve ObjectRef to get the actual stored object
+		resolved := ctx.executor.resolveValue(arg)
+		switch v := resolved.(type) {
 		case *StoredFile:
 			return v
 		case Symbol:
@@ -371,6 +374,31 @@ func (ps *PawScript) RegisterFilesLib() {
 		return BoolStatus(true)
 	})
 
+	// file_close - Explicitly close a file handle
+	// Usage: file_close <file>
+	// Closes the file immediately, even if other threads hold references.
+	// After closing, the handle becomes invalid and further operations will fail.
+	ps.RegisterCommandInModule("files", "file_close", func(ctx *Context) Result {
+		if len(ctx.Args) < 1 {
+			ctx.LogError(CatCommand, "file_close: file required")
+			return BoolStatus(false)
+		}
+
+		file := resolveFile(ctx, ctx.Args[0])
+		if file == nil {
+			ctx.LogError(CatCommand, "file_close: not a file handle")
+			return BoolStatus(false)
+		}
+
+		err := file.Close()
+		if err != nil {
+			ctx.LogError(CatCommand, fmt.Sprintf("file_close: %v", err))
+			return BoolStatus(false)
+		}
+
+		return BoolStatus(true)
+	})
+
 	// ==================== Path/Directory Operations (no handle needed) ====================
 
 	// file_exists - Check if a path exists
@@ -459,7 +487,7 @@ func (ps *PawScript) RegisterFilesLib() {
 			items = append(items, entry.Name())
 		}
 
-		setListResult(ctx, NewStoredList(items))
+		setListResult(ctx, NewStoredListWithoutRefs(items))
 		return BoolStatus(true)
 	})
 

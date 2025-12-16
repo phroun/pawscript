@@ -2,333 +2,381 @@
 
 Test 1: Single list reference
 === Memory Statistics ===
-Total stored objects: 5
-Total estimated size: 203 bytes
+Total stored objects: 7
+Total estimated size: 259 bytes
 
 ID    Type      RefCount  Size(bytes)
 ----  --------  --------  -----------
-1     channel   0         32
-2     channel   0         32
+1     list      1000000   24
+2     token     0         32
 3     channel   0         32
 4     channel   0         32
-5     list      2         75
+5     channel   0         32
+6     channel   0         32
+7     list      2         75
 Expected: 1 list with refcount=2 (list1 + result from assignment)
 
 Test 2: Multiple variables referencing same list
 === Memory Statistics ===
-Total stored objects: 5
-Total estimated size: 203 bytes
+Total stored objects: 7
+Total estimated size: 259 bytes
 
 ID    Type      RefCount  Size(bytes)
 ----  --------  --------  -----------
-1     channel   0         32
-2     channel   0         32
+1     list      1000000   24
+2     token     0         32
 3     channel   0         32
 4     channel   0         32
-5     list      3         75
+5     channel   0         32
+6     channel   0         32
+7     list      3         75
 Expected: 1 list with refcount=3 (list1 + list2 + result)
 
 Test 3: Clear one reference with nil (also clears result)
 === Memory Statistics ===
-Total stored objects: 5
-Total estimated size: 203 bytes
+Total stored objects: 7
+Total estimated size: 259 bytes
 
 ID    Type      RefCount  Size(bytes)
 ----  --------  --------  -----------
-1     channel   0         32
-2     channel   0         32
+1     list      1000000   24
+2     token     0         32
 3     channel   0         32
 4     channel   0         32
-5     list      1         75
+5     channel   0         32
+6     channel   0         32
+7     list      1         75
 Expected: 1 list with refcount=1 (only list2; nil assignment cleared result)
 
 Test 4: Clear last reference
 === Memory Statistics ===
-Total stored objects: 4
-Total estimated size: 128 bytes
+Total stored objects: 6
+Total estimated size: 184 bytes
 
 ID    Type      RefCount  Size(bytes)
 ----  --------  --------  -----------
-1     channel   0         32
-2     channel   0         32
+1     list      1000000   24
+2     token     0         32
 3     channel   0         32
 4     channel   0         32
+5     channel   0         32
+6     channel   0         32
 Expected: 0 lists (freed when last reference cleared)
 
 Test 5: Large string with multiple references
 === Memory Statistics ===
-Total stored objects: 6
-Total estimated size: 720 bytes
+Total stored objects: 8
+Total estimated size: 776 bytes
 
 ID    Type      RefCount  Size(bytes)
 ----  --------  --------  -----------
-1     channel   0         32
-2     channel   0         32
+1     list      1000000   24
+2     token     0         32
 3     channel   0         32
 4     channel   0         32
-6     string    1         296
-7     string    1         296
+5     channel   0         32
+6     channel   0         32
+8     string    1         296
+9     string    1         296
 Expected: 1 string with refcount=2 (str1 + result)
 
 Test 6: Copy string reference to another variable
 === Memory Statistics ===
-Total stored objects: 5
-Total estimated size: 424 bytes
+Total stored objects: 7
+Total estimated size: 480 bytes
 
 ID    Type      RefCount  Size(bytes)
 ----  --------  --------  -----------
-1     channel   0         32
-2     channel   0         32
+1     list      1000000   24
+2     token     0         32
 3     channel   0         32
 4     channel   0         32
-6     string    3         296
+5     channel   0         32
+6     channel   0         32
+8     string    3         296
 Expected: 1 string with refcount=3 (str1 + str2 + result)
 
 Test 7: Copy to third variable
 === Memory Statistics ===
-Total stored objects: 5
-Total estimated size: 424 bytes
+Total stored objects: 7
+Total estimated size: 480 bytes
 
 ID    Type      RefCount  Size(bytes)
 ----  --------  --------  -----------
-1     channel   0         32
-2     channel   0         32
+1     list      1000000   24
+2     token     0         32
 3     channel   0         32
 4     channel   0         32
-6     string    4         296
+5     channel   0         32
+6     channel   0         32
+8     string    4         296
 Expected: 1 string with refcount=4 (str1 + str2 + str3 + result)
 
 Test 8: Clear middle reference
 === Memory Statistics ===
-Total stored objects: 5
-Total estimated size: 424 bytes
+Total stored objects: 7
+Total estimated size: 480 bytes
 
 ID    Type      RefCount  Size(bytes)
 ----  --------  --------  -----------
-1     channel   0         32
-2     channel   0         32
+1     list      1000000   24
+2     token     0         32
 3     channel   0         32
 4     channel   0         32
-6     string    2         296
+5     channel   0         32
+6     channel   0         32
+8     string    2         296
 Expected: 1 string with refcount=2 (str1 + str3; result now holds nil)
 
 Test 9: Clear remaining references
 === Memory Statistics ===
-Total stored objects: 4
-Total estimated size: 128 bytes
+Total stored objects: 6
+Total estimated size: 184 bytes
 
 ID    Type      RefCount  Size(bytes)
 ----  --------  --------  -----------
-1     channel   0         32
-2     channel   0         32
+1     list      1000000   24
+2     token     0         32
 3     channel   0         32
 4     channel   0         32
+5     channel   0         32
+6     channel   0         32
 Expected: 0 objects (string freed)
 
 Test 10: Large block with multiple references
 === Memory Statistics ===
-Total stored objects: 6
-Total estimated size: 1272 bytes
+Total stored objects: 8
+Total estimated size: 1328 bytes
 
 ID    Type      RefCount  Size(bytes)
 ----  --------  --------  -----------
-1     channel   0         32
-2     channel   0         32
+1     list      1000000   24
+2     token     0         32
 3     channel   0         32
 4     channel   0         32
-8     block     1         572
-9     block     1         572
+5     channel   0         32
+6     channel   0         32
+10    block     1         572
+11    block     1         572
 Expected: 1 block with refcount=2 (block1 + result)
 
 Test 11: Share block across variables
 === Memory Statistics ===
-Total stored objects: 5
-Total estimated size: 700 bytes
+Total stored objects: 7
+Total estimated size: 756 bytes
 
 ID    Type      RefCount  Size(bytes)
 ----  --------  --------  -----------
-1     channel   0         32
-2     channel   0         32
+1     list      1000000   24
+2     token     0         32
 3     channel   0         32
 4     channel   0         32
-8     block     4         572
+5     channel   0         32
+6     channel   0         32
+10    block     4         572
 Expected: 1 block with refcount=4 (block1 + block2 + block3 + result)
 
 Test 12: Clear all block references
 === Memory Statistics ===
-Total stored objects: 4
-Total estimated size: 128 bytes
+Total stored objects: 6
+Total estimated size: 184 bytes
 
 ID    Type      RefCount  Size(bytes)
 ----  --------  --------  -----------
-1     channel   0         32
-2     channel   0         32
+1     list      1000000   24
+2     token     0         32
 3     channel   0         32
 4     channel   0         32
+5     channel   0         32
+6     channel   0         32
 Expected: 0 objects (block freed)
 
 Test 13: Nested list with shared inner list
 === Memory Statistics ===
-Total stored objects: 7
-Total estimated size: 349 bytes
+Total stored objects: 9
+Total estimated size: 405 bytes
 
 ID    Type      RefCount  Size(bytes)
 ----  --------  --------  -----------
-1     channel   0         32
-2     channel   0         32
+1     list      1000000   24
+2     token     0         32
 3     channel   0         32
 4     channel   0         32
-10    list      3         75
-11    list      1         73
-12    list      2         73
+5     channel   0         32
+6     channel   0         32
+12    list      3         75
+13    list      1         73
+14    list      2         73
 Expected: 3 lists - inner (refcount=3), outer1 (refcount=1), outer2 (refcount=2 with result)
 
 Test 14: Clear outer lists but keep inner
 === Memory Statistics ===
-Total stored objects: 5
-Total estimated size: 203 bytes
+Total stored objects: 7
+Total estimated size: 259 bytes
 
 ID    Type      RefCount  Size(bytes)
 ----  --------  --------  -----------
-1     channel   0         32
-2     channel   0         32
+1     list      1000000   24
+2     token     0         32
 3     channel   0         32
 4     channel   0         32
-10    list      1         75
+5     channel   0         32
+6     channel   0         32
+12    list      1         75
 Expected: 1 list (inner) with refcount=1
 
 Test 15: Clear inner list
 === Memory Statistics ===
-Total stored objects: 4
-Total estimated size: 128 bytes
+Total stored objects: 6
+Total estimated size: 184 bytes
 
 ID    Type      RefCount  Size(bytes)
 ----  --------  --------  -----------
-1     channel   0         32
-2     channel   0         32
+1     list      1000000   24
+2     token     0         32
 3     channel   0         32
 4     channel   0         32
+5     channel   0         32
+6     channel   0         32
 Expected: 0 lists
 
 Test 16: List in result with refcount
 === Memory Statistics ===
-Total stored objects: 5
-Total estimated size: 172 bytes
+Total stored objects: 7
+Total estimated size: 228 bytes
 
 ID    Type      RefCount  Size(bytes)
 ----  --------  --------  -----------
-1     channel   0         32
-2     channel   0         32
+1     list      1000000   24
+2     token     0         32
 3     channel   0         32
 4     channel   0         32
-13    list      2         44
+5     channel   0         32
+6     channel   0         32
+15    list      2         44
 Expected: 1 list with refcount=2 (mylist variable + result)
 
 Test 17: Clear variable with nil (clears both variable and result)
 === Memory Statistics ===
-Total stored objects: 4
-Total estimated size: 128 bytes
+Total stored objects: 6
+Total estimated size: 184 bytes
 
 ID    Type      RefCount  Size(bytes)
 ----  --------  --------  -----------
-1     channel   0         32
-2     channel   0         32
+1     list      1000000   24
+2     token     0         32
 3     channel   0         32
 4     channel   0         32
+5     channel   0         32
+6     channel   0         32
 Expected: 0 lists (nil assignment also sets result to nil)
 
 Test 18: Demonstrate undefined preserves result
 === Memory Statistics ===
-Total stored objects: 5
-Total estimated size: 177 bytes
+Total stored objects: 7
+Total estimated size: 233 bytes
 
 ID    Type      RefCount  Size(bytes)
 ----  --------  --------  -----------
-1     channel   0         32
-2     channel   0         32
+1     list      1000000   24
+2     token     0         32
 3     channel   0         32
 4     channel   0         32
-14    list      2         49
+5     channel   0         32
+6     channel   0         32
+16    list      2         49
 Expected: 1 list with refcount=2 (mylist2 + result)
 
 Test 19: Delete variable with undefined (preserves result)
 === Memory Statistics ===
-Total stored objects: 5
-Total estimated size: 177 bytes
+Total stored objects: 7
+Total estimated size: 233 bytes
 
 ID    Type      RefCount  Size(bytes)
 ----  --------  --------  -----------
-1     channel   0         32
-2     channel   0         32
+1     list      1000000   24
+2     token     0         32
 3     channel   0         32
 4     channel   0         32
-14    list      1         49
+5     channel   0         32
+6     channel   0         32
+16    list      1         49
 Expected: 1 list with refcount=1 (only result; undefined leaves result intact)
 
 Test 20: Clear result after undefined
 === Memory Statistics ===
-Total stored objects: 4
-Total estimated size: 128 bytes
+Total stored objects: 6
+Total estimated size: 184 bytes
 
 ID    Type      RefCount  Size(bytes)
 ----  --------  --------  -----------
-1     channel   0         32
-2     channel   0         32
+1     list      1000000   24
+2     token     0         32
 3     channel   0         32
 4     channel   0         32
+5     channel   0         32
+6     channel   0         32
 Expected: 0 lists (result cleared, list freed)
 
 Test 21: Compare nil vs undefined - nil clears result
 Before nil assignment:
 === Memory Statistics ===
-Total stored objects: 5
-Total estimated size: 179 bytes
+Total stored objects: 7
+Total estimated size: 235 bytes
 
 ID    Type      RefCount  Size(bytes)
 ----  --------  --------  -----------
-1     channel   0         32
-2     channel   0         32
+1     list      1000000   24
+2     token     0         32
 3     channel   0         32
 4     channel   0         32
-15    list      2         51
+5     channel   0         32
+6     channel   0         32
+17    list      2         51
 After nil assignment (result also cleared):
 === Memory Statistics ===
-Total stored objects: 4
-Total estimated size: 128 bytes
+Total stored objects: 6
+Total estimated size: 184 bytes
 
 ID    Type      RefCount  Size(bytes)
 ----  --------  --------  -----------
-1     channel   0         32
-2     channel   0         32
+1     list      1000000   24
+2     token     0         32
 3     channel   0         32
 4     channel   0         32
+5     channel   0         32
+6     channel   0         32
 Expected: 0 lists
 
 Test 22: Compare nil vs undefined - undefined preserves result
 Before undefined assignment:
 === Memory Statistics ===
-Total stored objects: 5
-Total estimated size: 185 bytes
+Total stored objects: 7
+Total estimated size: 241 bytes
 
 ID    Type      RefCount  Size(bytes)
 ----  --------  --------  -----------
-1     channel   0         32
-2     channel   0         32
+1     list      1000000   24
+2     token     0         32
 3     channel   0         32
 4     channel   0         32
-16    list      2         57
+5     channel   0         32
+6     channel   0         32
+18    list      2         57
 After undefined assignment (result preserved):
 === Memory Statistics ===
-Total stored objects: 5
-Total estimated size: 185 bytes
+Total stored objects: 7
+Total estimated size: 241 bytes
 
 ID    Type      RefCount  Size(bytes)
 ----  --------  --------  -----------
-1     channel   0         32
-2     channel   0         32
+1     list      1000000   24
+2     token     0         32
 3     channel   0         32
 4     channel   0         32
-16    list      1         57
+5     channel   0         32
+6     channel   0         32
+18    list      1         57
 Expected: 1 list with refcount=1 (only result)
 
 === Test Complete ===

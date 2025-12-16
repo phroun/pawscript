@@ -11,34 +11,75 @@ import (
 // RegisterGeneratorLib registers generator and coroutine commands
 // Module: core
 func (ps *PawScript) RegisterGeneratorLib() {
-	// Helper to resolve a token from an argument (marker, Symbol, or string)
-	resolveToken := func(ctx *Context, arg interface{}) (string, bool) {
-		var tokenStr string
+	// Helper to resolve a token from an argument
+	// Accepts: ObjectRef (ObjToken), marker string, plain string ID, or Symbol
+	// Returns the string token ID (for lookup in activeTokens) or empty string if invalid
+	resolveTokenID := func(ctx *Context, arg interface{}) string {
 		switch v := arg.(type) {
+		case ObjectRef:
+			if v.Type != ObjToken {
+				return ""
+			}
+			// Look up TokenData from storedObjects
+			ctx.executor.mu.Lock()
+			obj, exists := ctx.executor.storedObjects[v.ID]
+			ctx.executor.mu.Unlock()
+			if !exists || obj.Deleted {
+				return ""
+			}
+			if tokenData, ok := obj.Value.(*TokenData); ok {
+				return tokenData.StringID
+			}
+			return ""
 		case Symbol:
-			tokenStr = string(v)
+			str := string(v)
+			// Check if it's a marker format (from tilde substitution)
+			if objType, objID := parseObjectMarker(str); objType == "token" && objID >= 0 {
+				// Look up TokenData from storedObjects to get the real string ID
+				ctx.executor.mu.Lock()
+				obj, exists := ctx.executor.storedObjects[objID]
+				ctx.executor.mu.Unlock()
+				if !exists || obj.Deleted {
+					return ""
+				}
+				if tokenData, ok := obj.Value.(*TokenData); ok {
+					return tokenData.StringID
+				}
+				return ""
+			}
+			// Plain string ID (backwards compat)
+			return str
 		case string:
-			tokenStr = v
+			// Check if it's a marker format (from tilde substitution)
+			if objType, objID := parseObjectMarker(v); objType == "token" && objID >= 0 {
+				// Look up TokenData from storedObjects to get the real string ID
+				ctx.executor.mu.Lock()
+				obj, exists := ctx.executor.storedObjects[objID]
+				ctx.executor.mu.Unlock()
+				if !exists || obj.Deleted {
+					return ""
+				}
+				if tokenData, ok := obj.Value.(*TokenData); ok {
+					return tokenData.StringID
+				}
+				return ""
+			}
+			// Plain string ID (backwards compat)
+			return v
 		default:
-			return "", false
-		}
-
-		// Check if it's a token marker (format: \x00TOKEN:tokenID\x00)
-		// Token IDs are strings, not integers, so we can't use parseObjectMarker
-		if strings.HasPrefix(tokenStr, "\x00TOKEN:") && strings.HasSuffix(tokenStr, "\x00") {
-			return tokenStr, true
-		}
-
-		return "", false
-	}
-
-	// Helper to get token ID from a marker
-	getTokenIDFromMarker := func(marker string) string {
-		// Token marker format: \x00TOKEN:tokenID\x00
-		if !strings.HasPrefix(marker, "\x00TOKEN:") || !strings.HasSuffix(marker, "\x00") {
 			return ""
 		}
-		return marker[len("\x00TOKEN:") : len(marker)-1]
+	}
+
+	// Helper to create an ObjectRef for a token given its string ID
+	getTokenRef := func(ctx *Context, tokenID string) ObjectRef {
+		ctx.executor.mu.Lock()
+		objectID, exists := ctx.executor.tokenStringToID[tokenID]
+		ctx.executor.mu.Unlock()
+		if !exists {
+			return ObjectRef{}
+		}
+		return ObjectRef{Type: ObjToken, ID: objectID}
 	}
 
 	// generator - Create a generator from a macro without executing it
@@ -122,9 +163,8 @@ func (ps *PawScript) RegisterGeneratorLib() {
 
 		// Create a LIST from the arguments and store as $@
 		argsList := NewStoredListWithRefs(macroArgs, ctx.NamedArgs, ctx.executor)
-		argsListID := ctx.executor.storeObject(argsList, "list")
-		argsMarker := fmt.Sprintf("\x00LIST:%d\x00", argsListID)
-		genState.SetVariable("$@", Symbol(argsMarker))
+		argsListRef := ctx.executor.RegisterObject(argsList, ObjList)
+		genState.SetVariable("$@", argsListRef)
 
 		// Parse the macro body into commands
 		parser := NewParser(macro.Commands, macro.DefinitionFile)
@@ -191,14 +231,14 @@ func (ps *PawScript) RegisterGeneratorLib() {
 		}
 		ctx.executor.mu.Unlock()
 
-		// Create the token marker and store as object
-		tokenMarker := fmt.Sprintf("\x00TOKEN:%s\x00", tokenID)
+		// Get the ObjectRef for this token
+		tokenRef := getTokenRef(ctx, tokenID)
 
 		// Store #token in the generator's state so yield can find it
-		genState.SetVariable("#token", Symbol(tokenMarker))
+		genState.SetVariable("#token", tokenRef)
 
-		// Return the token marker as the result
-		ctx.SetResult(Symbol(tokenMarker))
+		// Return the token ObjectRef as the result
+		ctx.SetResult(tokenRef)
 		return BoolStatus(true)
 	})
 
@@ -210,16 +250,10 @@ func (ps *PawScript) RegisterGeneratorLib() {
 			return BoolStatus(false)
 		}
 
-		// Resolve the token
-		tokenMarker, ok := resolveToken(ctx, ctx.Args[0])
-		if !ok {
-			ctx.LogError(CatCommand, "resume: invalid token")
-			return BoolStatus(false)
-		}
-
-		tokenID := getTokenIDFromMarker(tokenMarker)
+		// Resolve the token (accepts ObjectRef or string ID)
+		tokenID := resolveTokenID(ctx, ctx.Args[0])
 		if tokenID == "" {
-			ctx.LogError(CatCommand, "resume: could not extract token ID")
+			ctx.LogError(CatCommand, "resume: invalid token")
 			return BoolStatus(false)
 		}
 
@@ -237,6 +271,8 @@ func (ps *PawScript) RegisterGeneratorLib() {
 		substCtx := tokenData.SubstitutionCtx
 		whileCont := tokenData.WhileContinuation
 		forCont := tokenData.ForContinuation
+		repeatCont := tokenData.RepeatContinuation
+		fizzCont := tokenData.FizzContinuation
 		iterState := tokenData.IteratorState
 		ctx.executor.mu.Unlock()
 
@@ -327,9 +363,8 @@ func (ps *PawScript) RegisterGeneratorLib() {
 				value := list.NamedArgs()[key]
 
 				// Create a list with [key, value]
-				pairList := NewStoredList([]interface{}{key, value})
-				pairID := ctx.executor.storeObject(pairList, "list")
-				pairMarker := fmt.Sprintf("\x00LIST:%d\x00", pairID)
+				pairList := NewStoredListWithoutRefs([]interface{}{key, value})
+				pairRef := ctx.executor.RegisterObject(pairList, ObjList)
 
 				// Advance index
 				ctx.executor.mu.Lock()
@@ -338,7 +373,7 @@ func (ps *PawScript) RegisterGeneratorLib() {
 				}
 				ctx.executor.mu.Unlock()
 
-				ctx.SetResult(Symbol(pairMarker))
+				ctx.SetResult(pairRef)
 				return BoolStatus(true)
 
 			case "rng":
@@ -458,6 +493,7 @@ func (ps *PawScript) RegisterGeneratorLib() {
 
 			// Execute remaining body commands from where we left off
 			lastStatus := true
+			hitBreak := false // Track if we need to exit the while loop
 			for cmdIdx, cmd := range whileCont.RemainingBodyCmds {
 				if strings.TrimSpace(cmd.Command) == "" {
 					continue
@@ -494,6 +530,7 @@ func (ps *PawScript) RegisterGeneratorLib() {
 						td.WhileContinuation = &WhileContinuation{
 							ConditionBlock:     whileCont.ConditionBlock,
 							BodyBlock:          whileCont.BodyBlock,
+							CachedBodyCmds:     whileCont.CachedBodyCmds, // Preserve cached body
 							RemainingBodyCmds:  remainingCmds,
 							BodyCmdIndex:       whileCont.BodyCmdIndex + nextIdx,
 							IterationCount:     whileCont.IterationCount,
@@ -536,6 +573,27 @@ func (ps *PawScript) RegisterGeneratorLib() {
 					return BoolStatus(false)
 				}
 
+				// Check for break - exit the while loop
+				if breakResult, ok := result.(BreakResult); ok {
+					if breakResult.Levels <= 1 {
+						// Break this while loop, skip to after the loop
+						hitBreak = true
+						break
+					}
+					// Multi-level break - propagate to outer loops
+					return BreakResult{Levels: breakResult.Levels - 1}
+				}
+
+				// Check for continue - skip to next iteration
+				if continueResult, ok := result.(ContinueResult); ok {
+					if continueResult.Levels <= 1 {
+						// Continue to next iteration of this while loop
+						break
+					}
+					// Multi-level continue - propagate to outer loops
+					return ContinueResult{Levels: continueResult.Levels - 1}
+				}
+
 				// Handle async (TokenResult) - wait synchronously
 				if asyncToken, isToken := result.(TokenResult); isToken {
 					asyncTokenID := string(asyncToken)
@@ -551,21 +609,38 @@ func (ps *PawScript) RegisterGeneratorLib() {
 				}
 			}
 
-			// Finished remaining body commands, now continue the while loop
-			// Re-parse body for fresh iteration
-			parser := NewParser(whileCont.BodyBlock, "")
-			cleanedBody := parser.RemoveComments(whileCont.BodyBlock)
-			normalizedBody := parser.NormalizeKeywords(cleanedBody)
-			bodyCommands, err := parser.ParseCommandSequence(normalizedBody)
-			if err != nil {
-				ctx.LogError(CatCommand, fmt.Sprintf("resume: failed to parse while body: %v", err))
-				return BoolStatus(false)
+			// If break was hit, skip the loop continuation entirely
+			if hitBreak {
+				// Merge bubbles before returning
+				ctx.state.MergeBubbles(state)
+				state.mu.Lock()
+				state.bubbleMap = make(map[string][]*BubbleEntry)
+				state.mu.Unlock()
+				return BoolStatus(true)
 			}
 
-			maxIterations := 10000
+			// Finished remaining body commands, now continue the while loop
+			// Use cached body commands if available, otherwise re-parse
+			var bodyCommands []*ParsedCommand
+			if whileCont.CachedBodyCmds != nil {
+				bodyCommands = whileCont.CachedBodyCmds
+			} else {
+				// Fallback: re-parse body (shouldn't happen with new code)
+				parser := NewParser(whileCont.BodyBlock, "")
+				cleanedBody := parser.RemoveComments(whileCont.BodyBlock)
+				normalizedBody := parser.NormalizeKeywords(cleanedBody)
+				var err error
+				bodyCommands, err = parser.ParseCommandSequence(normalizedBody)
+				if err != nil {
+					ctx.LogError(CatCommand, fmt.Sprintf("resume: failed to parse while body: %v", err))
+					return BoolStatus(false)
+				}
+			}
+
+			maxIterations := ctx.executor.GetMaxIterations()
 			iterations := whileCont.IterationCount + 1 // Start from next iteration
 
-			for iterations < maxIterations {
+			for maxIterations <= 0 || iterations < maxIterations {
 				// Check condition
 				condResult := ctx.executor.ExecuteWithState(
 					whileCont.ConditionBlock,
@@ -598,6 +673,7 @@ func (ps *PawScript) RegisterGeneratorLib() {
 						td.WhileContinuation = &WhileContinuation{
 							ConditionBlock:     whileCont.ConditionBlock,
 							BodyBlock:          whileCont.BodyBlock,
+							CachedBodyCmds:     bodyCommands, // Use bodyCommands as cached (same reference)
 							RemainingBodyCmds:  bodyCommands,
 							BodyCmdIndex:       -1,
 							IterationCount:     iterations,
@@ -636,6 +712,7 @@ func (ps *PawScript) RegisterGeneratorLib() {
 				}
 
 				// Execute body commands
+				bodyBreak := false // Track if we need to break the outer while loop
 				for cmdIdx, cmd := range bodyCommands {
 					if strings.TrimSpace(cmd.Command) == "" {
 						continue
@@ -669,6 +746,7 @@ func (ps *PawScript) RegisterGeneratorLib() {
 						outerCont := &WhileContinuation{
 							ConditionBlock:     whileCont.ConditionBlock,
 							BodyBlock:          whileCont.BodyBlock,
+							CachedBodyCmds:     bodyCommands, // Preserve cached body
 							RemainingBodyCmds:  remainingCmds,
 							BodyCmdIndex:       cmdIdx,
 							IterationCount:     iterations,
@@ -721,6 +799,27 @@ func (ps *PawScript) RegisterGeneratorLib() {
 						return BoolStatus(false)
 					}
 
+					// Check for break - exit the while loop
+					if breakResult, ok := result.(BreakResult); ok {
+						if breakResult.Levels <= 1 {
+							// Break this while loop
+							bodyBreak = true
+							break
+						}
+						// Multi-level break - propagate to outer loops
+						return BreakResult{Levels: breakResult.Levels - 1}
+					}
+
+					// Check for continue - skip to next iteration
+					if continueResult, ok := result.(ContinueResult); ok {
+						if continueResult.Levels <= 1 {
+							// Continue to next iteration of this while loop
+							break
+						}
+						// Multi-level continue - propagate to outer loops
+						return ContinueResult{Levels: continueResult.Levels - 1}
+					}
+
 					// Handle async (TokenResult) - wait synchronously
 					if asyncToken, isToken := result.(TokenResult); isToken {
 						asyncTokenID := string(asyncToken)
@@ -734,6 +833,11 @@ func (ps *PawScript) RegisterGeneratorLib() {
 					if boolRes, ok := result.(BoolStatus); ok {
 						lastStatus = bool(boolRes)
 					}
+				}
+
+				// If break was hit in body, exit the outer while loop
+				if bodyBreak {
+					break
 				}
 
 				iterations++
@@ -763,6 +867,7 @@ func (ps *PawScript) RegisterGeneratorLib() {
 
 			// Execute remaining body commands from where we left off
 			lastStatus := true
+			hitBreak := false // Track if we need to exit the for loop
 			for cmdIdx, cmd := range forCont.RemainingBodyCmds {
 				if strings.TrimSpace(cmd.Command) == "" {
 					continue
@@ -797,6 +902,7 @@ func (ps *PawScript) RegisterGeneratorLib() {
 						}
 						td.ForContinuation = &ForContinuation{
 							BodyBlock:          forCont.BodyBlock,
+							CachedBodyCmds:     forCont.CachedBodyCmds, // Preserve cached body
 							RemainingBodyCmds:  remainingCmds,
 							BodyCmdIndex:       forCont.BodyCmdIndex + nextIdx,
 							IterationNumber:    forCont.IterationNumber,
@@ -842,6 +948,27 @@ func (ps *PawScript) RegisterGeneratorLib() {
 					return BoolStatus(false)
 				}
 
+				// Check for break - exit the for loop
+				if breakResult, ok := result.(BreakResult); ok {
+					if breakResult.Levels <= 1 {
+						// Break this for loop
+						hitBreak = true
+						break
+					}
+					// Multi-level break - propagate to outer loops
+					return BreakResult{Levels: breakResult.Levels - 1}
+				}
+
+				// Check for continue - skip to next iteration
+				if continueResult, ok := result.(ContinueResult); ok {
+					if continueResult.Levels <= 1 {
+						// Continue to next iteration of this for loop
+						break
+					}
+					// Multi-level continue - propagate to outer loops
+					return ContinueResult{Levels: continueResult.Levels - 1}
+				}
+
 				// Handle async
 				if asyncToken, isToken := result.(TokenResult); isToken {
 					asyncTokenID := string(asyncToken)
@@ -857,17 +984,34 @@ func (ps *PawScript) RegisterGeneratorLib() {
 				}
 			}
 
+			// If break was hit, skip the loop continuation entirely
+			if hitBreak {
+				// Merge bubbles before returning
+				ctx.state.MergeBubbles(forCont.State)
+				forCont.State.mu.Lock()
+				forCont.State.bubbleMap = make(map[string][]*BubbleEntry)
+				forCont.State.mu.Unlock()
+				return BoolStatus(true)
+			}
+
 			// Finished remaining body commands - continue to next iteration
 			// Handle numeric range continuation
 			if forCont.IteratorType == "numrange" {
-				// Re-parse body for next iteration
-				parser := NewParser(forCont.BodyBlock, "")
-				cleanedBody := parser.RemoveComments(forCont.BodyBlock)
-				normalizedBody := parser.NormalizeKeywords(cleanedBody)
-				bodyCommands, err := parser.ParseCommandSequence(normalizedBody)
-				if err != nil {
-					ctx.LogError(CatCommand, fmt.Sprintf("resume: failed to parse for body: %v", err))
-					return BoolStatus(false)
+				// Use cached body commands if available, otherwise re-parse
+				var bodyCommands []*ParsedCommand
+				if forCont.CachedBodyCmds != nil {
+					bodyCommands = forCont.CachedBodyCmds
+				} else {
+					// Fallback: re-parse body (shouldn't happen with new code)
+					parser := NewParser(forCont.BodyBlock, "")
+					cleanedBody := parser.RemoveComments(forCont.BodyBlock)
+					normalizedBody := parser.NormalizeKeywords(cleanedBody)
+					var err error
+					bodyCommands, err = parser.ParseCommandSequence(normalizedBody)
+					if err != nil {
+						ctx.LogError(CatCommand, fmt.Sprintf("resume: failed to parse for body: %v", err))
+						return BoolStatus(false)
+					}
 				}
 
 				startNum := forCont.RangeStart
@@ -876,11 +1020,11 @@ func (ps *PawScript) RegisterGeneratorLib() {
 				current := forCont.RangeCurrent + step
 				ascending := endNum >= startNum
 
-				maxIterations := 100000
+				maxIterations := ctx.executor.GetMaxIterations()
 				iterations := 0
 				iterNum := forCont.IterationNumber + 1
 
-				for iterations < maxIterations {
+				for maxIterations <= 0 || iterations < maxIterations {
 					// Check termination
 					if ascending && step > 0 {
 						if current > endNum {
@@ -907,6 +1051,7 @@ func (ps *PawScript) RegisterGeneratorLib() {
 					}
 
 					// Execute body
+					bodyBreak := false // Track if we need to break the outer for loop
 					for cmdIdx, cmd := range bodyCommands {
 						if strings.TrimSpace(cmd.Command) == "" {
 							continue
@@ -936,6 +1081,7 @@ func (ps *PawScript) RegisterGeneratorLib() {
 								}
 								td.ForContinuation = &ForContinuation{
 									BodyBlock:          forCont.BodyBlock,
+									CachedBodyCmds:     bodyCommands, // Use bodyCommands as cached
 									RemainingBodyCmds:  remainingCmds,
 									BodyCmdIndex:       cmdIdx,
 									IterationNumber:    iterNum,
@@ -979,6 +1125,27 @@ func (ps *PawScript) RegisterGeneratorLib() {
 							return BoolStatus(false)
 						}
 
+						// Check for break - exit the for loop
+						if breakResult, ok := result.(BreakResult); ok {
+							if breakResult.Levels <= 1 {
+								// Break this for loop
+								bodyBreak = true
+								break
+							}
+							// Multi-level break - propagate to outer loops
+							return BreakResult{Levels: breakResult.Levels - 1}
+						}
+
+						// Check for continue - skip to next iteration
+						if continueResult, ok := result.(ContinueResult); ok {
+							if continueResult.Levels <= 1 {
+								// Continue to next iteration of this for loop
+								break
+							}
+							// Multi-level continue - propagate to outer loops
+							return ContinueResult{Levels: continueResult.Levels - 1}
+						}
+
 						// Handle async
 						if asyncToken, isToken := result.(TokenResult); isToken {
 							asyncTokenID := string(asyncToken)
@@ -994,26 +1161,38 @@ func (ps *PawScript) RegisterGeneratorLib() {
 						}
 					}
 
+					// If break was hit in body, exit the outer for loop
+					if bodyBreak {
+						break
+					}
+
 					current += step
 					iterNum++
 					iterations++
 				}
 			} else if forCont.IteratorToken != "" {
-				// Re-parse body for next iteration
-				parser := NewParser(forCont.BodyBlock, "")
-				cleanedBody := parser.RemoveComments(forCont.BodyBlock)
-				normalizedBody := parser.NormalizeKeywords(cleanedBody)
-				bodyCommands, err := parser.ParseCommandSequence(normalizedBody)
-				if err != nil {
-					ctx.LogError(CatCommand, fmt.Sprintf("resume: failed to parse for body: %v", err))
-					return BoolStatus(false)
+				// Use cached body commands if available, otherwise re-parse
+				var bodyCommands []*ParsedCommand
+				if forCont.CachedBodyCmds != nil {
+					bodyCommands = forCont.CachedBodyCmds
+				} else {
+					// Fallback: re-parse body (shouldn't happen with new code)
+					parser := NewParser(forCont.BodyBlock, "")
+					cleanedBody := parser.RemoveComments(forCont.BodyBlock)
+					normalizedBody := parser.NormalizeKeywords(cleanedBody)
+					var err error
+					bodyCommands, err = parser.ParseCommandSequence(normalizedBody)
+					if err != nil {
+						ctx.LogError(CatCommand, fmt.Sprintf("resume: failed to parse for body: %v", err))
+						return BoolStatus(false)
+					}
 				}
 
-				maxIterations := 100000
+				maxIterations := ctx.executor.GetMaxIterations()
 				iterations := 0
 				iterNum := forCont.IterationNumber + 1
 
-				for iterations < maxIterations {
+				for maxIterations <= 0 || iterations < maxIterations {
 					// Resume the iterator to get next value
 					resumeCode := fmt.Sprintf("resume %s", forCont.IteratorToken)
 					resumeResult := ctx.executor.ExecuteWithState(resumeCode, forCont.State, nil, "", 0, 0)
@@ -1041,6 +1220,7 @@ func (ps *PawScript) RegisterGeneratorLib() {
 					}
 
 					// Execute body
+					bodyBreak := false // Track if we need to break the outer for loop
 					for cmdIdx, cmd := range bodyCommands {
 						if strings.TrimSpace(cmd.Command) == "" {
 							continue
@@ -1070,6 +1250,7 @@ func (ps *PawScript) RegisterGeneratorLib() {
 								}
 								td.ForContinuation = &ForContinuation{
 									BodyBlock:          forCont.BodyBlock,
+									CachedBodyCmds:     bodyCommands, // Use bodyCommands as cached
 									RemainingBodyCmds:  remainingCmds,
 									BodyCmdIndex:       cmdIdx,
 									IterationNumber:    iterNum,
@@ -1114,6 +1295,27 @@ func (ps *PawScript) RegisterGeneratorLib() {
 							return BoolStatus(false)
 						}
 
+						// Check for break - exit the for loop
+						if breakResult, ok := result.(BreakResult); ok {
+							if breakResult.Levels <= 1 {
+								// Break this for loop
+								bodyBreak = true
+								break
+							}
+							// Multi-level break - propagate to outer loops
+							return BreakResult{Levels: breakResult.Levels - 1}
+						}
+
+						// Check for continue - skip to next iteration
+						if continueResult, ok := result.(ContinueResult); ok {
+							if continueResult.Levels <= 1 {
+								// Continue to next iteration of this for loop
+								break
+							}
+							// Multi-level continue - propagate to outer loops
+							return ContinueResult{Levels: continueResult.Levels - 1}
+						}
+
 						// Handle async
 						if asyncToken, isToken := result.(TokenResult); isToken {
 							asyncTokenID := string(asyncToken)
@@ -1127,6 +1329,11 @@ func (ps *PawScript) RegisterGeneratorLib() {
 						if boolRes, ok := result.(BoolStatus); ok {
 							lastStatus = bool(boolRes)
 						}
+					}
+
+					// If break was hit in body, exit the outer for loop
+					if bodyBreak {
+						break
 					}
 
 					iterNum++
@@ -1143,6 +1350,609 @@ func (ps *PawScript) RegisterGeneratorLib() {
 
 			// No parent - break out
 			break
+		}
+
+		// Handle repeat continuation if present
+		for repeatCont != nil {
+			ps.logger.DebugCat(CatAsync, "resume: handling repeat continuation, iteration %d/%d, %d remaining body commands",
+				repeatCont.CurrentIteration, repeatCont.TotalIterations, len(repeatCont.RemainingBodyCmds))
+
+			// Clear the continuation from the token (we're handling it now)
+			ctx.executor.mu.Lock()
+			if td, exists := ctx.executor.activeTokens[tokenID]; exists {
+				td.RepeatContinuation = nil
+			}
+			ctx.executor.mu.Unlock()
+
+			results := repeatCont.Results
+			failures := repeatCont.Failures
+
+			// Execute remaining body commands from where we left off
+			lastStatus := true
+			for cmdIdx, cmd := range repeatCont.RemainingBodyCmds {
+				if strings.TrimSpace(cmd.Command) == "" {
+					continue
+				}
+
+				shouldExecute := true
+				switch cmd.Separator {
+				case "&":
+					shouldExecute = lastStatus
+				case "|":
+					shouldExecute = !lastStatus
+				}
+
+				if !shouldExecute {
+					continue
+				}
+
+				result := ctx.executor.executeParsedCommand(cmd, repeatCont.State, nil)
+
+				// Check for yield
+				if yieldResult, ok := result.(YieldResult); ok {
+					ps.logger.DebugCat(CatAsync, "resume: yield in repeat continuation body, value: %v", yieldResult.Value)
+
+					// Update remaining commands and store new continuation
+					ctx.executor.mu.Lock()
+					if td, exists := ctx.executor.activeTokens[tokenID]; exists {
+						nextIdx := cmdIdx + 1
+						var remainingCmds []*ParsedCommand
+						if nextIdx < len(repeatCont.RemainingBodyCmds) {
+							remainingCmds = repeatCont.RemainingBodyCmds[nextIdx:]
+						}
+						td.RepeatContinuation = &RepeatContinuation{
+							BodyBlock:         repeatCont.BodyBlock,
+							CachedBodyCmds:    repeatCont.CachedBodyCmds,
+							RemainingBodyCmds: remainingCmds,
+							BodyCmdIndex:      repeatCont.BodyCmdIndex + nextIdx,
+							CurrentIteration:  repeatCont.CurrentIteration,
+							TotalIterations:   repeatCont.TotalIterations,
+							CounterVar:        repeatCont.CounterVar,
+							Results:           results,
+							Failures:          failures,
+							State:             repeatCont.State,
+							ParentContinuation: repeatCont.ParentContinuation,
+						}
+					}
+					ctx.executor.mu.Unlock()
+
+					ctx.state.MergeBubbles(repeatCont.State)
+					repeatCont.State.mu.Lock()
+					repeatCont.State.bubbleMap = make(map[string][]*BubbleEntry)
+					repeatCont.State.mu.Unlock()
+
+					ctx.SetResult(yieldResult.Value)
+					return BoolStatus(true)
+				}
+
+				// Check for early return
+				if earlyReturn, ok := result.(EarlyReturn); ok {
+					ctx.executor.mu.Lock()
+					delete(ctx.executor.activeTokens, tokenID)
+					ctx.executor.mu.Unlock()
+
+					ctx.state.MergeBubbles(repeatCont.State)
+					repeatCont.State.mu.Lock()
+					repeatCont.State.bubbleMap = make(map[string][]*BubbleEntry)
+					repeatCont.State.mu.Unlock()
+
+					if earlyReturn.HasResult {
+						ctx.SetResult(earlyReturn.Result)
+					}
+					return earlyReturn.Status
+				}
+
+				// Check for break
+				if breakResult, ok := result.(BreakResult); ok {
+					if breakResult.Levels <= 1 {
+						// Return current results
+						var namedArgs map[string]interface{}
+						if len(failures) > 0 {
+							namedArgs = map[string]interface{}{
+								"failures": NewStoredListWithoutRefs(failures),
+							}
+						}
+						resultList := NewStoredListWithNamed(results, namedArgs)
+						listRef := ctx.executor.RegisterObject(resultList, ObjList)
+						ctx.executor.incrementObjectRefCount(listRef.ID)
+						ctx.SetResult(listRef)
+						return BoolStatus(true)
+					}
+					return BreakResult{Levels: breakResult.Levels - 1}
+				}
+
+				// Check for continue
+				if continueResult, ok := result.(ContinueResult); ok {
+					if continueResult.Levels <= 1 {
+						break // Skip to next iteration
+					}
+					return ContinueResult{Levels: continueResult.Levels - 1}
+				}
+
+				// Handle async
+				if asyncToken, isToken := result.(TokenResult); isToken {
+					tokenStr := string(asyncToken)
+					waitChan := make(chan ResumeData, 1)
+					ctx.executor.attachWaitChan(tokenStr, waitChan)
+					resumeData := <-waitChan
+					lastStatus = resumeData.Status
+					continue
+				}
+
+				if boolRes, ok := result.(BoolStatus); ok {
+					lastStatus = bool(boolRes)
+				}
+			}
+
+			// Collect result from this iteration
+			if repeatCont.State.HasResult() {
+				results = append(results, repeatCont.State.GetResult())
+			} else {
+				results = append(results, nil)
+			}
+			if !lastStatus {
+				failures = append(failures, repeatCont.CurrentIteration)
+			}
+
+			// Move to next iteration
+			iteration := repeatCont.CurrentIteration + 1
+			if iteration >= repeatCont.TotalIterations {
+				// All iterations complete - return results
+				var namedArgs map[string]interface{}
+				if len(failures) > 0 {
+					namedArgs = map[string]interface{}{
+						"failures": NewStoredListWithoutRefs(failures),
+					}
+				}
+				resultList := NewStoredListWithNamed(results, namedArgs)
+				listRef := ctx.executor.RegisterObject(resultList, ObjList)
+				ctx.executor.incrementObjectRefCount(listRef.ID)
+				ctx.SetResult(listRef)
+
+				ctx.state.MergeBubbles(repeatCont.State)
+				repeatCont.State.mu.Lock()
+				repeatCont.State.bubbleMap = make(map[string][]*BubbleEntry)
+				repeatCont.State.mu.Unlock()
+
+				break // Exit repeat loop
+			}
+
+			// Use cached body commands if available
+			var bodyCommands []*ParsedCommand
+			if repeatCont.CachedBodyCmds != nil {
+				bodyCommands = repeatCont.CachedBodyCmds
+			} else {
+				parser := NewParser(repeatCont.BodyBlock, "")
+				cleanedBody := parser.RemoveComments(repeatCont.BodyBlock)
+				normalizedBody := parser.NormalizeKeywords(cleanedBody)
+				var err error
+				bodyCommands, err = parser.ParseCommandSequence(normalizedBody)
+				if err != nil {
+					ctx.LogError(CatCommand, fmt.Sprintf("resume: failed to parse repeat body: %v", err))
+					return BoolStatus(false)
+				}
+			}
+
+			// Set counter variable if present
+			if repeatCont.CounterVar != "" {
+				repeatCont.State.SetVariable(repeatCont.CounterVar, iteration)
+			}
+
+			// Execute next iteration
+			lastStatus = true
+			for cmdIdx, cmd := range bodyCommands {
+				if strings.TrimSpace(cmd.Command) == "" {
+					continue
+				}
+
+				shouldExecute := true
+				switch cmd.Separator {
+				case "&":
+					shouldExecute = lastStatus
+				case "|":
+					shouldExecute = !lastStatus
+				}
+
+				if !shouldExecute {
+					continue
+				}
+
+				result := ctx.executor.executeParsedCommand(cmd, repeatCont.State, nil)
+
+				// Check for yield
+				if yieldResult, ok := result.(YieldResult); ok {
+					ctx.executor.mu.Lock()
+					if td, exists := ctx.executor.activeTokens[tokenID]; exists {
+						nextIdx := cmdIdx + 1
+						var remainingCmds []*ParsedCommand
+						if nextIdx < len(bodyCommands) {
+							remainingCmds = bodyCommands[nextIdx:]
+						}
+						td.RepeatContinuation = &RepeatContinuation{
+							BodyBlock:         repeatCont.BodyBlock,
+							CachedBodyCmds:    bodyCommands,
+							RemainingBodyCmds: remainingCmds,
+							BodyCmdIndex:      cmdIdx,
+							CurrentIteration:  iteration,
+							TotalIterations:   repeatCont.TotalIterations,
+							CounterVar:        repeatCont.CounterVar,
+							Results:           results,
+							Failures:          failures,
+							State:             repeatCont.State,
+							ParentContinuation: repeatCont.ParentContinuation,
+						}
+					}
+					ctx.executor.mu.Unlock()
+
+					ctx.state.MergeBubbles(repeatCont.State)
+					repeatCont.State.mu.Lock()
+					repeatCont.State.bubbleMap = make(map[string][]*BubbleEntry)
+					repeatCont.State.mu.Unlock()
+
+					ctx.SetResult(yieldResult.Value)
+					return BoolStatus(true)
+				}
+
+				// Handle other control flow same as above
+				if earlyReturn, ok := result.(EarlyReturn); ok {
+					ctx.executor.mu.Lock()
+					delete(ctx.executor.activeTokens, tokenID)
+					ctx.executor.mu.Unlock()
+
+					if earlyReturn.HasResult {
+						ctx.SetResult(earlyReturn.Result)
+					}
+					return earlyReturn.Status
+				}
+
+				if breakResult, ok := result.(BreakResult); ok {
+					if breakResult.Levels <= 1 {
+						var namedArgs map[string]interface{}
+						if len(failures) > 0 {
+							namedArgs = map[string]interface{}{
+								"failures": NewStoredListWithoutRefs(failures),
+							}
+						}
+						resultList := NewStoredListWithNamed(results, namedArgs)
+						listRef := ctx.executor.RegisterObject(resultList, ObjList)
+						ctx.executor.incrementObjectRefCount(listRef.ID)
+						ctx.SetResult(listRef)
+						repeatCont = nil // Exit outer loop
+						break
+					}
+					return BreakResult{Levels: breakResult.Levels - 1}
+				}
+
+				if continueResult, ok := result.(ContinueResult); ok {
+					if continueResult.Levels <= 1 {
+						break
+					}
+					return ContinueResult{Levels: continueResult.Levels - 1}
+				}
+
+				if asyncToken, isToken := result.(TokenResult); isToken {
+					tokenStr := string(asyncToken)
+					waitChan := make(chan ResumeData, 1)
+					ctx.executor.attachWaitChan(tokenStr, waitChan)
+					resumeData := <-waitChan
+					lastStatus = resumeData.Status
+					continue
+				}
+
+				if boolRes, ok := result.(BoolStatus); ok {
+					lastStatus = bool(boolRes)
+				}
+			}
+
+			if repeatCont == nil {
+				break // Was set to nil by break handling
+			}
+
+			// Collect result and check for next iteration
+			if repeatCont.State.HasResult() {
+				results = append(results, repeatCont.State.GetResult())
+			} else {
+				results = append(results, nil)
+			}
+			if !lastStatus {
+				failures = append(failures, iteration)
+			}
+
+			iteration++
+			if iteration >= repeatCont.TotalIterations {
+				var namedArgs map[string]interface{}
+				if len(failures) > 0 {
+					namedArgs = map[string]interface{}{
+						"failures": NewStoredListWithoutRefs(failures),
+					}
+				}
+				resultList := NewStoredListWithNamed(results, namedArgs)
+				listRef := ctx.executor.RegisterObject(resultList, ObjList)
+				ctx.executor.incrementObjectRefCount(listRef.ID)
+				ctx.SetResult(listRef)
+				break
+			}
+
+			// Update repeatCont for next iteration
+			repeatCont.CurrentIteration = iteration
+			repeatCont.Results = results
+			repeatCont.Failures = failures
+		}
+
+		// Handle fizz continuation if present
+		for fizzCont != nil {
+			ps.logger.DebugCat(CatAsync, "resume: handling fizz continuation, bubble %d/%d, %d remaining body commands",
+				fizzCont.CurrentBubbleIndex, len(fizzCont.Bubbles), len(fizzCont.RemainingBodyCmds))
+
+			// Clear the continuation from the token
+			ctx.executor.mu.Lock()
+			if td, exists := ctx.executor.activeTokens[tokenID]; exists {
+				td.FizzContinuation = nil
+			}
+			ctx.executor.mu.Unlock()
+
+			const currentBubbleVar = "__fizz_current_bubble__"
+
+			// Execute remaining body commands for current bubble
+			lastStatus := true
+			for cmdIdx, cmd := range fizzCont.RemainingBodyCmds {
+				if strings.TrimSpace(cmd.Command) == "" {
+					continue
+				}
+
+				shouldExecute := true
+				switch cmd.Separator {
+				case "&":
+					shouldExecute = lastStatus
+				case "|":
+					shouldExecute = !lastStatus
+				}
+
+				if !shouldExecute {
+					continue
+				}
+
+				result := ctx.executor.executeParsedCommand(cmd, fizzCont.State, nil)
+
+				// Check for yield
+				if yieldResult, ok := result.(YieldResult); ok {
+					ctx.executor.mu.Lock()
+					if td, exists := ctx.executor.activeTokens[tokenID]; exists {
+						nextIdx := cmdIdx + 1
+						var remainingCmds []*ParsedCommand
+						if nextIdx < len(fizzCont.RemainingBodyCmds) {
+							remainingCmds = fizzCont.RemainingBodyCmds[nextIdx:]
+						}
+						td.FizzContinuation = &FizzContinuation{
+							BodyBlock:          fizzCont.BodyBlock,
+							CachedBodyCmds:     fizzCont.CachedBodyCmds,
+							RemainingBodyCmds:  remainingCmds,
+							BodyCmdIndex:       fizzCont.BodyCmdIndex + nextIdx,
+							ContentVarName:     fizzCont.ContentVarName,
+							MetaVarName:        fizzCont.MetaVarName,
+							HasMetaVar:         fizzCont.HasMetaVar,
+							Flavors:            fizzCont.Flavors,
+							CurrentBubbleIndex: fizzCont.CurrentBubbleIndex,
+							Bubbles:            fizzCont.Bubbles,
+							State:              fizzCont.State,
+							ParentContinuation: fizzCont.ParentContinuation,
+						}
+					}
+					ctx.executor.mu.Unlock()
+
+					ctx.state.MergeBubbles(fizzCont.State)
+					fizzCont.State.mu.Lock()
+					fizzCont.State.bubbleMap = make(map[string][]*BubbleEntry)
+					fizzCont.State.mu.Unlock()
+
+					ctx.SetResult(yieldResult.Value)
+					return BoolStatus(true)
+				}
+
+				// Handle early return
+				if earlyReturn, ok := result.(EarlyReturn); ok {
+					fizzCont.State.DeleteVariable(currentBubbleVar)
+					ctx.executor.mu.Lock()
+					delete(ctx.executor.activeTokens, tokenID)
+					ctx.executor.mu.Unlock()
+
+					if earlyReturn.HasResult {
+						ctx.SetResult(earlyReturn.Result)
+					}
+					return earlyReturn.Status
+				}
+
+				// Handle break
+				if breakResult, ok := result.(BreakResult); ok {
+					fizzCont.State.DeleteVariable(currentBubbleVar)
+					if breakResult.Levels <= 1 {
+						return BoolStatus(true)
+					}
+					return BreakResult{Levels: breakResult.Levels - 1}
+				}
+
+				// Handle continue
+				if continueResult, ok := result.(ContinueResult); ok {
+					if continueResult.Levels <= 1 {
+						break // Skip to next bubble
+					}
+					fizzCont.State.DeleteVariable(currentBubbleVar)
+					return ContinueResult{Levels: continueResult.Levels - 1}
+				}
+
+				// Handle async
+				if asyncToken, isToken := result.(TokenResult); isToken {
+					tokenStr := string(asyncToken)
+					waitChan := make(chan ResumeData, 1)
+					ctx.executor.attachWaitChan(tokenStr, waitChan)
+					resumeData := <-waitChan
+					lastStatus = resumeData.Status
+					continue
+				}
+
+				if boolRes, ok := result.(BoolStatus); ok {
+					lastStatus = bool(boolRes)
+				}
+			}
+
+			// Move to next bubble
+			bubbleIdx := fizzCont.CurrentBubbleIndex + 1
+			if bubbleIdx >= len(fizzCont.Bubbles) {
+				// All bubbles processed
+				fizzCont.State.DeleteVariable(currentBubbleVar)
+				ctx.state.MergeBubbles(fizzCont.State)
+				fizzCont.State.mu.Lock()
+				fizzCont.State.bubbleMap = make(map[string][]*BubbleEntry)
+				fizzCont.State.mu.Unlock()
+				break
+			}
+
+			// Use cached body commands
+			var bodyCommands []*ParsedCommand
+			if fizzCont.CachedBodyCmds != nil {
+				bodyCommands = fizzCont.CachedBodyCmds
+			} else {
+				parser := NewParser(fizzCont.BodyBlock, "")
+				cleanedBody := parser.RemoveComments(fizzCont.BodyBlock)
+				normalizedBody := parser.NormalizeKeywords(cleanedBody)
+				var err error
+				bodyCommands, err = parser.ParseCommandSequence(normalizedBody)
+				if err != nil {
+					ctx.LogError(CatCommand, fmt.Sprintf("resume: failed to parse fizz body: %v", err))
+					return BoolStatus(false)
+				}
+			}
+
+			// Set up next bubble
+			bubble := fizzCont.Bubbles[bubbleIdx]
+			fizzCont.State.SetVariable(fizzCont.ContentVarName, bubble.Content)
+
+			if fizzCont.HasMetaVar {
+				metaNamedArgs := map[string]interface{}{
+					"microtime": bubble.Microtime,
+					"memo":      bubble.Memo,
+					"flavors":   NewStoredListWithoutRefs(stringSliceToInterface(bubble.Flavors)),
+				}
+				metaList := NewStoredListWithNamed(nil, metaNamedArgs)
+				metaRef := ctx.executor.RegisterObject(metaList, ObjList)
+				fizzCont.State.SetVariable(fizzCont.MetaVarName, metaRef)
+			}
+
+			fizzCont.State.mu.Lock()
+			if fizzCont.State.variables == nil {
+				fizzCont.State.variables = make(map[string]interface{})
+			}
+			fizzCont.State.variables[currentBubbleVar] = bubble
+			fizzCont.State.mu.Unlock()
+
+			// Execute body for next bubble
+			lastStatus = true
+			for cmdIdx, cmd := range bodyCommands {
+				if strings.TrimSpace(cmd.Command) == "" {
+					continue
+				}
+
+				shouldExecute := true
+				switch cmd.Separator {
+				case "&":
+					shouldExecute = lastStatus
+				case "|":
+					shouldExecute = !lastStatus
+				}
+
+				if !shouldExecute {
+					continue
+				}
+
+				result := ctx.executor.executeParsedCommand(cmd, fizzCont.State, nil)
+
+				if yieldResult, ok := result.(YieldResult); ok {
+					ctx.executor.mu.Lock()
+					if td, exists := ctx.executor.activeTokens[tokenID]; exists {
+						nextIdx := cmdIdx + 1
+						var remainingCmds []*ParsedCommand
+						if nextIdx < len(bodyCommands) {
+							remainingCmds = bodyCommands[nextIdx:]
+						}
+						td.FizzContinuation = &FizzContinuation{
+							BodyBlock:          fizzCont.BodyBlock,
+							CachedBodyCmds:     bodyCommands,
+							RemainingBodyCmds:  remainingCmds,
+							BodyCmdIndex:       cmdIdx,
+							ContentVarName:     fizzCont.ContentVarName,
+							MetaVarName:        fizzCont.MetaVarName,
+							HasMetaVar:         fizzCont.HasMetaVar,
+							Flavors:            fizzCont.Flavors,
+							CurrentBubbleIndex: bubbleIdx,
+							Bubbles:            fizzCont.Bubbles,
+							State:              fizzCont.State,
+							ParentContinuation: fizzCont.ParentContinuation,
+						}
+					}
+					ctx.executor.mu.Unlock()
+
+					ctx.state.MergeBubbles(fizzCont.State)
+					fizzCont.State.mu.Lock()
+					fizzCont.State.bubbleMap = make(map[string][]*BubbleEntry)
+					fizzCont.State.mu.Unlock()
+
+					ctx.SetResult(yieldResult.Value)
+					return BoolStatus(true)
+				}
+
+				if earlyReturn, ok := result.(EarlyReturn); ok {
+					fizzCont.State.DeleteVariable(currentBubbleVar)
+					ctx.executor.mu.Lock()
+					delete(ctx.executor.activeTokens, tokenID)
+					ctx.executor.mu.Unlock()
+					if earlyReturn.HasResult {
+						ctx.SetResult(earlyReturn.Result)
+					}
+					return earlyReturn.Status
+				}
+
+				if breakResult, ok := result.(BreakResult); ok {
+					fizzCont.State.DeleteVariable(currentBubbleVar)
+					if breakResult.Levels <= 1 {
+						fizzCont = nil
+						break
+					}
+					return BreakResult{Levels: breakResult.Levels - 1}
+				}
+
+				if continueResult, ok := result.(ContinueResult); ok {
+					if continueResult.Levels <= 1 {
+						break
+					}
+					fizzCont.State.DeleteVariable(currentBubbleVar)
+					return ContinueResult{Levels: continueResult.Levels - 1}
+				}
+
+				if asyncToken, isToken := result.(TokenResult); isToken {
+					tokenStr := string(asyncToken)
+					waitChan := make(chan ResumeData, 1)
+					ctx.executor.attachWaitChan(tokenStr, waitChan)
+					resumeData := <-waitChan
+					lastStatus = resumeData.Status
+					continue
+				}
+
+				if boolRes, ok := result.(BoolStatus); ok {
+					lastStatus = bool(boolRes)
+				}
+			}
+
+			if fizzCont == nil {
+				break
+			}
+
+			// Update for next iteration
+			bubbleIdx++
+			if bubbleIdx >= len(fizzCont.Bubbles) {
+				fizzCont.State.DeleteVariable(currentBubbleVar)
+				break
+			}
+			fizzCont.CurrentBubbleIndex = bubbleIdx
 		}
 
 		if seq == nil || len(seq.RemainingCommands) == 0 {
@@ -1265,10 +2075,10 @@ func (ps *PawScript) RegisterGeneratorLib() {
 				delete(ctx.executor.activeTokens, tokenID)
 				ctx.executor.mu.Unlock()
 
-				// Return the new token
-				newTokenMarker := fmt.Sprintf("\x00TOKEN:%s\x00", newTokenID)
-				state.SetVariable("#token", Symbol(newTokenMarker))
-				ctx.SetResult(Symbol(newTokenMarker))
+				// Return the new token as ObjectRef
+				newTokenRef := getTokenRef(ctx, newTokenID)
+				state.SetVariable("#token", newTokenRef)
+				ctx.SetResult(newTokenRef)
 				return BoolStatus(true)
 			}
 
@@ -1351,15 +2161,11 @@ func (ps *PawScript) RegisterGeneratorLib() {
 			// yield <value> - use #token from local state
 			value = ctx.Args[0]
 			if tokenVar, exists := ctx.state.GetVariable("#token"); exists {
-				if marker, ok := resolveToken(ctx, tokenVar); ok {
-					tokenID = getTokenIDFromMarker(marker)
-				}
+				tokenID = resolveTokenID(ctx, tokenVar)
 			}
 		case 2:
 			// yield <token>, <value>
-			if marker, ok := resolveToken(ctx, ctx.Args[0]); ok {
-				tokenID = getTokenIDFromMarker(marker)
-			}
+			tokenID = resolveTokenID(ctx, ctx.Args[0])
 			value = ctx.Args[1]
 		default:
 			ctx.LogError(CatCommand, "Usage: yield [token], <value>")
@@ -1395,13 +2201,8 @@ func (ps *PawScript) RegisterGeneratorLib() {
 			return BoolStatus(false)
 		}
 
-		tokenMarker, ok := resolveToken(ctx, ctx.Args[0])
-		if !ok {
-			ctx.SetResult(false)
-			return BoolStatus(false)
-		}
-
-		tokenID := getTokenIDFromMarker(tokenMarker)
+		// Resolve the token (accepts ObjectRef or string ID)
+		tokenID := resolveTokenID(ctx, ctx.Args[0])
 		if tokenID == "" {
 			ctx.SetResult(false)
 			return BoolStatus(false)
@@ -1410,16 +2211,14 @@ func (ps *PawScript) RegisterGeneratorLib() {
 		// Check if token exists
 		ctx.executor.mu.RLock()
 		_, exists := ctx.executor.activeTokens[tokenID]
+		ctx.executor.mu.RUnlock()
 		if !exists {
-			ctx.executor.mu.RUnlock()
 			ctx.SetResult(false)
 			return BoolStatus(false)
 		}
 
 		// token_valid just checks if the token exists - no look-ahead
 		// Use while (v: {resume ~token}) pattern to consume iterators/generators
-		ctx.executor.mu.RUnlock()
-
 		ctx.SetResult(exists)
 		return BoolStatus(exists)
 	})
@@ -1427,10 +2226,19 @@ func (ps *PawScript) RegisterGeneratorLib() {
 	// Helper to resolve a value to a list and get its object ID
 	resolveListWithID := func(ctx *Context, val interface{}) (StoredList, int, bool) {
 		switch v := val.(type) {
+		case ObjectRef:
+			// ObjectRef contains the ID directly
+			if v.Type == ObjList && v.IsValid() {
+				if obj, exists := ctx.executor.getObject(v.ID); exists {
+					if list, ok := obj.(StoredList); ok {
+						return list, v.ID, true
+					}
+				}
+			}
 		case StoredList:
 			// Direct list - need to store it first
-			id := ctx.executor.storeObject(v, "list")
-			return v, id, true
+			ref := ctx.executor.RegisterObject(v, ObjList)
+			return v, ref.ID, true
 		case Symbol:
 			markerType, objectID := parseObjectMarker(string(v))
 			if markerType == "list" && objectID >= 0 {
@@ -1498,9 +2306,9 @@ func (ps *PawScript) RegisterGeneratorLib() {
 		}
 		ctx.executor.mu.Unlock()
 
-		// Return the token marker
-		tokenMarker := fmt.Sprintf("\x00TOKEN:%s\x00", tokenID)
-		ctx.SetResult(Symbol(tokenMarker))
+		// Return the token as ObjectRef
+		tokenRef := getTokenRef(ctx, tokenID)
+		ctx.SetResult(tokenRef)
 		return BoolStatus(true)
 	})
 
@@ -1557,9 +2365,9 @@ func (ps *PawScript) RegisterGeneratorLib() {
 		}
 		ctx.executor.mu.Unlock()
 
-		// Return the token marker
-		tokenMarker := fmt.Sprintf("\x00TOKEN:%s\x00", tokenID)
-		ctx.SetResult(Symbol(tokenMarker))
+		// Return the token as ObjectRef
+		tokenRef := getTokenRef(ctx, tokenID)
+		ctx.SetResult(tokenRef)
 		return BoolStatus(true)
 	})
 
@@ -1630,9 +2438,9 @@ func (ps *PawScript) RegisterGeneratorLib() {
 		}
 		ctx.executor.mu.Unlock()
 
-		// Return the token marker
-		tokenMarker := fmt.Sprintf("\x00TOKEN:%s\x00", tokenID)
-		ctx.SetResult(Symbol(tokenMarker))
+		// Return the token as ObjectRef
+		tokenRef := getTokenRef(ctx, tokenID)
+		ctx.SetResult(tokenRef)
 		return BoolStatus(true)
 	})
 
@@ -1675,35 +2483,25 @@ func (ps *PawScript) RegisterGeneratorLib() {
 		}
 		ctx.executor.mu.Unlock()
 
-		// Return the token marker
-		tokenMarker := fmt.Sprintf("\x00TOKEN:%s\x00", tokenID)
-		ctx.SetResult(Symbol(tokenMarker))
+		// Return the token as ObjectRef
+		tokenRef := getTokenRef(ctx, tokenID)
+		ctx.SetResult(tokenRef)
 		return BoolStatus(true)
 	})
 
-	// Helper to resolve an RNG token from a value
-	resolveRngToken := func(ctx *Context, value interface{}) string {
-		var tokenStr string
-		switch v := value.(type) {
-		case Symbol:
-			tokenStr = string(v)
-		case string:
-			tokenStr = v
-		default:
-			return ""
-		}
-		if strings.HasPrefix(tokenStr, "\x00TOKEN:") && strings.HasSuffix(tokenStr, "\x00") {
-			return tokenStr
-		}
-		return ""
+	// Helper to resolve an RNG token ID from a value
+	// Accepts ObjectRef (ObjToken) or string ID
+	resolveRngTokenID := func(ctx *Context, value interface{}) string {
+		return resolveTokenID(ctx, value)
 	}
 
 	// Helper to resolve #random from local vars -> ObjectsModule -> ObjectsInherited
-	resolveRandomToken := func(ctx *Context, name string) string {
+	// Returns the token string ID (for lookup) or empty string
+	resolveRandomTokenID := func(ctx *Context, name string) string {
 		// First, check local macro variables
 		if value, exists := ctx.state.GetVariable(name); exists {
-			if token := resolveRngToken(ctx, value); token != "" {
-				return token
+			if tokenID := resolveRngTokenID(ctx, value); tokenID != "" {
+				return tokenID
 			}
 		}
 
@@ -1715,8 +2513,8 @@ func (ps *PawScript) RegisterGeneratorLib() {
 			// Check ObjectsModule (copy-on-write layer)
 			if ctx.state.moduleEnv.ObjectsModule != nil {
 				if obj, exists := ctx.state.moduleEnv.ObjectsModule[name]; exists {
-					if token := resolveRngToken(ctx, obj); token != "" {
-						return token
+					if tokenID := resolveRngTokenID(ctx, obj); tokenID != "" {
+						return tokenID
 					}
 				}
 			}
@@ -1724,8 +2522,8 @@ func (ps *PawScript) RegisterGeneratorLib() {
 			// Check ObjectsInherited (root layer where io::#random lives)
 			if ctx.state.moduleEnv.ObjectsInherited != nil {
 				if obj, exists := ctx.state.moduleEnv.ObjectsInherited[name]; exists {
-					if token := resolveRngToken(ctx, obj); token != "" {
-						return token
+					if tokenID := resolveRngTokenID(ctx, obj); tokenID != "" {
+						return tokenID
 					}
 				}
 			}
@@ -1738,19 +2536,19 @@ func (ps *PawScript) RegisterGeneratorLib() {
 	// Usage: random [max] or random min, max - uses default #random
 	//        random <token> [max] or random <token> min, max - uses custom generator
 	ps.RegisterCommandInModule("coroutines", "random", func(ctx *Context) Result {
-		var tokenStr string
+		var tokenID string
 		var rangeArgs []interface{}
 
 		// Check if first arg is an RNG token or a #-prefixed name
 		if len(ctx.Args) > 0 {
-			// Try to extract as token marker directly
-			if token := resolveRngToken(ctx, ctx.Args[0]); token != "" {
-				tokenStr = token
+			// Try to resolve as token (ObjectRef or string ID)
+			if id := resolveRngTokenID(ctx, ctx.Args[0]); id != "" {
+				tokenID = id
 				rangeArgs = ctx.Args[1:]
 			} else if sym, ok := ctx.Args[0].(Symbol); ok && strings.HasPrefix(string(sym), "#") {
 				// It's a #-prefixed symbol, resolve it like echo resolves channels
-				if token := resolveRandomToken(ctx, string(sym)); token != "" {
-					tokenStr = token
+				if id := resolveRandomTokenID(ctx, string(sym)); id != "" {
+					tokenID = id
 					rangeArgs = ctx.Args[1:]
 				} else {
 					// Could not resolve as RNG, treat as range arg
@@ -1763,16 +2561,13 @@ func (ps *PawScript) RegisterGeneratorLib() {
 		}
 
 		// If no token provided, use default #random
-		if tokenStr == "" {
-			tokenStr = resolveRandomToken(ctx, "#random")
-			if tokenStr == "" {
+		if tokenID == "" {
+			tokenID = resolveRandomTokenID(ctx, "#random")
+			if tokenID == "" {
 				ctx.LogError(CatCommand, "random: #random not found in environment")
 				return BoolStatus(false)
 			}
 		}
-
-		// Extract token ID
-		tokenID := tokenStr[len("\x00TOKEN:") : len(tokenStr)-1]
 
 		// Get the token data
 		ctx.executor.mu.Lock()
@@ -1825,6 +2620,46 @@ func (ps *PawScript) RegisterGeneratorLib() {
 		ctx.executor.mu.Unlock()
 
 		ctx.SetResult(result)
+		return BoolStatus(true)
+	})
+
+	// stop - Force cleanup and stop an async token
+	// Cancels timeout, calls cleanup callbacks, releases resources
+	// stop <token>
+	ps.RegisterCommandInModule("coroutines", "stop", func(ctx *Context) Result {
+		if len(ctx.Args) < 1 {
+			ctx.LogError(CatCommand, "Usage: stop <token>")
+			return BoolStatus(false)
+		}
+
+		// Get the token ID (accepts ObjectRef, string, or Symbol)
+		tokenID := resolveTokenID(ctx, ctx.Args[0])
+		if tokenID == "" {
+			// Also try TokenResult type
+			if tr, ok := ctx.Args[0].(TokenResult); ok {
+				tokenID = string(tr)
+			}
+		}
+		if tokenID == "" {
+			ctx.LogError(CatCommand, "stop: argument must be a valid token")
+			return BoolStatus(false)
+		}
+
+		// Check if token exists before trying to clean it up
+		ctx.executor.mu.RLock()
+		_, exists := ctx.executor.activeTokens[tokenID]
+		ctx.executor.mu.RUnlock()
+
+		if !exists {
+			// Token doesn't exist (already completed or never existed)
+			ps.logger.DebugCat(CatAsync, "stop: token %s not found (already completed?)", tokenID)
+			return BoolStatus(false)
+		}
+
+		// Force cleanup the token
+		ctx.executor.ForceCleanupToken(tokenID)
+		ps.logger.DebugCat(CatAsync, "stop: force cleaned up token %s", tokenID)
+
 		return BoolStatus(true)
 	})
 }

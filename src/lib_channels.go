@@ -75,11 +75,10 @@ func (ps *PawScript) RegisterChannelsLib() {
 		ch.CustomRecv = customRecv
 		ch.CustomClose = customClose
 
-		objectID := ctx.executor.storeObject(ch, "channel")
-		channelMarker := fmt.Sprintf("\x00CHANNEL:%d\x00", objectID)
-		ctx.state.SetResult(Symbol(channelMarker))
+		chRef := ctx.executor.RegisterObject(ch, ObjChannel)
+		ctx.state.SetResult(chRef)
 
-		ps.logger.DebugCat(CatAsync, "Created channel (object %d) with buffer size %d", objectID, bufferSize)
+		ps.logger.DebugCat(CatAsync, "Created channel (object %d) with buffer size %d", chRef.ID, bufferSize)
 		return BoolStatus(true)
 	})
 
@@ -101,11 +100,10 @@ func (ps *PawScript) RegisterChannelsLib() {
 			return BoolStatus(false)
 		}
 
-		objectID := ctx.executor.storeObject(subscriber, "channel")
-		subscriberMarker := fmt.Sprintf("\x00CHANNEL:%d\x00", objectID)
-		ctx.state.SetResult(Symbol(subscriberMarker))
+		subRef := ctx.executor.RegisterObject(subscriber, ObjChannel)
+		ctx.state.SetResult(subRef)
 
-		ps.logger.DebugCat(CatAsync, "Created subscriber %d for channel (object %d)", subscriber.SubscriberID, objectID)
+		ps.logger.DebugCat(CatAsync, "Created subscriber %d for channel (object %d)", subscriber.SubscriberID, subRef.ID)
 		return BoolStatus(true)
 	})
 
@@ -118,6 +116,15 @@ func (ps *PawScript) RegisterChannelsLib() {
 		// Helper to resolve a value to a channel
 		resolveToChannel := func(val interface{}) *StoredChannel {
 			switch v := val.(type) {
+			case ObjectRef:
+				// ObjectRef for channel
+				if v.Type == ObjChannel && v.IsValid() {
+					if obj, exists := ctx.executor.getObject(v.ID); exists {
+						if ch, ok := obj.(*StoredChannel); ok {
+							return ch
+						}
+					}
+				}
 			case *StoredChannel:
 				return v
 			case Symbol:
@@ -211,6 +218,15 @@ func (ps *PawScript) RegisterChannelsLib() {
 		// Helper to resolve a value to a channel
 		resolveToChannel := func(val interface{}) *StoredChannel {
 			switch v := val.(type) {
+			case ObjectRef:
+				// ObjectRef for channel
+				if v.Type == ObjChannel && v.IsValid() {
+					if obj, exists := ctx.executor.getObject(v.ID); exists {
+						if ch, ok := obj.(*StoredChannel); ok {
+							return ch
+						}
+					}
+				}
 			case *StoredChannel:
 				return v
 			case Symbol:
@@ -292,10 +308,9 @@ func (ps *PawScript) RegisterChannelsLib() {
 			return BoolStatus(false)
 		}
 
-		tuple := NewStoredList([]interface{}{senderID, value})
-		tupleID := ctx.executor.storeObject(tuple, "list")
-		tupleMarker := fmt.Sprintf("\x00LIST:%d\x00", tupleID)
-		ctx.state.SetResult(Symbol(tupleMarker))
+		tuple := NewStoredListWithoutRefs([]interface{}{senderID, value})
+		tupleRef := ctx.executor.RegisterObject(tuple, ObjList)
+		ctx.state.SetResult(tupleRef)
 
 		return BoolStatus(true)
 	})

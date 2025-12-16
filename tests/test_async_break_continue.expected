@@ -1,0 +1,53 @@
+=== Test 1: Break in while loop after async operation ===
+Got value: 1
+Got value: 2
+Got value: 3
+Breaking at v=3
+After while, count=3
+
+=== Test 2: Continue in while loop after async operation ===
+Processing v=1
+Skipping v=2
+Processing v=3
+Skipping v=4
+Processing v=5
+
+=== Test 3: Break from paren group in while after async ===
+Got 1
+Got 2
+Should have stopped at v=2
+
+=== Test 4: Continue from paren group in while after async ===
+Processing 1
+Processing 4
+Should have skipped 2 and 3
+
+=== Test 5: Break in for loop with nested if ===
+Iteration n=1
+Completed n=1
+Iteration n=2
+Completed n=2
+Iteration n=3
+Breaking at n=3
+After for loop
+
+=== Test 6: Continue in for loop with nested if ===
+Completed n=1
+Skipping n=2
+Completed n=3
+Skipping n=4
+Completed n=5
+Completed n=6
+
+=== Test 7: Break with level from nested async loops ===
+Outer: 1
+  Inner: 1
+  Inner: 2
+  Inner: 3
+Outer: 2
+  Inner: 1
+  Inner: 2
+  Breaking both loops!
+After nested loops
+
+=== All async break/continue tests complete ===

@@ -1,0 +1,30 @@
+# Test bubble_logging configuration command
+
+echo "=== Bubble Logging Config Tests ==="
+
+# Test 1: Query default configuration
+echo "Test 1: Default config"
+config: {bubble_logging}
+echo "default:", {~config default:}
+echo "floor:", {~config floor:}
+echo "force:", {~config force:}
+
+# Test 2: Set default level
+echo "Test 2: Set default to error"
+bubble_logging default: error
+config: {bubble_logging}
+echo "default:", {~config default:}
+
+# Test 3: Set category-specific level
+echo "Test 3: Set command category to warn"
+bubble_logging command: warn
+config: {bubble_logging}
+echo "command:", {~config command:}
+
+# Test 4: Set floor
+echo "Test 4: Set floor to info"
+bubble_logging floor: info
+config: {bubble_logging}
+echo "floor:", {~config floor:}
+
+echo "=== Config Tests Complete ==="

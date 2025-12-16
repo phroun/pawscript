@@ -1,0 +1,124 @@
+keycats: {list (note: "Unshifted basic keys - including space",
+    ("Escape","`","1","2","3","4","5","6","7","8","9","0","-","=","Backspace"),
+    ("Tab","q","w","e","r","t","y","u","i","o","p","[","]","\\"),
+    ("a","s","d","f","g","h","j","k","l",";","'","Enter"),
+    ("z","x","c","v","b","n","m",",",".","/"),
+    (" "),
+  ), (note: "Shifted basic keys",
+    ("S-Escape", "~", "!", "@", "#", "$", "%", "^", "&", "*", "(", ")", "_", "+", "S-Backspace"),
+    ("S-Tab", "Q", "W", "E", "R", "T", "Y", "U", "I", "O", "P", "{", "}", "|"),
+    ("A", "S", "D", "F", "G", "H", "J", "K", "L", ":", "\"", "S-Enter"),
+    ("Z", "X", "C", "V", "B", "N", "M", "<", ">", "?"),
+    ("S-Space"),
+  ), (note: "Basic control keys",
+    ("^`", "^1", "^2", "^3", "^4", "^5", "^6", "^7", "^8", "^9", "^0", "^-", "^=", "^Backspace"),
+    ("^Tab", "^Q", "^W", "^E", "^R", "^T", "^Y", "^U", "^I", "^O", "^P", "^[", "^]", "^\\"),
+    ("^A", "^S", "^D", "^F", "^G", "^H", "^J", "^K", "^L", "^;", "^'", "^Enter"),
+    ("^Z", "^X", "^C", "^V", "^B", "^N", "^M", "^,", "^.", "^/"),
+    ("^Space"),
+  )}
+
+macro testcat(
+  l: $1
+  bag: {list}
+  for ~l, k, index: i, (
+    for ~k, r, index: j, (
+      bag: {concat ~bag, {list {ret "~i;_~j"}: ~r}}
+    )
+  )
+  
+  while (gt {maplen ~bag}, 0), (
+    
+    print "\r\n"
+    print ~l.note, "\r\n"
+    
+    lr: ""
+    for ~bag, k, v, (
+      pr: {split ~k, "_"}
+      if {neqs ~pr 0, "~lr"} then (
+        lr: ~pr 0
+      )
+      color 1
+      write "[", ~k, "]"
+      color 15
+      if {eq ~v, " "} then (
+        write "Space  "
+      ) else (
+        write ~v, "  "
+      )
+      color -1
+    )
+    
+    print "\r\n"
+    write "Type each character: "
+    ch: {readkey}
+    
+    if {eq ~ch, "Escape"} then (
+      write "\r\n\r\nTYPE \"NEXT\" TO END CATEGORY, TYPE \"QUIT\" TO END TEST, OR ENTER TO CONTINUE: "
+      cmd: {trim {lower {read}}}
+      if {eq ~cmd, "quit"} then (
+        ret {list "quit", ~bag}
+      )
+      if {eq ~cmd, "next"} then (
+        ret {list "next", ~bag}
+      )
+    )
+    
+    print "\r\n"
+    print "entered [~ch]"
+    print "type=", {type ch}, "\r\n"
+
+    for ~l, v, index: i, (
+      idx: {index ~v, ~ch}
+      # print "\r\ninfer=", {infer ~v}, "\r\n"
+      # print "len=",  {len ~v}
+      # print "\r\n"
+      # print "idx=", ~idx
+      # print "\r\n", ~v
+      if {gte ~idx, 0} then (
+        subj: {concat ~i, "_", ~idx}
+        # print "\r\nreplacing:", ~subj, ":::"
+        bag: {replace ~bag, ~subj: undefined}
+        # print "index: ", ~i, ~idx, "\r\n"
+      )
+    )
+    print
+
+  )
+  
+  echo "\r\nCATEGORY COMPLETED.\r\n"
+  
+  ret {list "done"}
+)
+
+
+echo "args info:"
+echo ~#args.os, ~args.arch
+echo "\r\n"
+
+readkey_init #in, echo: #out
+
+echo "\r\nBEGINNING TEST\r\n"
+
+testnum: 0
+res: true
+while (lt ~testnum, {len ~keycats}), (
+  (reason, remain): {testcat ~keycats ~testnum}
+  print "REASON=", ~reason
+  print "REMAIN=", ~remain
+  if {eq ~reason, "quit"}
+  then (
+    print "MATCH FOUND"
+    res: false
+    ret
+  )
+  else
+  if {contains ("next","done"),  ~reason}
+  then (
+    testnum: {add ~testnum, 1}
+  )
+)
+
+print "\r\nTEST COMPLETED\r\n"
+
+readkey_stop

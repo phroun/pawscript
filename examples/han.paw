@@ -1,0 +1,12 @@
+macro greedo(
+   echo "Mamoo lu!"
+   ret $1
+)
+
+macro quickdraw(
+   echo "$1 shot first."
+   ret {upper $1}          # The brace expression happens before the ret
+)
+
+greedo {quickdraw "Han"}   # The brace expression happens first
+~> print

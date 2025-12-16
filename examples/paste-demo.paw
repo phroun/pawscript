@@ -1,0 +1,238 @@
+#!/usr/bin/env paw
+# Paste Mode Demo
+# Demonstrates bracketed paste handling in PawScript
+#
+# This demo shows how {read} and {readkey} handle pasted content:
+# - readkey returns "Paste" when paste content is detected
+# - read returns one line at a time from pasted content
+# - Partial lines (no trailing newline) become editable input
+
+# Initialize keyboard input in raw mode
+channels: {readkey_init ~#in, echo: ~#out}
+linesCh: {argv ~channels, 1}
+keysCh: {argv ~channels, 2}
+
+# Helper to print a separator
+macro separator (
+    print "----------------------------------------"
+)
+
+# Helper to show a prompt and wait for a key
+macro waitForKey (
+    color yellow
+    write "Press any key to continue..."
+    color reset: true
+    {readkey}
+    print ""
+)
+
+clear screen
+color cyan
+print "=== PawScript Paste Mode Demo ==="
+color reset: true
+print ""
+print "This demo shows how PawScript handles bracketed paste."
+print "Your terminal sends special escape sequences when you paste,"
+print "allowing PawScript to handle pasted content intelligently."
+print ""
+separator
+
+# Demo 1: readkey detecting paste
+print ""
+color green
+print "Demo 1: readkey detects paste"
+color reset: true
+print ""
+print "The {readkey} command normally returns single keypresses."
+print "When you paste content, it returns the special key \"Paste\""
+print "to notify your program that paste content is available."
+print ""
+color yellow
+write "Try pressing a single key: "
+color reset: true
+
+key: {readkey}
+print ""
+print "You pressed: \"~key\""
+print ""
+
+color yellow
+print "Now try pasting some text (e.g., copy \"hello\" and paste it):"
+write "> "
+color reset: true
+
+key: {readkey}
+print ""
+if {eq ~key, "Paste"} then (
+    color green
+    print "Detected paste! readkey returned: \"~key\""
+    color reset: true
+    print "The pasted content is now buffered for {read} to retrieve."
+) else (
+    print "You pressed: \"~key\" (try pasting next time!)"
+)
+
+print ""
+separator
+
+# Demo 2: read retrieving pasted lines
+print ""
+color green
+print "Demo 2: read retrieves pasted content line by line"
+color reset: true
+print ""
+print "After a paste is detected, {read} returns buffered lines"
+print "one at a time, with automatic echo."
+print ""
+color yellow
+print "Paste multiple lines (e.g., copy and paste these 3 lines):"
+color reset: true
+print "  apple"
+print "  banana"
+print "  cherry"
+print ""
+color yellow
+write "Paste now: "
+color reset: true
+
+# Wait for paste or regular input
+key: {readkey}
+
+if {eq ~key, "Paste"} then (
+    print ""
+    color green
+    print "Paste detected! Reading lines..."
+    color reset: true
+    print ""
+
+    lineNum: 1
+    # Read lines until buffer is empty (read will wait for input when empty)
+    # We'll read up to 5 lines for this demo
+    while {lte ~lineNum, 5}, (
+        color cyan
+        write "Line ~lineNum: "
+        color reset: true
+
+        # Check if there's more paste content or we need user input
+        line: {read}
+        print "  -> Got: \"~line\""
+
+        lineNum: {add ~lineNum, 1}
+
+        # If line was empty and we've read at least one, likely done with paste
+        and {eq ~line, ""}, {gt ~lineNum, 2} & break
+    )
+) else (
+    print ""
+    print "That was a regular keypress: \"~key\""
+    print "Try pasting multiple lines next time!"
+)
+
+print ""
+separator
+
+# Demo 3: Partial line handling
+print ""
+color green
+print "Demo 3: Partial line handling"
+color reset: true
+print ""
+print "If you paste text WITHOUT a trailing newline, it becomes"
+print "editable input - you can add more characters or backspace!"
+print ""
+color yellow
+print "Copy text WITHOUT selecting the newline at the end,"
+print "then paste it and try typing more or pressing backspace."
+color reset: true
+print ""
+color yellow
+write "Paste partial text: "
+color reset: true
+
+key: {readkey}
+
+if {eq ~key, "Paste"} then (
+    # The paste content is now in the buffer
+    # When we call read, partial content will be shown and editable
+    color dim
+    print " (now type more or press Enter)"
+    color reset: true
+    write "> "
+
+    line: {read}
+    print ""
+    color green
+    print "Final line after editing: \"~line\""
+    color reset: true
+) else (
+    print ""
+    print "Regular key: \"~key\" - try pasting next time!"
+)
+
+print ""
+separator
+
+# Demo 4: Interactive paste loop
+print ""
+color green
+print "Demo 4: Interactive paste loop"
+color reset: true
+print ""
+print "This loop shows real-time key/paste detection."
+print "- Regular keys are shown immediately"
+print "- Paste triggers line-by-line reading"
+print "- Press 'q' to quit"
+print ""
+
+running: true
+while ~running, (
+    color yellow
+    write "Press key or paste (q=quit): "
+    color reset: true
+
+    key: {readkey}
+
+    if {eq ~key, "q"} then (
+        print ""
+        running: false
+    ) else if {eq ~key, "Q"} then (
+        print ""
+        running: false
+    ) else if {eq ~key, "Paste"} then (
+        print ""
+        color magenta
+        print "[PASTE DETECTED]"
+        color reset: true
+
+        # Read all pasted lines
+        moreLines: true
+        while ~moreLines, (
+            write "  Reading: "
+            line: {read}
+            print "\"~line\""
+
+            # Simple heuristic: if line is empty after first, probably done
+            # In real app, you'd track paste buffer state differently
+            eq ~line, "" & (moreLines: false)
+        )
+        print ""
+    ) else (
+        print ""
+        print "Key: \"~key\""
+    )
+)
+
+# Cleanup
+print ""
+color cyan
+print "=== Demo Complete ==="
+color reset: true
+print ""
+print "Key points:"
+print "- readkey returns \"Paste\" when paste is detected"
+print "- read returns buffered paste content line by line"
+print "- Partial pastes (no trailing newline) are editable"
+print "- Terminal's bracketed paste mode makes this possible"
+print ""
+
+readkey_stop

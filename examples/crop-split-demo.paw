@@ -1,0 +1,268 @@
+#!/usr/bin/env paw
+# crop-split-demo.paw - Demonstrates screen crop and split features (OSC 7003)
+#
+# This demo shows:
+# 1. Screen cropping - limiting the visible render area
+# 2. Screen splits - showing different buffer regions at different screen positions
+# 3. Fine scrolling - sub-cell scrolling for smooth effects
+
+# Define escape sequences
+macro esc (write "\e")
+macro bel (write "\a")
+
+# OSC 7003 command helpers for crops and splits
+macro crop_clear (write "\e]7003;c\a")
+macro crop_set (write "\e]7003;c;$1;$2\a")
+macro split_clear_all (write "\e]7003;sda\a")
+macro split_delete (write "\e]7003;sd;$1\a")
+macro split_set (write "\e]7003;ss;$1;$2;$3;$4;$5;$6;$7;$8\a")
+# split_set ID, SCREENY, BUFROW, BUFCOL, TOPFINE, LEFTFINE, CWS, LD
+# CWS and LD: 0 = inherit from main screen
+
+# --- Demo Start ---
+clear screen
+color cyan
+print "=== Screen Crop and Split Demo (OSC 7003) ==="
+color reset: true
+print ""
+print "This demo shows:"
+print "  1. Screen cropping - limit visible area"
+print "  2. Screen splits - show different buffer regions"
+print "  3. Fine scrolling - sub-cell smooth scrolling"
+print ""
+color yellow
+print "Press RETURN to begin with crop demo..."
+color reset: true
+_: {read}
+
+# --- Part 1: Screen Crop Demo ---
+clear screen
+color cyan
+print "=== Part 1: Screen Crop Demo ==="
+color reset: true
+print ""
+
+# Fill screen with numbered content
+row: 1
+while (lt ~row, 20), (
+    cursor 1, ~row
+    color green
+    write "Row "
+    write ~row
+    write ": "
+    color reset: true
+
+    # Fill with pattern
+    col: 10
+    while (lt ~col, 70), (
+        cursor ~col, ~row
+        # Alternate colors
+        if {eq {imodulo ~col, 2}, 0}
+        then (color red)
+        else (color blue)
+        write "#"
+        col: {add ~col, 1}
+    )
+    color reset: true
+    row: {add ~row, 1}
+)
+
+cursor 1, 21
+print ""
+color yellow
+print "Full screen shown. Press RETURN to apply crop..."
+color reset: true
+_: {read}
+
+# Apply crop - limit to 320x160 sprite units (40x20 cells at 8 units per cell)
+crop_set 320, 160
+
+cursor 1, 21
+print ""
+color cyan
+print "Screen cropped to 320x160 sprite units (40x20 cells)"
+color yellow
+print "Press RETURN to clear crop..."
+color reset: true
+_: {read}
+
+crop_clear
+
+cursor 1, 21
+print ""
+color green
+print "Crop cleared - full screen visible again"
+color yellow
+print "Press RETURN for split demo..."
+color reset: true
+_: {read}
+
+# --- Part 2: Screen Split Demo ---
+clear screen
+
+# Fill buffer with distinct content for different regions
+row: 1
+while (lt ~row, 30), (
+    cursor 1, ~row
+
+    if {lt ~row, 10}
+    then (
+        color red
+        write "HEADER REGION - Row "
+        write ~row
+    )
+    else (
+        if {lt ~row, 20}
+        then (
+            color green
+            write "CONTENT REGION - Row "
+            write ~row
+        )
+        else (
+            color blue
+            write "FOOTER REGION - Row "
+            write ~row
+        )
+    )
+    color reset: true
+    row: {add ~row, 1}
+)
+
+cursor 1, 22
+print ""
+color cyan
+print "=== Part 2: Screen Split Demo ==="
+color reset: true
+print "Buffer has 3 regions: HEADER (rows 1-9), CONTENT (10-19), FOOTER (20+)"
+color yellow
+print "Press RETURN to create splits..."
+color reset: true
+_: {read}
+
+# Clear existing splits
+split_clear_all
+
+# Create splits:
+# Split 1: At screen Y=0 (top), show buffer row 20 (footer) - creates a status bar at top
+# Format: ID, SCREENY, BUFROW, BUFCOL, TOPFINE, LEFTFINE, CWS, LD
+split_set 1, 0, 20, 1, 0, 0, 0, 0
+
+# Split 2: At screen Y=16 (row 2), show buffer row 10 (content)
+split_set 2, 16, 10, 1, 0, 0, 0, 0
+
+# Split 3: At screen Y=160 (row 20), show buffer row 1 (header)
+split_set 3, 160, 1, 1, 0, 0, 0, 0
+
+cursor 1, 23
+color cyan
+print "Splits created:"
+print "  Top 2 rows: FOOTER content (status bar)"
+print "  Middle: CONTENT region"
+print "  Bottom 5 rows: HEADER region"
+color yellow
+print "Press RETURN for fine scroll demo..."
+color reset: true
+_: {read}
+
+# --- Part 3: Fine Scroll Demo ---
+split_clear_all
+clear screen
+
+# Create a pattern for fine scroll
+row: 1
+while (lt ~row, 15), (
+    cursor 1, ~row
+    color cyan
+    write "Line "
+    write ~row
+    write ": "
+
+    col: 10
+    while (lt ~col, 70), (
+        cursor ~col, ~row
+        # Create a gradient pattern
+        charCode: {add 65, {imodulo ~col, 26}}
+        if {eq {imodulo ~row, 2}, 0}
+        then (color yellow)
+        else (color magenta)
+        write {chr ~charCode}
+        col: {add ~col, 1}
+    )
+    color reset: true
+    row: {add ~row, 1}
+)
+
+cursor 1, 16
+print ""
+color cyan
+print "=== Part 3: Fine Scroll Demo ==="
+color reset: true
+print "Watch as fine scrolling smoothly clips the top of the content"
+color yellow
+print "Press RETURN to animate fine scroll..."
+color reset: true
+_: {read}
+
+# Animate fine scroll from 0 to 7 and back
+# Split at Y=0 with increasing TopFineScroll
+finePhase: 0
+cycles: 0
+while (lt ~cycles, 3), (
+    fineScroll: 0
+    while (lt ~fineScroll, 8), (
+        # Create split with current fine scroll value
+        # Shows buffer row 1, with top portion clipped by fineScroll/8
+        split_set 1, 0, 1, 1, ~fineScroll, 0, 0, 0
+
+        msleep 100
+        fineScroll: {add ~fineScroll, 1}
+    )
+
+    # Reverse direction
+    fineScroll: 7
+    while (gte ~fineScroll, 0), (
+        split_set 1, 0, 1, 1, ~fineScroll, 0, 0, 0
+
+        msleep 100
+        fineScroll: {subtract ~fineScroll, 1}
+    )
+
+    cycles: {add ~cycles, 1}
+)
+
+# Clean up splits
+split_clear_all
+
+cursor 1, 18
+color green
+print "Fine scroll animation complete!"
+color yellow
+print "Press RETURN to exit demo..."
+color reset: true
+_: {read}
+
+# --- Cleanup ---
+split_clear_all
+crop_clear
+clear screen
+color cyan
+print "=== Screen Crop and Split Demo Complete ==="
+color reset: true
+print ""
+print "Key OSC 7003 commands demonstrated:"
+print "  c                    - Clear screen crops"
+print "  c;W;H                - Set crop to WxH sprite units"
+print "  sda                  - Delete all splits"
+print "  sd;ID                - Delete split by ID"
+print "  ss;ID;Y;R;C;TF;LF;CWS;LD - Set split"
+print ""
+print "Split parameters:"
+print "  ID     - Unique identifier"
+print "  Y      - Screen Y position (sprite units)"
+print "  R      - Buffer row (1-indexed)"
+print "  C      - Buffer column (1-indexed)"
+print "  TF     - Top fine scroll (0-7)"
+print "  LF     - Left fine scroll (0-7)"
+print "  CWS    - Char width scale (0=inherit)"
+print "  LD     - Line density (0=inherit)"
+print ""

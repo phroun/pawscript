@@ -165,4 +165,70 @@ echo "  replace 'a-b-c', '-', '_', 10 =", ~result
 # Expected: "a_b_c" (replaces all 2 occurrences)
 
 echo ""
+echo "=== Testing named args preservation and modification ==="
+echo ""
+
+# Create list with named args
+echo "Create list with named args:"
+mylist: {list 1, 2, 3, x: "hello", y: 42}
+echo "  Original list:", ~mylist
+# Expected: (x: "hello", y: 42, 1, 2, 3)
+
+# Preserve named args during positional replacement
+echo ""
+echo "Preserve named args during positional replacement:"
+result: {replace ~mylist, 2, "two"}
+echo "  replace ~mylist, 2, 'two' =", ~result
+# Expected: (x: "hello", y: 42, 1, "two", 3)
+
+# Remove a named key with undefined
+echo ""
+echo "Remove named key with undefined:"
+result: {replace ~mylist, x: undefined}
+echo "  replace ~mylist, x: undefined =", ~result
+# Expected: (y: 42, 1, 2, 3)
+
+# Update a named key value
+echo ""
+echo "Update named key value:"
+result: {replace ~mylist, y: 100}
+echo "  replace ~mylist, y: 100 =", ~result
+# Expected: (x: "hello", y: 100, 1, 2, 3)
+
+# Combined: positional replacement + key operations
+echo ""
+echo "Combined positional replacement and key operations:"
+result: {replace ~mylist, 1, "one", x: "world", y: undefined}
+echo "  replace ~mylist, 1, 'one', x: 'world', y: undefined =", ~result
+# Expected: (x: "world", "one", 2, 3)
+
+# Key-only mode (no positional replacement specified)
+echo ""
+echo "Key-only mode (add new key, update existing):"
+result: {replace ~mylist, x: "updated", z: "new"}
+echo "  replace ~mylist, x: 'updated', z: 'new' =", ~result
+# Expected: (x: "updated", y: 42, z: "new", 1, 2, 3)
+
+# Remove multiple keys at once
+echo ""
+echo "Remove multiple keys at once:"
+result: {replace ~mylist, x: undefined, y: undefined}
+echo "  replace ~mylist, x: undefined, y: undefined =", ~result
+# Expected: (1, 2, 3)
+
+# Setting key to same value (COW optimization test - should work correctly)
+echo ""
+echo "Set key to same value (no-op):"
+result: {replace ~mylist, y: 42}
+echo "  replace ~mylist, y: 42 =", ~result
+# Expected: (x: "hello", y: 42, 1, 2, 3) - unchanged
+
+# Remove key from list without that key (no error)
+echo ""
+echo "Remove non-existent key (no error):"
+result: {replace ~mylist, nonexistent: undefined}
+echo "  replace ~mylist, nonexistent: undefined =", ~result
+# Expected: (x: "hello", y: 42, 1, 2, 3) - unchanged
+
+echo ""
 echo "=== All replace tests complete ==="

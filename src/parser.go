@@ -591,10 +591,37 @@ const (
 	unitSymbol
 	unitNil
 	unitBool
-	unitParen
-	unitBrace
+	unitBlock
 	unitComplex // object markers, etc.
 )
+
+// unitTypeName returns a human-readable name for an argument unit type
+func unitTypeName(t argUnitType) string {
+	switch t {
+	case unitString:
+		return "string"
+	case unitNumber:
+		return "number"
+	case unitSymbol:
+		return "symbol"
+	case unitNil:
+		return "nil"
+	case unitBool:
+		return "bool"
+	case unitBlock:
+		return "block"
+	case unitComplex:
+		return "object"
+	default:
+		return "unknown"
+	}
+}
+
+// ArgParseError represents an error that occurred during argument parsing
+// It can be included in the returned args slice and detected by the executor
+type ArgParseError struct {
+	Message string
+}
 
 // parseArguments parses argument string into slice of positional args and named args
 // Implements concatenation rules for adjacent units without commas
@@ -610,6 +637,8 @@ func parseArguments(argsStr string) ([]interface{}, map[string]interface{}) {
 	var currentType argUnitType
 	var potentialString bool
 	var originalItem interface{}
+	var originalType argUnitType  // Type of first item when entering potentialString
+	var conflictType argUnitType  // Type of second item that triggered potentialString
 	var lastWasNumber bool
 	var sugar bool
 	var pendingPositional strings.Builder // For tracking invalid positional after paren without comma
@@ -622,9 +651,10 @@ func parseArguments(argsStr string) ([]interface{}, map[string]interface{}) {
 			return
 		}
 		if potentialString {
-			// potentialString was never confirmed - error, revert to original
-			// For now, just use originalItem
-			args = append(args, originalItem)
+			// potentialString was never confirmed by a string or block - generate error
+			errMsg := fmt.Sprintf("Cannot follow %s with %s in a single argument",
+				unitTypeName(originalType), unitTypeName(conflictType))
+			args = append(args, ArgParseError{Message: errMsg})
 		} else {
 			// Always append - even if currentValue is nil (the PawScript nil literal)
 			// We know we have a valid value because currentType != unitNone
@@ -634,6 +664,8 @@ func parseArguments(argsStr string) ([]interface{}, map[string]interface{}) {
 		currentType = unitNone
 		potentialString = false
 		originalItem = nil
+		originalType = unitNone
+		conflictType = unitNone
 		lastWasNumber = false
 	}
 
@@ -745,6 +777,7 @@ func parseArguments(argsStr string) ([]interface{}, map[string]interface{}) {
 				s2 := valueToString(newValue)
 				currentValue = QuotedString(s1 + s2)
 				lastWasNumber = false
+				potentialString = false // A real string confirms the concatenation
 			case unitNumber:
 				// Concatenate number, track lastWasNumber
 				s := valueToString(currentValue)
@@ -764,7 +797,7 @@ func parseArguments(argsStr string) ([]interface{}, map[string]interface{}) {
 				}
 				currentValue = QuotedString(s)
 				lastWasNumber = false
-			case unitParen:
+			case unitBlock:
 				// Imply comma, start new arg, set sugar
 				finalizeArg()
 				currentValue = newValue
@@ -792,6 +825,12 @@ func parseArguments(argsStr string) ([]interface{}, map[string]interface{}) {
 						return true
 					}
 				}
+				if newType == unitSymbol && isTildeExpr(newValue) {
+					// Tilde + tilde expression - potential accessor chain
+					s := rawString(currentValue) + " " + rawString(newValue)
+					currentValue = Symbol(s)
+					return true
+				}
 				// Fall through to normal symbol handling for other cases
 			}
 
@@ -813,6 +852,8 @@ func parseArguments(argsStr string) ([]interface{}, map[string]interface{}) {
 				if !potentialString {
 					potentialString = true
 					originalItem = currentValue
+					originalType = currentType
+					conflictType = newType
 				}
 				// Build string
 				s := valueToString(currentValue)
@@ -823,7 +864,7 @@ func parseArguments(argsStr string) ([]interface{}, map[string]interface{}) {
 				currentValue = QuotedString(s)
 				currentType = unitString // Treat as string for further combinations
 				lastWasNumber = (newType == unitNumber)
-			case unitParen:
+			case unitBlock:
 				if currentType == unitSymbol {
 					// Symbol + paren: symbol becomes string, imply comma, paren is block
 					strVal := QuotedString(string(currentValue.(Symbol)))
@@ -856,7 +897,7 @@ func parseArguments(argsStr string) ([]interface{}, map[string]interface{}) {
 				return false
 			}
 
-		case unitParen:
+		case unitBlock:
 			// Paren + something (without comma) - only named args allowed
 			if newType != unitNone {
 				// Start tracking pending positional for error
@@ -1152,12 +1193,14 @@ func parseNextUnit(runes []rune, i int) (interface{}, argUnitType, int) {
 		}
 		raw := string(runes[start:i])
 		if len(raw) >= 2 {
-			return ParenGroup(raw[1 : len(raw)-1]), unitParen, i
+			return ParenGroup(raw[1 : len(raw)-1]), unitBlock, i
 		}
-		return ParenGroup(""), unitParen, i
+		return ParenGroup(""), unitBlock, i
 	}
 
 	// Brace expression (already resolved, but handle syntax)
+        // I SUSPECT THIS BLOCK IS UNNECESSARY AND IMPOSSIBLE TO REACH, AS THESE ARE ALREADY REMOVED?
+        /*
 	if char == '{' {
 		start := i
 		depth := 1
@@ -1194,6 +1237,7 @@ func parseNextUnit(runes []rune, i int) (interface{}, argUnitType, int) {
 		// Brace expressions are treated as strings (they're already resolved)
 		return QuotedString(raw), unitString, i
 	}
+	*/
 
 	// Single dot as its own symbol (for list accessor syntax)
 	// This allows list.key to parse as: list, ., key
@@ -1346,7 +1390,7 @@ func combineValueUnit(
 			}
 			s += valueToStr(newValue)
 			return QuotedString(s), unitString, false, nil, false
-		case unitParen:
+		case unitBlock:
 			// For values, paren just becomes part of string? Or error?
 			// Treating as separate would be weird in value context
 			// Let's treat paren in value as error/ignored
@@ -1374,7 +1418,7 @@ func combineValueUnit(
 			}
 			s += valueToStr(newValue)
 			return QuotedString(s), unitString, potentialString, originalItem, (newType == unitNumber)
-		case unitParen:
+		case unitBlock:
 			// Error in value context
 			if potentialString {
 				return originalItem, curType, false, nil, false
@@ -1434,9 +1478,12 @@ func parseStringLiteral(str string) string {
 				// Line continuation: backslash followed by newline produces empty string
 				i += 2
 			case '~':
-				// Escaped tilde: preserve as \~ for later processing by applySubstitution
-				result.WriteRune('\\')
-				result.WriteRune('~')
+				// Escaped tilde: use placeholder to prevent interpretation as variable reference
+				result.WriteString("\x00TILDE\x00")
+				i += 2
+			case '?':
+				// Escaped question mark: use placeholder to prevent interpretation as existence check
+				result.WriteString("\x00QMARK\x00")
 				i += 2
 			case 'x':
 				// Hex escape: \xHH
@@ -1718,6 +1765,7 @@ func (p *Parser) applyChainOperators(commands []*ParsedCommand) ([]*ParsedComman
 		case "assign":
 			// => operator: turn command into assignment
 			// Transform: "cmd=>varname" => "varname: {get_result}"
+			// Also supports unpacking: "cmd=>(a, b)" => "(a, b): {get_result}"
 			cmdName := strings.TrimSpace(cmd.Command)
 			if cmdName == "" {
 				return nil, &PawScriptError{
@@ -1727,8 +1775,35 @@ func (p *Parser) applyChainOperators(commands []*ParsedCommand) ([]*ParsedComman
 				}
 			}
 
-			// Check if it looks like a valid identifier
-			if strings.ContainsAny(cmdName, " \t\n(){}[]") {
+			// Check if it looks like a valid identifier or unpacking pattern
+			// Allow parenthesized patterns like (a, b) for unpacking
+			isValid := true
+			if strings.HasPrefix(cmdName, "(") && strings.HasSuffix(cmdName, ")") {
+				// Unpacking pattern - allow parentheses, commas, identifiers, whitespace inside
+				// Just make sure parentheses are balanced
+				parenDepth := 0
+				for _, ch := range cmdName {
+					if ch == '(' {
+						parenDepth++
+					} else if ch == ')' {
+						parenDepth--
+						if parenDepth < 0 {
+							isValid = false
+							break
+						}
+					}
+				}
+				if parenDepth != 0 {
+					isValid = false
+				}
+			} else {
+				// Simple variable name - reject special characters
+				if strings.ContainsAny(cmdName, " \t\n(){}[]") {
+					isValid = false
+				}
+			}
+
+			if !isValid {
 				return nil, &PawScriptError{
 					Message:  fmt.Sprintf("Invalid variable name after => operator: '%s'", cmdName),
 					Position: cmd.Position,

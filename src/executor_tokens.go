@@ -8,6 +8,7 @@ import (
 )
 
 // RequestCompletionToken requests a new completion token for async operations
+// If timeout <= 0, no timeout is set (token relies on explicit completion)
 func (e *Executor) RequestCompletionToken(
 	cleanupCallback func(string),
 	parentTokenID string,
@@ -28,16 +29,23 @@ func (e *Executor) RequestCompletionToken(
 	tokenID := fmt.Sprintf("fiber-%d-token-%d", fiberID, e.nextTokenID)
 	e.nextTokenID++
 
-	ctx, cancel := context.WithTimeout(context.Background(), timeout)
-
-	// Set up timeout handler
-	go func() {
-		<-ctx.Done()
-		if ctx.Err() == context.DeadlineExceeded {
-			e.logger.WarnCat(CatAsync,"Token %s timed out, forcing cleanup", tokenID)
-			e.ForceCleanupToken(tokenID)
-		}
-	}()
+	// Set up context and optional timeout
+	var cancel context.CancelFunc
+	if timeout > 0 {
+		var ctx context.Context
+		ctx, cancel = context.WithTimeout(context.Background(), timeout)
+		// Set up timeout handler
+		go func() {
+			<-ctx.Done()
+			if ctx.Err() == context.DeadlineExceeded {
+				e.logger.WarnCat(CatAsync, "Token %s timed out, forcing cleanup", tokenID)
+				e.ForceCleanupToken(tokenID)
+			}
+		}()
+	} else {
+		// No timeout - token relies on explicit completion
+		_, cancel = context.WithCancel(context.Background())
+	}
 
 	// Handle nil state for system-level tokens (e.g., #random in io module)
 	var suspendedResult interface{}
@@ -50,7 +58,19 @@ func (e *Executor) RequestCompletionToken(
 		}
 	}
 
+	// Register the token as a stored object first to get ObjectID
+	objectID := e.registerObjectLocked(nil, ObjToken) // Temporarily nil, will update
+	e.tokenStringToID[tokenID] = objectID
+
+	// RefCount starts at 0 - external claims (SetResult, SetVariable) will increment
+	// Token is kept alive by activeTokens map while running
+
 	tokenData := &TokenData{
+		StringID:           tokenID,
+		ObjectID:           objectID,
+		Completed:          false,
+		FinalStatus:        false,
+		FinalResult:        nil,
 		CommandSequence:    nil,
 		ParentToken:        parentTokenID,
 		Children:           make(map[string]bool),
@@ -65,6 +85,9 @@ func (e *Executor) RequestCompletionToken(
 		FiberID:            fiberID,
 	}
 
+	// Update the stored object with the actual tokenData
+	e.storedObjects[objectID].Value = tokenData
+
 	e.activeTokens[tokenID] = tokenData
 
 	if parentTokenID != "" {
@@ -73,8 +96,8 @@ func (e *Executor) RequestCompletionToken(
 		}
 	}
 
-	e.logger.DebugCat(CatAsync,"Created completion token: %s (fiber %d), parent: %s, hasResult: %v",
-		tokenID, fiberID, parentTokenID, hasSuspendedResult)
+	e.logger.DebugCat(CatAsync, "Created completion token: %s (fiber %d, objID %d), parent: %s, hasResult: %v, timeout: %v",
+		tokenID, fiberID, objectID, parentTokenID, hasSuspendedResult, timeout)
 
 	return tokenID
 }
@@ -100,7 +123,7 @@ func (e *Executor) RequestBraceCoordinatorToken(
 	go func() {
 		<-ctx.Done()
 		if ctx.Err() == context.DeadlineExceeded {
-			e.logger.WarnCat(CatAsync,"Brace coordinator token %s timed out, forcing cleanup", tokenID)
+			e.logger.WarnCat(CatAsync, "Brace coordinator token %s timed out, forcing cleanup", tokenID)
 			e.ForceCleanupToken(tokenID)
 		}
 	}()
@@ -120,7 +143,19 @@ func (e *Executor) RequestBraceCoordinatorToken(
 		state.executor = e
 	}
 
+	// Register the token as a stored object first to get ObjectID
+	objectID := e.registerObjectLocked(nil, ObjToken) // Temporarily nil, will update
+	e.tokenStringToID[tokenID] = objectID
+
+	// RefCount starts at 0 - external claims will increment
+	// Token is kept alive by activeTokens map while running
+
 	tokenData := &TokenData{
+		StringID:         tokenID,
+		ObjectID:         objectID,
+		Completed:        false,
+		FinalStatus:      false,
+		FinalResult:      nil,
 		CommandSequence:  nil,
 		ParentToken:      "",
 		Children:         make(map[string]bool),
@@ -132,6 +167,9 @@ func (e *Executor) RequestBraceCoordinatorToken(
 		Position:         position,
 		BraceCoordinator: coordinator,
 	}
+
+	// Update the stored object with the actual tokenData
+	e.storedObjects[objectID].Value = tokenData
 
 	e.activeTokens[tokenID] = tokenData
 
@@ -145,8 +183,8 @@ func (e *Executor) RequestBraceCoordinatorToken(
 		}
 	}
 
-	e.logger.DebugCat(CatAsync,"Created brace coordinator token: %s with %d evaluations (%d async)",
-		tokenID, len(evaluations), len(tokenData.Children))
+	e.logger.DebugCat(CatAsync,"Created brace coordinator token: %s (objID %d) with %d evaluations (%d async)",
+		tokenID, objectID, len(evaluations), len(tokenData.Children))
 
 	return tokenID
 }
@@ -164,7 +202,7 @@ func (e *Executor) ResumeBraceEvaluation(coordinatorToken, childToken string, re
 
 	if coordData.BraceCoordinator == nil {
 		e.mu.Unlock()
-		e.logger.ErrorCat(CatAsync,"Token %s is not a brace coordinator", coordinatorToken)
+		e.logErrorWithContext(CatAsync, fmt.Sprintf("Token %s is not a brace coordinator", coordinatorToken), coordData.ExecutionState, coordData.Position)
 		return
 	}
 
@@ -190,8 +228,31 @@ func (e *Executor) ResumeBraceEvaluation(coordinatorToken, childToken string, re
 	targetEval.Result = result
 	coord.CompletedCount++
 
-	// Clean up the brace's state references
-	if targetEval.State != nil {
+	// Transfer owned references from brace state to parent before releasing
+	// Since the brace shares variables with the parent, any objects stored in
+	// those variables need to be owned by the parent before we release the brace's claims
+	if targetEval.State != nil && coord.SubstitutionCtx != nil && coord.SubstitutionCtx.ExecutionState != nil {
+		parentState := coord.SubstitutionCtx.ExecutionState
+		targetEval.State.mu.Lock()
+		ownedByBrace := make(map[int]int)
+		for refID, count := range targetEval.State.ownedObjects {
+			ownedByBrace[refID] = count
+		}
+		targetEval.State.mu.Unlock()
+
+		for refID, childCount := range ownedByBrace {
+			if childCount > 0 {
+				parentState.mu.Lock()
+				parentOwns := parentState.ownedObjects[refID] > 0
+				parentState.mu.Unlock()
+
+				if !parentOwns {
+					parentState.ClaimObjectReference(refID)
+				}
+			}
+		}
+		targetEval.State.ReleaseAllReferences()
+	} else if targetEval.State != nil {
 		targetEval.State.ReleaseAllReferences()
 	}
 
@@ -242,13 +303,8 @@ func (e *Executor) finalizeBraceCoordinator(coordinatorToken string) {
 	// Clean up all children (this will call their cleanup callbacks)
 	e.cleanupTokenChildrenLocked(coordinatorToken)
 
-	// Cancel timeout
-	if coordData.CancelFunc != nil {
-		coordData.CancelFunc()
-	}
-
-	// Remove coordinator token from active tokens
-	delete(e.activeTokens, coordinatorToken)
+	// Complete the coordinator token (marks as done, releases executor's ref)
+	e.completeTokenLocked(coordinatorToken, !hasFailure, nil)
 
 	e.mu.Unlock()
 
@@ -349,20 +405,15 @@ func (e *Executor) PopAndResumeCommandSequence(tokenID string, status bool) bool
 	}
 
 	// Check if this token's parent is a brace coordinator
+	// We need to record this now but forward the result AFTER resumeCommandSequence runs
+	// so that remaining commands (like `ret "good"`) can update the result
+	var isBraceCoordinatorChild bool
+	var coordinatorToken string
 	if tokenData.ParentToken != "" {
 		if parentData, parentExists := e.activeTokens[tokenData.ParentToken]; parentExists {
 			if parentData.BraceCoordinator != nil {
-				// This is a child of a brace coordinator
-				coordinatorToken := tokenData.ParentToken
-				var resultValue interface{}
-				if tokenData.ExecutionState != nil && tokenData.ExecutionState.HasResult() {
-					resultValue = tokenData.ExecutionState.GetResult()
-				}
-				e.mu.Unlock()
-
-				e.logger.DebugCat(CatAsync,"Token %s is child of brace coordinator %s, forwarding result", tokenID, coordinatorToken)
-				e.ResumeBraceEvaluation(coordinatorToken, tokenID, resultValue, effectiveStatus)
-				return effectiveStatus
+				isBraceCoordinatorChild = true
+				coordinatorToken = tokenData.ParentToken
 			}
 		}
 	}
@@ -391,6 +442,32 @@ func (e *Executor) PopAndResumeCommandSequence(tokenID string, status bool) bool
 		e.mu.Lock()
 	}
 
+	// Now that remaining commands have been executed, forward result to brace coordinator if needed
+	// This MUST happen after resumeCommandSequence so that commands like `ret "good"` have run
+	if isBraceCoordinatorChild && newChainedToken == "" {
+		// No more async pending - we have the final result
+		var resultValue interface{}
+		if state != nil && state.HasResult() {
+			resultValue = state.GetResult()
+		}
+
+		// Clean up before forwarding
+		e.cleanupTokenChildrenLocked(tokenID)
+		e.completeTokenLocked(tokenID, success, resultValue)
+
+		e.mu.Unlock()
+
+		e.logger.DebugCat(CatAsync, "Token %s is child of brace coordinator %s, forwarding result: %v", tokenID, coordinatorToken, resultValue)
+		e.ResumeBraceEvaluation(coordinatorToken, tokenID, resultValue, success)
+
+		// Release state references
+		if state != nil {
+			state.ReleaseAllReferences()
+		}
+
+		return success
+	}
+
 	// If resume created a new chained token, it means an async operation was encountered.
 	// That new token is chained FROM the async operation's token, and will be triggered
 	// when the async completes. We should NOT immediately resume it - just propagate
@@ -403,6 +480,18 @@ func (e *Executor) PopAndResumeCommandSequence(tokenID string, status bool) bool
 		// newChainedToken will be triggered by its parent async token when it completes.
 		// Just propagate the waitChan to it.
 		chainedToken = newChainedToken
+
+		// If we're a brace coordinator child, propagate that relationship to the new token
+		if isBraceCoordinatorChild {
+			if newTokenData, exists := e.activeTokens[newChainedToken]; exists {
+				newTokenData.ParentToken = coordinatorToken
+				// Also register as child of the coordinator
+				if coordData, coordExists := e.activeTokens[coordinatorToken]; coordExists {
+					coordData.Children[newChainedToken] = true
+				}
+				e.logger.DebugCat(CatAsync,"Propagated brace coordinator parent %s to new token %s", coordinatorToken, newChainedToken)
+			}
+		}
 	}
 	parentToken := tokenData.ParentToken
 	fiberID := tokenData.FiberID
@@ -414,13 +503,21 @@ func (e *Executor) PopAndResumeCommandSequence(tokenID string, status bool) bool
 		fiberHandle = e.activeFibers[fiberID]
 	}
 
-	delete(e.activeTokens, tokenID)
+	// Get the result value before completing
+	var resultValue interface{}
+	if state != nil {
+		resultValue = state.GetResult()
+	}
 
+	// Remove this token from parent's children list
 	if parentToken != "" {
 		if parent, exists := e.activeTokens[parentToken]; exists {
 			delete(parent.Children, tokenID)
 		}
 	}
+
+	// Complete the token (marks as done, releases executor's ref)
+	e.completeTokenLocked(tokenID, success, resultValue)
 
 	e.mu.Unlock()
 
@@ -455,8 +552,18 @@ func (e *Executor) PopAndResumeCommandSequence(tokenID string, status bool) bool
 		if asyncPending {
 			e.logger.DebugCat(CatAsync,"Async operation pending, not immediately triggering chained token %s", chainedToken)
 			// Release our state references since we're done with this token
+			// But only if no other token is using the same state
 			if tokenData.ExecutionState != nil {
-				tokenData.ExecutionState.ReleaseAllReferences()
+				stateInUse := false
+				for otherID, otherData := range e.activeTokens {
+					if otherID != tokenID && otherData.ExecutionState == tokenData.ExecutionState {
+						stateInUse = true
+						break
+					}
+				}
+				if !stateInUse {
+					tokenData.ExecutionState.ReleaseAllReferences()
+				}
 			}
 			return success
 		}
@@ -464,15 +571,22 @@ func (e *Executor) PopAndResumeCommandSequence(tokenID string, status bool) bool
 		e.logger.DebugCat(CatAsync,"Triggering chained token %s with result %v", chainedToken, success)
 		result := e.PopAndResumeCommandSequence(chainedToken, success)
 
-		// Release all object references held by this token's state
-		if tokenData.ExecutionState != nil {
-			tokenData.ExecutionState.ReleaseAllReferences()
-		}
+		// Don't release state references here - the chained token (or its chain)
+		// will handle releasing the state when the final command completes.
+		// If we released here, we'd double-release since the chained token already
+		// released when it found no other tokens using the state.
 
 		return result
 	}
 
 	// No chained token - this is the final token in the chain
+
+	// If this token has a parent state (from macro async), transfer the result now
+	if tokenData.ParentState != nil && state != nil && state.HasResult() {
+		tokenData.ParentState.SetResult(state.GetResult())
+		e.logger.DebugCat(CatAsync,"Transferred async macro result to parent state: %v", state.GetResult())
+	}
+
 	// If this token has a wait channel (synchronous blocking), send to it now
 	if waitChan != nil {
 		e.logger.DebugCat(CatAsync,"Sending resume data to wait channel for token %s (final in chain)", tokenID)
@@ -484,11 +598,24 @@ func (e *Executor) PopAndResumeCommandSequence(tokenID string, status bool) bool
 		// Send to wait channel (blocking is expected here)
 		waitChan <- resumeData
 		e.logger.DebugCat(CatAsync,"Successfully sent resume data to wait channel")
+		// Don't release state references here - the caller (e.g., while loop)
+		// is still using this state and will continue after receiving from waitChan
+		return success
 	}
 
-	// No chain - safe to release now
+	// No chain and no waitChan - safe to release now
+	// But only release if this state is not being used by any other active token
 	if tokenData.ExecutionState != nil {
-		tokenData.ExecutionState.ReleaseAllReferences()
+		stateInUse := false
+		for otherID, otherData := range e.activeTokens {
+			if otherID != tokenID && otherData.ExecutionState == tokenData.ExecutionState {
+				stateInUse = true
+				break
+			}
+		}
+		if !stateInUse {
+			tokenData.ExecutionState.ReleaseAllReferences()
+		}
 	}
 
 	return success
@@ -506,6 +633,94 @@ func (e *Executor) cleanupTokenChildrenLocked(tokenID string) {
 	}
 }
 
+// completeTokenLocked marks a token as completed and releases the executor's reference.
+// The token remains in storedObjects until its refcount reaches 0 (GC'd).
+// Must be called with e.mu lock held.
+func (e *Executor) completeTokenLocked(tokenID string, status bool, result interface{}) {
+	tokenData, exists := e.activeTokens[tokenID]
+	if !exists {
+		return
+	}
+
+	// Mark as completed with final status/result
+	tokenData.Completed = true
+	tokenData.FinalStatus = status
+	tokenData.FinalResult = result
+
+	// If the result is an ObjectRef, claim a reference so it's not GC'd
+	// while the token still holds it (same pattern as lists claiming nested items)
+	if resultRef, ok := result.(ObjectRef); ok && resultRef.IsValid() {
+		if obj, objExists := e.storedObjects[resultRef.ID]; objExists && !obj.Deleted {
+			obj.RefCount++
+			e.logger.DebugCat(CatMemory, "Token %s claims result ref %v, refcount now %d",
+				tokenID, resultRef, obj.RefCount)
+		}
+	}
+
+	// Cancel the context (stops timeout goroutine)
+	if tokenData.CancelFunc != nil {
+		tokenData.CancelFunc()
+	}
+
+	// Remove from activeTokens (no longer actively running)
+	delete(e.activeTokens, tokenID)
+
+	// Remove from string→ID lookup (no longer need reverse lookup for resume)
+	delete(e.tokenStringToID, tokenID)
+
+	// Check if token can be freed (no external refs)
+	// Executor doesn't hold a claim - only external claims (SetResult, SetVariable) affect refcount
+	objectID := tokenData.ObjectID
+	if obj, objExists := e.storedObjects[objectID]; objExists && !obj.Deleted {
+		e.logger.DebugCat(CatMemory, "Token %s completed, refcount is %d", tokenID, obj.RefCount)
+		if obj.RefCount <= 0 {
+			// No external references, can be freed
+			// First release the FinalResult ref if it was an ObjectRef
+			if resultRef, ok := tokenData.FinalResult.(ObjectRef); ok && resultRef.IsValid() {
+				if resultObj, resultExists := e.storedObjects[resultRef.ID]; resultExists && !resultObj.Deleted {
+					resultObj.RefCount--
+					e.logger.DebugCat(CatMemory, "Token %s releasing result ref %v, refcount now %d",
+						tokenID, resultRef, resultObj.RefCount)
+				}
+			}
+			obj.Deleted = true
+			obj.Value = nil
+			e.freeIDs = append(e.freeIDs, objectID)
+			e.logger.DebugCat(CatMemory, "Token object %d freed (no refs)", objectID)
+		}
+	}
+}
+
+// forceDeleteTokenLocked immediately removes a token from the object system.
+// Used for forced cleanup (timeout, cancellation). Bypasses normal GC.
+// Must be called with e.mu lock held.
+func (e *Executor) forceDeleteTokenLocked(tokenID string) {
+	tokenData, exists := e.activeTokens[tokenID]
+	if !exists {
+		return
+	}
+
+	// Cancel the context
+	if tokenData.CancelFunc != nil {
+		tokenData.CancelFunc()
+	}
+
+	// Remove from activeTokens
+	delete(e.activeTokens, tokenID)
+
+	// Remove from string→ID lookup
+	delete(e.tokenStringToID, tokenID)
+
+	// Force delete from object system (bypass refcount)
+	objectID := tokenData.ObjectID
+	if obj, objExists := e.storedObjects[objectID]; objExists {
+		obj.Deleted = true
+		obj.Value = nil
+		e.freeIDs = append(e.freeIDs, objectID)
+		e.logger.DebugCat(CatMemory, "Token object %d force deleted", objectID)
+	}
+}
+
 // ForceCleanupToken forces cleanup of a token
 func (e *Executor) ForceCleanupToken(tokenID string) {
 	e.mu.Lock()
@@ -520,24 +735,30 @@ func (e *Executor) forceCleanupTokenLocked(tokenID string) {
 		return
 	}
 
-	e.logger.DebugCat(CatAsync,"Force cleaning up token: %s", tokenID)
+	e.logger.DebugCat(CatAsync, "Force cleaning up token: %s", tokenID)
 
 	if tokenData.CleanupCallback != nil {
 		tokenData.CleanupCallback(tokenID)
 	}
 
-	if tokenData.CancelFunc != nil {
-		tokenData.CancelFunc()
-	}
-
 	e.cleanupTokenChildrenLocked(tokenID)
 
 	// Release all object references held by this token's state
+	// But only if no other token is using the same state
 	if tokenData.ExecutionState != nil {
-		tokenData.ExecutionState.ReleaseAllReferences()
+		stateInUse := false
+		for otherID, otherData := range e.activeTokens {
+			if otherID != tokenID && otherData.ExecutionState == tokenData.ExecutionState {
+				stateInUse = true
+				break
+			}
+		}
+		if !stateInUse {
+			tokenData.ExecutionState.ReleaseAllReferences()
+		}
 	}
 
-	delete(e.activeTokens, tokenID)
+	e.forceDeleteTokenLocked(tokenID)
 }
 
 // resumeCommandSequence resumes execution of a command sequence
@@ -551,7 +772,7 @@ func (e *Executor) resumeCommandSequence(seq *CommandSequence, status bool, stat
 	case "or":
 		return e.resumeOr(seq, status, state)
 	default:
-		e.logger.ErrorCat(CatAsync,"Unknown command sequence type: %s", seq.Type)
+		e.logErrorWithContext(CatAsync, fmt.Sprintf("Unknown command sequence type: %s", seq.Type), state, nil)
 		return false, ""
 	}
 }
@@ -596,7 +817,7 @@ func (e *Executor) resumeSequence(seq *CommandSequence, status bool, state *Exec
 
 				err := e.PushCommandSequence(sequenceToken, "sequence", remainingCommands, 0, "sequence", state, parsedCmd.Position)
 				if err != nil {
-					e.logger.ErrorCat(CatAsync,"Failed to push command sequence: %v", err)
+					e.logErrorWithContext(CatAsync, fmt.Sprintf("Failed to push command sequence: %v", err), state, parsedCmd.Position)
 					return false, ""
 				}
 
@@ -662,7 +883,7 @@ func (e *Executor) resumeConditional(seq *CommandSequence, status bool, state *E
 
 				err := e.PushCommandSequence(sequenceToken, "conditional", remainingCommands, 0, "conditional", state, parsedCmd.Position)
 				if err != nil {
-					e.logger.ErrorCat(CatAsync,"Failed to push command sequence: %v", err)
+					e.logErrorWithContext(CatAsync, fmt.Sprintf("Failed to push command sequence: %v", err), state, parsedCmd.Position)
 					return false, ""
 				}
 
@@ -731,7 +952,7 @@ func (e *Executor) resumeOr(seq *CommandSequence, status bool, state *ExecutionS
 
 				err := e.PushCommandSequence(sequenceToken, "or", remainingCommands, 0, "or", state, parsedCmd.Position)
 				if err != nil {
-					e.logger.ErrorCat(CatAsync,"Failed to push command sequence: %v", err)
+					e.logErrorWithContext(CatAsync, fmt.Sprintf("Failed to push command sequence: %v", err), state, parsedCmd.Position)
 					return false, ""
 				}
 
@@ -765,7 +986,14 @@ func (e *Executor) chainTokens(firstToken, secondToken string) {
 	secondTokenData, exists2 := e.activeTokens[secondToken]
 
 	if !exists1 || !exists2 {
-		e.logger.ErrorCat(CatAsync,"Cannot chain tokens: %s or %s not found", firstToken, secondToken)
+		// Try to get a state from whichever token exists for error routing
+		var state *ExecutionState
+		if exists1 {
+			state = firstTokenData.ExecutionState
+		} else if exists2 {
+			state = secondTokenData.ExecutionState
+		}
+		e.logErrorWithContext(CatAsync, fmt.Sprintf("Cannot chain tokens: %s or %s not found", firstToken, secondToken), state, nil)
 		return
 	}
 

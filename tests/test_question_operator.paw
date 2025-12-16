@@ -85,4 +85,17 @@ echo "undefined var exists: ~has_undef"
 echo "(Expected: false)"
 echo ""
 
+echo "=== Test9: Test escaping of operator ==="
+macro nestedbad(
+    echo "\?bad"
+    qval: "\?bad"
+    echo ~qval
+)
+echo "\?bad"
+qval: "\?bad"
+echo ~qval
+nestedbad
+write "(Expected ", "?", "bad ?", "bad ?", "bad ?", "bad)"
+print
+
 echo "=== All ? operator tests complete ==="

@@ -1,0 +1,21 @@
+=== Test 1: Basic forward declaration ===
+will_be_defined received: from caller
+
+=== Test 2: Direct use of forward-then-defined macro ===
+Hello, World!
+
+=== Test 3: Cannot forward declare existing macro ===
+[PawScript:macro ERROR] Cannot create forward declaration for 'existing_macro': macro already exists (use macro_delete first)
+Forward declaration of existing macro correctly failed
+
+=== Test 4: Simple mutual reference (shallow) ===
+func_a called with: direct call
+func_a called with: go_to_b
+func_b called with: from func_a
+
+=== Test 5: Forward declaration allows definition order independence ===
+Step 1
+Step 2
+Step 3 - done!
+
+=== All macro_forward tests complete ===

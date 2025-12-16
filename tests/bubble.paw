@@ -1,0 +1,187 @@
+#!/usr/bin/env pawscript
+# Comprehensive tests for bubble/fizz/burst commands (exception-like system)
+
+echo "=== BASIC BUBBLE TESTS ==="
+
+# Add simple bubbles
+bubble "errors", "First error message"
+bubble "errors", "Second error message"
+bubble "warnings", "A warning"
+
+echo "Added 3 bubbles (2 errors, 1 warning)"
+
+# Iterate over errors
+echo "Errors:"
+fizz "errors", msg, (
+    echo "  -", ~msg
+)
+
+# Iterate over warnings
+echo "Warnings:"
+fizz "warnings", msg, (
+    echo "  -", ~msg
+)
+
+echo ""
+echo "=== MULTIPLE FLAVORS ==="
+
+# Add bubble to multiple flavors at once
+bubble ("log", "audit"), "User logged in"
+bubble ("log", "audit"), "User changed password"
+
+echo "Log entries:"
+fizz "log", entry, (
+    echo "  -", ~entry
+)
+
+echo "Audit entries:"
+fizz "audit", entry, (
+    echo "  -", ~entry
+)
+
+echo ""
+echo "=== BURST (REMOVING BUBBLES) ==="
+
+# Add some bubbles to process
+bubble "tasks", "Task 1"
+bubble "tasks", "Task 2"
+bubble "tasks", "Task 3"
+
+echo "Processing tasks (bursting each):"
+fizz "tasks", task, (
+    echo "  Processing:", ~task
+    burst  # Remove this bubble after processing
+)
+
+# Verify they're gone
+echo "Remaining tasks after burst:"
+count: 0
+fizz "tasks", task, (
+    count: {add ~count, 1}
+)
+echo "  Count:", ~count
+
+echo ""
+echo "=== BUBBLE WITH METADATA ==="
+
+# Add bubble with trace disabled
+bubble "silent", "No stack trace", false
+
+# Add bubble with memo
+bubble "noted", "Important item", true, "High priority"
+
+# Access metadata via fizz with meta variable
+echo "Noted items with metadata:"
+fizz "noted", content, meta, (
+    echo "  Content:", ~content
+    echo "  Memo:", ~meta.memo
+)
+
+echo ""
+echo "=== CONDITIONAL BURST ==="
+
+# Add items, only burst certain ones
+bubble "numbers", 1
+bubble "numbers", 2
+bubble "numbers", 3
+bubble "numbers", 4
+bubble "numbers", 5
+
+echo "Bursting even numbers only:"
+fizz "numbers", num, (
+    remainder: {iremainder ~num, 2}
+    if {eq ~remainder, 0} then (
+        echo "  Bursting:", ~num
+        burst
+    )
+)
+
+echo "Remaining numbers:"
+fizz "numbers", num, (
+    echo "  -", ~num
+)
+
+echo ""
+echo "=== MULTIPLE FLAVOR ITERATION ==="
+
+# Add to various categories
+bubble "info", "Info message 1"
+bubble "debug", "Debug message 1"
+bubble "info", "Info message 2"
+bubble "debug", "Debug message 2"
+
+echo "All info and debug messages (combined iteration):"
+fizz ("info", "debug"), msg, (
+    echo "  -", ~msg
+)
+
+echo ""
+echo "=== NESTED FIZZ LOOPS ==="
+
+bubble "outer", "A"
+bubble "outer", "B"
+bubble "inner", "1"
+bubble "inner", "2"
+
+echo "Nested iteration:"
+fizz "outer", o, (
+    echo "  Outer:", ~o
+    fizz "inner", i, (
+        echo "    Inner:", ~i
+    )
+)
+
+echo ""
+echo "=== BUBBLE AS EXCEPTION HANDLER ==="
+
+# Define a macro that can "throw" errors
+macro risky_operation (
+    success: $1
+    if ~success then (
+        echo "  Operation succeeded"
+        set_result "Success result"
+    ) else (
+        bubble "exceptions", "Operation failed!"
+        set_result nil
+    )
+)
+
+echo "Running operations:"
+echo "Op 1:"
+risky_operation true
+echo "Op 2:"
+risky_operation false
+echo "Op 3:"
+risky_operation true
+
+# "Catch" exceptions
+echo "Caught exceptions:"
+fizz "exceptions", ex, (
+    echo "  Exception:", ~ex
+    burst  # Clear after handling
+)
+
+echo ""
+echo "=== EMPTY FIZZ (NO BUBBLES) ==="
+
+echo "Iterating over empty flavor:"
+count: 0
+fizz "nonexistent", item, (
+    count: {add ~count, 1}
+)
+echo "  Iterations:", ~count
+
+echo ""
+echo "=== BUBBLE WITH STRUCTURED DATA ==="
+
+# Bubbles can hold any PawScript value
+bubble "records", {list name: "Alice", age: 30}
+bubble "records", {list name: "Bob", age: 25}
+
+echo "Records:"
+fizz "records", record, (
+    echo "  Name:", ~record.name, "Age:", ~record.age
+)
+
+echo ""
+echo "=== DONE ==="

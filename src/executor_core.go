@@ -2,6 +2,7 @@ package pawscript
 
 import (
 	"fmt"
+	"regexp"
 	"sync"
 	"time"
 )
@@ -9,38 +10,312 @@ import (
 // StoredObject represents a reference-counted stored object
 type StoredObject struct {
 	Value    interface{} // The actual object (StoredList, etc.)
-	Type     string      // "list", "dict", etc.
+	Type     ObjectType  // Object type (ObjList, ObjString, etc.)
 	RefCount int         // Number of contexts holding references
+	Hash     uint64      // Content hash for immutable types (0 for mutable)
+	Deleted  bool        // Marked for ID reuse when true
 }
 
 // Executor handles command execution
 type Executor struct {
 	mu               sync.RWMutex
 	commands         map[string]Handler
-	activeTokens     map[string]*TokenData
-	storedObjects    map[int]*StoredObject // Global reference-counted object store
-	activeFibers     map[int]*FiberHandle  // Currently running fibers
+	activeTokens     map[string]*TokenData     // String ID → TokenData (for backward compat, will migrate away)
+	tokenStringToID  map[string]int            // String ID → object ID (for host resume operations)
+	storedObjects    map[int]*StoredObject     // Global reference-counted object store
+	contentHash      map[uint64]int            // Hash → object ID for deduplication lookup
+	freeIDs          []int                     // Recycled IDs from deleted objects
+	activeFibers     map[int]*FiberHandle      // Currently running fibers
 	orphanedBubbles  map[string][]*BubbleEntry // Bubbles from abandoned fibers
+	blockCache       map[int][]*ParsedCommand  // Cached parsed forms for StoredBlock objects (by ID)
+	keyInputManager  *KeyInputManager          // Raw keyboard input manager (if initialized)
+	keyInputChannel  *StoredChannel            // Input channel being used by keyInputManager (for mode restore)
 	nextTokenID      int
 	nextObjectID     int
 	nextFiberID      int
+	emptyListID      int               // ID of the canonical empty list (immortal, never freed)
+	deduplicationEnabled bool          // Toggle content-addressable deduplication on/off
 	logger           *Logger
+	optLevel         OptimizationLevel // AST caching level
+	maxIterations    int               // Maximum loop iterations (0 or negative = unlimited)
+	rootState        *ExecutionState   // Root execution state for routing errors when no specific state is available
 	fallbackHandler  func(cmdName string, args []interface{}, namedArgs map[string]interface{}, state *ExecutionState, position *SourcePosition) Result
 }
 
 // NewExecutor creates a new command executor
 func NewExecutor(logger *Logger) *Executor {
-	return &Executor{
-		commands:        make(map[string]Handler),
-		activeTokens:    make(map[string]*TokenData),
-		storedObjects:   make(map[int]*StoredObject),
-		activeFibers:    make(map[int]*FiberHandle),
-		orphanedBubbles: make(map[string][]*BubbleEntry),
-		nextTokenID:     1,
-		nextObjectID:    1,
-		nextFiberID:     1, // 0 is reserved for main fiber
-		logger:          logger,
+	e := &Executor{
+		commands:             make(map[string]Handler),
+		activeTokens:         make(map[string]*TokenData),
+		tokenStringToID:      make(map[string]int),
+		storedObjects:        make(map[int]*StoredObject),
+		contentHash:          make(map[uint64]int),
+		freeIDs:              make([]int, 0),
+		activeFibers:         make(map[int]*FiberHandle),
+		orphanedBubbles:      make(map[string][]*BubbleEntry),
+		blockCache:           make(map[int][]*ParsedCommand),
+		nextTokenID:          1,
+		nextObjectID:         1,
+		nextFiberID:          1, // 0 is reserved for main fiber
+		deduplicationEnabled: true, // Enable deduplication by default
+		logger:               logger,
+		optLevel:             OptimizeBasic, // Default to caching enabled
 	}
+
+	// Create the canonical empty list with an immortal refcount
+	// This list is used for all empty list references to avoid refcount issues
+	emptyList := NewStoredListWithoutRefs(nil)
+	e.emptyListID = e.nextObjectID
+	e.nextObjectID++
+	e.storedObjects[e.emptyListID] = &StoredObject{
+		Value:    emptyList,
+		Type:     ObjList,
+		RefCount: 1000000, // Immortal - will never reach 0
+		Hash:     0,       // Empty list hash (will be set properly later)
+	}
+
+	return e
+}
+
+// SetOptimizationLevel sets the AST caching level
+func (e *Executor) SetOptimizationLevel(level OptimizationLevel) {
+	e.mu.Lock()
+	defer e.mu.Unlock()
+	e.optLevel = level
+}
+
+// GetOptimizationLevel returns the current AST caching level
+func (e *Executor) GetOptimizationLevel() OptimizationLevel {
+	e.mu.RLock()
+	defer e.mu.RUnlock()
+	return e.optLevel
+}
+
+// SetMaxIterations sets the maximum loop iterations
+// 0 or negative values mean unlimited iterations
+func (e *Executor) SetMaxIterations(max int) {
+	e.mu.Lock()
+	defer e.mu.Unlock()
+	e.maxIterations = max
+}
+
+// GetMaxIterations returns the maximum loop iterations setting
+// 0 or negative means unlimited
+func (e *Executor) GetMaxIterations() int {
+	e.mu.RLock()
+	defer e.mu.RUnlock()
+	return e.maxIterations
+}
+
+// SetRootState sets the root execution state for error routing fallback
+func (e *Executor) SetRootState(state *ExecutionState) {
+	e.mu.Lock()
+	defer e.mu.Unlock()
+	e.rootState = state
+}
+
+// logErrorWithContext logs an error through the #err channel using the execution state context
+// This ensures errors appear in the PawScript #err channel instead of system stderr
+// If state is nil, falls back to the root execution state
+func (e *Executor) logErrorWithContext(cat LogCategory, message string, state *ExecutionState, position *SourcePosition) {
+	if state == nil {
+		state = e.rootState
+	}
+	e.logger.SetOutputContext(NewOutputContext(state, e))
+	e.logger.CommandError(cat, "", message, position)
+	e.logger.ClearOutputContext()
+}
+
+// GetOrParseMacroCommands returns cached parsed commands for a macro, or parses and caches them
+// If caching is disabled (OptimizeNone), it parses fresh each time
+// The returned commands can be executed with ExecuteParsedCommands
+func (e *Executor) GetOrParseMacroCommands(macro *StoredMacro, filename string) ([]*ParsedCommand, error) {
+	// Check if we already have cached commands
+	if macro.CachedCommands != nil && e.optLevel >= OptimizeBasic {
+		e.logger.DebugCat(CatCommand, "Using cached parsed commands for macro")
+		return macro.CachedCommands, nil
+	}
+
+	// Parse the commands
+	parser := NewParser(macro.Commands, filename)
+	cleanedCommand := parser.RemoveComments(macro.Commands)
+	normalizedCommand := parser.NormalizeKeywords(cleanedCommand)
+
+	commands, err := parser.ParseCommandSequence(normalizedCommand)
+	if err != nil {
+		return nil, err
+	}
+
+	// Cache the parsed commands if optimization is enabled
+	if e.optLevel >= OptimizeBasic && len(commands) > 0 {
+		macro.CachedCommands = commands
+		e.logger.DebugCat(CatCommand, "Cached %d parsed commands for macro", len(commands))
+
+		// Pre-cache brace expressions and substitution templates in each command
+		for _, cmd := range commands {
+			e.preCacheBraceExpressions(cmd, cmd.Command, filename)
+			e.PreCacheCommandTemplates(cmd, filename)
+		}
+	}
+
+	return commands, nil
+}
+
+// dollarSubstitutionPattern matches $N (like $1, $2) and $* patterns
+var dollarSubstitutionPattern = regexp.MustCompile(`\$(\d+|\*)`)
+
+// GetOrCacheBlockArg returns cached parsed commands for a block argument, or parses and caches them.
+// This is called by loop commands (while, for, repeat, fizz) to cache their body blocks.
+// If the block contains $N patterns, it cannot be cached and nil is returned (caller should parse fresh).
+// If cmd is nil (not from cached macro), nil is returned and caller should parse fresh.
+func (e *Executor) GetOrCacheBlockArg(cmd *ParsedCommand, argIndex int, blockStr string, filename string) []*ParsedCommand {
+	if e.optLevel < OptimizeBasic || cmd == nil {
+		return nil // Caller should parse fresh
+	}
+
+	// Check if already cached
+	if cmd.CachedBlockArgs != nil {
+		if cached, exists := cmd.CachedBlockArgs[argIndex]; exists {
+			e.logger.DebugCat(CatCommand, "Using cached block at arg %d (%d commands)", argIndex, len(cached))
+			return cached
+		}
+	}
+
+	// Skip if the block contains $N substitution patterns (needs per-invocation parsing)
+	if dollarSubstitutionPattern.MatchString(blockStr) {
+		e.logger.DebugCat(CatCommand, "Block at arg %d contains $ pattern, cannot cache", argIndex)
+		return nil
+	}
+
+	// Parse the block
+	parser := NewParser(blockStr, filename)
+	cleanedBlock := parser.RemoveComments(blockStr)
+	normalizedBlock := parser.NormalizeKeywords(cleanedBlock)
+
+	parsedBlock, err := parser.ParseCommandSequence(normalizedBlock)
+	if err != nil {
+		e.logger.DebugCat(CatCommand, "Failed to parse block at arg %d: %v", argIndex, err)
+		return nil
+	}
+
+	if len(parsedBlock) == 0 {
+		return nil
+	}
+
+	// Store the cached parsed block
+	if cmd.CachedBlockArgs == nil {
+		cmd.CachedBlockArgs = make(map[int][]*ParsedCommand)
+	}
+	cmd.CachedBlockArgs[argIndex] = parsedBlock
+	e.logger.DebugCat(CatCommand, "Cached block at arg %d (%d commands)", argIndex, len(parsedBlock))
+
+	return parsedBlock
+}
+
+// preCacheBraceExpressions finds and pre-parses brace expressions in a command string.
+// It stores the parsed commands in cmd.CachedBraces keyed by brace content.
+// This is called during macro body caching to avoid re-parsing braces at runtime.
+func (e *Executor) preCacheBraceExpressions(cmd *ParsedCommand, commandStr string, filename string) {
+	if e.optLevel < OptimizeBasic || cmd == nil {
+		return
+	}
+
+	// Skip if the command string contains $N patterns (needs per-invocation parsing)
+	if dollarSubstitutionPattern.MatchString(commandStr) {
+		return
+	}
+
+	// Find all brace expressions in the command string
+	braces := e.findAllTopLevelBraces(commandStr, nil)
+	if len(braces) == 0 {
+		return
+	}
+
+	for _, brace := range braces {
+		// Skip ${...} unescape braces - they're not executed as code
+		if brace.IsUnescape {
+			continue
+		}
+
+		content := brace.Content
+
+		// Skip if content contains $N patterns
+		if dollarSubstitutionPattern.MatchString(content) {
+			continue
+		}
+
+		// Parse the brace content
+		parser := NewParser(content, filename)
+		cleanedContent := parser.RemoveComments(content)
+		normalizedContent := parser.NormalizeKeywords(cleanedContent)
+
+		parsedCmds, err := parser.ParseCommandSequence(normalizedContent)
+		if err != nil {
+			e.logger.DebugCat(CatCommand, "Failed to pre-parse brace content: %v", err)
+			continue
+		}
+
+		if len(parsedCmds) == 0 {
+			continue
+		}
+
+		// Store in cache
+		if cmd.CachedBraces == nil {
+			cmd.CachedBraces = make(map[string][]*ParsedCommand)
+		}
+		cmd.CachedBraces[content] = parsedCmds
+		e.logger.DebugCat(CatCommand, "Pre-cached brace expression: {%s} (%d commands)", content, len(parsedCmds))
+
+		// Recursively pre-cache braces in the parsed commands
+		for _, parsedCmd := range parsedCmds {
+			e.preCacheBraceExpressions(parsedCmd, parsedCmd.Command, filename)
+		}
+	}
+}
+
+// ExecuteParsedCommands executes pre-parsed commands with the given state and context
+// This is the cached-command equivalent of ExecuteWithState
+func (e *Executor) ExecuteParsedCommands(
+	commands []*ParsedCommand,
+	state *ExecutionState,
+	substitutionCtx *SubstitutionContext,
+	lineOffset, columnOffset int,
+) Result {
+	// Ensure state has executor reference for object management
+	if state != nil && state.executor == nil {
+		state.executor = e
+	}
+
+	if len(commands) == 0 {
+		return BoolStatus(true)
+	}
+
+	// Apply position offsets to all commands (make copies to avoid mutating cached commands)
+	if lineOffset > 0 || columnOffset > 0 {
+		adjustedCommands := make([]*ParsedCommand, len(commands))
+		for i, cmd := range commands {
+			// Create a shallow copy with adjusted position
+			adjustedCmd := *cmd
+			if cmd.Position != nil {
+				adjustedPos := *cmd.Position
+				adjustedPos.Line += lineOffset
+				if adjustedPos.Line == lineOffset+1 {
+					adjustedPos.Column += columnOffset
+				}
+				adjustedCmd.Position = &adjustedPos
+			}
+			// Track original for handler caching (cache should persist on original, not copy)
+			adjustedCmd.OriginalCmd = cmd
+			adjustedCommands[i] = &adjustedCmd
+		}
+		commands = adjustedCommands
+	}
+
+	if len(commands) == 1 {
+		return e.executeParsedCommand(commands[0], state, substitutionCtx)
+	}
+
+	return e.executeCommandSequence(commands, state, substitutionCtx)
 }
 
 // AddOrphanedBubbles merges bubbles from an abandoned fiber into orphanedBubbles
@@ -122,8 +397,6 @@ func (e *Executor) Execute(commandStr string, args ...interface{}) Result {
 	e.logger.DebugCat(CatCommand, "Execute called with command: %s", commandStr)
 
 	state := NewExecutionState()
-	// Ensure cleanup happens when execution completes
-	defer state.ReleaseAllReferences()
 
 	// If args provided, execute as direct command call
 	if len(args) > 0 {
@@ -132,16 +405,28 @@ func (e *Executor) Execute(commandStr string, args ...interface{}) Result {
 		e.mu.RUnlock()
 
 		if exists {
-			ctx := e.createContext(args, nil, nil, state, nil)
-			return handler(ctx)
+			ctx := e.createContext(args, nil, nil, state, nil, nil)
+			result := handler(ctx)
+			// Only release state if not returning a token (async operation)
+			if _, isToken := result.(TokenResult); !isToken {
+				state.ReleaseAllReferences()
+			}
+			return result
 		}
 
 		e.logger.UnknownCommandError(commandStr, nil, nil)
-		state.SetResult(Symbol(UndefinedMarker)) // Marker not bare Symbol - bare Symbol("undefined") clears the result
+		state.SetResult(ActualUndefined{}) // ActualUndefined not bare Symbol - bare Symbol("undefined") clears the result
+		state.ReleaseAllReferences()
 		return BoolStatus(false)
 	}
 
-	return e.ExecuteWithState(commandStr, state, nil, "", 0, 0)
+	result := e.ExecuteWithState(commandStr, state, nil, "", 0, 0)
+	// Only release state if not returning a token (async operation)
+	// The token system will release the state when the async operation completes
+	if _, isToken := result.(TokenResult); !isToken {
+		state.ReleaseAllReferences()
+	}
+	return result
 }
 
 // ExecuteWithState executes with explicit state and substitution context
@@ -209,15 +494,20 @@ func (e *Executor) ExecuteWithState(
 }
 
 // createContext creates a command context
-func (e *Executor) createContext(args []interface{}, rawArgs []string, namedArgs map[string]interface{}, state *ExecutionState, position *SourcePosition) *Context {
+func (e *Executor) createContext(args []interface{}, rawArgs []string, namedArgs map[string]interface{}, state *ExecutionState, position *SourcePosition, substitutionCtx *SubstitutionContext) *Context {
+	var parsedCmd *ParsedCommand
+	if substitutionCtx != nil {
+		parsedCmd = substitutionCtx.CurrentParsedCommand
+	}
 	return &Context{
-		Args:      args,
-		RawArgs:   rawArgs,
-		NamedArgs: namedArgs,
-		Position:  position,
-		state:     state,
-		executor:  e,
-		logger:    e.logger,
+		Args:          args,
+		RawArgs:       rawArgs,
+		NamedArgs:     namedArgs,
+		Position:      position,
+		state:         state,
+		executor:      e,
+		logger:        e.logger,
+		ParsedCommand: parsedCmd,
 		requestToken: func(cleanup func(string)) string {
 			return e.RequestCompletionToken(cleanup, "", 5*time.Minute, state, position)
 		},
@@ -251,6 +541,19 @@ func (e *Executor) executeStoredMacro(
 	invocationPosition *SourcePosition,
 	parentState *ExecutionState,
 ) Result {
+	// Check for unresolved forward declaration
+	if macro.IsForward {
+		macroDesc := name
+		if macroDesc == "" {
+			macroDesc = "<anonymous>"
+		}
+		e.logErrorWithContext(CatMacro, fmt.Sprintf("Cannot call macro '%s': forward declaration was never resolved with a macro definition", macroDesc), state, invocationPosition)
+		if state != nil {
+			state.SetResult(Symbol("undefined"))
+		}
+		return BoolStatus(false)
+	}
+
 	// Create macro context for error tracking
 	macroContext := &MacroContext{
 		MacroName:        name, // Empty for anonymous macros
@@ -304,12 +607,11 @@ func (e *Executor) executeStoredMacro(
 
 	// Create a LIST from the arguments (both positional and named) and store it as $@
 	argsList := NewStoredListWithRefs(args, namedArgs, state.executor)
-	argsListID := state.executor.storeObject(argsList, "list")
-	argsMarker := fmt.Sprintf("\x00LIST:%d\x00", argsListID)
+	argsListRef := state.executor.RegisterObject(argsList, ObjList)
 
-	// Store the list marker in the state's variables as $@
+	// Store the list ObjectRef in the state's variables as $@
 	// SetVariable will claim the reference
-	state.SetVariable("$@", Symbol(argsMarker))
+	state.SetVariable("$@", argsListRef)
 
 	// Create substitution context for macro arguments
 	// Use macro definition location for error reporting within macro body

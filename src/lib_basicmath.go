@@ -360,11 +360,8 @@ func (ps *PawScript) RegisterBasicMathLib() {
 		switch v := v.(type) {
 		case StoredList:
 			return true
-		case Symbol:
-			// Check if it's a list marker
-			if markerType, _ := parseObjectMarker(string(v)); markerType == "list" {
-				return true
-			}
+		case ObjectRef:
+			return v.Type == ObjList
 		}
 		return false
 	}
@@ -384,21 +381,18 @@ func (ps *PawScript) RegisterBasicMathLib() {
 			return 0, false
 		}
 
-		// Check if either value is an explicit string type (QuotedString or StoredString)
+		// Check if either value is an explicit string type (QuotedString)
 		// These should always compare alphabetically, not numerically
+		// Note: StoredString is resolved to string by resolveValue(), so only QuotedString applies here
 		var strA, strB string
 		var aIsExplicitStr, bIsExplicitStr bool
 
 		switch va := resolvedA.(type) {
-		case StoredString:
-			strA, aIsExplicitStr = string(va), true
 		case QuotedString:
 			strA, aIsExplicitStr = string(va), true
 		}
 
 		switch vb := resolvedB.(type) {
-		case StoredString:
-			strB, bIsExplicitStr = string(vb), true
 		case QuotedString:
 			strB, bIsExplicitStr = string(vb), true
 		}
@@ -524,6 +518,54 @@ func (ps *PawScript) RegisterBasicMathLib() {
 		first := items[0]
 		for i := 1; i < len(items); i++ {
 			if !deepEqual(first, items[i], ctx.executor) {
+				ctx.SetResult(true)
+				return BoolStatus(true)
+			}
+		}
+		ctx.SetResult(false)
+		return BoolStatus(false)
+	})
+
+	// eqs - shallow equality: all arguments are equal (shallow comparison)
+	// With 2+ args: eqs a, b, c -> a == b == c (shallow)
+	// With single list: eqs ~mylist -> all items equal (shallow)
+	// Shallow means: list members compared by identity, not recursively
+	ps.RegisterCommandInModule("cmp", "eqs", func(ctx *Context) Result {
+		items := getComparisonItems(ctx)
+		if len(items) < 2 {
+			ctx.LogError(CatCommand, "Usage: eqs <a>, <b> [, ...] or eqs <list>")
+			ctx.SetResult(false)
+			return BoolStatus(false)
+		}
+
+		// Compare all items with shallow equality
+		first := items[0]
+		for i := 1; i < len(items); i++ {
+			if !shallowEqual(first, items[i], ctx.executor) {
+				ctx.SetResult(false)
+				return BoolStatus(false)
+			}
+		}
+		ctx.SetResult(true)
+		return BoolStatus(true)
+	})
+
+	// neqs - shallow inequality: at least one argument differs (shallow comparison)
+	// With 2+ args: neqs a, b, c -> at least one differs (shallow)
+	// With single list: neqs ~mylist -> at least one item differs (shallow)
+	// Shallow means: list members compared by identity, not recursively
+	ps.RegisterCommandInModule("cmp", "neqs", func(ctx *Context) Result {
+		items := getComparisonItems(ctx)
+		if len(items) < 2 {
+			ctx.LogError(CatCommand, "Usage: neqs <a>, <b> [, ...] or neqs <list>")
+			ctx.SetResult(false)
+			return BoolStatus(false)
+		}
+
+		// Check if at least one pair is not equal (shallow)
+		first := items[0]
+		for i := 1; i < len(items); i++ {
+			if !shallowEqual(first, items[i], ctx.executor) {
 				ctx.SetResult(true)
 				return BoolStatus(true)
 			}
@@ -737,17 +779,15 @@ func performDivision(ctx *Context, args []interface{}, isInteger bool, remainder
 	}
 
 	if wantRemainder {
-		list := NewStoredList([]interface{}{quotient, remainder})
-		id := ctx.executor.storeObject(list, "list")
-		marker := fmt.Sprintf("\x00LIST:%d\x00", id)
-		ctx.state.SetResultWithoutClaim(Symbol(marker))
+		list := NewStoredListWithoutRefs([]interface{}{quotient, remainder})
+		ref := ctx.executor.RegisterObject(list, ObjList)
+		ctx.state.SetResultWithoutClaim(ref)
 		return BoolStatus(true)
 	}
 	if wantModulo {
-		list := NewStoredList([]interface{}{quotient, modulo})
-		id := ctx.executor.storeObject(list, "list")
-		marker := fmt.Sprintf("\x00LIST:%d\x00", id)
-		ctx.state.SetResultWithoutClaim(Symbol(marker))
+		list := NewStoredListWithoutRefs([]interface{}{quotient, modulo})
+		ref := ctx.executor.RegisterObject(list, ObjList)
+		ctx.state.SetResultWithoutClaim(ref)
 		return BoolStatus(true)
 	}
 

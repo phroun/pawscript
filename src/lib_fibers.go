@@ -1,7 +1,6 @@
 package pawscript
 
 import (
-	"fmt"
 	"sync"
 )
 
@@ -25,6 +24,18 @@ func (ps *PawScript) RegisterFibersLib() {
 		// Check if first argument is a resolved StoredMacro object
 		if m, ok := firstArg.(StoredMacro); ok {
 			macro = &m
+		} else if ref, ok := firstArg.(ObjectRef); ok {
+			// ObjectRef for macro
+			if ref.Type == ObjMacro && ref.IsValid() {
+				obj, exists := ctx.executor.getObject(ref.ID)
+				if !exists {
+					ps.logger.ErrorCat(CatArgument, "Macro object %d not found", ref.ID)
+					return BoolStatus(false)
+				}
+				if m, ok := obj.(StoredMacro); ok {
+					macro = &m
+				}
+			}
 		} else if sym, ok := firstArg.(Symbol); ok {
 			symStr := string(sym)
 			// First check if it's an object marker
@@ -80,11 +91,10 @@ func (ps *PawScript) RegisterFibersLib() {
 		}
 		handle := ctx.executor.SpawnFiber(macro, fiberArgs, namedArgs, parentModuleEnv)
 
-		objectID := ctx.executor.storeObject(handle, "fiber")
-		fiberMarker := fmt.Sprintf("\x00FIBER:%d\x00", objectID)
-		ctx.state.SetResult(Symbol(fiberMarker))
+		fiberRef := ctx.executor.RegisterObject(handle, ObjFiber)
+		ctx.state.SetResult(fiberRef)
 
-		ps.logger.DebugCat(CatAsync, "Spawned fiber %d (object %d)", handle.ID, objectID)
+		ps.logger.DebugCat(CatAsync, "Spawned fiber %d (object %d)", handle.ID, fiberRef.ID)
 		return BoolStatus(true)
 	})
 
@@ -98,6 +108,18 @@ func (ps *PawScript) RegisterFibersLib() {
 		var handle *FiberHandle
 		if h, ok := ctx.Args[0].(*FiberHandle); ok {
 			handle = h
+		} else if ref, ok := ctx.Args[0].(ObjectRef); ok {
+			// ObjectRef for fiber
+			if ref.Type == ObjFiber && ref.IsValid() {
+				obj, exists := ctx.executor.getObject(ref.ID)
+				if !exists {
+					ps.logger.ErrorCat(CatArgument, "Fiber object %d not found", ref.ID)
+					return BoolStatus(false)
+				}
+				if h, ok := obj.(*FiberHandle); ok {
+					handle = h
+				}
+			}
 		} else if sym, ok := ctx.Args[0].(Symbol); ok {
 			markerType, objectID := parseObjectMarker(string(sym))
 			if markerType == "fiber" && objectID >= 0 {
@@ -297,6 +319,18 @@ func (ps *PawScript) RegisterFibersLib() {
 		var handle *FiberHandle
 		if h, ok := ctx.Args[0].(*FiberHandle); ok {
 			handle = h
+		} else if ref, ok := ctx.Args[0].(ObjectRef); ok {
+			// ObjectRef for fiber
+			if ref.Type == ObjFiber && ref.IsValid() {
+				obj, exists := ctx.executor.getObject(ref.ID)
+				if !exists {
+					ps.logger.ErrorCat(CatArgument, "Fiber object %d not found", ref.ID)
+					return BoolStatus(false)
+				}
+				if h, ok := obj.(*FiberHandle); ok {
+					handle = h
+				}
+			}
 		} else if sym, ok := ctx.Args[0].(Symbol); ok {
 			markerType, objectID := parseObjectMarker(string(sym))
 			if markerType == "fiber" && objectID >= 0 {

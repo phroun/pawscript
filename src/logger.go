@@ -273,12 +273,14 @@ func (f *LogFilter) Copy() *LogFilter {
 	return newFilter
 }
 
-// LogConfig holds the two log filter systems (error_logging and debug_logging)
+// LogConfig holds the three log filter systems (error_logging, debug_logging, bubble_logging)
 // ErrorLog controls what goes to #err; DebugLog controls what goes to #debug
-// A message can pass both filters and appear in both outputs
+// BubbleLog controls what gets captured as bubbles (flavor = level_category)
+// A message can pass multiple filters and appear in multiple outputs
 type LogConfig struct {
-	ErrorLog *LogFilter // Filter for #err output
-	DebugLog *LogFilter // Filter for #debug output
+	ErrorLog  *LogFilter // Filter for #err output
+	DebugLog  *LogFilter // Filter for #debug output
+	BubbleLog *LogFilter // Filter for bubble capture
 }
 
 // LevelNone represents "off" - threshold higher than any level, so nothing passes
@@ -286,13 +288,24 @@ const LevelNone LogLevel = LevelFatal + 1
 
 // NewLogConfig creates a new LogConfig with default settings
 // ErrorLog defaults to showing Warn and above; DebugLog defaults to showing nothing
+// BubbleLog defaults to capturing nothing (must be explicitly enabled)
+// Force threshold: ErrorLog keeps Fatal (mandatory stderr), DebugLog/BubbleLog have None
+// (so fatal errors aren't forced to debug/bubble outputs - they'll bubble up anyway)
 func NewLogConfig() *LogConfig {
-	errorFilter := NewLogFilter(LevelWarn) // Default: show Warn and above on #err
-	debugFilter := NewLogFilter(LevelNone) // Default: show nothing on #debug
+	errorFilter := NewLogFilter(LevelWarn)  // Default: show Warn and above on #err
+	debugFilter := NewLogFilter(LevelNone)  // Default: show nothing on #debug
+	bubbleFilter := NewLogFilter(LevelNone) // Default: capture nothing as bubbles
+
+	// Override Force threshold for debug and bubble logs
+	// Fatal errors should only be mandatory on stderr (ErrorLog)
+	// They'll still be captured as bubbles if BubbleLog is enabled, just not forced
+	debugFilter.Force = LevelNone
+	bubbleFilter.Force = LevelNone
 
 	return &LogConfig{
-		ErrorLog: errorFilter,
-		DebugLog: debugFilter,
+		ErrorLog:  errorFilter,
+		DebugLog:  debugFilter,
+		BubbleLog: bubbleFilter,
 	}
 }
 
@@ -302,8 +315,9 @@ func (c *LogConfig) Copy() *LogConfig {
 		return nil
 	}
 	return &LogConfig{
-		ErrorLog: c.ErrorLog.Copy(),
-		DebugLog: c.DebugLog.Copy(),
+		ErrorLog:  c.ErrorLog.Copy(),
+		DebugLog:  c.DebugLog.Copy(),
+		BubbleLog: c.BubbleLog.Copy(),
 	}
 }
 
@@ -547,18 +561,22 @@ func (l *Logger) shouldLog(level LogLevel, cat LogCategory) bool {
 func (l *Logger) Log(level LogLevel, cat LogCategory, message string, position *SourcePosition, context []string) {
 	// Get LogConfig from output context's module environment (if available)
 	var logConfig *LogConfig
+	var state *ExecutionState
 	if l.outputContext != nil && l.outputContext.State != nil && l.outputContext.State.moduleEnv != nil {
 		logConfig = l.outputContext.State.moduleEnv.GetLogConfig()
+		state = l.outputContext.State
 	}
 
 	// Determine which outputs this message should go to
 	sendToErr := false
 	sendToOut := false
+	sendToBubble := false
 
 	if logConfig != nil {
 		// Use LogConfig for filtering
 		sendToErr = logConfig.ErrorLog.Passes(level, cat)
 		sendToOut = logConfig.DebugLog.Passes(level, cat)
+		sendToBubble = logConfig.BubbleLog != nil && logConfig.BubbleLog.Passes(level, cat)
 	} else {
 		// Legacy behavior: use the old shouldLog logic
 		if !l.shouldLog(level, cat) {
@@ -571,7 +589,7 @@ func (l *Logger) Log(level LogLevel, cat LogCategory, message string, position *
 	}
 
 	// If nothing passes, don't log
-	if !sendToErr && !sendToOut {
+	if !sendToErr && !sendToOut && !sendToBubble {
 		return
 	}
 
@@ -624,6 +642,21 @@ func (l *Logger) Log(level LogLevel, cat LogCategory, message string, position *
 	if sendToOut {
 		l.writeOutputToDebug(output)
 	}
+
+	// Create bubble if bubble_logging is enabled for this level/category
+	if sendToBubble && state != nil {
+		// Build flavor as "level_category" (e.g., "error_argument", "warn_io")
+		levelStr := LogLevelToString(level)
+		catStr := "general"
+		if cat != CatNone {
+			catStr = string(cat)
+		}
+		flavor := fmt.Sprintf("%s_%s", levelStr, catStr)
+
+		// Create bubble with the raw message as content, formatted output as memo
+		// Content is the specific message, memo is the full formatted version for display
+		state.AddBubble(flavor, message, true, output)
+	}
 }
 
 // LogMulti is like Log but accepts multiple categories
@@ -642,18 +675,22 @@ func (l *Logger) LogMulti(level LogLevel, cats []LogCategory, message string, po
 
 	// Get LogConfig from output context's module environment (if available)
 	var logConfig *LogConfig
+	var state *ExecutionState
 	if l.outputContext != nil && l.outputContext.State != nil && l.outputContext.State.moduleEnv != nil {
 		logConfig = l.outputContext.State.moduleEnv.GetLogConfig()
+		state = l.outputContext.State
 	}
 
 	// Determine which outputs this message should go to
 	sendToErr := false
 	sendToOut := false
+	sendToBubble := false
 
 	if logConfig != nil {
 		// Use LogConfig for filtering - pass if ANY category passes
 		sendToErr = logConfig.ErrorLog.PassesAny(level, cats)
 		sendToOut = logConfig.DebugLog.PassesAny(level, cats)
+		sendToBubble = logConfig.BubbleLog != nil && logConfig.BubbleLog.PassesAny(level, cats)
 	} else {
 		// Legacy behavior: use the old shouldLog logic with first category
 		if !l.shouldLog(level, cats[0]) {
@@ -666,7 +703,7 @@ func (l *Logger) LogMulti(level LogLevel, cats []LogCategory, message string, po
 	}
 
 	// If nothing passes, don't log
-	if !sendToErr && !sendToOut {
+	if !sendToErr && !sendToOut && !sendToBubble {
 		return
 	}
 
@@ -727,6 +764,23 @@ func (l *Logger) LogMulti(level LogLevel, cats []LogCategory, message string, po
 	}
 	if sendToOut {
 		l.writeOutputToDebug(output)
+	}
+
+	// Create bubbles if bubble_logging is enabled - one for each category
+	// The same BubbleEntry is shared across all flavors
+	if sendToBubble && state != nil {
+		levelStr := LogLevelToString(level)
+		flavors := make([]string, 0, len(cats))
+		for _, cat := range cats {
+			catStr := "general"
+			if cat != CatNone {
+				catStr = string(cat)
+			}
+			flavors = append(flavors, fmt.Sprintf("%s_%s", levelStr, catStr))
+		}
+		// Use AddBubbleMultiFlavor to share the same entry across all flavors
+		// Content is the raw message, memo is the formatted output
+		state.AddBubbleMultiFlavor(flavors, message, true, output)
 	}
 }
 

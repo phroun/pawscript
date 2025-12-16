@@ -1,0 +1,152 @@
+# CJK Width Modes Demo
+# Demonstrates the flexible East Asian Width cell width feature
+#
+# Private Mode Escape Sequences:
+#   ESC [ ? 2027 h/l  - Enable/disable flexible width mode
+#   ESC [ ? 2028 h/l  - Enable/disable visual width-based wrapping
+#   ESC [ ? 2029 h/l  - Set ambiguous width to narrow (1.0) / return to auto
+#   ESC [ ? 2030 h/l  - Set ambiguous width to wide (2.0) / return to auto
+
+# Helper macros
+macro enable_flex_width (
+    write "\e[\\?2027h"
+)
+
+macro disable_flex_width (
+    write "\e[\\?2027l"
+)
+
+macro enable_visual_wrap (
+    write "\e[\\?2028h"
+)
+
+macro disable_visual_wrap (
+    write "\e[\\?2028l"
+)
+
+macro ambiguous_narrow (
+    write "\e[\\?2029h"
+)
+
+macro ambiguous_wide (
+    write "\e[\\?2030h"
+)
+
+macro ambiguous_auto (
+    write "\e[\\?2029l\e[\\?2030l"
+)
+
+# Clear screen and position at top
+write "\e[2J\e[H\e[0;5m"
+
+print "=== CJK Width Modes Demo ==="
+print ""
+
+# --- Standard Mode (no flex width) ---
+print "--- Standard Mode (flex width OFF) ---"
+print "All characters take 1 cell regardless of width:"
+print "  Latin:    Hello World"
+print "  Japanese: \u3053\u3093\u306b\u3061\u306f"
+print "  Chinese:  \u4f60\u597d\u4e16\u754c"
+print "  Korean:   \uc548\ub155\ud558\uc138\uc694"
+print "  Greek:    \u03b1\u03b2\u03b3\u03b4\u03b5"
+print ""
+
+# --- Enable Flex Width Mode ---
+enable_flex_width
+print "--- Flexible Width Mode ON ---"
+print "CJK characters now take 2 cells, Latin takes 1:"
+print "  Latin:    Hello World"
+print "  Japanese: \u3053\u3093\u306b\u3061\u306f"
+print "  Chinese:  \u4f60\u597d\u4e16\u754c"
+print "  Korean:   \uc548\ub155\ud558\uc138\uc694"
+print ""
+
+# --- Mixed text alignment demo ---
+print "--- Alignment Demo ---"
+print "Notice how CJK takes double width:"
+print "  AAAAAAAAAA  (10 chars = 10 units)"
+print "  \u65e5\u672c\u8a9e\u65e5\u672c  (5 chars = 10 units)"
+print ""
+
+# --- Ambiguous Width Characters ---
+print "--- Ambiguous Width Characters ---"
+print "Greek, Cyrillic, math symbols, box drawing, etc."
+print ""
+
+# Auto mode - matches previous character
+ambiguous_auto
+print "Ambiguous AUTO (matches previous char width):"
+print "  After Latin: ABC\u03b1\u03b2\u03b3 (Greek as 1.0)"
+print "  After CJK:   \u65e5\u672c\u03b1\u03b2\u03b3 (Greek as 2.0)"
+print ""
+
+# Narrow mode - always 1.0
+ambiguous_narrow
+print "Ambiguous NARROW (always 1.0):"
+print "  Greek letters: \u03b1\u03b2\u03b3\u03b4\u03b5\u03b6\u03b7\u03b8"
+print "  Cyrillic:      \u0410\u0411\u0412\u0413\u0414\u0415"
+print "  Arrows:        \u2190\u2191\u2192\u2193"
+print "  Box drawing:   \u2500\u2502\u250c\u2510\u2514\u2518"
+print ""
+
+# Wide mode - always 2.0
+ambiguous_wide
+print "Ambiguous WIDE (always 2.0):"
+print "  Greek letters: \u03b1\u03b2\u03b3\u03b4\u03b5"
+print "  Cyrillic:      \u0410\u0411\u0412\u0413"
+print "  Arrows:        \u2190\u2191\u2192\u2193"
+print "  Box drawing:   \u2500\u2502\u250c\u2510"
+print ""
+
+# Return to auto
+ambiguous_auto
+
+# --- Fullwidth vs Halfwidth Forms ---
+print "--- Fullwidth vs Halfwidth Forms ---"
+print "Fullwidth ASCII (2.0 width):"
+print "  \uff21\uff22\uff23\uff24\uff25 (ABCDE fullwidth)"
+print "Halfwidth Katakana (1.0 width):"
+print "  \uff76\uff77\uff78\uff79\uff7a (ka ki ku ke ko halfwidth)"
+print ""
+
+# --- Visual Width Wrapping ---
+print "--- Visual Width Wrapping ---"
+disable_visual_wrap
+print "Visual wrap OFF - wraps by cell count:"
+# Write a line that would wrap differently
+write "  "
+repeat (
+    write "\u65e5"
+), 35
+print ""
+print ""
+
+enable_visual_wrap
+print "Visual wrap ON - wraps by visual width:"
+write "  "
+repeat (
+    write "\u65e5"
+), 35
+print ""
+print ""
+
+# --- Disable and show difference ---
+disable_flex_width
+disable_visual_wrap
+print "--- Flex Width OFF again ---"
+print "Back to standard 1-cell-per-character mode:"
+print "  Japanese: \u3053\u3093\u306b\u3061\u306f"
+print "  Chinese:  \u4f60\u597d\u4e16\u754c"
+print ""
+
+print "=== Demo Complete ==="
+print ""
+print "Escape sequences used:"
+print "  \\e[\?2027h  Enable flex width mode"
+print "  \\e[\?2027l  Disable flex width mode"
+print "  \\e[\?2028h  Enable visual width wrapping"
+print "  \\e[\?2028l  Disable visual width wrapping"
+print "  \\e[\?2029h  Ambiguous chars = narrow (1.0)"
+print "  \\e[\?2030h  Ambiguous chars = wide (2.0)"
+print "  \\e[\?2029l\\e[\?2030l  Ambiguous chars = auto"

@@ -23,14 +23,15 @@ func (e *Executor) escapeSpecialCharacters(str string) string {
 	return result.String()
 }
 
-// formatArgumentForParenGroup formats an argument for $@ substitution
+// encodeArgumentForParenGroup encodes an argument for $@ substitution
 // Preserves original forms for creating ParenGroup literals
-// Similar to formatArgumentForList but without escaping quotes (not in string context)
+// Similar to encodeArgumentForList but without escaping quotes (not in string context)
 // IMPORTANT: Escapes tildes to prevent tilde injection (tildes in values should not
 // be interpreted as variable references)
 // nolint:unused // Reserved for future use
-func (e *Executor) formatArgumentForParenGroup(arg interface{}) string {
+func (e *Executor) encodeArgumentForParenGroup(arg interface{}) string {
 	const escapedTildePlaceholder = "\x00TILDE\x00"
+	const escapedQmarkPlaceholder = "\x00QMARK\x00"
 	var result string
 
 	switch v := arg.(type) {
@@ -63,18 +64,20 @@ func (e *Executor) formatArgumentForParenGroup(arg interface{}) string {
 		result = "\"" + escaped + "\""
 	}
 
-	// Escape tildes to prevent tilde injection
+	// Escape tildes and question marks to prevent injection
 	result = strings.ReplaceAll(result, "~", escapedTildePlaceholder)
+	result = strings.ReplaceAll(result, "?", escapedQmarkPlaceholder)
 	return result
 }
 
-// formatArgumentForList formats an argument for $* substitution
+// encodeArgumentForList encodes an argument for $* substitution
 // Preserves original forms but escapes quotes for string contexts
 // This is used when creating comma-separated lists where structure matters
 // IMPORTANT: Escapes tildes to prevent tilde injection (tildes in values should not
 // be interpreted as variable references)
-func (e *Executor) formatArgumentForList(arg interface{}) string {
+func (e *Executor) encodeArgumentForList(arg interface{}) string {
 	const escapedTildePlaceholder = "\x00TILDE\x00"
+	const escapedQmarkPlaceholder = "\x00QMARK\x00"
 	var result string
 
 	switch v := arg.(type) {
@@ -108,8 +111,9 @@ func (e *Executor) formatArgumentForList(arg interface{}) string {
 		result = "\\\"" + escaped + "\\\""
 	}
 
-	// Escape tildes to prevent tilde injection
+	// Escape tildes and question marks to prevent injection
 	result = strings.ReplaceAll(result, "~", escapedTildePlaceholder)
+	result = strings.ReplaceAll(result, "?", escapedQmarkPlaceholder)
 	return result
 }
 
@@ -121,12 +125,12 @@ func (e *Executor) escapeQuotesAndBackslashes(s string) string {
 	return s
 }
 
-// formatArgumentForSubstitution formats an argument for $1, $2, etc. substitution
+// encodeArgumentForSubstitution encodes an argument for $1, $2, etc. substitution
 // Unwraps quotes and parentheses to get raw content
 // This is used when substituting into string contexts where we don't want nesting
 // IMPORTANT: Escapes tildes as \~ to prevent tilde injection (tildes in values should not
 // be interpreted as variable references)
-func (e *Executor) formatArgumentForSubstitution(arg interface{}) string {
+func (e *Executor) encodeArgumentForSubstitution(arg interface{}) string {
 	var result string
 	switch v := arg.(type) {
 	case ParenGroup:
@@ -157,49 +161,55 @@ func (e *Executor) formatArgumentForSubstitution(arg interface{}) string {
 	case int64, float64, bool:
 		// Numbers and booleans as-is
 		result = fmt.Sprintf("%v", v)
+	case StoredList:
+		// List object - register and return marker
+		ref := e.RegisterObject(v, ObjList)
+		return ref.ToMarker()
+	case StoredBytes:
+		// Bytes object - register and return marker
+		ref := e.RegisterObject(v, ObjBytes)
+		return ref.ToMarker()
 	case *StoredChannel:
-		// Channel object - find or create a marker
-		if id := e.findStoredChannelID(v); id >= 0 {
-			return fmt.Sprintf("\x00CHANNEL:%d\x00", id)
-		}
-		// Not in storage yet (e.g., system IO channel) - store it now
-		id := e.storeObject(v, "channel")
-		return fmt.Sprintf("\x00CHANNEL:%d\x00", id)
+		// Channel object - register and return marker
+		ref := e.RegisterObject(v, ObjChannel)
+		return ref.ToMarker()
 	case *FiberHandle:
-		// Fiber handle - find or create a marker
-		if id := e.findStoredFiberID(v); id >= 0 {
-			return fmt.Sprintf("\x00FIBER:%d\x00", id)
-		}
-		// Not in storage yet - store it now
-		id := e.storeObject(v, "fiber")
-		return fmt.Sprintf("\x00FIBER:%d\x00", id)
+		// Fiber handle - register and return marker
+		ref := e.RegisterObject(v, ObjFiber)
+		return ref.ToMarker()
 	case StoredMacro:
 		// Macro - store and create marker
-		id := e.storeObject(v, "macro")
-		return fmt.Sprintf("\x00MACRO:%d\x00", id)
+		ref := e.RegisterObject(v, ObjMacro)
+		return ref.ToMarker()
 	case *StoredMacro:
 		// Macro pointer - store and create marker
-		id := e.storeObject(*v, "macro")
-		return fmt.Sprintf("\x00MACRO:%d\x00", id)
+		ref := e.RegisterObject(*v, ObjMacro)
+		return ref.ToMarker()
 	case *StoredCommand:
 		// Command - store and create marker
-		id := e.storeObject(v, "command")
-		return fmt.Sprintf("\x00COMMAND:%d\x00", id)
+		ref := e.RegisterObject(v, ObjCommand)
+		return ref.ToMarker()
+	case ObjectRef:
+		// ObjectRef - convert to marker format for substitution
+		// This allows the reference to be resolved later during parsing
+		return v.ToMarker()
 	default:
 		// Unknown type: convert to string
 		result = fmt.Sprintf("%v", v)
 	}
 
-	// Protect tildes using two mechanisms:
-	// 1. Use placeholder \x00TILDE\x00 which survives substituteTildeExpressions
+	// Protect tildes and question marks using two mechanisms:
+	// 1. Use placeholder \x00TILDE\x00 or \x00QMARK\x00 which survives substituteTildeExpressions
 	//    (for when $1 is inside double quotes in the macro body)
 	// 2. Wrap in single quotes so after placeholder restoration, the result
 	//    parses as a QuotedString which processArguments doesn't tilde-resolve
 	//    (for when $1 is a bare token in the macro body)
-	if strings.Contains(result, "~") {
+	if strings.Contains(result, "~") || strings.Contains(result, "?") {
 		const escapedTildePlaceholder = "\x00TILDE\x00"
-		// First, escape tildes with placeholder
+		const escapedQmarkPlaceholder = "\x00QMARK\x00"
+		// First, escape tildes and question marks with placeholders
 		result = strings.ReplaceAll(result, "~", escapedTildePlaceholder)
+		result = strings.ReplaceAll(result, "?", escapedQmarkPlaceholder)
 		// Then wrap in single quotes (escape any existing single quotes first)
 		escaped := strings.ReplaceAll(result, "'", "\\'")
 		return "'" + escaped + "'"
@@ -208,9 +218,9 @@ func (e *Executor) formatArgumentForSubstitution(arg interface{}) string {
 	return result
 }
 
-// formatArgumentForQuotedContext formats an argument for substitution inside quotes
+// encodeArgumentForQuotedContext encodes an argument for substitution inside quotes
 // This extracts just the content without adding extra quotes, but escapes internal quotes/backslashes
-func (e *Executor) formatArgumentForQuotedContext(arg interface{}) string {
+func (e *Executor) encodeArgumentForQuotedContext(arg interface{}) string {
 	var content string
 	switch v := arg.(type) {
 	case ParenGroup:
@@ -223,27 +233,31 @@ func (e *Executor) formatArgumentForQuotedContext(arg interface{}) string {
 		content = v
 	case int64, float64, bool:
 		return fmt.Sprintf("%v", v)
+	case StoredList:
+		// List object - register and return marker
+		ref := e.RegisterObject(v, ObjList)
+		return ref.ToMarker()
+	case StoredBytes:
+		// Bytes object - register and return marker
+		ref := e.RegisterObject(v, ObjBytes)
+		return ref.ToMarker()
 	case *StoredChannel:
-		if id := e.findStoredChannelID(v); id >= 0 {
-			return fmt.Sprintf("\x00CHANNEL:%d\x00", id)
-		}
-		id := e.storeObject(v, "channel")
-		return fmt.Sprintf("\x00CHANNEL:%d\x00", id)
+		// Channel object - register and return marker
+		ref := e.RegisterObject(v, ObjChannel)
+		return ref.ToMarker()
 	case *FiberHandle:
-		if id := e.findStoredFiberID(v); id >= 0 {
-			return fmt.Sprintf("\x00FIBER:%d\x00", id)
-		}
-		id := e.storeObject(v, "fiber")
-		return fmt.Sprintf("\x00FIBER:%d\x00", id)
+		// Fiber handle - register and return marker
+		ref := e.RegisterObject(v, ObjFiber)
+		return ref.ToMarker()
 	case StoredMacro:
-		id := e.storeObject(v, "macro")
-		return fmt.Sprintf("\x00MACRO:%d\x00", id)
+		ref := e.RegisterObject(v, ObjMacro)
+		return ref.ToMarker()
 	case *StoredMacro:
-		id := e.storeObject(*v, "macro")
-		return fmt.Sprintf("\x00MACRO:%d\x00", id)
+		ref := e.RegisterObject(*v, ObjMacro)
+		return ref.ToMarker()
 	case *StoredCommand:
-		id := e.storeObject(v, "command")
-		return fmt.Sprintf("\x00COMMAND:%d\x00", id)
+		ref := e.RegisterObject(v, ObjCommand)
+		return ref.ToMarker()
 	default:
 		content = fmt.Sprintf("%v", v)
 	}
@@ -252,11 +266,9 @@ func (e *Executor) formatArgumentForQuotedContext(arg interface{}) string {
 	content = strings.ReplaceAll(content, `\`, `\\`)
 	content = strings.ReplaceAll(content, `"`, `\"`)
 
-	// Escape tildes to prevent tilde injection
-	if strings.Contains(content, "~") {
-		const escapedTildePlaceholder = "\x00TILDE\x00"
-		content = strings.ReplaceAll(content, "~", escapedTildePlaceholder)
-	}
+	// Escape tildes to prevent tilde injection - use backslash escape
+	// This works because findAllTildeLocations skips escape sequences (\~)
+	content = strings.ReplaceAll(content, "~", `\~`)
 
 	return content
 }
@@ -284,12 +296,13 @@ func (e *Executor) isSafeIdentifier(s string) bool {
 	return true
 }
 
-// formatListItems formats the items of a StoredList as comma-separated values
+// encodeListItems encodes the items of a StoredList as comma-separated values
 // without the outer parentheses (for use with unescape operator ${...})
-// IMPORTANT: Escapes tildes to prevent tilde injection (tildes in values should not
-// be interpreted as variable references)
-func (e *Executor) formatListItems(list StoredList) string {
+// IMPORTANT: Escapes tildes and question marks to prevent injection (they should not
+// be interpreted as variable references or existence checks)
+func (e *Executor) encodeListItems(list StoredList) string {
 	const escapedTildePlaceholder = "\x00TILDE\x00"
+	const escapedQmarkPlaceholder = "\x00QMARK\x00"
 	items := list.Items()
 	if len(items) == 0 {
 		return ""
@@ -300,7 +313,7 @@ func (e *Executor) formatListItems(list StoredList) string {
 		switch v := item.(type) {
 		case StoredList:
 			// Nested lists keep their parentheses
-			parts[i] = formatListForDisplay(v)
+			parts[i] = formatListForDisplay(v, e)
 		case ParenGroup:
 			parts[i] = "(" + string(v) + ")"
 		case QuotedString:
@@ -322,8 +335,9 @@ func (e *Executor) formatListItems(list StoredList) string {
 		default:
 			parts[i] = fmt.Sprintf("%v", v)
 		}
-		// Escape tildes in this item to prevent tilde injection
+		// Escape tildes and question marks in this item to prevent injection
 		parts[i] = strings.ReplaceAll(parts[i], "~", escapedTildePlaceholder)
+		parts[i] = strings.ReplaceAll(parts[i], "?", escapedQmarkPlaceholder)
 	}
 
 	return strings.Join(parts, ", ")
