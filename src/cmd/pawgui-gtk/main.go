@@ -4757,6 +4757,11 @@ func activate(application *gtk.Application) {
 			savedY = 0
 		}
 		mainWindow.Move(savedX, savedY)
+	} else {
+		// No saved position - center on screen
+		centerX := (screenWidth - savedWidth) / 2
+		centerY := (screenHeight - savedHeight) / 2
+		mainWindow.Move(centerX, centerY)
 	}
 
 	// Track window position and size changes
