@@ -654,8 +654,12 @@ func (h *ConfigHelper) PopulateDefaults() bool {
 	// term_colors_dark: dark theme overrides (includes background/foreground)
 	if _, exists := h.Config["term_colors_dark"]; !exists {
 		darkConfig := pawscript.PSLConfig{}
-		darkConfig.Set("0_background", "#1E1E1E")
+		darkConfig.Set("0_background", "#001E18")
 		darkConfig.Set("9_foreground", "#D4D4D4")
+		darkConfig.Set("01_dark_blue", "#1846C8")
+		darkConfig.Set("06_brown", "#A8501E")
+		darkConfig.Set("09_bright_blue", "#828CFF")
+		darkConfig.Set("14_yellow", "#FFFF00")
 		h.Config.Set("term_colors_dark", darkConfig)
 		modified = true
 	}
@@ -663,8 +667,16 @@ func (h *ConfigHelper) PopulateDefaults() bool {
 	// term_colors_light: light theme overrides (includes background/foreground)
 	if _, exists := h.Config["term_colors_light"]; !exists {
 		lightConfig := pawscript.PSLConfig{}
-		lightConfig.Set("0_background", "#FFFFFF")
+		lightConfig.Set("0_background", "#FFFBFB")
 		lightConfig.Set("9_foreground", "#1E1E1E")
+		lightConfig.Set("01_dark_blue", "#4460B2")
+		lightConfig.Set("05_purple", "#A811C8")
+		lightConfig.Set("06_brown", "#B68467")
+		lightConfig.Set("08_dark_gray", "#6F6F6F")
+		lightConfig.Set("10_bright_green", "#64E664")
+		lightConfig.Set("11_bright_cyan", "#55E6FF")
+		lightConfig.Set("12_bright_red", "#FF505A")
+		lightConfig.Set("14_yellow", "#ECC855")
 		h.Config.Set("term_colors_light", lightConfig)
 		modified = true
 	}
