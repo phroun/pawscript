@@ -718,12 +718,7 @@ func showSettingsDialog(parent gtk.IWindow) {
 	consoleFontButton.SetUseFont(true)
 	consoleFontButton.SetUseSize(true)
 	consoleFontButton.Connect("font-set", func() {
-		// Get font and immediately copy to Go string to avoid GTK memory issues
-		fontNameRaw := consoleFontButton.GetFont()
-		if fontNameRaw == "" {
-			return
-		}
-		fontName := string([]byte(fontNameRaw)) // Force copy
+		fontName := consoleFontButton.GetFont()
 		// Parse font name - GTK format is "Family Name Size" or "Family Name Style Size"
 		// We need to extract family and size
 		parts := strings.Split(fontName, " ")
@@ -772,12 +767,7 @@ func showSettingsDialog(parent gtk.IWindow) {
 	cjkFontButton.SetUseFont(true)
 	cjkFontButton.SetUseSize(false) // Don't show size since we ignore it
 	cjkFontButton.Connect("font-set", func() {
-		// Get font and immediately copy to Go string to avoid GTK memory issues
-		fontNameRaw := cjkFontButton.GetFont()
-		if fontNameRaw == "" {
-			return
-		}
-		fontName := string([]byte(fontNameRaw)) // Force copy
+		fontName := cjkFontButton.GetFont()
 		// Parse font name - extract just the family, ignore size
 		parts := strings.Split(fontName, " ")
 		if len(parts) >= 2 {
@@ -1205,11 +1195,6 @@ func showSettingsDialog(parent gtk.IWindow) {
 		if launcherPaned != nil && origSplitterPos > 0 {
 			launcherPaned.SetPosition(origSplitterPos)
 		}
-	}
-	// Process any pending GTK events before destroying to avoid lifecycle issues
-	// with FontButton and other widgets that may have pending operations
-	for gtk.EventsPending() {
-		gtk.MainIterationDo(false)
 	}
 	dlg.Destroy()
 	// Schedule GC for the next idle period per CRITICAL-gotk3-safety-issues.md Strategy #7.
