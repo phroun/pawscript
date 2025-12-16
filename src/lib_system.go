@@ -2778,15 +2778,15 @@ func configureLogFilter(ctx *Context, ps *PawScript, filterType string) Result {
 
 	// Build and return result list with current configuration
 	resultNamedArgs := map[string]interface{}{
-		"default": LogLevelToString(filter.Default),
-		"floor":   LogLevelToString(filter.Floor),
-		"force":   LogLevelToString(filter.Force),
+		"default": QuotedString(LogLevelToString(filter.Default)),
+		"floor":   QuotedString(LogLevelToString(filter.Floor)),
+		"force":   QuotedString(LogLevelToString(filter.Force)),
 	}
 
 	// Add all category settings
 	for _, cat := range AllLogCategories() {
 		if level, exists := filter.Categories[cat]; exists {
-			resultNamedArgs[string(cat)] = LogLevelToString(level)
+			resultNamedArgs[string(cat)] = QuotedString(LogLevelToString(level))
 		}
 	}
 

@@ -124,12 +124,17 @@ func ParseDisplayColorConfig(colorArg interface{}, executor *Executor) DisplayCo
 }
 
 // escapePSLString escapes a string for PSL serialization/display.
-// Escapes control characters that would be problematic, but keeps
-// newlines, tabs, and unicode readable for display purposes.
+// Escapes control characters that would be problematic.
+// If asciiOnly is true, also escapes non-ASCII characters using \uXXXX or \UXXXXXXXX.
 // Escapes: \0 (null), \a (bell), \b (backspace), \e (escape), \f (form feed),
 // \\ (backslash), \" (double quote)
-// Keeps readable: \n, \r, \t, single quotes, unicode
-func escapePSLString(s string) string {
+// Keeps readable: \n, \r, \t, single quotes, and unicode (unless asciiOnly)
+func escapePSLString(s string, asciiOnly ...bool) string {
+	ascii := false
+	if len(asciiOnly) > 0 {
+		ascii = asciiOnly[0]
+	}
+
 	var sb strings.Builder
 	sb.Grow(len(s) + len(s)/8) // Pre-allocate with some extra for escapes
 
@@ -150,7 +155,37 @@ func escapePSLString(s string) string {
 		case '"': // double quote
 			sb.WriteString("\\\"")
 		default:
-			// Keep all other characters as-is (including newlines, tabs, unicode)
+			if ascii && r > 0x7E {
+				// ASCII-only mode: escape non-ASCII characters
+				if r <= 0xFFFF {
+					sb.WriteString(fmt.Sprintf("\\u%04X", r))
+				} else {
+					sb.WriteString(fmt.Sprintf("\\U%08X", r))
+				}
+			} else {
+				// Keep character as-is (including newlines, tabs, unicode)
+				sb.WriteRune(r)
+			}
+		}
+	}
+	return sb.String()
+}
+
+// escapeNonASCII escapes non-ASCII characters in a string using \uXXXX or \UXXXXXXXX.
+// This is used when utf8: false is specified in the string command.
+func escapeNonASCII(s string) string {
+	var sb strings.Builder
+	sb.Grow(len(s))
+
+	for _, r := range s {
+		if r > 0x7E {
+			// Escape non-ASCII characters
+			if r <= 0xFFFF {
+				sb.WriteString(fmt.Sprintf("\\u%04X", r))
+			} else {
+				sb.WriteString(fmt.Sprintf("\\U%08X", r))
+			}
+		} else {
 			sb.WriteRune(r)
 		}
 	}

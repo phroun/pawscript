@@ -2112,7 +2112,7 @@ func (ps *PawScript) RegisterTypesLib() {
 			for _, match := range allMatches {
 				var matchItems []interface{}
 				for _, group := range match {
-					matchItems = append(matchItems, group)
+					matchItems = append(matchItems, QuotedString(group))
 				}
 				matchList := NewStoredListWithoutRefs(matchItems)
 				matchRef := ctx.executor.RegisterObject(matchList, ObjList)
@@ -2133,7 +2133,7 @@ func (ps *PawScript) RegisterTypesLib() {
 			// Convert to list
 			var matchItems []interface{}
 			for _, group := range match {
-				matchItems = append(matchItems, group)
+				matchItems = append(matchItems, QuotedString(group))
 			}
 			resultList := NewStoredListWithoutRefs(matchItems)
 			setListResult(ctx, resultList)
@@ -2322,6 +2322,22 @@ func (ps *PawScript) RegisterTypesLib() {
 				result = formatListForDisplayPretty(v, 0)
 			} else {
 				result = formatListForDisplay(v, ctx.executor)
+			}
+			// Check for utf8 parameter - if false, escape non-ASCII characters
+			if utf8Arg, exists := ctx.NamedArgs["utf8"]; exists {
+				utf8Mode := true
+				switch uv := utf8Arg.(type) {
+				case bool:
+					utf8Mode = uv
+				case Symbol:
+					s := string(uv)
+					utf8Mode = s != "false" && s != "0"
+				case string:
+					utf8Mode = uv != "false" && uv != "0"
+				}
+				if !utf8Mode {
+					result = escapeNonASCII(result)
+				}
 			}
 		case ParenGroup:
 			// Block/code - return the block content
