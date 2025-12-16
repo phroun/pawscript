@@ -662,9 +662,15 @@ func getHomeDir() string {
 func getExamplesDir() string {
 	if exe, err := os.Executable(); err == nil {
 		exeDir := filepath.Dir(exe)
+		// Check for examples next to executable (Windows, Linux, dev)
 		examples := filepath.Join(exeDir, "examples")
 		if info, err := os.Stat(examples); err == nil && info.IsDir() {
 			return examples
+		}
+		// Check for macOS .app bundle: Contents/MacOS/../Resources/examples
+		bundleExamples := filepath.Join(exeDir, "..", "Resources", "examples")
+		if info, err := os.Stat(bundleExamples); err == nil && info.IsDir() {
+			return bundleExamples
 		}
 	}
 	return ""

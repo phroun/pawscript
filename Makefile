@@ -72,11 +72,16 @@ ifeq ($(NATIVE_OS),darwin)
 	@mkdir -p pawgui-gtk.app/Contents/MacOS
 	@mkdir -p pawgui-gtk.app/Contents/Resources
 	@cp pawgui-gtk pawgui-gtk.app/Contents/MacOS/
+	@cp -r examples pawgui-gtk.app/Contents/Resources/examples
+	@if [ -f assets/pawscript.icns ]; then \
+		cp assets/pawscript.icns pawgui-gtk.app/Contents/Resources/pawscript.icns; \
+	fi
 	@echo '<?xml version="1.0" encoding="UTF-8"?>' > pawgui-gtk.app/Contents/Info.plist
 	@echo '<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">' >> pawgui-gtk.app/Contents/Info.plist
 	@echo '<plist version="1.0"><dict>' >> pawgui-gtk.app/Contents/Info.plist
 	@echo '<key>CFBundleExecutable</key><string>pawgui-gtk</string>' >> pawgui-gtk.app/Contents/Info.plist
 	@echo '<key>CFBundleIdentifier</key><string>com.pawscript.pawgui-gtk</string>' >> pawgui-gtk.app/Contents/Info.plist
+	@echo '<key>CFBundleIconFile</key><string>pawscript</string>' >> pawgui-gtk.app/Contents/Info.plist
 	@echo '<key>CFBundleName</key><string>PawScript GTK</string>' >> pawgui-gtk.app/Contents/Info.plist
 	@echo '<key>CFBundlePackageType</key><string>APPL</string>' >> pawgui-gtk.app/Contents/Info.plist
 	@echo '<key>CFBundleShortVersionString</key><string>$(VERSION)</string>' >> pawgui-gtk.app/Contents/Info.plist
@@ -98,11 +103,16 @@ ifeq ($(NATIVE_OS),darwin)
 	@mkdir -p pawgui-qt.app/Contents/MacOS
 	@mkdir -p pawgui-qt.app/Contents/Resources
 	@cp pawgui-qt pawgui-qt.app/Contents/MacOS/
+	@cp -r examples pawgui-qt.app/Contents/Resources/examples
+	@if [ -f assets/pawscript.icns ]; then \
+		cp assets/pawscript.icns pawgui-qt.app/Contents/Resources/pawscript.icns; \
+	fi
 	@echo '<?xml version="1.0" encoding="UTF-8"?>' > pawgui-qt.app/Contents/Info.plist
 	@echo '<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">' >> pawgui-qt.app/Contents/Info.plist
 	@echo '<plist version="1.0"><dict>' >> pawgui-qt.app/Contents/Info.plist
 	@echo '<key>CFBundleExecutable</key><string>pawgui-qt</string>' >> pawgui-qt.app/Contents/Info.plist
 	@echo '<key>CFBundleIdentifier</key><string>com.pawscript.pawgui-qt</string>' >> pawgui-qt.app/Contents/Info.plist
+	@echo '<key>CFBundleIconFile</key><string>pawscript</string>' >> pawgui-qt.app/Contents/Info.plist
 	@echo '<key>CFBundleName</key><string>PawScript Qt</string>' >> pawgui-qt.app/Contents/Info.plist
 	@echo '<key>CFBundlePackageType</key><string>APPL</string>' >> pawgui-qt.app/Contents/Info.plist
 	@echo '<key>CFBundleShortVersionString</key><string>$(VERSION)</string>' >> pawgui-qt.app/Contents/Info.plist
