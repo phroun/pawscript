@@ -733,7 +733,7 @@ func showSettingsDialog(parent gtk.IWindow) {
 		response := consoleFontChooser.Run()
 		consoleFontChooser.Hide()
 
-		if response == int(gtk.RESPONSE_OK) {
+		if response == gtk.RESPONSE_OK {
 			fontName := consoleFontChooser.GetFont()
 			// Parse font name - GTK format is "Family Name Size"
 			parts := strings.Split(fontName, " ")
@@ -791,7 +791,7 @@ func showSettingsDialog(parent gtk.IWindow) {
 		response := cjkFontChooser.Run()
 		cjkFontChooser.Hide()
 
-		if response == int(gtk.RESPONSE_OK) {
+		if response == gtk.RESPONSE_OK {
 			fontName := cjkFontChooser.GetFont()
 			// Parse font name - extract just the family, ignore size
 			parts := strings.Split(fontName, " ")
