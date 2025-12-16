@@ -1212,9 +1212,13 @@ func showSettingsDialog(parent gtk.IWindow) {
 		gtk.MainIterationDo(false)
 	}
 	dlg.Destroy()
-	// Note: Do NOT call runtime.GC() here - it triggers finalizers on GTK objects
-	// that were already destroyed (especially FontButton's internal font chooser),
-	// causing crashes in g_object_unref
+	// Schedule GC for the next idle period per CRITICAL-gotk3-safety-issues.md Strategy #7.
+	// We MUST call runtime.GC() to clean up orphaned wrapper finalizers, but we can't
+	// call it immediately because GTK is still processing the dialog destruction.
+	// Using IdleAdd ensures GTK has finished internal cleanup before finalizers run.
+	glib.IdleAdd(func() {
+		runtime.GC()
+	})
 }
 
 // applyWindowTheme applies the window theme setting
