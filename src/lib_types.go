@@ -715,7 +715,7 @@ func (ps *PawScript) RegisterTypesLib() {
 		parts := strings.Split(str, delimiter)
 		items := make([]interface{}, len(parts))
 		for i, part := range parts {
-			items[i] = part
+			items[i] = QuotedString(part)
 		}
 
 		setListResult(ctx, NewStoredListWithoutRefs(items))
@@ -2661,7 +2661,7 @@ func (ps *PawScript) RegisterTypesLib() {
 
 			items := make([]interface{}, len(keys))
 			for i, key := range keys {
-				items[i] = key
+				items[i] = QuotedString(key)
 			}
 
 			setListResult(ctx, NewStoredListWithoutRefs(items))

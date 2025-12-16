@@ -123,15 +123,15 @@ func ParseDisplayColorConfig(colorArg interface{}, executor *Executor) DisplayCo
 	return cfg
 }
 
-// escapePSLString escapes a string for PSL serialization.
-// Uses the same escape sequences as parser.go's parseStringLiteral:
-// \0 (null), \a (bell), \b (backspace), \e (escape), \f (form feed),
-// \n (newline), \r (carriage return), \t (tab), \\ (backslash),
-// \" (double quote), \' (single quote)
-// Unicode characters above ASCII are escaped as \uXXXX or \UXXXXXXXX
+// escapePSLString escapes a string for PSL serialization/display.
+// Escapes control characters that would be problematic, but keeps
+// newlines, tabs, and unicode readable for display purposes.
+// Escapes: \0 (null), \a (bell), \b (backspace), \e (escape), \f (form feed),
+// \\ (backslash), \" (double quote)
+// Keeps readable: \n, \r, \t, single quotes, unicode
 func escapePSLString(s string) string {
 	var sb strings.Builder
-	sb.Grow(len(s) + len(s)/4) // Pre-allocate with some extra for escapes
+	sb.Grow(len(s) + len(s)/8) // Pre-allocate with some extra for escapes
 
 	for _, r := range s {
 		switch r {
@@ -145,29 +145,13 @@ func escapePSLString(s string) string {
 			sb.WriteString("\\e")
 		case 0x0C: // form feed
 			sb.WriteString("\\f")
-		case '\n': // newline
-			sb.WriteString("\\n")
-		case '\r': // carriage return
-			sb.WriteString("\\r")
-		case '\t': // tab
-			sb.WriteString("\\t")
 		case '\\': // backslash
 			sb.WriteString("\\\\")
 		case '"': // double quote
 			sb.WriteString("\\\"")
-		case '\'': // single quote
-			sb.WriteString("\\'")
 		default:
-			// ASCII printable range (0x20-0x7E)
-			if r >= 0x20 && r <= 0x7E {
-				sb.WriteRune(r)
-			} else if r <= 0xFFFF {
-				// Use \uXXXX for BMP characters
-				sb.WriteString(fmt.Sprintf("\\u%04X", r))
-			} else {
-				// Use \UXXXXXXXX for characters outside BMP
-				sb.WriteString(fmt.Sprintf("\\U%08X", r))
-			}
+			// Keep all other characters as-is (including newlines, tabs, unicode)
+			sb.WriteRune(r)
 		}
 	}
 	return sb.String()
@@ -230,8 +214,10 @@ func JSONToStoredList(value interface{}, childrenKey string, mergeChildren inter
 	switch v := value.(type) {
 	case nil:
 		return nil
-	case bool, float64, string:
+	case bool, float64:
 		return v
+	case string:
+		return QuotedString(v)
 	case []interface{}:
 		// Check for merge: 0 (array_1 mode) on top-level arrays
 		if mergeInt, ok := mergeChildren.(int64); ok && mergeInt == 0 && len(v) > 0 {
