@@ -605,7 +605,9 @@ func (w *Widget) SetFont(family string, size int) {
 	w.fontFamily = resolvedFont
 	w.fontSize = size
 	w.mu.Unlock()
-	w.updateFontMetrics()
+	// Trigger full configure handling to recalculate terminal dimensions,
+	// scrollbars, and update the buffer with new character metrics
+	w.onConfigure(w.drawingArea, nil)
 	w.updateScrollbar()
 	w.updateHorizScrollbar()
 	w.drawingArea.QueueDraw()

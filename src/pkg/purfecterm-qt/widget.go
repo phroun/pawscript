@@ -618,9 +618,9 @@ func (w *Widget) SetFont(family string, size int) {
 	w.fontFamily = family
 	w.fontSize = size
 	w.mu.Unlock()
-	w.updateFontMetrics()
-	w.updateScrollbar()
-	w.updateHorizScrollbar()
+	// Trigger full resize handling to recalculate terminal dimensions,
+	// scrollbars, and update the buffer with new character metrics
+	w.resizeEvent(nil)
 	w.widget.Update()
 }
 
@@ -1674,7 +1674,9 @@ func (w *Widget) paintEvent(event *qt.QPaintEvent) {
 					// QFontInfo queries the actual resolved font, not the requested one
 					if cell.Bold {
 						fontInfo := qt.NewQFontInfo(drawFont)
-						if !fontInfo.Bold() {
+						// Check if styleName contains "Bold" - more reliable than Bold() method
+						styleName := fontInfo.StyleName()
+						if !strings.Contains(styleName, "Bold") {
 							useFauxBold = true
 						}
 					}
