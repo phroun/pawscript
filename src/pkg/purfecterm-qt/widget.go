@@ -1674,11 +1674,16 @@ func (w *Widget) paintEvent(event *qt.QPaintEvent) {
 					// Check if bold was actually applied using QFontInfo
 					// QFontInfo queries the actual resolved font, not the requested one
 					if cell.Bold {
-						fontInfo := qt.NewQFontInfo(drawFont)
-						// Check if styleName contains "Bold" - more reliable than Bold() method
-						styleName := fontInfo.StyleName()
-						if !strings.Contains(styleName, "Bold") {
+						// Hardcode faux bold for fonts known to not work with Qt's bold
+						if charFontFamily == "Menlo" || strings.HasPrefix(charFontFamily, "Menlo") {
 							useFauxBold = true
+						} else {
+							fontInfo := qt.NewQFontInfo(drawFont)
+							// Check if styleName contains "Bold" - more reliable than Bold() method
+							styleName := fontInfo.StyleName()
+							if !strings.Contains(styleName, "Bold") {
+								useFauxBold = true
+							}
 						}
 					}
 				} else {
