@@ -1197,13 +1197,9 @@ func showSettingsDialog(parent gtk.IWindow) {
 		}
 	}
 	dlg.Destroy()
-	// Schedule GC for the next idle period per CRITICAL-gotk3-safety-issues.md Strategy #7.
-	// We MUST call runtime.GC() to clean up orphaned wrapper finalizers, but we can't
-	// call it immediately because GTK is still processing the dialog destruction.
-	// Using IdleAdd ensures GTK has finished internal cleanup before finalizers run.
-	glib.IdleAdd(func() {
-		runtime.GC()
-	})
+	// Force GC to clean up orphaned GTK wrappers from font/theme changes
+	// This prevents crashes from finalizers running during unrelated operations
+	runtime.GC()
 }
 
 // applyWindowTheme applies the window theme setting
