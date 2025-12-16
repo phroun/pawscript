@@ -2302,10 +2302,17 @@ func createHamburgerButton(menuGetter func() *gtk.Menu, forVerticalStrip bool) *
 
 	// Pop up the menu on click - calls menuGetter each time to get current menu
 	btn.Connect("clicked", func() {
+		// Force GC to run synchronously BEFORE showing menu.
+		// This cleans up any dangling finalizers (e.g., from FontButton's font chooser)
+		// in a controlled way, rather than having them crash during menu popup.
+		runtime.GC()
+
 		menu := menuGetter()
 		if menu != nil {
 			menu.PopupAtWidget(btn, gdk.GDK_GRAVITY_SOUTH_WEST, gdk.GDK_GRAVITY_NORTH_WEST, nil)
 		}
+		runtime.KeepAlive(btn)
+		runtime.KeepAlive(menu)
 	})
 
 	return btn
