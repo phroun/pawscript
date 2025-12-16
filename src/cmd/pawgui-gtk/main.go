@@ -121,8 +121,13 @@ var (
 	toolbarDataMu       sync.Mutex
 
 	// UI scale operation guard - prevents re-entrant/concurrent scale operations
-	uiScaleMu        sync.Mutex
+	uiScaleMu         sync.Mutex
 	uiScaleInProgress bool
+
+	// Persistent font chooser dialogs - kept alive forever to avoid gotk3 finalizer crashes
+	// when their internal GTK objects are destroyed
+	consoleFontChooser *gtk.FontChooserDialog
+	cjkFontChooser     *gtk.FontChooserDialog
 
 	// File list icon tracking
 	rowIconTypeMap      = make(map[*gtk.ListBoxRow]gtkIconType)
@@ -696,7 +701,7 @@ func showSettingsDialog(parent gtk.IWindow) {
 	consoleThemeRow.PackStart(consoleThemeCombo.Button, true, true, 0)
 	appearanceBox.PackStart(consoleThemeRow, false, false, 0)
 
-	// Console Font row
+	// Console Font row - uses persistent font chooser dialog to avoid gotk3 finalizer crashes
 	consoleFontRow, _ := gtk.BoxNew(gtk.ORIENTATION_HORIZONTAL, 12)
 	consoleFontLabel, _ := gtk.LabelNew("Console Font:")
 	consoleFontLabel.SetHAlign(gtk.ALIGN_START)
@@ -711,40 +716,50 @@ func showSettingsDialog(parent gtk.IWindow) {
 	if idx := strings.Index(currentFontFamily, ","); idx != -1 {
 		firstFont = strings.TrimSpace(currentFontFamily[:idx])
 	}
-	// Create font description string for FontButton (e.g., "Consolas 12")
-	initialFontDesc := fmt.Sprintf("%s %d", firstFont, currentFontSize)
 
-	consoleFontButton, _ := gtk.FontButtonNewWithFont(initialFontDesc)
-	consoleFontButton.SetUseFont(true)
-	consoleFontButton.SetUseSize(true)
-	consoleFontButton.Connect("font-set", func() {
-		fontName := consoleFontButton.GetFont()
-		// Parse font name - GTK format is "Family Name Size" or "Family Name Style Size"
-		// We need to extract family and size
-		parts := strings.Split(fontName, " ")
-		if len(parts) >= 2 {
-			// Size is typically the last part
-			sizeStr := parts[len(parts)-1]
-			if size, err := strconv.Atoi(sizeStr); err == nil && size > 0 {
-				appConfig.Set("font_size", size)
-				// Family is everything before the size
-				newFamily := strings.Join(parts[:len(parts)-1], " ")
-				// Preserve fallback fonts from original font_family
-				origFamily := appConfig.GetString("font_family", "")
-				if idx := strings.Index(origFamily, ","); idx != -1 {
-					// Keep the fallback fonts
-					newFamily = newFamily + origFamily[idx:]
+	// Create button that shows current font
+	consoleFontButton, _ := gtk.ButtonNew()
+	consoleFontButton.SetLabel(fmt.Sprintf("%s %d", firstFont, currentFontSize))
+	consoleFontButton.Connect("clicked", func() {
+		// Initialize persistent font chooser if needed
+		if consoleFontChooser == nil {
+			consoleFontChooser, _ = gtk.FontChooserDialogNew("Select Console Font", nil)
+		}
+		// Set current font and show dialog
+		currentDesc := fmt.Sprintf("%s %d", firstFont, configHelper.GetFontSize())
+		consoleFontChooser.SetFont(currentDesc)
+		consoleFontChooser.SetTransientFor(dlg)
+
+		response := consoleFontChooser.Run()
+		consoleFontChooser.Hide()
+
+		if response == int(gtk.RESPONSE_OK) {
+			fontName := consoleFontChooser.GetFont()
+			// Parse font name - GTK format is "Family Name Size"
+			parts := strings.Split(fontName, " ")
+			if len(parts) >= 2 {
+				sizeStr := parts[len(parts)-1]
+				if size, err := strconv.Atoi(sizeStr); err == nil && size > 0 {
+					appConfig.Set("font_size", size)
+					newFamily := strings.Join(parts[:len(parts)-1], " ")
+					// Preserve fallback fonts
+					origFamily := appConfig.GetString("font_family", "")
+					if idx := strings.Index(origFamily, ","); idx != -1 {
+						newFamily = newFamily + origFamily[idx:]
+					}
+					appConfig.Set("font_family", newFamily)
+					configHelper = pawgui.NewConfigHelper(appConfig)
+					// Update button label
+					consoleFontButton.SetLabel(fmt.Sprintf("%s %d", strings.Join(parts[:len(parts)-1], " "), size))
+					applyFontSettings()
 				}
-				appConfig.Set("font_family", newFamily)
-				configHelper = pawgui.NewConfigHelper(appConfig)
-				applyFontSettings()
 			}
 		}
 	})
 	consoleFontRow.PackStart(consoleFontButton, true, true, 0)
 	appearanceBox.PackStart(consoleFontRow, false, false, 0)
 
-	// CJK Font row
+	// CJK Font row - uses persistent font chooser dialog
 	cjkFontRow, _ := gtk.BoxNew(gtk.ORIENTATION_HORIZONTAL, 12)
 	cjkFontLabel, _ := gtk.LabelNew("CJK Font:")
 	cjkFontLabel.SetHAlign(gtk.ALIGN_START)
@@ -760,28 +775,39 @@ func showSettingsDialog(parent gtk.IWindow) {
 	if idx := strings.Index(currentCJKFamily, ","); idx != -1 {
 		firstCJKFont = strings.TrimSpace(currentCJKFamily[:idx])
 	}
-	// Use a reasonable default size for display (actual size is ignored)
-	cjkFontDesc := fmt.Sprintf("%s %d", firstCJKFont, currentFontSize)
 
-	cjkFontButton, _ := gtk.FontButtonNewWithFont(cjkFontDesc)
-	cjkFontButton.SetUseFont(true)
-	cjkFontButton.SetUseSize(false) // Don't show size since we ignore it
-	cjkFontButton.Connect("font-set", func() {
-		fontName := cjkFontButton.GetFont()
-		// Parse font name - extract just the family, ignore size
-		parts := strings.Split(fontName, " ")
-		if len(parts) >= 2 {
-			// Size is typically the last part, family is everything before
-			newFamily := strings.Join(parts[:len(parts)-1], " ")
-			// Preserve fallback fonts from original font_family_unicode
-			origFamily := appConfig.GetString("font_family_unicode", "")
-			if idx := strings.Index(origFamily, ","); idx != -1 {
-				// Keep the fallback fonts
-				newFamily = newFamily + origFamily[idx:]
+	// Create button that shows current CJK font
+	cjkFontButton, _ := gtk.ButtonNew()
+	cjkFontButton.SetLabel(firstCJKFont)
+	cjkFontButton.Connect("clicked", func() {
+		// Initialize persistent font chooser if needed
+		if cjkFontChooser == nil {
+			cjkFontChooser, _ = gtk.FontChooserDialogNew("Select CJK Font", nil)
+		}
+		// Set current font and show dialog
+		cjkFontChooser.SetFont(fmt.Sprintf("%s %d", firstCJKFont, currentFontSize))
+		cjkFontChooser.SetTransientFor(dlg)
+
+		response := cjkFontChooser.Run()
+		cjkFontChooser.Hide()
+
+		if response == int(gtk.RESPONSE_OK) {
+			fontName := cjkFontChooser.GetFont()
+			// Parse font name - extract just the family, ignore size
+			parts := strings.Split(fontName, " ")
+			if len(parts) >= 2 {
+				newFamily := strings.Join(parts[:len(parts)-1], " ")
+				// Preserve fallback fonts
+				origFamily := appConfig.GetString("font_family_unicode", "")
+				if idx := strings.Index(origFamily, ","); idx != -1 {
+					newFamily = newFamily + origFamily[idx:]
+				}
+				appConfig.Set("font_family_unicode", newFamily)
+				configHelper = pawgui.NewConfigHelper(appConfig)
+				// Update button label
+				cjkFontButton.SetLabel(strings.Join(parts[:len(parts)-1], " "))
+				applyFontSettings()
 			}
-			appConfig.Set("font_family_unicode", newFamily)
-			configHelper = pawgui.NewConfigHelper(appConfig)
-			applyFontSettings()
 		}
 	})
 	cjkFontRow.PackStart(cjkFontButton, true, true, 0)
@@ -2302,17 +2328,10 @@ func createHamburgerButton(menuGetter func() *gtk.Menu, forVerticalStrip bool) *
 
 	// Pop up the menu on click - calls menuGetter each time to get current menu
 	btn.Connect("clicked", func() {
-		// Force GC to run synchronously BEFORE showing menu.
-		// This cleans up any dangling finalizers (e.g., from FontButton's font chooser)
-		// in a controlled way, rather than having them crash during menu popup.
-		runtime.GC()
-
 		menu := menuGetter()
 		if menu != nil {
 			menu.PopupAtWidget(btn, gdk.GDK_GRAVITY_SOUTH_WEST, gdk.GDK_GRAVITY_NORTH_WEST, nil)
 		}
-		runtime.KeepAlive(btn)
-		runtime.KeepAlive(menu)
 	})
 
 	return btn
