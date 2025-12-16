@@ -1,6 +1,6 @@
 ## Changelog
 
-### 0.2.9 -- November 29 - December 11, 2025
+### 0.2.9 -- December 15, 2025
 - PurfecTerm terminal emulator enhancements:
   - Flexible East Asian Width mode (private mode 2027): cells can have variable
     visual widths (1.0 or 2.0) based on Unicode East_Asian_Width property
@@ -16,7 +16,7 @@
     - OSC 7000: Palette management (create, delete, set entries)
     - OSC 7001: Glyph definition (replace Unicode chars with pixel-art)
     - SGR 150-153: XFlip/YFlip for sprite mirroring
-    - SGR 168;5;N / 169: Base Glyph Palette (BGP) selection
+    - SGR 158;N / 159: Base Glyph Palette (BGP) selection
     - Palette-indexed colors with transparent, dim, and bright variants
     - Extended palette colors: 256-color (`;5;N`) and true RGB (`;r;R;G;B`) support
     - Fallback rendering when palette not defined (0=bg, 1=fg, 2=dim, 3+=bright)
