@@ -1197,9 +1197,6 @@ func showSettingsDialog(parent gtk.IWindow) {
 		}
 	}
 	dlg.Destroy()
-	// Force GC to clean up orphaned GTK wrappers from font/theme changes
-	// This prevents crashes from finalizers running during unrelated operations
-	runtime.GC()
 }
 
 // applyWindowTheme applies the window theme setting
