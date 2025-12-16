@@ -207,6 +207,51 @@
 - Build system improvements:
   - GitHub workflow builds both GTK and Qt versions for Windows
   - Makefile targets for macOS .app bundles: `package-gtk-macos`, `package-qt-macos`
+- CLI command line options (`--help`) for pawgui-gtk and pawgui-qt
+- Hamburger menu with collapsible toolbar strip for GTK and Qt:
+  - Two-tiered collapse: wide mode shows buttons, narrow shows hamburger only
+  - Splitter click toggles file list, double-click resets to default width
+  - `dummy_button` command for per-window toolbar customization
+  - Retro Office 2003/Delphi 7 style menus with icon gutter
+  - SVG menu icons (Home, Examples, Clear Recent, checkmarks) with theme colors
+- ANS file save/restore and New Window menu items:
+  - Save Scrollback as ANSI (.ans) or plain Text
+  - Restore Buffer loads ANS files back into terminal
+  - Proper CR+LF conversion for terminal display
+  - ANS output preserves original color specifications with flex width mode
+- Settings dialog with live preview and revert on Cancel:
+  - Theme: Auto, Light, Dark with OS dark mode detection (Qt)
+  - Window Scale slider for UI scaling (affects icons, toolbar, file list)
+  - Console Font and CJK Font selection with font dialogs
+- Terminal theme system: light/dark mode support with palette color schemes
+- Custom SVG icons for file list with dark mode support for selected rows
+- Remember launcher window position and size across sessions
+- Center window on screen when no saved position exists
+- PSL display color enhancements:
+  - Configurable `psl_colors` section in config files
+  - Split bool into separate true/false colors
+  - Split number into int/float colors
+  - Added symbol, object, bytes, ObjectRef colors
+- Shifted/modified key sequences in REPL readline (Shift+arrows, etc.)
+- Smart word wrap (DEC private mode 7702):
+  - Wraps at word boundaries instead of mid-word
+  - Preserves leading indentation on wrapped lines
+  - Auto-enabled by default, toggles on logical screen size change
+- SGR rendering enhancements:
+  - Italic text rendering (SGR 3/23)
+  - Strikethrough (SGR 9/29)
+  - Underline styles via subparameters: curly, dotted, dashed, double
+  - Underline color support (SGR 58/59)
+- BGP (Base Glyph Palette) SGR codes changed from 168/169 to 158/159
+- `readkey_init` fixes: proper cleanup when child script terminates,
+  persists across REPL commands, stops old manager only on same channel
+- PSL serialization improvements:
+  - `escapePSLString` helper escapes ESC as `\e` and other control characters
+  - Fixed type leaks: `keys`, `split`, `regex_find`, `configureLogFilter`
+    now return QuotedString instead of raw Go strings
+  - `string` command `utf8:` parameter (default true) controls unicode escaping
+- GTK FontButton crash fix (removed problematic onConfigure during SetFont)
+- GTK safety improvements: widget removal guards, KeepAlive for paned handlers
 
 ### 0.2.8 -- November 28-29, 2025 - Thanksgiving Alpha
 - Polymorphic commands: `append`, `prepend`, `contains`, `index` now work on
