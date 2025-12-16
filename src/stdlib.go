@@ -123,6 +123,56 @@ func ParseDisplayColorConfig(colorArg interface{}, executor *Executor) DisplayCo
 	return cfg
 }
 
+// escapePSLString escapes a string for PSL serialization.
+// Uses the same escape sequences as parser.go's parseStringLiteral:
+// \0 (null), \a (bell), \b (backspace), \e (escape), \f (form feed),
+// \n (newline), \r (carriage return), \t (tab), \\ (backslash),
+// \" (double quote), \' (single quote)
+// Unicode characters above ASCII are escaped as \uXXXX or \UXXXXXXXX
+func escapePSLString(s string) string {
+	var sb strings.Builder
+	sb.Grow(len(s) + len(s)/4) // Pre-allocate with some extra for escapes
+
+	for _, r := range s {
+		switch r {
+		case 0x00: // null
+			sb.WriteString("\\0")
+		case 0x07: // bell
+			sb.WriteString("\\a")
+		case 0x08: // backspace
+			sb.WriteString("\\b")
+		case 0x1B: // escape
+			sb.WriteString("\\e")
+		case 0x0C: // form feed
+			sb.WriteString("\\f")
+		case '\n': // newline
+			sb.WriteString("\\n")
+		case '\r': // carriage return
+			sb.WriteString("\\r")
+		case '\t': // tab
+			sb.WriteString("\\t")
+		case '\\': // backslash
+			sb.WriteString("\\\\")
+		case '"': // double quote
+			sb.WriteString("\\\"")
+		case '\'': // single quote
+			sb.WriteString("\\'")
+		default:
+			// ASCII printable range (0x20-0x7E)
+			if r >= 0x20 && r <= 0x7E {
+				sb.WriteRune(r)
+			} else if r <= 0xFFFF {
+				// Use \uXXXX for BMP characters
+				sb.WriteString(fmt.Sprintf("\\u%04X", r))
+			} else {
+				// Use \UXXXXXXXX for characters outside BMP
+				sb.WriteString(fmt.Sprintf("\\U%08X", r))
+			}
+		}
+	}
+	return sb.String()
+}
+
 // stripANSIOutsideQuotes removes ANSI escape sequences (ESC...m) from a string,
 // but only those that appear outside of JSON quoted string values.
 // This handles colored JSON output where escape codes appear around keys/values.
@@ -334,9 +384,7 @@ func formatListForDisplay(list StoredList, exec ...*Executor) string {
 			case StoredBlock:
 				valueStr = formatBlockForPSL(string(v))
 			case QuotedString:
-				escaped := strings.ReplaceAll(string(v), "\\", "\\\\")
-				escaped = strings.ReplaceAll(escaped, "\"", "\\\"")
-				valueStr = "\"" + escaped + "\""
+				valueStr = "\"" + escapePSLString(string(v)) + "\""
 			case Symbol:
 				// Check if this is an object marker that should be formatted specially
 				if objType, objID := parseObjectMarker(string(v)); objID >= 0 {
@@ -349,9 +397,8 @@ func formatListForDisplay(list StoredList, exec ...*Executor) string {
 				if objType, objID := parseObjectMarker(v); objID >= 0 {
 					valueStr = fmt.Sprintf("<%s %d>", objType, objID)
 				} else {
-					escaped := strings.ReplaceAll(v, "\\", "\\\\")
-					escaped = strings.ReplaceAll(escaped, "\"", "\\\"")
-					valueStr = "\"" + escaped + "\""
+					// Raw string type - wrap in angle brackets to indicate unknown/raw type
+					valueStr = "<string \"" + escapePSLString(v) + "\">"
 				}
 			case int64, float64, bool:
 				valueStr = fmt.Sprintf("%v", v)
@@ -394,10 +441,7 @@ func formatListForDisplay(list StoredList, exec ...*Executor) string {
 			// Display block contents in parentheses
 			parts = append(parts, formatBlockForPSL(string(v)))
 		case QuotedString:
-			// Escape internal quotes
-			escaped := strings.ReplaceAll(string(v), "\\", "\\\\")
-			escaped = strings.ReplaceAll(escaped, "\"", "\\\"")
-			parts = append(parts, "\""+escaped+"\"")
+			parts = append(parts, "\""+escapePSLString(string(v))+"\"")
 		case Symbol:
 			// Check if this is an object marker that should be formatted specially
 			if objType, objID := parseObjectMarker(string(v)); objID >= 0 {
@@ -410,10 +454,8 @@ func formatListForDisplay(list StoredList, exec ...*Executor) string {
 			if objType, objID := parseObjectMarker(v); objID >= 0 {
 				parts = append(parts, fmt.Sprintf("<%s %d>", objType, objID))
 			} else {
-				// Regular strings get quoted
-				escaped := strings.ReplaceAll(v, "\\", "\\\\")
-				escaped = strings.ReplaceAll(escaped, "\"", "\\\"")
-				parts = append(parts, "\""+escaped+"\"")
+				// Raw string type - wrap in angle brackets to indicate unknown/raw type
+				parts = append(parts, "<string \""+escapePSLString(v)+"\">")
 			}
 		case int64, float64, bool:
 			parts = append(parts, fmt.Sprintf("%v", v))
@@ -458,9 +500,7 @@ func formatListForDisplayPretty(list StoredList, indent int) string {
 			case StoredBlock:
 				valueStr = formatBlockForPSL(string(v))
 			case QuotedString:
-				escaped := strings.ReplaceAll(string(v), "\\", "\\\\")
-				escaped = strings.ReplaceAll(escaped, "\"", "\\\"")
-				valueStr = "\"" + escaped + "\""
+				valueStr = "\"" + escapePSLString(string(v)) + "\""
 			case Symbol:
 				if objType, objID := parseObjectMarker(string(v)); objID >= 0 {
 					valueStr = fmt.Sprintf("<%s %d>", objType, objID)
@@ -471,9 +511,8 @@ func formatListForDisplayPretty(list StoredList, indent int) string {
 				if objType, objID := parseObjectMarker(v); objID >= 0 {
 					valueStr = fmt.Sprintf("<%s %d>", objType, objID)
 				} else {
-					escaped := strings.ReplaceAll(v, "\\", "\\\\")
-					escaped = strings.ReplaceAll(escaped, "\"", "\\\"")
-					valueStr = "\"" + escaped + "\""
+					// Raw string type - wrap in angle brackets to indicate unknown/raw type
+					valueStr = "<string \"" + escapePSLString(v) + "\">"
 				}
 			case int64, float64, bool:
 				valueStr = fmt.Sprintf("%v", v)
@@ -497,9 +536,7 @@ func formatListForDisplayPretty(list StoredList, indent int) string {
 		case StoredBlock:
 			parts = append(parts, formatBlockForPSL(string(v)))
 		case QuotedString:
-			escaped := strings.ReplaceAll(string(v), "\\", "\\\\")
-			escaped = strings.ReplaceAll(escaped, "\"", "\\\"")
-			parts = append(parts, "\""+escaped+"\"")
+			parts = append(parts, "\""+escapePSLString(string(v))+"\"")
 		case Symbol:
 			if objType, objID := parseObjectMarker(string(v)); objID >= 0 {
 				parts = append(parts, fmt.Sprintf("<%s %d>", objType, objID))
@@ -510,9 +547,8 @@ func formatListForDisplayPretty(list StoredList, indent int) string {
 			if objType, objID := parseObjectMarker(v); objID >= 0 {
 				parts = append(parts, fmt.Sprintf("<%s %d>", objType, objID))
 			} else {
-				escaped := strings.ReplaceAll(v, "\\", "\\\\")
-				escaped = strings.ReplaceAll(escaped, "\"", "\\\"")
-				parts = append(parts, "\""+escaped+"\"")
+				// Raw string type - wrap in angle brackets to indicate unknown/raw type
+				parts = append(parts, "<string \""+escapePSLString(v)+"\">")
 			}
 		case int64, float64, bool:
 			parts = append(parts, fmt.Sprintf("%v", v))
@@ -595,9 +631,7 @@ func formatListForDisplayColored(list StoredList, indent int, pretty bool, cfg D
 			}
 			return cfg.Bracket + "(" + cfg.Reset + content + cfg.Bracket + ")" + cfg.Reset
 		case QuotedString:
-			escaped := strings.ReplaceAll(string(v), "\\", "\\\\")
-			escaped = strings.ReplaceAll(escaped, "\"", "\\\"")
-			return cfg.String + "\"" + escaped + "\"" + cfg.Reset
+			return cfg.String + "\"" + escapePSLString(string(v)) + "\"" + cfg.Reset
 		case Symbol:
 			s := string(v)
 			if objType, objID := parseObjectMarker(s); objID >= 0 {
@@ -617,9 +651,8 @@ func formatListForDisplayColored(list StoredList, indent int, pretty bool, cfg D
 			if objType, objID := parseObjectMarker(v); objID >= 0 {
 				return cfg.Object + fmt.Sprintf("<%s %d>", objType, objID) + cfg.Reset
 			}
-			escaped := strings.ReplaceAll(v, "\\", "\\\\")
-			escaped = strings.ReplaceAll(escaped, "\"", "\\\"")
-			return cfg.String + "\"" + escaped + "\"" + cfg.Reset
+			// Raw string type - wrap in angle brackets to indicate unknown/raw type
+			return cfg.String + "<string \"" + escapePSLString(v) + "\">" + cfg.Reset
 		case int64:
 			return cfg.Int + fmt.Sprintf("%d", v) + cfg.Reset
 		case float64:
@@ -776,9 +809,7 @@ func formatValueColoredInternal(value interface{}, indent int, pretty bool, cfg 
 		}
 		return cfg.Bracket + "(" + cfg.Reset + content + cfg.Bracket + ")" + cfg.Reset
 	case QuotedString:
-		escaped := strings.ReplaceAll(string(v), "\\", "\\\\")
-		escaped = strings.ReplaceAll(escaped, "\"", "\\\"")
-		return cfg.String + "\"" + escaped + "\"" + cfg.Reset
+		return cfg.String + "\"" + escapePSLString(string(v)) + "\"" + cfg.Reset
 	case Symbol:
 		s := string(v)
 		// Try to resolve if it's a marker
@@ -812,13 +843,10 @@ func formatValueColoredInternal(value interface{}, indent int, pretty bool, cfg 
 		if objType, objID := parseObjectMarker(v); objID >= 0 {
 			return cfg.Object + fmt.Sprintf("<%s %d>", objType, objID) + cfg.Reset
 		}
-		escaped := strings.ReplaceAll(v, "\\", "\\\\")
-		escaped = strings.ReplaceAll(escaped, "\"", "\\\"")
-		return cfg.String + "\"" + escaped + "\"" + cfg.Reset
+		// Raw string type - wrap in angle brackets to indicate unknown/raw type
+		return cfg.String + "<string \"" + escapePSLString(v) + "\">" + cfg.Reset
 	case StoredString:
-		escaped := strings.ReplaceAll(string(v), "\\", "\\\\")
-		escaped = strings.ReplaceAll(escaped, "\"", "\\\"")
-		return cfg.String + "\"" + escaped + "\"" + cfg.Reset
+		return cfg.String + "\"" + escapePSLString(string(v)) + "\"" + cfg.Reset
 	case int64:
 		return cfg.Int + fmt.Sprintf("%d", v) + cfg.Reset
 	case float64:
