@@ -250,7 +250,9 @@ func createPixmapFromSVG(svgData string, size int) *qt.QPixmap {
 	resizedSVG := resizeSVG(svgData, size)
 	pixmap := qt.NewQPixmap()
 	data := []byte(resizedSVG)
-	if pixmap.LoadFromData(unsafe.SliceData(data), uint(len(data))) {
+	// Use LoadFromData4 with explicit "SVG" format to ensure Qt uses the SVG plugin
+	// rather than relying on auto-detection which can fail on some platforms
+	if pixmap.LoadFromData4(data, "SVG") {
 		return pixmap
 	}
 	return nil
