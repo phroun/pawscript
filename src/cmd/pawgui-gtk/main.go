@@ -1235,9 +1235,6 @@ func applyFontSettings() {
 		}
 	}
 	toolbarDataMu.Unlock()
-
-	// Force GC to clean up any orphaned Pango/GTK objects from font changes
-	runtime.GC()
 }
 
 // applyUIScale applies UI scale to all windows (requires restart for full effect)
