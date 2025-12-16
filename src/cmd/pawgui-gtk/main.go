@@ -1539,8 +1539,9 @@ func applyConsoleTheme() {
 
 	// Apply to launcher terminal
 	if terminal != nil {
-		// Update the preferred theme (for reset) - doesn't change current DECSCNM state
+		// Update the preferred theme (for reset) and set current theme to match
 		terminal.Buffer().UpdatePreferredDarkTheme(isDark)
+		terminal.Buffer().SetDarkTheme(isDark)
 		terminal.SetColorScheme(scheme)
 	}
 
@@ -1549,12 +1550,14 @@ func applyConsoleTheme() {
 	for _, data := range toolbarDataByWindow {
 		if data.terminal != nil {
 			data.terminal.Buffer().UpdatePreferredDarkTheme(isDark)
+			data.terminal.Buffer().SetDarkTheme(isDark)
 			data.terminal.SetColorScheme(scheme)
 		}
 	}
 	for _, data := range toolbarDataByPS {
 		if data.terminal != nil {
 			data.terminal.Buffer().UpdatePreferredDarkTheme(isDark)
+			data.terminal.Buffer().SetDarkTheme(isDark)
 			data.terminal.SetColorScheme(scheme)
 		}
 	}
