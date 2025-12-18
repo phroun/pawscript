@@ -18,7 +18,7 @@ import (
 	"unsafe"
 
 	"github.com/mappu/miqt/qt"
-	"github.com/phroun/pawscript/src"
+	"github.com/phroun/pawscript"
 	"github.com/phroun/pawscript/src/pkg/pawgui"
 	"github.com/phroun/pawscript/src/pkg/purfecterm"
 	purfectermqt "github.com/phroun/pawscript/src/pkg/purfecterm-qt"

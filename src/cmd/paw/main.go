@@ -12,7 +12,7 @@ import (
 	"syscall"
 	"time"
 
-	"github.com/phroun/pawscript/src"
+	"github.com/phroun/pawscript"
 	"golang.org/x/term"
 )
 
