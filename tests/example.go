@@ -5,8 +5,8 @@ package main
 import (
 	"fmt"
 	"time"
-	
-	pawscript "github.com/phroun/pawscript/src"
+
+	"github.com/phroun/pawscript"
 )
 
 func main() {
