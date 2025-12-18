@@ -1,0 +1,17 @@
+macro makeChan(
+   ret {channel 10}
+)
+
+macro Deeper(
+   #chan: {makeChan}
+
+   channel_send #chan, "Hello"
+
+   msleep 100
+
+   got: {channel_recv #chan}
+
+   print "I got:", ~got
+)
+
+Deeper
