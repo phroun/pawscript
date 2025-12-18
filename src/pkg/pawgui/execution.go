@@ -4,7 +4,7 @@ import (
 	"os"
 	"path/filepath"
 
-	"github.com/phroun/pawscript"
+	"github.com/phroun/pawscript/src"
 )
 
 // CreateFileAccessConfig creates a FileAccessConfig for script execution.

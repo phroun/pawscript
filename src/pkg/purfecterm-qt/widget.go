@@ -8,8 +8,8 @@ import (
 	"sync"
 
 	"github.com/mappu/miqt/qt"
-	"github.com/phroun/pawscript"
-	"github.com/phroun/pawscript/pkg/purfecterm"
+	"github.com/phroun/pawscript/src"
+	"github.com/phroun/pawscript/src/pkg/purfecterm"
 )
 
 // Left padding for terminal content (pixels)

@@ -24,12 +24,12 @@ endif
 # Build native version for local use
 build:
 	@echo "Building paw for native platform ($(NATIVE_OS)/$(NATIVE_ARCH))..."
-	cd $(SRC_DIR) && go build -ldflags "-X main.version=$(VERSION)" -o ../$(BINARY_NAME) ./cmd/paw
+	go build -ldflags "-X main.version=$(VERSION)" -o $(BINARY_NAME) ./src/cmd/paw
 	@echo "Created: $(BINARY_NAME)"
 
 build-token-example:
 	@echo "Building token_example for native platform ($(NATIVE_OS)/$(NATIVE_ARCH))..."
-	cd $(SRC_DIR) && go build -ldflags "-X main.version=$(VERSION)" -o ../token_example ./cmd/token_example
+	go build -ldflags "-X main.version=$(VERSION)" -o token_example ./src/cmd/token_example
 	@echo "Created: token_example"
 
 # Build GTK3-based GUI (requires GTK3 development libraries)
@@ -38,12 +38,12 @@ build-token-example:
 # Windows: Use MSYS2 with mingw-w64-x86_64-gtk3
 build-gui-gtk:
 	@echo "Building pawgui-gtk for native platform ($(NATIVE_OS)/$(NATIVE_ARCH))..."
-	@cd $(SRC_DIR) && go mod tidy
+	@go mod tidy
 ifeq ($(NATIVE_OS),windows)
-	cd $(SRC_DIR) && go build -ldflags="-H windowsgui -s -w" -o ../pawgui-gtk.exe ./cmd/pawgui-gtk
+	go build -ldflags="-H windowsgui -s -w" -o pawgui-gtk.exe ./src/cmd/pawgui-gtk
 	@echo "Created: pawgui-gtk.exe"
 else
-	cd $(SRC_DIR) && go build -o ../pawgui-gtk ./cmd/pawgui-gtk
+	go build -o pawgui-gtk ./src/cmd/pawgui-gtk
 	@echo "Created: pawgui-gtk"
 endif
 
@@ -54,12 +54,12 @@ endif
 # Windows: Use MSYS2 with mingw-w64-x86_64-qt5-base
 build-gui-qt:
 	@echo "Building pawgui-qt for native platform ($(NATIVE_OS)/$(NATIVE_ARCH))..."
-	@cd $(SRC_DIR) && go mod tidy
+	@go mod tidy
 ifeq ($(NATIVE_OS),windows)
-	cd $(SRC_DIR) && go build -ldflags="-H windowsgui -s -w" -o ../pawgui-qt.exe ./cmd/pawgui-qt
+	go build -ldflags="-H windowsgui -s -w" -o pawgui-qt.exe ./src/cmd/pawgui-qt
 	@echo "Created: pawgui-qt.exe"
 else
-	cd $(SRC_DIR) && go build -o ../pawgui-qt ./cmd/pawgui-qt
+	go build -o pawgui-qt ./src/cmd/pawgui-qt
 	@echo "Created: pawgui-qt"
 endif
 
@@ -191,7 +191,7 @@ define build-release
 	@cp -r examples $(RELEASE_DIR)/paw-$(VERSION)-$(3)-$(4)/examples
 	@cp README.md $(RELEASE_DIR)/paw-$(VERSION)-$(3)-$(4)/README.md
 	@cp LICENSE $(RELEASE_DIR)/paw-$(VERSION)-$(3)-$(4)/LICENSE
-	cd $(SRC_DIR) && GOOS=$(1) GOARCH=$(2) go build -ldflags "-X main.version=$(VERSION)" -o ../$(RELEASE_DIR)/paw-$(VERSION)-$(3)-$(4)/$(5) ./cmd/paw
+	GOOS=$(1) GOARCH=$(2) go build -ldflags "-X main.version=$(VERSION)" -o $(RELEASE_DIR)/paw-$(VERSION)-$(3)-$(4)/$(5) ./src/cmd/paw
 	@cd $(RELEASE_DIR) && $(6) paw-$(VERSION)-$(3)-$(4)$(7) paw-$(VERSION)-$(3)-$(4)
 	@rm -rf $(RELEASE_DIR)/paw-$(VERSION)-$(3)-$(4)
 	@echo "Created: $(RELEASE_DIR)/paw-$(VERSION)-$(3)-$(4)$(7)"
@@ -217,7 +217,7 @@ build-linux-x64:
 
 build-wasm:
 	@echo "Building paw WASM..."
-	cd $(SRC_DIR) && GOOS=js GOARCH=wasm go build -o ../js/pawscript.wasm ./wasm
+	GOOS=js GOARCH=wasm go build -o js/pawscript.wasm ./src/wasm
 
 test:
 	@echo "Running tests..."
@@ -225,9 +225,9 @@ test:
 
 test-coverage:
 	@echo "Running tests with coverage..."
-	cd $(SRC_DIR) && go test -v -coverprofile=coverage.out .
-	cd $(SRC_DIR) && go tool cover -html=coverage.out -o coverage.html
-	@echo "Coverage report: $(SRC_DIR)/coverage.html"
+	go test -v -coverprofile=coverage.out ./src
+	go tool cover -html=coverage.out -o coverage.html
+	@echo "Coverage report: coverage.html"
 
 run-example:
 	@echo "Running hello.paw example..."
@@ -235,18 +235,18 @@ run-example:
 
 clean:
 	@echo "Cleaning..."
-	@rm -f paw pawgui-gtk pawgui-gtk.exe pawgui-qt pawgui-qt.exe token_example $(SRC_DIR)/coverage.out $(SRC_DIR)/coverage.html
+	@rm -f paw pawgui-gtk pawgui-gtk.exe pawgui-qt pawgui-qt.exe token_example coverage.out coverage.html
 	@rm -rf pawgui-gtk.app pawgui-qt.app
 	@echo "Clean complete"
 
 fmt:
 	@echo "Formatting code..."
-	cd $(SRC_DIR) && go fmt ./...
+	go fmt ./src/...
 	@echo "Format complete"
 
 lint:
 	@echo "Running linter..."
-	cd $(SRC_DIR) && golangci-lint run
+	golangci-lint run ./src/...
 	@echo "Lint complete"
 
 help:

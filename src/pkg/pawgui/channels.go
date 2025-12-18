@@ -7,7 +7,7 @@ import (
 	"sync"
 	"time"
 
-	"github.com/phroun/pawscript"
+	"github.com/phroun/pawscript/src"
 )
 
 // TerminalAdapter provides an abstraction for different terminal implementations.

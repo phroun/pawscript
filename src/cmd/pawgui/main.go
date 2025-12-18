@@ -24,7 +24,7 @@ import (
 	"fyne.io/fyne/v2/theme"
 	"fyne.io/fyne/v2/widget"
 	"github.com/fyne-io/terminal"
-	pawscript "github.com/phroun/pawscript"
+	pawscript "github.com/phroun/pawscript/src"
 	"github.com/sqweek/dialog"
 )
 

@@ -8,8 +8,8 @@ import (
 	"path/filepath"
 	"runtime"
 
-	"github.com/phroun/pawscript"
-	"github.com/phroun/pawscript/pkg/purfecterm"
+	"github.com/phroun/pawscript/src"
+	"github.com/phroun/pawscript/src/pkg/purfecterm"
 )
 
 // Default font settings

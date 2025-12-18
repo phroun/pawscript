@@ -8,7 +8,7 @@ import (
 	"fmt"
 	"syscall/js"
 
-	pawscript "github.com/phroun/pawscript"
+	pawscript "github.com/phroun/pawscript/src"
 )
 
 // wasmPaw wraps PawScript and manages the JS bridge

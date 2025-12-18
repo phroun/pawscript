@@ -204,8 +204,8 @@ import (
 	"github.com/gotk3/gotk3/gdk"
 	"github.com/gotk3/gotk3/glib"
 	"github.com/gotk3/gotk3/gtk"
-	"github.com/phroun/pawscript"
-	"github.com/phroun/pawscript/pkg/purfecterm"
+	"github.com/phroun/pawscript/src"
+	"github.com/phroun/pawscript/src/pkg/purfecterm"
 )
 
 // Left padding for terminal content (pixels)

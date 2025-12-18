@@ -3,7 +3,7 @@ package main
 import (
 	"fmt"
 	"time"
-        pawscript "github.com/phroun/pawscript"
+        pawscript "github.com/phroun/pawscript/src"
 )
 
 func main() {

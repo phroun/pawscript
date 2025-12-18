@@ -4,7 +4,7 @@ import (
 	"fmt"
 	"time"
 
-	"github.com/phroun/pawscript"
+	"github.com/phroun/pawscript/src"
 )
 
 func main() {
