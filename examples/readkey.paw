@@ -1,0 +1,5 @@
+(#key, #in): {readkey_init ~#in echo: ~#out}
+k: {readkey}
+
+print ~k
+

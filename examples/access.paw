@@ -1,0 +1,33 @@
+recurse: {macro (
+  print "$2"
+  if {neq $2, 0}
+  then call $1, $1, {sub $2, 1}
+)}
+
+call ~recurse, ~recurse, 20
+
+echo "Done recursing."
+
+(name, place): ("Robert", "Califonia")
+
+print "name =", ~name
+print "place =", ~place
+
+student: {list name: "John Doe"}
+
+print {~student} .name
+
+print "Wow"
+
+{macro (
+  add $1, 1
+)} 3 => n
+
+n: {macro (
+  add $1, 1
+)}
+{~n} 3 => n
+
+print n    # This ridiculous example will print 4.
+
+
