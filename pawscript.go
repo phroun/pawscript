@@ -450,8 +450,16 @@ func ParsePSLList(input string) (PSLList, error) {
 // REPL is the Read-Eval-Print Loop for interactive sessions.
 type REPL = impl.REPL
 
+// REPLConfig holds configuration for the REPL.
+type REPLConfig = impl.REPLConfig
+
 // ObjectRef is a reference to a stored object.
 type ObjectRef = impl.ObjectRef
+
+// NewREPL creates a new REPL with the given configuration.
+func NewREPL(config REPLConfig, output func(string)) *REPL {
+	return impl.NewREPL(config, output)
+}
 
 // NewREPLWithInterpreter creates a REPL with an existing interpreter.
 func NewREPLWithInterpreter(ps *PawScript, output func(string)) *REPL {
@@ -462,6 +470,13 @@ func NewREPLWithInterpreter(ps *PawScript, output func(string)) *REPL {
 func CleanupTerminal() {
 	impl.CleanupTerminal()
 }
+
+// =============================================================================
+// I/O CHANNEL CONFIGURATION
+// =============================================================================
+
+// IOChannelConfig holds configuration for I/O channel setup.
+type IOChannelConfig = impl.IOChannelConfig
 
 // =============================================================================
 // CHANNEL FUNCTIONS
