@@ -34,6 +34,24 @@ jobs:
             mingw-w64-x86_64-adwaita-icon-theme
             git
 
+      - name: Embed Windows icon (if available)
+        run: |
+          if [ -f assets/pawscript.ico ]; then
+            echo "Found assets/pawscript.ico, embedding as Windows icon..."
+            # Create resource file
+            cat > src/cmd/pawgui-gtk/pawgui_windows.rc << 'EOF'
+          IDI_ICON1 ICON "pawscript.ico"
+          EOF
+            # Copy icon to build directory
+            cp assets/pawscript.ico src/cmd/pawgui-gtk/
+            # Compile resource file to .syso (Go linker picks this up automatically)
+            cd src/cmd/pawgui-gtk
+            windres -o pawgui_windows.syso pawgui_windows.rc
+            echo "Created pawgui_windows.syso"
+          else
+            echo "No assets/pawscript.ico found, building without icon"
+          fi
+
       - name: Build pawgui-gtk
         run: |
           cd src
@@ -158,10 +176,29 @@ jobs:
           update: true
           install: >-
             mingw-w64-x86_64-qt5-base
+            mingw-w64-x86_64-qt5-svg
             mingw-w64-x86_64-go
             mingw-w64-x86_64-pkg-config
             mingw-w64-x86_64-gcc
             git
+
+      - name: Embed Windows icon (if available)
+        run: |
+          if [ -f assets/pawscript.ico ]; then
+            echo "Found assets/pawscript.ico, embedding as Windows icon..."
+            # Create resource file
+            cat > src/cmd/pawgui-qt/pawgui_windows.rc << 'EOF'
+          IDI_ICON1 ICON "pawscript.ico"
+          EOF
+            # Copy icon to build directory
+            cp assets/pawscript.ico src/cmd/pawgui-qt/
+            # Compile resource file to .syso (Go linker picks this up automatically)
+            cd src/cmd/pawgui-qt
+            windres -o pawgui_windows.syso pawgui_windows.rc
+            echo "Created pawgui_windows.syso"
+          else
+            echo "No assets/pawscript.ico found, building without icon"
+          fi
 
       - name: Build pawgui-qt
         run: |
