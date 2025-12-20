@@ -20,8 +20,8 @@ import (
 	"github.com/mappu/miqt/qt"
 	"github.com/phroun/pawscript"
 	"github.com/phroun/pawscript/src/pkg/pawgui"
-	"github.com/phroun/pawscript/src/pkg/purfecterm"
-	purfectermqt "github.com/phroun/pawscript/src/pkg/purfecterm-qt"
+	"github.com/phroun/purfecterm"
+	purfectermqt "github.com/phroun/purfecterm/purfecterm-qt"
 )
 
 var version = "dev" // set via -ldflags at build time

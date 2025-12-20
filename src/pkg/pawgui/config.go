@@ -9,7 +9,7 @@ import (
 	"runtime"
 
 	"github.com/phroun/pawscript/src"
-	"github.com/phroun/pawscript/src/pkg/purfecterm"
+	"github.com/phroun/purfecterm"
 )
 
 // Default font settings
