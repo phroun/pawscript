@@ -493,6 +493,35 @@ func getDualColorScheme() purfecterm.ColorScheme {
 	return configHelper.GetDualColorScheme()
 }
 
+// createSyncedTermCaps creates a pawscript.TerminalCapabilities that syncs from a purfecterm terminal.
+// It starts a goroutine to periodically sync dimensions from the purfecterm terminal's capabilities.
+func createSyncedTermCaps(term *purfectermqt.Terminal) *pawscript.TerminalCapabilities {
+	cols, rows := term.GetSize()
+	caps := &pawscript.TerminalCapabilities{
+		TermType:      "gui-console",
+		IsTerminal:    true,
+		IsRedirected:  false,
+		SupportsANSI:  true,
+		SupportsColor: true,
+		ColorDepth:    24, // truecolor
+		Width:         cols,
+		Height:        rows,
+		SupportsInput: true,
+		EchoEnabled:   false,
+		LineMode:      false,
+		Metadata:      make(map[string]interface{}),
+	}
+	// Start a goroutine to sync dimensions periodically
+	go func() {
+		for {
+			time.Sleep(100 * time.Millisecond)
+			cols, rows := term.GetSize()
+			caps.SetSize(cols, rows)
+		}
+	}()
+	return caps
+}
+
 func showCopyright() {
 	fmt.Fprintf(os.Stderr, "pawgui-qt, the PawScript GUI interpreter version %s (with Qt)\nCopyright (c) 2025 Jeffrey R. Day\nLicense: MIT\n", version)
 }
@@ -4522,8 +4551,8 @@ func setupConsoleIO() {
 	// Create pipes for stdin
 	stdinReader, stdinWriter = io.Pipe()
 
-	// Get terminal capabilities from the widget (auto-updates on resize)
-	termCaps := terminal.GetTerminalCapabilities()
+	// Create synced terminal capabilities for pawscript
+	termCaps := createSyncedTermCaps(terminal)
 
 	// Output queue for non-blocking writes to terminal
 	outputQueue := make(chan interface{}, 256)

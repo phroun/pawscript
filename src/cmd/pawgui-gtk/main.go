@@ -314,6 +314,35 @@ func getDualColorScheme() purfecterm.ColorScheme {
 	return configHelper.GetDualColorScheme()
 }
 
+// createSyncedTermCaps creates a pawscript.TerminalCapabilities that syncs from a purfecterm terminal.
+// It starts a goroutine to periodically sync dimensions from the purfecterm terminal's capabilities.
+func createSyncedTermCaps(term *purfectermgtk.Terminal) *pawscript.TerminalCapabilities {
+	cols, rows := term.GetSize()
+	caps := &pawscript.TerminalCapabilities{
+		TermType:      "gui-console",
+		IsTerminal:    true,
+		IsRedirected:  false,
+		SupportsANSI:  true,
+		SupportsColor: true,
+		ColorDepth:    24, // truecolor
+		Width:         cols,
+		Height:        rows,
+		SupportsInput: true,
+		EchoEnabled:   false,
+		LineMode:      false,
+		Metadata:      make(map[string]interface{}),
+	}
+	// Start a goroutine to sync dimensions periodically
+	go func() {
+		for {
+			time.Sleep(100 * time.Millisecond)
+			cols, rows := term.GetSize()
+			caps.SetSize(cols, rows)
+		}
+	}()
+	return caps
+}
+
 // getLauncherWidth returns the saved launcher panel width, defaulting to 250 * uiScale
 func getLauncherWidth() int {
 	saved := appConfig.GetInt("launcher_width", -1)
@@ -2113,8 +2142,8 @@ func createBlankConsoleWindow() {
 	stdoutReader, stdoutWriter := io.Pipe()
 	stdinReader, stdinWriter := io.Pipe()
 
-	// Get terminal capabilities from the widget (auto-updates on resize)
-	termCaps := winTerminal.GetTerminalCapabilities()
+	// Create synced terminal capabilities for pawscript
+	termCaps := createSyncedTermCaps(winTerminal)
 
 	// Non-blocking output queue
 	outputQueue := make(chan interface{}, 256)
@@ -4508,8 +4537,8 @@ func runScriptInWindow(gtkApp *gtk.Application, scriptContent, scriptFile string
 	stdoutReader, stdoutWriter := io.Pipe()
 	winStdinReader, winStdinWriter := io.Pipe()
 
-	// Get terminal capabilities from the widget (auto-updates on resize)
-	termCaps := winTerminal.GetTerminalCapabilities()
+	// Create synced terminal capabilities for pawscript
+	termCaps := createSyncedTermCaps(winTerminal)
 
 	// Non-blocking output queue
 	outputQueue := make(chan interface{}, 256)
@@ -5946,8 +5975,8 @@ func createConsoleWindow(filePath string) {
 	stdoutReader, stdoutWriter := io.Pipe()
 	stdinReader, stdinWriter := io.Pipe()
 
-	// Get terminal capabilities from the widget (auto-updates on resize)
-	termCaps := winTerminal.GetTerminalCapabilities()
+	// Create synced terminal capabilities for pawscript
+	termCaps := createSyncedTermCaps(winTerminal)
 
 	// Non-blocking output queue
 	outputQueue := make(chan interface{}, 256)
@@ -6234,8 +6263,8 @@ func createConsoleChannels() {
 	stdinReader = stdinReaderLocal
 	stdinWriter = stdinWriterLocal
 
-	// Get terminal capabilities from the widget (auto-updates on resize)
-	termCaps := terminal.GetTerminalCapabilities()
+	// Create synced terminal capabilities for pawscript
+	termCaps := createSyncedTermCaps(terminal)
 
 	// Non-blocking output: large buffer absorbs bursts
 	// Uses interface{} to allow flush sentinels (chan struct{}) alongside data ([]byte)
