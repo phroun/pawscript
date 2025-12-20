@@ -494,7 +494,7 @@ func getDualColorScheme() purfecterm.ColorScheme {
 }
 
 // createSyncedTermCaps creates a pawscript.TerminalCapabilities that syncs from a purfecterm terminal.
-// It starts a goroutine to periodically sync dimensions from the purfecterm terminal's capabilities.
+// It uses the terminal's resize callback to update dimensions when the terminal resizes.
 func createSyncedTermCaps(term *purfectermqt.Terminal) *pawscript.TerminalCapabilities {
 	cols, rows := term.GetSize()
 	caps := &pawscript.TerminalCapabilities{
@@ -511,14 +511,10 @@ func createSyncedTermCaps(term *purfectermqt.Terminal) *pawscript.TerminalCapabi
 		LineMode:      false,
 		Metadata:      make(map[string]interface{}),
 	}
-	// Start a goroutine to sync dimensions periodically
-	go func() {
-		for {
-			time.Sleep(100 * time.Millisecond)
-			cols, rows := term.GetSize()
-			caps.SetSize(cols, rows)
-		}
-	}()
+	// Use resize callback to sync dimensions
+	term.SetResizeCallback(func(cols, rows int) {
+		caps.SetSize(cols, rows)
+	})
 	return caps
 }
 
