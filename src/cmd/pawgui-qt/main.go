@@ -21,7 +21,7 @@ import (
 	"github.com/phroun/pawscript"
 	"github.com/phroun/pawscript/src/pkg/pawgui"
 	"github.com/phroun/purfecterm"
-	purfectermqt "github.com/phroun/purfecterm/purfecterm-qt"
+	purfectermqt "github.com/phroun/purfecterm/qt"
 )
 
 var version = "dev" // set via -ldflags at build time

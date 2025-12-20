@@ -23,7 +23,7 @@ import (
 	"github.com/phroun/pawscript"
 	"github.com/phroun/pawscript/src/pkg/pawgui"
 	"github.com/phroun/purfecterm"
-	purfectermgtk "github.com/phroun/purfecterm/purfecterm-gtk"
+	purfectermgtk "github.com/phroun/purfecterm/gtk"
 	"github.com/sqweek/dialog"
 )
 
