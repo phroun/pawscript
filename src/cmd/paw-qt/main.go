@@ -493,6 +493,31 @@ func getDualColorScheme() purfecterm.ColorScheme {
 	return configHelper.GetDualColorScheme()
 }
 
+// createSyncedTermCaps creates a pawscript.TerminalCapabilities that syncs from a purfecterm terminal.
+// It uses the terminal's resize callback to update dimensions when the terminal resizes.
+func createSyncedTermCaps(term *purfectermqt.Terminal) *pawscript.TerminalCapabilities {
+	cols, rows := term.GetSize()
+	caps := &pawscript.TerminalCapabilities{
+		TermType:      "gui-console",
+		IsTerminal:    true,
+		IsRedirected:  false,
+		SupportsANSI:  true,
+		SupportsColor: true,
+		ColorDepth:    24, // truecolor
+		Width:         cols,
+		Height:        rows,
+		SupportsInput: true,
+		EchoEnabled:   false,
+		LineMode:      false,
+		Metadata:      make(map[string]interface{}),
+	}
+	// Use resize callback to sync dimensions
+	term.SetResizeCallback(func(cols, rows int) {
+		caps.SetSize(cols, rows)
+	})
+	return caps
+}
+
 func showCopyright() {
 	fmt.Fprintf(os.Stderr, "paw-qt, the PawScript GUI interpreter version %s (with Qt)\nCopyright (c) 2025 Jeffrey R. Day\nLicense: MIT\n", version)
 }
@@ -2454,8 +2479,21 @@ func createBlankConsoleWindow() {
 	// Create I/O channels for this window's console
 	winStdinReader, winStdinWriter := io.Pipe()
 
-	// Get terminal capabilities (auto-updated by purfecterm on resize)
-	winTermCaps := winTerminal.GetTerminalCapabilities()
+	// Terminal capabilities for this window
+	winWidth, winHeight := 100, 30
+	winTermCaps := &pawscript.TerminalCapabilities{
+		TermType:      "gui-console",
+		IsTerminal:    true,
+		SupportsANSI:  true,
+		SupportsColor: true,
+		ColorDepth:    256,
+		Width:         winWidth,
+		Height:        winHeight,
+		SupportsInput: true,
+		EchoEnabled:   false,
+		LineMode:      false,
+		Metadata:      make(map[string]interface{}),
+	}
 
 	// Non-blocking output queue
 	winOutputQueue := make(chan interface{}, 256)
@@ -4099,8 +4137,20 @@ func runScriptInWindow(scriptContent, scriptFile string, scriptArgs []string,
 	// Create I/O channels for this window
 	winStdinReader, winStdinWriter := io.Pipe()
 
-	// Get terminal capabilities (auto-updated by purfecterm on resize)
-	winTermCaps := winTerminal.GetTerminalCapabilities()
+	width, height := 100, 30
+	winTermCaps := &pawscript.TerminalCapabilities{
+		TermType:      "gui-console",
+		IsTerminal:    true,
+		SupportsANSI:  true,
+		SupportsColor: true,
+		ColorDepth:    256,
+		Width:         width,
+		Height:        height,
+		SupportsInput: true,
+		EchoEnabled:   false,
+		LineMode:      false,
+		Metadata:      make(map[string]interface{}),
+	}
 
 	// Non-blocking output queue
 	winOutputQueue := make(chan interface{}, 256)
@@ -4497,8 +4547,8 @@ func setupConsoleIO() {
 	// Create pipes for stdin
 	stdinReader, stdinWriter = io.Pipe()
 
-	// Get terminal capabilities (auto-updated by purfecterm on resize)
-	termCaps := terminal.GetTerminalCapabilities()
+	// Create synced terminal capabilities for pawscript
+	termCaps := createSyncedTermCaps(terminal)
 
 	// Output queue for non-blocking writes to terminal
 	outputQueue := make(chan interface{}, 256)
@@ -5223,8 +5273,21 @@ func createConsoleWindow(filePath string) {
 	// Create I/O channels for this window's console
 	winStdinReader, winStdinWriter := io.Pipe()
 
-	// Get terminal capabilities (auto-updated by purfecterm on resize)
-	winTermCaps := winTerminal.GetTerminalCapabilities()
+	// Terminal capabilities for this window
+	winWidth, winHeight := 100, 30
+	winTermCaps := &pawscript.TerminalCapabilities{
+		TermType:      "gui-console",
+		IsTerminal:    true,
+		SupportsANSI:  true,
+		SupportsColor: true,
+		ColorDepth:    256,
+		Width:         winWidth,
+		Height:        winHeight,
+		SupportsInput: true,
+		EchoEnabled:   false,
+		LineMode:      false,
+		Metadata:      make(map[string]interface{}),
+	}
 
 	// Non-blocking output queue
 	winOutputQueue := make(chan interface{}, 256)
