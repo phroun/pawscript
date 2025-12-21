@@ -18,7 +18,7 @@ else
     BINARY_NAME := paw
 endif
 
-.PHONY: build-all clean-releases build build-gui-gtk build-gui-qt install test test-coverage run-example clean fmt lint help \
+.PHONY: build-all clean-releases build build-gtk build-qt install test test-coverage run-example clean fmt lint help \
 	package-gtk package-qt package-gtk-macos package-qt-macos build-token-example
 
 # Build native version for local use
@@ -36,7 +36,7 @@ build-token-example:
 # Linux: apt install libgtk-3-dev
 # macOS: brew install gtk+3
 # Windows: Use MSYS2 with mingw-w64-x86_64-gtk3
-build-gui-gtk:
+build-gtk:
 	@echo "Building paw-gtk for native platform ($(NATIVE_OS)/$(NATIVE_ARCH))..."
 	@go mod tidy
 ifeq ($(NATIVE_OS),windows)
@@ -52,7 +52,7 @@ endif
 # Linux: apt install qtbase5-dev
 # macOS: brew install qt@5
 # Windows: Use MSYS2 with mingw-w64-x86_64-qt5-base
-build-gui-qt:
+build-qt:
 	@echo "Building paw-qt for native platform ($(NATIVE_OS)/$(NATIVE_ARCH))..."
 	@go mod tidy
 ifeq ($(NATIVE_OS),windows)
@@ -67,7 +67,7 @@ endif
 package-gtk-macos:
 ifeq ($(NATIVE_OS),darwin)
 	@echo "Packaging paw-gtk as macOS app bundle..."
-	@$(MAKE) build-gui-gtk
+	@$(MAKE) build-gtk
 	@rm -rf paw-gtk.app
 	@mkdir -p paw-gtk.app/Contents/MacOS
 	@mkdir -p paw-gtk.app/Contents/Resources
@@ -98,7 +98,7 @@ endif
 package-qt-macos:
 ifeq ($(NATIVE_OS),darwin)
 	@echo "Packaging paw-qt as macOS app bundle..."
-	@$(MAKE) build-gui-qt
+	@$(MAKE) build-qt
 	@rm -rf paw-qt.app
 	@mkdir -p paw-qt.app/Contents/MacOS
 	@mkdir -p paw-qt.app/Contents/Resources
@@ -130,7 +130,7 @@ package-gtk:
 ifeq ($(NATIVE_OS),darwin)
 	@$(MAKE) package-gtk-macos
 else
-	@$(MAKE) build-gui-gtk
+	@$(MAKE) build-gtk
 	@echo "Note: On $(NATIVE_OS), no special packaging is needed. Binary is ready to use."
 endif
 
@@ -138,7 +138,7 @@ package-qt:
 ifeq ($(NATIVE_OS),darwin)
 	@$(MAKE) package-qt-macos
 else
-	@$(MAKE) build-gui-qt
+	@$(MAKE) build-qt
 	@echo "Note: On $(NATIVE_OS), no special packaging is needed. Binary is ready to use."
 endif
 
@@ -254,8 +254,8 @@ help:
 	@echo ""
 	@echo "Build Targets:"
 	@echo "  build          - Build paw CLI for native platform"
-	@echo "  build-gui-gtk  - Build paw-gtk (GTK3 GUI)"
-	@echo "  build-gui-qt   - Build paw-qt (Qt5 GUI)"
+	@echo "  build-gtk      - Build paw-gtk (GTK3 GUI)"
+	@echo "  build-qt       - Build paw-qt (Qt5 GUI)"
 	@echo "  build-all      - Build and package paw CLI for all platforms"
 	@echo ""
 	@echo "Package Targets (native packaging):"
