@@ -9,7 +9,7 @@ require (
 	github.com/fyne-io/terminal v0.0.0-20251010081556-6f9c3819f75f
 	github.com/gotk3/gotk3 v0.6.4-0.20240618185848-ff349ae13f56
 	github.com/mappu/miqt v0.12.0
-	github.com/phroun/purfecterm v0.2.12-0.20251220232707-5deee43a8845
+	github.com/phroun/purfecterm v0.2.12
 	github.com/sqweek/dialog v0.0.0-20240226140203-065105509627
 	golang.org/x/term v0.38.0
 )

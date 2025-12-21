@@ -2048,8 +2048,8 @@ func (ps *PawScript) RegisterSystemLib(scriptArgs []string) {
 			"head":        int64(ts.Head),
 			"indent":      int64(ts.Indent),
 			"visible":     ts.Visible,
-			"shape":       ts.Shape,
-			"blink":       ts.Blink,
+			"shape":       Symbol(ts.Shape),
+			"blink":       Symbol(ts.Blink),
 			"color":       int64(ts.Color),
 			"duplex":      ts.Duplex,
 		}
