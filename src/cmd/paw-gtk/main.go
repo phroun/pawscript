@@ -109,15 +109,16 @@ var (
 	contextMenu *gtk.Menu // Right-click context menu for terminal
 
 	// Console I/O for PawScript
-	consoleOutCh   *pawscript.StoredChannel
-	consoleInCh    *pawscript.StoredChannel
-	stdoutWriter   *io.PipeWriter
-	stdinReader    *io.PipeReader
-	stdinWriter    *io.PipeWriter
-	clearInputFunc func()
-	flushFunc      func() // Flush pending output
-	scriptRunning  bool
-	scriptMu       sync.Mutex
+	consoleOutCh          *pawscript.StoredChannel
+	consoleInCh           *pawscript.StoredChannel
+	stdoutWriter          *io.PipeWriter
+	stdinReader           *io.PipeReader
+	stdinWriter           *io.PipeWriter
+	clearInputFunc        func()
+	flushFunc             func() // Flush pending output
+	consoleAddResizeHandler func(func(cols, rows int)) // For registering PawScript resize handlers
+	scriptRunning         bool
+	scriptMu              sync.Mutex
 
 	// REPL for interactive mode when no script is running
 	consoleREPL *pawscript.REPL
@@ -6337,7 +6338,8 @@ func createConsoleChannels() {
 	stdinWriter = stdinWriterLocal
 
 	// Create synced terminal capabilities for pawscript
-	termCaps := createSyncedTermCaps(terminal)
+	termCaps, addResizeHandler := createSyncedTermCaps(terminal)
+	consoleAddResizeHandler = addResizeHandler
 
 	// Non-blocking output: large buffer absorbs bursts
 	// Uses interface{} to allow flush sentinels (chan struct{}) alongside data ([]byte)
@@ -6564,6 +6566,13 @@ func createConsoleChannels() {
 	consoleREPL.SetBackgroundRGB(bg.R, bg.G, bg.B)
 	consoleREPL.SetPSLColors(getPSLColors())
 	consoleREPL.Start()
+
+	// Register resize handler to update PawScript's terminal state
+	if consoleAddResizeHandler != nil {
+		consoleAddResizeHandler(func(cols, rows int) {
+			consoleREPL.GetPawScript().SetTerminalSize(cols, rows)
+		})
+	}
 
 	// Register the dummy_button command with the REPL's PawScript instance
 	// Create launcher toolbar data that uses the global launcher strip
