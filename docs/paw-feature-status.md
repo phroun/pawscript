@@ -1,6 +1,6 @@
-# pawgui-qt vs pawgui-gtk Feature Comparison
+# paw-qt vs paw-gtk Feature Comparison
 
-This document tracks feature parity between the Qt and GTK versions of pawgui.
+This document tracks feature parity between the Qt and GTK versions of paw.
 
 ## Configuration Features
 

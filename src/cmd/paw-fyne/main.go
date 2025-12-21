@@ -1,4 +1,4 @@
-// pawgui - PawScript with Fyne GUI support
+// paw-fyne - PawScript with Fyne GUI support
 // A drop-in replacement for paw with additional GUI capabilities
 package main
 
@@ -87,7 +87,7 @@ func main() {
 			errorPrintf("  1. Update your graphics drivers\n")
 			errorPrintf("  2. Download Mesa3D software renderer from:\n")
 			errorPrintf("     https://github.com/pal1000/mesa-dist-win/releases\n")
-			errorPrintf("     and place opengl32.dll in the same directory as pawgui.exe\n")
+			errorPrintf("     and place opengl32.dll in the same directory as paw-fyne.exe\n")
 			errorPrintf("  3. Try setting environment variable: GALLIUM_DRIVER=llvmpipe\n")
 			os.Exit(1)
 		}
@@ -537,11 +537,11 @@ func findScriptFile(filename string) string {
 }
 
 func showCopyright() {
-	fmt.Fprintf(os.Stderr, "pawgui, the PawScript GUI interpreter version %s\nCopyright (c) 2025 Jeffrey R. Day\nLicense: MIT\n\n", version)
+	fmt.Fprintf(os.Stderr, "paw-fyne, the PawScript GUI interpreter version %s (with Fyne)\nCopyright (c) 2025 Jeffrey R. Day\nLicense: MIT\n\n", version)
 }
 
 func showLicense() {
-	fmt.Fprintf(os.Stdout, "pawgui, the PawScript GUI interpreter version %s", version)
+	fmt.Fprintf(os.Stdout, "paw-fyne, the PawScript GUI interpreter version %s (with Fyne)", version)
 	license := `
 
 MIT License
@@ -574,9 +574,9 @@ OTHER DEALINGS IN THE SOFTWARE.
 }
 
 func showUsage() {
-	usage := `Usage: pawgui [options] [script.paw] [-- args...]
-       pawgui [options] < input.paw
-       echo "commands" | pawgui [options]
+	usage := `Usage: paw-fyne [options] [script.paw] [-- args...]
+       paw-fyne [options] < input.paw
+       echo "commands" | paw-fyne [options]
 
 Execute PawScript with GUI capabilities from a file, stdin, or pipe.
 
@@ -637,10 +637,10 @@ Easy Console Mode (beginners):
   name: {read}              # Reads from user input
 
 Examples:
-  pawgui examples/gui-demo.paw       # Run the GUI demo
-  pawgui examples/gui-console.paw    # Run the console demo
-  pawgui --unrestricted script.paw   # No file/exec restrictions
-  pawgui --scale 2.0 script.paw      # Use 2x GUI scale
+  paw-fyne examples/gui-demo.paw       # Run the GUI demo
+  paw-fyne examples/gui-console.paw    # Run the console demo
+  paw-fyne --unrestricted script.paw   # No file/exec restrictions
+  paw-fyne --scale 2.0 script.paw      # Use 2x GUI scale
 `
 	fmt.Fprint(os.Stderr, usage)
 }
@@ -968,16 +968,16 @@ func getConfigDir() string {
 	return filepath.Join(home, ".paw")
 }
 
-// getConfigPath returns the path to the pawgui.psl config file
+// getConfigPath returns the path to the paw-fyne.psl config file
 func getConfigPath() string {
 	configDir := getConfigDir()
 	if configDir == "" {
 		return ""
 	}
-	return filepath.Join(configDir, "pawgui.psl")
+	return filepath.Join(configDir, "paw-fyne.psl")
 }
 
-// loadConfig loads the configuration from ~/.paw/pawgui.psl
+// loadConfig loads the configuration from ~/.paw/paw-fyne.psl
 // Returns an empty config if the file doesn't exist or can't be read
 func loadConfig() pawscript.PSLConfig {
 	configPath := getConfigPath()
@@ -998,7 +998,7 @@ func loadConfig() pawscript.PSLConfig {
 	return config
 }
 
-// saveConfig saves the configuration to ~/.paw/pawgui.psl
+// saveConfig saves the configuration to ~/.paw/paw-fyne.psl
 // Silently fails if there are any errors (graceful degradation)
 func saveConfig(config pawscript.PSLConfig) {
 	configPath := getConfigPath()
@@ -1867,13 +1867,13 @@ func createLauncherWindow() {
 
 // getUsageText returns the help/usage text for display in the launcher console
 func getUsageText() string {
-	return fmt.Sprintf(`pawgui, the PawScript GUI interpreter version %s
+	return fmt.Sprintf(`paw-fyne, the PawScript GUI interpreter version %s (with Fyne)
 Copyright (c) 2025 Jeffrey R. Day
 License: MIT
 
-Usage: pawgui [options] [script.paw] [-- args...]
-       pawgui [options] < input.paw
-       echo "commands" | pawgui [options]
+Usage: paw-fyne [options] [script.paw] [-- args...]
+       paw-fyne [options] < input.paw
+       echo "commands" | paw-fyne [options]
 
 Execute PawScript with GUI capabilities from a file, stdin, or pipe.
 
