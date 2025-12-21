@@ -1,4 +1,4 @@
-// pawgui-gtk - GTK3-based GUI for PawScript with custom terminal emulator
+// paw-gtk - GTK3-based GUI for PawScript with custom terminal emulator
 // Cross-platform: works on Linux, macOS, and Windows
 package main
 
@@ -58,7 +58,7 @@ var version = "dev" // set via -ldflags at build time
 const defaultFontSize = pawgui.DefaultFontSize
 
 const (
-	appID   = "com.pawscript.pawgui-gtk"
+	appID   = "com.pawscript.paw-gtk"
 	appName = "PawScript Launcher (GTK)"
 )
 
@@ -258,16 +258,16 @@ func getConfigDir() string {
 	return filepath.Join(home, ".paw")
 }
 
-// getConfigPath returns the path to the pawgui-gtk.psl config file
+// getConfigPath returns the path to the paw-gtk.psl config file
 func getConfigPath() string {
 	configDir := getConfigDir()
 	if configDir == "" {
 		return ""
 	}
-	return filepath.Join(configDir, "pawgui-gtk.psl")
+	return filepath.Join(configDir, "paw-gtk.psl")
 }
 
-// loadConfig loads the configuration from ~/.paw/pawgui-gtk.psl
+// loadConfig loads the configuration from ~/.paw/paw-gtk.psl
 // Returns an empty config if the file doesn't exist or can't be read
 func loadConfig() pawscript.PSLConfig {
 	configPath := getConfigPath()
@@ -288,7 +288,7 @@ func loadConfig() pawscript.PSLConfig {
 	return config
 }
 
-// saveConfig saves the configuration to ~/.paw/pawgui-gtk.psl
+// saveConfig saves the configuration to ~/.paw/paw-gtk.psl
 // Silently fails if there are any errors (graceful degradation)
 func saveConfig(config pawscript.PSLConfig) {
 	configPath := getConfigPath()
@@ -4003,7 +4003,7 @@ func setupQuitShortcut() {
 }
 
 func showCopyright() {
-	fmt.Fprintf(os.Stderr, "pawgui-gtk, the PawScript GUI interpreter version %s (with GTK)\nCopyright (c) 2025 Jeffrey R. Day\nLicense: MIT\n", version)
+	fmt.Fprintf(os.Stderr, "paw-gtk, the PawScript GUI interpreter version %s (with GTK)\nCopyright (c) 2025 Jeffrey R. Day\nLicense: MIT\n", version)
 }
 
 func showLicense() {
@@ -4041,9 +4041,9 @@ OTHER DEALINGS IN THE SOFTWARE.
 func showUsage() {
 	showCopyright()
 	usage := `
-Usage: pawgui-gtk [options] [script.paw] [-- args...]
-       pawgui-gtk [options] < input.paw
-       echo "commands" | pawgui-gtk [options]
+Usage: paw-gtk [options] [script.paw] [-- args...]
+       paw-gtk [options] < input.paw
+       echo "commands" | paw-gtk [options]
 
 Execute PawScript with GUI capabilities from a file, stdin, or pipe.
 
@@ -5191,7 +5191,7 @@ func activate(application *gtk.Application) {
 	updatePathMenu()
 
 	// Print welcome banner
-	terminal.Feed(fmt.Sprintf("pawgui-gtk, the PawScript GUI interpreter version %s (with GTK)\r\n", version))
+	terminal.Feed(fmt.Sprintf("paw-gtk, the PawScript GUI interpreter version %s (with GTK)\r\n", version))
 	terminal.Feed("Copyright (c) 2025 Jeffrey R. Day\r\n")
 	terminal.Feed("License: MIT\r\n\r\n")
 	terminal.Feed("Interactive mode. Type 'exit' or 'quit' to leave.\r\n")
