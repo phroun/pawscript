@@ -341,10 +341,10 @@ func getDualColorScheme() purfecterm.ColorScheme {
 
 // bringWindowToFront brings a window to the foreground.
 // On macOS, this uses the native Cocoa API since GTK's Present() alone doesn't work.
-func bringWindowToFront(win *gtk.Window) {
+func bringWindowToFront(win gtk.IWindow) {
 	glib.IdleAdd(func() bool {
 		C.activateApp()
-		win.Present()
+		win.ToWindow().Present()
 		return false
 	})
 }
