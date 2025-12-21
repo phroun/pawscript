@@ -1824,6 +1824,7 @@ func (ps *PawScript) RegisterSystemLib(scriptArgs []string) {
 	})
 
 	// cursor - get/set cursor position and appearance
+	// Optional first arg: channel to get screen dimensions from (like read command)
 	// Named args: xbase, ybase, rows, cols, indent, head (sticky - set once)
 	//             x/col, y/row (position), h/v (relative movement)
 	//             visible, shape, blink, color, free, duplex, reset
@@ -1832,6 +1833,30 @@ func (ps *PawScript) RegisterSystemLib(scriptArgs []string) {
 		ts := ps.terminalState
 		ts.mu.Lock()
 		defer ts.mu.Unlock()
+
+		// Resolve input channel for screen dimensions (same technique as read command)
+		// Check if first arg is a channel, otherwise default to #in
+		var inCh *StoredChannel
+		if len(ctx.Args) > 0 {
+			// Try to resolve first arg as a channel
+			if ch := valueToChannel(ctx, ctx.Args[0]); ch != nil {
+				inCh = ch
+				// Remove the channel from args so positional x,y parsing works
+				ctx.Args = ctx.Args[1:]
+			} else if sym, ok := ctx.Args[0].(Symbol); ok {
+				symStr := string(sym)
+				if strings.HasPrefix(symStr, "#") {
+					if ch := resolveChannel(ctx, symStr); ch != nil {
+						inCh = ch
+						ctx.Args = ctx.Args[1:]
+					}
+				}
+			}
+		}
+		// If no channel specified, use default #in
+		if inCh == nil {
+			inCh = resolveChannel(ctx, "#in")
+		}
 
 		// Get output channel - use it for ANSI output
 		outCh, _, found := getOutputChannel(ctx, "#out")
@@ -1851,8 +1876,18 @@ func (ps *PawScript) RegisterSystemLib(scriptArgs []string) {
 			ts.ResetTerminal()
 		}
 
-		// Re-detect screen size each time for accuracy
-		ts.detectScreenSize()
+		// Get screen size from channel's TerminalCapabilities if available,
+		// otherwise fall back to system terminal detection
+		if inCh != nil && inCh.Terminal != nil {
+			w, h := inCh.Terminal.GetSize()
+			if w > 0 && h > 0 {
+				ts.ScreenCols = w
+				ts.ScreenRows = h
+			}
+		} else {
+			// Fall back to system terminal detection (for CLI mode)
+			ts.detectScreenSize()
+		}
 
 		// Process duplex (echo) setting
 		if duplex, ok := ctx.NamedArgs["duplex"]; ok {
