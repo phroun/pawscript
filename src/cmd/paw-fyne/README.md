@@ -1,4 +1,4 @@
-# PawGUI - PawScript with Fyne GUI
+# paw-fyne - PawScript with Fyne GUI
 
 A proof of concept for running PawScript with GUI capabilities using [Fyne](https://fyne.io/).
 
@@ -31,22 +31,22 @@ go mod tidy
 Then build:
 
 ```bash
-go build -o pawgui ./cmd/pawgui/
+go build -o paw-fyne ./cmd/paw-fyne/
 ```
 
 ## Usage
 
 ```bash
 # Run with a script
-./pawgui myscript.paw
+./paw-fyne myscript.paw
 
 # Run the built-in demo
-./pawgui -demo
+./paw-fyne -demo
 ```
 
 ## GUI Commands
 
-PawGUI provides these commands (prefixed with `gui_` to avoid conflicts):
+paw-fyne provides these commands (prefixed with `gui_` to avoid conflicts):
 
 ### Window Control
 
@@ -147,7 +147,7 @@ name: {read}
 print "Hello, ~name!"
 ```
 
-Run with: `pawgui -console`
+Run with: `paw-fyne -console`
 
 ## Split Layout Example
 
@@ -178,7 +178,7 @@ MODULE exports
 EXPORT ...
 ```
 
-Run with: `pawgui -demo` to see a full example with interactive console.
+Run with: `paw-fyne -demo` to see a full example with interactive console.
 
 ## Architecture
 

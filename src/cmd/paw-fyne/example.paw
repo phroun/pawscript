@@ -1,6 +1,6 @@
-#!/usr/bin/env pawgui
+#!/usr/bin/env paw-fyne
 # Example PawScript GUI Application
-# Run with: pawgui example.paw
+# Run with: paw-fyne example.paw
 
 # Configure the window
 gui_title "PawScript GUI Example"

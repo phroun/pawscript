@@ -242,7 +242,7 @@ func (ps *PawScript) RegisterCoreLib() {
 		// Resolve ObjectRef to get the actual stored object for correct type inference
 		resolved := ctx.executor.resolveValue(value)
 		typeName := getTypeName(resolved)
-		ctx.SetResult(typeName)
+		ctx.SetResult(QuotedString(typeName))
 		return BoolStatus(true)
 	})
 
@@ -278,14 +278,14 @@ func (ps *PawScript) RegisterCoreLib() {
 		value, exists := ctx.state.GetVariable(varName)
 
 		if !exists {
-			ctx.SetResult("undefined")
+			ctx.SetResult(QuotedString("undefined"))
 			return BoolStatus(true)
 		}
 
 		// Resolve the value to get the actual object (for correct struct def detection)
 		resolved := ctx.executor.resolveValue(value)
 		typeName := getTypeName(resolved)
-		ctx.SetResult(typeName)
+		ctx.SetResult(QuotedString(typeName))
 		return BoolStatus(true)
 	})
 

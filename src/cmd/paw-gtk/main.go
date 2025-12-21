@@ -1,6 +1,31 @@
-// pawgui-gtk - GTK3-based GUI for PawScript with custom terminal emulator
+// paw-gtk - GTK3-based GUI for PawScript with custom terminal emulator
 // Cross-platform: works on Linux, macOS, and Windows
 package main
+
+/*
+#cgo darwin CFLAGS: -x objective-c
+#cgo darwin LDFLAGS: -framework Cocoa
+
+#ifdef __APPLE__
+#include <objc/runtime.h>
+#include <objc/message.h>
+
+void activateApp() {
+    id ns_app = ((id (*)(Class, SEL))objc_msgSend)(
+        objc_getClass("NSApplication"),
+        sel_registerName("sharedApplication")
+    );
+    ((void (*)(id, SEL, BOOL))objc_msgSend)(
+        ns_app,
+        sel_registerName("activateIgnoringOtherApps:"),
+        1
+    );
+}
+#else
+void activateApp() {}
+#endif
+*/
+import "C"
 
 import (
 	"flag"
@@ -22,8 +47,8 @@ import (
 	"github.com/gotk3/gotk3/pango"
 	"github.com/phroun/pawscript"
 	"github.com/phroun/pawscript/src/pkg/pawgui"
-	"github.com/phroun/pawscript/src/pkg/purfecterm"
-	purfectermgtk "github.com/phroun/pawscript/src/pkg/purfecterm-gtk"
+	"github.com/phroun/purfecterm"
+	purfectermgtk "github.com/phroun/purfecterm/gtk"
 	"github.com/sqweek/dialog"
 )
 
@@ -33,7 +58,7 @@ var version = "dev" // set via -ldflags at build time
 const defaultFontSize = pawgui.DefaultFontSize
 
 const (
-	appID   = "com.pawscript.pawgui-gtk"
+	appID   = "com.pawscript.paw-gtk"
 	appName = "PawScript Launcher (GTK)"
 )
 
@@ -233,16 +258,16 @@ func getConfigDir() string {
 	return filepath.Join(home, ".paw")
 }
 
-// getConfigPath returns the path to the pawgui-gtk.psl config file
+// getConfigPath returns the path to the paw-gtk.psl config file
 func getConfigPath() string {
 	configDir := getConfigDir()
 	if configDir == "" {
 		return ""
 	}
-	return filepath.Join(configDir, "pawgui-gtk.psl")
+	return filepath.Join(configDir, "paw-gtk.psl")
 }
 
-// loadConfig loads the configuration from ~/.paw/pawgui-gtk.psl
+// loadConfig loads the configuration from ~/.paw/paw-gtk.psl
 // Returns an empty config if the file doesn't exist or can't be read
 func loadConfig() pawscript.PSLConfig {
 	configPath := getConfigPath()
@@ -263,7 +288,7 @@ func loadConfig() pawscript.PSLConfig {
 	return config
 }
 
-// saveConfig saves the configuration to ~/.paw/pawgui-gtk.psl
+// saveConfig saves the configuration to ~/.paw/paw-gtk.psl
 // Silently fails if there are any errors (graceful degradation)
 func saveConfig(config pawscript.PSLConfig) {
 	configPath := getConfigPath()
@@ -312,6 +337,16 @@ func getColorSchemeForTheme(isDark bool) purfecterm.ColorScheme {
 
 func getDualColorScheme() purfecterm.ColorScheme {
 	return configHelper.GetDualColorScheme()
+}
+
+// bringWindowToFront brings a window to the foreground.
+// On macOS, this uses the native Cocoa API since GTK's Present() alone doesn't work.
+func bringWindowToFront(win gtk.IWindow) {
+	glib.IdleAdd(func() bool {
+		C.activateApp()
+		win.ToWindow().Present()
+		return false
+	})
 }
 
 // getLauncherWidth returns the saved launcher panel width, defaulting to 250 * uiScale
@@ -2113,7 +2148,7 @@ func createBlankConsoleWindow() {
 	stdoutReader, stdoutWriter := io.Pipe()
 	stdinReader, stdinWriter := io.Pipe()
 
-	// Get terminal capabilities from the widget (auto-updates on resize)
+	// Get terminal capabilities (auto-updated by purfecterm on resize)
 	termCaps := winTerminal.GetTerminalCapabilities()
 
 	// Non-blocking output queue
@@ -2276,6 +2311,7 @@ func createBlankConsoleWindow() {
 	})
 
 	win.ShowAll()
+	bringWindowToFront(win)
 
 	// Start REPL immediately (no script to run first)
 	go func() {
@@ -3942,7 +3978,7 @@ func setupQuitShortcut() {
 }
 
 func showCopyright() {
-	fmt.Fprintf(os.Stderr, "pawgui-gtk, the PawScript GUI interpreter version %s (with GTK)\nCopyright (c) 2025 Jeffrey R. Day\nLicense: MIT\n", version)
+	fmt.Fprintf(os.Stderr, "paw-gtk, the PawScript GUI interpreter version %s (with GTK)\nCopyright (c) 2025 Jeffrey R. Day\nLicense: MIT\n", version)
 }
 
 func showLicense() {
@@ -3980,9 +4016,9 @@ OTHER DEALINGS IN THE SOFTWARE.
 func showUsage() {
 	showCopyright()
 	usage := `
-Usage: pawgui-gtk [options] [script.paw] [-- args...]
-       pawgui-gtk [options] < input.paw
-       echo "commands" | pawgui-gtk [options]
+Usage: paw-gtk [options] [script.paw] [-- args...]
+       paw-gtk [options] < input.paw
+       echo "commands" | paw-gtk [options]
 
 Execute PawScript with GUI capabilities from a file, stdin, or pipe.
 
@@ -4503,12 +4539,13 @@ func runScriptInWindow(gtkApp *gtk.Application, scriptContent, scriptFile string
 
 	win.Add(paned)
 	win.ShowAll()
+	bringWindowToFront(win)
 
 	// Create I/O channels for this window's console
 	stdoutReader, stdoutWriter := io.Pipe()
 	winStdinReader, winStdinWriter := io.Pipe()
 
-	// Get terminal capabilities from the widget (auto-updates on resize)
+	// Get terminal capabilities (auto-updated by purfecterm on resize)
 	termCaps := winTerminal.GetTerminalCapabilities()
 
 	// Non-blocking output queue
@@ -5129,13 +5166,14 @@ func activate(application *gtk.Application) {
 	updatePathMenu()
 
 	// Print welcome banner
-	terminal.Feed(fmt.Sprintf("pawgui-gtk, the PawScript GUI interpreter version %s (with GTK)\r\n", version))
+	terminal.Feed(fmt.Sprintf("paw-gtk, the PawScript GUI interpreter version %s (with GTK)\r\n", version))
 	terminal.Feed("Copyright (c) 2025 Jeffrey R. Day\r\n")
 	terminal.Feed("License: MIT\r\n\r\n")
 	terminal.Feed("Interactive mode. Type 'exit' or 'quit' to leave.\r\n")
 	terminal.Feed("Select a .paw file and click Run to execute.\r\n\r\n")
 
 	mainWindow.ShowAll()
+	bringWindowToFront(mainWindow)
 
 	// Apply correct UI state and position based on saved position
 	// Note: savedPos represents only the wide panel width (not including strip)
@@ -5946,7 +5984,7 @@ func createConsoleWindow(filePath string) {
 	stdoutReader, stdoutWriter := io.Pipe()
 	stdinReader, stdinWriter := io.Pipe()
 
-	// Get terminal capabilities from the widget (auto-updates on resize)
+	// Get terminal capabilities (auto-updated by purfecterm on resize)
 	termCaps := winTerminal.GetTerminalCapabilities()
 
 	// Non-blocking output queue
@@ -6099,6 +6137,7 @@ func createConsoleWindow(filePath string) {
 	})
 
 	win.ShowAll()
+	bringWindowToFront(win)
 
 	// Run the script
 	winTerminal.Feed(fmt.Sprintf("--- Running: %s ---\r\n\r\n", filepath.Base(filePath)))
@@ -6234,7 +6273,7 @@ func createConsoleChannels() {
 	stdinReader = stdinReaderLocal
 	stdinWriter = stdinWriterLocal
 
-	// Get terminal capabilities from the widget (auto-updates on resize)
+	// Get terminal capabilities (auto-updated by purfecterm on resize)
 	termCaps := terminal.GetTerminalCapabilities()
 
 	// Non-blocking output: large buffer absorbs bursts

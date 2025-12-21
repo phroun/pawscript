@@ -1,4 +1,4 @@
-// pawgui-qt - Qt-based GUI for PawScript with custom terminal emulator
+// paw-qt - Qt-based GUI for PawScript with custom terminal emulator
 // Cross-platform: works on Linux, macOS, and Windows
 package main
 
@@ -20,8 +20,8 @@ import (
 	"github.com/mappu/miqt/qt"
 	"github.com/phroun/pawscript"
 	"github.com/phroun/pawscript/src/pkg/pawgui"
-	"github.com/phroun/pawscript/src/pkg/purfecterm"
-	purfectermqt "github.com/phroun/pawscript/src/pkg/purfecterm-qt"
+	"github.com/phroun/purfecterm"
+	purfectermqt "github.com/phroun/purfecterm/qt"
 )
 
 var version = "dev" // set via -ldflags at build time
@@ -424,7 +424,7 @@ func getConfigPath() string {
 	if configDir == "" {
 		return ""
 	}
-	return filepath.Join(configDir, "pawgui-qt.psl")
+	return filepath.Join(configDir, "paw-qt.psl")
 }
 
 func loadConfig() pawscript.PSLConfig {
@@ -494,7 +494,7 @@ func getDualColorScheme() purfecterm.ColorScheme {
 }
 
 func showCopyright() {
-	fmt.Fprintf(os.Stderr, "pawgui-qt, the PawScript GUI interpreter version %s (with Qt)\nCopyright (c) 2025 Jeffrey R. Day\nLicense: MIT\n", version)
+	fmt.Fprintf(os.Stderr, "paw-qt, the PawScript GUI interpreter version %s (with Qt)\nCopyright (c) 2025 Jeffrey R. Day\nLicense: MIT\n", version)
 }
 
 func showLicense() {
@@ -532,9 +532,9 @@ OTHER DEALINGS IN THE SOFTWARE.
 func showUsage() {
 	showCopyright()
 	usage := `
-Usage: pawgui-qt [options] [script.paw] [-- args...]
-       pawgui-qt [options] < input.paw
-       echo "commands" | pawgui-qt [options]
+Usage: paw-qt [options] [script.paw] [-- args...]
+       paw-qt [options] < input.paw
+       echo "commands" | paw-qt [options]
 
 Execute PawScript with GUI capabilities from a file, stdin, or pipe.
 
@@ -2454,21 +2454,8 @@ func createBlankConsoleWindow() {
 	// Create I/O channels for this window's console
 	winStdinReader, winStdinWriter := io.Pipe()
 
-	// Terminal capabilities for this window
-	winWidth, winHeight := 100, 30
-	winTermCaps := &pawscript.TerminalCapabilities{
-		TermType:      "gui-console",
-		IsTerminal:    true,
-		SupportsANSI:  true,
-		SupportsColor: true,
-		ColorDepth:    256,
-		Width:         winWidth,
-		Height:        winHeight,
-		SupportsInput: true,
-		EchoEnabled:   false,
-		LineMode:      false,
-		Metadata:      make(map[string]interface{}),
-	}
+	// Get terminal capabilities (auto-updated by purfecterm on resize)
+	winTermCaps := winTerminal.GetTerminalCapabilities()
 
 	// Non-blocking output queue
 	winOutputQueue := make(chan interface{}, 256)
@@ -3794,7 +3781,7 @@ func launchGUIMode() {
 	setupConsoleIO()
 
 	// Print welcome banner before REPL starts (so prompt appears after)
-	terminal.Feed(fmt.Sprintf("pawgui-qt, the PawScript GUI interpreter version %s (with Qt)\r\n", version))
+	terminal.Feed(fmt.Sprintf("paw-qt, the PawScript GUI interpreter version %s (with Qt)\r\n", version))
 	terminal.Feed("Copyright (c) 2025 Jeffrey R. Day\r\n")
 	terminal.Feed("License: MIT\r\n\r\n")
 	terminal.Feed("Interactive mode. Type 'exit' or 'quit' to leave.\r\n")
@@ -4112,20 +4099,8 @@ func runScriptInWindow(scriptContent, scriptFile string, scriptArgs []string,
 	// Create I/O channels for this window
 	winStdinReader, winStdinWriter := io.Pipe()
 
-	width, height := 100, 30
-	winTermCaps := &pawscript.TerminalCapabilities{
-		TermType:      "gui-console",
-		IsTerminal:    true,
-		SupportsANSI:  true,
-		SupportsColor: true,
-		ColorDepth:    256,
-		Width:         width,
-		Height:        height,
-		SupportsInput: true,
-		EchoEnabled:   false,
-		LineMode:      false,
-		Metadata:      make(map[string]interface{}),
-	}
+	// Get terminal capabilities (auto-updated by purfecterm on resize)
+	winTermCaps := winTerminal.GetTerminalCapabilities()
 
 	// Non-blocking output queue
 	winOutputQueue := make(chan interface{}, 256)
@@ -4522,7 +4497,7 @@ func setupConsoleIO() {
 	// Create pipes for stdin
 	stdinReader, stdinWriter = io.Pipe()
 
-	// Get terminal capabilities from the widget (auto-updates on resize)
+	// Get terminal capabilities (auto-updated by purfecterm on resize)
 	termCaps := terminal.GetTerminalCapabilities()
 
 	// Output queue for non-blocking writes to terminal
@@ -5248,21 +5223,8 @@ func createConsoleWindow(filePath string) {
 	// Create I/O channels for this window's console
 	winStdinReader, winStdinWriter := io.Pipe()
 
-	// Terminal capabilities for this window
-	winWidth, winHeight := 100, 30
-	winTermCaps := &pawscript.TerminalCapabilities{
-		TermType:      "gui-console",
-		IsTerminal:    true,
-		SupportsANSI:  true,
-		SupportsColor: true,
-		ColorDepth:    256,
-		Width:         winWidth,
-		Height:        winHeight,
-		SupportsInput: true,
-		EchoEnabled:   false,
-		LineMode:      false,
-		Metadata:      make(map[string]interface{}),
-	}
+	// Get terminal capabilities (auto-updated by purfecterm on resize)
+	winTermCaps := winTerminal.GetTerminalCapabilities()
 
 	// Non-blocking output queue
 	winOutputQueue := make(chan interface{}, 256)

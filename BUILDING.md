@@ -151,3 +151,11 @@ make help           # Show all targets
 ```
 
 brew install gtk+3 vte3
+
+## Notes
+
+To update go modules if needed:
+
+```bash
+go get -u
+```

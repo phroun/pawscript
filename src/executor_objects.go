@@ -9,7 +9,7 @@ func (e *Executor) maybeStoreValue(value interface{}, state *ExecutionState) int
 			ref := e.RegisterObject(StoredString(v), ObjString)
 			return ref // Return ObjectRef directly instead of marker
 		}
-		return v
+		return QuotedString(v)
 	case QuotedString:
 		if len(v) > StringStorageThreshold {
 			ref := e.RegisterObject(StoredString(v), ObjString)
