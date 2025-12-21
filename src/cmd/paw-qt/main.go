@@ -1,4 +1,4 @@
-// pawgui-qt - Qt-based GUI for PawScript with custom terminal emulator
+// paw-qt - Qt-based GUI for PawScript with custom terminal emulator
 // Cross-platform: works on Linux, macOS, and Windows
 package main
 
@@ -424,7 +424,7 @@ func getConfigPath() string {
 	if configDir == "" {
 		return ""
 	}
-	return filepath.Join(configDir, "pawgui-qt.psl")
+	return filepath.Join(configDir, "paw-qt.psl")
 }
 
 func loadConfig() pawscript.PSLConfig {
@@ -519,7 +519,7 @@ func createSyncedTermCaps(term *purfectermqt.Terminal) *pawscript.TerminalCapabi
 }
 
 func showCopyright() {
-	fmt.Fprintf(os.Stderr, "pawgui-qt, the PawScript GUI interpreter version %s (with Qt)\nCopyright (c) 2025 Jeffrey R. Day\nLicense: MIT\n", version)
+	fmt.Fprintf(os.Stderr, "paw-qt, the PawScript GUI interpreter version %s (with Qt)\nCopyright (c) 2025 Jeffrey R. Day\nLicense: MIT\n", version)
 }
 
 func showLicense() {
@@ -557,9 +557,9 @@ OTHER DEALINGS IN THE SOFTWARE.
 func showUsage() {
 	showCopyright()
 	usage := `
-Usage: pawgui-qt [options] [script.paw] [-- args...]
-       pawgui-qt [options] < input.paw
-       echo "commands" | pawgui-qt [options]
+Usage: paw-qt [options] [script.paw] [-- args...]
+       paw-qt [options] < input.paw
+       echo "commands" | paw-qt [options]
 
 Execute PawScript with GUI capabilities from a file, stdin, or pipe.
 
@@ -3819,7 +3819,7 @@ func launchGUIMode() {
 	setupConsoleIO()
 
 	// Print welcome banner before REPL starts (so prompt appears after)
-	terminal.Feed(fmt.Sprintf("pawgui-qt, the PawScript GUI interpreter version %s (with Qt)\r\n", version))
+	terminal.Feed(fmt.Sprintf("paw-qt, the PawScript GUI interpreter version %s (with Qt)\r\n", version))
 	terminal.Feed("Copyright (c) 2025 Jeffrey R. Day\r\n")
 	terminal.Feed("License: MIT\r\n\r\n")
 	terminal.Feed("Interactive mode. Type 'exit' or 'quit' to leave.\r\n")

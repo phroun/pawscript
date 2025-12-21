@@ -37,14 +37,14 @@ build-token-example:
 # macOS: brew install gtk+3
 # Windows: Use MSYS2 with mingw-w64-x86_64-gtk3
 build-gui-gtk:
-	@echo "Building pawgui-gtk for native platform ($(NATIVE_OS)/$(NATIVE_ARCH))..."
+	@echo "Building paw-gtk for native platform ($(NATIVE_OS)/$(NATIVE_ARCH))..."
 	@go mod tidy
 ifeq ($(NATIVE_OS),windows)
-	go build -ldflags="-H windowsgui -s -w" -o pawgui-gtk.exe ./src/cmd/pawgui-gtk
-	@echo "Created: pawgui-gtk.exe"
+	go build -ldflags="-H windowsgui -s -w" -o paw-gtk.exe ./src/cmd/paw-gtk
+	@echo "Created: paw-gtk.exe"
 else
-	go build -o pawgui-gtk ./src/cmd/pawgui-gtk
-	@echo "Created: pawgui-gtk"
+	go build -o paw-gtk ./src/cmd/paw-gtk
+	@echo "Created: paw-gtk"
 endif
 
 # Build Qt-based GUI (requires Qt5/Qt6 development libraries)
@@ -53,42 +53,42 @@ endif
 # macOS: brew install qt@5
 # Windows: Use MSYS2 with mingw-w64-x86_64-qt5-base
 build-gui-qt:
-	@echo "Building pawgui-qt for native platform ($(NATIVE_OS)/$(NATIVE_ARCH))..."
+	@echo "Building paw-qt for native platform ($(NATIVE_OS)/$(NATIVE_ARCH))..."
 	@go mod tidy
 ifeq ($(NATIVE_OS),windows)
-	go build -ldflags="-H windowsgui -s -w" -o pawgui-qt.exe ./src/cmd/pawgui-qt
-	@echo "Created: pawgui-qt.exe"
+	go build -ldflags="-H windowsgui -s -w" -o paw-qt.exe ./src/cmd/paw-qt
+	@echo "Created: paw-qt.exe"
 else
-	go build -o pawgui-qt ./src/cmd/pawgui-qt
-	@echo "Created: pawgui-qt"
+	go build -o paw-qt ./src/cmd/paw-qt
+	@echo "Created: paw-qt"
 endif
 
 # Package GTK GUI as macOS .app bundle (macOS only)
 package-gtk-macos:
 ifeq ($(NATIVE_OS),darwin)
-	@echo "Packaging pawgui-gtk as macOS app bundle..."
+	@echo "Packaging paw-gtk as macOS app bundle..."
 	@$(MAKE) build-gui-gtk
-	@rm -rf pawgui-gtk.app
-	@mkdir -p pawgui-gtk.app/Contents/MacOS
-	@mkdir -p pawgui-gtk.app/Contents/Resources
-	@cp pawgui-gtk pawgui-gtk.app/Contents/MacOS/
-	@cp -r examples pawgui-gtk.app/Contents/Resources/examples
+	@rm -rf paw-gtk.app
+	@mkdir -p paw-gtk.app/Contents/MacOS
+	@mkdir -p paw-gtk.app/Contents/Resources
+	@cp paw-gtk paw-gtk.app/Contents/MacOS/
+	@cp -r examples paw-gtk.app/Contents/Resources/examples
 	@if [ -f assets/pawscript.icns ]; then \
-		cp assets/pawscript.icns pawgui-gtk.app/Contents/Resources/pawscript.icns; \
+		cp assets/pawscript.icns paw-gtk.app/Contents/Resources/pawscript.icns; \
 	fi
-	@echo '<?xml version="1.0" encoding="UTF-8"?>' > pawgui-gtk.app/Contents/Info.plist
-	@echo '<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">' >> pawgui-gtk.app/Contents/Info.plist
-	@echo '<plist version="1.0"><dict>' >> pawgui-gtk.app/Contents/Info.plist
-	@echo '<key>CFBundleExecutable</key><string>pawgui-gtk</string>' >> pawgui-gtk.app/Contents/Info.plist
-	@echo '<key>CFBundleIdentifier</key><string>com.pawscript.pawgui-gtk</string>' >> pawgui-gtk.app/Contents/Info.plist
-	@echo '<key>CFBundleIconFile</key><string>pawscript</string>' >> pawgui-gtk.app/Contents/Info.plist
-	@echo '<key>CFBundleName</key><string>PawScript GTK</string>' >> pawgui-gtk.app/Contents/Info.plist
-	@echo '<key>CFBundlePackageType</key><string>APPL</string>' >> pawgui-gtk.app/Contents/Info.plist
-	@echo '<key>CFBundleShortVersionString</key><string>$(VERSION)</string>' >> pawgui-gtk.app/Contents/Info.plist
-	@echo '<key>CFBundleVersion</key><string>$(VERSION)</string>' >> pawgui-gtk.app/Contents/Info.plist
-	@echo '<key>NSHighResolutionCapable</key><true/>' >> pawgui-gtk.app/Contents/Info.plist
-	@echo '</dict></plist>' >> pawgui-gtk.app/Contents/Info.plist
-	@echo "Created: pawgui-gtk.app"
+	@echo '<?xml version="1.0" encoding="UTF-8"?>' > paw-gtk.app/Contents/Info.plist
+	@echo '<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">' >> paw-gtk.app/Contents/Info.plist
+	@echo '<plist version="1.0"><dict>' >> paw-gtk.app/Contents/Info.plist
+	@echo '<key>CFBundleExecutable</key><string>paw-gtk</string>' >> paw-gtk.app/Contents/Info.plist
+	@echo '<key>CFBundleIdentifier</key><string>com.pawscript.paw-gtk</string>' >> paw-gtk.app/Contents/Info.plist
+	@echo '<key>CFBundleIconFile</key><string>pawscript</string>' >> paw-gtk.app/Contents/Info.plist
+	@echo '<key>CFBundleName</key><string>PawScript GTK</string>' >> paw-gtk.app/Contents/Info.plist
+	@echo '<key>CFBundlePackageType</key><string>APPL</string>' >> paw-gtk.app/Contents/Info.plist
+	@echo '<key>CFBundleShortVersionString</key><string>$(VERSION)</string>' >> paw-gtk.app/Contents/Info.plist
+	@echo '<key>CFBundleVersion</key><string>$(VERSION)</string>' >> paw-gtk.app/Contents/Info.plist
+	@echo '<key>NSHighResolutionCapable</key><true/>' >> paw-gtk.app/Contents/Info.plist
+	@echo '</dict></plist>' >> paw-gtk.app/Contents/Info.plist
+	@echo "Created: paw-gtk.app"
 else
 	@echo "Error: package-gtk-macos is only available on macOS"
 	@exit 1
@@ -97,29 +97,29 @@ endif
 # Package Qt GUI as macOS .app bundle (macOS only)
 package-qt-macos:
 ifeq ($(NATIVE_OS),darwin)
-	@echo "Packaging pawgui-qt as macOS app bundle..."
+	@echo "Packaging paw-qt as macOS app bundle..."
 	@$(MAKE) build-gui-qt
-	@rm -rf pawgui-qt.app
-	@mkdir -p pawgui-qt.app/Contents/MacOS
-	@mkdir -p pawgui-qt.app/Contents/Resources
-	@cp pawgui-qt pawgui-qt.app/Contents/MacOS/
-	@cp -r examples pawgui-qt.app/Contents/Resources/examples
+	@rm -rf paw-qt.app
+	@mkdir -p paw-qt.app/Contents/MacOS
+	@mkdir -p paw-qt.app/Contents/Resources
+	@cp paw-qt paw-qt.app/Contents/MacOS/
+	@cp -r examples paw-qt.app/Contents/Resources/examples
 	@if [ -f assets/pawscript.icns ]; then \
-		cp assets/pawscript.icns pawgui-qt.app/Contents/Resources/pawscript.icns; \
+		cp assets/pawscript.icns paw-qt.app/Contents/Resources/pawscript.icns; \
 	fi
-	@echo '<?xml version="1.0" encoding="UTF-8"?>' > pawgui-qt.app/Contents/Info.plist
-	@echo '<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">' >> pawgui-qt.app/Contents/Info.plist
-	@echo '<plist version="1.0"><dict>' >> pawgui-qt.app/Contents/Info.plist
-	@echo '<key>CFBundleExecutable</key><string>pawgui-qt</string>' >> pawgui-qt.app/Contents/Info.plist
-	@echo '<key>CFBundleIdentifier</key><string>com.pawscript.pawgui-qt</string>' >> pawgui-qt.app/Contents/Info.plist
-	@echo '<key>CFBundleIconFile</key><string>pawscript</string>' >> pawgui-qt.app/Contents/Info.plist
-	@echo '<key>CFBundleName</key><string>PawScript Qt</string>' >> pawgui-qt.app/Contents/Info.plist
-	@echo '<key>CFBundlePackageType</key><string>APPL</string>' >> pawgui-qt.app/Contents/Info.plist
-	@echo '<key>CFBundleShortVersionString</key><string>$(VERSION)</string>' >> pawgui-qt.app/Contents/Info.plist
-	@echo '<key>CFBundleVersion</key><string>$(VERSION)</string>' >> pawgui-qt.app/Contents/Info.plist
-	@echo '<key>NSHighResolutionCapable</key><true/>' >> pawgui-qt.app/Contents/Info.plist
-	@echo '</dict></plist>' >> pawgui-qt.app/Contents/Info.plist
-	@echo "Created: pawgui-qt.app"
+	@echo '<?xml version="1.0" encoding="UTF-8"?>' > paw-qt.app/Contents/Info.plist
+	@echo '<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">' >> paw-qt.app/Contents/Info.plist
+	@echo '<plist version="1.0"><dict>' >> paw-qt.app/Contents/Info.plist
+	@echo '<key>CFBundleExecutable</key><string>paw-qt</string>' >> paw-qt.app/Contents/Info.plist
+	@echo '<key>CFBundleIdentifier</key><string>com.pawscript.paw-qt</string>' >> paw-qt.app/Contents/Info.plist
+	@echo '<key>CFBundleIconFile</key><string>pawscript</string>' >> paw-qt.app/Contents/Info.plist
+	@echo '<key>CFBundleName</key><string>PawScript Qt</string>' >> paw-qt.app/Contents/Info.plist
+	@echo '<key>CFBundlePackageType</key><string>APPL</string>' >> paw-qt.app/Contents/Info.plist
+	@echo '<key>CFBundleShortVersionString</key><string>$(VERSION)</string>' >> paw-qt.app/Contents/Info.plist
+	@echo '<key>CFBundleVersion</key><string>$(VERSION)</string>' >> paw-qt.app/Contents/Info.plist
+	@echo '<key>NSHighResolutionCapable</key><true/>' >> paw-qt.app/Contents/Info.plist
+	@echo '</dict></plist>' >> paw-qt.app/Contents/Info.plist
+	@echo "Created: paw-qt.app"
 else
 	@echo "Error: package-qt-macos is only available on macOS"
 	@exit 1
@@ -154,27 +154,27 @@ else ifeq ($(NATIVE_OS),darwin)
 	@mkdir -p $(PREFIX)/bin
 	@install -m 755 $(BINARY_NAME) $(PREFIX)/bin/paw
 	@echo "Installed: $(PREFIX)/bin/paw"
-	@if [ -d pawgui-gtk.app ]; then \
-		rm -rf /Applications/pawgui-gtk.app && \
-		cp -R pawgui-gtk.app /Applications/ && \
-		echo "Installed: /Applications/pawgui-gtk.app"; \
+	@if [ -d paw-gtk.app ]; then \
+		rm -rf /Applications/paw-gtk.app && \
+		cp -R paw-gtk.app /Applications/ && \
+		echo "Installed: /Applications/paw-gtk.app"; \
 	fi
-	@if [ -d pawgui-qt.app ]; then \
-		rm -rf /Applications/pawgui-qt.app && \
-		cp -R pawgui-qt.app /Applications/ && \
-		echo "Installed: /Applications/pawgui-qt.app"; \
+	@if [ -d paw-qt.app ]; then \
+		rm -rf /Applications/paw-qt.app && \
+		cp -R paw-qt.app /Applications/ && \
+		echo "Installed: /Applications/paw-qt.app"; \
 	fi
 else
 	@mkdir -p $(PREFIX)/bin
 	@install -m 755 $(BINARY_NAME) $(PREFIX)/bin/paw
 	@echo "Installed: $(PREFIX)/bin/paw"
-	@if [ -f pawgui-gtk ]; then \
-		install -m 755 pawgui-gtk $(PREFIX)/bin/pawgui-gtk && \
-		echo "Installed: $(PREFIX)/bin/pawgui-gtk"; \
+	@if [ -f paw-gtk ]; then \
+		install -m 755 paw-gtk $(PREFIX)/bin/paw-gtk && \
+		echo "Installed: $(PREFIX)/bin/paw-gtk"; \
 	fi
-	@if [ -f pawgui-qt ]; then \
-		install -m 755 pawgui-qt $(PREFIX)/bin/pawgui-qt && \
-		echo "Installed: $(PREFIX)/bin/pawgui-qt"; \
+	@if [ -f paw-qt ]; then \
+		install -m 755 paw-qt $(PREFIX)/bin/paw-qt && \
+		echo "Installed: $(PREFIX)/bin/paw-qt"; \
 	fi
 endif
 
@@ -235,8 +235,8 @@ run-example:
 
 clean:
 	@echo "Cleaning..."
-	@rm -f paw pawgui-gtk pawgui-gtk.exe pawgui-qt pawgui-qt.exe token_example coverage.out coverage.html
-	@rm -rf pawgui-gtk.app pawgui-qt.app
+	@rm -f paw paw-gtk paw-gtk.exe paw-qt paw-qt.exe token_example coverage.out coverage.html
+	@rm -rf paw-gtk.app paw-qt.app
 	@echo "Clean complete"
 
 fmt:
@@ -254,15 +254,15 @@ help:
 	@echo ""
 	@echo "Build Targets:"
 	@echo "  build          - Build paw CLI for native platform"
-	@echo "  build-gui-gtk  - Build pawgui-gtk (GTK3 GUI)"
-	@echo "  build-gui-qt   - Build pawgui-qt (Qt5 GUI)"
+	@echo "  build-gui-gtk  - Build paw-gtk (GTK3 GUI)"
+	@echo "  build-gui-qt   - Build paw-qt (Qt5 GUI)"
 	@echo "  build-all      - Build and package paw CLI for all platforms"
 	@echo ""
 	@echo "Package Targets (native packaging):"
 	@echo "  package-gtk    - Build and package GTK GUI (macOS: .app bundle)"
 	@echo "  package-qt     - Build and package Qt GUI (macOS: .app bundle)"
-	@echo "  package-gtk-macos - Create pawgui-gtk.app bundle (macOS only)"
-	@echo "  package-qt-macos  - Create pawgui-qt.app bundle (macOS only)"
+	@echo "  package-gtk-macos - Create paw-gtk.app bundle (macOS only)"
+	@echo "  package-qt-macos  - Create paw-qt.app bundle (macOS only)"
 	@echo ""
 	@echo "Other Targets:"
 	@echo "  install        - Build and install paw (and GUI if built) to PREFIX"
