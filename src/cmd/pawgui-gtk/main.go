@@ -2,6 +2,31 @@
 // Cross-platform: works on Linux, macOS, and Windows
 package main
 
+/*
+#cgo darwin CFLAGS: -x objective-c
+#cgo darwin LDFLAGS: -framework Cocoa
+
+#ifdef __APPLE__
+#include <objc/runtime.h>
+#include <objc/message.h>
+
+void activateApp() {
+    id ns_app = ((id (*)(Class, SEL))objc_msgSend)(
+        objc_getClass("NSApplication"),
+        sel_registerName("sharedApplication")
+    );
+    ((void (*)(id, SEL, BOOL))objc_msgSend)(
+        ns_app,
+        sel_registerName("activateIgnoringOtherApps:"),
+        1
+    );
+}
+#else
+void activateApp() {}
+#endif
+*/
+import "C"
+
 import (
 	"flag"
 	"fmt"
@@ -312,6 +337,16 @@ func getColorSchemeForTheme(isDark bool) purfecterm.ColorScheme {
 
 func getDualColorScheme() purfecterm.ColorScheme {
 	return configHelper.GetDualColorScheme()
+}
+
+// bringWindowToFront brings a window to the foreground.
+// On macOS, this uses the native Cocoa API since GTK's Present() alone doesn't work.
+func bringWindowToFront(win *gtk.Window) {
+	glib.IdleAdd(func() bool {
+		C.activateApp()
+		win.Present()
+		return false
+	})
 }
 
 // createSyncedTermCaps creates a pawscript.TerminalCapabilities that syncs from a purfecterm terminal.
@@ -2301,6 +2336,7 @@ func createBlankConsoleWindow() {
 	})
 
 	win.ShowAll()
+	bringWindowToFront(win)
 
 	// Start REPL immediately (no script to run first)
 	go func() {
@@ -4528,6 +4564,7 @@ func runScriptInWindow(gtkApp *gtk.Application, scriptContent, scriptFile string
 
 	win.Add(paned)
 	win.ShowAll()
+	bringWindowToFront(win)
 
 	// Create I/O channels for this window's console
 	stdoutReader, stdoutWriter := io.Pipe()
@@ -5161,6 +5198,7 @@ func activate(application *gtk.Application) {
 	terminal.Feed("Select a .paw file and click Run to execute.\r\n\r\n")
 
 	mainWindow.ShowAll()
+	bringWindowToFront(mainWindow)
 
 	// Apply correct UI state and position based on saved position
 	// Note: savedPos represents only the wide panel width (not including strip)
@@ -6124,6 +6162,7 @@ func createConsoleWindow(filePath string) {
 	})
 
 	win.ShowAll()
+	bringWindowToFront(win)
 
 	// Run the script
 	winTerminal.Feed(fmt.Sprintf("--- Running: %s ---\r\n\r\n", filepath.Base(filePath)))
