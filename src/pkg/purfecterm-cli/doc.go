@@ -1,4 +1,4 @@
-// Package purfectermcli provides a CLI-based terminal emulator adapter for PurfecTerm.
+// Package cli provides a CLI-based terminal emulator adapter for PurfecTerm.
 //
 // This package implements a "terminal within a terminal" - it runs a terminal emulator
 // inside an actual CLI terminal, handling all VT100/ANSI escape sequence interpretation
@@ -18,14 +18,16 @@
 //
 // # Basic Usage
 //
-//	opts := purfectermcli.Options{
-//	    AutoSize:      true,                           // Fill available space
-//	    BorderStyle:   purfectermcli.BorderRounded,    // Rounded border
+//	import "github.com/phroun/purfecterm/cli"
+//
+//	opts := cli.Options{
+//	    AutoSize:      true,                   // Fill available space
+//	    BorderStyle:   cli.BorderRounded,      // Rounded border
 //	    Title:         "My Terminal",
 //	    ShowStatusBar: true,
 //	}
 //
-//	term, err := purfectermcli.New(opts)
+//	term, err := cli.New(opts)
 //	if err != nil {
 //	    log.Fatal(err)
 //	}
@@ -68,4 +70,4 @@
 // The Terminal wraps the core purfecterm.Buffer and purfecterm.Parser, reusing all the
 // VT100/ANSI parsing logic from the main PurfecTerm package. This ensures consistent
 // terminal emulation behavior across Qt, GTK, and CLI adapters.
-package purfectermcli
+package cli

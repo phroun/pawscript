@@ -22,7 +22,7 @@ import (
 	"os/signal"
 	"syscall"
 
-	purfectermcli "github.com/phroun/pawscript/src/pkg/purfecterm-cli"
+	"github.com/phroun/purfecterm/cli"
 )
 
 func main() {
@@ -47,15 +47,15 @@ func main() {
 	}
 
 	// Create terminal with options
-	opts := purfectermcli.Options{
-		AutoSize:      true,          // Fill available space
-		BorderStyle:   purfectermcli.BorderRounded, // Nice rounded corners
-		Title:         "PurfecTerm CLI",
-		ShowStatusBar: true,
+	opts := cli.Options{
+		AutoSize:       true,              // Fill available space
+		BorderStyle:    cli.BorderRounded, // Nice rounded corners
+		Title:          "PurfecTerm CLI",
+		ShowStatusBar:  true,
 		ScrollbackSize: 10000,
 	}
 
-	term, err := purfectermcli.New(opts)
+	term, err := cli.New(opts)
 	if err != nil {
 		fmt.Fprintf(os.Stderr, "Failed to create terminal: %v\n", err)
 		os.Exit(1)

@@ -1,8 +1,8 @@
-// Package purfectermcli provides a CLI-based terminal emulator adapter for PurfecTerm.
+// Package cli provides a CLI-based terminal emulator adapter for PurfecTerm.
 // It renders a terminal emulator within an actual CLI terminal, handling all VT100/ANSI
 // escape sequence interpretation through its own interpreter and rendering the result
 // in a window within the actual CLI screen.
-package purfectermcli
+package cli
 
 import (
 	"fmt"
@@ -13,8 +13,7 @@ import (
 	"sync"
 	"syscall"
 
-	"github.com/phroun/pawscript/src"
-	"github.com/phroun/pawscript/src/pkg/purfecterm"
+	"github.com/phroun/purfecterm"
 	"golang.org/x/term"
 )
 
@@ -29,6 +28,21 @@ const (
 	BorderRounded                   // Rounded corners (single line)
 )
 
+// TerminalCapabilities describes the capabilities of the terminal
+type TerminalCapabilities struct {
+	TermType      string
+	IsTerminal    bool
+	IsRedirected  bool
+	SupportsANSI  bool
+	SupportsColor bool
+	ColorDepth    int // 0, 8, 16, 256, or 24
+	Width         int
+	Height        int
+	SupportsInput bool
+	EchoEnabled   bool
+	LineMode      bool
+}
+
 // Options configures terminal creation
 type Options struct {
 	Cols           int                    // Terminal width in columns (default: auto-detect or 80)
@@ -39,16 +53,16 @@ type Options struct {
 	WorkingDir     string                 // Initial working directory (default: current dir)
 
 	// Display options
-	BorderStyle    BorderStyle // Border style around the terminal window
-	Title          string      // Window title (displayed in top border if applicable)
-	OffsetX        int         // X offset from top-left of actual terminal (0 = left edge)
-	OffsetY        int         // Y offset from top-left of actual terminal (0 = top edge)
+	BorderStyle   BorderStyle // Border style around the terminal window
+	Title         string      // Window title (displayed in top border if applicable)
+	OffsetX       int         // X offset from top-left of actual terminal (0 = left edge)
+	OffsetY       int         // Y offset from top-left of actual terminal (0 = top edge)
 
 	// If true, the terminal window auto-sizes to fill available space
-	AutoSize       bool
+	AutoSize bool
 
 	// If true, render a status bar at the bottom
-	ShowStatusBar  bool
+	ShowStatusBar bool
 }
 
 // Terminal is a complete terminal emulator running within a CLI terminal
@@ -72,15 +86,15 @@ type Terminal struct {
 	stopRender chan struct{}
 
 	// Original terminal state for restoration
-	oldState   *term.State
+	oldState *term.State
 
 	// Actual terminal size
-	hostCols   int
-	hostRows   int
+	hostCols int
+	hostRows int
 
 	// Callbacks
-	onExit     func(int) // Called when child process exits with exit code
-	onResize   func(cols, rows int) // Called when terminal is resized
+	onExit   func(int)            // Called when child process exits with exit code
+	onResize func(cols, rows int) // Called when terminal is resized
 
 	// Input callback for intercepting input before sending to PTY
 	inputCallback func([]byte) bool // Return true to consume input
@@ -525,9 +539,9 @@ func (t *Terminal) SetTitle(title string) {
 }
 
 // GetTerminalCapabilities returns the terminal capabilities
-func (t *Terminal) GetTerminalCapabilities() *pawscript.TerminalCapabilities {
+func (t *Terminal) GetTerminalCapabilities() *TerminalCapabilities {
 	cols, rows := t.GetSize()
-	return &pawscript.TerminalCapabilities{
+	return &TerminalCapabilities{
 		TermType:      "xterm-256color",
 		IsTerminal:    true,
 		IsRedirected:  false,

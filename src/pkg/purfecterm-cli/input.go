@@ -1,4 +1,4 @@
-package purfectermcli
+package cli
 
 import (
 	"os"

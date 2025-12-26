@@ -1,4 +1,4 @@
-package purfectermcli
+package cli
 
 import (
 	"fmt"
@@ -7,13 +7,13 @@ import (
 	"sync"
 	"time"
 
-	"github.com/phroun/pawscript/src/pkg/purfecterm"
+	"github.com/phroun/purfecterm"
 )
 
 // Renderer handles rendering the terminal buffer to the actual CLI terminal
 type Renderer struct {
-	term       *Terminal
-	mu         sync.Mutex
+	term *Terminal
+	mu   sync.Mutex
 
 	// Render state
 	renderNeeded bool
@@ -29,15 +29,15 @@ type Renderer struct {
 
 // renderedCell stores the last rendered state of a cell for diff comparison
 type renderedCell struct {
-	char       rune
-	combining  string
-	fg         purfecterm.Color
-	bg         purfecterm.Color
-	bold       bool
-	italic     bool
-	underline  bool
-	reverse    bool
-	blink      bool
+	char          rune
+	combining     string
+	fg            purfecterm.Color
+	bg            purfecterm.Color
+	bold          bool
+	italic        bool
+	underline     bool
+	reverse       bool
+	blink         bool
 	strikethrough bool
 }
 
@@ -55,20 +55,20 @@ type borderCharSet struct {
 
 var borderStyles = map[BorderStyle]borderCharSet{
 	BorderSingle: {
-		topLeft: '┌', topRight: '┐', bottomLeft: '└', bottomRight: '┘',
-		horizontal: '─', vertical: '│', titleLeft: '┤', titleRight: '├',
+		topLeft: '\u250c', topRight: '\u2510', bottomLeft: '\u2514', bottomRight: '\u2518',
+		horizontal: '\u2500', vertical: '\u2502', titleLeft: '\u2524', titleRight: '\u251c',
 	},
 	BorderDouble: {
-		topLeft: '╔', topRight: '╗', bottomLeft: '╚', bottomRight: '╝',
-		horizontal: '═', vertical: '║', titleLeft: '╡', titleRight: '╞',
+		topLeft: '\u2554', topRight: '\u2557', bottomLeft: '\u255a', bottomRight: '\u255d',
+		horizontal: '\u2550', vertical: '\u2551', titleLeft: '\u2561', titleRight: '\u255e',
 	},
 	BorderHeavy: {
-		topLeft: '┏', topRight: '┓', bottomLeft: '┗', bottomRight: '┛',
-		horizontal: '━', vertical: '┃', titleLeft: '┫', titleRight: '┣',
+		topLeft: '\u250f', topRight: '\u2513', bottomLeft: '\u2517', bottomRight: '\u251b',
+		horizontal: '\u2501', vertical: '\u2503', titleLeft: '\u252b', titleRight: '\u2523',
 	},
 	BorderRounded: {
-		topLeft: '╭', topRight: '╮', bottomLeft: '╰', bottomRight: '╯',
-		horizontal: '─', vertical: '│', titleLeft: '┤', titleRight: '├',
+		topLeft: '\u256d', topRight: '\u256e', bottomLeft: '\u2570', bottomRight: '\u256f',
+		horizontal: '\u2500', vertical: '\u2502', titleLeft: '\u2524', titleRight: '\u251c',
 	},
 }
 
