@@ -109,15 +109,16 @@ var (
 	contextMenu *gtk.Menu // Right-click context menu for terminal
 
 	// Console I/O for PawScript
-	consoleOutCh   *pawscript.StoredChannel
-	consoleInCh    *pawscript.StoredChannel
-	stdoutWriter   *io.PipeWriter
-	stdinReader    *io.PipeReader
-	stdinWriter    *io.PipeWriter
-	clearInputFunc func()
-	flushFunc      func() // Flush pending output
-	scriptRunning  bool
-	scriptMu       sync.Mutex
+	consoleOutCh          *pawscript.StoredChannel
+	consoleInCh           *pawscript.StoredChannel
+	stdoutWriter          *io.PipeWriter
+	stdinReader           *io.PipeReader
+	stdinWriter           *io.PipeWriter
+	clearInputFunc        func()
+	flushFunc             func() // Flush pending output
+	consoleAddResizeHandler func(func(cols, rows int)) // For registering PawScript resize handlers
+	scriptRunning         bool
+	scriptMu              sync.Mutex
 
 	// REPL for interactive mode when no script is running
 	consoleREPL *pawscript.REPL
@@ -347,6 +348,54 @@ func bringWindowToFront(win gtk.IWindow) {
 		win.ToWindow().Present()
 		return false
 	})
+}
+
+// createSyncedTermCaps creates a pawscript.TerminalCapabilities that syncs from a purfecterm terminal.
+// It uses the terminal's resize callback to update dimensions when the terminal resizes.
+// Returns the TerminalCapabilities and a function to register additional resize handlers.
+func createSyncedTermCaps(term *purfectermgtk.Terminal) (*pawscript.TerminalCapabilities, func(func(cols, rows int))) {
+	cols, rows := term.GetSize()
+	caps := &pawscript.TerminalCapabilities{
+		TermType:      "gui-console",
+		IsTerminal:    true,
+		IsRedirected:  false,
+		SupportsANSI:  true,
+		SupportsColor: true,
+		ColorDepth:    24, // truecolor
+		Width:         cols,
+		Height:        rows,
+		SupportsInput: true,
+		EchoEnabled:   false,
+		LineMode:      false,
+		Metadata:      make(map[string]interface{}),
+	}
+
+	// Keep track of additional resize handlers
+	var extraHandlers []func(cols, rows int)
+	var handlersMu sync.Mutex
+
+	// Use resize callback to sync dimensions and call extra handlers
+	term.SetResizeCallback(func(cols, rows int) {
+		caps.SetSize(cols, rows)
+		handlersMu.Lock()
+		handlers := make([]func(cols, rows int), len(extraHandlers))
+		copy(handlers, extraHandlers)
+		handlersMu.Unlock()
+		for _, h := range handlers {
+			h(cols, rows)
+		}
+	})
+
+	// Return function to add more resize handlers
+	addHandler := func(h func(cols, rows int)) {
+		handlersMu.Lock()
+		extraHandlers = append(extraHandlers, h)
+		handlersMu.Unlock()
+		// Call immediately with current size
+		h(cols, rows)
+	}
+
+	return caps, addHandler
 }
 
 // getLauncherWidth returns the saved launcher panel width, defaulting to 250 * uiScale
@@ -2148,8 +2197,8 @@ func createBlankConsoleWindow() {
 	stdoutReader, stdoutWriter := io.Pipe()
 	stdinReader, stdinWriter := io.Pipe()
 
-	// Get terminal capabilities (auto-updated by purfecterm on resize)
-	termCaps := winTerminal.GetTerminalCapabilities()
+	// Create synced terminal capabilities for pawscript
+	termCaps, addResizeHandler := createSyncedTermCaps(winTerminal)
 
 	// Non-blocking output queue
 	outputQueue := make(chan interface{}, 256)
@@ -2342,6 +2391,11 @@ func createBlankConsoleWindow() {
 		winREPL.SetBackgroundRGB(bg.R, bg.G, bg.B)
 		winREPL.SetPSLColors(getPSLColors())
 		winREPL.Start()
+
+		// Register resize handler to update PawScript's terminal state
+		addResizeHandler(func(cols, rows int) {
+			winREPL.GetPawScript().SetTerminalSize(cols, rows)
+		})
 
 		// Register the dummy_button command with the window's REPL
 		winToolbarData := &WindowToolbarData{
@@ -4545,8 +4599,8 @@ func runScriptInWindow(gtkApp *gtk.Application, scriptContent, scriptFile string
 	stdoutReader, stdoutWriter := io.Pipe()
 	winStdinReader, winStdinWriter := io.Pipe()
 
-	// Get terminal capabilities (auto-updated by purfecterm on resize)
-	termCaps := winTerminal.GetTerminalCapabilities()
+	// Create synced terminal capabilities for pawscript
+	termCaps, addResizeHandler := createSyncedTermCaps(winTerminal)
 
 	// Non-blocking output queue
 	outputQueue := make(chan interface{}, 256)
@@ -4694,6 +4748,11 @@ func runScriptInWindow(gtkApp *gtk.Application, scriptContent, scriptFile string
 		Stderr: winOutCh,
 	}
 	ps.RegisterStandardLibraryWithIO(scriptArgs, ioConfig)
+
+	// Register resize handler to update PawScript's terminal state
+	addResizeHandler(func(cols, rows int) {
+		ps.SetTerminalSize(cols, rows)
+	})
 
 	// Handle terminal input
 	winTerminal.SetInputCallback(func(data []byte) {
@@ -5984,8 +6043,8 @@ func createConsoleWindow(filePath string) {
 	stdoutReader, stdoutWriter := io.Pipe()
 	stdinReader, stdinWriter := io.Pipe()
 
-	// Get terminal capabilities (auto-updated by purfecterm on resize)
-	termCaps := winTerminal.GetTerminalCapabilities()
+	// Create synced terminal capabilities for pawscript
+	termCaps, addResizeHandler := createSyncedTermCaps(winTerminal)
 
 	// Non-blocking output queue
 	outputQueue := make(chan interface{}, 256)
@@ -6183,6 +6242,11 @@ func createConsoleWindow(filePath string) {
 	}
 	ps.RegisterStandardLibraryWithIO([]string{}, ioConfig)
 
+	// Register resize handler to update PawScript's terminal state
+	addResizeHandler(func(cols, rows int) {
+		ps.SetTerminalSize(cols, rows)
+	})
+
 	winScriptMu.Lock()
 	winScriptRunning = true
 	winScriptMu.Unlock()
@@ -6273,8 +6337,9 @@ func createConsoleChannels() {
 	stdinReader = stdinReaderLocal
 	stdinWriter = stdinWriterLocal
 
-	// Get terminal capabilities (auto-updated by purfecterm on resize)
-	termCaps := terminal.GetTerminalCapabilities()
+	// Create synced terminal capabilities for pawscript
+	termCaps, addResizeHandler := createSyncedTermCaps(terminal)
+	consoleAddResizeHandler = addResizeHandler
 
 	// Non-blocking output: large buffer absorbs bursts
 	// Uses interface{} to allow flush sentinels (chan struct{}) alongside data ([]byte)
@@ -6501,6 +6566,13 @@ func createConsoleChannels() {
 	consoleREPL.SetBackgroundRGB(bg.R, bg.G, bg.B)
 	consoleREPL.SetPSLColors(getPSLColors())
 	consoleREPL.Start()
+
+	// Register resize handler to update PawScript's terminal state
+	if consoleAddResizeHandler != nil {
+		consoleAddResizeHandler(func(cols, rows int) {
+			consoleREPL.GetPawScript().SetTerminalSize(cols, rows)
+		})
+	}
 
 	// Register the dummy_button command with the REPL's PawScript instance
 	// Create launcher toolbar data that uses the global launcher strip

@@ -351,6 +351,21 @@ func (ts *TerminalState) detectScreenSize() {
 	}
 }
 
+// SetScreenSize sets the screen dimensions (for GUI terminals that can't use detectScreenSize)
+func (ts *TerminalState) SetScreenSize(cols, rows int) {
+	ts.mu.Lock()
+	defer ts.mu.Unlock()
+	ts.ScreenCols = cols
+	ts.ScreenRows = rows
+}
+
+// GetScreenSize returns the screen dimensions
+func (ts *TerminalState) GetScreenSize() (cols, rows int) {
+	ts.mu.RLock()
+	defer ts.mu.RUnlock()
+	return ts.ScreenCols, ts.ScreenRows
+}
+
 // IsTerminal checks if stdout is a terminal
 func IsTerminal() bool {
 	return term.IsTerminal(int(os.Stdout.Fd()))

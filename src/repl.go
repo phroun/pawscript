@@ -281,10 +281,10 @@ func (r *REPL) getTerminalWidth() int {
 		return width
 	}
 
-	// Try IOConfig terminal width
+	// Try IOConfig terminal width (use GetSize() for thread-safety)
 	if r.config.IOConfig != nil && r.config.IOConfig.Stdin != nil {
 		if r.config.IOConfig.Stdin.Terminal != nil {
-			if w := r.config.IOConfig.Stdin.Terminal.Width; w > 0 {
+			if w, _ := r.config.IOConfig.Stdin.Terminal.GetSize(); w > 0 {
 				return w
 			}
 		}

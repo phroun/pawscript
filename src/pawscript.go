@@ -425,6 +425,14 @@ func (ps *PawScript) GetFiberCount() int {
 	return ps.executor.GetFiberCount()
 }
 
+// SetTerminalSize sets the terminal dimensions (for GUI terminals that can't auto-detect)
+// This updates the internal TerminalState used by the cursor command and other io functions.
+func (ps *PawScript) SetTerminalSize(cols, rows int) {
+	if ps.terminalState != nil {
+		ps.terminalState.SetScreenSize(cols, rows)
+	}
+}
+
 // ImportModuleToRoot imports all items from a module directly into the root environment.
 // This makes the items available to all subsequent Execute() calls without needing IMPORT.
 func (ps *PawScript) ImportModuleToRoot(moduleName string) bool {
