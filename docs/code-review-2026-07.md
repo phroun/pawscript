@@ -17,12 +17,14 @@ specific conditions · **LOW** = hardening / defense-in-depth.
 **Status (2026-07-12): CRIT-1, CRIT-2, HIGH-3, HIGH-4 and the BUILD item below
 are FIXED**, with regression tests in `src/hardening_test.go` and
 `tests/test_double_tilde.paw` / `tests/test_struct_bounds.paw` fixtures.
-**Three concurrency data races (fiber module-env, channel endpoints, token
-system), a lost-wakeup hang, a `fiber_wait` double-release, a channel-message
-use-after-free, and a test-bug race are also FIXED** and the whole Go suite is
-now race-clean (`src/concurrency_test.go`). Remaining open: the reading-only
-deadlock / SetResult / RNG findings (not reproduced), the sandbox items, and the
-broader test-coverage gaps.
+**The entire concurrency cluster is now FIXED**: three data races (fiber
+module-env, channel endpoints, token system), a lost-wakeup hang, a `fiber_wait`
+double-release, a channel-message use-after-free, the RNG race, the
+`SetResultWithoutClaim` window, a test-bug race, and — via a repo-wide
+lock-hierarchy audit — all 22 ABBA/self-deadlock lock-order violations. The whole
+Go suite is race-clean and 97 `.paw` regressions pass. Remaining open: two
+newly-discovered pre-existing issues (logger race, embedded async-brace hang —
+see below), the sandbox items, and the broader test-coverage gaps.
 
 ## Confirmed by execution (reproduced locally)
 
@@ -157,21 +159,48 @@ reproduced by the available fixtures — see the note at the end of this section
   `TestChannelCloseReleasesBufferedRefs` (close + abandoned-free paths); both
   fail without the fix.
 
-Remaining open — need dedicated design + repro, deliberately NOT rushed (none
-surfaced under the `-race` sweep):
+- ✅ **FIXED — ABBA deadlocks + self-deadlocks (`FiberHandle.mu` / `state.mu` /
+  `Executor.mu`).** A full lock-nesting audit found 22 lock-order violations, and
+  worse than ABBA: several paths held `e.mu` and called a state/token method that
+  re-acquires `e.mu` (non-reentrant → guaranteed self-deadlock, e.g. a parallel
+  async brace whose brace owns an object hung outright). Fixed by enforcing one
+  hierarchy repo-wide — **`handle.mu` (outermost) < `state.mu` < `e.mu`
+  (innermost)** — and moving every reverse acquisition out: `orphanFiberBubbles`
+  drops `e.mu` before taking `handle.mu` (in `decrementObjectRefCount`/
+  `RefRelease`); `GetSuspendedFibers` snapshots handles first; `fiber_bubble`
+  reorders to `handle`-before-`state`; token code captures `Snapshot`/result
+  before/outside `e.mu`; `ResumeBraceEvaluation` and the `forceCleanupTokenLocked`
+  cleanup path defer all `ClaimObjectReference`/`ReleaseAllReferences` until after
+  `e.mu` is released (new `transferBraceOwnership` + a pending-release list). A
+  second independent audit of the other 15 files confirmed **zero remaining
+  violations**. Guarded by `TestFiberAbandonNoDeadlock` and
+  `tests/test_parallel_brace_object.paw` (the latter hangs on the pre-fix code).
+- ✅ **FIXED — `SetResultWithoutClaim` double-release window.** It released the
+  old refs before swapping in the new value, so a concurrent reader saw the stale
+  `currentResult` and re-released it. Now the new value is set before the old
+  refs are released (and the release happens outside `state.mu`).
+- ✅ **FIXED — shared `#random` `*rand.Rand` race.** `#random` is one inherited
+  token holding a single `*rand.Rand` (not concurrency-safe); concurrent fibers
+  pulling from it raced on its internal state. Added a mutex to `IteratorState`
+  guarding the three `Int63`/`Int63n` sites. Guarded by
+  `TestSharedRandomRNGConcurrent`.
 
-- **ABBA deadlocks** between `FiberHandle.mu` ↔ `Executor.mu` and
-  `ExecutionState.mu` ↔ `Executor.mu`. Would manifest as a hang, not a `-race`
-  hit; needs a lock-ordering audit and targeted reproduction.
-- **Result-set unlock/relock window double-releases refs** (`state.go` SetResult
-  / SetResultWithoutClaim). Requires two goroutines mutating one shared
-  `ExecutionState`; in practice each fiber owns its state and async is a
-  suspend/resume handoff (the fiber blocks on `ResumeChan` while the completion
-  goroutine runs), so this did not reproduce. Left as-is rather than reworking
-  the intricate SetResult locking without a failing case to validate against.
-- **Shared `#random` `*rand.Rand` used from multiple fibers without a lock**
-  (`io_channels.go:456`, `lib_coroutines.go:379`): would be a data race on RNG
-  state; not exercised by the current fixtures.
+## Newly discovered while stress-testing (pre-existing, separate subsystems)
+
+- **Logger data race + cross-contamination under concurrent fibers.** `Logger`
+  has a single shared `outputContext` field (`logger.go:496` write vs `:565`
+  read) that `SetOutputContext` mutates per execution scope. With multiple fibers
+  logging at once this both data-races and lets one fiber's log routing leak into
+  another's. Needs the output context to be per-`ExecutionState` (or
+  goroutine-scoped), not a single field on the shared logger — a real refactor,
+  not a mutex.
+- **Async brace substitution never completes under the embedded API.** Via
+  `ps.Execute`/`ps.ExecuteFile` in-process, a command with an async brace (e.g.
+  `echo {msleep 2; ret "x"}`) hangs waiting on the coordinator token's waitChan,
+  while the same script run through the `paw` binary completes. `msleep` alone is
+  fine, so it is specific to brace-coordinator completion signaling in the
+  embedded setup (affects old and new code identically — not a regression).
+  Worth fixing since `Execute` is the public embedding entry point.
 
 ## Sandbox / file access — hardening (LOW–MED)
 
