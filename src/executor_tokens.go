@@ -323,6 +323,12 @@ func (e *Executor) finalizeBraceCoordinator(coordinatorToken string) {
 	coord := coordData.BraceCoordinator
 	hasFailure := coord.HasFailure
 	chainedToken := coordData.ChainedToken
+	// A synchronous waiter (Execute/WaitForToken, a while-loop body, etc.) may be
+	// blocked on this coordinator token's wait channel. completeTokenLocked below
+	// does NOT signal it, so we must deliver the result ourselves after running
+	// the callback — otherwise the waiter hangs forever (the command runs but the
+	// caller never wakes up).
+	waitChan := coordData.WaitChan
 
 	// Clean up all children (this will call their cleanup callbacks)
 	var pendingReleases []*ExecutionState
@@ -354,20 +360,32 @@ func (e *Executor) finalizeBraceCoordinator(coordinatorToken string) {
 		success := bool(boolStatus)
 		e.logger.DebugCat(CatAsync,"Brace coordinator callback returned bool: %v", success)
 
-		// If there's a chained token, resume it with this result
+		// If there's a chained token, resume it with this result; the chain (not
+		// this coordinator) will signal any wait channel further down.
 		if chainedToken != "" {
 			e.logger.DebugCat(CatAsync,"Resuming chained token %s with result %v", chainedToken, success)
 			e.PopAndResumeCommandSequence(chainedToken, success)
+		} else if waitChan != nil {
+			// No chain: this coordinator token is what the waiter is blocked on.
+			var resultVal interface{}
+			if coord.SubstitutionCtx != nil && coord.SubstitutionCtx.ExecutionState != nil {
+				resultVal = coord.SubstitutionCtx.ExecutionState.GetResult()
+			}
+			e.deliverToWaitChan(waitChan, ResumeData{TokenID: coordinatorToken, Status: success, Result: resultVal})
 		}
 	} else if tokenResult, ok := callbackResult.(TokenResult); ok {
 		// Command returned another token (nested async)
 		newToken := string(tokenResult)
 		e.logger.DebugCat(CatAsync,"Brace coordinator callback returned new token: %s", newToken)
 
-		// If there's a chained token, chain the new token to it
+		// If there's a chained token, chain the new token to it.
 		if chainedToken != "" {
 			e.logger.DebugCat(CatAsync,"Chaining new token %s to %s", newToken, chainedToken)
 			e.chainTokens(newToken, chainedToken)
+		} else if waitChan != nil {
+			// No chain, but a waiter is blocked on this coordinator: propagate its
+			// wait channel to the new token so the waiter wakes when it completes.
+			e.attachWaitChan(newToken, waitChan)
 		}
 	}
 }

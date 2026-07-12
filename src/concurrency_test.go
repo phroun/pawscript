@@ -174,6 +174,40 @@ func runScriptWithDeadline(t *testing.T, name, script string, d time.Duration) {
 	}
 }
 
+// TestAsyncBraceExecuteCompletes guards the embedded-API hang: a command with an
+// async brace (e.g. msleep inside {}) returns a brace-coordinator token that
+// Execute waits on. finalizeBraceCoordinator must signal that token's wait
+// channel when the command completes; without it, Execute blocks forever even
+// though the command already ran. Uses macros + sugar like the paw binary.
+func TestAsyncBraceExecuteCompletes(t *testing.T) {
+	cases := []struct{ name, script string }{
+		{"single-async-brace", `echo {msleep 2; ret "x"}`},
+		{"two-async-braces", `echo {msleep 2; ret "a"}, {msleep 2; ret "b"}`},
+		{"async-brace-in-while", `i: 0
+while (lt ~i, 5), (
+  echo {msleep 1; ret "x"}
+  i: {add ~i, 1}
+)`},
+	}
+	for _, tc := range cases {
+		tc := tc
+		t.Run(tc.name, func(t *testing.T) {
+			done := make(chan struct{})
+			go func() {
+				defer close(done)
+				ps := New(&Config{Debug: false, AllowMacros: true, EnableSyntacticSugar: true})
+				ps.RegisterStandardLibrary([]string{})
+				ps.Execute(tc.script)
+			}()
+			select {
+			case <-done:
+			case <-time.After(15 * time.Second):
+				t.Fatalf("%s: Execute() hung on an async brace (coordinator wait channel not signaled)", tc.name)
+			}
+		})
+	}
+}
+
 // TestFiberAbandonNoDeadlock stresses ABBA #1: fibers are spawned and their
 // handles immediately dropped (never fiber_wait'd), so the handle object can be
 // freed (decrementObjectRefCount -> e.mu -> handle.mu) while the fiber's own
