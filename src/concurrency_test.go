@@ -256,6 +256,42 @@ fiber_wait_all
 	<-done
 }
 
+// TestLoggerConcurrentContexts stresses the logger's output-context routing from
+// many goroutines: some set/clear a per-scope context and log (the
+// error-logging pattern), others just log. The context used to live in one
+// shared field on the Logger, so concurrent fibers raced on it and could route
+// each other's output to the wrong channel. It is now scoped per goroutine.
+// Run with -race.
+func TestLoggerConcurrentContexts(t *testing.T) {
+	ps := New(&Config{Debug: true})
+	ps.RegisterStandardLibrary([]string{})
+	e := ps.executor
+	lg := e.logger
+
+	states := make([]*ExecutionState, 8)
+	for i := range states {
+		st := NewExecutionState()
+		st.executor = e
+		st.moduleEnv = NewChildModuleEnvironment(ps.rootModuleEnv)
+		states[i] = st
+	}
+
+	var wg sync.WaitGroup
+	for i := 0; i < 8; i++ {
+		wg.Add(1)
+		go func(st *ExecutionState) {
+			defer wg.Done()
+			for j := 0; j < 500; j++ {
+				lg.SetOutputContext(NewOutputContext(st, e))
+				lg.CommandError(CatCommand, "", "boom", nil)
+				lg.ClearOutputContext()
+				lg.DebugCat(CatCommand, "tick %d", j)
+			}
+		}(states[i])
+	}
+	wg.Wait()
+}
+
 // objAlive reports whether an object id is still present (not freed).
 func objAlive(e *Executor, id int) bool {
 	_, ok := e.getObject(id)
