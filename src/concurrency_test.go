@@ -157,6 +157,34 @@ func TestChannelObjectSurvivesSenderDrop(t *testing.T) {
 	}
 }
 
+// TestSharedRandomRNGConcurrent drives multiple fibers pulling from the shared
+// #random generator concurrently. #random is a single inherited token holding
+// one *rand.Rand (not safe for concurrent use), so without a lock this races on
+// the generator's internal state. Run with -race.
+func TestSharedRandomRNGConcurrent(t *testing.T) {
+	script := `
+worker: {macro (
+  i: 0
+  while (lt ~i, 40), (
+    r: {resume ~#random, 100}
+    i: {add ~i, 1}
+  )
+)}
+fiber ~worker
+fiber ~worker
+fiber ~worker
+fiber ~worker
+fiber_wait_all
+`
+	done := make(chan struct{})
+	go func() {
+		defer close(done)
+		ps := newTestPS()
+		ps.Execute(script)
+	}()
+	<-done
+}
+
 // objAlive reports whether an object id is still present (not freed).
 func objAlive(e *Executor, id int) bool {
 	_, ok := e.getObject(id)

@@ -332,6 +332,9 @@ type IteratorState struct {
 	Keys       []string      // Keys to iterate (for "pair")
 	KeyIndex   int           // Current key position (for "pair")
 	Rng        *rand.Rand    // Random number generator (for "rng")
+	RngMu      sync.Mutex    // Guards Rng: *rand.Rand is not safe for concurrent
+	//                          use, and #random is a single shared generator that
+	//                          multiple fibers can pull from at once.
 	// Range iterator fields
 	RangeStart   float64 // Start value (for "range")
 	RangeEnd     float64 // End value (for "range")

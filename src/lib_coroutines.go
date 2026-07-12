@@ -397,7 +397,9 @@ func (ps *PawScript) RegisterGeneratorLib() {
 				switch len(extraArgs) {
 				case 0:
 					// No args - return full range random int64
+					iterState.RngMu.Lock()
 					result = iterState.Rng.Int63()
+					iterState.RngMu.Unlock()
 				case 1:
 					// One arg: max (exclusive), range is 0 to max-1
 					max, ok := toInt64(extraArgs[0])
@@ -405,7 +407,9 @@ func (ps *PawScript) RegisterGeneratorLib() {
 						ctx.LogError(CatCommand, "resume: rng max must be a positive number")
 						return BoolStatus(false)
 					}
+					iterState.RngMu.Lock()
 					result = iterState.Rng.Int63n(max)
+					iterState.RngMu.Unlock()
 				default:
 					// Two+ args: min, max (inclusive)
 					min, ok1 := toInt64(extraArgs[0])
@@ -420,7 +424,9 @@ func (ps *PawScript) RegisterGeneratorLib() {
 					}
 					// Generate in range [min, max] inclusive
 					rangeSize := max - min + 1
+					iterState.RngMu.Lock()
 					result = min + iterState.Rng.Int63n(rangeSize)
+					iterState.RngMu.Unlock()
 				}
 
 				ctx.SetResult(result)
