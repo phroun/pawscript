@@ -18,10 +18,12 @@ specific conditions · **LOW** = hardening / defense-in-depth.
 are FIXED**, with regression tests in `src/hardening_test.go` and
 `tests/test_double_tilde.paw` / `tests/test_struct_bounds.paw` fixtures.
 **Three concurrency data races (fiber module-env, channel endpoints, token
-system), a lost-wakeup hang, and a test-bug race are also FIXED** and the whole
-Go suite is now race-clean (`src/concurrency_test.go`). The remaining
-reading-only concurrency findings (deadlocks, ref-counting), the sandbox items,
-and the broader test-coverage gaps remain open.
+system), a lost-wakeup hang, a `fiber_wait` double-release, and a test-bug race
+are also FIXED** and the whole Go suite is now race-clean
+(`src/concurrency_test.go`). Remaining open: a confirmed channel-message
+use-after-free (needs a careful ref-counting change), the reading-only deadlock /
+SetResult / RNG findings (not reproduced), the sandbox items, and the broader
+test-coverage gaps.
 
 ## Confirmed by execution (reproduced locally)
 
@@ -128,24 +130,38 @@ reproduced by the available fixtures — see the note at the end of this section
   One choke point protects all 25+ call sites. Guarded by
   `TestAttachWaitChanNoLostWakeup` (verified it hangs without the fix).
 
-Not yet reproduced (reading-only findings; a `-race` sweep of the current
-fixtures did not trigger them — they need targeted stress, and the deadlock /
-ref-counting ones would not surface as data races at all):
+- ✅ **FIXED — `fiber_wait` re-merged `FinalBubbleMap` without clearing it**
+  (`lib_fibers.go`). It transferred bubble ref ownership to the caller (claim for
+  caller, `decrementObjectRefCount` for the fiber's copy) but left
+  `FinalBubbleMap` populated, so a second `fiber_wait` on the same handle
+  double-released. Now takes a write lock and clears `FinalBubbleMap` after the
+  transfer (also fixes the RLock-during-mutation).
 
-- **ABBA deadlocks** between `FiberHandle.mu` ↔ `Executor.mu`
-  (`fiber.go:94-141` vs `executor_objects.go:409-431`) and
-  `ExecutionState.mu` ↔ `Executor.mu` (`state.go:405-497` vs
-  `executor_tokens.go:498-522`). Because `Executor.mu` guards everything, either
-  hangs the whole interpreter.
-- **Channel messages don't claim references** (`channel.go:96` vs `SpawnFiber`'s
-  explicit claim at `fiber.go:81`): a sent object can be freed and its ID reused
-  before receipt → use-after-free / silent value swap.
+Remaining open — need dedicated design + refcount/repro tests, deliberately NOT
+rushed here because a botched ref-counting or lock-ordering change is worse than
+the latent bug (none surfaced under the `-race` sweep):
+
+- **Channel messages don't claim references (CONFIRMED, use-after-free).**
+  `channel_send` buffers the value via `ChannelSend` without claiming a ref
+  (contrast `SpawnFiber`, which claims fiber args at `fiber.go:83`). Send an
+  object, let the sender's scope release it, and the buffered message can point
+  at a freed/reused ID before a later receive. Correct fix is non-trivial: claim
+  on send, release when the message leaves the buffer (fully consumed) or the
+  channel closes, coordinated across broadcast consumers — and `ChannelSend`/
+  `Recv` in `channel.go` have no executor handle, so the claim/release must be
+  threaded through. Manifests as wrong values, not a race.
+- **ABBA deadlocks** between `FiberHandle.mu` ↔ `Executor.mu` and
+  `ExecutionState.mu` ↔ `Executor.mu`. Would manifest as a hang, not a `-race`
+  hit; needs a lock-ordering audit and targeted reproduction.
+- **Result-set unlock/relock window double-releases refs** (`state.go` SetResult
+  / SetResultWithoutClaim). Requires two goroutines mutating one shared
+  `ExecutionState`; in practice each fiber owns its state and async is a
+  suspend/resume handoff (the fiber blocks on `ResumeChan` while the completion
+  goroutine runs), so this did not reproduce. Left as-is rather than reworking
+  the intricate SetResult locking without a failing case to validate against.
 - **Shared `#random` `*rand.Rand` used from multiple fibers without a lock**
-  (`io_channels.go:456`, `lib_coroutines.go:379`): data race on RNG state.
-- **`fiber_wait` re-merges `FinalBubbleMap` without clearing it**
-  (`lib_fibers.go:162-185`): a second `fiber_wait ~f` double-releases bubble refs.
-- **Result-set unlock/relock window double-releases refs** (`state.go:275-292`):
-  two goroutines setting the result on one shared state release the same old refs.
+  (`io_channels.go:456`, `lib_coroutines.go:379`): would be a data race on RNG
+  state; not exercised by the current fixtures.
 
 ## Sandbox / file access — hardening (LOW–MED)
 

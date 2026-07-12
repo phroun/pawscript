@@ -158,8 +158,11 @@ func (ps *PawScript) RegisterFibersLib() {
 			return BoolStatus(false)
 		}
 
-		// Merge bubbles from fiber to caller's state
-		handle.mu.RLock()
+		// Merge bubbles from fiber to caller's state.
+		// Write lock (not RLock): this transfers ref ownership and must clear
+		// FinalBubbleMap afterward so a second fiber_wait on the same handle does
+		// NOT re-transfer and double-release the same references.
+		handle.mu.Lock()
 		if len(handle.FinalBubbleMap) > 0 {
 			ctx.state.mu.Lock()
 			if ctx.state.bubbleMap == nil {
@@ -181,8 +184,11 @@ func (ps *PawScript) RegisterFibersLib() {
 				}
 			}
 			ctx.state.mu.Unlock()
+			// Ownership has been transferred to the caller; drop our copy so a
+			// repeated fiber_wait can't release these references again.
+			handle.FinalBubbleMap = nil
 		}
-		handle.mu.RUnlock()
+		handle.mu.Unlock()
 
 		if result != nil {
 			ctx.state.SetResult(result)
