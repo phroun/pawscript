@@ -23,8 +23,9 @@ double-release, a channel-message use-after-free, the RNG race, the
 `SetResultWithoutClaim` window, a test-bug race, and — via a repo-wide
 lock-hierarchy audit — all 22 ABBA/self-deadlock lock-order violations. The whole
 Go suite is race-clean and 98 `.paw` regressions pass. The embedded async-brace
-hang ("the msleep hang") is also FIXED. Remaining open: the logger race (see
-below), the sandbox items, and the broader test-coverage gaps.
+hang ("the msleep hang") and the logger race are also FIXED. Remaining open: a
+newly-exposed shared-variable-state race (see below), the sandbox items, and the
+broader test-coverage gaps.
 
 ## Confirmed by execution (reproduced locally)
 
@@ -187,13 +188,27 @@ reproduced by the available fixtures — see the note at the end of this section
 
 ## Newly discovered while stress-testing (pre-existing, separate subsystems)
 
-- **Logger data race + cross-contamination under concurrent fibers.** `Logger`
-  has a single shared `outputContext` field (`logger.go:496` write vs `:565`
-  read) that `SetOutputContext` mutates per execution scope. With multiple fibers
-  logging at once this both data-races and lets one fiber's log routing leak into
-  another's. Needs the output context to be per-`ExecutionState` (or
-  goroutine-scoped), not a single field on the shared logger — a real refactor,
-  not a mutex.
+- ✅ **FIXED — Logger data race + cross-contamination under concurrent fibers.**
+  `Logger` held a single shared `outputContext` field that `SetOutputContext`
+  overwrote per execution scope; concurrent fibers both data-raced on it and
+  cross-contaminated routing (one fiber's log could go to another's #out/#err).
+  Now scoped **per goroutine** (a `sync.Map` keyed by goroutine id, plus a
+  bound-context path for `WithContext`); the hot logging path skips the
+  goroutine-id lookup entirely via an atomic active-context counter when no
+  context is set. Guarded by `TestLoggerConcurrentContexts`.
+
+- **Shared-variable brace states share a map but not a mutex (CONFIRMED, exposed
+  after the logger fix).** `NewExecutionStateFromSharedVars` (`state.go:112`)
+  gives a brace state the parent's `variables`/`bubbleMap` maps by reference but
+  its own `sync.RWMutex`. When an async brace resumes on a completion goroutine
+  while the owning fiber's macro cleanup (`executeStoredMacro`, `executor_core.go`
+  ~671) deletes from the same `variables` map, the two lock *different* mutexes
+  over one map → data race (`GetVariable` read vs macro-cleanup `delete`). Same
+  class as the fiber-module-env and channel-endpoint races already fixed, but in
+  the state layer. Fix needs shared-variable states to share the owning state's
+  lock (e.g. a shared `*sync.RWMutex` for the shared maps), not just the maps —
+  a focused change to `ExecutionState` locking. Only surfaces under concurrent
+  fibers running async braces; the Go `-race` suite does not hit it.
 - ✅ **FIXED — async brace substitution hang ("the msleep hang").** A command
   with an async brace (`echo {msleep 2; ret "x"}`, or an async brace inside a
   `while` loop) returns a brace-coordinator token that the caller
