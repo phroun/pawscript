@@ -22,9 +22,9 @@ module-env, channel endpoints, token system), a lost-wakeup hang, a `fiber_wait`
 double-release, a channel-message use-after-free, the RNG race, the
 `SetResultWithoutClaim` window, a test-bug race, and — via a repo-wide
 lock-hierarchy audit — all 22 ABBA/self-deadlock lock-order violations. The whole
-Go suite is race-clean and 97 `.paw` regressions pass. Remaining open: two
-newly-discovered pre-existing issues (logger race, embedded async-brace hang —
-see below), the sandbox items, and the broader test-coverage gaps.
+Go suite is race-clean and 98 `.paw` regressions pass. The embedded async-brace
+hang ("the msleep hang") is also FIXED. Remaining open: the logger race (see
+below), the sandbox items, and the broader test-coverage gaps.
 
 ## Confirmed by execution (reproduced locally)
 
@@ -194,13 +194,20 @@ reproduced by the available fixtures — see the note at the end of this section
   another's. Needs the output context to be per-`ExecutionState` (or
   goroutine-scoped), not a single field on the shared logger — a real refactor,
   not a mutex.
-- **Async brace substitution never completes under the embedded API.** Via
-  `ps.Execute`/`ps.ExecuteFile` in-process, a command with an async brace (e.g.
-  `echo {msleep 2; ret "x"}`) hangs waiting on the coordinator token's waitChan,
-  while the same script run through the `paw` binary completes. `msleep` alone is
-  fine, so it is specific to brace-coordinator completion signaling in the
-  embedded setup (affects old and new code identically — not a regression).
-  Worth fixing since `Execute` is the public embedding entry point.
+- ✅ **FIXED — async brace substitution hang ("the msleep hang").** A command
+  with an async brace (`echo {msleep 2; ret "x"}`, or an async brace inside a
+  `while` loop) returns a brace-coordinator token that the caller
+  (`Execute`/`WaitForToken`, or the while-loop async handler) blocks on via a
+  wait channel. `finalizeBraceCoordinator` ran the command (output appeared) and
+  completed the coordinator token but **never signaled that token's wait
+  channel** — so the caller blocked forever even though the work was done. (The
+  `attachWaitChan` lost-wakeup guard only masked it when the coordinator happened
+  to finish before the attach; when the attach won the race it hung — which is
+  what showed up in the wild.) Fixed: `finalizeBraceCoordinator` now captures the
+  coordinator's wait channel and delivers the result to it when there is no
+  downstream chained token (or propagates it to the new token if the callback
+  itself went async). Guarded by `TestAsyncBraceExecuteCompletes` and
+  `tests/test_async_brace_while.paw`.
 
 ## Sandbox / file access — hardening (LOW–MED)
 
