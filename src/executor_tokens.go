@@ -16,6 +16,15 @@ func (e *Executor) RequestCompletionToken(
 	state *ExecutionState,
 	position *SourcePosition,
 ) string {
+	// Snapshot the state result BEFORE taking e.mu. The hierarchy is
+	// state.mu < e.mu (e.mu innermost), so calling a state method that locks
+	// state.mu while holding e.mu is a lock-order inversion (deadlock risk).
+	var suspendedResult interface{}
+	var hasSuspendedResult bool
+	if state != nil {
+		suspendedResult, hasSuspendedResult = state.Snapshot()
+	}
+
 	e.mu.Lock()
 	defer e.mu.Unlock()
 
@@ -47,11 +56,9 @@ func (e *Executor) RequestCompletionToken(
 		_, cancel = context.WithCancel(context.Background())
 	}
 
-	// Handle nil state for system-level tokens (e.g., #random in io module)
-	var suspendedResult interface{}
-	var hasSuspendedResult bool
+	// Handle nil state for system-level tokens (e.g., #random in io module).
+	// suspendedResult/hasSuspendedResult were captured before taking e.mu.
 	if state != nil {
-		suspendedResult, hasSuspendedResult = state.Snapshot()
 		// Ensure state has executor reference
 		if state.executor == nil {
 			state.executor = e
@@ -228,32 +235,14 @@ func (e *Executor) ResumeBraceEvaluation(coordinatorToken, childToken string, re
 	targetEval.Result = result
 	coord.CompletedCount++
 
-	// Transfer owned references from brace state to parent before releasing
-	// Since the brace shares variables with the parent, any objects stored in
-	// those variables need to be owned by the parent before we release the brace's claims
-	if targetEval.State != nil && coord.SubstitutionCtx != nil && coord.SubstitutionCtx.ExecutionState != nil {
-		parentState := coord.SubstitutionCtx.ExecutionState
-		targetEval.State.mu.Lock()
-		ownedByBrace := make(map[int]int)
-		for refID, count := range targetEval.State.ownedObjects {
-			ownedByBrace[refID] = count
-		}
-		targetEval.State.mu.Unlock()
-
-		for refID, childCount := range ownedByBrace {
-			if childCount > 0 {
-				parentState.mu.Lock()
-				parentOwns := parentState.ownedObjects[refID] > 0
-				parentState.mu.Unlock()
-
-				if !parentOwns {
-					parentState.ClaimObjectReference(refID)
-				}
-			}
-		}
-		targetEval.State.ReleaseAllReferences()
-	} else if targetEval.State != nil {
-		targetEval.State.ReleaseAllReferences()
+	// Capture the states involved in the ownership transfer. The actual transfer
+	// (which calls ClaimObjectReference / ReleaseAllReferences, and those
+	// re-acquire e.mu internally) is deferred until AFTER we release e.mu below —
+	// doing it here would self-deadlock on the non-reentrant e.mu.
+	braceState := targetEval.State
+	var parentStateForTransfer *ExecutionState
+	if braceState != nil && coord.SubstitutionCtx != nil {
+		parentStateForTransfer = coord.SubstitutionCtx.ExecutionState
 	}
 
 	if !success {
@@ -274,11 +263,46 @@ func (e *Executor) ResumeBraceEvaluation(coordinatorToken, childToken string, re
 
 	e.mu.Unlock()
 
+	// Transfer owned references from the brace state to the parent, then release
+	// the brace's claims. Done outside e.mu (see the capture above).
+	e.transferBraceOwnership(braceState, parentStateForTransfer)
+
 	if allDone {
 		e.logger.DebugCat(CatAsync,"All brace evaluations complete for coordinator %s (failure: %v)",
 			coordinatorToken, hasFailure)
 		e.finalizeBraceCoordinator(coordinatorToken)
 	}
+}
+
+// transferBraceOwnership moves object ownership from a completed brace evaluation
+// state to its parent (so objects stored into shared variables survive), then
+// releases the brace state's own claims. MUST be called without e.mu held:
+// ClaimObjectReference / ReleaseAllReferences acquire e.mu internally.
+func (e *Executor) transferBraceOwnership(braceState, parentState *ExecutionState) {
+	if braceState == nil {
+		return
+	}
+	if parentState != nil {
+		braceState.mu.Lock()
+		ownedByBrace := make(map[int]int, len(braceState.ownedObjects))
+		for refID, count := range braceState.ownedObjects {
+			ownedByBrace[refID] = count
+		}
+		braceState.mu.Unlock()
+
+		for refID, childCount := range ownedByBrace {
+			if childCount > 0 {
+				parentState.mu.Lock()
+				parentOwns := parentState.ownedObjects[refID] > 0
+				parentState.mu.Unlock()
+
+				if !parentOwns {
+					parentState.ClaimObjectReference(refID)
+				}
+			}
+		}
+	}
+	braceState.ReleaseAllReferences()
 }
 
 // finalizeBraceCoordinator finalizes a brace coordinator and resumes execution
@@ -301,12 +325,16 @@ func (e *Executor) finalizeBraceCoordinator(coordinatorToken string) {
 	chainedToken := coordData.ChainedToken
 
 	// Clean up all children (this will call their cleanup callbacks)
-	e.cleanupTokenChildrenLocked(coordinatorToken)
+	var pendingReleases []*ExecutionState
+	e.cleanupTokenChildrenLocked(coordinatorToken, &pendingReleases)
 
 	// Complete the coordinator token (marks as done, releases executor's ref)
 	e.completeTokenLocked(coordinatorToken, !hasFailure, nil)
 
 	e.mu.Unlock()
+
+	// Release states collected during child cleanup (outside e.mu).
+	releasePendingStates(pendingReleases)
 
 	// Now perform the final substitution and resume callback
 	var callbackResult Result
@@ -354,6 +382,9 @@ func (e *Executor) PushCommandSequence(
 	state *ExecutionState,
 	position *SourcePosition,
 ) error {
+	// Snapshot before taking e.mu (state.mu < e.mu; never lock state.mu under e.mu).
+	result, hasResult := state.Snapshot()
+
 	e.mu.Lock()
 	defer e.mu.Unlock()
 
@@ -361,8 +392,6 @@ func (e *Executor) PushCommandSequence(
 	if !exists {
 		return fmt.Errorf("invalid completion token: %s", tokenID)
 	}
-
-	result, hasResult := state.Snapshot()
 
 	// Make a copy of remaining commands
 	commandsCopy := make([]*ParsedCommand, len(remainingCommands))
@@ -420,8 +449,9 @@ func (e *Executor) PopAndResumeCommandSequence(tokenID string, status bool) bool
 
 	e.logger.DebugCat(CatAsync,"Popping command sequence from token %s. Result: %v", tokenID, effectiveStatus)
 
-	// Cleanup children
-	e.cleanupTokenChildrenLocked(tokenID)
+	// Cleanup children. State releases are deferred to after e.mu is dropped.
+	var pendingReleases []*ExecutionState
+	e.cleanupTokenChildrenLocked(tokenID, &pendingReleases)
 
 	// Cancel timeout
 	if tokenData.CancelFunc != nil {
@@ -435,27 +465,41 @@ func (e *Executor) PopAndResumeCommandSequence(tokenID string, status bool) bool
 
 	success := effectiveStatus
 	var newChainedToken string
+	// Capture the final result WITHOUT holding e.mu. The hierarchy is
+	// state.mu < e.mu (e.mu innermost), so reading state under e.mu is a
+	// lock-order inversion. This value is used for brace forwarding and
+	// token completion below.
+	var finalResult interface{}
+	var finalHasResult bool
 	if tokenData.CommandSequence != nil {
 		seq := tokenData.CommandSequence
 		e.mu.Unlock() // Unlock before resuming to avoid deadlock
 		success, newChainedToken = e.resumeCommandSequence(seq, effectiveStatus, state)
+		finalResult, finalHasResult = state.Snapshot()
+		e.mu.Lock()
+	} else {
+		e.mu.Unlock()
+		finalResult, finalHasResult = state.Snapshot()
 		e.mu.Lock()
 	}
 
 	// Now that remaining commands have been executed, forward result to brace coordinator if needed
 	// This MUST happen after resumeCommandSequence so that commands like `ret "good"` have run
 	if isBraceCoordinatorChild && newChainedToken == "" {
-		// No more async pending - we have the final result
+		// No more async pending - we have the final result (captured above)
 		var resultValue interface{}
-		if state != nil && state.HasResult() {
-			resultValue = state.GetResult()
+		if finalHasResult {
+			resultValue = finalResult
 		}
 
 		// Clean up before forwarding
-		e.cleanupTokenChildrenLocked(tokenID)
+		e.cleanupTokenChildrenLocked(tokenID, &pendingReleases)
 		e.completeTokenLocked(tokenID, success, resultValue)
 
 		e.mu.Unlock()
+
+		// Release child states collected during cleanup (outside e.mu).
+		releasePendingStates(pendingReleases)
 
 		e.logger.DebugCat(CatAsync, "Token %s is child of brace coordinator %s, forwarding result: %v", tokenID, coordinatorToken, resultValue)
 		e.ResumeBraceEvaluation(coordinatorToken, tokenID, resultValue, success)
@@ -503,11 +547,8 @@ func (e *Executor) PopAndResumeCommandSequence(tokenID string, status bool) bool
 		fiberHandle = e.activeFibers[fiberID]
 	}
 
-	// Get the result value before completing
-	var resultValue interface{}
-	if state != nil {
-		resultValue = state.GetResult()
-	}
+	// Get the result value before completing (captured above, without e.mu).
+	resultValue := finalResult
 
 	// Remove this token from parent's children list
 	if parentToken != "" {
@@ -520,6 +561,9 @@ func (e *Executor) PopAndResumeCommandSequence(tokenID string, status bool) bool
 	e.completeTokenLocked(tokenID, success, resultValue)
 
 	e.mu.Unlock()
+
+	// Release child states collected during cleanup (outside e.mu).
+	releasePendingStates(pendingReleases)
 
 	// If this token belongs to a fiber, send resume data to the fiber
 	if fiberHandle != nil {
@@ -631,15 +675,28 @@ func (e *Executor) stateInUseByOtherToken(tokenID string, st *ExecutionState) bo
 	return e.stateInUseByOtherTokenLocked(tokenID, st)
 }
 
-// cleanupTokenChildrenLocked cleans up child tokens (must be called with lock held)
-func (e *Executor) cleanupTokenChildrenLocked(tokenID string) {
+// cleanupTokenChildrenLocked cleans up child tokens (must be called with e.mu held).
+// States whose references should be released are appended to pendingReleases; the
+// caller must release them AFTER unlocking e.mu (ReleaseAllReferences re-acquires
+// e.mu, so releasing under e.mu would self-deadlock).
+func (e *Executor) cleanupTokenChildrenLocked(tokenID string, pendingReleases *[]*ExecutionState) {
 	tokenData, exists := e.activeTokens[tokenID]
 	if !exists {
 		return
 	}
 
 	for childTokenID := range tokenData.Children {
-		e.forceCleanupTokenLocked(childTokenID)
+		e.forceCleanupTokenLocked(childTokenID, pendingReleases)
+	}
+}
+
+// releasePendingStates releases a batch of execution-state references collected
+// during token cleanup. MUST be called without e.mu held.
+func releasePendingStates(states []*ExecutionState) {
+	for _, st := range states {
+		if st != nil {
+			st.ReleaseAllReferences()
+		}
 	}
 }
 
@@ -733,13 +790,17 @@ func (e *Executor) forceDeleteTokenLocked(tokenID string) {
 
 // ForceCleanupToken forces cleanup of a token
 func (e *Executor) ForceCleanupToken(tokenID string) {
+	var pendingReleases []*ExecutionState
 	e.mu.Lock()
-	defer e.mu.Unlock()
-	e.forceCleanupTokenLocked(tokenID)
+	e.forceCleanupTokenLocked(tokenID, &pendingReleases)
+	e.mu.Unlock()
+	releasePendingStates(pendingReleases)
 }
 
-// forceCleanupTokenLocked forces cleanup (must be called with lock held)
-func (e *Executor) forceCleanupTokenLocked(tokenID string) {
+// forceCleanupTokenLocked forces cleanup (must be called with e.mu held).
+// States needing a reference release are appended to pendingReleases; the caller
+// releases them after unlocking e.mu (see cleanupTokenChildrenLocked).
+func (e *Executor) forceCleanupTokenLocked(tokenID string, pendingReleases *[]*ExecutionState) {
 	tokenData, exists := e.activeTokens[tokenID]
 	if !exists {
 		return
@@ -751,13 +812,12 @@ func (e *Executor) forceCleanupTokenLocked(tokenID string) {
 		tokenData.CleanupCallback(tokenID)
 	}
 
-	e.cleanupTokenChildrenLocked(tokenID)
+	e.cleanupTokenChildrenLocked(tokenID, pendingReleases)
 
-	// Release all object references held by this token's state
-	// But only if no other token is using the same state (lock already held).
+	// Defer the reference release: only if no other token is using the same state.
 	if tokenData.ExecutionState != nil {
 		if !e.stateInUseByOtherTokenLocked(tokenID, tokenData.ExecutionState) {
-			tokenData.ExecutionState.ReleaseAllReferences()
+			*pendingReleases = append(*pendingReleases, tokenData.ExecutionState)
 		}
 	}
 

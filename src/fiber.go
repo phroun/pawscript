@@ -38,11 +38,18 @@ func (e *Executor) GetFiberCount() int {
 
 // GetSuspendedFibers returns a map of fiberID -> tokenID for all suspended fibers
 func (e *Executor) GetSuspendedFibers() map[int]string {
+	// Snapshot the handles under e.mu, then read each fiber's field WITHOUT
+	// e.mu held: the hierarchy is handle.mu < e.mu, so we must not take
+	// handle.mu while holding e.mu.
 	e.mu.RLock()
-	defer e.mu.RUnlock()
+	handles := make(map[int]*FiberHandle, len(e.activeFibers))
+	for fiberID, fiber := range e.activeFibers {
+		handles[fiberID] = fiber
+	}
+	e.mu.RUnlock()
 
 	suspended := make(map[int]string)
-	for fiberID, fiber := range e.activeFibers {
+	for fiberID, fiber := range handles {
 		fiber.mu.RLock()
 		if fiber.SuspendedOn != "" {
 			suspended[fiberID] = fiber.SuspendedOn

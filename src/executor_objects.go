@@ -200,27 +200,12 @@ func (e *Executor) RefRelease(ref ObjectRef) {
 			}
 
 		case ObjFiber:
-			// Transfer bubbles to orphaned if present
+			// Transfer bubbles to orphaned if present. Release e.mu first so we
+			// never hold it while taking handle.mu (hierarchy: handle.mu < e.mu).
 			if fiberHandle, ok := obj.Value.(*FiberHandle); ok {
-				fiberHandle.mu.Lock()
-				hasBubbles := len(fiberHandle.FinalBubbleMap) > 0 || len(fiberHandle.BubbleUpMap) > 0
-				if hasBubbles {
-					combined := make(map[string][]*BubbleEntry)
-					for flavor, entries := range fiberHandle.FinalBubbleMap {
-						combined[flavor] = append(combined[flavor], entries...)
-					}
-					for flavor, entries := range fiberHandle.BubbleUpMap {
-						combined[flavor] = append(combined[flavor], entries...)
-					}
-					fiberHandle.FinalBubbleMap = nil
-					fiberHandle.BubbleUpMap = nil
-					fiberHandle.mu.Unlock()
-					e.mu.Unlock()
-					e.AddOrphanedBubbles(combined)
-					e.mu.Lock()
-				} else {
-					fiberHandle.mu.Unlock()
-				}
+				e.mu.Unlock()
+				e.orphanFiberBubbles(fiberHandle)
+				e.mu.Lock()
 			}
 
 		case ObjFile:
@@ -375,6 +360,32 @@ func (e *Executor) storeObject(value interface{}, typeName string) int {
 
 // incrementObjectRefCount increments the reference count for an object
 // DEPRECATED: Use RefClaim instead
+// orphanFiberBubbles moves a fiber handle's pending bubbles into the orphaned
+// set when the handle object is being freed. It MUST be called without e.mu
+// held: the lock hierarchy is handle.mu < e.mu (e.mu is innermost), so we take
+// handle.mu first and only touch e.mu (via AddOrphanedBubbles) after releasing
+// it. Taking handle.mu while holding e.mu is the ABBA deadlock this avoids.
+func (e *Executor) orphanFiberBubbles(fiberHandle *FiberHandle) {
+	fiberHandle.mu.Lock()
+	hasBubbles := len(fiberHandle.FinalBubbleMap) > 0 || len(fiberHandle.BubbleUpMap) > 0
+	var combined map[string][]*BubbleEntry
+	if hasBubbles {
+		combined = make(map[string][]*BubbleEntry)
+		for flavor, entries := range fiberHandle.FinalBubbleMap {
+			combined[flavor] = append(combined[flavor], entries...)
+		}
+		for flavor, entries := range fiberHandle.BubbleUpMap {
+			combined[flavor] = append(combined[flavor], entries...)
+		}
+		fiberHandle.FinalBubbleMap = nil
+		fiberHandle.BubbleUpMap = nil
+	}
+	fiberHandle.mu.Unlock()
+	if hasBubbles {
+		e.AddOrphanedBubbles(combined)
+	}
+}
+
 func (e *Executor) incrementObjectRefCount(objectID int) {
 	e.mu.Lock()
 	defer e.mu.Unlock()
@@ -427,31 +438,13 @@ func (e *Executor) decrementObjectRefCount(objectID int) {
 				e.mu.Lock()
 			}
 
-			// Transfer FinalBubbleMap and BubbleUpMap to orphanedBubbles if it's a fiber handle
-			// This preserves bubbles from abandoned fibers for later retrieval
+			// Transfer FinalBubbleMap and BubbleUpMap to orphanedBubbles if it's a
+			// fiber handle (preserves bubbles from abandoned fibers). Release e.mu
+			// first so we never hold it while taking handle.mu (handle.mu < e.mu).
 			if fiberHandle, ok := obj.Value.(*FiberHandle); ok {
-				fiberHandle.mu.Lock()
-				hasBubbles := len(fiberHandle.FinalBubbleMap) > 0 || len(fiberHandle.BubbleUpMap) > 0
-				if hasBubbles {
-					// Merge both maps into a combined map for orphaning
-					combined := make(map[string][]*BubbleEntry)
-					for flavor, entries := range fiberHandle.FinalBubbleMap {
-						combined[flavor] = append(combined[flavor], entries...)
-					}
-					for flavor, entries := range fiberHandle.BubbleUpMap {
-						combined[flavor] = append(combined[flavor], entries...)
-					}
-					// Clear the maps so we don't double-process
-					fiberHandle.FinalBubbleMap = nil
-					fiberHandle.BubbleUpMap = nil
-					fiberHandle.mu.Unlock()
-					// Add to orphaned bubbles (transfers ownership of references)
-					e.mu.Unlock()
-					e.AddOrphanedBubbles(combined)
-					e.mu.Lock()
-				} else {
-					fiberHandle.mu.Unlock()
-				}
+				e.mu.Unlock()
+				e.orphanFiberBubbles(fiberHandle)
+				e.mu.Lock()
 			}
 
 			// Auto-close file handles when their last reference is released

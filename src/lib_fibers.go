@@ -293,10 +293,13 @@ func (ps *PawScript) RegisterFibersLib() {
 				return BoolStatus(false)
 			}
 
-			// Move bubbleMap entries to bubbleUpMap
+			// Move bubbleMap entries to bubbleUpMap.
+			// Lock order must be handle.mu before state.mu (hierarchy:
+			// handle.mu < state.mu < e.mu); incrementObjectRefCount takes e.mu
+			// innermost, which is consistent.
+			handle.mu.Lock()
 			ctx.state.mu.Lock()
 			if len(ctx.state.bubbleMap) > 0 {
-				handle.mu.Lock()
 				if handle.BubbleUpMap == nil {
 					handle.BubbleUpMap = make(map[string][]*BubbleEntry)
 				}
@@ -312,11 +315,11 @@ func (ps *PawScript) RegisterFibersLib() {
 					}
 					handle.BubbleUpMap[flavor] = append(handle.BubbleUpMap[flavor], entries...)
 				}
-				handle.mu.Unlock()
 				// Clear the fiber's bubbleMap
 				ctx.state.bubbleMap = make(map[string][]*BubbleEntry)
 			}
 			ctx.state.mu.Unlock()
+			handle.mu.Unlock()
 
 			return BoolStatus(true)
 		}

@@ -157,6 +157,43 @@ func TestChannelObjectSurvivesSenderDrop(t *testing.T) {
 	}
 }
 
+// runScriptWithDeadlineOr fails the test if the script does not finish in time,
+// which is how we detect a deadlock (the race detector cannot see deadlocks).
+func runScriptWithDeadline(t *testing.T, name, script string, d time.Duration) {
+	t.Helper()
+	done := make(chan struct{})
+	go func() {
+		defer close(done)
+		ps := newTestPS()
+		ps.Execute(script)
+	}()
+	select {
+	case <-done:
+	case <-time.After(d):
+		t.Fatalf("%s: did not complete within %v — likely deadlock", name, d)
+	}
+}
+
+// TestFiberAbandonNoDeadlock stresses ABBA #1: fibers are spawned and their
+// handles immediately dropped (never fiber_wait'd), so the handle object can be
+// freed (decrementObjectRefCount -> e.mu -> handle.mu) while the fiber's own
+// completion defer runs (handle.mu -> e.mu). Many iterations to hit the window.
+func TestFiberAbandonNoDeadlock(t *testing.T) {
+	script := `
+worker: {macro (
+  bubble ok, "done"
+  msleep 1
+)}
+i: 0
+while (lt ~i, 300), (
+  fiber ~worker
+  i: {add ~i, 1}
+)
+fiber_wait_all
+`
+	runScriptWithDeadline(t, "fiber-abandon", script, 30*time.Second)
+}
+
 // TestSharedRandomRNGConcurrent drives multiple fibers pulling from the shared
 // #random generator concurrently. #random is a single inherited token holding
 // one *rand.Rand (not safe for concurrent use), so without a lock this races on

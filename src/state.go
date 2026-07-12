@@ -274,21 +274,20 @@ func (s *ExecutionState) SetResult(value interface{}) {
 // Used when transferring ownership from child contexts
 func (s *ExecutionState) SetResultWithoutClaim(value interface{}) {
 	s.mu.Lock()
-	defer s.mu.Unlock()
-
-	// Release old result's references
+	var oldRefs []int
 	if s.hasResult {
-		oldRefs := s.extractObjectReferencesLocked(s.currentResult)
-		s.mu.Unlock()
-		for _, id := range oldRefs {
-			s.ReleaseObjectReference(id)
-		}
-		s.mu.Lock()
+		oldRefs = s.extractObjectReferencesLocked(s.currentResult)
 	}
-
-	// Set new value WITHOUT claiming
+	// Swap in the new value BEFORE releasing the old references, so a concurrent
+	// reader never observes the stale currentResult and double-releases it.
 	s.currentResult = value
 	s.hasResult = true
+	s.mu.Unlock()
+
+	// Release outside s.mu: ReleaseObjectReference locks s.mu itself.
+	for _, id := range oldRefs {
+		s.ReleaseObjectReference(id)
+	}
 }
 
 // extractObjectReferencesLocked is like ExtractObjectReferences but assumes lock is held
