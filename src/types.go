@@ -727,6 +727,10 @@ type StoredChannel struct {
 	Messages        []ChannelMessage
 	Subscribers     map[int]*StoredChannel // Map of subscriber ID to subscriber endpoint
 	NextSubscriberID int
+	// executor is used to claim/release references on buffered message values so
+	// a sent object survives while queued (set by RegisterObject). May be nil for
+	// channels never registered as objects; ref-counting is then skipped.
+	executor        *Executor
 	IsClosed        bool
 	IsSubscriber    bool             // True if this is a subscriber endpoint
 	SubscriberID    int              // ID of this subscriber (0 for main channel)

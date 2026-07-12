@@ -91,6 +91,14 @@ func (e *Executor) RegisterObject(value interface{}, objType ObjectType) ObjectR
 
 	id := e.registerObjectLocked(value, objType)
 
+	// Channels need an executor reference so they can claim/release refs on
+	// buffered message values (see ChannelSend/Recv/Close).
+	if objType == ObjChannel {
+		if ch, ok := value.(*StoredChannel); ok {
+			ch.executor = e
+		}
+	}
+
 	// For lists, claim refs to all nested items so they're released when this list is freed
 	// This ensures sliced/derived lists properly own their shared items
 	if objType == ObjList {
@@ -402,6 +410,21 @@ func (e *Executor) decrementObjectRefCount(objectID int) {
 					releaseNestedReferences(val, e)
 				}
 				e.mu.Lock() // Re-lock for deletion
+			}
+
+			// Release send-time claims for any messages still buffered on a
+			// channel freed without an explicit close (abandoned channel). At
+			// refcount 0 the channel is exclusively owned, so reading Messages
+			// without its mutex is safe; unlock e.mu around the releases (they
+			// re-acquire it) exactly like the StoredList case above.
+			if storedChannel, ok := obj.Value.(*StoredChannel); ok && !storedChannel.IsSubscriber && len(storedChannel.Messages) > 0 {
+				msgs := storedChannel.Messages
+				storedChannel.Messages = nil
+				e.mu.Unlock()
+				for i := range msgs {
+					releaseNestedReferences(msgs[i].Value, e)
+				}
+				e.mu.Lock()
 			}
 
 			// Transfer FinalBubbleMap and BubbleUpMap to orphanedBubbles if it's a fiber handle

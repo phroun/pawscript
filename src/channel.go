@@ -119,6 +119,15 @@ func ChannelSend(ch *StoredChannel, value interface{}) error {
 		_ = mainCh.CustomSend // Placeholder for future implementation
 	}
 
+	// Claim a reference on the buffered value so the sent object survives while
+	// queued, even if the sender's scope releases its own reference before a
+	// receiver reads it. The matching release happens when the message leaves the
+	// buffer (fully consumed in ChannelRecv, or discarded in ChannelClose / when
+	// the channel object is freed). Mirrors how SpawnFiber claims fiber args.
+	if mainCh.executor != nil {
+		claimNestedReferences(value, mainCh.executor)
+	}
+
 	mainCh.Messages = append(mainCh.Messages, msg)
 
 	return nil
@@ -170,6 +179,17 @@ func ChannelRecv(ch *StoredChannel) (int, interface{}, error) {
 		// Mark as consumed by this receiver
 		msg.ConsumedBy[receiverID] = true
 
+		// Claim a "transfer" reference on the returned value BEFORE any cleanup
+		// release below. This recv may also be the one that fully consumes the
+		// message and drops its send-time claim; claiming first guarantees the
+		// object survives being handed back to the caller instead of being freed
+		// mid-return. The caller (channel_recv) releases this transfer ref once,
+		// after taking its own ownership. Callers that recv from native channels
+		// take the early-return path above and never see a transfer ref.
+		if mainCh.executor != nil {
+			claimNestedReferences(msg.Value, mainCh.executor)
+		}
+
 		// Check if all recipients have consumed this message
 		allConsumed := true
 		for _, consumed := range msg.ConsumedBy {
@@ -198,6 +218,16 @@ func ChannelRecv(ch *StoredChannel) (int, interface{}, error) {
 				}
 			}
 			if cleanupCount > 0 {
+				// Release the send-time claim for each message leaving the buffer.
+				// The value the current caller is receiving is protected by the
+				// transfer ref claimed just above, so it can't be freed here.
+				// (mainCh.mu is held; the release acquires e.mu — the channel-free
+				// path never takes a channel mutex, so there is no lock cycle.)
+				if mainCh.executor != nil {
+					for j := 0; j < cleanupCount; j++ {
+						releaseNestedReferences(mainCh.Messages[j].Value, mainCh.executor)
+					}
+				}
 				mainCh.Messages = mainCh.Messages[cleanupCount:]
 			}
 		}
@@ -242,6 +272,15 @@ func ChannelClose(ch *StoredChannel) error {
 			sub.IsClosed = true
 		}
 		ch.Subscribers = make(map[int]*StoredChannel)
+
+		// Release the send-time claim for any messages still buffered (never fully
+		// consumed), then drop them so a later free doesn't double-release.
+		if ch.executor != nil {
+			for i := range ch.Messages {
+				releaseNestedReferences(ch.Messages[i].Value, ch.executor)
+			}
+		}
+		ch.Messages = nil
 
 		// Call custom close handler if present
 		// nolint:staticcheck // TODO: Execute custom close macro when implemented

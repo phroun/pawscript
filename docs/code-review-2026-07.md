@@ -18,12 +18,11 @@ specific conditions · **LOW** = hardening / defense-in-depth.
 are FIXED**, with regression tests in `src/hardening_test.go` and
 `tests/test_double_tilde.paw` / `tests/test_struct_bounds.paw` fixtures.
 **Three concurrency data races (fiber module-env, channel endpoints, token
-system), a lost-wakeup hang, a `fiber_wait` double-release, and a test-bug race
-are also FIXED** and the whole Go suite is now race-clean
-(`src/concurrency_test.go`). Remaining open: a confirmed channel-message
-use-after-free (needs a careful ref-counting change), the reading-only deadlock /
-SetResult / RNG findings (not reproduced), the sandbox items, and the broader
-test-coverage gaps.
+system), a lost-wakeup hang, a `fiber_wait` double-release, a channel-message
+use-after-free, and a test-bug race are also FIXED** and the whole Go suite is
+now race-clean (`src/concurrency_test.go`). Remaining open: the reading-only
+deadlock / SetResult / RNG findings (not reproduced), the sandbox items, and the
+broader test-coverage gaps.
 
 ## Confirmed by execution (reproduced locally)
 
@@ -137,19 +136,30 @@ reproduced by the available fixtures — see the note at the end of this section
   double-released. Now takes a write lock and clears `FinalBubbleMap` after the
   transfer (also fixes the RLock-during-mutation).
 
-Remaining open — need dedicated design + refcount/repro tests, deliberately NOT
-rushed here because a botched ref-counting or lock-ordering change is worse than
-the latent bug (none surfaced under the `-race` sweep):
+- ✅ **FIXED — Channel messages now claim references (was a use-after-free).**
+  `channel_send` buffered the value without claiming a ref (contrast `SpawnFiber`,
+  which claims fiber args), so sending an object and letting the sender's scope
+  release it could leave the buffered message pointing at a freed/reused ID.
+  Fix (mirrors the fiber-arg claim/release discipline):
+  - `RegisterObject` gives each channel an `executor` handle.
+  - `ChannelSend` claims the value before buffering; the claim is released when
+    the message leaves the buffer (`ChannelRecv` cleanup), the channel closes
+    (`ChannelClose` releases all still-buffered messages), or an abandoned
+    channel is freed (new `StoredChannel` case in `decrementObjectRefCount`).
+  - `ChannelRecv` claims a **transfer reference** on the returned value *before*
+    the cleanup release, so the value can't be freed mid-handoff even when the
+    same recv removes it from the buffer; the `channel_recv` handler releases
+    that transfer ref once it has taken ownership via `RegisterObject`.
+  - Lock ordering: send/recv/close take `channel.mu` then `e.mu`; the free path
+    never takes a channel mutex (refcount 0 = exclusive), so there is no cycle.
+  Verified by `TestChannelMessageRefLifecycle` (explicit refcount tracing:
+  survives sender-drop, survives recv handoff, freed with no leak) and
+  `TestChannelCloseReleasesBufferedRefs` (close + abandoned-free paths); both
+  fail without the fix.
 
-- **Channel messages don't claim references (CONFIRMED, use-after-free).**
-  `channel_send` buffers the value via `ChannelSend` without claiming a ref
-  (contrast `SpawnFiber`, which claims fiber args at `fiber.go:83`). Send an
-  object, let the sender's scope release it, and the buffered message can point
-  at a freed/reused ID before a later receive. Correct fix is non-trivial: claim
-  on send, release when the message leaves the buffer (fully consumed) or the
-  channel closes, coordinated across broadcast consumers — and `ChannelSend`/
-  `Recv` in `channel.go` have no executor handle, so the claim/release must be
-  threaded through. Manifests as wrong values, not a race.
+Remaining open — need dedicated design + repro, deliberately NOT rushed (none
+surfaced under the `-race` sweep):
+
 - **ABBA deadlocks** between `FiberHandle.mu` ↔ `Executor.mu` and
   `ExecutionState.mu` ↔ `Executor.mu`. Would manifest as a hang, not a `-race`
   hit; needs a lock-ordering audit and targeted reproduction.
