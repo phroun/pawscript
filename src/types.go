@@ -1872,8 +1872,20 @@ type StoredStruct struct {
 	length     int    // Number of records (-1 for single struct, >= 0 for array)
 }
 
+// MaxStructBytes bounds the total backing-array size of a struct (single or
+// array). It guards script-controlled sizes from triggering an uncatchable OOM
+// or an int-overflow makeslice panic. 256 MiB is far beyond any realistic
+// struct while keeping size*count well inside int64.
+const MaxStructBytes = 256 << 20 // 256 MiB
+
 // NewStoredStruct creates a new single struct instance
 func NewStoredStruct(defID int, size int) StoredStruct {
+	// Defensive: callers (struct/struct_def) validate and report errors, but a
+	// hand-crafted definition could still reach here with a bad size. Never
+	// panic or OOM on make() — clamp instead.
+	if size < 0 || int64(size) > MaxStructBytes {
+		size = 0
+	}
 	data := make([]byte, size)
 	return StoredStruct{
 		defID:      defID,
@@ -1886,7 +1898,19 @@ func NewStoredStruct(defID int, size int) StoredStruct {
 
 // NewStoredStructArray creates a new struct array with n elements
 func NewStoredStructArray(defID int, size int, n int) StoredStruct {
-	data := make([]byte, size*n)
+	// Defensive clamp: never let a script-controlled size*n panic makeslice or
+	// OOM. Upstream handlers validate and surface a proper error.
+	if size < 0 {
+		size = 0
+	}
+	if n < 0 {
+		n = 0
+	}
+	total := int64(size) * int64(n)
+	if total > MaxStructBytes {
+		size, n, total = 0, 0, 0
+	}
+	data := make([]byte, total)
 	return StoredStruct{
 		defID:      defID,
 		data:       data,
@@ -1999,7 +2023,9 @@ func (ss StoredStruct) Compact() StoredStruct {
 func (ss StoredStruct) GetBytesAt(fieldOffset, fieldLength int) ([]byte, bool) {
 	start := ss.offset + fieldOffset
 	end := start + fieldLength
-	if end > len(ss.data) {
+	// Guard every bound: a hand-crafted definition can supply a negative offset
+	// or length, which would otherwise slice out of range and panic.
+	if fieldLength < 0 || start < 0 || end < start || end > len(ss.data) {
 		return nil, false
 	}
 	return ss.data[start:end], true
@@ -2012,6 +2038,11 @@ func (ss StoredStruct) SetBytesAt(fieldOffset int, value []byte, maxLen int) boo
 	if copyLen > maxLen {
 		copyLen = maxLen
 	}
+	// The write path was previously unchecked: a crafted field offset/length
+	// (e.g. offset 1000 on a 2-byte array) sliced out of range and panicked.
+	if copyLen < 0 || start < 0 || start+copyLen > len(ss.data) {
+		return false
+	}
 	copy(ss.data[start:start+copyLen], value[:copyLen])
 	return true
 }
@@ -2020,7 +2051,11 @@ func (ss StoredStruct) SetBytesAt(fieldOffset int, value []byte, maxLen int) boo
 func (ss StoredStruct) ZeroPadAt(fieldOffset, startPos, fieldLength int) {
 	start := ss.offset + fieldOffset
 	for i := startPos; i < fieldLength; i++ {
-		ss.data[start+i] = 0
+		idx := start + i
+		if idx < 0 || idx >= len(ss.data) {
+			continue
+		}
+		ss.data[idx] = 0
 	}
 }
 

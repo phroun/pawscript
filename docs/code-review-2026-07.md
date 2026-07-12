@@ -14,10 +14,10 @@ Severity legend: **CRIT** = short script crashes the host irrecoverably ·
 **HIGH** = short script panics/corrupts state · **MED** = correctness/leak under
 specific conditions · **LOW** = hardening / defense-in-depth.
 
-**Status (2026-07-12): CRIT-1, CRIT-2, HIGH-4 and the BUILD item below are
-FIXED** in this branch, with regression tests in `src/hardening_test.go` and a
-`tests/test_double_tilde.paw` fixture. HIGH-3 (struct) and the concurrency,
-sandbox, and test-suite items remain open.
+**Status (2026-07-12): CRIT-1, CRIT-2, HIGH-3, HIGH-4 and the BUILD item below
+are FIXED** in this branch, with regression tests in `src/hardening_test.go` and
+`tests/test_double_tilde.paw` / `tests/test_struct_bounds.paw` fixtures. The
+concurrency, sandbox, and test-suite items remain open.
 
 ## Confirmed by execution (reproduced locally)
 
@@ -42,7 +42,7 @@ Repro: `repeat "ab", 1000000000000` → `fatal error: runtime: out of memory`
 Fix: cap `count` (and `len(items)*count`) to a sane maximum; return an error
 instead of allocating.
 
-### HIGH-3 — `struct_def` negative/huge field size → `makeslice` panic
+### HIGH-3 — `struct_def` negative/huge field size → `makeslice` panic  ✅ FIXED
 `lib_types.go` struct path → `types.go` `NewStoredStructArray`/`SetBytesAt` and
 `lib_struct.go:105/120`. Field size flows unchecked into `make([]byte, size)`.
 Repro: a field descriptor `("f", -1, "bytes")` fed to `struct_def` then `struct`
@@ -50,8 +50,16 @@ Repro: a field descriptor `("f", -1, "bytes")` fed to `struct_def` then `struct`
 offset accumulator / OOMs. Related: `SetBytesAt` (`types.go:2008`) bounds-checks
 nothing on the write path (the read path `GetBytesAt` does), so a hand-crafted
 definition list can drive an out-of-range write.
-Fix: validate non-negative and cap sizes/counts in `struct_def`/`struct`; add a
-`start >= 0 && start+len <= len(data)` guard to `SetBytesAt`.
+Fixed with defense in depth (new `MaxStructBytes` = 256 MiB cap):
+- `struct_def` rejects negative field sizes and bounds the cumulative offset
+  (int64) so it can't overflow negative.
+- `struct` validates `__size` and the `__size * count` product (guards
+  hand-crafted definition lists that bypass `struct_def`).
+- `NewStoredStruct`/`NewStoredStructArray` clamp bad sizes so the `make()` can
+  never panic/OOM as a last resort.
+- `SetBytesAt` (write) and `GetBytesAt` (read) now full-bounds-check
+  `start >= 0 && start+len <= len(data)`; `ZeroPadAt` skips out-of-range indices.
+- `lib_struct.go` rejects negative field offset/length before the `make()`.
 
 ### HIGH-4 — bare NUL byte in an argument → slice-bounds panic  ✅ FIXED
 `parseObjectMarker` (`state.go:589`): `middle := s[1:len(s)-1]`. For a one-byte

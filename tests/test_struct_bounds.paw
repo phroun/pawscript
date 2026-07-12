@@ -1,0 +1,20 @@
+# Regression: struct sizing must reject bad sizes with a clean error, never
+# crash with makeslice/OOM (previously a negative or huge field size panicked).
+echo "=== Struct bounds tests ==="
+
+# Negative field size -> rejected at struct_def
+negDesc: {list ("f", -1, "bytes")}
+negDef: {struct_def ~negDesc}
+echo "after negative-size struct_def"
+
+# A valid struct still works
+okDesc: {list ("n", 4, "int")}
+okDef: {struct_def ~okDesc}
+okStruct: {struct ~okDef, {list n: 4660}}
+echo "valid struct field n = {~okStruct.n}"
+
+# Huge array count -> rejected, no OOM
+bigStruct: {struct ~okDef, {list}, 1000000000}
+echo "after huge-count struct"
+
+echo "=== Done ==="

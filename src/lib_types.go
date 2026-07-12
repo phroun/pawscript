@@ -2802,6 +2802,18 @@ func (ps *PawScript) RegisterTypesLib() {
 				return BoolStatus(false)
 			}
 			fieldSize := int(sizeNum)
+			if fieldSize < 0 {
+				ctx.LogError(CatArgument, fmt.Sprintf("Field %d size must be non-negative, got %d", i, fieldSize))
+				ctx.SetResult(nil)
+				return BoolStatus(false)
+			}
+			// Bound the cumulative size in int64 so a huge field can't overflow
+			// currentOffset into a negative total (which later panics make()).
+			if int64(currentOffset)+int64(fieldSize) > MaxStructBytes {
+				ctx.LogError(CatArgument, fmt.Sprintf("Struct too large (max %d bytes)", MaxStructBytes))
+				ctx.SetResult(nil)
+				return BoolStatus(false)
+			}
 
 			// Get field mode
 			modeVal := ctx.executor.resolveValue(fieldItems[2])
@@ -2978,6 +2990,18 @@ func (ps *PawScript) RegisterTypesLib() {
 			return BoolStatus(false)
 		}
 		structSize := int(sizeNum)
+		// A definition can be any StoredList (not only struct_def output), so
+		// validate __size here too rather than trusting it.
+		if structSize < 0 {
+			ctx.LogError(CatType, "struct definition __size must be non-negative")
+			ctx.SetResult(nil)
+			return BoolStatus(false)
+		}
+		if int64(structSize) > MaxStructBytes {
+			ctx.LogError(CatType, fmt.Sprintf("struct too large (max %d bytes)", MaxStructBytes))
+			ctx.SetResult(nil)
+			return BoolStatus(false)
+		}
 
 		// If we didn't get defID from marker, store the def list now
 		if defID == 0 {
@@ -2998,6 +3022,12 @@ func (ps *PawScript) RegisterTypesLib() {
 			count = int(countNum)
 			if count < 0 {
 				ctx.LogError(CatArgument, "Count must be non-negative")
+				ctx.SetResult(nil)
+				return BoolStatus(false)
+			}
+			// Bound size*count in int64 to prevent overflow/OOM on the array make().
+			if int64(structSize)*int64(count) > MaxStructBytes {
+				ctx.LogError(CatArgument, fmt.Sprintf("struct array too large (max %d bytes)", MaxStructBytes))
 				ctx.SetResult(nil)
 				return BoolStatus(false)
 			}

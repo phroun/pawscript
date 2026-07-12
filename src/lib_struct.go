@@ -51,6 +51,11 @@ func setStructFieldValue(s *StoredStruct, fieldName string, value interface{}, d
 
 	fieldOffset := int(offsetNum)
 	fieldLength := int(lengthNum)
+	// A negative offset/length from a crafted definition would panic the
+	// make([]byte, fieldLength) below (and the byte writes downstream).
+	if fieldOffset < 0 || fieldLength < 0 || int64(fieldLength) > MaxStructBytes {
+		return false
+	}
 	var fieldMode string
 	switch m := modeVal.(type) {
 	case string:
