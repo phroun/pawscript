@@ -581,7 +581,10 @@ func (s *ExecutionState) ExtractObjectReferences(value interface{}) []int {
 // Returns ("", -1) if not a valid object marker
 // Returns (type, id) for valid markers where type is "list", "str", "block", etc. (lowercase)
 func parseObjectMarker(s string) (string, int) {
-	if !strings.HasPrefix(s, "\x00") || !strings.HasSuffix(s, "\x00") {
+	// Need at least two bytes so the opening and closing \x00 are distinct;
+	// a lone "\x00" satisfies both HasPrefix and HasSuffix and would make the
+	// s[1:len(s)-1] slice below panic with "slice bounds out of range".
+	if len(s) < 2 || !strings.HasPrefix(s, "\x00") || !strings.HasSuffix(s, "\x00") {
 		return "", -1
 	}
 	

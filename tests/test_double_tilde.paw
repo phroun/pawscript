@@ -1,0 +1,11 @@
+# Regression: ~~x chained-tilde (double indirection).
+# ~x is the value of variable x; ~~x treats that value as a variable name and
+# resolves it. Previously this recursed forever and crashed with a stack overflow.
+target: "hello"
+pointer: "target"
+echo "single:" {~pointer}
+echo "double:" {~~pointer}
+
+# Three levels: pp -> pointer -> target -> "hello"
+pp: "pointer"
+echo "triple:" {~~~pp}

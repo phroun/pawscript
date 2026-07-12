@@ -14,18 +14,26 @@ Severity legend: **CRIT** = short script crashes the host irrecoverably ·
 **HIGH** = short script panics/corrupts state · **MED** = correctness/leak under
 specific conditions · **LOW** = hardening / defense-in-depth.
 
+**Status (2026-07-12): CRIT-1, CRIT-2, HIGH-4 and the BUILD item below are
+FIXED** in this branch, with regression tests in `src/hardening_test.go` and a
+`tests/test_double_tilde.paw` fixture. HIGH-3 (struct) and the concurrency,
+sandbox, and test-suite items remain open.
+
 ## Confirmed by execution (reproduced locally)
 
-### CRIT-1 — `~~x` infinite recursion → uncatchable stack overflow
+### CRIT-1 — `~~x` infinite recursion → uncatchable stack overflow  ✅ FIXED
 `executor_resolution.go:156` (and the twin at `:277` in
 `resolveTildeExpressionSilent`). The "chained tilde" branch re-prepends a tilde:
 it calls `resolveTildeExpression("~"+rest, ...)` where `rest` already starts with
 `~`, so the input never shrinks and the function recurses forever.
 Repro: `echo ~~x` → `fatal error: stack overflow`. Constant-size input, no
 variables needed, not catchable by `recover()`.
-Fix: pass `rest` instead of `"~"+rest` at both `:156` and `:277`.
+Note: `~~x` is a *valid feature* (one extra level of dereference — the value of
+the variable whose name is the value of `x`); the bug was that it was never
+reachable. Fixed by passing `rest` instead of `"~"+rest` at `:156` and `:277`,
+which makes chained dereference work at arbitrary depth (`~~~x`, …).
 
-### CRIT-2 — `repeat` count is unbounded → uncatchable OOM
+### CRIT-2 — `repeat` count is unbounded → uncatchable OOM  ✅ FIXED
 `lib_types.go:1733/1863/1874`. `count` is clamped `>= 0` but never upper-bounded.
 String mode `strings.Repeat(str, count)` and block/list modes
 `make([]interface{}, 0, count)` allocate on a script-controlled size.
@@ -45,7 +53,7 @@ definition list can drive an out-of-range write.
 Fix: validate non-negative and cap sizes/counts in `struct_def`/`struct`; add a
 `start >= 0 && start+len <= len(data)` guard to `SetBytesAt`.
 
-### HIGH-4 — bare NUL byte in an argument → slice-bounds panic
+### HIGH-4 — bare NUL byte in an argument → slice-bounds panic  ✅ FIXED
 `parseObjectMarker` (`state.go:589`): `middle := s[1:len(s)-1]`. For a one-byte
 string `"\x00"`, `HasPrefix` and `HasSuffix` are both true (same byte), so the
 slice becomes `s[1:0]` and panics. Reached from `processArguments` →
@@ -53,7 +61,7 @@ slice becomes `s[1:0]` and panics. Reached from `processArguments` →
 Repro: `echo \x00` or `set x, \x00` → `slice bounds out of range [1:0]`.
 Fix: require `len(s) >= 2` at the top of `parseObjectMarker` (guards all callers).
 
-### BUILD — orphan package breaks `go build ./...` / `go test ./...`
+### BUILD — orphan package breaks `go build ./...` / `go test ./...`  ✅ FIXED
 `pkg/purfecterm-cli/input.go:10` references undefined `Terminal`. This is a
 leftover from commit 6fd823a ("deleting purfecterm-cli, moving to other repo") —
 the directory was not actually removed. It fails to compile, which breaks
