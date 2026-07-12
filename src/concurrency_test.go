@@ -4,6 +4,7 @@ import (
 	"fmt"
 	"sync"
 	"testing"
+	"time"
 )
 
 // TestFiberModuleEnvSharedMap reproduces the fiber module-environment race: a
@@ -86,6 +87,24 @@ print "done"
 		ps.Execute(script)
 	}()
 	<-done // completes without deadlock/panic; -race flags any data race
+}
+
+// TestAttachWaitChanNoLostWakeup verifies attachWaitChan never leaves a caller
+// blocked forever when the token has already completed/cleaned up before the
+// attach (the lost-wakeup hang). The caller pattern is: attach, then <-waitChan.
+func TestAttachWaitChanNoLostWakeup(t *testing.T) {
+	ps := newTestPS()
+	e := ps.executor
+
+	// "already completed and removed" case: a token id that isn't active.
+	waitChan := make(chan ResumeData, 1)
+	e.attachWaitChan("fiber-0-token-does-not-exist", waitChan)
+	select {
+	case <-waitChan:
+		// delivered — caller would proceed, not hang
+	case <-time.After(2 * time.Second):
+		t.Fatal("attachWaitChan on a completed/unknown token hung the caller (lost wakeup)")
+	}
 }
 
 // TestChannelConcurrentEndpoints stresses a single logical channel from many

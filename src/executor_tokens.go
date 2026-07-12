@@ -1006,16 +1006,48 @@ func (e *Executor) chainTokens(firstToken, secondToken string) {
 	e.logger.DebugCat(CatAsync,"Chained token %s to complete after %s", secondToken, firstToken)
 }
 
-// attachWaitChan attaches a wait channel to a token for synchronous blocking
+// attachWaitChan attaches a wait channel to a token for synchronous blocking.
+//
+// Callers do: get a token -> attachWaitChan(token, waitChan) -> <-waitChan.
+// If the token completes in the window between returning and this call, its
+// completion could not have signalled waitChan (it did not exist yet), so a
+// naive "token not found -> just warn" leaves the caller blocked on <-waitChan
+// forever (lost wakeup / hang). Guard both already-done cases by delivering
+// immediately instead.
 func (e *Executor) attachWaitChan(tokenID string, waitChan chan ResumeData) {
 	e.mu.Lock()
 	defer e.mu.Unlock()
 
 	if tokenData, exists := e.activeTokens[tokenID]; exists {
+		if tokenData.Completed {
+			// Completed but not yet cleaned up: deliver the real result now.
+			e.deliverToWaitChan(waitChan, ResumeData{
+				TokenID: tokenID,
+				Status:  tokenData.FinalStatus,
+				Result:  tokenData.FinalResult,
+			})
+			return
+		}
 		tokenData.WaitChan = waitChan
-		e.logger.DebugCat(CatAsync,"Attached wait channel to token %s", tokenID)
-	} else {
-		e.logger.WarnCat(CatAsync,"Attempted to attach wait channel to non-existent token: %s", tokenID)
+		e.logger.DebugCat(CatAsync, "Attached wait channel to token %s", tokenID)
+		return
+	}
+
+	// Token already completed and was removed before we could attach. Deliver a
+	// best-effort resume so the caller proceeds rather than hanging forever.
+	// (The final result was already written to the execution state during
+	// completion; only this signalling channel missed it.)
+	e.logger.WarnCat(CatAsync, "attachWaitChan: token %s already completed; delivering immediate resume to avoid lost wakeup", tokenID)
+	e.deliverToWaitChan(waitChan, ResumeData{TokenID: tokenID, Status: true})
+}
+
+// deliverToWaitChan sends resume data without blocking. The wait channels used
+// with attachWaitChan are buffered (cap 1); the non-blocking select is a guard
+// against ever blocking the caller here.
+func (e *Executor) deliverToWaitChan(waitChan chan ResumeData, data ResumeData) {
+	select {
+	case waitChan <- data:
+	default:
 	}
 }
 

@@ -18,9 +18,10 @@ specific conditions · **LOW** = hardening / defense-in-depth.
 are FIXED**, with regression tests in `src/hardening_test.go` and
 `tests/test_double_tilde.paw` / `tests/test_struct_bounds.paw` fixtures.
 **Three concurrency data races (fiber module-env, channel endpoints, token
-system) plus a test-bug race are also FIXED** and the whole Go suite is now
-race-clean (`src/concurrency_test.go`). The remaining reading-only concurrency
-findings, the sandbox items, and the broader test-coverage gaps remain open.
+system), a lost-wakeup hang, and a test-bug race are also FIXED** and the whole
+Go suite is now race-clean (`src/concurrency_test.go`). The remaining
+reading-only concurrency findings (deadlocks, ref-counting), the sandbox items,
+and the broader test-coverage gaps remain open.
 
 ## Confirmed by execution (reproduced locally)
 
@@ -118,6 +119,15 @@ reproduced by the available fixtures — see the note at the end of this section
   `go test -race` red and would have masked any real interpreter race in CI. Now
   an `atomic.Bool`.
 
+- ✅ **FIXED — Lost wakeup in `attachWaitChan`.** Every async caller does
+  `attachWaitChan(token, waitChan)` then blocks on `<-waitChan`. If the token
+  completed in the window before the attach, its completion could not signal the
+  (not-yet-attached) channel, and the old code's "token not found → warn" left
+  the caller blocked forever. `attachWaitChan` now delivers immediately when the
+  token is already completed or gone, so the caller proceeds instead of hanging.
+  One choke point protects all 25+ call sites. Guarded by
+  `TestAttachWaitChanNoLostWakeup` (verified it hangs without the fix).
+
 Not yet reproduced (reading-only findings; a `-race` sweep of the current
 fixtures did not trigger them — they need targeted stress, and the deadlock /
 ref-counting ones would not surface as data races at all):
@@ -127,9 +137,6 @@ ref-counting ones would not surface as data races at all):
   `ExecutionState.mu` ↔ `Executor.mu` (`state.go:405-497` vs
   `executor_tokens.go:498-522`). Because `Executor.mu` guards everything, either
   hangs the whole interpreter.
-- **Lost wakeup in `resume`/`attachWaitChan`** (`lib_coroutines.go` +
-  `executor_tokens.go:1007`): if the async token completes before `attachWaitChan`
-  runs, nobody ever sends on `waitChan` and the resuming goroutine blocks forever.
 - **Channel messages don't claim references** (`channel.go:96` vs `SpawnFiber`'s
   explicit claim at `fiber.go:81`): a sent object can be freed and its ID reused
   before receipt → use-after-free / silent value swap.
