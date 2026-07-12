@@ -377,6 +377,29 @@ func (env *ModuleEnvironment) EnsureLogConfigCopied() {
 	env.logConfigModuleCopied = true
 }
 
+// IsolateRegistriesForFiber gives this environment private copies of every
+// mutable registry so a concurrently-running fiber never shares a live map with
+// the goroutine that spawned it.
+//
+// The COW model aliases a child's Module maps to the parent's map instances and
+// only diverges on the child's first *write*. That is safe for sequential macro
+// nesting (parent is paused while the child runs) but NOT for fibers: the parent
+// keeps running and its in-place writes (after it has already COW-copied) race
+// with the fiber's reads. Forcing the copies here decouples the two.
+//
+// Must be called on the spawning goroutine before the fiber goroutine starts,
+// while no other goroutine can be mutating this env's aliased maps.
+func (env *ModuleEnvironment) IsolateRegistriesForFiber() {
+	env.mu.Lock()
+	defer env.mu.Unlock()
+	env.EnsureCommandRegistryCopied()
+	env.EnsureMacroRegistryCopied()
+	env.EnsureObjectRegistryCopied()
+	env.EnsureMetadataRegistryCopied()
+	env.EnsureLogConfigCopied()
+	env.CopyLibraryRestricted()
+}
+
 // GetLogConfig returns the effective log config for this module environment
 func (env *ModuleEnvironment) GetLogConfig() *LogConfig {
 	env.mu.RLock()

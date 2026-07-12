@@ -64,7 +64,13 @@ func (e *Executor) SpawnFiber(macro *StoredMacro, args []interface{}, namedArgs 
 	fiberState := NewExecutionState()
 	if parentModuleEnv != nil {
 		// Replace the default module environment with one that inherits from parent
-		fiberState.moduleEnv = NewChildModuleEnvironment(parentModuleEnv)
+		childEnv := NewChildModuleEnvironment(parentModuleEnv)
+		// A fiber runs concurrently with its spawner, so it must NOT share live
+		// registry maps with the parent (the COW model only isolates on write).
+		// Force private copies now, on this (spawning) goroutine, before the
+		// fiber goroutine starts.
+		childEnv.IsolateRegistriesForFiber()
+		fiberState.moduleEnv = childEnv
 	}
 
 	handle := &FiberHandle{

@@ -2,6 +2,7 @@ package pawscript
 
 import (
 	"fmt"
+	"sync/atomic"
 	"testing"
 	"time"
 )
@@ -235,13 +236,15 @@ func TestAsyncOperations(t *testing.T) {
 	t.Run("ExecuteAsync returns token immediately", func(t *testing.T) {
 		ps := New(nil)
 
-		completed := false
+		// atomic: the flag is written by the async goroutine and read by the
+		// test goroutine, so a plain bool is a data race (fails go test -race).
+		var completed atomic.Bool
 		ps.RegisterCommand("async_test", func(ctx *Context) Result {
 			token := ctx.RequestToken(nil)
 
 			go func() {
-				time.Sleep(10 * time.Millisecond)
-				completed = true
+				time.Sleep(20 * time.Millisecond)
+				completed.Store(true)
 				ctx.ResumeToken(token, true)
 			}()
 
@@ -255,15 +258,15 @@ func TestAsyncOperations(t *testing.T) {
 			t.Errorf("Expected TokenResult from ExecuteAsync, got %T", result)
 		}
 
-		// Operation should not be completed yet
-		if completed {
+		// Operation should not be completed yet (the goroutine sleeps 20ms first).
+		if completed.Load() {
 			t.Error("ExecuteAsync should return before async operation completes")
 		}
 
 		// Wait for async operation
-		time.Sleep(50 * time.Millisecond)
+		time.Sleep(100 * time.Millisecond)
 
-		if !completed {
+		if !completed.Load() {
 			t.Error("Async operation did not complete")
 		}
 	})

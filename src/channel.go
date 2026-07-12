@@ -4,6 +4,21 @@ import (
 	"fmt"
 )
 
+// canonicalChannel returns the channel that owns the shared state (message
+// buffer + subscriber map). A subscriber endpoint shares its parent's buffer,
+// so every operation must serialize on the parent's mutex — otherwise two
+// endpoints of the same logical channel hold different locks while mutating the
+// same Messages slice / ConsumedBy maps, which is a data race.
+//
+// IsSubscriber and ParentChannel are set once in NewChannelSubscriber and never
+// mutated afterward, so reading them without a lock is safe.
+func canonicalChannel(ch *StoredChannel) *StoredChannel {
+	if ch.IsSubscriber && ch.ParentChannel != nil {
+		return ch.ParentChannel
+	}
+	return ch
+}
+
 // ChannelSubscribe creates a new subscriber endpoint for a channel
 func ChannelSubscribe(ch *StoredChannel) (*StoredChannel, error) {
 	if ch == nil {
@@ -40,8 +55,10 @@ func ChannelSend(ch *StoredChannel, value interface{}) error {
 		return fmt.Errorf("channel is nil")
 	}
 
-	ch.mu.Lock()
-	defer ch.mu.Unlock()
+	// Serialize on the main channel's lock so all endpoints share one mutex.
+	mainCh := canonicalChannel(ch)
+	mainCh.mu.Lock()
+	defer mainCh.mu.Unlock()
 
 	if ch.IsClosed {
 		return fmt.Errorf("channel is closed")
@@ -52,11 +69,8 @@ func ChannelSend(ch *StoredChannel, value interface{}) error {
 		return ch.NativeSend(value)
 	}
 
-	// Get the main channel
-	mainCh := ch
 	senderID := 0
 	if ch.IsSubscriber {
-		mainCh = ch.ParentChannel
 		senderID = ch.SubscriberID
 	}
 
@@ -118,10 +132,12 @@ func ChannelRecv(ch *StoredChannel) (int, interface{}, error) {
 		return 0, nil, fmt.Errorf("channel is nil")
 	}
 
-	ch.mu.Lock()
+	// Serialize on the main channel's lock so all endpoints share one mutex.
+	mainCh := canonicalChannel(ch)
+	mainCh.mu.Lock()
 
 	if ch.IsClosed {
-		ch.mu.Unlock()
+		mainCh.mu.Unlock()
 		return 0, nil, fmt.Errorf("channel is closed")
 	}
 
@@ -129,19 +145,16 @@ func ChannelRecv(ch *StoredChannel) (int, interface{}, error) {
 	// Release lock before calling NativeRecv since it may block
 	if ch.NativeRecv != nil {
 		nativeRecv := ch.NativeRecv
-		ch.mu.Unlock()
+		mainCh.mu.Unlock()
 		value, err := nativeRecv()
 		return 0, value, err
 	}
 
 	// For non-native path, use defer unlock
-	defer ch.mu.Unlock()
+	defer mainCh.mu.Unlock()
 
-	// Get the main channel and receiver ID
-	mainCh := ch
 	receiverID := 0
 	if ch.IsSubscriber {
-		mainCh = ch.ParentChannel
 		receiverID = ch.SubscriberID
 	}
 
@@ -202,8 +215,10 @@ func ChannelClose(ch *StoredChannel) error {
 		return fmt.Errorf("channel is nil")
 	}
 
-	ch.mu.Lock()
-	defer ch.mu.Unlock()
+	// Serialize on the main channel's lock so all endpoints share one mutex.
+	mainCh := canonicalChannel(ch)
+	mainCh.mu.Lock()
+	defer mainCh.mu.Unlock()
 
 	if ch.IsClosed {
 		return fmt.Errorf("channel already closed")
@@ -249,8 +264,9 @@ func ChannelDisconnect(ch *StoredChannel, subscriberID int) error {
 		return fmt.Errorf("cannot disconnect from a subscriber endpoint")
 	}
 
-	ch.mu.Lock()
-	defer ch.mu.Unlock()
+	mainCh := canonicalChannel(ch)
+	mainCh.mu.Lock()
+	defer mainCh.mu.Unlock()
 
 	if ch.IsClosed {
 		return fmt.Errorf("channel is closed")
@@ -274,8 +290,9 @@ func ChannelIsOpened(ch *StoredChannel) bool {
 		return false
 	}
 
-	ch.mu.RLock()
-	defer ch.mu.RUnlock()
+	mainCh := canonicalChannel(ch)
+	mainCh.mu.RLock()
+	defer mainCh.mu.RUnlock()
 
 	return !ch.IsClosed
 }
@@ -286,19 +303,17 @@ func ChannelLen(ch *StoredChannel) int {
 		return 0
 	}
 
-	ch.mu.RLock()
-	defer ch.mu.RUnlock()
+	mainCh := canonicalChannel(ch)
+	mainCh.mu.RLock()
+	defer mainCh.mu.RUnlock()
 
 	// Check for native length handler first (for Go channel backing)
 	if ch.NativeLen != nil {
 		return ch.NativeLen()
 	}
 
-	// Get the main channel and receiver ID
-	mainCh := ch
 	receiverID := 0
 	if ch.IsSubscriber {
-		mainCh = ch.ParentChannel
 		receiverID = ch.SubscriberID
 	}
 

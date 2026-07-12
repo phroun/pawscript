@@ -15,9 +15,12 @@ Severity legend: **CRIT** = short script crashes the host irrecoverably ·
 specific conditions · **LOW** = hardening / defense-in-depth.
 
 **Status (2026-07-12): CRIT-1, CRIT-2, HIGH-3, HIGH-4 and the BUILD item below
-are FIXED** in this branch, with regression tests in `src/hardening_test.go` and
-`tests/test_double_tilde.paw` / `tests/test_struct_bounds.paw` fixtures. The
-concurrency, sandbox, and test-suite items remain open.
+are FIXED**, with regression tests in `src/hardening_test.go` and
+`tests/test_double_tilde.paw` / `tests/test_struct_bounds.paw` fixtures.
+**Three concurrency data races (fiber module-env, channel endpoints, token
+system) plus a test-bug race are also FIXED** and the whole Go suite is now
+race-clean (`src/concurrency_test.go`). The remaining reading-only concurrency
+findings, the sandbox items, and the broader test-coverage gaps remain open.
 
 ## Confirmed by execution (reproduced locally)
 
@@ -76,22 +79,49 @@ the directory was not actually removed. It fails to compile, which breaks
 whole-module build, vet, and test for anyone not building package-by-package.
 Fix: delete `pkg/purfecterm-cli/`.
 
-## Concurrency — identified by review (fibers/channels never run under `go test -race`)
+## Concurrency — fibers/channels/tokens under `go test -race`
 
-The entire concurrency subsystem (`fiber.go`, `channel.go`, `lib_fibers.go`,
-`lib_coroutines.go`, `lib_channels.go`) has **zero** `go test` coverage, so the
-race detector has never seen the interpreter's own concurrent code. The following
-were found by careful reading and should be reproduced with targeted `-race`
-tests before/after fixing:
+The entire concurrency subsystem had **zero** `go test` coverage, so the race
+detector had never seen the interpreter's own concurrent code. It does now:
+`src/concurrency_test.go` drives fibers, channels, and the token system under
+`-race`, and the **whole Go suite is race-clean**. Running the existing
+`tests/test_fiber_concurrency.paw` fixture under a `-race` build was the ground
+truth — it surfaced real races (below) that careful reading alone had missed.
 
-- **Fiber child module env shares live maps with parent under different mutexes**
-  (`module.go:131-181` + COW no-op in `EnsureMacroRegistryCopied` at `:326`).
-  Defining a macro after spawning a fiber can mutate a map the fiber goroutine is
-  reading → `fatal error: concurrent map read and map write`.
-- **Channel subscriber endpoints mutate the parent channel without its lock**
-  (`channel.go` `ChannelSend/Recv/Len/Close`; e.g. appends to `mainCh.Messages`
-  and writes `mainCh.Subscribers` under only the subscriber's `mu`). Racy slice
-  append / concurrent map write across fibers.
+**Status: the two originally-listed races plus a token-system race the fixtures
+surfaced are FIXED and verified race-clean; a test-bug race is also fixed. The
+remaining reading-only findings (deadlocks, lost-wakeup, ref-counting) were NOT
+reproduced by the available fixtures — see the note at the end of this section.**
+
+- ✅ **FIXED — Fiber child module env shared live maps with parent under
+  different mutexes** (`module.go` COW aliasing). Once the parent had COW-copied,
+  a later `macro` definition wrote the shared map in place while the fiber read
+  it → `fatal error: concurrent map read and map write`. Reproduced in
+  `TestFiberModuleEnvSharedMap`. Fix: `IsolateRegistriesForFiber()` gives each
+  fiber private registry copies at spawn time (`fiber.go` SpawnFiber).
+- ✅ **FIXED — Channel subscriber endpoints mutated the parent channel without
+  its lock** (`channel.go`). `ChannelSend/Recv/Len/Close` locked the *endpoint's*
+  `mu` but mutated the *parent's* `Messages`/`Subscribers`; two subscribers held
+  different locks over the same buffer. Reproduced in
+  `TestChannelConcurrentEndpoints`. Fix: all operations now serialize on the
+  canonical (main) channel's mutex via `canonicalChannel()`.
+- ✅ **FIXED — Token system iterated `e.activeTokens` without the lock.**
+  `PopAndResumeCommandSequence` releases `e.mu` before running resumed commands
+  and again after completing a token, then scanned `e.activeTokens` (the
+  "is this state still in use?" check at the old lines 558/610) while unlocked —
+  racing with fibers writing the map under the lock. This is what
+  `test_fiber_concurrency.paw` tripped. Fix: `stateInUseByOtherToken` (lock-
+  acquiring) / `stateInUseByOtherTokenLocked` helpers; the post-unlock scans now
+  re-acquire `e.mu`. Guarded end-to-end by `TestFiberConcurrencyEndToEnd`.
+- ✅ **FIXED (test bug) — `TestAsyncOperations` had an unsynchronized `completed`
+  bool** (written by the async goroutine, read by the test), which made
+  `go test -race` red and would have masked any real interpreter race in CI. Now
+  an `atomic.Bool`.
+
+Not yet reproduced (reading-only findings; a `-race` sweep of the current
+fixtures did not trigger them — they need targeted stress, and the deadlock /
+ref-counting ones would not surface as data races at all):
+
 - **ABBA deadlocks** between `FiberHandle.mu` ↔ `Executor.mu`
   (`fiber.go:94-141` vs `executor_objects.go:409-431`) and
   `ExecutionState.mu` ↔ `Executor.mu` (`state.go:405-497` vs

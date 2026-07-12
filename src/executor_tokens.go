@@ -552,16 +552,11 @@ func (e *Executor) PopAndResumeCommandSequence(tokenID string, status bool) bool
 		if asyncPending {
 			e.logger.DebugCat(CatAsync,"Async operation pending, not immediately triggering chained token %s", chainedToken)
 			// Release our state references since we're done with this token
-			// But only if no other token is using the same state
+			// But only if no other token is using the same state.
+			// NOTE: e.mu was released at the top of this section, so the scan
+			// must re-acquire it (stateInUseByOtherToken does).
 			if tokenData.ExecutionState != nil {
-				stateInUse := false
-				for otherID, otherData := range e.activeTokens {
-					if otherID != tokenID && otherData.ExecutionState == tokenData.ExecutionState {
-						stateInUse = true
-						break
-					}
-				}
-				if !stateInUse {
+				if !e.stateInUseByOtherToken(tokenID, tokenData.ExecutionState) {
 					tokenData.ExecutionState.ReleaseAllReferences()
 				}
 			}
@@ -604,21 +599,36 @@ func (e *Executor) PopAndResumeCommandSequence(tokenID string, status bool) bool
 	}
 
 	// No chain and no waitChan - safe to release now
-	// But only release if this state is not being used by any other active token
+	// But only release if this state is not being used by any other active token.
+	// NOTE: e.mu was released earlier in this function, so re-acquire it for the scan.
 	if tokenData.ExecutionState != nil {
-		stateInUse := false
-		for otherID, otherData := range e.activeTokens {
-			if otherID != tokenID && otherData.ExecutionState == tokenData.ExecutionState {
-				stateInUse = true
-				break
-			}
-		}
-		if !stateInUse {
+		if !e.stateInUseByOtherToken(tokenID, tokenData.ExecutionState) {
 			tokenData.ExecutionState.ReleaseAllReferences()
 		}
 	}
 
 	return success
+}
+
+// stateInUseByOtherTokenLocked reports whether any active token other than
+// tokenID still references st. Caller must hold e.mu.
+func (e *Executor) stateInUseByOtherTokenLocked(tokenID string, st *ExecutionState) bool {
+	for otherID, otherData := range e.activeTokens {
+		if otherID != tokenID && otherData.ExecutionState == st {
+			return true
+		}
+	}
+	return false
+}
+
+// stateInUseByOtherToken is the lock-acquiring variant for callers that do NOT
+// already hold e.mu — notably the post-completion cleanup in
+// PopAndResumeCommandSequence, which runs after the lock has been released and
+// therefore must re-acquire it before iterating the shared activeTokens map.
+func (e *Executor) stateInUseByOtherToken(tokenID string, st *ExecutionState) bool {
+	e.mu.RLock()
+	defer e.mu.RUnlock()
+	return e.stateInUseByOtherTokenLocked(tokenID, st)
 }
 
 // cleanupTokenChildrenLocked cleans up child tokens (must be called with lock held)
@@ -744,16 +754,9 @@ func (e *Executor) forceCleanupTokenLocked(tokenID string) {
 	e.cleanupTokenChildrenLocked(tokenID)
 
 	// Release all object references held by this token's state
-	// But only if no other token is using the same state
+	// But only if no other token is using the same state (lock already held).
 	if tokenData.ExecutionState != nil {
-		stateInUse := false
-		for otherID, otherData := range e.activeTokens {
-			if otherID != tokenID && otherData.ExecutionState == tokenData.ExecutionState {
-				stateInUse = true
-				break
-			}
-		}
-		if !stateInUse {
+		if !e.stateInUseByOtherTokenLocked(tokenID, tokenData.ExecutionState) {
 			tokenData.ExecutionState.ReleaseAllReferences()
 		}
 	}
