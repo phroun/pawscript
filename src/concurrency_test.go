@@ -292,6 +292,56 @@ func TestLoggerConcurrentContexts(t *testing.T) {
 	wg.Wait()
 }
 
+// TestSharedVarStateConcurrent verifies that a brace state (which shares its
+// parent's variables/bubbleMap maps) and the owner accessing the same maps from
+// another goroutine serialize on the SAME mutex. Previously the brace kept its
+// own mutex, so the two sides locked different mutexes over one map -> data race.
+// Run with -race.
+func TestSharedVarStateConcurrent(t *testing.T) {
+	ps := New(&Config{Debug: false})
+	ps.RegisterStandardLibrary([]string{})
+	e := ps.executor
+
+	owner := NewExecutionState()
+	owner.executor = e
+	owner.moduleEnv = NewChildModuleEnvironment(ps.rootModuleEnv)
+	owner.SetVariable("seed", int64(1))
+
+	brace := NewExecutionStateFromSharedVars(owner) // shares owner.variables/bubbleMap
+
+	var wg sync.WaitGroup
+	wg.Add(3)
+	// The brace reads/writes the shared variables map.
+	go func() {
+		defer wg.Done()
+		for i := 0; i < 2000; i++ {
+			brace.SetVariable("x", int64(i))
+			_, _ = brace.GetVariable("seed")
+			brace.AddBubble("note", "b", false, "")
+		}
+	}()
+	// The owner reads/writes and deletes from the same shared map.
+	go func() {
+		defer wg.Done()
+		for i := 0; i < 2000; i++ {
+			owner.SetVariable("y", int64(i))
+			_, _ = owner.GetVariable("x")
+			owner.DeleteVariable("y")
+		}
+	}()
+	// A second brace of the same owner also touches the shared maps.
+	go func() {
+		defer wg.Done()
+		brace2 := NewExecutionStateFromSharedVars(owner)
+		for i := 0; i < 2000; i++ {
+			_, _ = brace2.GetVariable("x")
+			brace2.AddBubble("note2", "b2", false, "")
+			_ = brace2.GetAllFlavorNames()
+		}
+	}()
+	wg.Wait()
+}
+
 // objAlive reports whether an object id is still present (not freed).
 func objAlive(e *Executor, id int) bool {
 	_, ok := e.getObject(id)

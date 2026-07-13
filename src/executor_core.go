@@ -664,21 +664,23 @@ func (e *Executor) executeStoredMacro(
 		e.logger.DebugCat(CatMacro, "Transferred macro result to parent state: %v", state.GetResult())
 	}
 
-	// Clear all variables (including $@) to release their references
-	state.mu.Lock()
+	// Clear all variables (including $@) to release their references.
+	// Lock the owner of the variables map (self for macro states, but be robust).
+	varsOwner := state.varsMutexOwner()
+	varsOwner.mu.Lock()
 	for varName := range state.variables {
 		oldValue := state.variables[varName]
 		delete(state.variables, varName)
 
 		// Extract and release references from the old variable value
 		oldRefs := state.extractObjectReferencesLocked(oldValue)
-		state.mu.Unlock()
+		varsOwner.mu.Unlock()
 		for _, id := range oldRefs {
 			state.ReleaseObjectReference(id)
 		}
-		state.mu.Lock()
+		varsOwner.mu.Lock()
 	}
-	state.mu.Unlock()
+	varsOwner.mu.Unlock()
 
 	// Release all remaining owned references
 	state.ReleaseAllReferences()
