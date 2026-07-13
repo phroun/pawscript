@@ -14,7 +14,8 @@ const ScopeMarker = "\x00SCOPE\x00"
 // SourceMap maps transformed positions to original positions
 type SourceMap struct {
 	Filename              string
-	OriginalLines         []string
+	source                string   // raw source; OriginalLines is derived lazily
+	originalLines         []string // cached split of source (see OriginalLines)
 	TransformedToOriginal map[int]*SourcePosition
 }
 
@@ -22,9 +23,20 @@ type SourceMap struct {
 func NewSourceMap(source, filename string) *SourceMap {
 	return &SourceMap{
 		Filename:              filename,
-		OriginalLines:         strings.Split(source, "\n"),
+		source:                source,
 		TransformedToOriginal: make(map[int]*SourcePosition),
 	}
+}
+
+// OriginalLines returns the source split into lines, computing it lazily. Only
+// error paths need it (for context lines), so the split — an allocation on every
+// parse, including every re-parsed brace in a hot loop — is deferred until an
+// error is actually constructed.
+func (sm *SourceMap) OriginalLines() []string {
+	if sm.originalLines == nil {
+		sm.originalLines = strings.Split(sm.source, "\n")
+	}
+	return sm.originalLines
 }
 
 // AddMapping adds a position mapping
@@ -517,7 +529,7 @@ func (p *Parser) ParseCommandSequence(commandStr string) ([]*ParsedCommand, erro
 		return nil, &PawScriptError{
 			Message:  fmt.Sprintf("Unclosed quote: missing closing %c", quoteChar),
 			Position: pos,
-			Context:  p.sourceMap.OriginalLines,
+			Context:  p.sourceMap.OriginalLines(),
 		}
 	}
 
@@ -1771,7 +1783,7 @@ func (p *Parser) applyChainOperators(commands []*ParsedCommand) ([]*ParsedComman
 				return nil, &PawScriptError{
 					Message:  "Fat arrow operator (=>) requires a variable name after it",
 					Position: cmd.Position,
-					Context:  p.sourceMap.OriginalLines,
+					Context:  p.sourceMap.OriginalLines(),
 				}
 			}
 
@@ -1807,7 +1819,7 @@ func (p *Parser) applyChainOperators(commands []*ParsedCommand) ([]*ParsedComman
 				return nil, &PawScriptError{
 					Message:  fmt.Sprintf("Invalid variable name after => operator: '%s'", cmdName),
 					Position: cmd.Position,
-					Context:  p.sourceMap.OriginalLines,
+					Context:  p.sourceMap.OriginalLines(),
 				}
 			}
 

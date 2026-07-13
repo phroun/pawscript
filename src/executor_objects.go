@@ -1,5 +1,7 @@
 package pawscript
 
+import "sort"
+
 // maybeStoreValue checks if a value should be stored as an object and returns the appropriate representation
 // Note: Does NOT claim references - the caller must claim the returned object ID
 func (e *Executor) maybeStoreValue(value interface{}, state *ExecutionState) interface{} {
@@ -90,6 +92,14 @@ func (e *Executor) RegisterObject(value interface{}, objType ObjectType) ObjectR
 	e.mu.Lock()
 
 	id := e.registerObjectLocked(value, objType)
+
+	// Channels need an executor reference so they can claim/release refs on
+	// buffered message values (see ChannelSend/Recv/Close).
+	if objType == ObjChannel {
+		if ch, ok := value.(*StoredChannel); ok {
+			ch.executor = e
+		}
+	}
 
 	// For lists, claim refs to all nested items so they're released when this list is freed
 	// This ensures sliced/derived lists properly own their shared items
@@ -192,27 +202,12 @@ func (e *Executor) RefRelease(ref ObjectRef) {
 			}
 
 		case ObjFiber:
-			// Transfer bubbles to orphaned if present
+			// Transfer bubbles to orphaned if present. Release e.mu first so we
+			// never hold it while taking handle.mu (hierarchy: handle.mu < e.mu).
 			if fiberHandle, ok := obj.Value.(*FiberHandle); ok {
-				fiberHandle.mu.Lock()
-				hasBubbles := len(fiberHandle.FinalBubbleMap) > 0 || len(fiberHandle.BubbleUpMap) > 0
-				if hasBubbles {
-					combined := make(map[string][]*BubbleEntry)
-					for flavor, entries := range fiberHandle.FinalBubbleMap {
-						combined[flavor] = append(combined[flavor], entries...)
-					}
-					for flavor, entries := range fiberHandle.BubbleUpMap {
-						combined[flavor] = append(combined[flavor], entries...)
-					}
-					fiberHandle.FinalBubbleMap = nil
-					fiberHandle.BubbleUpMap = nil
-					fiberHandle.mu.Unlock()
-					e.mu.Unlock()
-					e.AddOrphanedBubbles(combined)
-					e.mu.Lock()
-				} else {
-					fiberHandle.mu.Unlock()
-				}
+				e.mu.Unlock()
+				e.orphanFiberBubbles(fiberHandle)
+				e.mu.Lock()
 			}
 
 		case ObjFile:
@@ -367,6 +362,32 @@ func (e *Executor) storeObject(value interface{}, typeName string) int {
 
 // incrementObjectRefCount increments the reference count for an object
 // DEPRECATED: Use RefClaim instead
+// orphanFiberBubbles moves a fiber handle's pending bubbles into the orphaned
+// set when the handle object is being freed. It MUST be called without e.mu
+// held: the lock hierarchy is handle.mu < e.mu (e.mu is innermost), so we take
+// handle.mu first and only touch e.mu (via AddOrphanedBubbles) after releasing
+// it. Taking handle.mu while holding e.mu is the ABBA deadlock this avoids.
+func (e *Executor) orphanFiberBubbles(fiberHandle *FiberHandle) {
+	fiberHandle.mu.Lock()
+	hasBubbles := len(fiberHandle.FinalBubbleMap) > 0 || len(fiberHandle.BubbleUpMap) > 0
+	var combined map[string][]*BubbleEntry
+	if hasBubbles {
+		combined = make(map[string][]*BubbleEntry)
+		for flavor, entries := range fiberHandle.FinalBubbleMap {
+			combined[flavor] = append(combined[flavor], entries...)
+		}
+		for flavor, entries := range fiberHandle.BubbleUpMap {
+			combined[flavor] = append(combined[flavor], entries...)
+		}
+		fiberHandle.FinalBubbleMap = nil
+		fiberHandle.BubbleUpMap = nil
+	}
+	fiberHandle.mu.Unlock()
+	if hasBubbles {
+		e.AddOrphanedBubbles(combined)
+	}
+}
+
 func (e *Executor) incrementObjectRefCount(objectID int) {
 	e.mu.Lock()
 	defer e.mu.Unlock()
@@ -404,31 +425,28 @@ func (e *Executor) decrementObjectRefCount(objectID int) {
 				e.mu.Lock() // Re-lock for deletion
 			}
 
-			// Transfer FinalBubbleMap and BubbleUpMap to orphanedBubbles if it's a fiber handle
-			// This preserves bubbles from abandoned fibers for later retrieval
-			if fiberHandle, ok := obj.Value.(*FiberHandle); ok {
-				fiberHandle.mu.Lock()
-				hasBubbles := len(fiberHandle.FinalBubbleMap) > 0 || len(fiberHandle.BubbleUpMap) > 0
-				if hasBubbles {
-					// Merge both maps into a combined map for orphaning
-					combined := make(map[string][]*BubbleEntry)
-					for flavor, entries := range fiberHandle.FinalBubbleMap {
-						combined[flavor] = append(combined[flavor], entries...)
-					}
-					for flavor, entries := range fiberHandle.BubbleUpMap {
-						combined[flavor] = append(combined[flavor], entries...)
-					}
-					// Clear the maps so we don't double-process
-					fiberHandle.FinalBubbleMap = nil
-					fiberHandle.BubbleUpMap = nil
-					fiberHandle.mu.Unlock()
-					// Add to orphaned bubbles (transfers ownership of references)
-					e.mu.Unlock()
-					e.AddOrphanedBubbles(combined)
-					e.mu.Lock()
-				} else {
-					fiberHandle.mu.Unlock()
+			// Release send-time claims for any messages still buffered on a
+			// channel freed without an explicit close (abandoned channel). At
+			// refcount 0 the channel is exclusively owned, so reading Messages
+			// without its mutex is safe; unlock e.mu around the releases (they
+			// re-acquire it) exactly like the StoredList case above.
+			if storedChannel, ok := obj.Value.(*StoredChannel); ok && !storedChannel.IsSubscriber && len(storedChannel.Messages) > 0 {
+				msgs := storedChannel.Messages
+				storedChannel.Messages = nil
+				e.mu.Unlock()
+				for i := range msgs {
+					releaseNestedReferences(msgs[i].Value, e)
 				}
+				e.mu.Lock()
+			}
+
+			// Transfer FinalBubbleMap and BubbleUpMap to orphanedBubbles if it's a
+			// fiber handle (preserves bubbles from abandoned fibers). Release e.mu
+			// first so we never hold it while taking handle.mu (handle.mu < e.mu).
+			if fiberHandle, ok := obj.Value.(*FiberHandle); ok {
+				e.mu.Unlock()
+				e.orphanFiberBubbles(fiberHandle)
+				e.mu.Lock()
 			}
 
 			// Auto-close file handles when their last reference is released
@@ -475,19 +493,15 @@ func (e *Executor) findStoredListID(list StoredList) int {
 		return e.emptyListID
 	}
 
-	// Get all IDs in sorted order for deterministic iteration
+	// Get all IDs in sorted order for deterministic iteration (deterministic
+	// selection matters: claim and release must resolve an aliased backing array
+	// to the same ID). sort.Ints is O(n log n); the previous hand-rolled bubble
+	// sort was O(n^2) and dominated a per-refcount call.
 	ids := make([]int, 0, len(e.storedObjects))
 	for id := range e.storedObjects {
 		ids = append(ids, id)
 	}
-	// Sort IDs to ensure deterministic iteration
-	for i := 0; i < len(ids)-1; i++ {
-		for j := i + 1; j < len(ids); j++ {
-			if ids[i] > ids[j] {
-				ids[i], ids[j] = ids[j], ids[i]
-			}
-		}
-	}
+	sort.Ints(ids)
 
 	// Compare by checking if they share the same backing array
 	for _, id := range ids {

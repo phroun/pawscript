@@ -11,6 +11,15 @@ import (
 	"time"
 )
 
+// maxJSONDepth bounds recursion when serializing a value graph to JSON. It
+// matches encoding/json's own nesting cap (10000), so anything Go can parse can
+// still be re-serialized, while a pathologically deep reference chain is rejected
+// with an error instead of overflowing the goroutine stack. (List cycles cannot
+// form — StoredList is a copy-on-write value type with no in-place mutation — so
+// a depth bound is sufficient; no visited-set is needed.)
+// A var (not const) only so tests can lower it transiently; production is 10000.
+var maxJSONDepth = 10000
+
 // RegisterCoreLib registers core language commands
 // Modules: core, macros, flow, debug
 func (ps *PawScript) RegisterCoreLib() {
@@ -1088,8 +1097,18 @@ func (ps *PawScript) RegisterCoreLib() {
 		var toJSONValue func(val interface{}) (interface{}, error)
 		var listToJSON func(l StoredList, m string, cn string, hcp bool, conv func(interface{}) (interface{}, error)) (interface{}, error)
 
+		// Recursion-depth guard. toJSONValue is the choke point every nested value
+		// passes through (list items are converted via it), so one captured counter
+		// bounds the whole mutual recursion with no signature/call-site churn.
+		jsonDepth := 0
+
 		// Helper to convert a value to JSON-compatible form
 		toJSONValue = func(val interface{}) (interface{}, error) {
+			jsonDepth++
+			defer func() { jsonDepth-- }()
+			if jsonDepth > maxJSONDepth {
+				return nil, fmt.Errorf("value nesting too deep (exceeds %d levels)", maxJSONDepth)
+			}
 			if val == nil {
 				return nil, nil
 			}
@@ -1527,15 +1546,8 @@ func (ps *PawScript) RegisterCoreLib() {
 			return BoolStatus(true)
 		}
 
-		// Merge orphaned bubbles into current context's bubbleMap
-		ctx.state.mu.Lock()
-		if ctx.state.bubbleMap == nil {
-			ctx.state.bubbleMap = make(map[string][]*BubbleEntry)
-		}
-		for flavor, entries := range orphaned {
-			ctx.state.bubbleMap[flavor] = append(ctx.state.bubbleMap[flavor], entries...)
-		}
-		ctx.state.mu.Unlock()
+		// Merge orphaned bubbles into current context's bubbleMap (owner-guarded).
+		ctx.state.MergeRawBubbles(orphaned)
 
 		// Clear the orphaned bubbles now that they've been transferred
 		ctx.executor.ClearOrphanedBubbles()
@@ -1762,13 +1774,10 @@ func (ps *PawScript) RegisterCoreLib() {
 				ctx.state.SetVariable(metaVarName, metaRef)
 			}
 
-			// Store current bubble pointer for 'burst' command
-			ctx.state.mu.Lock()
-			if ctx.state.variables == nil {
-				ctx.state.variables = make(map[string]interface{})
-			}
-			ctx.state.variables[currentBubbleVar] = bubble
-			ctx.state.mu.Unlock()
+			// Store current bubble pointer for 'burst' command. Use SetVariable so
+			// the shared-variables mutex (owner's) guards it; bubble is a
+			// *BubbleEntry, so SetVariable's ref management is a no-op.
+			ctx.state.SetVariable(currentBubbleVar, bubble)
 
 			// Execute body
 			lastStatus := true
@@ -1868,10 +1877,8 @@ func (ps *PawScript) RegisterCoreLib() {
 	ps.RegisterCommandInModule("flow", "burst", func(ctx *Context) Result {
 		const currentBubbleVar = "__fizz_current_bubble__"
 
-		// Get the current bubble from the internal variable
-		ctx.state.mu.RLock()
-		bubbleVal, exists := ctx.state.variables[currentBubbleVar]
-		ctx.state.mu.RUnlock()
+		// Get the current bubble from the internal variable (owner-aware lock)
+		bubbleVal, exists := ctx.state.GetVariable(currentBubbleVar)
 
 		if !exists {
 			ctx.LogError(CatCommand, "burst: can only be used inside a fizz loop")
@@ -3616,9 +3623,22 @@ func (ps *PawScript) RegisterCoreLib() {
 			filename = filename[1 : len(filename)-1]
 		}
 
-		content, err := os.ReadFile(filename)
+		// Enforce the include sandbox (IncludeRoots + symlink guard) and resolve
+		// the path relative to ScriptDir. Loading code is gated separately from
+		// data reads (ReadRoots) so an app can restrict data to one path while
+		// loading its own modules from another.
+		absPath, err := validateIncludeAccess(ps.config, filename)
 		if err != nil {
-			ctx.LogError(CatIO, fmt.Sprintf("include: failed to read file %s: %v", filename, err))
+			ctx.LogError(CatIO, fmt.Sprintf("include: %v", err))
+			return BoolStatus(false)
+		}
+
+		content, err := os.ReadFile(absPath)
+		if err != nil {
+			// Report the target as written, not the resolved absolute path, so the
+			// error is stable regardless of ScriptDir.
+			msg := strings.Replace(err.Error(), absPath, filename, 1)
+			ctx.LogError(CatIO, fmt.Sprintf("include: failed to read file %s: %s", filename, msg))
 			return BoolStatus(false)
 		}
 

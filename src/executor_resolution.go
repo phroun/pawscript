@@ -152,8 +152,10 @@ func (e *Executor) resolveTildeExpression(expr string, state *ExecutionState, su
 		// ~'varname' - single-quoted variable name
 		varName = rest[1 : len(rest)-1]
 	} else if strings.HasPrefix(rest, "~") {
-		// ~~x - chained tilde (resolve x, use result as varname, resolve that)
-		innerValue, ok := e.resolveTildeExpression("~"+rest, state, substitutionCtx, position)
+		// ~~x - chained tilde (resolve x, use result as varname, resolve that).
+		// rest already carries the inner tilde (e.g. "~x"), so resolve it directly;
+		// re-prepending a tilde here would recurse forever on the same string.
+		innerValue, ok := e.resolveTildeExpression(rest, state, substitutionCtx, position)
 		if !ok {
 			return nil, false
 		}
@@ -274,7 +276,9 @@ func (e *Executor) resolveTildeExpressionSilent(expr string, state *ExecutionSta
 	} else if strings.HasPrefix(rest, "'") && strings.HasSuffix(rest, "'") {
 		varName = rest[1 : len(rest)-1]
 	} else if strings.HasPrefix(rest, "~") {
-		innerValue, ok := e.resolveTildeExpressionSilent("~"+rest, state, substitutionCtx)
+		// rest already carries the inner tilde; resolve it directly to avoid
+		// infinite recursion on the unchanged string.
+		innerValue, ok := e.resolveTildeExpressionSilent(rest, state, substitutionCtx)
 		if !ok {
 			return nil, false
 		}

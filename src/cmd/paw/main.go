@@ -311,7 +311,9 @@ func main() {
 	readRootsFlag := flag.String("read-roots", "", "Additional directories for file reading")
 	writeRootsFlag := flag.String("write-roots", "", "Additional directories for file writing")
 	execRootsFlag := flag.String("exec-roots", "", "Additional directories for exec command")
+	includeRootsFlag := flag.String("include-roots", "", "Additional directories the include command may load modules from")
 	sandboxFlag := flag.String("sandbox", "", "Restrict all access to this directory only")
+	followSymlinksFlag := flag.Bool("follow-symlinks", false, "Allow following symlinks that resolve outside the allowed roots (unsafe; only if you trust root contents)")
 
 	// Optimization level flag
 	optLevelFlag := flag.Int("O", 1, "Optimization level (0=no caching, 1=cache macro/loop bodies)")
@@ -420,6 +422,10 @@ func main() {
 
 	if !*unrestrictedFlag {
 		fileAccess = &pawscript.FileAccessConfig{}
+		// Following symlinks out of the sandbox is off by default; opt in via flag
+		// or PAW_FOLLOW_SYMLINKS=1/true.
+		envFollow := os.Getenv("PAW_FOLLOW_SYMLINKS")
+		fileAccess.FollowSymlinks = *followSymlinksFlag || envFollow == "1" || strings.EqualFold(envFollow, "true")
 		cwd, _ := os.Getwd()
 		tmpDir := os.TempDir()
 
@@ -471,11 +477,13 @@ func main() {
 			fileAccess.ReadRoots = []string{absPath}
 			fileAccess.WriteRoots = []string{absPath}
 			fileAccess.ExecRoots = []string{absPath}
+			fileAccess.IncludeRoots = []string{absPath}
 		} else {
 			// Check environment variables first (override defaults if set)
 			envReadRoots := os.Getenv("PAW_READ_ROOTS")
 			envWriteRoots := os.Getenv("PAW_WRITE_ROOTS")
 			envExecRoots := os.Getenv("PAW_EXEC_ROOTS")
+			envIncludeRoots := os.Getenv("PAW_INCLUDE_ROOTS")
 
 			if envReadRoots != "" {
 				fileAccess.ReadRoots = parseRoots(envReadRoots)
@@ -515,6 +523,18 @@ func main() {
 				}
 			}
 
+			if envIncludeRoots != "" {
+				fileAccess.IncludeRoots = parseRoots(envIncludeRoots)
+			} else {
+				// Default include root: the script's own directory (its modules live
+				// with it); fall back to cwd when running without a script file.
+				if scriptDir != "" {
+					fileAccess.IncludeRoots = append(fileAccess.IncludeRoots, scriptDir)
+				} else if cwd != "" {
+					fileAccess.IncludeRoots = append(fileAccess.IncludeRoots, cwd)
+				}
+			}
+
 			// Add any additional roots from command-line flags (appended to env/defaults)
 			if *readRootsFlag != "" {
 				fileAccess.ReadRoots = append(fileAccess.ReadRoots, parseRoots(*readRootsFlag)...)
@@ -524,6 +544,9 @@ func main() {
 			}
 			if *execRootsFlag != "" {
 				fileAccess.ExecRoots = append(fileAccess.ExecRoots, parseRoots(*execRootsFlag)...)
+			}
+			if *includeRootsFlag != "" {
+				fileAccess.IncludeRoots = append(fileAccess.IncludeRoots, parseRoots(*includeRootsFlag)...)
 			}
 		}
 	}
@@ -717,9 +740,10 @@ func runREPL(debug, unrestricted bool, optLevel int) {
 		cwd, _ := os.Getwd()
 		tmpDir := os.TempDir()
 		fileAccess = &pawscript.FileAccessConfig{
-			ReadRoots:  []string{cwd, tmpDir},
-			WriteRoots: []string{cwd, tmpDir},
-			ExecRoots:  []string{cwd},
+			ReadRoots:    []string{cwd, tmpDir},
+			WriteRoots:   []string{cwd, tmpDir},
+			ExecRoots:    []string{cwd},
+			IncludeRoots: []string{cwd},
 		}
 	}
 

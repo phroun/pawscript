@@ -20,6 +20,163 @@ func pathHasPrefix(path, prefix string) bool {
 	return strings.HasPrefix(path, prefix)
 }
 
+// pathWithinRoots reports whether absPath (already absolute and cleaned) sits
+// within one of roots, comparing the textual (non-resolved) paths.
+func pathWithinRoots(absPath string, roots []string) bool {
+	for _, root := range roots {
+		absRoot, err := filepath.Abs(root)
+		if err != nil {
+			continue
+		}
+		absRoot = filepath.Clean(absRoot)
+		if pathHasPrefix(absPath, absRoot+string(filepath.Separator)) || pathEquals(absPath, absRoot) {
+			return true
+		}
+	}
+	return false
+}
+
+// realPathWithinRoots reports whether realPath (already symlink-resolved) sits
+// within one of roots after the roots themselves are symlink-resolved. Resolving
+// the roots too means a root that is itself reached through a symlink (e.g.
+// /tmp -> /private/tmp on macOS) still matches a resolved target beneath it.
+func realPathWithinRoots(realPath string, roots []string) bool {
+	for _, root := range roots {
+		absRoot, err := filepath.Abs(root)
+		if err != nil {
+			continue
+		}
+		absRoot = filepath.Clean(absRoot)
+		realRoot, err := filepath.EvalSymlinks(absRoot)
+		if err != nil {
+			realRoot = absRoot // Root missing/unresolvable: compare textually.
+		}
+		if pathHasPrefix(realPath, realRoot+string(filepath.Separator)) || pathEquals(realPath, realRoot) {
+			return true
+		}
+	}
+	return false
+}
+
+// resolveRealPath returns absPath with symlinks resolved. If absPath does not
+// exist yet (e.g. a file about to be created), it resolves the longest existing
+// ancestor and re-appends the remaining components unchanged, so the real
+// location of the parent directory is still validated. This lets the symlink
+// guard reject a create/write whose parent chain escapes the sandbox while still
+// permitting creation of a brand-new leaf inside it.
+func resolveRealPath(absPath string) (string, error) {
+	// Fast path: the whole path exists and resolves.
+	if real, err := filepath.EvalSymlinks(absPath); err == nil {
+		return real, nil
+	}
+	// Walk up to the deepest existing, resolvable ancestor.
+	dir := absPath
+	var trailing []string
+	for {
+		parent := filepath.Dir(dir)
+		if parent == dir {
+			// Reached the volume root without finding a resolvable ancestor;
+			// nothing to resolve, fall back to the cleaned textual path.
+			return filepath.Clean(absPath), nil
+		}
+		trailing = append([]string{filepath.Base(dir)}, trailing...)
+		dir = parent
+		if real, err := filepath.EvalSymlinks(dir); err == nil {
+			return filepath.Join(append([]string{real}, trailing...)...), nil
+		}
+	}
+}
+
+// resolveSandboxPath resolves path to an absolute, cleaned path. Relative paths
+// resolve from ScriptDir when configured, otherwise from the process working
+// directory.
+func resolveSandboxPath(config *Config, path string) (string, error) {
+	var absPath string
+	var err error
+	if !filepath.IsAbs(path) && config != nil && config.ScriptDir != "" {
+		absPath = filepath.Join(config.ScriptDir, path)
+	} else {
+		absPath, err = filepath.Abs(path)
+		if err != nil {
+			return "", fmt.Errorf("invalid path: %v", err)
+		}
+	}
+	return filepath.Clean(absPath), nil
+}
+
+// enforceRoots checks absPath against a specific root set. nil roots means
+// unrestricted; empty (non-nil) means deny-all. When FollowSymlinks is disabled,
+// it additionally requires the path's real (symlink-resolved) location to stay
+// within the roots, so a symlink inside a root cannot be followed to escape it.
+// kind labels the access class in error messages ("read"/"write"/"include").
+func enforceRoots(fileAccess *FileAccessConfig, absPath string, roots []string, kind string) (string, error) {
+	if roots == nil {
+		return absPath, nil
+	}
+	if len(roots) == 0 {
+		return "", fmt.Errorf("%s access denied: no %s roots configured", kind, kind)
+	}
+
+	// Textual root check on the cleaned path.
+	if !pathWithinRoots(absPath, roots) {
+		return "", fmt.Errorf("%s access denied: path outside allowed roots", kind)
+	}
+
+	// Symlink guard: unless following symlinks is explicitly enabled, require the
+	// real (symlink-resolved) location to stay within the allowed roots. This
+	// blocks a symlink present inside a root from redirecting the operation
+	// outside it. PawScript exposes no symlink-creating command, so a sandboxed
+	// script cannot plant such a symlink itself.
+	if !fileAccess.FollowSymlinks {
+		realPath, rerr := resolveRealPath(absPath)
+		if rerr != nil {
+			return "", fmt.Errorf("%s access denied: cannot resolve path: %v", kind, rerr)
+		}
+		if !realPathWithinRoots(realPath, roots) {
+			return "", fmt.Errorf("%s access denied: path escapes allowed roots via symlink", kind)
+		}
+	}
+
+	return absPath, nil
+}
+
+// validateFileAccess resolves path to an absolute, cleaned path and enforces the
+// configured read/write roots (with the symlink guard). Returns the cleaned
+// absolute path (for the actual os call) and a nil error when access is allowed.
+func validateFileAccess(config *Config, path string, needsWrite bool) (string, error) {
+	absPath, err := resolveSandboxPath(config, path)
+	if err != nil {
+		return "", err
+	}
+	if config == nil || config.FileAccess == nil {
+		return absPath, nil
+	}
+	fileAccess := config.FileAccess
+	roots := fileAccess.ReadRoots
+	kind := "read"
+	if needsWrite {
+		roots = fileAccess.WriteRoots
+		kind = "write"
+	}
+	return enforceRoots(fileAccess, absPath, roots, kind)
+}
+
+// validateIncludeAccess resolves path and enforces the configured IncludeRoots
+// (with the symlink guard). Loading code (the `include` command) is a distinct
+// trust axis from reading data, so it has its own root set rather than reusing
+// ReadRoots. Semantics match read/write roots: nil = unrestricted (back-compat),
+// empty = deny-all, listed = allow only within those directories.
+func validateIncludeAccess(config *Config, path string) (string, error) {
+	absPath, err := resolveSandboxPath(config, path)
+	if err != nil {
+		return "", err
+	}
+	if config == nil || config.FileAccess == nil {
+		return absPath, nil
+	}
+	return enforceRoots(config.FileAccess, absPath, config.FileAccess.IncludeRoots, "include")
+}
+
 // pathEquals checks if two paths are equal, handling case sensitivity
 // based on the operating system's file system conventions
 func pathEquals(path1, path2 string) bool {
@@ -40,86 +197,13 @@ func (ps *PawScript) RegisterFilesLib() {
 		ctx.state.SetResultWithoutClaim(ref)
 	}
 
-	// Helper to validate path access against configured roots
-	// Returns cleaned absolute path and nil error if allowed
+	// Helper to validate path access against configured roots.
+	// Returns cleaned absolute path and nil error if allowed. The heavy lifting
+	// (including the symlink-escape guard) lives in the package-level
+	// validateFileAccess so it can be unit-tested directly; ctx is unused but kept
+	// in the signature for call-site symmetry.
 	validatePathAccess := func(ctx *Context, path string, needsWrite bool) (string, error) {
-		// Get absolute path - resolve relative paths from ScriptDir if available
-		var absPath string
-		var err error
-		if !filepath.IsAbs(path) && ps.config != nil && ps.config.ScriptDir != "" {
-			// Resolve relative path from script directory
-			absPath = filepath.Join(ps.config.ScriptDir, path)
-		} else {
-			absPath, err = filepath.Abs(path)
-			if err != nil {
-				return "", fmt.Errorf("invalid path: %v", err)
-			}
-		}
-		absPath = filepath.Clean(absPath)
-
-		// Get file access config from PawScript instance
-		if ps.config == nil || ps.config.FileAccess == nil {
-			// No restrictions configured
-			return absPath, nil
-		}
-
-		fileAccess := ps.config.FileAccess
-
-		// Check write roots if write access needed
-		if needsWrite {
-			if fileAccess.WriteRoots == nil {
-				// nil means unrestricted
-				return absPath, nil
-			}
-			if len(fileAccess.WriteRoots) == 0 {
-				// Empty slice means no write access allowed
-				return "", fmt.Errorf("write access denied: no write roots configured")
-			}
-			allowed := false
-			for _, root := range fileAccess.WriteRoots {
-				absRoot, err := filepath.Abs(root)
-				if err != nil {
-					continue
-				}
-				absRoot = filepath.Clean(absRoot)
-				// Use case-insensitive comparison on Windows/macOS
-				if pathHasPrefix(absPath, absRoot+string(filepath.Separator)) || pathEquals(absPath, absRoot) {
-					allowed = true
-					break
-				}
-			}
-			if !allowed {
-				return "", fmt.Errorf("write access denied: path outside allowed roots")
-			}
-		} else {
-			// Check read roots
-			if fileAccess.ReadRoots == nil {
-				// nil means unrestricted
-				return absPath, nil
-			}
-			if len(fileAccess.ReadRoots) == 0 {
-				// Empty slice means no read access allowed
-				return "", fmt.Errorf("read access denied: no read roots configured")
-			}
-			allowed := false
-			for _, root := range fileAccess.ReadRoots {
-				absRoot, err := filepath.Abs(root)
-				if err != nil {
-					continue
-				}
-				absRoot = filepath.Clean(absRoot)
-				// Use case-insensitive comparison on Windows/macOS
-				if pathHasPrefix(absPath, absRoot+string(filepath.Separator)) || pathEquals(absPath, absRoot) {
-					allowed = true
-					break
-				}
-			}
-			if !allowed {
-				return "", fmt.Errorf("read access denied: path outside allowed roots")
-			}
-		}
-
-		return absPath, nil
+		return validateFileAccess(ps.config, path, needsWrite)
 	}
 
 	// Helper to resolve a file from an argument

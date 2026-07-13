@@ -158,15 +158,18 @@ func (ps *PawScript) RegisterFibersLib() {
 			return BoolStatus(false)
 		}
 
-		// Merge bubbles from fiber to caller's state
-		handle.mu.RLock()
+		// Merge bubbles from fiber to caller's state.
+		// Write lock (not RLock): this transfers ref ownership and must clear
+		// FinalBubbleMap afterward so a second fiber_wait on the same handle does
+		// NOT re-transfer and double-release the same references.
+		handle.mu.Lock()
 		if len(handle.FinalBubbleMap) > 0 {
+			// bubbleMap is guarded by the owner mutex (shared for brace states);
+			// append the raw entries there, then transfer ref ownership under the
+			// state's own mutex (which guards ownedObjects).
+			ctx.state.MergeRawBubbles(handle.FinalBubbleMap)
 			ctx.state.mu.Lock()
-			if ctx.state.bubbleMap == nil {
-				ctx.state.bubbleMap = make(map[string][]*BubbleEntry)
-			}
-			for flavor, entries := range handle.FinalBubbleMap {
-				ctx.state.bubbleMap[flavor] = append(ctx.state.bubbleMap[flavor], entries...)
+			for _, entries := range handle.FinalBubbleMap {
 				// Transfer ownership: caller claims refs, release the extra refs we held
 				for _, entry := range entries {
 					if sym, ok := entry.Content.(Symbol); ok {
@@ -181,8 +184,11 @@ func (ps *PawScript) RegisterFibersLib() {
 				}
 			}
 			ctx.state.mu.Unlock()
+			// Ownership has been transferred to the caller; drop our copy so a
+			// repeated fiber_wait can't release these references again.
+			handle.FinalBubbleMap = nil
 		}
-		handle.mu.RUnlock()
+		handle.mu.Unlock()
 
 		if result != nil {
 			ctx.state.SetResult(result)
@@ -232,12 +238,11 @@ func (ps *PawScript) RegisterFibersLib() {
 		for _, fiber := range fibers {
 			fiber.mu.RLock()
 			if len(fiber.FinalBubbleMap) > 0 {
+				// bubbleMap is owner-guarded; append raw entries there, then
+				// transfer ref ownership under the state's own mutex.
+				ctx.state.MergeRawBubbles(fiber.FinalBubbleMap)
 				ctx.state.mu.Lock()
-				if ctx.state.bubbleMap == nil {
-					ctx.state.bubbleMap = make(map[string][]*BubbleEntry)
-				}
-				for flavor, entries := range fiber.FinalBubbleMap {
-					ctx.state.bubbleMap[flavor] = append(ctx.state.bubbleMap[flavor], entries...)
+				for _, entries := range fiber.FinalBubbleMap {
 					// Transfer ownership: caller claims refs, release the extra refs we held
 					for _, entry := range entries {
 						if sym, ok := entry.Content.(Symbol); ok {
@@ -287,14 +292,18 @@ func (ps *PawScript) RegisterFibersLib() {
 				return BoolStatus(false)
 			}
 
-			// Move bubbleMap entries to bubbleUpMap
-			ctx.state.mu.Lock()
-			if len(ctx.state.bubbleMap) > 0 {
-				handle.mu.Lock()
+			// Move bubbleMap entries to bubbleUpMap.
+			// Lock order must be handle.mu before state.mu (hierarchy:
+			// handle.mu < state.mu < e.mu); incrementObjectRefCount takes e.mu
+			// innermost, which is consistent. TakeBubbleMap atomically reads and
+			// clears the fiber's bubbleMap under its owner mutex.
+			handle.mu.Lock()
+			bubbles := ctx.state.TakeBubbleMap()
+			if len(bubbles) > 0 {
 				if handle.BubbleUpMap == nil {
 					handle.BubbleUpMap = make(map[string][]*BubbleEntry)
 				}
-				for flavor, entries := range ctx.state.bubbleMap {
+				for flavor, entries := range bubbles {
 					// Claim refs for each entry's content (will be released when retrieved)
 					for _, entry := range entries {
 						if sym, ok := entry.Content.(Symbol); ok {
@@ -306,11 +315,8 @@ func (ps *PawScript) RegisterFibersLib() {
 					}
 					handle.BubbleUpMap[flavor] = append(handle.BubbleUpMap[flavor], entries...)
 				}
-				handle.mu.Unlock()
-				// Clear the fiber's bubbleMap
-				ctx.state.bubbleMap = make(map[string][]*BubbleEntry)
 			}
-			ctx.state.mu.Unlock()
+			handle.mu.Unlock()
 
 			return BoolStatus(true)
 		}
@@ -365,12 +371,11 @@ func (ps *PawScript) RegisterFibersLib() {
 		// Retrieve bubbleUpMap from fiber and merge into caller's bubbleMap
 		handle.mu.Lock()
 		if len(handle.BubbleUpMap) > 0 {
+			// bubbleMap is owner-guarded; append raw entries there, then transfer
+			// ref ownership under the state's own mutex.
+			ctx.state.MergeRawBubbles(handle.BubbleUpMap)
 			ctx.state.mu.Lock()
-			if ctx.state.bubbleMap == nil {
-				ctx.state.bubbleMap = make(map[string][]*BubbleEntry)
-			}
-			for flavor, entries := range handle.BubbleUpMap {
-				ctx.state.bubbleMap[flavor] = append(ctx.state.bubbleMap[flavor], entries...)
+			for _, entries := range handle.BubbleUpMap {
 				// Transfer ownership: caller claims refs, release the staging refs
 				for _, entry := range entries {
 					if sym, ok := entry.Content.(Symbol); ok {

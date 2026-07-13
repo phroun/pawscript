@@ -12,6 +12,12 @@ import (
 // - \~ and \? are ONLY protected outside parentheses (parenDepth == 0)
 //   so they're preserved inside macro bodies for execution-time processing
 func protectEscapeSequences(str, dollarPlaceholder, tildePlaceholder, qmarkPlaceholder string) string {
+	// The function only rewrites backslash escapes (\$, \~, \?); with no backslash
+	// present the output equals the input. Skip the rune conversion and full
+	// rebuild in that case — the common one, and this is the hottest allocator.
+	if strings.IndexByte(str, '\\') < 0 {
+		return str
+	}
 	runes := []rune(str)
 	var result []rune
 	parenDepth := 0

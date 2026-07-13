@@ -56,6 +56,12 @@ type ExecutionState struct {
 	moduleEnv             *ModuleEnvironment   // Module environment for this state
 	macroContext          *MacroContext        // Current macro context for stack traces
 	bubbleMap             map[string][]*BubbleEntry // Map of flavor -> list of bubbles
+	// varsOwner is set on brace states (NewExecutionStateFromSharedVars) that share
+	// another state's variables/bubbleMap maps. Those shared maps MUST be guarded by
+	// the owner's mutex, not this state's own mu — otherwise a brace running on one
+	// goroutine (e.g. an async brace resume) and the owner on another lock different
+	// mutexes over the same map (a data race). nil means this state owns its maps.
+	varsOwner             *ExecutionState
 	// InBraceExpression is true when executing inside a brace expression {...}
 	// Commands can check this to return values instead of emitting side effects to #out
 	InBraceExpression bool
@@ -101,6 +107,7 @@ func NewExecutionStateFrom(parent *ExecutionState) *ExecutionState {
 	state.moduleEnv = NewChildModuleEnvironment(parent.moduleEnv)
 	state.macroContext = nil
 	state.bubbleMap = nil // Lazy-created on first AddBubble (rare)
+	state.varsOwner = nil // Owns its own variables/bubbleMap
 	state.InBraceExpression = false
 
 	return state
@@ -133,9 +140,21 @@ func NewExecutionStateFromSharedVars(parent *ExecutionState) *ExecutionState {
 	state.moduleEnv = parent.moduleEnv // Shared with parent
 	state.macroContext = parent.macroContext
 	state.bubbleMap = parent.bubbleMap // Shared with parent
+	// The shared variables/bubbleMap maps are guarded by their owner's mutex.
+	// Chain to the ultimate owner so nested braces all use the same lock.
+	state.varsOwner = parent.varsMutexOwner()
 	state.InBraceExpression = true
 
 	return state
+}
+
+// varsMutexOwner returns the state whose mutex guards this state's
+// variables/bubbleMap maps (self for owning states; the shared owner for braces).
+func (s *ExecutionState) varsMutexOwner() *ExecutionState {
+	if s.varsOwner != nil {
+		return s.varsOwner
+	}
+	return s
 }
 
 // Recycle returns the state and its maps to the object pools for reuse.
@@ -182,6 +201,7 @@ func (s *ExecutionState) Recycle(ownsVariables, ownsBubbleMap bool) {
 	s.moduleEnv = nil
 	s.macroContext = nil
 	s.bubbleMap = nil
+	s.varsOwner = nil // Clear so a reused state defaults to owning its maps
 
 	// Return state to pool
 	executionStatePool.Put(s)
@@ -274,21 +294,20 @@ func (s *ExecutionState) SetResult(value interface{}) {
 // Used when transferring ownership from child contexts
 func (s *ExecutionState) SetResultWithoutClaim(value interface{}) {
 	s.mu.Lock()
-	defer s.mu.Unlock()
-
-	// Release old result's references
+	var oldRefs []int
 	if s.hasResult {
-		oldRefs := s.extractObjectReferencesLocked(s.currentResult)
-		s.mu.Unlock()
-		for _, id := range oldRefs {
-			s.ReleaseObjectReference(id)
-		}
-		s.mu.Lock()
+		oldRefs = s.extractObjectReferencesLocked(s.currentResult)
 	}
-
-	// Set new value WITHOUT claiming
+	// Swap in the new value BEFORE releasing the old references, so a concurrent
+	// reader never observes the stale currentResult and double-releases it.
 	s.currentResult = value
 	s.hasResult = true
+	s.mu.Unlock()
+
+	// Release outside s.mu: ReleaseObjectReference locks s.mu itself.
+	for _, id := range oldRefs {
+		s.ReleaseObjectReference(id)
+	}
 }
 
 // extractObjectReferencesLocked is like ExtractObjectReferences but assumes lock is held
@@ -403,29 +422,32 @@ func (s *ExecutionState) String() string {
 
 // SetVariable sets a variable in the current scope
 func (s *ExecutionState) SetVariable(name string, value interface{}) {
-	s.mu.Lock()
-	
+	// The variables map may be shared with an owner state (brace scope); lock the
+	// owner's mutex so concurrent access to the shared map is serialized.
+	owner := s.varsMutexOwner()
+	owner.mu.Lock()
+
 	if s.variables == nil {
 		s.variables = make(map[string]interface{})
 	}
-	
+
 	// Check if large strings/blocks should be stored
 	if s.executor != nil {
 		value = s.executor.maybeStoreValue(value, s)
 	}
-	
+
 	// Extract object references from old and new values
 	var oldRefs, newRefs []int
 	if oldValue, exists := s.variables[name]; exists {
 		oldRefs = s.extractObjectReferencesLocked(oldValue)
 	}
 	newRefs = s.extractObjectReferencesLocked(value)
-	
+
 	// Set new value
 	s.variables[name] = value
-	
+
 	// Release lock before doing reference management
-	s.mu.Unlock()
+	owner.mu.Unlock()
 	
 	// Claim new references (once per occurrence)
 	for _, id := range newRefs {
@@ -440,8 +462,9 @@ func (s *ExecutionState) SetVariable(name string, value interface{}) {
 
 // GetVariable gets a variable from the current scope
 func (s *ExecutionState) GetVariable(name string) (interface{}, bool) {
-	s.mu.RLock()
-	defer s.mu.RUnlock()
+	owner := s.varsMutexOwner()
+	owner.mu.RLock()
+	defer owner.mu.RUnlock()
 
 	if s.variables == nil {
 		return nil, false
@@ -453,10 +476,11 @@ func (s *ExecutionState) GetVariable(name string) (interface{}, bool) {
 
 // DeleteVariable removes a variable from the current scope
 func (s *ExecutionState) DeleteVariable(name string) {
-	s.mu.Lock()
+	owner := s.varsMutexOwner()
+	owner.mu.Lock()
 
 	if s.variables == nil {
-		s.mu.Unlock()
+		owner.mu.Unlock()
 		return
 	}
 
@@ -469,7 +493,7 @@ func (s *ExecutionState) DeleteVariable(name string) {
 	delete(s.variables, name)
 
 	// Release lock before doing reference management
-	s.mu.Unlock()
+	owner.mu.Unlock()
 
 	// Release old references
 	for _, id := range oldRefs {
@@ -581,7 +605,10 @@ func (s *ExecutionState) ExtractObjectReferences(value interface{}) []int {
 // Returns ("", -1) if not a valid object marker
 // Returns (type, id) for valid markers where type is "list", "str", "block", etc. (lowercase)
 func parseObjectMarker(s string) (string, int) {
-	if !strings.HasPrefix(s, "\x00") || !strings.HasSuffix(s, "\x00") {
+	// Need at least two bytes so the opening and closing \x00 are distinct;
+	// a lone "\x00" satisfies both HasPrefix and HasSuffix and would make the
+	// s[1:len(s)-1] slice below panic with "slice bounds out of range".
+	if len(s) < 2 || !strings.HasPrefix(s, "\x00") || !strings.HasSuffix(s, "\x00") {
 		return "", -1
 	}
 	
@@ -608,8 +635,10 @@ func parseObjectMarker(s string) (string, int) {
 // AddBubble adds a new bubble entry to the bubble map
 // If trace is true, includes the current stack trace
 func (s *ExecutionState) AddBubble(flavor string, content interface{}, trace bool, memo string) {
-	s.mu.Lock()
-	defer s.mu.Unlock()
+	// bubbleMap may be shared with an owner state (brace scope); lock the owner.
+	owner := s.varsMutexOwner()
+	owner.mu.Lock()
+	defer owner.mu.Unlock()
 
 	if s.bubbleMap == nil {
 		s.bubbleMap = make(map[string][]*BubbleEntry)
@@ -656,8 +685,9 @@ func (s *ExecutionState) AddBubbleMultiFlavor(flavors []string, content interfac
 		return
 	}
 
-	s.mu.Lock()
-	defer s.mu.Unlock()
+	owner := s.varsMutexOwner()
+	owner.mu.Lock()
+	defer owner.mu.Unlock()
 
 	if s.bubbleMap == nil {
 		s.bubbleMap = make(map[string][]*BubbleEntry)
@@ -704,21 +734,23 @@ func (s *ExecutionState) MergeBubbles(child *ExecutionState) {
 		return
 	}
 
-	// Fast path: if child's bubbleMap is nil, nothing to merge (no lock needed)
-	if child.bubbleMap == nil {
-		return
-	}
-
-	child.mu.RLock()
+	// Read the child's bubbles under its owner lock. (No unlocked fast-path
+	// nil-check: reading the map pointer without the lock races with a
+	// concurrent reassignment on a shared brace state.)
+	cOwner := child.varsMutexOwner()
+	cOwner.mu.RLock()
 	childBubbles := child.bubbleMap
-	child.mu.RUnlock()
+	cOwner.mu.RUnlock()
 
 	if len(childBubbles) == 0 {
 		return
 	}
 
-	s.mu.Lock()
-	defer s.mu.Unlock()
+	// Sequential (not nested) with the read above, so this is safe even when
+	// child and s share the same owner mutex.
+	owner := s.varsMutexOwner()
+	owner.mu.Lock()
+	defer owner.mu.Unlock()
 
 	if s.bubbleMap == nil {
 		s.bubbleMap = make(map[string][]*BubbleEntry)
@@ -732,8 +764,9 @@ func (s *ExecutionState) MergeBubbles(child *ExecutionState) {
 
 // GetBubbleMap returns a copy of the bubble map for inspection
 func (s *ExecutionState) GetBubbleMap() map[string][]*BubbleEntry {
-	s.mu.RLock()
-	defer s.mu.RUnlock()
+	owner := s.varsMutexOwner()
+	owner.mu.RLock()
+	defer owner.mu.RUnlock()
 
 	if s.bubbleMap == nil {
 		return nil
@@ -754,8 +787,9 @@ func (s *ExecutionState) RemoveBubble(entry *BubbleEntry) {
 		return
 	}
 
-	s.mu.Lock()
-	defer s.mu.Unlock()
+	owner := s.varsMutexOwner()
+	owner.mu.Lock()
+	defer owner.mu.Unlock()
 
 	if s.bubbleMap == nil {
 		return
@@ -787,8 +821,9 @@ func (s *ExecutionState) RemoveBubble(entry *BubbleEntry) {
 // GetBubblesForFlavors returns all unique bubbles from the specified flavors,
 // sorted by microtime (oldest first). Duplicates are removed.
 func (s *ExecutionState) GetBubblesForFlavors(flavors []string) []*BubbleEntry {
-	s.mu.RLock()
-	defer s.mu.RUnlock()
+	owner := s.varsMutexOwner()
+	owner.mu.RLock()
+	defer owner.mu.RUnlock()
 
 	if s.bubbleMap == nil || len(flavors) == 0 {
 		return nil
@@ -816,10 +851,49 @@ func (s *ExecutionState) GetBubblesForFlavors(flavors []string) []*BubbleEntry {
 	return allEntries
 }
 
+// ResetBubbleMap replaces the bubble map with a fresh empty one, under the
+// owner's lock (safe for shared brace states).
+func (s *ExecutionState) ResetBubbleMap() {
+	owner := s.varsMutexOwner()
+	owner.mu.Lock()
+	s.bubbleMap = make(map[string][]*BubbleEntry)
+	owner.mu.Unlock()
+}
+
+// MergeRawBubbles appends the given flavor->entries into this state's bubble map,
+// under the owner's lock. Used by callers that transfer raw bubble entries (e.g.
+// fiber/generator bubble propagation).
+func (s *ExecutionState) MergeRawBubbles(bubbles map[string][]*BubbleEntry) {
+	if len(bubbles) == 0 {
+		return
+	}
+	owner := s.varsMutexOwner()
+	owner.mu.Lock()
+	defer owner.mu.Unlock()
+	if s.bubbleMap == nil {
+		s.bubbleMap = make(map[string][]*BubbleEntry)
+	}
+	for flavor, entries := range bubbles {
+		s.bubbleMap[flavor] = append(s.bubbleMap[flavor], entries...)
+	}
+}
+
+// TakeBubbleMap atomically returns the current bubble map and clears it (to nil),
+// under the owner's lock. Used for transferring bubbles out (e.g. orphaning).
+func (s *ExecutionState) TakeBubbleMap() map[string][]*BubbleEntry {
+	owner := s.varsMutexOwner()
+	owner.mu.Lock()
+	defer owner.mu.Unlock()
+	b := s.bubbleMap
+	s.bubbleMap = nil
+	return b
+}
+
 // GetAllFlavorNames returns all flavor names that currently have bubbles
 func (s *ExecutionState) GetAllFlavorNames() []string {
-	s.mu.RLock()
-	defer s.mu.RUnlock()
+	owner := s.varsMutexOwner()
+	owner.mu.RLock()
+	defer owner.mu.RUnlock()
 
 	if s.bubbleMap == nil {
 		return nil

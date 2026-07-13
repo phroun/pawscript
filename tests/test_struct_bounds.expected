@@ -1,0 +1,9 @@
+=== Struct bounds tests ===
+[PawScript:argument ERROR] Field 0 size must be non-negative, got -1
+  at line 7, column 10 in test_struct_bounds.paw
+after negative-size struct_def
+valid struct field n = 4660
+[PawScript:argument ERROR] struct array too large (max 268435456 bytes)
+  at line 17, column 13 in test_struct_bounds.paw
+after huge-count struct
+=== Done ===

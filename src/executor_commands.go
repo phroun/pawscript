@@ -628,6 +628,7 @@ func (e *Executor) executeSingleCommand(
 				// Command not found
 				e.logger.SetOutputContext(NewOutputContext(capturedState, e))
 				e.logger.UnknownCommandError(cmdName, capturedPosition, nil)
+				e.logger.ClearOutputContext()
 				result := BoolStatus(false)
 				if capturedShouldInvert {
 					return BoolStatus(!bool(result))
@@ -1039,6 +1040,7 @@ func (e *Executor) executeSingleCommand(
 	// symbol has special handling in SetResult that clears the result
 	e.logger.SetOutputContext(NewOutputContext(state, e))
 	e.logger.UnknownCommandError(cmdName, position, nil)
+	e.logger.ClearOutputContext()
 	state.SetResult(ActualUndefined{})
 	if shouldInvert {
 		return BoolStatus(true)
@@ -1047,6 +1049,11 @@ func (e *Executor) executeSingleCommand(
 }
 
 // applySyntacticSugar applies syntactic sugar transformations
+// syntacticSugarCallRe matches an `identifier(` call form at the start of an
+// argument string. Compiled once — applySyntacticSugar runs per command, and
+// regexp.MustCompile is expensive to call in that hot path.
+var syntacticSugarCallRe = regexp.MustCompile(`^([a-zA-Z_][a-zA-Z0-9_]*)\s*\(`)
+
 func (e *Executor) applySyntacticSugar(commandStr string) string {
 	spaceIndex := strings.Index(commandStr, " ")
 	if spaceIndex == -1 {
@@ -1060,7 +1067,7 @@ func (e *Executor) applySyntacticSugar(commandStr string) string {
 	argsPart = strings.TrimSpace(argsPart)
 
 	// Check if it starts with identifier followed by optional whitespace and (
-	identifierMatch := regexp.MustCompile(`^([a-zA-Z_][a-zA-Z0-9_]*)\s*\(`).FindStringSubmatch(argsPart)
+	identifierMatch := syntacticSugarCallRe.FindStringSubmatch(argsPart)
 	if len(identifierMatch) == 0 {
 		return commandStr
 	}

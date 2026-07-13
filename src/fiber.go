@@ -38,11 +38,18 @@ func (e *Executor) GetFiberCount() int {
 
 // GetSuspendedFibers returns a map of fiberID -> tokenID for all suspended fibers
 func (e *Executor) GetSuspendedFibers() map[int]string {
+	// Snapshot the handles under e.mu, then read each fiber's field WITHOUT
+	// e.mu held: the hierarchy is handle.mu < e.mu, so we must not take
+	// handle.mu while holding e.mu.
 	e.mu.RLock()
-	defer e.mu.RUnlock()
+	handles := make(map[int]*FiberHandle, len(e.activeFibers))
+	for fiberID, fiber := range e.activeFibers {
+		handles[fiberID] = fiber
+	}
+	e.mu.RUnlock()
 
 	suspended := make(map[int]string)
-	for fiberID, fiber := range e.activeFibers {
+	for fiberID, fiber := range handles {
 		fiber.mu.RLock()
 		if fiber.SuspendedOn != "" {
 			suspended[fiberID] = fiber.SuspendedOn
@@ -64,7 +71,13 @@ func (e *Executor) SpawnFiber(macro *StoredMacro, args []interface{}, namedArgs 
 	fiberState := NewExecutionState()
 	if parentModuleEnv != nil {
 		// Replace the default module environment with one that inherits from parent
-		fiberState.moduleEnv = NewChildModuleEnvironment(parentModuleEnv)
+		childEnv := NewChildModuleEnvironment(parentModuleEnv)
+		// A fiber runs concurrently with its spawner, so it must NOT share live
+		// registry maps with the parent (the COW model only isolates on write).
+		// Force private copies now, on this (spawning) goroutine, before the
+		// fiber goroutine starts.
+		childEnv.IsolateRegistriesForFiber()
+		fiberState.moduleEnv = childEnv
 	}
 
 	handle := &FiberHandle{

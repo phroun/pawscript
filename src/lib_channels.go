@@ -308,8 +308,14 @@ func (ps *PawScript) RegisterChannelsLib() {
 			return BoolStatus(false)
 		}
 
+		// RegisterObject claims a reference on `value` (a nested item of the
+		// tuple). ChannelRecv handed us a transfer reference to keep the value
+		// alive across this handoff; now that the tuple owns it, release the
+		// transfer reference so ownership is balanced. (No-op for raw non-object
+		// values from native channels, which carry no transfer reference.)
 		tuple := NewStoredListWithoutRefs([]interface{}{senderID, value})
 		tupleRef := ctx.executor.RegisterObject(tuple, ObjList)
+		releaseNestedReferences(value, ctx.executor)
 		ctx.state.SetResult(tupleRef)
 
 		return BoolStatus(true)

@@ -1690,6 +1690,16 @@ func (ps *PawScript) RegisterTypesLib() {
 		if count < 0 {
 			count = 0
 		}
+		// Guard against script-controlled counts that would allocate absurd
+		// amounts of memory (a bare `make`/`strings.Repeat` on these values is
+		// an uncatchable OOM that takes down the host). Bound the iteration
+		// count here; per-mode output sizes are bounded at each allocation below.
+		const maxRepeatCount = 100000000 // 1e8
+		if count > maxRepeatCount {
+			ctx.LogError(CatArgument, fmt.Sprintf("Count too large (max %d)", maxRepeatCount))
+			ctx.SetResult(nil)
+			return BoolStatus(false)
+		}
 
 		value := ctx.Args[0]
 
@@ -1730,7 +1740,13 @@ func (ps *PawScript) RegisterTypesLib() {
 				return BoolStatus(false)
 			}
 
-			results := make([]interface{}, 0, count)
+			// Cap the preallocated capacity so a large `count` doesn't reserve
+			// gigabytes upfront; the slice still grows to hold real results.
+			initCap := count
+			if initCap > 4096 {
+				initCap = 4096
+			}
+			results := make([]interface{}, 0, initCap)
 			var failures []interface{}
 
 			for iteration := 0; iteration < count; iteration++ {
@@ -1860,6 +1876,14 @@ func (ps *PawScript) RegisterTypesLib() {
 		if list, isList := value.(StoredList); isList {
 			// List mode - repeat list items count times
 			items := list.Items()
+			// int64 product avoids the int overflow that would turn a huge
+			// len(items)*count into a negative make() size (panic) or OOM.
+			const maxRepeatElements = 100000000 // 1e8
+			if int64(len(items))*int64(count) > maxRepeatElements {
+				ctx.LogError(CatArgument, fmt.Sprintf("Repeated list too large (max %d elements)", maxRepeatElements))
+				ctx.SetResult(nil)
+				return BoolStatus(false)
+			}
 			newItems := make([]interface{}, 0, len(items)*count)
 			for i := 0; i < count; i++ {
 				newItems = append(newItems, items...)
@@ -1871,6 +1895,14 @@ func (ps *PawScript) RegisterTypesLib() {
 
 		// String mode (default) - repeat string count times
 		str := resolveToString(value, ctx.executor)
+		// Bound the output size; strings.Repeat panics ("output length overflow")
+		// or OOMs when len(str)*count is enormous.
+		const maxRepeatBytes = 256 * 1024 * 1024 // 256 MiB
+		if int64(len(str))*int64(count) > maxRepeatBytes {
+			ctx.LogError(CatArgument, fmt.Sprintf("Repeated string too large (max %d bytes)", maxRepeatBytes))
+			ctx.SetResult(nil)
+			return BoolStatus(false)
+		}
 		result := strings.Repeat(str, count)
 		if ctx.executor != nil {
 			stored := ctx.executor.maybeStoreValue(result, ctx.state)
@@ -2770,6 +2802,18 @@ func (ps *PawScript) RegisterTypesLib() {
 				return BoolStatus(false)
 			}
 			fieldSize := int(sizeNum)
+			if fieldSize < 0 {
+				ctx.LogError(CatArgument, fmt.Sprintf("Field %d size must be non-negative, got %d", i, fieldSize))
+				ctx.SetResult(nil)
+				return BoolStatus(false)
+			}
+			// Bound the cumulative size in int64 so a huge field can't overflow
+			// currentOffset into a negative total (which later panics make()).
+			if int64(currentOffset)+int64(fieldSize) > MaxStructBytes {
+				ctx.LogError(CatArgument, fmt.Sprintf("Struct too large (max %d bytes)", MaxStructBytes))
+				ctx.SetResult(nil)
+				return BoolStatus(false)
+			}
 
 			// Get field mode
 			modeVal := ctx.executor.resolveValue(fieldItems[2])
@@ -2946,6 +2990,18 @@ func (ps *PawScript) RegisterTypesLib() {
 			return BoolStatus(false)
 		}
 		structSize := int(sizeNum)
+		// A definition can be any StoredList (not only struct_def output), so
+		// validate __size here too rather than trusting it.
+		if structSize < 0 {
+			ctx.LogError(CatType, "struct definition __size must be non-negative")
+			ctx.SetResult(nil)
+			return BoolStatus(false)
+		}
+		if int64(structSize) > MaxStructBytes {
+			ctx.LogError(CatType, fmt.Sprintf("struct too large (max %d bytes)", MaxStructBytes))
+			ctx.SetResult(nil)
+			return BoolStatus(false)
+		}
 
 		// If we didn't get defID from marker, store the def list now
 		if defID == 0 {
@@ -2966,6 +3022,12 @@ func (ps *PawScript) RegisterTypesLib() {
 			count = int(countNum)
 			if count < 0 {
 				ctx.LogError(CatArgument, "Count must be non-negative")
+				ctx.SetResult(nil)
+				return BoolStatus(false)
+			}
+			// Bound size*count in int64 to prevent overflow/OOM on the array make().
+			if int64(structSize)*int64(count) > MaxStructBytes {
+				ctx.LogError(CatArgument, fmt.Sprintf("struct array too large (max %d bytes)", MaxStructBytes))
 				ctx.SetResult(nil)
 				return BoolStatus(false)
 			}

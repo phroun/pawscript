@@ -1,0 +1,12 @@
+# Regression: async brace substitution inside a while loop. Each iteration runs
+# a command whose argument contains an async brace (msleep). The command returns
+# a brace-coordinator token; finalizeBraceCoordinator must signal that token's
+# wait channel so the waiting loop resumes. Previously the loop hung forever
+# (the command ran but the caller never woke up) — the "msleep hang".
+i: 0
+while (lt ~i, 3), (
+  msg: {msleep 1; ret "iter"}
+  echo ~msg, ~i
+  i: {add ~i, 1}
+)
+echo "loop done"

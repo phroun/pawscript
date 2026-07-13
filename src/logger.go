@@ -4,8 +4,34 @@ import (
 	"fmt"
 	"io"
 	"os"
+	"runtime"
+	"strconv"
 	"strings"
+	"sync"
+	"sync/atomic"
 )
+
+// goid returns the current goroutine's ID, parsed from runtime.Stack. This is
+// the only dependency-free way to identify a goroutine, and it is used solely to
+// scope the logger's output context per goroutine (see Logger.outputContexts).
+// It is only called when a context is actually active (see currentOutputContext).
+func goid() int64 {
+	var buf [64]byte
+	n := runtime.Stack(buf[:], false)
+	// The stack starts with "goroutine <id> [".
+	s := buf[:n]
+	const prefix = "goroutine "
+	if len(s) < len(prefix) {
+		return 0
+	}
+	s = s[len(prefix):]
+	i := 0
+	for i < len(s) && s[i] >= '0' && s[i] <= '9' {
+		i++
+	}
+	id, _ := strconv.ParseInt(string(s[:i]), 10, 64)
+	return id
+}
 
 // OutputContext provides the necessary context for channel-based output routing
 // This allows the logger to resolve #out/#err channels through the proper hierarchy
@@ -425,9 +451,16 @@ type Logger struct {
 	enabledCategories map[LogCategory]bool
 	out               io.Writer
 	errOut            io.Writer
-	// outputContext holds the current execution context for channel routing
-	// This is set per-execution and allows log output to go through #out/#err
-	outputContext     *OutputContext
+	// Output context for channel routing (#out/#err). This is set per-execution
+	// scope, so it MUST be scoped per goroutine — otherwise concurrent fibers
+	// clobber each other's routing (a data race and cross-contamination).
+	//   - boundContext: a fixed context from WithContext(); wins if set.
+	//   - outputContexts: goid -> *OutputContext, set by SetOutputContext.
+	//   - activeContexts: number of live entries in outputContexts, so the hot
+	//     logging path can skip the goroutine-id lookup entirely when none are set.
+	boundContext      *OutputContext
+	outputContexts    sync.Map
+	activeContexts    int32
 	// colorEnabled is true if terminal colors should be used for stderr output
 	colorEnabled      bool
 }
@@ -475,7 +508,6 @@ func NewLoggerWithWriters(enabled bool, stdout, stderr io.Writer) *Logger {
 		enabledCategories: make(map[LogCategory]bool),
 		out:               stdout,
 		errOut:            stderr,
-		outputContext:     nil,
 		colorEnabled:      stderrSupportsColor(),
 	}
 }
@@ -490,26 +522,52 @@ func (l *Logger) GetStderr() io.Writer {
 	return l.errOut
 }
 
-// SetOutputContext sets the output context for channel-based logging
-// This should be called when entering a new execution scope
+// SetOutputContext sets the output context for the CURRENT goroutine's logging.
+// This should be called when entering a new execution scope; it is scoped per
+// goroutine so concurrent fibers don't overwrite each other's routing.
 func (l *Logger) SetOutputContext(ctx *OutputContext) {
-	l.outputContext = ctx
+	if ctx == nil {
+		l.ClearOutputContext()
+		return
+	}
+	if _, loaded := l.outputContexts.Swap(goid(), ctx); !loaded {
+		atomic.AddInt32(&l.activeContexts, 1)
+	}
 }
 
-// ClearOutputContext clears the output context (reverts to direct io.Writer)
+// ClearOutputContext clears the current goroutine's output context (reverts to
+// direct io.Writer).
 func (l *Logger) ClearOutputContext() {
-	l.outputContext = nil
+	if _, loaded := l.outputContexts.LoadAndDelete(goid()); loaded {
+		atomic.AddInt32(&l.activeContexts, -1)
+	}
 }
 
-// WithContext returns a copy of the logger with the given output context
-// This is useful for creating a logger bound to a specific execution state
+// currentOutputContext returns the output context in effect for the current
+// goroutine (or the bound context, if this logger was created via WithContext).
+// The goroutine-id lookup is skipped entirely when no context is active anywhere.
+func (l *Logger) currentOutputContext() *OutputContext {
+	if l.boundContext != nil {
+		return l.boundContext
+	}
+	if atomic.LoadInt32(&l.activeContexts) == 0 {
+		return nil
+	}
+	if v, ok := l.outputContexts.Load(goid()); ok {
+		return v.(*OutputContext)
+	}
+	return nil
+}
+
+// WithContext returns a copy of the logger permanently bound to the given output
+// context (used across goroutines without the per-goroutine mechanism).
 func (l *Logger) WithContext(state *ExecutionState, executor *Executor) *Logger {
 	return &Logger{
 		enabled:           l.enabled,
 		enabledCategories: l.enabledCategories,
 		out:               l.out,
 		errOut:            l.errOut,
-		outputContext:     NewOutputContext(state, executor),
+		boundContext:      NewOutputContext(state, executor),
 		colorEnabled:      l.colorEnabled,
 	}
 }
@@ -559,12 +617,13 @@ func (l *Logger) shouldLog(level LogLevel, cat LogCategory) bool {
 
 // Log is the unified logging method
 func (l *Logger) Log(level LogLevel, cat LogCategory, message string, position *SourcePosition, context []string) {
-	// Get LogConfig from output context's module environment (if available)
+	// Get LogConfig from the current goroutine's output context (if available)
+	octx := l.currentOutputContext()
 	var logConfig *LogConfig
 	var state *ExecutionState
-	if l.outputContext != nil && l.outputContext.State != nil && l.outputContext.State.moduleEnv != nil {
-		logConfig = l.outputContext.State.moduleEnv.GetLogConfig()
-		state = l.outputContext.State
+	if octx != nil && octx.State != nil && octx.State.moduleEnv != nil {
+		logConfig = octx.State.moduleEnv.GetLogConfig()
+		state = octx.State
 	}
 
 	// Determine which outputs this message should go to
@@ -637,10 +696,10 @@ func (l *Logger) Log(level LogLevel, cat LogCategory, message string, position *
 
 	// Send to each destination that passed its filter
 	if sendToErr {
-		l.writeOutputToErr(output)
+		l.writeOutputToErr(output, octx)
 	}
 	if sendToOut {
-		l.writeOutputToDebug(output)
+		l.writeOutputToDebug(output, octx)
 	}
 
 	// Create bubble if bubble_logging is enabled for this level/category
@@ -673,12 +732,13 @@ func (l *Logger) LogMulti(level LogLevel, cats []LogCategory, message string, po
 		return
 	}
 
-	// Get LogConfig from output context's module environment (if available)
+	// Get LogConfig from the current goroutine's output context (if available)
+	octx := l.currentOutputContext()
 	var logConfig *LogConfig
 	var state *ExecutionState
-	if l.outputContext != nil && l.outputContext.State != nil && l.outputContext.State.moduleEnv != nil {
-		logConfig = l.outputContext.State.moduleEnv.GetLogConfig()
-		state = l.outputContext.State
+	if octx != nil && octx.State != nil && octx.State.moduleEnv != nil {
+		logConfig = octx.State.moduleEnv.GetLogConfig()
+		state = octx.State
 	}
 
 	// Determine which outputs this message should go to
@@ -760,10 +820,10 @@ func (l *Logger) LogMulti(level LogLevel, cats []LogCategory, message string, po
 
 	// Send to each destination that passed its filter
 	if sendToErr {
-		l.writeOutputToErr(output)
+		l.writeOutputToErr(output, octx)
 	}
 	if sendToOut {
-		l.writeOutputToDebug(output)
+		l.writeOutputToDebug(output, octx)
 	}
 
 	// Create bubbles if bubble_logging is enabled - one for each category
@@ -784,10 +844,11 @@ func (l *Logger) LogMulti(level LogLevel, cats []LogCategory, message string, po
 	}
 }
 
-// writeOutputToErr writes to #err channel or stderr
-func (l *Logger) writeOutputToErr(output string) {
-	if l.outputContext != nil {
-		if err := l.outputContext.WriteToErr(output + "\n"); err == nil {
+// writeOutputToErr writes to #err channel or stderr. octx is the output context
+// captured by the caller (Log/LogMulti) for this goroutine.
+func (l *Logger) writeOutputToErr(output string, octx *OutputContext) {
+	if octx != nil {
+		if err := octx.WriteToErr(output + "\n"); err == nil {
 			return // Successfully wrote to channel
 		}
 		// Fall through to direct writer on channel error
@@ -802,10 +863,10 @@ func (l *Logger) writeOutputToErr(output string) {
 }
 
 // writeOutputToDebug writes to #debug channel or stdout (for debug logging output)
-// Uses #debug instead of #out to allow independent redirection of debug output
-func (l *Logger) writeOutputToDebug(output string) {
-	if l.outputContext != nil {
-		if err := l.outputContext.WriteToDebug(output + "\n"); err == nil {
+// Uses #debug instead of #out to allow independent redirection of debug output.
+func (l *Logger) writeOutputToDebug(output string, octx *OutputContext) {
+	if octx != nil {
+		if err := octx.WriteToDebug(output + "\n"); err == nil {
 			return // Successfully wrote to channel
 		}
 		// Fall through to direct writer on channel error
@@ -865,6 +926,17 @@ func (l *Logger) Debug(format string, args ...interface{}) {
 
 // DebugCat logs a categorized debug message
 func (l *Logger) DebugCat(cat LogCategory, format string, args ...interface{}) {
+	// Skip the Sprintf when the message would be dropped anyway. With no
+	// per-goroutine output context active, debug routing is governed solely by the
+	// legacy enabled flag/categories — the same decision Log makes on its octx==nil
+	// path — so we can reject here without the expensive goid() lookup. This is the
+	// overwhelmingly common case (debug off), and every DebugCat arg list is
+	// otherwise formatted just to be discarded.
+	if l.boundContext == nil && atomic.LoadInt32(&l.activeContexts) == 0 {
+		if !l.shouldLog(LevelDebug, cat) {
+			return
+		}
+	}
 	l.Log(LevelDebug, cat, fmt.Sprintf(format, args...), nil, nil)
 }
 
@@ -963,10 +1035,20 @@ func (l *Logger) LogWithState(level LogLevel, cat LogCategory, message string, p
 		return
 	}
 
-	// Temporarily set the output context
-	oldCtx := l.outputContext
-	l.outputContext = NewOutputContext(state, executor)
-	defer func() { l.outputContext = oldCtx }()
+	// Temporarily set the output context for THIS goroutine, restoring whatever
+	// was previously in effect afterward (nested-safe, concurrency-safe).
+	var prev *OutputContext
+	if v, ok := l.outputContexts.Load(goid()); ok {
+		prev = v.(*OutputContext)
+	}
+	l.SetOutputContext(NewOutputContext(state, executor))
+	defer func() {
+		if prev != nil {
+			l.SetOutputContext(prev)
+		} else {
+			l.ClearOutputContext()
+		}
+	}()
 
 	l.Log(level, cat, message, position, context)
 }

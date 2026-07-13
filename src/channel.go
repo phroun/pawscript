@@ -4,6 +4,21 @@ import (
 	"fmt"
 )
 
+// canonicalChannel returns the channel that owns the shared state (message
+// buffer + subscriber map). A subscriber endpoint shares its parent's buffer,
+// so every operation must serialize on the parent's mutex — otherwise two
+// endpoints of the same logical channel hold different locks while mutating the
+// same Messages slice / ConsumedBy maps, which is a data race.
+//
+// IsSubscriber and ParentChannel are set once in NewChannelSubscriber and never
+// mutated afterward, so reading them without a lock is safe.
+func canonicalChannel(ch *StoredChannel) *StoredChannel {
+	if ch.IsSubscriber && ch.ParentChannel != nil {
+		return ch.ParentChannel
+	}
+	return ch
+}
+
 // ChannelSubscribe creates a new subscriber endpoint for a channel
 func ChannelSubscribe(ch *StoredChannel) (*StoredChannel, error) {
 	if ch == nil {
@@ -40,8 +55,10 @@ func ChannelSend(ch *StoredChannel, value interface{}) error {
 		return fmt.Errorf("channel is nil")
 	}
 
-	ch.mu.Lock()
-	defer ch.mu.Unlock()
+	// Serialize on the main channel's lock so all endpoints share one mutex.
+	mainCh := canonicalChannel(ch)
+	mainCh.mu.Lock()
+	defer mainCh.mu.Unlock()
 
 	if ch.IsClosed {
 		return fmt.Errorf("channel is closed")
@@ -52,11 +69,8 @@ func ChannelSend(ch *StoredChannel, value interface{}) error {
 		return ch.NativeSend(value)
 	}
 
-	// Get the main channel
-	mainCh := ch
 	senderID := 0
 	if ch.IsSubscriber {
-		mainCh = ch.ParentChannel
 		senderID = ch.SubscriberID
 	}
 
@@ -105,6 +119,15 @@ func ChannelSend(ch *StoredChannel, value interface{}) error {
 		_ = mainCh.CustomSend // Placeholder for future implementation
 	}
 
+	// Claim a reference on the buffered value so the sent object survives while
+	// queued, even if the sender's scope releases its own reference before a
+	// receiver reads it. The matching release happens when the message leaves the
+	// buffer (fully consumed in ChannelRecv, or discarded in ChannelClose / when
+	// the channel object is freed). Mirrors how SpawnFiber claims fiber args.
+	if mainCh.executor != nil {
+		claimNestedReferences(value, mainCh.executor)
+	}
+
 	mainCh.Messages = append(mainCh.Messages, msg)
 
 	return nil
@@ -118,10 +141,12 @@ func ChannelRecv(ch *StoredChannel) (int, interface{}, error) {
 		return 0, nil, fmt.Errorf("channel is nil")
 	}
 
-	ch.mu.Lock()
+	// Serialize on the main channel's lock so all endpoints share one mutex.
+	mainCh := canonicalChannel(ch)
+	mainCh.mu.Lock()
 
 	if ch.IsClosed {
-		ch.mu.Unlock()
+		mainCh.mu.Unlock()
 		return 0, nil, fmt.Errorf("channel is closed")
 	}
 
@@ -129,19 +154,16 @@ func ChannelRecv(ch *StoredChannel) (int, interface{}, error) {
 	// Release lock before calling NativeRecv since it may block
 	if ch.NativeRecv != nil {
 		nativeRecv := ch.NativeRecv
-		ch.mu.Unlock()
+		mainCh.mu.Unlock()
 		value, err := nativeRecv()
 		return 0, value, err
 	}
 
 	// For non-native path, use defer unlock
-	defer ch.mu.Unlock()
+	defer mainCh.mu.Unlock()
 
-	// Get the main channel and receiver ID
-	mainCh := ch
 	receiverID := 0
 	if ch.IsSubscriber {
-		mainCh = ch.ParentChannel
 		receiverID = ch.SubscriberID
 	}
 
@@ -156,6 +178,17 @@ func ChannelRecv(ch *StoredChannel) (int, interface{}, error) {
 
 		// Mark as consumed by this receiver
 		msg.ConsumedBy[receiverID] = true
+
+		// Claim a "transfer" reference on the returned value BEFORE any cleanup
+		// release below. This recv may also be the one that fully consumes the
+		// message and drops its send-time claim; claiming first guarantees the
+		// object survives being handed back to the caller instead of being freed
+		// mid-return. The caller (channel_recv) releases this transfer ref once,
+		// after taking its own ownership. Callers that recv from native channels
+		// take the early-return path above and never see a transfer ref.
+		if mainCh.executor != nil {
+			claimNestedReferences(msg.Value, mainCh.executor)
+		}
 
 		// Check if all recipients have consumed this message
 		allConsumed := true
@@ -185,6 +218,16 @@ func ChannelRecv(ch *StoredChannel) (int, interface{}, error) {
 				}
 			}
 			if cleanupCount > 0 {
+				// Release the send-time claim for each message leaving the buffer.
+				// The value the current caller is receiving is protected by the
+				// transfer ref claimed just above, so it can't be freed here.
+				// (mainCh.mu is held; the release acquires e.mu — the channel-free
+				// path never takes a channel mutex, so there is no lock cycle.)
+				if mainCh.executor != nil {
+					for j := 0; j < cleanupCount; j++ {
+						releaseNestedReferences(mainCh.Messages[j].Value, mainCh.executor)
+					}
+				}
 				mainCh.Messages = mainCh.Messages[cleanupCount:]
 			}
 		}
@@ -202,8 +245,10 @@ func ChannelClose(ch *StoredChannel) error {
 		return fmt.Errorf("channel is nil")
 	}
 
-	ch.mu.Lock()
-	defer ch.mu.Unlock()
+	// Serialize on the main channel's lock so all endpoints share one mutex.
+	mainCh := canonicalChannel(ch)
+	mainCh.mu.Lock()
+	defer mainCh.mu.Unlock()
 
 	if ch.IsClosed {
 		return fmt.Errorf("channel already closed")
@@ -228,6 +273,15 @@ func ChannelClose(ch *StoredChannel) error {
 		}
 		ch.Subscribers = make(map[int]*StoredChannel)
 
+		// Release the send-time claim for any messages still buffered (never fully
+		// consumed), then drop them so a later free doesn't double-release.
+		if ch.executor != nil {
+			for i := range ch.Messages {
+				releaseNestedReferences(ch.Messages[i].Value, ch.executor)
+			}
+		}
+		ch.Messages = nil
+
 		// Call custom close handler if present
 		// nolint:staticcheck // TODO: Execute custom close macro when implemented
 		if ch.CustomClose != nil {
@@ -249,8 +303,9 @@ func ChannelDisconnect(ch *StoredChannel, subscriberID int) error {
 		return fmt.Errorf("cannot disconnect from a subscriber endpoint")
 	}
 
-	ch.mu.Lock()
-	defer ch.mu.Unlock()
+	mainCh := canonicalChannel(ch)
+	mainCh.mu.Lock()
+	defer mainCh.mu.Unlock()
 
 	if ch.IsClosed {
 		return fmt.Errorf("channel is closed")
@@ -274,8 +329,9 @@ func ChannelIsOpened(ch *StoredChannel) bool {
 		return false
 	}
 
-	ch.mu.RLock()
-	defer ch.mu.RUnlock()
+	mainCh := canonicalChannel(ch)
+	mainCh.mu.RLock()
+	defer mainCh.mu.RUnlock()
 
 	return !ch.IsClosed
 }
@@ -286,19 +342,17 @@ func ChannelLen(ch *StoredChannel) int {
 		return 0
 	}
 
-	ch.mu.RLock()
-	defer ch.mu.RUnlock()
+	mainCh := canonicalChannel(ch)
+	mainCh.mu.RLock()
+	defer mainCh.mu.RUnlock()
 
 	// Check for native length handler first (for Go channel backing)
 	if ch.NativeLen != nil {
 		return ch.NativeLen()
 	}
 
-	// Get the main channel and receiver ID
-	mainCh := ch
 	receiverID := 0
 	if ch.IsSubscriber {
-		mainCh = ch.ParentChannel
 		receiverID = ch.SubscriberID
 	}
 

@@ -3912,11 +3912,13 @@ func runScriptFromCLI(scriptContent, scriptFile string, scriptArgs []string, win
 			fileAccess.ReadRoots = []string{absPath}
 			fileAccess.WriteRoots = []string{absPath}
 			fileAccess.ExecRoots = []string{absPath}
+			fileAccess.IncludeRoots = []string{absPath}
 		} else {
 			// Check environment variables first
 			envReadRoots := os.Getenv("PAW_READ_ROOTS")
 			envWriteRoots := os.Getenv("PAW_WRITE_ROOTS")
 			envExecRoots := os.Getenv("PAW_EXEC_ROOTS")
+			envIncludeRoots := os.Getenv("PAW_INCLUDE_ROOTS")
 
 			if envReadRoots != "" {
 				fileAccess.ReadRoots = parseRoots(envReadRoots)
@@ -3963,6 +3965,14 @@ func runScriptFromCLI(scriptContent, scriptFile string, scriptArgs []string, win
 			}
 			if execRoots != "" {
 				fileAccess.ExecRoots = append(fileAccess.ExecRoots, parseRoots(execRoots)...)
+			}
+
+			if envIncludeRoots != "" {
+				fileAccess.IncludeRoots = parseRoots(envIncludeRoots)
+			} else if scriptDir != "" {
+				fileAccess.IncludeRoots = append(fileAccess.IncludeRoots, scriptDir)
+			} else if cwd != "" {
+				fileAccess.IncludeRoots = append(fileAccess.IncludeRoots, cwd)
 			}
 		}
 	}
@@ -5075,6 +5085,7 @@ func runScript(filePath string) {
 		ReadRoots:  []string{scriptDir, cwd, tmpDir},
 		WriteRoots: []string{filepath.Join(scriptDir, "saves"), filepath.Join(scriptDir, "output"), filepath.Join(cwd, "saves"), filepath.Join(cwd, "output"), tmpDir},
 		ExecRoots:  []string{filepath.Join(scriptDir, "helpers"), filepath.Join(scriptDir, "bin")},
+		IncludeRoots: []string{scriptDir},
 	}
 
 	// Create a new PawScript instance for this script
@@ -5411,6 +5422,7 @@ func createConsoleWindow(filePath string) {
 		ReadRoots:  []string{scriptDir, cwd, tmpDir},
 		WriteRoots: []string{filepath.Join(scriptDir, "saves"), filepath.Join(scriptDir, "output"), filepath.Join(cwd, "saves"), filepath.Join(cwd, "output"), tmpDir},
 		ExecRoots:  []string{filepath.Join(scriptDir, "helpers"), filepath.Join(scriptDir, "bin")},
+		IncludeRoots: []string{scriptDir},
 	}
 
 	ps := pawscript.New(&pawscript.Config{

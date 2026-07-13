@@ -332,6 +332,9 @@ type IteratorState struct {
 	Keys       []string      // Keys to iterate (for "pair")
 	KeyIndex   int           // Current key position (for "pair")
 	Rng        *rand.Rand    // Random number generator (for "rng")
+	RngMu      sync.Mutex    // Guards Rng: *rand.Rand is not safe for concurrent
+	//                          use, and #random is a single shared generator that
+	//                          multiple fibers can pull from at once.
 	// Range iterator fields
 	RangeStart   float64 // Start value (for "range")
 	RangeEnd     float64 // End value (for "range")
@@ -533,6 +536,22 @@ type FileAccessConfig struct {
 	ReadRoots  []string // Directories allowed for read access (empty = no access)
 	WriteRoots []string // Directories allowed for write access (empty = no access)
 	ExecRoots  []string // Directories allowed for exec command (empty = no access)
+	// IncludeRoots controls where the `include` command may load module files
+	// from. Loading code is a separate trust axis from reading data, so it has its
+	// own root set rather than reusing ReadRoots (an app can restrict data reads
+	// to one path while loading modules from its own folder). nil = unrestricted
+	// (back-compat), empty = no includes allowed, listed = only within those dirs.
+	IncludeRoots []string
+	// FollowSymlinks controls whether a path may resolve outside its allowed
+	// roots by traversing a symlink. When false (the default), a path whose real
+	// (symlink-resolved) location escapes the allowed roots is denied, so a
+	// symlink planted inside a root cannot redirect an operation outside it. When
+	// true, symlinks are followed wherever they point — only enable this if you
+	// trust the contents of the allowed roots. Note that PawScript exposes no
+	// command that creates a symlink, so a sandboxed script cannot introduce an
+	// escaping symlink itself; this setting only governs symlinks already present
+	// in the roots.
+	FollowSymlinks bool
 }
 
 // Config holds configuration for PawScript
@@ -727,6 +746,10 @@ type StoredChannel struct {
 	Messages        []ChannelMessage
 	Subscribers     map[int]*StoredChannel // Map of subscriber ID to subscriber endpoint
 	NextSubscriberID int
+	// executor is used to claim/release references on buffered message values so
+	// a sent object survives while queued (set by RegisterObject). May be nil for
+	// channels never registered as objects; ref-counting is then skipped.
+	executor        *Executor
 	IsClosed        bool
 	IsSubscriber    bool             // True if this is a subscriber endpoint
 	SubscriberID    int              // ID of this subscriber (0 for main channel)
@@ -1872,8 +1895,20 @@ type StoredStruct struct {
 	length     int    // Number of records (-1 for single struct, >= 0 for array)
 }
 
+// MaxStructBytes bounds the total backing-array size of a struct (single or
+// array). It guards script-controlled sizes from triggering an uncatchable OOM
+// or an int-overflow makeslice panic. 256 MiB is far beyond any realistic
+// struct while keeping size*count well inside int64.
+const MaxStructBytes = 256 << 20 // 256 MiB
+
 // NewStoredStruct creates a new single struct instance
 func NewStoredStruct(defID int, size int) StoredStruct {
+	// Defensive: callers (struct/struct_def) validate and report errors, but a
+	// hand-crafted definition could still reach here with a bad size. Never
+	// panic or OOM on make() — clamp instead.
+	if size < 0 || int64(size) > MaxStructBytes {
+		size = 0
+	}
 	data := make([]byte, size)
 	return StoredStruct{
 		defID:      defID,
@@ -1886,7 +1921,19 @@ func NewStoredStruct(defID int, size int) StoredStruct {
 
 // NewStoredStructArray creates a new struct array with n elements
 func NewStoredStructArray(defID int, size int, n int) StoredStruct {
-	data := make([]byte, size*n)
+	// Defensive clamp: never let a script-controlled size*n panic makeslice or
+	// OOM. Upstream handlers validate and surface a proper error.
+	if size < 0 {
+		size = 0
+	}
+	if n < 0 {
+		n = 0
+	}
+	total := int64(size) * int64(n)
+	if total > MaxStructBytes {
+		size, n, total = 0, 0, 0
+	}
+	data := make([]byte, total)
 	return StoredStruct{
 		defID:      defID,
 		data:       data,
@@ -1999,7 +2046,9 @@ func (ss StoredStruct) Compact() StoredStruct {
 func (ss StoredStruct) GetBytesAt(fieldOffset, fieldLength int) ([]byte, bool) {
 	start := ss.offset + fieldOffset
 	end := start + fieldLength
-	if end > len(ss.data) {
+	// Guard every bound: a hand-crafted definition can supply a negative offset
+	// or length, which would otherwise slice out of range and panic.
+	if fieldLength < 0 || start < 0 || end < start || end > len(ss.data) {
 		return nil, false
 	}
 	return ss.data[start:end], true
@@ -2012,6 +2061,11 @@ func (ss StoredStruct) SetBytesAt(fieldOffset int, value []byte, maxLen int) boo
 	if copyLen > maxLen {
 		copyLen = maxLen
 	}
+	// The write path was previously unchecked: a crafted field offset/length
+	// (e.g. offset 1000 on a 2-byte array) sliced out of range and panicked.
+	if copyLen < 0 || start < 0 || start+copyLen > len(ss.data) {
+		return false
+	}
 	copy(ss.data[start:start+copyLen], value[:copyLen])
 	return true
 }
@@ -2020,7 +2074,11 @@ func (ss StoredStruct) SetBytesAt(fieldOffset int, value []byte, maxLen int) boo
 func (ss StoredStruct) ZeroPadAt(fieldOffset, startPos, fieldLength int) {
 	start := ss.offset + fieldOffset
 	for i := startPos; i < fieldLength; i++ {
-		ss.data[start+i] = 0
+		idx := start + i
+		if idx < 0 || idx >= len(ss.data) {
+			continue
+		}
+		ss.data[idx] = 0
 	}
 }
 

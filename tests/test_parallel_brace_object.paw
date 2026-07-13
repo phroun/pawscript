@@ -1,0 +1,9 @@
+# Regression: a parallel async brace whose brace-state owns an object reference.
+# When the coordinator completes, ResumeBraceEvaluation transfers that ownership
+# to the parent. That transfer previously ran while holding the executor lock and
+# called ClaimObjectReference/ReleaseAllReferences (which re-acquire it) — a
+# guaranteed self-deadlock. This script hangs on the pre-fix interpreter and
+# completes here.
+echo {tmp: {list "a","b"}; msleep 1; ret ~tmp}, {msleep 1; ret "d1"}
+echo {tmp: {list "c","d"}; msleep 1; ret ~tmp}, {msleep 1; ret "d2"}
+echo "brace-object test complete"

@@ -66,6 +66,61 @@ func (w *channelWriter) Write(p []byte) (n int, err error) {
 	return len(p), nil
 }
 
+// validateExecAccess enforces the exec sandbox for a resolved command and
+// returns the cleaned absolute path of the command, or an error if exec is
+// denied.
+//
+// Model B (deny-by-default): when a FileAccess sandbox is configured, exec
+// requires explicitly-listed ExecRoots. An empty or nil ExecRoots permits no
+// execution at all (fail closed) — fully unrestricted exec is only available
+// when FileAccess itself is nil (e.g. the --unrestricted CLI mode). A permitted
+// command must resolve within one of the ExecRoots and must not sit inside a
+// WriteRoot (write-then-execute guard).
+//
+// cmdName is the original argument, used only for the "not found" message;
+// resolvedCmd is the path/name to actually resolve (absolute, or a PATH lookup).
+func validateExecAccess(config *Config, cmdName, resolvedCmd string) (string, error) {
+	// No sandbox configured -> unrestricted exec.
+	if config == nil || config.FileAccess == nil {
+		return resolvedCmd, nil
+	}
+	fileAccess := config.FileAccess
+
+	// Deny-by-default: exec is off unless ExecRoots explicitly lists directories.
+	if len(fileAccess.ExecRoots) == 0 {
+		return "", fmt.Errorf("access denied: exec is disabled (no exec roots configured)")
+	}
+
+	// Resolve the command to an absolute path for validation.
+	var cmdPath string
+	var err error
+	if filepath.IsAbs(resolvedCmd) {
+		cmdPath = resolvedCmd
+		if _, err = os.Stat(cmdPath); err != nil {
+			return "", fmt.Errorf("command not found: %s", cmdName)
+		}
+	} else {
+		cmdPath, err = exec.LookPath(resolvedCmd)
+		if err != nil {
+			return "", fmt.Errorf("command not found: %s", cmdName)
+		}
+	}
+	cmdPath, _ = filepath.Abs(cmdPath)
+	cmdPath = filepath.Clean(cmdPath)
+
+	// Must resolve within an allowed exec root.
+	if !pathWithinRoots(cmdPath, fileAccess.ExecRoots) {
+		return "", fmt.Errorf("access denied: command outside allowed roots")
+	}
+
+	// Must not sit inside a writable root (prevents write-then-execute).
+	if len(fileAccess.WriteRoots) > 0 && pathWithinRoots(cmdPath, fileAccess.WriteRoots) {
+		return "", fmt.Errorf("access denied: cannot execute from writable directory (security restriction)")
+	}
+
+	return cmdPath, nil
+}
+
 // RegisterSystemLib registers OS, IO, and system commands
 // Modules: os, io, sys
 func (ps *PawScript) RegisterSystemLib(scriptArgs []string) {
@@ -549,68 +604,13 @@ func (ps *PawScript) RegisterSystemLib(scriptArgs []string) {
 			}
 		}
 
-		// Validate exec access against ExecRoots if configured
-		if ps.config != nil && ps.config.FileAccess != nil {
-			fileAccess := ps.config.FileAccess
-			if len(fileAccess.ExecRoots) > 0 {
-				// Resolve the command path for validation
-				var cmdPath string
-				var err error
-				if filepath.IsAbs(resolvedCmd) {
-					cmdPath = resolvedCmd
-					// Check if the file exists
-					if _, err = os.Stat(cmdPath); err != nil {
-						ctx.LogError(CatIO, fmt.Sprintf("exec: command not found: %s", cmdName))
-						return BoolStatus(false)
-					}
-				} else {
-					// Try to find the command in PATH
-					cmdPath, err = exec.LookPath(resolvedCmd)
-					if err != nil {
-						ctx.LogError(CatIO, fmt.Sprintf("exec: command not found: %s", cmdName))
-						return BoolStatus(false)
-					}
-				}
-				cmdPath, _ = filepath.Abs(cmdPath)
-				cmdPath = filepath.Clean(cmdPath)
-
-				// Check if command is within allowed exec roots
-				// Use case-insensitive comparison on Windows/macOS
-				allowed := false
-				for _, root := range fileAccess.ExecRoots {
-					// Normalize root path to handle any .. sequences
-					absRoot, err := filepath.Abs(root)
-					if err != nil {
-						continue
-					}
-					absRoot = filepath.Clean(absRoot)
-					if pathHasPrefix(cmdPath, absRoot+string(filepath.Separator)) || pathEquals(cmdPath, absRoot) {
-						allowed = true
-						break
-					}
-				}
-				if !allowed {
-					ctx.LogError(CatIO, "exec: access denied: command outside allowed roots")
-					return BoolStatus(false)
-				}
-
-				// Security: exec roots must not overlap with write roots
-				// This prevents write-then-execute attacks
-				// Use case-insensitive comparison on Windows/macOS
-				if len(fileAccess.WriteRoots) > 0 {
-					for _, writeRoot := range fileAccess.WriteRoots {
-						absWriteRoot, err := filepath.Abs(writeRoot)
-						if err != nil {
-							continue
-						}
-						absWriteRoot = filepath.Clean(absWriteRoot)
-						if pathHasPrefix(cmdPath, absWriteRoot+string(filepath.Separator)) || pathEquals(cmdPath, absWriteRoot) {
-							ctx.LogError(CatIO, "exec: access denied: cannot execute from writable directory (security restriction)")
-							return BoolStatus(false)
-						}
-					}
-				}
-			}
+		// Validate exec access. Model B: when a FileAccess sandbox is configured,
+		// exec is deny-by-default and requires explicitly-listed ExecRoots (empty/
+		// nil ExecRoots permits nothing). Unrestricted exec only when FileAccess is
+		// nil. Also blocks execution from a writable root (write-then-execute).
+		if _, err := validateExecAccess(ps.config, cmdName, resolvedCmd); err != nil {
+			ctx.LogError(CatIO, fmt.Sprintf("exec: %v", err))
+			return BoolStatus(false)
 		}
 
 		var cmdArgs []string

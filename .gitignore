@@ -23,3 +23,7 @@ js/pawscript.wasm
 testfiles
 /pawgui-gtk
 /pawgui-qt
+
+# Go test binaries and profiles
+*.test
+*.prof
