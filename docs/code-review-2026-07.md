@@ -252,14 +252,49 @@ reproduced by the available fixtures — see the note at the end of this section
 
 ## Sandbox / file access — hardening (LOW–MED)
 
-- **Symlink bypass of file sandbox** (`lib_files.go:45` `validatePathAccess`):
-  roots are enforced on the cleaned textual path only; no `filepath.EvalSymlinks`
-  and no `O_NOFOLLOW`. A symlink inside an allowed root pointing outside it passes
-  the prefix check, and `open`/`RemoveAll` follow it. Affects `file`, `rm`/`rmdir`.
+- ✅ **FIXED — Symlink bypass of file sandbox** (`lib_files.go` `validateFileAccess`).
+  Roots were enforced on the cleaned textual path only (no symlink resolution), so
+  a symlink inside an allowed root pointing outside it passed the prefix check and
+  `open`/`RemoveAll` followed it. Fixed by adding a `FollowSymlinks bool` to
+  `FileAccessConfig` (**default false = secure**). When disabled, after the textual
+  root check the validator resolves the path's real location
+  (`filepath.EvalSymlinks`, walking up to the deepest existing ancestor for
+  not-yet-created leaves) and requires it to stay within the *resolved* roots — so
+  a symlink that escapes a root is denied, while a symlink that stays in-jail (or a
+  root reached through a symlink like `/tmp`→`/private/tmp`) still works. When
+  enabled, symlinks are followed wherever they point (operator opts into trusting
+  root contents). The whole path-validation moved into the package-level
+  `validateFileAccess(config, path, needsWrite)` so it is unit-testable; every
+  `file`/`rm`/`rmdir`/`mkdir`/`list_dir`/`file_*` command already funnels through
+  it, so the guard is applied at a single chokepoint. Opt-in via `--follow-symlinks`
+  / `PAW_FOLLOW_SYMLINKS=1`.
+
+  **Security invariant behind the option:** following symlinks is only safe
+  because a sandboxed script *cannot create* a symlink — PawScript exposes no
+  link-making command and no `os.Symlink`/`os.Link` call exists in the
+  interpreter, so a script cannot plant an escaping symlink itself; the guard only
+  has to defend against symlinks already present in the roots. This is locked down
+  by `TestNoSymlinkCreatingCommand`, which fails if any link-creating command is
+  ever registered. Guarded by `lib_files_test.go` (escape denied/allowed by mode,
+  in-jail symlink allowed, create-through-escaping-parent denied, leaf-symlink
+  write denied) — verified non-vacuous by disabling the guard — plus an
+  end-to-end `--sandbox` escape check through the `paw` binary.
+
+  *Known limitation:* the check is resolve-then-open, so a symlink swapped in by an
+  **external** process between validation and the `os` call could still be followed
+  (classic TOCTOU). That is out of the script sandbox's threat model — the script
+  is the adversary and it cannot create symlinks; fully TOCTOU-safe traversal would
+  need `openat2(RESOLVE_BENEATH)`/`O_NOFOLLOW` component walks.
 - **`exec` empty-allowlist default is allow-all** (`lib_system.go:534`): the
   allow-list only applies `if len(ExecRoots) > 0`; empty means unrestricted
   process execution — the opposite of read/write roots, where empty means
-  deny-all. Easy misconfiguration into arbitrary command execution.
+  deny-all. Easy misconfiguration into arbitrary command execution. **Note the
+  interaction with the symlink guard:** an enabled `exec` is also the one way a
+  script *could* create a symlink (`ln -s`, `mklink`), which would defeat
+  `FollowSymlinks=true`. Exec is a strictly larger capability than symlink
+  creation (it is arbitrary code execution), so this is governed by the exec
+  allow-list, not the file sandbox; fixing the empty-allowlist default to
+  deny-all would also close the exec-based symlink-creation path.
 - **No recursion depth limit in `json`** (`lib_core.go` ~1047): deeply nested
   input can exhaust the stack.
 

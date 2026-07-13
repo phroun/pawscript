@@ -536,6 +536,16 @@ type FileAccessConfig struct {
 	ReadRoots  []string // Directories allowed for read access (empty = no access)
 	WriteRoots []string // Directories allowed for write access (empty = no access)
 	ExecRoots  []string // Directories allowed for exec command (empty = no access)
+	// FollowSymlinks controls whether a path may resolve outside its allowed
+	// roots by traversing a symlink. When false (the default), a path whose real
+	// (symlink-resolved) location escapes the allowed roots is denied, so a
+	// symlink planted inside a root cannot redirect an operation outside it. When
+	// true, symlinks are followed wherever they point — only enable this if you
+	// trust the contents of the allowed roots. Note that PawScript exposes no
+	// command that creates a symlink, so a sandboxed script cannot introduce an
+	// escaping symlink itself; this setting only governs symlinks already present
+	// in the roots.
+	FollowSymlinks bool
 }
 
 // Config holds configuration for PawScript

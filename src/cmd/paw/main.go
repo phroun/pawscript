@@ -312,6 +312,7 @@ func main() {
 	writeRootsFlag := flag.String("write-roots", "", "Additional directories for file writing")
 	execRootsFlag := flag.String("exec-roots", "", "Additional directories for exec command")
 	sandboxFlag := flag.String("sandbox", "", "Restrict all access to this directory only")
+	followSymlinksFlag := flag.Bool("follow-symlinks", false, "Allow following symlinks that resolve outside the allowed roots (unsafe; only if you trust root contents)")
 
 	// Optimization level flag
 	optLevelFlag := flag.Int("O", 1, "Optimization level (0=no caching, 1=cache macro/loop bodies)")
@@ -420,6 +421,10 @@ func main() {
 
 	if !*unrestrictedFlag {
 		fileAccess = &pawscript.FileAccessConfig{}
+		// Following symlinks out of the sandbox is off by default; opt in via flag
+		// or PAW_FOLLOW_SYMLINKS=1/true.
+		envFollow := os.Getenv("PAW_FOLLOW_SYMLINKS")
+		fileAccess.FollowSymlinks = *followSymlinksFlag || envFollow == "1" || strings.EqualFold(envFollow, "true")
 		cwd, _ := os.Getwd()
 		tmpDir := os.TempDir()
 
