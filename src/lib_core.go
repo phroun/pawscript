@@ -3604,9 +3604,22 @@ func (ps *PawScript) RegisterCoreLib() {
 			filename = filename[1 : len(filename)-1]
 		}
 
-		content, err := os.ReadFile(filename)
+		// Enforce the include sandbox (IncludeRoots + symlink guard) and resolve
+		// the path relative to ScriptDir. Loading code is gated separately from
+		// data reads (ReadRoots) so an app can restrict data to one path while
+		// loading its own modules from another.
+		absPath, err := validateIncludeAccess(ps.config, filename)
 		if err != nil {
-			ctx.LogError(CatIO, fmt.Sprintf("include: failed to read file %s: %v", filename, err))
+			ctx.LogError(CatIO, fmt.Sprintf("include: %v", err))
+			return BoolStatus(false)
+		}
+
+		content, err := os.ReadFile(absPath)
+		if err != nil {
+			// Report the target as written, not the resolved absolute path, so the
+			// error is stable regardless of ScriptDir.
+			msg := strings.Replace(err.Error(), absPath, filename, 1)
+			ctx.LogError(CatIO, fmt.Sprintf("include: failed to read file %s: %s", filename, msg))
 			return BoolStatus(false)
 		}
 

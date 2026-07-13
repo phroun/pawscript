@@ -172,6 +172,102 @@ func TestValidateFileAccess_RootSemantics(t *testing.T) {
 	}
 }
 
+// TestValidateIncludeAccess_RootSemantics: nil IncludeRoots = unrestricted
+// (back-compat), empty = deny-all, listed = allow only within.
+func TestValidateIncludeAccess_RootSemantics(t *testing.T) {
+	app := t.TempDir()
+	mod := filepath.Join(app, "mod.paw")
+	if err := os.WriteFile(mod, []byte("print \"hi\"\n"), 0644); err != nil {
+		t.Fatal(err)
+	}
+
+	// nil FileAccess -> unrestricted.
+	if _, err := validateIncludeAccess(&Config{}, mod); err != nil {
+		t.Errorf("nil FileAccess should allow include, got %v", err)
+	}
+	// nil IncludeRoots (sandbox set, include roots unset) -> unrestricted (back-compat).
+	cfgNil := &Config{FileAccess: &FileAccessConfig{ReadRoots: []string{app}}}
+	if _, err := validateIncludeAccess(cfgNil, mod); err != nil {
+		t.Errorf("nil IncludeRoots should be unrestricted, got %v", err)
+	}
+	// empty IncludeRoots -> deny-all.
+	cfgEmpty := &Config{FileAccess: &FileAccessConfig{IncludeRoots: []string{}}}
+	if _, err := validateIncludeAccess(cfgEmpty, mod); err == nil {
+		t.Error("empty IncludeRoots should deny all includes")
+	}
+	// listed -> allowed within, denied outside.
+	cfg := &Config{FileAccess: &FileAccessConfig{IncludeRoots: []string{app}}}
+	if _, err := validateIncludeAccess(cfg, mod); err != nil {
+		t.Errorf("expected include allowed within root, got %v", err)
+	}
+	outside := filepath.Join(t.TempDir(), "other.paw")
+	if err := os.WriteFile(outside, []byte("x\n"), 0644); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := validateIncludeAccess(cfg, outside); err == nil {
+		t.Error("expected include outside root denied")
+	}
+}
+
+// TestValidateIncludeAccess_IndependentOfReadRoots is the property the whole
+// feature exists for: an app can load modules from its own folder while its data
+// reads are confined to a different path. IncludeRoots and ReadRoots are checked
+// independently — neither implies the other.
+func TestValidateIncludeAccess_IndependentOfReadRoots(t *testing.T) {
+	appDir := t.TempDir()  // where modules live
+	dataDir := t.TempDir() // where data reads are confined
+	mod := filepath.Join(appDir, "mod.paw")
+	data := filepath.Join(dataDir, "data.txt")
+	for _, p := range []string{mod, data} {
+		if err := os.WriteFile(p, []byte("x\n"), 0644); err != nil {
+			t.Fatal(err)
+		}
+	}
+
+	cfg := &Config{FileAccess: &FileAccessConfig{
+		ReadRoots:    []string{dataDir}, // data only
+		IncludeRoots: []string{appDir},  // modules only
+	}}
+
+	// A module in appDir: includable, but NOT readable as data.
+	if _, err := validateIncludeAccess(cfg, mod); err != nil {
+		t.Errorf("module in IncludeRoots should be includable, got %v", err)
+	}
+	if _, err := validateFileAccess(cfg, mod, false); err == nil {
+		t.Error("module in appDir should NOT be readable as data (outside ReadRoots)")
+	}
+
+	// A data file in dataDir: readable, but NOT includable.
+	if _, err := validateFileAccess(cfg, data, false); err != nil {
+		t.Errorf("data in ReadRoots should be readable, got %v", err)
+	}
+	if _, err := validateIncludeAccess(cfg, data); err == nil {
+		t.Error("data file should NOT be includable (outside IncludeRoots)")
+	}
+}
+
+// TestValidateIncludeAccess_SymlinkEscape: the include sandbox honors the same
+// symlink guard as file reads.
+func TestValidateIncludeAccess_SymlinkEscape(t *testing.T) {
+	app := t.TempDir()
+	outside := t.TempDir()
+	if err := os.WriteFile(filepath.Join(outside, "evil.paw"), []byte("x\n"), 0644); err != nil {
+		t.Fatal(err)
+	}
+	link := filepath.Join(app, "escape")
+	skipIfNoSymlink(t, outside, link)
+
+	target := filepath.Join(link, "evil.paw") // resolves outside app
+	cfg := &Config{FileAccess: &FileAccessConfig{IncludeRoots: []string{app}, FollowSymlinks: false}}
+	if _, err := validateIncludeAccess(cfg, target); err == nil {
+		t.Error("include through escaping symlink should be denied when FollowSymlinks=false")
+	}
+	cfgFollow := &Config{FileAccess: &FileAccessConfig{IncludeRoots: []string{app}, FollowSymlinks: true}}
+	if _, err := validateIncludeAccess(cfgFollow, target); err != nil {
+		t.Errorf("FollowSymlinks=true should permit the include, got %v", err)
+	}
+}
+
 // TestNoSymlinkCreatingCommand is the invariant guard behind the FollowSymlinks
 // option: following symlinks is only safe because a sandboxed script cannot
 // CREATE a symlink. If a future change registers a link-creating command, this

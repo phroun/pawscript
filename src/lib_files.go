@@ -87,15 +87,10 @@ func resolveRealPath(absPath string) (string, error) {
 	}
 }
 
-// validateFileAccess resolves path to an absolute, cleaned path and enforces the
-// configured read/write roots. When FollowSymlinks is disabled (the default), it
-// additionally requires the path's real (symlink-resolved) location to stay
-// within the allowed roots, so a symlink inside a root cannot be followed to
-// escape it. Returns the cleaned absolute path (for the actual os call) and a nil
-// error when access is allowed.
-func validateFileAccess(config *Config, path string, needsWrite bool) (string, error) {
-	// Resolve to an absolute, cleaned path. Relative paths resolve from ScriptDir
-	// when configured, otherwise from the process working directory.
+// resolveSandboxPath resolves path to an absolute, cleaned path. Relative paths
+// resolve from ScriptDir when configured, otherwise from the process working
+// directory.
+func resolveSandboxPath(config *Config, path string) (string, error) {
 	var absPath string
 	var err error
 	if !filepath.IsAbs(path) && config != nil && config.ScriptDir != "" {
@@ -106,23 +101,15 @@ func validateFileAccess(config *Config, path string, needsWrite bool) (string, e
 			return "", fmt.Errorf("invalid path: %v", err)
 		}
 	}
-	absPath = filepath.Clean(absPath)
+	return filepath.Clean(absPath), nil
+}
 
-	// No restrictions configured.
-	if config == nil || config.FileAccess == nil {
-		return absPath, nil
-	}
-	fileAccess := config.FileAccess
-
-	// Select the roots relevant to this operation.
-	roots := fileAccess.ReadRoots
-	kind := "read"
-	if needsWrite {
-		roots = fileAccess.WriteRoots
-		kind = "write"
-	}
-
-	// nil roots means unrestricted; empty (non-nil) means deny-all.
+// enforceRoots checks absPath against a specific root set. nil roots means
+// unrestricted; empty (non-nil) means deny-all. When FollowSymlinks is disabled,
+// it additionally requires the path's real (symlink-resolved) location to stay
+// within the roots, so a symlink inside a root cannot be followed to escape it.
+// kind labels the access class in error messages ("read"/"write"/"include").
+func enforceRoots(fileAccess *FileAccessConfig, absPath string, roots []string, kind string) (string, error) {
 	if roots == nil {
 		return absPath, nil
 	}
@@ -151,6 +138,43 @@ func validateFileAccess(config *Config, path string, needsWrite bool) (string, e
 	}
 
 	return absPath, nil
+}
+
+// validateFileAccess resolves path to an absolute, cleaned path and enforces the
+// configured read/write roots (with the symlink guard). Returns the cleaned
+// absolute path (for the actual os call) and a nil error when access is allowed.
+func validateFileAccess(config *Config, path string, needsWrite bool) (string, error) {
+	absPath, err := resolveSandboxPath(config, path)
+	if err != nil {
+		return "", err
+	}
+	if config == nil || config.FileAccess == nil {
+		return absPath, nil
+	}
+	fileAccess := config.FileAccess
+	roots := fileAccess.ReadRoots
+	kind := "read"
+	if needsWrite {
+		roots = fileAccess.WriteRoots
+		kind = "write"
+	}
+	return enforceRoots(fileAccess, absPath, roots, kind)
+}
+
+// validateIncludeAccess resolves path and enforces the configured IncludeRoots
+// (with the symlink guard). Loading code (the `include` command) is a distinct
+// trust axis from reading data, so it has its own root set rather than reusing
+// ReadRoots. Semantics match read/write roots: nil = unrestricted (back-compat),
+// empty = deny-all, listed = allow only within those directories.
+func validateIncludeAccess(config *Config, path string) (string, error) {
+	absPath, err := resolveSandboxPath(config, path)
+	if err != nil {
+		return "", err
+	}
+	if config == nil || config.FileAccess == nil {
+		return absPath, nil
+	}
+	return enforceRoots(config.FileAccess, absPath, config.FileAccess.IncludeRoots, "include")
 }
 
 // pathEquals checks if two paths are equal, handling case sensitivity

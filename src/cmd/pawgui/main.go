@@ -1207,6 +1207,7 @@ func runScriptInWindow(filePath string, ws *WindowState) {
 		ReadRoots:  []string{scriptDir, cwd, tmpDir},
 		WriteRoots: []string{filepath.Join(scriptDir, "saves"), filepath.Join(scriptDir, "output"), filepath.Join(cwd, "saves"), filepath.Join(cwd, "output"), tmpDir},
 		ExecRoots:  []string{filepath.Join(scriptDir, "helpers"), filepath.Join(scriptDir, "bin")},
+		IncludeRoots: []string{scriptDir},
 	}
 
 	// Create a new PawScript instance for this script
@@ -1272,6 +1273,7 @@ func runScriptFile(filePath string) {
 		ReadRoots:  []string{scriptDir, cwd, tmpDir},
 		WriteRoots: []string{filepath.Join(scriptDir, "saves"), filepath.Join(scriptDir, "output"), filepath.Join(cwd, "saves"), filepath.Join(cwd, "output"), tmpDir},
 		ExecRoots:  []string{filepath.Join(scriptDir, "helpers"), filepath.Join(scriptDir, "bin")},
+		IncludeRoots: []string{scriptDir},
 	}
 
 	// Create a new PawScript instance for this script

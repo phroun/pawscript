@@ -26,10 +26,10 @@ Go suite is race-clean and 98 `.paw` regressions pass. The embedded async-brace
 hang ("the msleep hang"), the logger race, and the shared-variable-state race
 are all FIXED, as is the residual set of *unlocked / wrong-mutex* direct
 `variables`/`bubbleMap` accesses in the command handlers (now all routed through
-the owner-aware API). The file-sandbox **symlink escape** and the **`exec`
-empty-allowlist allow-all** (Model B: exec fail-closed) are also FIXED. Remaining
-open: the `include` command bypasses `ReadRoots` (to be given its own
-`IncludeRoots`), the `json` recursion depth limit, and the broader test-coverage
+the owner-aware API). The file-sandbox **symlink escape**, the **`exec`
+empty-allowlist allow-all** (Model B: exec fail-closed), and the **`include`
+sandbox bypass** (now gated by a dedicated `IncludeRoots`) are also FIXED.
+Remaining open: the `json` recursion depth limit and the broader test-coverage
 gaps.
 
 ## Confirmed by execution (reproduced locally)
@@ -315,6 +315,26 @@ reproduced by the available fixtures — see the note at the end of this section
   This also closes the exec-based symlink-creation path relative to
   `FollowSymlinks=true`: with exec deny-by-default, a script can't reach `ln -s`
   unless the operator explicitly lists an exec root containing it.
+- ✅ **FIXED — `include` bypassed the file sandbox** (`lib_core.go`). The
+  `include` command read module files with a bare `os.ReadFile(filename)` — no
+  root check at all (so it ignored `ReadRoots`) and it resolved relative paths
+  against the process CWD instead of `ScriptDir`. Fixed by giving `include` its
+  own **`IncludeRoots`** on `FileAccessConfig` and routing it through
+  `validateIncludeAccess` (the shared resolver/`enforceRoots` core, so it gets the
+  same symlink guard and `ScriptDir`-relative resolution as `file`). Loading code
+  is a distinct trust axis from reading data — an app can restrict `ReadRoots` to
+  a data path while loading its own modules from `IncludeRoots` — so it is a
+  separate root set, **not** folded into `ReadRoots`. Semantics match read/write
+  roots: nil = unrestricted (back-compat), empty = deny-all, listed = only within.
+  The bundled apps default `IncludeRoots` to the script's own directory
+  (`--sandbox` → the sandbox dir; `PAW_INCLUDE_ROOTS` / `--include-roots` to
+  extend). Guarded by `lib_files_test.go` (root semantics; symlink escape;
+  **independence from `ReadRoots`** — a module dir is includable-but-not-readable
+  and a data dir is readable-but-not-includable, verified non-vacuous) plus an
+  end-to-end check through the `paw` binary (own module loads, outside file
+  denied, relative include now resolves against `ScriptDir`, data/module split).
+  Strictly path-based — no pluggable module-loader callback (a possible future
+  feature for host-served modules, deliberately out of scope here).
 - **No recursion depth limit in `json`** (`lib_core.go` ~1047): deeply nested
   input can exhaust the stack.
 

@@ -74,9 +74,10 @@ func NewREPL(config REPLConfig, output func(string)) *REPL {
 		cwd, _ := GetWorkingDirectory()
 		tmpDir := GetTempDirectory()
 		fileAccess = &FileAccessConfig{
-			ReadRoots:  []string{cwd, tmpDir},
-			WriteRoots: []string{cwd, tmpDir},
-			ExecRoots:  []string{cwd},
+			ReadRoots:    []string{cwd, tmpDir},
+			WriteRoots:   []string{cwd, tmpDir},
+			ExecRoots:    []string{cwd},
+			IncludeRoots: []string{cwd},
 		}
 	}
 

@@ -536,6 +536,12 @@ type FileAccessConfig struct {
 	ReadRoots  []string // Directories allowed for read access (empty = no access)
 	WriteRoots []string // Directories allowed for write access (empty = no access)
 	ExecRoots  []string // Directories allowed for exec command (empty = no access)
+	// IncludeRoots controls where the `include` command may load module files
+	// from. Loading code is a separate trust axis from reading data, so it has its
+	// own root set rather than reusing ReadRoots (an app can restrict data reads
+	// to one path while loading modules from its own folder). nil = unrestricted
+	// (back-compat), empty = no includes allowed, listed = only within those dirs.
+	IncludeRoots []string
 	// FollowSymlinks controls whether a path may resolve outside its allowed
 	// roots by traversing a symlink. When false (the default), a path whose real
 	// (symlink-resolved) location escapes the allowed roots is denied, so a
