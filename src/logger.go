@@ -926,6 +926,17 @@ func (l *Logger) Debug(format string, args ...interface{}) {
 
 // DebugCat logs a categorized debug message
 func (l *Logger) DebugCat(cat LogCategory, format string, args ...interface{}) {
+	// Skip the Sprintf when the message would be dropped anyway. With no
+	// per-goroutine output context active, debug routing is governed solely by the
+	// legacy enabled flag/categories — the same decision Log makes on its octx==nil
+	// path — so we can reject here without the expensive goid() lookup. This is the
+	// overwhelmingly common case (debug off), and every DebugCat arg list is
+	// otherwise formatted just to be discarded.
+	if l.boundContext == nil && atomic.LoadInt32(&l.activeContexts) == 0 {
+		if !l.shouldLog(LevelDebug, cat) {
+			return
+		}
+	}
 	l.Log(LevelDebug, cat, fmt.Sprintf(format, args...), nil, nil)
 }
 

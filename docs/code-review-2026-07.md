@@ -406,3 +406,33 @@ reproduced by the available fixtures — see the note at the end of this section
    (does `Execute` hang?), cancellation/timeout.
 5. Core language semantics (assignment, if/while, objects, type system,
    substitution) — 0% via `go test`.
+
+## Performance
+
+Profiled via `BenchmarkHotLoop` (`bench_test.go`) and a CPU profile over the
+corpus. A representative 400-iteration loop does ~1000 allocs/iter, so allocation
+pressure (GC ≈ 26% of a corpus run) dominates.
+
+- ✅ **FIXED — `Logger.DebugCat` formatted then discarded.** It ran
+  `fmt.Sprintf(format, args...)` unconditionally before `Log` decided (usually) to
+  drop the message — across ~294 hot-path call sites with debug off. Gated it: when
+  no per-goroutine output context is active (`boundContext == nil &&
+  activeContexts == 0`, the common case), it applies the legacy `shouldLog` check —
+  the exact decision `Log` makes on its `octx == nil` path — and skips the Sprintf.
+  When a context is active it falls through unchanged, so behavior is identical.
+  **~18% faster and ~44k fewer allocs** on the hot-loop bench (88 → 71 ms/op).
+- ✅ **FIXED — `findStoredListID` hand-rolled bubble sort** (`executor_objects.go`).
+  Replaced the O(n²) sort with `sort.Ints` (deterministic ID selection is required —
+  claim/release must resolve an aliased backing array to the same ID). Low
+  real-world impact (not in the corpus hot path) but it removes a latent O(n²) per
+  refcount; the function's remaining O(n) linear scan still makes pathological deep
+  reference chains O(n²) to build — a full fix needs an ID reverse-index.
+- **Biggest remaining opportunity: `RemoveComments` + `NormalizeKeywords` re-run on
+  every macro/block execution** (`executor_core.go:141/192/249/446`,
+  `executor_substitution.go:1462`), ~20% of a corpus run combined. Each call
+  rebuilds a `[]rune`, a `strings.Builder`, and a **`SourcePosition` allocation per
+  character** (plus a per-position map in `NormalizeKeywords`). The `-O1` AST cache
+  caches parsed bodies but not this cleaned/normalized string, so a hot macro body
+  re-cleans every iteration. Caching the `(cleaned, normalized, sourcemap)` result
+  keyed by the macro/block body would remove most of it — a focused follow-up, not
+  a one-liner.

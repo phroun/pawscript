@@ -1,5 +1,7 @@
 package pawscript
 
+import "sort"
+
 // maybeStoreValue checks if a value should be stored as an object and returns the appropriate representation
 // Note: Does NOT claim references - the caller must claim the returned object ID
 func (e *Executor) maybeStoreValue(value interface{}, state *ExecutionState) interface{} {
@@ -491,19 +493,15 @@ func (e *Executor) findStoredListID(list StoredList) int {
 		return e.emptyListID
 	}
 
-	// Get all IDs in sorted order for deterministic iteration
+	// Get all IDs in sorted order for deterministic iteration (deterministic
+	// selection matters: claim and release must resolve an aliased backing array
+	// to the same ID). sort.Ints is O(n log n); the previous hand-rolled bubble
+	// sort was O(n^2) and dominated a per-refcount call.
 	ids := make([]int, 0, len(e.storedObjects))
 	for id := range e.storedObjects {
 		ids = append(ids, id)
 	}
-	// Sort IDs to ensure deterministic iteration
-	for i := 0; i < len(ids)-1; i++ {
-		for j := i + 1; j < len(ids); j++ {
-			if ids[i] > ids[j] {
-				ids[i], ids[j] = ids[j], ids[i]
-			}
-		}
-	}
+	sort.Ints(ids)
 
 	// Compare by checking if they share the same backing array
 	for _, id := range ids {
