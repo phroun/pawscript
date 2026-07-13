@@ -355,11 +355,37 @@ reproduced by the available fixtures — see the note at the end of this section
 
 ## Test suite
 
-- **Coverage ~11.6% of statements.** The real regression corpus (~112 `.paw`
-  fixtures under `tests/`) runs only via `tests/test_regressions.sh` against a
-  prebuilt binary — invisible to `go test`, `-race`, and coverage. Highest-value
-  cheap win: a table-driven Go test that loads `tests/*.paw` + `*.expected`, which
-  puts the whole corpus under `-race`/coverage at once.
+- ✅ **DONE — table-driven corpus test** (`corpus_test.go` `TestCorpus`). Loads
+  every `tests/*.paw` with a matching `*.expected`, runs it in-process (combined
+  stdout+stderr via a synchronized writer, config mirroring the `paw` binary's
+  default sandbox and `-O1`), and diffs against `*.expected`. Puts the whole
+  corpus under `go test`/`-race`/coverage at once: **coverage jumped from ~18.5%
+  (Go tests alone) to 51.3%**. 96 fixtures run; 2 are skipped for the
+  os.Stdout/Stderr-bypass bug below, and 3 misnamed `*.paw.expected` fixtures are
+  skipped exactly as `test_regressions.sh` skips them (see below).
+
+### Discrepancies found while building the corpus test (to investigate)
+- **`-O0` vs `-O1` produce different *output*, not just speed.** With
+  `OptLevel: OptimizeNone` (0), `escape.paw` line 24 (`echo "...", ${set_result
+  ~list}`) raises `Cannot follow symbol with symbol in a single argument`; with
+  `OptimizeBasic` (1, the binary default) it runs clean. The two AST paths should
+  be behavior-identical — a real correctness bug in one of them. The corpus test
+  pins `-O1` to match the `.expected` baseline.
+- **Output paths that bypass `Config.Stdout`/`Stderr`.** `module.go:485` and
+  `:559` (`getScopedCommand`/`getScopedMacro`) write `"[ERROR] Module not found"`
+  straight to `os.Stderr` (note the bare `[ERROR]` vs the logger's
+  `[PawScript:...]`), and `terminal.go:911` writes the terminal-reset sequence via
+  `fmt.Print` (os.Stdout). These bypass the configured writers, so an embedder who
+  redirects output misses them — and they make `test_scope_operator.paw` /
+  `test_terminal_cursor.paw` non-reproducible in-process (hence skipped). The
+  `module.go` ones look like leftover diagnostics (the caller already reports the
+  proper error via the logger).
+- **3 misnamed fixtures** (`test_json.paw.expected`,
+  `test_list_from_json.paw.expected`, `test_pretty.paw.expected`) use a double
+  `.paw.expected` extension, so both the shell runner and the corpus test look for
+  `<name>.paw.paw` and skip them — those three scripts are effectively untested.
+  Renaming to `<name>.expected` would fold them in (pending a check that they
+  still match).
 - **A data race lives in a test** (`pawscript_test.go:244` write vs `:259` read of
   `completed`), which makes `go test -race` red and would mask any *real* future
   interpreter race in CI. Also uses `time.Sleep(50ms)` instead of waiting on the
