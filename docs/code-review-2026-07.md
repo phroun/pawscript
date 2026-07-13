@@ -411,8 +411,25 @@ reproduced by the available fixtures — see the note at the end of this section
 
 Profiled via `BenchmarkHotLoop` (`bench_test.go`) and a CPU profile over the
 corpus. A representative 400-iteration loop does ~1000 allocs/iter, so allocation
-pressure (GC ≈ 26% of a corpus run) dominates.
+pressure (GC ≈ 26% of a corpus run) dominates. **Cumulative effect of the fixes
+below: the hot-loop bench went from 88 ms/op to ~39 ms/op (~2.2×) and from ~430k
+to ~206k allocs/op.**
 
+- ✅ **FIXED — `applySyntacticSugar` recompiled a regexp per command** (the single
+  biggest win). It called `regexp.MustCompile(...)` on *every* invocation
+  (`executor_commands.go`), recompiling the `identifier(` matcher for each command
+  executed. Hoisted it to a package-level `var syntacticSugarCallRe`. **~45%
+  faster (70 → 39 ms/op), ~62% less memory (22 → 8.3 MB/op), ~40% fewer allocs
+  (342k → 206k)** — behavior identical (same pattern, compiled once). A grep
+  confirmed this was the only `regexp.MustCompile` left in a hot path.
+- ✅ **FIXED — `SourceMap.OriginalLines` split on every parse.** `NewSourceMap`
+  eagerly `strings.Split`-ted the source into lines, but only error paths use them
+  (for context). Made it a lazy method (`parser.go`) that splits on first use.
+  ~6k fewer allocs; matters because every re-parsed brace built a fresh source map.
+  (An attempt to also make `TransformedToOriginal` a value map to kill the
+  per-character `*SourcePosition` alloc was **reverted** — it cut alloc *count* but
+  raised bytes and wall-time, since the ~56-byte struct in map buckets costs more
+  than the pointer it replaced.)
 - ✅ **FIXED — `Logger.DebugCat` formatted then discarded.** It ran
   `fmt.Sprintf(format, args...)` unconditionally before `Log` decided (usually) to
   drop the message — across ~294 hot-path call sites with debug off. Gated it: when

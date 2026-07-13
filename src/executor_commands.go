@@ -1049,6 +1049,11 @@ func (e *Executor) executeSingleCommand(
 }
 
 // applySyntacticSugar applies syntactic sugar transformations
+// syntacticSugarCallRe matches an `identifier(` call form at the start of an
+// argument string. Compiled once — applySyntacticSugar runs per command, and
+// regexp.MustCompile is expensive to call in that hot path.
+var syntacticSugarCallRe = regexp.MustCompile(`^([a-zA-Z_][a-zA-Z0-9_]*)\s*\(`)
+
 func (e *Executor) applySyntacticSugar(commandStr string) string {
 	spaceIndex := strings.Index(commandStr, " ")
 	if spaceIndex == -1 {
@@ -1062,7 +1067,7 @@ func (e *Executor) applySyntacticSugar(commandStr string) string {
 	argsPart = strings.TrimSpace(argsPart)
 
 	// Check if it starts with identifier followed by optional whitespace and (
-	identifierMatch := regexp.MustCompile(`^([a-zA-Z_][a-zA-Z0-9_]*)\s*\(`).FindStringSubmatch(argsPart)
+	identifierMatch := syntacticSugarCallRe.FindStringSubmatch(argsPart)
 	if len(identifierMatch) == 0 {
 		return commandStr
 	}
