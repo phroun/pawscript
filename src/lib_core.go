@@ -1527,15 +1527,8 @@ func (ps *PawScript) RegisterCoreLib() {
 			return BoolStatus(true)
 		}
 
-		// Merge orphaned bubbles into current context's bubbleMap
-		ctx.state.mu.Lock()
-		if ctx.state.bubbleMap == nil {
-			ctx.state.bubbleMap = make(map[string][]*BubbleEntry)
-		}
-		for flavor, entries := range orphaned {
-			ctx.state.bubbleMap[flavor] = append(ctx.state.bubbleMap[flavor], entries...)
-		}
-		ctx.state.mu.Unlock()
+		// Merge orphaned bubbles into current context's bubbleMap (owner-guarded).
+		ctx.state.MergeRawBubbles(orphaned)
 
 		// Clear the orphaned bubbles now that they've been transferred
 		ctx.executor.ClearOrphanedBubbles()
@@ -1762,13 +1755,10 @@ func (ps *PawScript) RegisterCoreLib() {
 				ctx.state.SetVariable(metaVarName, metaRef)
 			}
 
-			// Store current bubble pointer for 'burst' command
-			ctx.state.mu.Lock()
-			if ctx.state.variables == nil {
-				ctx.state.variables = make(map[string]interface{})
-			}
-			ctx.state.variables[currentBubbleVar] = bubble
-			ctx.state.mu.Unlock()
+			// Store current bubble pointer for 'burst' command. Use SetVariable so
+			// the shared-variables mutex (owner's) guards it; bubble is a
+			// *BubbleEntry, so SetVariable's ref management is a no-op.
+			ctx.state.SetVariable(currentBubbleVar, bubble)
 
 			// Execute body
 			lastStatus := true
@@ -1868,10 +1858,8 @@ func (ps *PawScript) RegisterCoreLib() {
 	ps.RegisterCommandInModule("flow", "burst", func(ctx *Context) Result {
 		const currentBubbleVar = "__fizz_current_bubble__"
 
-		// Get the current bubble from the internal variable
-		ctx.state.mu.RLock()
-		bubbleVal, exists := ctx.state.variables[currentBubbleVar]
-		ctx.state.mu.RUnlock()
+		// Get the current bubble from the internal variable (owner-aware lock)
+		bubbleVal, exists := ctx.state.GetVariable(currentBubbleVar)
 
 		if !exists {
 			ctx.LogError(CatCommand, "burst: can only be used inside a fizz loop")

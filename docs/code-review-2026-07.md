@@ -24,8 +24,9 @@ double-release, a channel-message use-after-free, the RNG race, the
 lock-hierarchy audit — all 22 ABBA/self-deadlock lock-order violations. The whole
 Go suite is race-clean and 98 `.paw` regressions pass. The embedded async-brace
 hang ("the msleep hang"), the logger race, and the shared-variable-state race
-are all FIXED. Remaining open: a residual set of *unlocked* direct map writes in
-a few command handlers (noted below), the sandbox items, and the broader
+are all FIXED, as is the residual set of *unlocked / wrong-mutex* direct
+`variables`/`bubbleMap` accesses in the command handlers (now all routed through
+the owner-aware API). Remaining open: the sandbox items and the broader
 test-coverage gaps.
 
 ## Confirmed by execution (reproduced locally)
@@ -211,13 +212,29 @@ reproduced by the available fixtures — see the note at the end of this section
   Verified by `TestSharedVarStateConcurrent` (fails without the fix) and
   extensive end-to-end fiber+brace `-race` stress.
 
-  Residual (lower severity, not fixed): a handful of command handlers write the
-  `variables`/`bubbleMap` maps *directly without any lock* (`lib_core.go`
-  ~1770 bubble-var assignment, `lib_coroutines.go` ~1851 generator,
-  `lib_fibers.go` bubble merges). Those are pre-existing unlocked accesses (a
-  different class from the different-lock race fixed here) and were not tripped
-  by the stress runs; they should move to `SetVariable`/`AddBubble` for full
-  safety.
+- ✅ **FIXED — residual unlocked/wrong-mutex `variables`/`bubbleMap` accesses.**
+  Follow-up to the shared-var fix: a set of command handlers reached the
+  `variables`/`bubbleMap` maps *directly* — either with no lock or with the
+  state's own `mu` instead of the owner's — so a shared brace state could tear
+  the map under `-race`. All are now routed through the owner-aware API:
+  - `fizz`/`burst` current-bubble variable → `SetVariable`/`GetVariable`
+    (`lib_core.go`); the generator continuation twin likewise (`lib_coroutines.go`).
+  - 25 generator/`for`/`repeat`/`fizz` `bubbleMap` resets in `lib_coroutines.go`
+    → `ResetBubbleMap()`.
+  - `fiber_wait` / `fiber_wait_all` / `fiber_bubble` bubble merges
+    (`lib_fibers.go`): the map append goes through `MergeRawBubbles()` /
+    `TakeBubbleMap()` (owner mutex) while the object-ref transfer stays under the
+    state's own `mu` (which guards `ownedObjects`).
+  - `bubble_orphans` merge (`lib_core.go`) → `MergeRawBubbles()`; host cleanup
+    orphan-transfer and bubble dump (`pawscript.go`) → `TakeBubbleMap()` /
+    `GetBubbleMap()`.
+  - `MergeBubbles` dropped its unlocked `child.bubbleMap == nil` fast-path read.
+  New helpers `ResetBubbleMap`/`MergeRawBubbles`/`TakeBubbleMap` on
+  `ExecutionState` all lock `varsMutexOwner().mu`. Behavior is unchanged (the
+  fixes only correct *which* mutex guards each access). Guarded by
+  `TestSharedBubbleMapHelpersConcurrent` (verified non-vacuous: reverting one
+  helper to the state's own mutex trips `-race`), plus the full `-race` suite,
+  98 `.paw` regressions, and a fiber→parent bubble-object `-race` stress.
 - ✅ **FIXED — async brace substitution hang ("the msleep hang").** A command
   with an async brace (`echo {msleep 2; ret "x"}`, or an async brace inside a
   `while` loop) returns a brace-coordinator token that the caller

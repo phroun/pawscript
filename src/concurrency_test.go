@@ -342,6 +342,73 @@ func TestSharedVarStateConcurrent(t *testing.T) {
 	wg.Wait()
 }
 
+// TestSharedBubbleMapHelpersConcurrent hammers the owner-aware bubble-map
+// helpers (MergeRawBubbles, GetBubbleMap, MergeBubbles, GetBubblesForFlavors,
+// GetAllFlavorNames) from multiple goroutines against shared brace states.
+// Every one of them must serialize on the SAME owner mutex; if any reverted to
+// the state's own mutex, two goroutines would touch the shared bubble map under
+// different locks and -race would report a torn access. Seeding a bubble up
+// front keeps owner.bubbleMap non-nil so the braces genuinely share one map
+// (no lazy make splits the field) and the race pressure stays real.
+func TestSharedBubbleMapHelpersConcurrent(t *testing.T) {
+	ps := New(&Config{Debug: false})
+	ps.RegisterStandardLibrary([]string{})
+	e := ps.executor
+
+	owner := NewExecutionState()
+	owner.executor = e
+	owner.moduleEnv = NewChildModuleEnvironment(ps.rootModuleEnv)
+	owner.AddBubble("seed", "s", false, "") // owner.bubbleMap now non-nil
+
+	brace := NewExecutionStateFromSharedVars(owner)
+	brace2 := NewExecutionStateFromSharedVars(owner)
+
+	mk := func(flavor string) map[string][]*BubbleEntry {
+		return map[string][]*BubbleEntry{
+			flavor: {{Content: Symbol("x"), Memo: flavor, Flavors: []string{flavor}}},
+		}
+	}
+
+	const iters = 3000
+	var wg sync.WaitGroup
+	wg.Add(4)
+	// Brace appends raw entries into the shared map.
+	go func() {
+		defer wg.Done()
+		for i := 0; i < iters; i++ {
+			brace.MergeRawBubbles(mk("a"))
+		}
+	}()
+	// Owner adds bubbles and reads a snapshot of the shared map.
+	go func() {
+		defer wg.Done()
+		for i := 0; i < iters; i++ {
+			owner.AddBubble("b", "y", false, "")
+			_ = owner.GetBubbleMap()
+		}
+	}()
+	// Second brace reads flavor names and by-flavor entries off the shared map.
+	go func() {
+		defer wg.Done()
+		for i := 0; i < iters; i++ {
+			_ = brace2.GetAllFlavorNames()
+			_ = brace2.GetBubblesForFlavors([]string{"a", "b"})
+		}
+	}()
+	// A private (non-shared) source is merged into the owner: the merge's
+	// target-side append must take the owner mutex.
+	go func() {
+		defer wg.Done()
+		src := NewExecutionState()
+		src.executor = e
+		src.AddBubble("c", "z", false, "")
+		for i := 0; i < iters; i++ {
+			owner.MergeBubbles(src)
+		}
+	}()
+	wg.Wait()
+}
+
 // objAlive reports whether an object id is still present (not freed).
 func objAlive(e *Executor, id int) bool {
 	_, ok := e.getObject(id)

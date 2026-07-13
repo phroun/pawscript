@@ -734,11 +734,9 @@ func (s *ExecutionState) MergeBubbles(child *ExecutionState) {
 		return
 	}
 
-	// Fast path: if child's bubbleMap is nil, nothing to merge (no lock needed)
-	if child.bubbleMap == nil {
-		return
-	}
-
+	// Read the child's bubbles under its owner lock. (No unlocked fast-path
+	// nil-check: reading the map pointer without the lock races with a
+	// concurrent reassignment on a shared brace state.)
 	cOwner := child.varsMutexOwner()
 	cOwner.mu.RLock()
 	childBubbles := child.bubbleMap
@@ -851,6 +849,44 @@ func (s *ExecutionState) GetBubblesForFlavors(flavors []string) []*BubbleEntry {
 	})
 
 	return allEntries
+}
+
+// ResetBubbleMap replaces the bubble map with a fresh empty one, under the
+// owner's lock (safe for shared brace states).
+func (s *ExecutionState) ResetBubbleMap() {
+	owner := s.varsMutexOwner()
+	owner.mu.Lock()
+	s.bubbleMap = make(map[string][]*BubbleEntry)
+	owner.mu.Unlock()
+}
+
+// MergeRawBubbles appends the given flavor->entries into this state's bubble map,
+// under the owner's lock. Used by callers that transfer raw bubble entries (e.g.
+// fiber/generator bubble propagation).
+func (s *ExecutionState) MergeRawBubbles(bubbles map[string][]*BubbleEntry) {
+	if len(bubbles) == 0 {
+		return
+	}
+	owner := s.varsMutexOwner()
+	owner.mu.Lock()
+	defer owner.mu.Unlock()
+	if s.bubbleMap == nil {
+		s.bubbleMap = make(map[string][]*BubbleEntry)
+	}
+	for flavor, entries := range bubbles {
+		s.bubbleMap[flavor] = append(s.bubbleMap[flavor], entries...)
+	}
+}
+
+// TakeBubbleMap atomically returns the current bubble map and clears it (to nil),
+// under the owner's lock. Used for transferring bubbles out (e.g. orphaning).
+func (s *ExecutionState) TakeBubbleMap() map[string][]*BubbleEntry {
+	owner := s.varsMutexOwner()
+	owner.mu.Lock()
+	defer owner.mu.Unlock()
+	b := s.bubbleMap
+	s.bubbleMap = nil
+	return b
 }
 
 // GetAllFlavorNames returns all flavor names that currently have bubbles

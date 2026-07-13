@@ -550,9 +550,7 @@ func (ps *PawScript) RegisterGeneratorLib() {
 					// Merge bubbles from generator state to caller state
 					ctx.state.MergeBubbles(state)
 					// Clear generator's bubbleMap to avoid duplicate merges
-					state.mu.Lock()
-					state.bubbleMap = make(map[string][]*BubbleEntry)
-					state.mu.Unlock()
+					state.ResetBubbleMap()
 
 					ctx.SetResult(yieldResult.Value)
 					return BoolStatus(true)
@@ -567,9 +565,7 @@ func (ps *PawScript) RegisterGeneratorLib() {
 					// Merge bubbles from generator state to caller state
 					ctx.state.MergeBubbles(state)
 					// Clear generator's bubbleMap after merge
-					state.mu.Lock()
-					state.bubbleMap = make(map[string][]*BubbleEntry)
-					state.mu.Unlock()
+					state.ResetBubbleMap()
 
 					if earlyReturn.HasResult {
 						ctx.SetResult(earlyReturn.Result)
@@ -619,9 +615,7 @@ func (ps *PawScript) RegisterGeneratorLib() {
 			if hitBreak {
 				// Merge bubbles before returning
 				ctx.state.MergeBubbles(state)
-				state.mu.Lock()
-				state.bubbleMap = make(map[string][]*BubbleEntry)
-				state.mu.Unlock()
+				state.ResetBubbleMap()
 				return BoolStatus(true)
 			}
 
@@ -661,9 +655,7 @@ func (ps *PawScript) RegisterGeneratorLib() {
 					// Merge bubbles from generator state to caller state
 					ctx.state.MergeBubbles(state)
 					// Clear generator's bubbleMap after merge
-					state.mu.Lock()
-					state.bubbleMap = make(map[string][]*BubbleEntry)
-					state.mu.Unlock()
+					state.ResetBubbleMap()
 
 					if earlyReturn.HasResult {
 						ctx.SetResult(earlyReturn.Result)
@@ -693,9 +685,7 @@ func (ps *PawScript) RegisterGeneratorLib() {
 					// Merge bubbles from generator state to caller state
 					ctx.state.MergeBubbles(state)
 					// Clear generator's bubbleMap after merge
-					state.mu.Lock()
-					state.bubbleMap = make(map[string][]*BubbleEntry)
-					state.mu.Unlock()
+					state.ResetBubbleMap()
 
 					ctx.SetResult(yieldResult.Value)
 					return BoolStatus(true)
@@ -777,9 +767,7 @@ func (ps *PawScript) RegisterGeneratorLib() {
 						// Merge bubbles from generator state to caller state
 						ctx.state.MergeBubbles(state)
 						// Clear generator's bubbleMap after merge
-						state.mu.Lock()
-						state.bubbleMap = make(map[string][]*BubbleEntry)
-						state.mu.Unlock()
+						state.ResetBubbleMap()
 
 						ctx.SetResult(yieldResult.Value)
 						return BoolStatus(true)
@@ -794,9 +782,7 @@ func (ps *PawScript) RegisterGeneratorLib() {
 						// Merge bubbles from generator state to caller state
 						ctx.state.MergeBubbles(state)
 						// Clear generator's bubbleMap after merge
-						state.mu.Lock()
-						state.bubbleMap = make(map[string][]*BubbleEntry)
-						state.mu.Unlock()
+						state.ResetBubbleMap()
 
 						if earlyReturn.HasResult {
 							ctx.SetResult(earlyReturn.Result)
@@ -929,9 +915,7 @@ func (ps *PawScript) RegisterGeneratorLib() {
 
 					// Merge bubbles from generator state to caller state
 					ctx.state.MergeBubbles(forCont.State)
-					forCont.State.mu.Lock()
-					forCont.State.bubbleMap = make(map[string][]*BubbleEntry)
-					forCont.State.mu.Unlock()
+					forCont.State.ResetBubbleMap()
 
 					ctx.SetResult(yieldResult.Value)
 					return BoolStatus(true)
@@ -944,9 +928,7 @@ func (ps *PawScript) RegisterGeneratorLib() {
 					ctx.executor.mu.Unlock()
 
 					ctx.state.MergeBubbles(forCont.State)
-					forCont.State.mu.Lock()
-					forCont.State.bubbleMap = make(map[string][]*BubbleEntry)
-					forCont.State.mu.Unlock()
+					forCont.State.ResetBubbleMap()
 
 					if earlyReturn.HasResult {
 						ctx.SetResult(earlyReturn.Result)
@@ -994,9 +976,7 @@ func (ps *PawScript) RegisterGeneratorLib() {
 			if hitBreak {
 				// Merge bubbles before returning
 				ctx.state.MergeBubbles(forCont.State)
-				forCont.State.mu.Lock()
-				forCont.State.bubbleMap = make(map[string][]*BubbleEntry)
-				forCont.State.mu.Unlock()
+				forCont.State.ResetBubbleMap()
 				return BoolStatus(true)
 			}
 
@@ -1106,9 +1086,7 @@ func (ps *PawScript) RegisterGeneratorLib() {
 							ctx.executor.mu.Unlock()
 
 							ctx.state.MergeBubbles(forCont.State)
-							forCont.State.mu.Lock()
-							forCont.State.bubbleMap = make(map[string][]*BubbleEntry)
-							forCont.State.mu.Unlock()
+							forCont.State.ResetBubbleMap()
 
 							ctx.SetResult(yieldResult.Value)
 							return BoolStatus(true)
@@ -1121,9 +1099,7 @@ func (ps *PawScript) RegisterGeneratorLib() {
 							ctx.executor.mu.Unlock()
 
 							ctx.state.MergeBubbles(forCont.State)
-							forCont.State.mu.Lock()
-							forCont.State.bubbleMap = make(map[string][]*BubbleEntry)
-							forCont.State.mu.Unlock()
+							forCont.State.ResetBubbleMap()
 
 							if earlyReturn.HasResult {
 								ctx.SetResult(earlyReturn.Result)
@@ -1276,9 +1252,7 @@ func (ps *PawScript) RegisterGeneratorLib() {
 							ctx.executor.mu.Unlock()
 
 							ctx.state.MergeBubbles(forCont.State)
-							forCont.State.mu.Lock()
-							forCont.State.bubbleMap = make(map[string][]*BubbleEntry)
-							forCont.State.mu.Unlock()
+							forCont.State.ResetBubbleMap()
 
 							ctx.SetResult(yieldResult.Value)
 							return BoolStatus(true)
@@ -1291,9 +1265,7 @@ func (ps *PawScript) RegisterGeneratorLib() {
 							ctx.executor.mu.Unlock()
 
 							ctx.state.MergeBubbles(forCont.State)
-							forCont.State.mu.Lock()
-							forCont.State.bubbleMap = make(map[string][]*BubbleEntry)
-							forCont.State.mu.Unlock()
+							forCont.State.ResetBubbleMap()
 
 							if earlyReturn.HasResult {
 								ctx.SetResult(earlyReturn.Result)
@@ -1423,9 +1395,7 @@ func (ps *PawScript) RegisterGeneratorLib() {
 					ctx.executor.mu.Unlock()
 
 					ctx.state.MergeBubbles(repeatCont.State)
-					repeatCont.State.mu.Lock()
-					repeatCont.State.bubbleMap = make(map[string][]*BubbleEntry)
-					repeatCont.State.mu.Unlock()
+					repeatCont.State.ResetBubbleMap()
 
 					ctx.SetResult(yieldResult.Value)
 					return BoolStatus(true)
@@ -1438,9 +1408,7 @@ func (ps *PawScript) RegisterGeneratorLib() {
 					ctx.executor.mu.Unlock()
 
 					ctx.state.MergeBubbles(repeatCont.State)
-					repeatCont.State.mu.Lock()
-					repeatCont.State.bubbleMap = make(map[string][]*BubbleEntry)
-					repeatCont.State.mu.Unlock()
+					repeatCont.State.ResetBubbleMap()
 
 					if earlyReturn.HasResult {
 						ctx.SetResult(earlyReturn.Result)
@@ -1516,9 +1484,7 @@ func (ps *PawScript) RegisterGeneratorLib() {
 				ctx.SetResult(listRef)
 
 				ctx.state.MergeBubbles(repeatCont.State)
-				repeatCont.State.mu.Lock()
-				repeatCont.State.bubbleMap = make(map[string][]*BubbleEntry)
-				repeatCont.State.mu.Unlock()
+				repeatCont.State.ResetBubbleMap()
 
 				break // Exit repeat loop
 			}
@@ -1591,9 +1557,7 @@ func (ps *PawScript) RegisterGeneratorLib() {
 					ctx.executor.mu.Unlock()
 
 					ctx.state.MergeBubbles(repeatCont.State)
-					repeatCont.State.mu.Lock()
-					repeatCont.State.bubbleMap = make(map[string][]*BubbleEntry)
-					repeatCont.State.mu.Unlock()
+					repeatCont.State.ResetBubbleMap()
 
 					ctx.SetResult(yieldResult.Value)
 					return BoolStatus(true)
@@ -1747,9 +1711,7 @@ func (ps *PawScript) RegisterGeneratorLib() {
 					ctx.executor.mu.Unlock()
 
 					ctx.state.MergeBubbles(fizzCont.State)
-					fizzCont.State.mu.Lock()
-					fizzCont.State.bubbleMap = make(map[string][]*BubbleEntry)
-					fizzCont.State.mu.Unlock()
+					fizzCont.State.ResetBubbleMap()
 
 					ctx.SetResult(yieldResult.Value)
 					return BoolStatus(true)
@@ -1807,9 +1769,7 @@ func (ps *PawScript) RegisterGeneratorLib() {
 				// All bubbles processed
 				fizzCont.State.DeleteVariable(currentBubbleVar)
 				ctx.state.MergeBubbles(fizzCont.State)
-				fizzCont.State.mu.Lock()
-				fizzCont.State.bubbleMap = make(map[string][]*BubbleEntry)
-				fizzCont.State.mu.Unlock()
+				fizzCont.State.ResetBubbleMap()
 				break
 			}
 
@@ -1844,12 +1804,9 @@ func (ps *PawScript) RegisterGeneratorLib() {
 				fizzCont.State.SetVariable(fizzCont.MetaVarName, metaRef)
 			}
 
-			fizzCont.State.mu.Lock()
-			if fizzCont.State.variables == nil {
-				fizzCont.State.variables = make(map[string]interface{})
-			}
-			fizzCont.State.variables[currentBubbleVar] = bubble
-			fizzCont.State.mu.Unlock()
+			// Owner-aware lock via SetVariable (bubble is a *BubbleEntry, so ref
+			// management is a no-op).
+			fizzCont.State.SetVariable(currentBubbleVar, bubble)
 
 			// Execute body for next bubble
 			lastStatus = true
@@ -1898,9 +1855,7 @@ func (ps *PawScript) RegisterGeneratorLib() {
 					ctx.executor.mu.Unlock()
 
 					ctx.state.MergeBubbles(fizzCont.State)
-					fizzCont.State.mu.Lock()
-					fizzCont.State.bubbleMap = make(map[string][]*BubbleEntry)
-					fizzCont.State.mu.Unlock()
+					fizzCont.State.ResetBubbleMap()
 
 					ctx.SetResult(yieldResult.Value)
 					return BoolStatus(true)
@@ -2035,9 +1990,7 @@ func (ps *PawScript) RegisterGeneratorLib() {
 				// Merge bubbles from generator state to caller state
 				ctx.state.MergeBubbles(state)
 				// Clear generator's bubbleMap to avoid duplicate merges on next yield
-				state.mu.Lock()
-				state.bubbleMap = make(map[string][]*BubbleEntry)
-				state.mu.Unlock()
+				state.ResetBubbleMap()
 
 				// Return the yielded value
 				ctx.SetResult(yieldResult.Value)
@@ -2100,9 +2053,7 @@ func (ps *PawScript) RegisterGeneratorLib() {
 				// Merge bubbles from generator state to caller state
 				ctx.state.MergeBubbles(state)
 				// Clear generator's bubbleMap after merge
-				state.mu.Lock()
-				state.bubbleMap = make(map[string][]*BubbleEntry)
-				state.mu.Unlock()
+				state.ResetBubbleMap()
 
 				// Return the result
 				if earlyReturn.HasResult {
@@ -2144,9 +2095,7 @@ func (ps *PawScript) RegisterGeneratorLib() {
 		// Merge any remaining bubbles from generator state to caller state
 		ctx.state.MergeBubbles(state)
 		// Clear generator's bubbleMap after merge
-		state.mu.Lock()
-		state.bubbleMap = make(map[string][]*BubbleEntry)
-		state.mu.Unlock()
+		state.ResetBubbleMap()
 
 		// Return final result with false to signal completion
 		// This allows while (v: {resume ~gen}) pattern to exit cleanly

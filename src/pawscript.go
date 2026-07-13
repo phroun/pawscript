@@ -330,9 +330,7 @@ func (ps *PawScript) dumpRemainingBubbles(state *ExecutionState) {
 	// Collect all bubbles: orphaned + state's bubbleMap
 	orphaned := ps.executor.GetOrphanedBubbles()
 
-	state.mu.Lock()
-	stateBubbles := state.bubbleMap
-	state.mu.Unlock()
+	stateBubbles := state.GetBubbleMap()
 
 	hasOrphaned := len(orphaned) > 0
 	hasStateBubbles := len(stateBubbles) > 0
@@ -491,12 +489,9 @@ func (ps *PawScript) ExecuteWithEnvironment(commandString string, env *ModuleEnv
 	if _, isToken := result.(TokenResult); !isToken {
 		// Transfer any bubbles to orphanedBubbles before releasing state
 		// so host can still access them via GetOrphanedBubbles()
-		state.mu.Lock()
-		if len(state.bubbleMap) > 0 {
-			ps.executor.AddOrphanedBubbles(state.bubbleMap)
-			state.bubbleMap = nil
+		if taken := state.TakeBubbleMap(); len(taken) > 0 {
+			ps.executor.AddOrphanedBubbles(taken)
 		}
-		state.mu.Unlock()
 
 		state.ReleaseAllReferences()
 	}
