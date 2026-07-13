@@ -26,8 +26,11 @@ Go suite is race-clean and 98 `.paw` regressions pass. The embedded async-brace
 hang ("the msleep hang"), the logger race, and the shared-variable-state race
 are all FIXED, as is the residual set of *unlocked / wrong-mutex* direct
 `variables`/`bubbleMap` accesses in the command handlers (now all routed through
-the owner-aware API). Remaining open: the sandbox items and the broader
-test-coverage gaps.
+the owner-aware API). The file-sandbox **symlink escape** and the **`exec`
+empty-allowlist allow-all** (Model B: exec fail-closed) are also FIXED. Remaining
+open: the `include` command bypasses `ReadRoots` (to be given its own
+`IncludeRoots`), the `json` recursion depth limit, and the broader test-coverage
+gaps.
 
 ## Confirmed by execution (reproduced locally)
 
@@ -285,16 +288,33 @@ reproduced by the available fixtures — see the note at the end of this section
   (classic TOCTOU). That is out of the script sandbox's threat model — the script
   is the adversary and it cannot create symlinks; fully TOCTOU-safe traversal would
   need `openat2(RESOLVE_BENEATH)`/`O_NOFOLLOW` component walks.
-- **`exec` empty-allowlist default is allow-all** (`lib_system.go:534`): the
-  allow-list only applies `if len(ExecRoots) > 0`; empty means unrestricted
-  process execution — the opposite of read/write roots, where empty means
-  deny-all. Easy misconfiguration into arbitrary command execution. **Note the
-  interaction with the symlink guard:** an enabled `exec` is also the one way a
-  script *could* create a symlink (`ln -s`, `mklink`), which would defeat
-  `FollowSymlinks=true`. Exec is a strictly larger capability than symlink
-  creation (it is arbitrary code execution), so this is governed by the exec
-  allow-list, not the file sandbox; fixing the empty-allowlist default to
-  deny-all would also close the exec-based symlink-creation path.
+- ✅ **FIXED — `exec` empty-allowlist default was allow-all** (`lib_system.go`
+  `validateExecAccess`). The allow-list previously only applied `if
+  len(ExecRoots) > 0`, so an empty/nil `ExecRoots` meant *unrestricted* process
+  execution — the opposite of read/write roots — and it also silently skipped the
+  write-then-execute overlap guard. Fixed with **Model B (exec is fail-closed):**
+  when a `FileAccess` sandbox is configured, `exec` is deny-by-default —
+  empty **or** nil `ExecRoots` permits nothing; a command must resolve within an
+  explicitly-listed `ExecRoot` and must not sit inside a `WriteRoot`. Fully
+  unrestricted exec is only reachable when `FileAccess == nil` (the
+  `--unrestricted` mode). Read/write keep their existing nil=unrestricted
+  semantics; only exec is made special, because arbitrary command execution
+  defeats all file sandboxing and so warrants opt-in. Path-based only (no loader/
+  exec-resolver callback). Re-grant paths: list the binary's directory in
+  `ExecRoots` (`--exec-roots`, `PAW_EXEC_ROOTS`, or embedder config), or
+  `--unrestricted` for fully open.
+
+  The validation moved into package-level `validateExecAccess(config, cmdName,
+  resolvedCmd)` (unit-testable, reuses `pathWithinRoots`). Guarded by
+  `lib_system_test.go` (deny-by-default for nil and empty ExecRoots — verified
+  non-vacuous; allow-within-root; outside-root denied; write/exec overlap denied;
+  not-found; PATH-lookup branch) plus an end-to-end check through the `paw`
+  binary: piped stdin (nil ExecRoots) now denies exec, and `PAW_EXEC_ROOTS` /
+  `--unrestricted` re-grant it. Full `-race` suite and 98 `.paw` regressions pass.
+
+  This also closes the exec-based symlink-creation path relative to
+  `FollowSymlinks=true`: with exec deny-by-default, a script can't reach `ln -s`
+  unless the operator explicitly lists an exec root containing it.
 - **No recursion depth limit in `json`** (`lib_core.go` ~1047): deeply nested
   input can exhaust the stack.
 
