@@ -421,7 +421,11 @@ to ~206k allocs/op.**
   executed. Hoisted it to a package-level `var syntacticSugarCallRe`. **~45%
   faster (70 → 39 ms/op), ~62% less memory (22 → 8.3 MB/op), ~40% fewer allocs
   (342k → 206k)** — behavior identical (same pattern, compiled once). A grep
-  confirmed this was the only `regexp.MustCompile` left in a hot path.
+  confirmed this was the only `regexp.MustCompile` left in a hot path. **Caveat on
+  the headline number:** the bench is a command-execution-bound tight loop, a best
+  case (the regex compiled once per command). On the varied 96-script corpus the
+  same fix is ~7–8% (≈1.24 → 1.14 s), since real scripts spend time on parsing,
+  I/O, macros, and fibers too. The win scales with command-execution density.
 - ✅ **FIXED — `SourceMap.OriginalLines` split on every parse.** `NewSourceMap`
   eagerly `strings.Split`-ted the source into lines, but only error paths use them
   (for context). Made it a lazy method (`parser.go`) that splits on first use.
