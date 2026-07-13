@@ -427,12 +427,32 @@ pressure (GC ≈ 26% of a corpus run) dominates.
   real-world impact (not in the corpus hot path) but it removes a latent O(n²) per
   refcount; the function's remaining O(n) linear scan still makes pathological deep
   reference chains O(n²) to build — a full fix needs an ID reverse-index.
-- **Biggest remaining opportunity: `RemoveComments` + `NormalizeKeywords` re-run on
-  every macro/block execution** (`executor_core.go:141/192/249/446`,
-  `executor_substitution.go:1462`), ~20% of a corpus run combined. Each call
-  rebuilds a `[]rune`, a `strings.Builder`, and a **`SourcePosition` allocation per
-  character** (plus a per-position map in `NormalizeKeywords`). The `-O1` AST cache
-  caches parsed bodies but not this cleaned/normalized string, so a hot macro body
-  re-cleans every iteration. Caching the `(cleaned, normalized, sourcemap)` result
-  keyed by the macro/block body would remove most of it — a focused follow-up, not
-  a one-liner.
+- ✅ **FIXED — `ExecuteWithState` re-parsed on every call.** Repeated
+  `ExecuteWithState` of the same string (most visibly a loop *condition*, re-checked
+  every iteration — `lib_core.go:2403`) re-ran `RemoveComments` +
+  `NormalizeKeywords` + `ParseCommandSequence` each time. Added a bounded
+  (`maxParseCacheEntries`), mutex-guarded parse cache on the `Executor`, used only
+  for the offset-free path (offsets mutate command positions, so only the
+  un-adjusted parse is shareable). Cached commands get their brace/template caches
+  pre-filled before storage, so concurrent reuse from fibers is read-only — the same
+  discipline `GetOrParseMacroCommands` uses (validated race-clean). ~13k fewer
+  allocs on the hot-loop bench.
+- ✅ **FIXED — `protectEscapeSequences` rebuilt every string** (`executor_substitution.go`).
+  It ran on every substitution, converting to `[]rune` and rebuilding via `append`
+  even when there was nothing to change. It only rewrites backslash escapes
+  (`\$`/`\~`/`\?`), so a `no-backslash → return str` fast path (the common case)
+  skips it entirely. It was the **top allocator** in the hot loop; ~23k fewer allocs.
+- **Biggest remaining opportunity (root-caused, needs a dispatch change): loop
+  *bodies* re-parse every brace every iteration.** A cached loop body still runs
+  each command via `executeParsedCommand(cmd, state, nil)` (`lib_core.go:2488`) with
+  a **nil** `substitutionCtx`. The fast, pre-parsed-template path
+  (`executor_commands.go:324` → `ApplyTemplate`) requires
+  `substitutionCtx.CurrentParsedCommand.CommandTemplate != nil`, so with a nil ctx it
+  falls through to `applySubstitution` → `substituteBraceExpressions` (~67% of the
+  hot loop) which re-scans and re-parses each `{...}`. The fix is to route cached
+  bodies through `ApplyTemplate` — pre-cache the block's `CommandTemplate`s (like
+  `GetOrParseMacroCommands`) *and* supply a minimal `substitutionCtx` — but that
+  touches the central substitution dispatch and needs careful validation of
+  dollar/macro/offset/tilde-state semantics, so it's a scoped follow-up, not a quick
+  cache add. (`$N` bodies are already excluded from block caching, which simplifies
+  it.)

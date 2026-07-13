@@ -28,6 +28,8 @@ type Executor struct {
 	activeFibers     map[int]*FiberHandle      // Currently running fibers
 	orphanedBubbles  map[string][]*BubbleEntry // Bubbles from abandoned fibers
 	blockCache       map[int][]*ParsedCommand  // Cached parsed forms for StoredBlock objects (by ID)
+	parseCacheMu     sync.RWMutex              // Guards parseCache
+	parseCache       map[string][]*ParsedCommand // Cached parses for offset-free ExecuteWithState (key: filename\x00commandStr)
 	keyInputManager  *KeyInputManager          // Raw keyboard input manager (if initialized)
 	keyInputChannel  *StoredChannel            // Input channel being used by keyInputManager (for mode restore)
 	nextTokenID      int
@@ -442,6 +444,24 @@ func (e *Executor) ExecuteWithState(
 		state.executor = e
 	}
 
+	// Fast path: reuse a cached parse. Only when there are no position offsets to
+	// apply — offsets mutate command positions, so only the un-adjusted parse is
+	// shareable. Repeated ExecuteWithState of the same string (e.g. a loop
+	// condition re-checked every iteration) otherwise re-runs RemoveComments +
+	// NormalizeKeywords + ParseCommandSequence each time.
+	cacheable := e.optLevel >= OptimizeBasic && lineOffset == 0 && columnOffset == 0
+	if cacheable {
+		if cached, ok := e.lookupParseCache(filename, commandStr); ok {
+			if len(cached) == 0 {
+				return BoolStatus(true)
+			}
+			if len(cached) == 1 {
+				return e.executeParsedCommand(cached[0], state, substitutionCtx)
+			}
+			return e.executeCommandSequence(cached, state, substitutionCtx)
+		}
+	}
+
 	parser := NewParser(commandStr, filename)
 	cleanedCommand := parser.RemoveComments(commandStr)
 
@@ -469,6 +489,17 @@ func (e *Executor) ExecuteWithState(
 		return BoolStatus(false)
 	}
 
+	// Cache the offset-free parse for reuse. Pre-fill the per-command brace/
+	// template caches first so concurrent reuse (e.g. from fibers) executes
+	// read-only — the same discipline GetOrParseMacroCommands uses.
+	if cacheable {
+		for _, cmd := range commands {
+			e.preCacheBraceExpressions(cmd, cmd.Command, filename)
+			e.PreCacheCommandTemplates(cmd, filename)
+		}
+		e.storeParseCache(filename, commandStr, commands)
+	}
+
 	if len(commands) == 0 {
 		return BoolStatus(true)
 	}
@@ -491,6 +522,38 @@ func (e *Executor) ExecuteWithState(
 	}
 
 	return e.executeCommandSequence(commands, state, substitutionCtx)
+}
+
+// maxParseCacheEntries bounds the ExecuteWithState parse cache so a script that
+// executes many distinct dynamic strings can't grow it without limit.
+const maxParseCacheEntries = 4096
+
+func parseCacheKey(filename, commandStr string) string {
+	return filename + "\x00" + commandStr
+}
+
+func (e *Executor) lookupParseCache(filename, commandStr string) ([]*ParsedCommand, bool) {
+	e.parseCacheMu.RLock()
+	defer e.parseCacheMu.RUnlock()
+	if e.parseCache == nil {
+		return nil, false
+	}
+	cmds, ok := e.parseCache[parseCacheKey(filename, commandStr)]
+	return cmds, ok
+}
+
+func (e *Executor) storeParseCache(filename, commandStr string, commands []*ParsedCommand) {
+	e.parseCacheMu.Lock()
+	defer e.parseCacheMu.Unlock()
+	if e.parseCache == nil {
+		e.parseCache = make(map[string][]*ParsedCommand)
+	}
+	// Once full, stop adding — hot strings (loop conditions, etc.) are cached
+	// early, so the cap rarely bites.
+	if len(e.parseCache) >= maxParseCacheEntries {
+		return
+	}
+	e.parseCache[parseCacheKey(filename, commandStr)] = commands
 }
 
 // createContext creates a command context
