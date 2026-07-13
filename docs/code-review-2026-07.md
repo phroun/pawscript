@@ -442,17 +442,33 @@ pressure (GC ≈ 26% of a corpus run) dominates.
   even when there was nothing to change. It only rewrites backslash escapes
   (`\$`/`\~`/`\?`), so a `no-backslash → return str` fast path (the common case)
   skips it entirely. It was the **top allocator** in the hot loop; ~23k fewer allocs.
-- **Biggest remaining opportunity (root-caused, needs a dispatch change): loop
-  *bodies* re-parse every brace every iteration.** A cached loop body still runs
-  each command via `executeParsedCommand(cmd, state, nil)` (`lib_core.go:2488`) with
-  a **nil** `substitutionCtx`. The fast, pre-parsed-template path
-  (`executor_commands.go:324` → `ApplyTemplate`) requires
-  `substitutionCtx.CurrentParsedCommand.CommandTemplate != nil`, so with a nil ctx it
-  falls through to `applySubstitution` → `substituteBraceExpressions` (~67% of the
-  hot loop) which re-scans and re-parses each `{...}`. The fix is to route cached
-  bodies through `ApplyTemplate` — pre-cache the block's `CommandTemplate`s (like
-  `GetOrParseMacroCommands`) *and* supply a minimal `substitutionCtx` — but that
-  touches the central substitution dispatch and needs careful validation of
-  dollar/macro/offset/tilde-state semantics, so it's a scoped follow-up, not a quick
-  cache add. (`$N` bodies are already excluded from block caching, which simplifies
-  it.)
+- **Biggest remaining opportunity — loop *bodies* re-parse every brace every
+  iteration — ATTEMPTED, reverted; needs deeper work.** A cached loop body runs
+  each command via `executeParsedCommand(cmd, state, nil)` (`lib_core.go:2488`)
+  with a **nil** `substitutionCtx`. The fast pre-parsed-template path
+  (`executor_commands.go:324` → `ApplyTemplate`) needs
+  `substitutionCtx.CurrentParsedCommand.CommandTemplate != nil`, so a nil ctx falls
+  through to `applySubstitution` → `substituteBraceExpressions` (~67% of the hot
+  loop), which re-scans/re-parses each `{...}`.
+
+  **The reroute was tried:** pre-cache the block's `CommandTemplate`s (a clean
+  no-op on its own — verified) **and** have `executeParsedCommand` synthesize a
+  minimal ctx (with `CurrentParsedCommand` set) when the command has a template so
+  the dispatch takes `ApplyTemplate`. Result against the corpus:
+  - Execution and **scope are fine** — variables resolve correctly (the synthesized
+    ctx shares `ExecutionState`).
+  - But **error-position columns regress** for body commands (`bad-command-in-brace`,
+    `bubble`: reported `column 1` instead of the true `column 16`). A body command's
+    `Position` is relative to the *block* string, so the offsets carried by the
+    real loop context aren't reproduced by a synthesized ctx.
+  - And **`demo.paw` infinite-recurses** (goroutine stack overflow) — its nested
+    `macro`-definition bodies interact badly with routing block commands through
+    the template path.
+
+  So the win is real (~67% of the hot loop) but the template/position/dispatch
+  machinery is coupled in ways a synthesized context doesn't satisfy — the loop
+  body genuinely needs the loop's own positional/execution context, not a fresh
+  one. A correct version must thread the *actual* loop substitution context
+  (offsets + parsed-command) into body execution rather than fabricating one, and
+  reconcile the nested-macro-definition recursion. Left as a deliberate follow-up;
+  the safe wins above stand.
