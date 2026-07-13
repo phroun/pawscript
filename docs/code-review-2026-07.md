@@ -23,9 +23,10 @@ double-release, a channel-message use-after-free, the RNG race, the
 `SetResultWithoutClaim` window, a test-bug race, and — via a repo-wide
 lock-hierarchy audit — all 22 ABBA/self-deadlock lock-order violations. The whole
 Go suite is race-clean and 98 `.paw` regressions pass. The embedded async-brace
-hang ("the msleep hang") and the logger race are also FIXED. Remaining open: a
-newly-exposed shared-variable-state race (see below), the sandbox items, and the
-broader test-coverage gaps.
+hang ("the msleep hang"), the logger race, and the shared-variable-state race
+are all FIXED. Remaining open: a residual set of *unlocked* direct map writes in
+a few command handlers (noted below), the sandbox items, and the broader
+test-coverage gaps.
 
 ## Confirmed by execution (reproduced locally)
 
@@ -197,18 +198,26 @@ reproduced by the available fixtures — see the note at the end of this section
   goroutine-id lookup entirely via an atomic active-context counter when no
   context is set. Guarded by `TestLoggerConcurrentContexts`.
 
-- **Shared-variable brace states share a map but not a mutex (CONFIRMED, exposed
-  after the logger fix).** `NewExecutionStateFromSharedVars` (`state.go:112`)
-  gives a brace state the parent's `variables`/`bubbleMap` maps by reference but
-  its own `sync.RWMutex`. When an async brace resumes on a completion goroutine
-  while the owning fiber's macro cleanup (`executeStoredMacro`, `executor_core.go`
-  ~671) deletes from the same `variables` map, the two lock *different* mutexes
-  over one map → data race (`GetVariable` read vs macro-cleanup `delete`). Same
-  class as the fiber-module-env and channel-endpoint races already fixed, but in
-  the state layer. Fix needs shared-variable states to share the owning state's
-  lock (e.g. a shared `*sync.RWMutex` for the shared maps), not just the maps —
-  a focused change to `ExecutionState` locking. Only surfaces under concurrent
-  fibers running async braces; the Go `-race` suite does not hit it.
+- ✅ **FIXED — Shared-variable brace states shared a map but not a mutex.**
+  `NewExecutionStateFromSharedVars` gave a brace state the parent's
+  `variables`/`bubbleMap` maps by reference but its own mutex, so an async brace
+  resuming on a completion goroutine and the owning fiber's macro cleanup
+  (`executeStoredMacro`) locked *different* mutexes over the same `variables` map
+  → data race. Fixed by adding a `varsOwner` field: brace states point at the
+  state that owns the shared maps, and every variable/bubble method plus the
+  macro-cleanup loop lock `varsMutexOwner().mu`, so all access to a shared map
+  serializes on one mutex. Own fields (`currentResult`/`ownedObjects`) keep the
+  state's own `mu`; no method mixes shared and own fields under one lock.
+  Verified by `TestSharedVarStateConcurrent` (fails without the fix) and
+  extensive end-to-end fiber+brace `-race` stress.
+
+  Residual (lower severity, not fixed): a handful of command handlers write the
+  `variables`/`bubbleMap` maps *directly without any lock* (`lib_core.go`
+  ~1770 bubble-var assignment, `lib_coroutines.go` ~1851 generator,
+  `lib_fibers.go` bubble merges). Those are pre-existing unlocked accesses (a
+  different class from the different-lock race fixed here) and were not tripped
+  by the stress runs; they should move to `SetVariable`/`AddBubble` for full
+  safety.
 - ✅ **FIXED — async brace substitution hang ("the msleep hang").** A command
   with an async brace (`echo {msleep 2; ret "x"}`, or an async brace inside a
   `while` loop) returns a brace-coordinator token that the caller
