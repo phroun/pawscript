@@ -27,10 +27,10 @@ hang ("the msleep hang"), the logger race, and the shared-variable-state race
 are all FIXED, as is the residual set of *unlocked / wrong-mutex* direct
 `variables`/`bubbleMap` accesses in the command handlers (now all routed through
 the owner-aware API). The file-sandbox **symlink escape**, the **`exec`
-empty-allowlist allow-all** (Model B: exec fail-closed), and the **`include`
-sandbox bypass** (now gated by a dedicated `IncludeRoots`) are also FIXED.
-Remaining open: the `json` recursion depth limit and the broader test-coverage
-gaps.
+empty-allowlist allow-all** (Model B: exec fail-closed), the **`include`
+sandbox bypass** (now gated by a dedicated `IncludeRoots`), and the **`json`
+serialize recursion depth** (now guarded) are also FIXED. Remaining open: the
+broader test-coverage gaps.
 
 ## Confirmed by execution (reproduced locally)
 
@@ -335,8 +335,23 @@ reproduced by the available fixtures — see the note at the end of this section
   denied, relative include now resolves against `ScriptDir`, data/module split).
   Strictly path-based — no pluggable module-loader callback (a possible future
   feature for host-served modules, deliberately out of scope here).
-- **No recursion depth limit in `json`** (`lib_core.go` ~1047): deeply nested
-  input can exhaust the stack.
+- ✅ **FIXED (guarded) — recursion depth in `json` serialize** (`lib_core.go`).
+  The `json` command serializes via mutually-recursive `toJSONValue`/`listToJSON`
+  that follow reference markers (`getObject`) with no depth cap, so a
+  pathologically deep value graph could overflow the goroutine stack (an
+  uncatchable Go fatal). Added a `maxJSONDepth` (10000, matching
+  `encoding/json`'s own parse cap) guard: `toJSONValue` is the choke point every
+  nested value flows through, so one captured counter (`depth++`/`defer depth--`)
+  bounds the whole recursion with no signature or call-site churn — past the cap
+  it returns an error that propagates out as a normal command failure.
+  Reachability is low and now moot: the *parse* direction was already bounded by
+  Go's `Unmarshal` 10000 cap, and **list cycles cannot form** — `StoredList` is a
+  copy-on-write value type (value receivers, fresh backing array on `Append`, no
+  in-place `.items`/`.namedArgs` writes, no element-set command), so the object
+  graph is always acyclic and a depth bound needs no visited-set. Building a truly
+  cap-deep graph via the interpreter is O(n²) (a linear `findStoredListID` scan
+  per claim) and impractical anyway. Guarded by `TestJSONDepthGuard` (lowers the
+  cap transiently and checks deep-rejected / shallow-ok).
 
 ## Test suite
 

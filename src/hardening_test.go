@@ -1,6 +1,7 @@
 package pawscript
 
 import (
+	"strconv"
 	"strings"
 	"testing"
 )
@@ -10,6 +11,40 @@ func newTestPS() *PawScript {
 	ps := New(&Config{Debug: false})
 	ps.RegisterStandardLibrary([]string{})
 	return ps
+}
+
+// TestJSONDepthGuard verifies the serialize recursion guard: a value graph
+// deeper than maxJSONDepth is rejected with an error instead of overflowing the
+// stack, while a shallow one still serializes. The cap is lowered transiently so
+// a tiny (instant) structure exercises it — building a truly cap-deep list via
+// the interpreter is O(n^2) and impractical.
+func TestJSONDepthGuard(t *testing.T) {
+	old := maxJSONDepth
+	maxJSONDepth = 20
+	defer func() { maxJSONDepth = old }()
+
+	build := func(n int) string {
+		return `x: {list "leaf"}
+i: 0
+while (lt ~i, ` + itoa(n) + `), ( x: {list ~x}; i: {add ~i, 1} )
+json ~x`
+	}
+
+	// Deeper than the cap -> the json command fails (BoolStatus false).
+	res := newTestPS().Execute(build(40))
+	if bs, ok := res.(BoolStatus); !ok || bool(bs) {
+		t.Errorf("expected json to reject a graph deeper than the cap, got %#v", res)
+	}
+
+	// Well under the cap -> serializes successfully.
+	res2 := newTestPS().Execute(build(3))
+	if bs, ok := res2.(BoolStatus); !ok || !bool(bs) {
+		t.Errorf("expected shallow json to succeed, got %#v", res2)
+	}
+}
+
+func itoa(n int) string {
+	return strconv.Itoa(n)
 }
 
 // TestDoubleTildeIndirection verifies that ~~x performs one extra level of

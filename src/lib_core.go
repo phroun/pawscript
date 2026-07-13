@@ -11,6 +11,15 @@ import (
 	"time"
 )
 
+// maxJSONDepth bounds recursion when serializing a value graph to JSON. It
+// matches encoding/json's own nesting cap (10000), so anything Go can parse can
+// still be re-serialized, while a pathologically deep reference chain is rejected
+// with an error instead of overflowing the goroutine stack. (List cycles cannot
+// form — StoredList is a copy-on-write value type with no in-place mutation — so
+// a depth bound is sufficient; no visited-set is needed.)
+// A var (not const) only so tests can lower it transiently; production is 10000.
+var maxJSONDepth = 10000
+
 // RegisterCoreLib registers core language commands
 // Modules: core, macros, flow, debug
 func (ps *PawScript) RegisterCoreLib() {
@@ -1088,8 +1097,18 @@ func (ps *PawScript) RegisterCoreLib() {
 		var toJSONValue func(val interface{}) (interface{}, error)
 		var listToJSON func(l StoredList, m string, cn string, hcp bool, conv func(interface{}) (interface{}, error)) (interface{}, error)
 
+		// Recursion-depth guard. toJSONValue is the choke point every nested value
+		// passes through (list items are converted via it), so one captured counter
+		// bounds the whole mutual recursion with no signature/call-site churn.
+		jsonDepth := 0
+
 		// Helper to convert a value to JSON-compatible form
 		toJSONValue = func(val interface{}) (interface{}, error) {
+			jsonDepth++
+			defer func() { jsonDepth-- }()
+			if jsonDepth > maxJSONDepth {
+				return nil, fmt.Errorf("value nesting too deep (exceeds %d levels)", maxJSONDepth)
+			}
 			if val == nil {
 				return nil, nil
 			}
