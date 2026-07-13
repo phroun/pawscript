@@ -415,6 +415,37 @@ pressure (GC ≈ 26% of a corpus run) dominates. **Cumulative effect of the fixe
 below: the hot-loop bench went from 88 ms/op to ~39 ms/op (~2.2×) and from ~430k
 to ~206k allocs/op.**
 
+### End-to-end attribution — recursive `fib` (whole-binary, this machine)
+
+The hot-loop bench is a tight arithmetic loop; it *understates* the win on
+command-dispatch-dense code. A naive recursive `fib` macro (`{call fib, N}`,
+`if`/`add`/`sub` per node) is the opposite extreme — almost pure command
+dispatch — and it's where these fixes pay off most. Built a binary at each perf
+commit and timed the same script on the same machine (best of 2):
+
+| Commit | Change | fib(22) | Step | fib(25) |
+|---|---|---:|---:|---:|
+| `fc7a4c9` | pre-perf baseline | 12112 ms | — | ~51 s |
+| `a6873e4` | DebugCat gate + drop bubble sort | 10706 ms | 1.13× | — |
+| `8c677ef` | **parse cache** + fast `protectEscapeSequences` | 3436 ms | **3.1×** | — |
+| `54eb634` | **regex hoist** + lazy source-line split | 1615 ms | **2.1×** | ~6 s |
+| `67a28c6` | (doc only) | 1522 ms | ~noise | ~6 s |
+
+**Cumulative ≈ 8× on recursive fib** (12.1 s → 1.5 s at N=22; ~51 s → ~6 s at
+N=25). Two caveats worth keeping honest:
+
+- On this call-dense workload the **parse cache** (`8c677ef`, 3.1× step) was the
+  single biggest win, *not* the regex hoist — because every `call fib` re-parses
+  the macro body, so caching the offset-free parse removes the dominant cost. The
+  regex hoist (2.1× step) is second. This flips the "single biggest win" framing
+  from the per-fix notes below, which were measured on the tight hot loop (where
+  the regex compile dominates and the body isn't re-parsed). Both are real; they
+  just rank differently by workload — the more a script leans on command dispatch
+  and macro re-entry, the more the parse cache leads.
+- The absolute numbers here (~6 s for fib(25)) are this cloud container, which is
+  several× slower than a typical dev laptop; treat the *ratios*, not the seconds,
+  as the result.
+
 - ✅ **FIXED — `applySyntacticSugar` recompiled a regexp per command** (the single
   biggest win). It called `regexp.MustCompile(...)` on *every* invocation
   (`executor_commands.go`), recompiling the `identifier(` matcher for each command
