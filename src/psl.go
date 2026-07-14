@@ -108,6 +108,22 @@ func convertToPawValue(value interface{}) interface{} {
 			items[i] = convertToPawValue(item)
 		}
 		return NewStoredListWithoutRefs(items)
+	case map[string]interface{}:
+		// A caller-built plain map is treated the same as a PSLMap so nested
+		// structures serialize correctly instead of falling to the fmt.Sprintf
+		// default (which would emit a bogus "map[...]" string).
+		namedArgs := make(map[string]interface{})
+		for key, val := range v {
+			namedArgs[key] = convertToPawValue(val)
+		}
+		return NewStoredListWithNamed(nil, namedArgs)
+	case []interface{}:
+		// A caller-built plain slice is treated the same as a PSLList.
+		items := make([]interface{}, len(v))
+		for i, item := range v {
+			items[i] = convertToPawValue(item)
+		}
+		return NewStoredListWithoutRefs(items)
 	default:
 		return QuotedString(fmt.Sprintf("%v", v))
 	}
