@@ -331,10 +331,16 @@ func (m PSLMap) GetBool(key string, defaultVal bool) bool {
 	return defaultVal
 }
 
-// GetItems returns the positional items from a list value, or nil if not found/not a list
+// GetItems returns the positional items from a list value, or nil if not found/not a list.
+// Nested lists come back from the parser as the named PSLList type, while callers may
+// also store a plain []interface{}; both are accepted so parsed and hand-built data
+// behave the same.
 func (m PSLMap) GetItems(key string) []interface{} {
 	if v, ok := m[key]; ok {
-		if list, ok := v.([]interface{}); ok {
+		switch list := v.(type) {
+		case PSLList:
+			return list
+		case []interface{}:
 			return list
 		}
 	}
