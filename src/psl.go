@@ -108,6 +108,22 @@ func convertToPawValue(value interface{}) interface{} {
 			items[i] = convertToPawValue(item)
 		}
 		return NewStoredListWithoutRefs(items)
+	case map[string]interface{}:
+		// A caller-built plain map is treated the same as a PSLMap so nested
+		// structures serialize correctly instead of falling to the fmt.Sprintf
+		// default (which would emit a bogus "map[...]" string).
+		namedArgs := make(map[string]interface{})
+		for key, val := range v {
+			namedArgs[key] = convertToPawValue(val)
+		}
+		return NewStoredListWithNamed(nil, namedArgs)
+	case []interface{}:
+		// A caller-built plain slice is treated the same as a PSLList.
+		items := make([]interface{}, len(v))
+		for i, item := range v {
+			items[i] = convertToPawValue(item)
+		}
+		return NewStoredListWithoutRefs(items)
 	default:
 		return QuotedString(fmt.Sprintf("%v", v))
 	}
@@ -331,10 +347,16 @@ func (m PSLMap) GetBool(key string, defaultVal bool) bool {
 	return defaultVal
 }
 
-// GetItems returns the positional items from a list value, or nil if not found/not a list
+// GetItems returns the positional items from a list value, or nil if not found/not a list.
+// Nested lists come back from the parser as the named PSLList type, while callers may
+// also store a plain []interface{}; both are accepted so parsed and hand-built data
+// behave the same.
 func (m PSLMap) GetItems(key string) []interface{} {
 	if v, ok := m[key]; ok {
-		if list, ok := v.([]interface{}); ok {
+		switch list := v.(type) {
+		case PSLList:
+			return list
+		case []interface{}:
 			return list
 		}
 	}
