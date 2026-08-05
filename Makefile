@@ -18,7 +18,7 @@ else
     BINARY_NAME := paw
 endif
 
-.PHONY: build-all clean-releases build build-gui-gtk build-gui-qt install test test-coverage run-example clean fmt lint help \
+.PHONY: build-all clean-releases build build-gui-gtk build-gui-qt install test test-examples test-coverage run-example clean fmt lint help \
 	package-gtk package-qt package-gtk-macos package-qt-macos build-token-example
 
 # Build native version for local use
@@ -219,9 +219,33 @@ build-wasm:
 	@echo "Building paw WASM..."
 	GOOS=js GOARCH=wasm go build -o js/pawscript.wasm ./src/wasm
 
-test:
-	@echo "Running tests..."
+test: build
+	@echo "==> Go test suite (unit tests + .paw regression corpus via TestCorpus)..."
+	go test ./src
+	@echo "==> .paw regression diffs (tests/*.paw vs *.expected)..."
 	@cd tests && ./test_regressions.sh
+	@echo "==> Example smoke test (curated non-interactive examples)..."
+	@$(MAKE) --no-print-directory test-examples
+
+# Non-interactive examples that run to completion cleanly. Explicit allowlist:
+# most examples are interactive (readkey/input), GUI-only (gui_window), or
+# animation demos that never terminate, so a blanket run would false-positive.
+# Each listed script must finish within the timeout with no PawScript ERROR —
+# a frozen `{}` loop condition or a parse error fails the build here.
+SMOKE_EXAMPLES := access benchmark_fibonacci chanloss cjk-widths han hello inherit-object my setup50x80 terminal-features
+
+test-examples: build
+	@echo "Smoke-testing $(words $(SMOKE_EXAMPLES)) non-interactive examples..."
+	@fail=0; for base in $(SMOKE_EXAMPLES); do \
+		f=examples/$$base.paw; \
+		out=$$(timeout 30 ./$(BINARY_NAME) $$f </dev/null 2>&1); \
+		if [ $$? -eq 124 ]; then echo "  HANG:  $$f (timed out — frozen loop condition?)"; fail=1; \
+		elif echo "$$out" | grep -q '\[PawScript:.*ERROR\]'; then \
+			echo "  ERROR: $$f"; echo "$$out" | grep '\[PawScript:.*ERROR\]' | head -2 | sed 's/^/    /'; fail=1; \
+		fi; \
+	done; \
+	if [ $$fail -eq 0 ]; then echo "  all $(words $(SMOKE_EXAMPLES)) examples OK"; \
+	else echo "  example smoke test FAILED"; exit 1; fi
 
 test-coverage:
 	@echo "Running tests with coverage..."
@@ -267,7 +291,8 @@ help:
 	@echo "Other Targets:"
 	@echo "  install        - Build and install paw (and GUI if built) to PREFIX"
 	@echo "  run-example    - Run hello.paw example"
-	@echo "  test           - Run regression tests"
+	@echo "  test           - Run the full suite: go tests + .paw regressions + example smoke test"
+	@echo "  test-examples  - Smoke-test the curated non-interactive examples"
 	@echo "  test-coverage  - Run tests with coverage report"
 	@echo "  clean          - Remove build artifacts"
 	@echo "  clean-releases - Clean release artifacts"
