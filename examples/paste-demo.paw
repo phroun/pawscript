@@ -108,7 +108,7 @@ if {eq ~key, "Paste"} then (
     lineNum: 1
     # Read lines until buffer is empty (read will wait for input when empty)
     # We'll read up to 5 lines for this demo
-    while {lte ~lineNum, 5}, (
+    while (lte ~lineNum, 5), (
         color cyan
         write "Line ~lineNum: "
         color reset: true

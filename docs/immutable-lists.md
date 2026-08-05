@@ -175,7 +175,7 @@ count: {len ~items}
 
 # Manual iteration (until we add foreach)
 i: 1
-while {lte ~i, ~count} (
+while (lte ~i, ~count), (
     print_item {argv ~items, ~i};
     i: {add ~i, 1}
 )
@@ -337,7 +337,7 @@ These operations copy the entire list (O(n)):
 # Building a large list this way is O(n²)
 items: {list}
 i: 0
-while {lt ~i, 1000} (
+while (lt ~i, 1000), (
     items: {append ~items, ~i}  # O(n) each time
     i: {add ~i, 1}
 )

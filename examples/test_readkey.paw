@@ -14,7 +14,7 @@ echo ""
 
 # Loop reading keys
 key: ""
-while {neq ~key, "q"}, (
+while (neq ~key, "q"), (
     key: {readkey}
     echo "Key: ~key"
 )
