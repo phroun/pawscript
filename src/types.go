@@ -371,7 +371,7 @@ type ParsedCommand struct {
 
 // CommandSequence represents suspended command execution
 type CommandSequence struct {
-	Type               string // "sequence", "conditional", "or"
+	Type               string // "sequence" (per-command &/|/; flow control lives in resumeSequence) or "generator"
 	RemainingCommands  []*ParsedCommand
 	CurrentIndex       int
 	TotalCommands      int

@@ -57,3 +57,40 @@ func TestResumeHonorsFlowControlOperators(t *testing.T) {
 		})
 	}
 }
+
+// A chain that MIXES operators across a suspend boundary resumes correctly.
+// This is the case the retired homogeneous "conditional"/"or" resume types
+// could not represent (each assumed a chain of one operator): resumeSequence
+// gates per command, exactly like the synchronous executeCommandSequence.
+// Here `suspend` resolves FALSE, so `& runsOnSuccess` is skipped, but the
+// unconditional `; runsAlways` still runs.
+func TestResumeHandlesMixedOperatorsAfterSuspend(t *testing.T) {
+	ps := New(nil)
+
+	ps.RegisterCommand("suspend", func(ctx *Context) Result {
+		token := ctx.RequestToken(nil)
+		go func() {
+			time.Sleep(10 * time.Millisecond)
+			ctx.ResumeToken(token, false)
+		}()
+		return TokenResult(token)
+	})
+	var onSuccessRan, alwaysRan atomic.Bool
+	ps.RegisterCommand("runsOnSuccess", func(ctx *Context) Result {
+		onSuccessRan.Store(true)
+		return BoolStatus(true)
+	})
+	ps.RegisterCommand("runsAlways", func(ctx *Context) Result {
+		alwaysRan.Store(true)
+		return BoolStatus(true)
+	})
+
+	ps.Execute("suspend & runsOnSuccess ; runsAlways")
+
+	if onSuccessRan.Load() {
+		t.Error("`& runsOnSuccess` must be skipped after suspend resolved false")
+	}
+	if !alwaysRan.Load() {
+		t.Error("`; runsAlways` is unconditional and must run regardless")
+	}
+}
