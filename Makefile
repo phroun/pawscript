@@ -232,7 +232,7 @@ test: build
 # animation demos that never terminate, so a blanket run would false-positive.
 # Each listed script must finish within the timeout with no PawScript ERROR —
 # a frozen `{}` loop condition or a parse error fails the build here.
-SMOKE_EXAMPLES := access benchmark_fibonacci chanloss cjk-widths han hello inherit-object setup50x80 terminal-features
+SMOKE_EXAMPLES := access benchmark_fibonacci chanloss cjk-widths han hello inherit-object my setup50x80 terminal-features
 
 test-examples: build
 	@echo "Smoke-testing $(words $(SMOKE_EXAMPLES)) non-interactive examples..."
