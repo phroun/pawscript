@@ -868,6 +868,26 @@ func (e *Executor) resumeSequence(seq *CommandSequence, status bool, state *Exec
 			continue
 		}
 
+		// Honor flow-control separators on resume, exactly as the synchronous
+		// executeCommandSequence does: `&` runs only after success, `|` only
+		// after failure. Without this, a sequence that suspended on an async
+		// token (a command returning a completion token) runs its remaining
+		// commands unconditionally when it resumes — e.g. `save_all & exit`
+		// would still exit after save_all resolved false on a cancel. A skipped
+		// command leaves `success` (the running last-status) unchanged.
+		switch parsedCmd.Separator {
+		case "&":
+			if !success {
+				e.logger.DebugCat(CatAsync, "Resume: skipping %q (& after failure)", parsedCmd.Command)
+				continue
+			}
+		case "|":
+			if success {
+				e.logger.DebugCat(CatAsync, "Resume: skipping %q (| after success)", parsedCmd.Command)
+				continue
+			}
+		}
+
 		cmdResult := e.executeParsedCommand(parsedCmd, state, nil)
 
 		// Check for early return
