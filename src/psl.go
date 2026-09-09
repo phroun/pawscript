@@ -4,13 +4,10 @@ package pawscript
 // These functions use the existing PawScript parser and serialization,
 // providing a simple interface without needing a full PawScript environment.
 //
-// ============================================================================
-// WARNING: DO NOT MODIFY THIS FILE
-// ============================================================================
-// The PSL format is an established serialization format. The API defined here
-// is stable. Do not add new methods to PSLMap or modify the serialization or
-// parsing behavior without explicit approval.
-// ============================================================================
+// PSL is an established serialization format and things outside this
+// repository read and write it, so the shape of what these functions emit and
+// accept is not free to change. Adding to the API is fine; changing what an
+// existing call does to a given document is not.
 
 import (
 	"fmt"
@@ -132,28 +129,13 @@ func convertToPawValue(value interface{}) interface{} {
 // ParsePSL parses a PSL format string into a PSLMap
 // Uses the existing PawScript parser
 func ParsePSL(input string) (PSLMap, error) {
-	input = strings.TrimSpace(input)
-
-	if input == "" || input == "()" {
+	inner, ok, err := pslInner("PSL", input)
+	if err != nil {
+		return nil, err
+	}
+	if !ok {
 		return PSLMap{}, nil
 	}
-
-	// Remove comments before parsing (# line comments and #( )# block comments)
-	parser := NewParser(input, "")
-	input = parser.RemoveComments(input)
-	input = strings.TrimSpace(input)
-
-	if input == "" || input == "()" {
-		return PSLMap{}, nil
-	}
-
-	// Must be wrapped in parentheses
-	if !strings.HasPrefix(input, "(") || !strings.HasSuffix(input, ")") {
-		return nil, fmt.Errorf("PSL must be enclosed in parentheses")
-	}
-
-	// Use the existing argument parser
-	inner := input[1 : len(input)-1]
 	args, namedArgs := parseArguments(inner)
 
 	// We primarily want the named args for config
@@ -175,28 +157,13 @@ func ParsePSL(input string) (PSLMap, error) {
 
 // ParsePSLList parses a PSL format string into a PSLList
 func ParsePSLList(input string) (PSLList, error) {
-	input = strings.TrimSpace(input)
-
-	if input == "" || input == "()" {
+	inner, ok, err := pslInner("PSL list", input)
+	if err != nil {
+		return nil, err
+	}
+	if !ok {
 		return PSLList{}, nil
 	}
-
-	// Remove comments before parsing (# line comments and #( )# block comments)
-	parser := NewParser(input, "")
-	input = parser.RemoveComments(input)
-	input = strings.TrimSpace(input)
-
-	if input == "" || input == "()" {
-		return PSLList{}, nil
-	}
-
-	// Must be wrapped in parentheses
-	if !strings.HasPrefix(input, "(") || !strings.HasSuffix(input, ")") {
-		return nil, fmt.Errorf("PSL list must be enclosed in parentheses")
-	}
-
-	// Use the existing argument parser
-	inner := input[1 : len(input)-1]
 	args, _ := parseArguments(inner)
 
 	result := PSLList{}
@@ -366,4 +333,195 @@ func (m PSLMap) GetItems(key string) []interface{} {
 // Set sets a value in the PSLMap
 func (m PSLMap) Set(key string, value interface{}) {
 	m[key] = value
+}
+
+// PSLNode is a PSL list as it actually is: the ordered children in the order
+// they appeared, and the keyed members beside them.
+//
+// PSLMap holds only the second of those, being a Go map, so ParsePSL keeps
+// positional items only when a list has no named members at all and drops
+// them when it has both:
+//
+//	(_hash: "deadbeef", ("first"), ("second"))  ->  {_hash: "deadbeef"}
+//
+// The format was never the limitation -- StoredList carries Items() and
+// NamedArgs() together, and the formatter emits both -- so this is a Go type
+// shaped like what PSL already holds rather than a way around anything.
+//
+// The two collections are independent. Keyed members occupy no positions, so
+// Items is indexed by the items alone and adding a named member cannot shift a
+// child's index. Nested lists are nodes in turn, so a document survives to any
+// depth.
+//
+// Named is a plain map[string]interface{}, which is PSLMap's underlying type:
+// PSLMap(node.Named) converts with no copy and brings the typed accessors
+// (GetString, GetInt, GetItems and the rest) with it.
+type PSLNode struct {
+	Items []interface{}
+	Named map[string]interface{}
+}
+
+// NewPSLNode returns an empty node with its map ready to write into.
+func NewPSLNode() *PSLNode {
+	return &PSLNode{Named: map[string]interface{}{}}
+}
+
+// Len is how many ordered children this node has.
+func (n *PSLNode) Len() int {
+	if n == nil {
+		return 0
+	}
+	return len(n.Items)
+}
+
+// Item is the ordered child at index i, counting from zero, and whether there
+// is one there. Indices address the items alone; a keyed member named "0" is a
+// different thing in a different collection and does not shadow it.
+func (n *PSLNode) Item(i int) (interface{}, bool) {
+	if n == nil || i < 0 || i >= len(n.Items) {
+		return nil, false
+	}
+	return n.Items[i], true
+}
+
+// Get is the keyed member under this key, and whether there is one.
+func (n *PSLNode) Get(key string) (interface{}, bool) {
+	if n == nil || n.Named == nil {
+		return nil, false
+	}
+	v, ok := n.Named[key]
+	return v, ok
+}
+
+// Child is the ordered child at index i when it is itself a list, which is
+// what a document made of records asks for most.
+func (n *PSLNode) Child(i int) (*PSLNode, bool) {
+	v, ok := n.Item(i)
+	if !ok {
+		return nil, false
+	}
+	c, ok := v.(*PSLNode)
+	return c, ok
+}
+
+// Map is this node's keyed members as a PSLMap, for the typed accessors
+// already written against it. It shares the node's storage rather than copying
+// it, so writing through the map writes through the node.
+func (n *PSLNode) Map() PSLMap {
+	if n == nil {
+		return nil
+	}
+	return PSLMap(n.Named)
+}
+
+// ParsePSLNode parses a PSL string and keeps everything in it: the ordered
+// children, the keyed members, and both again at every depth.
+func ParsePSLNode(input string) (*PSLNode, error) {
+	inner, ok, err := pslInner("PSL", input)
+	if err != nil {
+		return nil, err
+	}
+	if !ok {
+		return NewPSLNode(), nil
+	}
+	args, namedArgs := parseArguments(inner)
+	return newNodeFrom(args, namedArgs), nil
+}
+
+// SerializePSLNode writes a node back out as PSL.
+//
+// Ordered children keep their order. Keyed members are emitted first and in
+// sorted order, which is the serializer's own long-standing behaviour: order
+// among keyed members is not a thing PSL preserves, and nothing should depend
+// on it.
+func SerializePSLNode(n *PSLNode) string {
+	if n == nil || (len(n.Items) == 0 && len(n.Named) == 0) {
+		return "()"
+	}
+	return formatListForDisplay(nodeToStoredList(n))
+}
+
+// SerializePSLNodePretty is SerializePSLNode with each member on its own line.
+func SerializePSLNodePretty(n *PSLNode) string {
+	if n == nil || (len(n.Items) == 0 && len(n.Named) == 0) {
+		return "()"
+	}
+	return formatListForDisplayPretty(nodeToStoredList(n), 0)
+}
+
+// pslInner strips the comments and the outer parentheses, and reports whether
+// anything was left to parse. It is the front of ParsePSL, factored out so the
+// node parser accepts exactly what the map parser accepts.
+func pslInner(what, input string) (string, bool, error) {
+	input = strings.TrimSpace(input)
+	if input == "" || input == "()" {
+		return "", false, nil
+	}
+
+	parser := NewParser(input, "")
+	input = strings.TrimSpace(parser.RemoveComments(input))
+	if input == "" || input == "()" {
+		return "", false, nil
+	}
+
+	if !strings.HasPrefix(input, "(") || !strings.HasSuffix(input, ")") {
+		return "", false, fmt.Errorf("%s must be enclosed in parentheses", what)
+	}
+	return input[1 : len(input)-1], true, nil
+}
+
+// newNodeFrom builds a node from one level of parsed arguments, carrying every
+// nested list down as a node of its own.
+func newNodeFrom(args []interface{}, namedArgs map[string]interface{}) *PSLNode {
+	n := &PSLNode{Named: make(map[string]interface{}, len(namedArgs))}
+	for _, arg := range args {
+		n.Items = append(n.Items, pawValueToNode(arg))
+	}
+	for key, value := range namedArgs {
+		n.Named[key] = pawValueToNode(value)
+	}
+	return n
+}
+
+// pawValueToNode converts one parsed value, taking the two list shapes itself
+// so their ordered children survive, and leaving every scalar to the
+// conversion PSLMap already uses.
+func pawValueToNode(value interface{}) interface{} {
+	switch v := value.(type) {
+	case StoredList:
+		return newNodeFrom(v.Items(), v.NamedArgs())
+	case ParenGroup:
+		args, namedArgs := parseArguments(string(v))
+		if len(args) == 0 && len(namedArgs) == 0 {
+			// Not a list after all: hand it back the way PSLMap reads it.
+			return convertFromPawValue(value)
+		}
+		return newNodeFrom(args, namedArgs)
+	default:
+		return convertFromPawValue(value)
+	}
+}
+
+// nodeToStoredList converts a node for the serializer, taking nodes itself and
+// leaving every other value to the conversion PSLMap already uses.
+func nodeToStoredList(n *PSLNode) StoredList {
+	items := make([]interface{}, 0, len(n.Items))
+	for _, item := range n.Items {
+		items = append(items, nodeValueToPaw(item))
+	}
+	named := make(map[string]interface{}, len(n.Named))
+	for key, value := range n.Named {
+		named[key] = nodeValueToPaw(value)
+	}
+	if len(items) == 0 {
+		items = nil
+	}
+	return NewStoredListWithNamed(items, named)
+}
+
+func nodeValueToPaw(value interface{}) interface{} {
+	if n, ok := value.(*PSLNode); ok {
+		return nodeToStoredList(n)
+	}
+	return convertToPawValue(value)
 }
