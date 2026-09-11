@@ -191,11 +191,10 @@ func convertFromPawValue(value interface{}) interface{} {
 		return v
 	case ParenGroup:
 		// A nested list, which has both collections in it like any other, so it
-		// comes back as a node rather than as whichever half is not empty.
+		// comes back as a node rather than as whichever half is not empty. One
+		// with nothing in it is the empty list: "()" is what an empty list is
+		// written as, so it is what an empty list is read back from.
 		args, namedArgs := parseArguments(string(v))
-		if len(args) == 0 && len(namedArgs) == 0 {
-			return string(v) // not a list after all
-		}
 		return newNodeFrom(args, namedArgs)
 	case StoredList:
 		return newNodeFrom(v.Items(), v.NamedArgs())

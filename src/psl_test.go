@@ -464,3 +464,28 @@ func TestAParsedListSerializesInsideABuiltDocument(t *testing.T) {
 		}
 	}
 }
+
+// An empty list is what "()" means, so it is what "()" reads back as -- a list
+// written empty and read again is still a list.
+func TestAnEmptyListStaysAList(t *testing.T) {
+	text := SerializePSL(PSLMap{"recent": PSLList{}, "window": PSLMap{}})
+	doc, err := ParsePSL(text)
+	if err != nil {
+		t.Fatalf("ParsePSL(%q): %v", text, err)
+	}
+	for _, key := range []string{"recent", "window"} {
+		v, ok := doc.Get(key)
+		if !ok {
+			t.Errorf("%s went missing: %q", key, text)
+			continue
+		}
+		n, ok := v.(*PSLNode)
+		if !ok {
+			t.Errorf("%s came back as %T (%#v): %q", key, v, v, text)
+			continue
+		}
+		if n.Len() != 0 || len(n.Named) != 0 {
+			t.Errorf("%s came back holding %d items and %d members", key, n.Len(), len(n.Named))
+		}
+	}
+}
