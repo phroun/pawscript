@@ -88,6 +88,10 @@ func convertToPawValue(value interface{}) interface{} {
 	switch v := value.(type) {
 	case nil:
 		return nil
+	case *PSLNode:
+		// A parsed list put back inside a document being built by hand. It
+		// writes as the list it is, not as the Go value it is held in.
+		return nodeToStoredList(v)
 	case bool:
 		return v
 	case int:
@@ -187,11 +191,10 @@ func convertFromPawValue(value interface{}) interface{} {
 		return v
 	case ParenGroup:
 		// A nested list, which has both collections in it like any other, so it
-		// comes back as a node rather than as whichever half is not empty.
+		// comes back as a node rather than as whichever half is not empty. One
+		// with nothing in it is the empty list: "()" is what an empty list is
+		// written as, so it is what an empty list is read back from.
 		args, namedArgs := parseArguments(string(v))
-		if len(args) == 0 && len(namedArgs) == 0 {
-			return string(v) // not a list after all
-		}
 		return newNodeFrom(args, namedArgs)
 	case StoredList:
 		return newNodeFrom(v.Items(), v.NamedArgs())

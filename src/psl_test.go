@@ -427,3 +427,65 @@ func TestGetItemsReadsAParsedList(t *testing.T) {
 		t.Fatalf("GetItems read %d items from a parsed list: %#v", len(got), got)
 	}
 }
+
+// A parsed list can be put back inside a document being built by hand, which is
+// what a caller does when it reads something, keeps part of it, and writes a
+// new document around it. It has to write as the list it is.
+func TestAParsedListSerializesInsideABuiltDocument(t *testing.T) {
+	block, err := ParsePSL(`(a: "apple", "an-item")`)
+	if err != nil {
+		t.Fatalf("ParsePSL: %v", err)
+	}
+
+	for _, c := range []struct{ what, text string }{
+		{"in a map", SerializePSL(PSLMap{"block": block})},
+		{"in a list", SerializePSLList(PSLList{block})},
+	} {
+		doc, err := ParsePSL(c.text)
+		if err != nil {
+			t.Errorf("%s: re-parsing %q: %v", c.what, c.text, err)
+			continue
+		}
+		var back *PSLNode
+		if v, ok := doc.Get("block"); ok {
+			back, _ = v.(*PSLNode)
+		} else {
+			back, _ = doc.Child(0)
+		}
+		if back == nil {
+			t.Errorf("%s: the block came back as something other than a list: %q", c.what, c.text)
+			continue
+		}
+		if v, _ := back.Get("a"); v != "apple" {
+			t.Errorf("%s: the block's a came back as %#v: %q", c.what, v, c.text)
+		}
+		if v, _ := back.Item(0); v != "an-item" {
+			t.Errorf("%s: the block's ordered child came back as %#v: %q", c.what, v, c.text)
+		}
+	}
+}
+
+// An empty list is what "()" means, so it is what "()" reads back as -- a list
+// written empty and read again is still a list.
+func TestAnEmptyListStaysAList(t *testing.T) {
+	text := SerializePSL(PSLMap{"recent": PSLList{}, "window": PSLMap{}})
+	doc, err := ParsePSL(text)
+	if err != nil {
+		t.Fatalf("ParsePSL(%q): %v", text, err)
+	}
+	for _, key := range []string{"recent", "window"} {
+		v, ok := doc.Get(key)
+		if !ok {
+			t.Errorf("%s went missing: %q", key, text)
+			continue
+		}
+		n, ok := v.(*PSLNode)
+		if !ok {
+			t.Errorf("%s came back as %T (%#v): %q", key, v, v, text)
+			continue
+		}
+		if n.Len() != 0 || len(n.Named) != 0 {
+			t.Errorf("%s came back holding %d items and %d members", key, n.Len(), len(n.Named))
+		}
+	}
+}
