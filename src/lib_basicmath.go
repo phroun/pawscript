@@ -39,17 +39,17 @@ func (ps *PawScript) RegisterBasicMathLib() {
 			}
 			return BoolStatus(false)
 		}
-		sum := float64(0)
+		sum := intNumber(0)
 		for i, arg := range args {
 			resolved := ctx.executor.resolveValue(arg)
-			n, ok := toNumber(resolved)
+			n, ok := toExactNumber(resolved)
 			if !ok {
 				ctx.LogError(CatArgument, fmt.Sprintf("Invalid numeric argument at position %d: %v", i+1, arg))
 				return BoolStatus(false)
 			}
-			sum += n
+			sum = addNumbers(sum, n)
 		}
-		ctx.SetResult(sum)
+		ctx.SetResult(sum.value())
 		return BoolStatus(true)
 	})
 
@@ -65,21 +65,21 @@ func (ps *PawScript) RegisterBasicMathLib() {
 			return BoolStatus(false)
 		}
 		resolved0 := ctx.executor.resolveValue(args[0])
-		result, ok := toNumber(resolved0)
+		result, ok := toExactNumber(resolved0)
 		if !ok {
 			ctx.LogError(CatArgument, fmt.Sprintf("Invalid numeric argument at position 1: %v", args[0]))
 			return BoolStatus(false)
 		}
 		for i := 1; i < len(args); i++ {
 			resolved := ctx.executor.resolveValue(args[i])
-			n, ok := toNumber(resolved)
+			n, ok := toExactNumber(resolved)
 			if !ok {
 				ctx.LogError(CatArgument, fmt.Sprintf("Invalid numeric argument at position %d: %v", i+1, args[i]))
 				return BoolStatus(false)
 			}
-			result -= n
+			result = subNumbers(result, n)
 		}
-		ctx.SetResult(result)
+		ctx.SetResult(result.value())
 		return BoolStatus(true)
 	})
 
@@ -94,17 +94,17 @@ func (ps *PawScript) RegisterBasicMathLib() {
 			}
 			return BoolStatus(false)
 		}
-		product := float64(1)
+		product := intNumber(1)
 		for i, arg := range args {
 			resolved := ctx.executor.resolveValue(arg)
-			n, ok := toNumber(resolved)
+			n, ok := toExactNumber(resolved)
 			if !ok {
 				ctx.LogError(CatArgument, fmt.Sprintf("Invalid numeric argument at position %d: %v", i+1, arg))
 				return BoolStatus(false)
 			}
-			product *= n
+			product = mulNumbers(product, n)
 		}
-		ctx.SetResult(product)
+		ctx.SetResult(product.value())
 		return BoolStatus(true)
 	})
 
@@ -203,12 +203,16 @@ func (ps *PawScript) RegisterBasicMathLib() {
 			return BoolStatus(false)
 		}
 		resolved := ctx.executor.resolveValue(ctx.Args[0])
-		n, ok := toNumber(resolved)
+		n, ok := toExactNumber(resolved)
 		if !ok {
 			ctx.LogError(CatArgument, fmt.Sprintf("Invalid numeric argument: %v", ctx.Args[0]))
 			return BoolStatus(false)
 		}
-		ctx.SetResult(math.Floor(n))
+		if n.isInt {
+			ctx.SetResult(n.i) // an integer is already rounded
+			return BoolStatus(true)
+		}
+		ctx.SetResult(math.Floor(n.f))
 		return BoolStatus(true)
 	})
 
@@ -219,12 +223,16 @@ func (ps *PawScript) RegisterBasicMathLib() {
 			return BoolStatus(false)
 		}
 		resolved := ctx.executor.resolveValue(ctx.Args[0])
-		n, ok := toNumber(resolved)
+		n, ok := toExactNumber(resolved)
 		if !ok {
 			ctx.LogError(CatArgument, fmt.Sprintf("Invalid numeric argument: %v", ctx.Args[0]))
 			return BoolStatus(false)
 		}
-		ctx.SetResult(math.Ceil(n))
+		if n.isInt {
+			ctx.SetResult(n.i) // an integer is already rounded
+			return BoolStatus(true)
+		}
+		ctx.SetResult(math.Ceil(n.f))
 		return BoolStatus(true)
 	})
 
@@ -235,12 +243,16 @@ func (ps *PawScript) RegisterBasicMathLib() {
 			return BoolStatus(false)
 		}
 		resolved := ctx.executor.resolveValue(ctx.Args[0])
-		n, ok := toNumber(resolved)
+		n, ok := toExactNumber(resolved)
 		if !ok {
 			ctx.LogError(CatArgument, fmt.Sprintf("Invalid numeric argument: %v", ctx.Args[0]))
 			return BoolStatus(false)
 		}
-		ctx.SetResult(math.Trunc(n))
+		if n.isInt {
+			ctx.SetResult(n.i) // an integer is already rounded
+			return BoolStatus(true)
+		}
+		ctx.SetResult(math.Trunc(n.f))
 		return BoolStatus(true)
 	})
 
@@ -251,12 +263,16 @@ func (ps *PawScript) RegisterBasicMathLib() {
 			return BoolStatus(false)
 		}
 		resolved := ctx.executor.resolveValue(ctx.Args[0])
-		n, ok := toNumber(resolved)
+		n, ok := toExactNumber(resolved)
 		if !ok {
 			ctx.LogError(CatArgument, fmt.Sprintf("Invalid numeric argument: %v", ctx.Args[0]))
 			return BoolStatus(false)
 		}
-		ctx.SetResult(math.Round(n))
+		if n.isInt {
+			ctx.SetResult(n.i) // an integer is already rounded
+			return BoolStatus(true)
+		}
+		ctx.SetResult(math.Round(n.f))
 		return BoolStatus(true)
 	})
 
@@ -267,12 +283,12 @@ func (ps *PawScript) RegisterBasicMathLib() {
 			return BoolStatus(false)
 		}
 		resolved := ctx.executor.resolveValue(ctx.Args[0])
-		n, ok := toNumber(resolved)
+		n, ok := toExactNumber(resolved)
 		if !ok {
 			ctx.LogError(CatArgument, fmt.Sprintf("Invalid numeric argument: %v", ctx.Args[0]))
 			return BoolStatus(false)
 		}
-		ctx.SetResult(math.Abs(n))
+		ctx.SetResult(absNumber(n).value())
 		return BoolStatus(true)
 	})
 
@@ -288,23 +304,23 @@ func (ps *PawScript) RegisterBasicMathLib() {
 			return BoolStatus(false)
 		}
 		resolved0 := ctx.executor.resolveValue(args[0])
-		minVal, ok := toNumber(resolved0)
+		minVal, ok := toExactNumber(resolved0)
 		if !ok {
 			ctx.LogError(CatArgument, fmt.Sprintf("Invalid numeric argument at position 1: %v", args[0]))
 			return BoolStatus(false)
 		}
 		for i := 1; i < len(args); i++ {
 			resolved := ctx.executor.resolveValue(args[i])
-			n, ok := toNumber(resolved)
+			n, ok := toExactNumber(resolved)
 			if !ok {
 				ctx.LogError(CatArgument, fmt.Sprintf("Invalid numeric argument at position %d: %v", i+1, args[i]))
 				return BoolStatus(false)
 			}
-			if n < minVal {
+			if compareNumbers(n, minVal) < 0 {
 				minVal = n
 			}
 		}
-		ctx.SetResult(minVal)
+		ctx.SetResult(minVal.value())
 		return BoolStatus(true)
 	})
 
@@ -320,23 +336,23 @@ func (ps *PawScript) RegisterBasicMathLib() {
 			return BoolStatus(false)
 		}
 		resolved0 := ctx.executor.resolveValue(args[0])
-		maxVal, ok := toNumber(resolved0)
+		maxVal, ok := toExactNumber(resolved0)
 		if !ok {
 			ctx.LogError(CatArgument, fmt.Sprintf("Invalid numeric argument at position 1: %v", args[0]))
 			return BoolStatus(false)
 		}
 		for i := 1; i < len(args); i++ {
 			resolved := ctx.executor.resolveValue(args[i])
-			n, ok := toNumber(resolved)
+			n, ok := toExactNumber(resolved)
 			if !ok {
 				ctx.LogError(CatArgument, fmt.Sprintf("Invalid numeric argument at position %d: %v", i+1, args[i]))
 				return BoolStatus(false)
 			}
-			if n > maxVal {
+			if compareNumbers(n, maxVal) > 0 {
 				maxVal = n
 			}
 		}
-		ctx.SetResult(maxVal)
+		ctx.SetResult(maxVal.value())
 		return BoolStatus(true)
 	})
 
@@ -409,17 +425,11 @@ func (ps *PawScript) RegisterBasicMathLib() {
 
 		// If neither is an explicit string, try numeric comparison
 		if !aIsExplicitStr && !bIsExplicitStr {
-			numA, aIsNum := toNumber(resolvedA)
-			numB, bIsNum := toNumber(resolvedB)
+			numA, aIsNum := toExactNumber(resolvedA)
+			numB, bIsNum := toExactNumber(resolvedB)
 
 			if aIsNum && bIsNum {
-				// Both are numbers - numeric comparison
-				if numA < numB {
-					return -1, true
-				} else if numA > numB {
-					return 1, true
-				}
-				return 0, true
+				return compareNumbers(numA, numB), true
 			}
 		}
 
@@ -714,48 +724,55 @@ func (ps *PawScript) RegisterBasicMathLib() {
 func performDivision(ctx *Context, args []interface{}, isInteger bool, remainderOnly bool, moduloOnly bool) Result {
 	// Get dividend (first argument)
 	resolved0 := ctx.executor.resolveValue(args[0])
-	dividend, ok := toNumber(resolved0)
+	dividend, ok := toExactNumber(resolved0)
 	if !ok {
 		ctx.LogError(CatArgument, fmt.Sprintf("Invalid numeric argument at position 1: %v", args[0]))
 		return BoolStatus(false)
 	}
 
 	// Calculate divisor as product of remaining arguments
-	divisor := float64(1)
+	divisor := intNumber(1)
 	for i := 1; i < len(args); i++ {
 		resolved := ctx.executor.resolveValue(args[i])
-		n, ok := toNumber(resolved)
+		n, ok := toExactNumber(resolved)
 		if !ok {
 			ctx.LogError(CatArgument, fmt.Sprintf("Invalid numeric argument at position %d: %v", i+1, args[i]))
 			return BoolStatus(false)
 		}
-		divisor *= n
+		divisor = mulNumbers(divisor, n)
 	}
 
-	if divisor == 0 {
+	if divisor.float() == 0 {
 		ctx.LogError(CatMath, "Division by zero")
 		return BoolStatus(false)
 	}
 
-	var quotient, remainder, modulo float64
+	var quotient, remainder, modulo interface{}
 
-	if isInteger {
+	if q, r, m, exact := dividedNumbers(dividend, divisor); isInteger && exact {
+		// Two integers divide as integers, however large they are.
+		quotient, remainder, modulo = q.value(), r.value(), m.value()
+	} else if isInteger {
 		// Floored integer division
-		quotient = math.Floor(dividend / divisor)
+		a, b := dividend.float(), divisor.float()
+		q := math.Floor(a / b)
+		quotient = q
 		// Remainder: sign follows dividend (truncated division remainder)
-		remainder = dividend - math.Trunc(dividend/divisor)*divisor
+		remainder = a - math.Trunc(a/b)*b
 		// Modulo: sign follows divisor (floored division remainder)
-		modulo = dividend - quotient*divisor
+		modulo = a - q*b
 	} else {
 		// Floating point division
-		quotient = dividend / divisor
+		a, b := dividend.float(), divisor.float()
+		quotient = a / b
 		// For floating point, remainder uses math.Remainder (sign from dividend)
-		remainder = math.Remainder(dividend, divisor)
+		remainder = math.Remainder(a, b)
 		// Modulo: sign follows divisor
-		modulo = math.Mod(dividend, divisor)
-		if modulo != 0 && (divisor < 0) != (modulo < 0) {
-			modulo += divisor
+		mod := math.Mod(a, b)
+		if mod != 0 && (b < 0) != (mod < 0) {
+			mod += b
 		}
+		modulo = mod
 	}
 
 	// If only returning remainder or modulo
