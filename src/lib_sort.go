@@ -13,7 +13,7 @@ func sortItemsDefaultWithExecutor(items []interface{}, executor *Executor) {
 		value    interface{}
 		origIdx  int
 		category int // 0=nil, 1=false, 2=true, 3=number, 4=symbol, 5=string, 6=other
-		numVal   float64
+		numVal   number
 		strVal   string
 	}
 
@@ -38,13 +38,13 @@ func sortItemsDefaultWithExecutor(items []interface{}, executor *Executor) {
 			}
 		case int:
 			si.category = 3
-			si.numVal = float64(v)
+			si.numVal = intNumber(int64(v))
 		case int64:
 			si.category = 3
-			si.numVal = float64(v)
+			si.numVal = intNumber(v)
 		case float64:
 			si.category = 3
-			si.numVal = v
+			si.numVal = floatNumber(v)
 		case Symbol:
 			// Check if it's an object marker for a string
 			if markerType, _ := parseObjectMarker(string(v)); markerType == "string" {
@@ -87,7 +87,7 @@ func compareSortItems(a, b struct {
 	value    interface{}
 	origIdx  int
 	category int
-	numVal   float64
+	numVal   number
 	strVal   string
 }) int {
 	// Compare by category first
@@ -99,13 +99,8 @@ func compareSortItems(a, b struct {
 	switch a.category {
 	case 0, 1, 2: // nil, false, true - all equal within category
 		return 0
-	case 3: // numbers
-		if a.numVal < b.numVal {
-			return -1
-		} else if a.numVal > b.numVal {
-			return 1
-		}
-		return 0
+	case 3: // numbers, compared exactly however large they are
+		return compareNumbers(a.numVal, b.numVal)
 	case 4, 5: // symbols, strings
 		if a.strVal < b.strVal {
 			return -1
