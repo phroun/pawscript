@@ -88,6 +88,10 @@ func convertToPawValue(value interface{}) interface{} {
 	switch v := value.(type) {
 	case nil:
 		return nil
+	case *PSLNode:
+		// A parsed list put back inside a document being built by hand. It
+		// writes as the list it is, not as the Go value it is held in.
+		return nodeToStoredList(v)
 	case bool:
 		return v
 	case int:
