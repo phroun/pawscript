@@ -225,6 +225,15 @@ type OutputContext = impl.OutputContext
 // PSL (PAWSCRIPT SERIALIZED LIST)
 // =============================================================================
 
+// PSLNode is a PSL list as it is: ordered children and keyed members together.
+// It is what a parse returns, at every depth.
+type PSLNode = impl.PSLNode
+
+// NewPSLNode returns an empty node with its map ready to write into.
+func NewPSLNode() *PSLNode {
+	return impl.NewPSLNode()
+}
+
 // PSLMap is a map for PSL serialization.
 type PSLMap = impl.PSLMap
 
@@ -433,14 +442,21 @@ func SerializePSLList(list PSLList) string {
 	return impl.SerializePSLList(list)
 }
 
-// ParsePSL parses a PSL string into a map.
-func ParsePSL(input string) (PSLMap, error) {
-	return impl.ParsePSL(input)
+// SerializePSLNode serializes a node to PSL format.
+func SerializePSLNode(n *PSLNode) string {
+	return impl.SerializePSLNode(n)
 }
 
-// ParsePSLList parses a PSL string into a list.
-func ParsePSLList(input string) (PSLList, error) {
-	return impl.ParsePSLList(input)
+// SerializePSLNodePretty serializes a node to PSL format with each member on
+// its own line.
+func SerializePSLNodePretty(n *PSLNode) string {
+	return impl.SerializePSLNodePretty(n)
+}
+
+// ParsePSL parses a PSL document into a node, which holds its ordered children
+// and its keyed members together, at every depth.
+func ParsePSL(input string) (*PSLNode, error) {
+	return impl.ParsePSL(input)
 }
 
 // =============================================================================

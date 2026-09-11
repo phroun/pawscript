@@ -443,7 +443,7 @@ func loadConfig() pawscript.PSLConfig {
 		return pawscript.PSLConfig{}
 	}
 
-	return config
+	return config.Map()
 }
 
 func saveConfig(config pawscript.PSLConfig) {
@@ -681,16 +681,14 @@ func getRecentPaths() []string {
 	if appConfig == nil {
 		return nil
 	}
-	if paths, ok := appConfig["launcher_recent_paths"]; ok {
-		if list, ok := paths.(pawscript.PSLList); ok {
-			result := make([]string, 0, len(list))
-			for _, p := range list {
-				if s, ok := p.(string); ok && s != "" {
-					result = append(result, s)
-				}
+	if list := appConfig.GetItems("launcher_recent_paths"); list != nil {
+		result := make([]string, 0, len(list))
+		for _, p := range list {
+			if s, ok := p.(string); ok && s != "" {
+				result = append(result, s)
 			}
-			return result
 		}
+		return result
 	}
 	return nil
 }
@@ -1250,10 +1248,17 @@ func copyPSLConfig(src interface{}) pawscript.PSLConfig {
 	if src == nil {
 		return result
 	}
-	if srcConfig, ok := src.(pawscript.PSLConfig); ok {
-		for k, v := range srcConfig {
-			result[k] = v
-		}
+	// A section read from the config file is a node; one built here is a
+	// PSLConfig. Both are the same members.
+	var from pawscript.PSLConfig
+	switch v := src.(type) {
+	case *pawscript.PSLNode:
+		from = v.Map()
+	case pawscript.PSLConfig:
+		from = v
+	}
+	for k, v := range from {
+		result[k] = v
 	}
 	return result
 }

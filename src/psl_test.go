@@ -2,16 +2,14 @@ package pawscript
 
 import "testing"
 
-// TestPSLGetItemsParsed guards the GetItems accessor against a regression where
-// it only matched the unnamed []interface{} type. The parser (convertFromPawValue)
-// always produces nested lists as the named PSLList type, so GetItems must accept
-// PSLList too — otherwise every parsed document returns nil for its list fields.
+// GetItems reaches a parsed document's list members, which come back as nodes.
 func TestPSLGetItemsParsed(t *testing.T) {
 	input := `(recent: ("a.go", "b.md", "c.txt"), tabSize: 4, showLineNumbers: true)`
-	m, err := ParsePSL(input)
+	doc, err := ParsePSL(input)
 	if err != nil {
 		t.Fatalf("ParsePSL: %v", err)
 	}
+	m := doc.Map()
 
 	items := m.GetItems("recent")
 	if len(items) != 3 {
@@ -70,15 +68,16 @@ func TestPSLSerializePlainMapAndSlice(t *testing.T) {
 	}
 	out := SerializePSL(src)
 
-	back, err := ParsePSL(out)
+	doc, err := ParsePSL(out)
 	if err != nil {
 		t.Fatalf("ParsePSL(%q): %v", out, err)
 	}
+	back := doc.Map()
 
 	// Nested plain map must come back as a real nested structure.
-	win, ok := back["window"].(PSLMap)
-	if !ok {
-		t.Fatalf("window round-tripped as %T (%#v); want a nested PSLMap. serialized: %s",
+	win := back.GetMap("window")
+	if win == nil {
+		t.Fatalf("window round-tripped as %T (%#v); want a nested list. serialized: %s",
 			back["window"], back["window"], out)
 	}
 	if win.GetInt("width", -1) != 120 || win.GetInt("height", -1) != 40 {
@@ -96,25 +95,17 @@ func TestPSLSerializePlainMapAndSlice(t *testing.T) {
 	}
 }
 
-// A PSL list holds an ordered sequence and a keyed map side by side. PSLMap can
-// only hold the second, so ParsePSL keeps positional items only when there are
-// no named members at all. PSLNode holds both, which is what the format has
-// always carried.
-func TestPSLNodeKeepsOrderedChildrenBesideNamedOnes(t *testing.T) {
+// A PSL list holds an ordered sequence and a keyed map side by side, and one
+// parse answers with both of them.
+func TestAParseKeepsOrderedChildrenBesideNamedOnes(t *testing.T) {
 	const input = `(_hash: "deadbeef", ("first"), ("second"), key: ("keyed"))`
 
-	// The map wrapper drops the ordered children, which is why the node exists.
-	m, err := ParsePSL(input)
+	n, err := ParsePSL(input)
 	if err != nil {
 		t.Fatalf("ParsePSL: %v", err)
 	}
-	if len(m) != 2 {
-		t.Fatalf("ParsePSL kept %d members: %#v", len(m), m)
-	}
-
-	n, err := ParsePSLNode(input)
-	if err != nil {
-		t.Fatalf("ParsePSLNode: %v", err)
+	if len(n.Named) != 2 {
+		t.Fatalf("the node has %d keyed members, want 2: %#v", len(n.Named), n.Named)
 	}
 	if n.Len() != 2 {
 		t.Fatalf("the node has %d ordered children, want 2: %#v", n.Len(), n.Items)
@@ -130,9 +121,9 @@ func TestPSLNodeKeepsOrderedChildrenBesideNamedOnes(t *testing.T) {
 // Keyed members occupy no positions, so a child's index is decided by the
 // children alone: adding metadata cannot shift a record.
 func TestKeyedMembersConsumeNoIndices(t *testing.T) {
-	n, err := ParsePSLNode(`(a: "apple", b: "banana", "cherry", "dogfruit")`)
+	n, err := ParsePSL(`(a: "apple", b: "banana", "cherry", "dogfruit")`)
 	if err != nil {
-		t.Fatalf("ParsePSLNode: %v", err)
+		t.Fatalf("ParsePSL: %v", err)
 	}
 	if n.Len() != 2 {
 		t.Fatalf("the node has %d ordered children, want 2", n.Len())
@@ -153,9 +144,9 @@ func TestKeyedMembersConsumeNoIndices(t *testing.T) {
 
 // A key that looks like a number is still a key, in the other collection.
 func TestANumericKeyDoesNotShadowAnIndex(t *testing.T) {
-	n, err := ParsePSLNode(`("first-item", "0": "keyed-zero")`)
+	n, err := ParsePSL(`("first-item", "0": "keyed-zero")`)
 	if err != nil {
-		t.Fatalf("ParsePSLNode: %v", err)
+		t.Fatalf("ParsePSL: %v", err)
 	}
 	if v, _ := n.Item(0); v != "first-item" {
 		t.Errorf("index 0 gave %#v, not the ordered child", v)
@@ -168,9 +159,9 @@ func TestANumericKeyDoesNotShadowAnIndex(t *testing.T) {
 // A record can hold a leading item and named members at once, and both survive
 // -- which is the shape a bundle's records are written in.
 func TestARecordKeepsItsLeadingItemAndItsFields(t *testing.T) {
-	n, err := ParsePSLNode(`(("ordered_record1", a: "one", b: 12))`)
+	n, err := ParsePSL(`(("ordered_record1", a: "one", b: 12))`)
 	if err != nil {
-		t.Fatalf("ParsePSLNode: %v", err)
+		t.Fatalf("ParsePSL: %v", err)
 	}
 	rec, ok := n.Child(0)
 	if !ok {
@@ -189,9 +180,9 @@ func TestARecordKeepsItsLeadingItemAndItsFields(t *testing.T) {
 
 // Nesting survives to any depth, in both collections.
 func TestNestingSurvivesInBothCollections(t *testing.T) {
-	n, err := ParsePSLNode(`(outer: (inner: ("deep-item"), "inner-item"), "outer-item")`)
+	n, err := ParsePSL(`(outer: (inner: ("deep-item"), "inner-item"), "outer-item")`)
 	if err != nil {
-		t.Fatalf("ParsePSLNode: %v", err)
+		t.Fatalf("ParsePSL: %v", err)
 	}
 	if v, _ := n.Item(0); v != "outer-item" {
 		t.Errorf("the outer item is %#v", v)
@@ -218,13 +209,13 @@ func TestANodeSurvivesARoundTrip(t *testing.T) {
 		`("ordered_record1", a: "one"), ("ordered_record2", a: "two"), ` +
 		`someKey: ("keyed_record", a: "three"))`
 
-	first, err := ParsePSLNode(input)
+	first, err := ParsePSL(input)
 	if err != nil {
-		t.Fatalf("ParsePSLNode: %v", err)
+		t.Fatalf("ParsePSL: %v", err)
 	}
 	out := SerializePSLNode(first)
 
-	second, err := ParsePSLNode(out)
+	second, err := ParsePSL(out)
 	if err != nil {
 		t.Fatalf("re-parsing %q: %v", out, err)
 	}
@@ -258,9 +249,9 @@ func TestANodeSurvivesARoundTrip(t *testing.T) {
 // The keyed members are the map the typed accessors are written against, and
 // the node shares its storage rather than copying it.
 func TestTheNamedMembersAreAPSLMap(t *testing.T) {
-	n, err := ParsePSLNode(`(tabSize: 4, name: "figaro", ("an-item"))`)
+	n, err := ParsePSL(`(tabSize: 4, name: "figaro", ("an-item"))`)
 	if err != nil {
-		t.Fatalf("ParsePSLNode: %v", err)
+		t.Fatalf("ParsePSL: %v", err)
 	}
 	m := n.Map()
 	if got := m.GetInt("tabSize", -1); got != 4 {
@@ -286,7 +277,7 @@ func TestANodeBuiltByHandSerializes(t *testing.T) {
 	root.Named["_hash"] = "deadbeef"
 	root.Items = append(root.Items, rec)
 
-	back, err := ParsePSLNode(SerializePSLNode(root))
+	back, err := ParsePSL(SerializePSLNode(root))
 	if err != nil {
 		t.Fatalf("re-parsing what was written: %v", err)
 	}
@@ -308,16 +299,16 @@ func TestANodeBuiltByHandSerializes(t *testing.T) {
 // Empty and malformed input are answered the way the map parser answers them.
 func TestANodeAnswersEmptyAndMalformedTheSameWay(t *testing.T) {
 	for _, in := range []string{"", "  ", "()", "# just a comment"} {
-		n, err := ParsePSLNode(in)
+		n, err := ParsePSL(in)
 		if err != nil {
-			t.Errorf("ParsePSLNode(%q): %v", in, err)
+			t.Errorf("ParsePSL(%q): %v", in, err)
 			continue
 		}
 		if n.Len() != 0 || len(n.Named) != 0 {
-			t.Errorf("ParsePSLNode(%q) found %d items and %d members", in, n.Len(), len(n.Named))
+			t.Errorf("ParsePSL(%q) found %d items and %d members", in, n.Len(), len(n.Named))
 		}
 	}
-	if _, err := ParsePSLNode(`no parentheses`); err == nil {
+	if _, err := ParsePSL(`no parentheses`); err == nil {
 		t.Error("unparenthesised input was accepted")
 	}
 	if got := SerializePSLNode(nil); got != "()" {
@@ -340,9 +331,9 @@ func TestAStoredListConvertsWithBothCollections(t *testing.T) {
 		map[string]interface{}{"_hash": QuotedString("deadbeef")},
 	)
 
-	n, ok := pawValueToNode(list).(*PSLNode)
+	n, ok := convertFromPawValue(list).(*PSLNode)
 	if !ok {
-		t.Fatalf("a StoredList converted to %T", pawValueToNode(list))
+		t.Fatalf("a StoredList converted to %T", convertFromPawValue(list))
 	}
 	if v, _ := n.Get("_hash"); v != "deadbeef" {
 		t.Errorf("_hash came through as %#v", v)
@@ -356,5 +347,83 @@ func TestAStoredListConvertsWithBothCollections(t *testing.T) {
 	}
 	if v, _ := child.Get("n"); v != int64(1) {
 		t.Errorf("the child's n came through as %#v", v)
+	}
+}
+
+// A nested list carries both collections too, so a document loses nothing at
+// any depth rather than only at the top.
+func TestANestedListKeepsBothCollections(t *testing.T) {
+	n, err := ParsePSL(`(section: (a: "apple", "an-item", b: 2))`)
+	if err != nil {
+		t.Fatalf("ParsePSL: %v", err)
+	}
+	sub, ok := n.Named["section"].(*PSLNode)
+	if !ok {
+		t.Fatalf("the nested list came back as %T, which can hold only one of its collections", n.Named["section"])
+	}
+	if v, _ := sub.Item(0); v != "an-item" {
+		t.Errorf("the nested list's ordered child is %#v", v)
+	}
+	if v, _ := sub.Get("a"); v != "apple" {
+		t.Errorf("the nested list's a is %#v", v)
+	}
+	if v, _ := sub.Get("b"); v != int64(2) {
+		t.Errorf("the nested list's b is %#v", v)
+	}
+}
+
+// A document with nothing but ordered children keeps them as children, not as
+// keys that look like indices.
+func TestOrderedChildrenAreNotFiledUnderNumbers(t *testing.T) {
+	n, err := ParsePSL(`("first", "second")`)
+	if err != nil {
+		t.Fatalf("ParsePSL: %v", err)
+	}
+	if n.Len() != 2 {
+		t.Fatalf("the node has %d ordered children, want 2: %#v", n.Len(), n.Items)
+	}
+	if len(n.Named) != 0 {
+		t.Errorf("the ordered children were filed as keyed members too: %#v", n.Named)
+	}
+}
+
+// GetMap reads a section whichever shape it is in, so parsed and hand-built
+// data behave the same.
+func TestGetMapReadsAParsedSectionAndABuiltOne(t *testing.T) {
+	n, err := ParsePSL(`(window: (width: 120, height: 40))`)
+	if err != nil {
+		t.Fatalf("ParsePSL: %v", err)
+	}
+	if got := n.Map().GetMap("window").GetInt("width", -1); got != 120 {
+		t.Errorf("a parsed section read back width %d", got)
+	}
+
+	m := PSLMap{
+		"built":  PSLMap{"width": int64(7)},
+		"plain":  map[string]interface{}{"width": int64(9)},
+		"scalar": "hello",
+	}
+	if got := m.GetMap("built").GetInt("width", -1); got != 7 {
+		t.Errorf("a PSLMap section read back width %d", got)
+	}
+	if got := m.GetMap("plain").GetInt("width", -1); got != 9 {
+		t.Errorf("a plain map section read back width %d", got)
+	}
+	if got := m.GetMap("scalar"); got != nil {
+		t.Errorf("a scalar answered GetMap with %#v", got)
+	}
+	if got := m.GetMap("absent"); got != nil {
+		t.Errorf("a missing member answered GetMap with %#v", got)
+	}
+}
+
+// GetItems reads a parsed list, which is a node.
+func TestGetItemsReadsAParsedList(t *testing.T) {
+	n, err := ParsePSL(`(recent: ("a.go", "b.md"))`)
+	if err != nil {
+		t.Fatalf("ParsePSL: %v", err)
+	}
+	if got := n.Map().GetItems("recent"); len(got) != 2 {
+		t.Fatalf("GetItems read %d items from a parsed list: %#v", len(got), got)
 	}
 }

@@ -1551,15 +1551,15 @@ func loadReplHistory() []string {
 		return nil // File doesn't exist or can't be read
 	}
 
-	// Parse as PSL list
-	pslList, err := ParsePSLList(string(content))
+	// Parse as PSL; the history is the ordered children
+	doc, err := ParsePSL(string(content))
 	if err != nil {
 		return nil // Invalid format
 	}
 
 	// Convert to string slice
-	history := make([]string, 0, len(pslList))
-	for _, item := range pslList {
+	history := make([]string, 0, doc.Len())
+	for _, item := range doc.Items {
 		if s, ok := item.(string); ok {
 			history = append(history, s)
 		}
