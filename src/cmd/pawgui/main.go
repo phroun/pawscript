@@ -995,7 +995,7 @@ func loadConfig() pawscript.PSLConfig {
 		return pawscript.PSLConfig{}
 	}
 
-	return config
+	return config.Map()
 }
 
 // saveConfig saves the configuration to ~/.paw/pawgui.psl

@@ -83,7 +83,7 @@ func loadCLIConfig() {
 	}
 
 	// Get term_background setting
-	if bg := config.GetString("term_background", ""); bg != "" {
+	if bg := config.Map().GetString("term_background", ""); bg != "" {
 		bg = strings.ToLower(bg)
 		if bg == "light" || bg == "dark" || bg == "auto" {
 			cliConfig.TermBackground = bg
@@ -91,50 +91,45 @@ func loadCLIConfig() {
 	}
 
 	// Get psl_colors sub-list
-	if colorsVal, ok := config["psl_colors"]; ok {
-		if colorsList, ok := colorsVal.(pawscript.StoredList); ok {
-			namedArgs := colorsList.NamedArgs()
-			if namedArgs != nil {
-				if v := getColorString(namedArgs, "reset"); v != "" {
-					cliConfig.PSLColors.Reset = v
-				}
-				if v := getColorString(namedArgs, "key"); v != "" {
-					cliConfig.PSLColors.Key = v
-				}
-				if v := getColorString(namedArgs, "string"); v != "" {
-					cliConfig.PSLColors.String = v
-				}
-				if v := getColorString(namedArgs, "int"); v != "" {
-					cliConfig.PSLColors.Int = v
-				}
-				if v := getColorString(namedArgs, "float"); v != "" {
-					cliConfig.PSLColors.Float = v
-				}
-				if v := getColorString(namedArgs, "true"); v != "" {
-					cliConfig.PSLColors.True = v
-				}
-				if v := getColorString(namedArgs, "false"); v != "" {
-					cliConfig.PSLColors.False = v
-				}
-				if v := getColorString(namedArgs, "nil"); v != "" {
-					cliConfig.PSLColors.Nil = v
-				}
-				if v := getColorString(namedArgs, "bracket"); v != "" {
-					cliConfig.PSLColors.Bracket = v
-				}
-				if v := getColorString(namedArgs, "colon"); v != "" {
-					cliConfig.PSLColors.Colon = v
-				}
-				if v := getColorString(namedArgs, "symbol"); v != "" {
-					cliConfig.PSLColors.Symbol = v
-				}
-				if v := getColorString(namedArgs, "object"); v != "" {
-					cliConfig.PSLColors.Object = v
-				}
-				if v := getColorString(namedArgs, "bytes"); v != "" {
-					cliConfig.PSLColors.Bytes = v
-				}
-			}
+	if namedArgs := config.Map().GetMap("psl_colors"); namedArgs != nil {
+		if v := getColorString(namedArgs, "reset"); v != "" {
+			cliConfig.PSLColors.Reset = v
+		}
+		if v := getColorString(namedArgs, "key"); v != "" {
+			cliConfig.PSLColors.Key = v
+		}
+		if v := getColorString(namedArgs, "string"); v != "" {
+			cliConfig.PSLColors.String = v
+		}
+		if v := getColorString(namedArgs, "int"); v != "" {
+			cliConfig.PSLColors.Int = v
+		}
+		if v := getColorString(namedArgs, "float"); v != "" {
+			cliConfig.PSLColors.Float = v
+		}
+		if v := getColorString(namedArgs, "true"); v != "" {
+			cliConfig.PSLColors.True = v
+		}
+		if v := getColorString(namedArgs, "false"); v != "" {
+			cliConfig.PSLColors.False = v
+		}
+		if v := getColorString(namedArgs, "nil"); v != "" {
+			cliConfig.PSLColors.Nil = v
+		}
+		if v := getColorString(namedArgs, "bracket"); v != "" {
+			cliConfig.PSLColors.Bracket = v
+		}
+		if v := getColorString(namedArgs, "colon"); v != "" {
+			cliConfig.PSLColors.Colon = v
+		}
+		if v := getColorString(namedArgs, "symbol"); v != "" {
+			cliConfig.PSLColors.Symbol = v
+		}
+		if v := getColorString(namedArgs, "object"); v != "" {
+			cliConfig.PSLColors.Object = v
+		}
+		if v := getColorString(namedArgs, "bytes"); v != "" {
+			cliConfig.PSLColors.Bytes = v
 		}
 	}
 }
