@@ -100,6 +100,11 @@ func convertToPawValue(value interface{}) interface{} {
 		return v
 	case float64:
 		return v
+	case Symbol:
+		// A bare word goes back out bare, which is what makes a parsed document
+		// survive a round trip -- and what lets one built by hand say a bare
+		// word at all.
+		return v
 	case string:
 		return QuotedString(v)
 	case PSLConfig:
@@ -175,18 +180,24 @@ func convertFromPawValue(value interface{}) interface{} {
 	case StoredString:
 		return string(v)
 	case Symbol:
-		s := string(v)
-		// Handle special symbols
-		if s == "nil" {
+		// A bare word stays a Symbol, because a bare word and a quoted string
+		// are not the same value: `kind: text` and `kind: "text"` say different
+		// things, and flattening both to a Go string threw that away on the way
+		// in while the serializer still wrote them back out differently.
+		//
+		// Three bare words are values rather than identifiers, and those do
+		// convert: nil, true and false are what they say. Text never reaches
+		// here carrying one -- the argument parser has already turned them into
+		// Go values -- but a StoredList handed over by the executor can.
+		switch v {
+		case "nil":
 			return nil
-		}
-		if s == "true" {
+		case "true":
 			return true
-		}
-		if s == "false" {
+		case "false":
 			return false
 		}
-		return s
+		return v
 	case string:
 		return v
 	case ParenGroup:
@@ -209,6 +220,8 @@ func (m PSLMap) GetString(key string, defaultVal string) string {
 		switch val := v.(type) {
 		case string:
 			return val
+		case Symbol:
+			return string(val)
 		default:
 			return fmt.Sprintf("%v", val)
 		}
@@ -230,6 +243,10 @@ func (m PSLMap) GetInt(key string, defaultVal int) int {
 			if i, err := strconv.Atoi(val); err == nil {
 				return i
 			}
+		case Symbol:
+			if i, err := strconv.Atoi(string(val)); err == nil {
+				return i
+			}
 		}
 	}
 	return defaultVal
@@ -249,6 +266,10 @@ func (m PSLMap) GetFloat(key string, defaultVal float64) float64 {
 			if f, err := strconv.ParseFloat(val, 64); err == nil {
 				return f
 			}
+		case Symbol:
+			if f, err := strconv.ParseFloat(string(val), 64); err == nil {
+				return f
+			}
 		}
 	}
 	return defaultVal
@@ -262,6 +283,8 @@ func (m PSLMap) GetBool(key string, defaultVal bool) bool {
 			return val
 		case string:
 			return val == "true" || val == "1" || val == "yes"
+		case Symbol:
+			return val == "1" || val == "yes"
 		case int:
 			return val != 0
 		case int64:

@@ -489,3 +489,127 @@ func TestAnEmptyListStaysAList(t *testing.T) {
 		}
 	}
 }
+
+// A bare word and a quoted string are different values, and a parse keeps them
+// apart: `kind: text` names the identifier text and `name: "text"` holds the
+// four characters. Flattening both to a Go string threw that away on the way
+// in while the serializer went on writing them back out differently.
+func TestABareWordStaysABareWord(t *testing.T) {
+	n, err := ParsePSL(`(kind: text, name: "text", tags: (red, "blue"))`)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if v, _ := n.Get("kind"); v != Symbol("text") {
+		t.Errorf("a bare word came through as %T %#v", v, v)
+	}
+	if v, _ := n.Get("name"); v != "text" {
+		t.Errorf("a quoted string came through as %T %#v", v, v)
+	}
+	tags, ok := nodeUnder(n, "tags")
+	if !ok {
+		t.Fatal("the nested list did not come through")
+	}
+	if v, _ := tags.Item(0); v != Symbol("red") {
+		t.Errorf("a bare word inside a list came through as %T %#v", v, v)
+	}
+	if v, _ := tags.Item(1); v != "blue" {
+		t.Errorf("a quoted string inside a list came through as %T %#v", v, v)
+	}
+}
+
+// nodeUnder is the node filed under a key, where there is one.
+func nodeUnder(n *PSLNode, key string) (*PSLNode, bool) {
+	v, ok := n.Get(key)
+	if !ok {
+		return nil, false
+	}
+	c, ok := v.(*PSLNode)
+	return c, ok
+}
+
+// Three bare words are values rather than identifiers, and those still convert
+// to what they say.
+func TestTheThreeWordsThatAreValuesStillConvert(t *testing.T) {
+	n, err := ParsePSL(`(on: true, off: false, missing: nil)`)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if v, _ := n.Get("on"); v != true {
+		t.Errorf("true came through as %T %#v", v, v)
+	}
+	if v, _ := n.Get("off"); v != false {
+		t.Errorf("false came through as %T %#v", v, v)
+	}
+	if v, ok := n.Get("missing"); !ok || v != nil {
+		t.Errorf("nil came through as %T %#v", v, v)
+	}
+
+	// Text never reaches the conversion carrying one of the three -- the
+	// argument parser has turned them into Go values already -- but a
+	// StoredList handed over by the executor can, and it is converted there.
+	for _, c := range []struct {
+		word Symbol
+		want interface{}
+	}{{"nil", nil}, {"true", true}, {"false", false}, {"other", Symbol("other")}} {
+		if got := convertFromPawValue(c.word); got != c.want {
+			t.Errorf("the word %s converted to %T %#v", c.word, got, got)
+		}
+	}
+}
+
+// Which is what makes a document survive a round trip: bare goes back out bare
+// and quoted goes back out quoted, rather than everything coming back quoted.
+func TestBareAndQuotedSurviveARoundTrip(t *testing.T) {
+	const text = `(kind: text, name: "text")`
+	n, err := ParsePSL(text)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got := SerializePSLNode(n); got != text {
+		t.Errorf("the round trip came back as %s", got)
+	}
+}
+
+// And it lets a document built by hand say a bare word at all, which nothing
+// could before: every Go string was written quoted.
+func TestANodeBuiltByHandCanSayABareWord(t *testing.T) {
+	n := NewPSLNode()
+	n.Named["mode"] = Symbol("auto")
+	n.Named["title"] = "auto"
+	if got := SerializePSLNode(n); got != `(mode: auto, title: "auto")` {
+		t.Errorf("a hand-built document came out as %s", got)
+	}
+}
+
+// The typed accessors read a bare word as the text it spells, so a config file
+// written `theme: dark` reads the same way it always did.
+func TestTheTypedAccessorsReadABareWord(t *testing.T) {
+	n, err := ParsePSL(`(theme: dark, port: 8080, on: yes)`)
+	if err != nil {
+		t.Fatal(err)
+	}
+	m := n.Map()
+	if got := m.GetString("theme", "?"); got != "dark" {
+		t.Errorf("GetString read a bare word as %q", got)
+	}
+	if got := m.GetInt("port", 0); got != 8080 {
+		t.Errorf("GetInt read %d", got)
+	}
+	if !m.GetBool("on", false) {
+		t.Error("GetBool did not read the bare word yes")
+	}
+
+	// A bare word is never all digits -- text that is parses as a number -- so
+	// a Symbol reaches the number accessors only from a document built by hand,
+	// where a caller said one on purpose.
+	built := PSLMap{"port": Symbol("8080"), "ratio": Symbol("1.5"), "on": Symbol("1")}
+	if got := built.GetInt("port", 0); got != 8080 {
+		t.Errorf("GetInt read a hand-set bare word as %d", got)
+	}
+	if got := built.GetFloat("ratio", 0); got != 1.5 {
+		t.Errorf("GetFloat read a hand-set bare word as %v", got)
+	}
+	if !built.GetBool("on", false) {
+		t.Error("GetBool did not read the hand-set bare word 1")
+	}
+}
